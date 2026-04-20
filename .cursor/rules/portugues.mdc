@@ -1,0 +1,10 @@
+---
+description: Assistente responde sempre em português (Brasil)
+alwaysApply: true
+---
+
+# Idioma das respostas
+
+- Responda **sempre em português (Brasil)** neste projeto, inclusive explicações, passos e mensagens de erro para o usuário.
+- Se o usuário pedir explicitamente outro idioma, siga esse pedido.
+- Mantenha no original do código o que já está em inglês (nomes de funções, bibliotecas, mensagens de log existentes, commits alinhados ao repositório), salvo se o usuário pedir tradução.

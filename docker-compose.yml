@@ -1,0 +1,31 @@
+# ZapMass — produção em Docker
+#
+# No servidor:
+#   1. cp .env.example .env  e edite ALLOWED_ORIGINS (URL que o usuário abre no navegador).
+#   2. docker compose up -d --build
+#
+# Porta publicada: HOST_PORT no .env (padrão 3001).
+# Dados: volume zapmass-data → /app/data (filas, funil, .wwebjs_auth no padrão data/.wwebjs_auth).
+#
+# Compose 2.24+: env_file com required:false evita erro se .env ainda não existir.
+# Em versões antigas, crie um .env vazio ou copie de .env.example antes do up.
+
+services:
+  zapmass:
+    build: .
+    init: true
+    ports:
+      - "${HOST_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - zapmass-data:/app/data
+    restart: unless-stopped
+    shm_size: "2gb"
+
+volumes:
+  zapmass-data:

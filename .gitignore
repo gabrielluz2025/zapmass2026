@@ -1,0 +1,51 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Ambiente e segredos (nunca commitar)
+.env
+.env.*
+!.env.example
+subscription.env
+**/firebase-adminsdk*.json
+**/serviceAccount*.json
+
+# Dados locais / sessao WhatsApp
+data/
+.wwebjs_auth/
+.wwebjs_cache/
+
+tokens/
+# Copia antiga com .git interno (nao misturar com este repo)
+zapmass2026/
+
+# Nao versionar config global copiada por engano para a pasta do projeto
+.gitconfig
+
+# MCP / tokens locais (Hostinger, etc.)
+.cursor/mcp.json
+
+# E-mail local do BAT do estudio (nao commitar)
+scripts/creator-email.txt
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

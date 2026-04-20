@@ -1,0 +1,111 @@
+╔════════════════════════════════════════════════════════════════════════╗
+║                                                                        ║
+║            ZapMass v2.3.0 - COMO INICIAR A EVOLUTION API?             ║
+║                                                                        ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+
+📌 VOCÊ TEM 2 OPÇÕES:
+
+
+═══════════════════════════════════════════════════════════════════════
+  OPÇÃO 1: Docker Desktop (Mais Simples - 2 minutos)
+═══════════════════════════════════════════════════════════════════════
+
+  ✅ Mais simples e rápido
+  ✅ Não precisa clonar nada
+  ⚠️ Requer Docker Desktop rodando
+
+  PASSOS:
+  
+  1️⃣  Iniciar Docker Desktop:
+      - Procure "Docker Desktop" no menu Iniciar
+      - Clique para abrir
+      - Aguarde o ícone na bandeja ficar verde (30-60s)
+  
+  2️⃣  Execute novamente:
+      INICIAR_ZAPMASS_v2.3.0.bat
+      Escolha [1] Docker
+  
+  3️⃣  Aguarde 15 segundos
+  
+  4️⃣  Pronto! Evolution API rodando
+
+
+═══════════════════════════════════════════════════════════════════════
+  OPÇÃO 2: Instalação Manual (Sem Docker - 10 minutos)
+═══════════════════════════════════════════════════════════════════════
+
+  ✅ Não precisa de Docker
+  ✅ Você tem controle total
+  ⚠️ Precisa de Git instalado
+
+  PASSOS:
+  
+  1️⃣  Execute o script de instalação:
+      INSTALAR_EVOLUTION_MANUAL.bat
+  
+  2️⃣  Aguarde instalação (3-5 minutos)
+  
+  3️⃣  Evolution API inicia automaticamente
+  
+  4️⃣  Em OUTRO terminal, execute:
+      npm run dev
+  
+  5️⃣  Pronto!
+
+
+═══════════════════════════════════════════════════════════════════════
+  🤔 QUAL ESCOLHER?
+═══════════════════════════════════════════════════════════════════════
+
+  👉 Docker Desktop JÁ está instalado?
+     ➜ Use OPÇÃO 1 (mais rápido!)
+  
+  👉 Docker Desktop NÃO funciona ou não está instalado?
+     ➜ Use OPÇÃO 2 (funciona sempre!)
+
+
+═══════════════════════════════════════════════════════════════════════
+  ⚡ RECOMENDAÇÃO
+═══════════════════════════════════════════════════════════════════════
+
+  Para você: OPÇÃO 2 (Instalação Manual)
+  
+  Motivo: Seu Docker Desktop não estava rodando, então é mais
+  confiável instalar manualmente e ter controle total.
+
+
+═══════════════════════════════════════════════════════════════════════
+  🚀 VAMOS LÁ!
+═══════════════════════════════════════════════════════════════════════
+
+  Execute agora:
+  
+  ┌─────────────────────────────────────────┐
+  │  INSTALAR_EVOLUTION_MANUAL.bat          │
+  └─────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════
+  📚 DOCUMENTAÇÃO
+═══════════════════════════════════════════════════════════════════════
+
+  - SOLUCAO_DOCKER_OFFLINE.md      ← Guia completo
+  - EVOLUTION_API_GUIA_RAPIDO.md   ← Guia rápido
+  - EVOLUTION_API_SETUP.md         ← Setup detalhado
+
+
+═══════════════════════════════════════════════════════════════════════
+  🆘 PRECISA DE AJUDA?
+═══════════════════════════════════════════════════════════════════════
+
+  Me diga:
+  1. Qual opção você escolheu?
+  2. O que aconteceu?
+  3. Deu algum erro?
+
+
+╔════════════════════════════════════════════════════════════════════════╗
+║  Aguardando você executar:  INSTALAR_EVOLUTION_MANUAL.bat             ║
+╚════════════════════════════════════════════════════════════════════════╝

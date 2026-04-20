@@ -1,0 +1,5 @@
+{
+  "name": "ZapMass Sender",
+  "description": "Sistema profissional de disparo em massa e gestão de múltiplos canais WhatsApp.",
+  "requestFramePermissions": []
+}

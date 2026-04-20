@@ -1,0 +1,12 @@
+{
+  "name": "evolution-api-local",
+  "version": "1.0.0",
+  "description": "Evolution API local para ZapMass",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@evolution/api": "^2.1.0"
+  }
+}

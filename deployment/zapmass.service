@@ -1,0 +1,19 @@
+[Unit]
+Description=ZapMass Sender (Node + Express + UI)
+After=network.target
+
+[Service]
+Type=simple
+# Ajuste para um usuario dedicado depois de: chown -R deploy:deploy /opt/zapmass-sender
+User=root
+WorkingDirectory=/opt/zapmass-sender
+Environment=NODE_ENV=production
+EnvironmentFile=-/opt/zapmass-sender/.env
+ExecStart=/opt/zapmass-sender/node_modules/.bin/tsx server/server.ts
+Restart=on-failure
+RestartSec=5
+# WhatsApp Web (Puppeteer) + Node: aumente se tiver muitos canais
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
