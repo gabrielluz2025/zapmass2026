@@ -8,6 +8,10 @@
 # Com IP público fixo (se a detecção automática falhar):
 #   sudo PUBLIC_IP=2.24.210.220 bash deployment/instalar-docker-servidor.sh
 #
+# Com domínio HTTPS (Cloudflare / Nginx na frente):
+#   sudo PUBLIC_URL=https://zapmass.seudominio.com HOST_PORT=443 bash deployment/instalar-docker-servidor.sh
+#   (ajuste HOST_PORT para a porta publicada no host que bate com a URL.)
+#
 # Opcional — porta no host (padrão 3001):
 #   sudo HOST_PORT=3001 bash deployment/instalar-docker-servidor.sh
 # =============================================================================
@@ -80,30 +84,37 @@ fi
 
 HOST_PORT="${HOST_PORT:-3001}"
 
-# Garante ALLOWED_ORIGINS coerente com IP e porta usados no browser
-ALLOW="http://${IP}:${HOST_PORT}"
-if [ -f "$ROOT/.env" ]; then
-  if grep -q '^ALLOWED_ORIGINS=' "$ROOT/.env"; then
-    sed -i.bak "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=${ALLOW}|" "$ROOT/.env"
-  else
-    echo "ALLOWED_ORIGINS=${ALLOW}" >> "$ROOT/.env"
-  fi
-  grep -q '^NODE_ENV=' "$ROOT/.env" || echo "NODE_ENV=production" >> "$ROOT/.env"
-  grep -q '^PORT=' "$ROOT/.env" || echo "PORT=3001" >> "$ROOT/.env"
+# URL pública exata (browser). Ex.: PUBLIC_URL=https://zapmass.seudominio.com
+# Se vazio, usa http://IP_DETECTADO:HOST_PORT
+if [ -n "${PUBLIC_URL:-}" ]; then
+  ALLOW="$PUBLIC_URL"
 else
-  {
-    echo "NODE_ENV=production"
-    echo "PORT=3001"
-    echo "ALLOWED_ORIGINS=${ALLOW}"
-  } > "$ROOT/.env"
+  ALLOW="http://${IP}:${HOST_PORT}"
+fi
+if [ -n "${EXTRA_ALLOWED_ORIGINS:-}" ]; then
+  ALLOW="${ALLOW},${EXTRA_ALLOWED_ORIGINS}"
+fi
+
+touch "$ROOT/.env"
+if grep -q '^ALLOWED_ORIGINS=' "$ROOT/.env"; then
+  sed -i.bak "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=${ALLOW}|" "$ROOT/.env"
+else
+  echo "ALLOWED_ORIGINS=${ALLOW}" >> "$ROOT/.env"
+fi
+grep -q '^NODE_ENV=' "$ROOT/.env" || echo "NODE_ENV=production" >> "$ROOT/.env"
+grep -q '^PORT=' "$ROOT/.env" || echo "PORT=3001" >> "$ROOT/.env"
+if grep -q '^HOST_PORT=' "$ROOT/.env"; then
+  sed -i.bak "s|^HOST_PORT=.*|HOST_PORT=${HOST_PORT}|" "$ROOT/.env"
+else
+  echo "HOST_PORT=${HOST_PORT}" >> "$ROOT/.env"
 fi
 echo "    ALLOWED_ORIGINS=${ALLOW}"
+echo "    HOST_PORT=${HOST_PORT} (mapeamento docker compose)"
 
 export HOST_PORT
 
 echo "==> Build e subida dos containers (pode levar vários minutos na primeira vez)..."
-HOST_PORT="$HOST_PORT" "${DC[@]}" build
-HOST_PORT="$HOST_PORT" "${DC[@]}" up -d
+HOST_PORT="$HOST_PORT" "${DC[@]}" up -d --build
 
 echo ""
 echo "==> Status"

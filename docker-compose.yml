@@ -1,14 +1,18 @@
 # ZapMass — produção em Docker
 #
-# No servidor:
-#   1. cp .env.example .env  e edite ALLOWED_ORIGINS (URL que o usuário abre no navegador).
-#   2. docker compose up -d --build
+# VPS (recomendado — instala Docker, .env, build e sobe):
+#   sudo bash deployment/bootstrap-docker-vps.sh https://github.com/SEU_USUARIO/SEU_REPO.git
 #
-# Porta publicada: HOST_PORT no .env (padrão 3001).
-# Dados: volume zapmass-data → /app/data (filas, funil, .wwebjs_auth no padrão data/.wwebjs_auth).
+# Ou, com o código já na pasta:
+#   sudo bash deployment/instalar-docker-servidor.sh
 #
-# Compose 2.24+: env_file com required:false evita erro se .env ainda não existir.
-# Em versões antigas, crie um .env vazio ou copie de .env.example antes do up.
+# Manual: cp .env.example .env, ajuste ALLOWED_ORIGINS e HOST_PORT, depois:
+#   docker compose up -d --build
+#
+# Porta publicada: HOST_PORT no .env (padrão 3001). Libere essa porta no firewall da VPS.
+# Dados: volume zapmass-data → /app/data (sessão WhatsApp e filas persistem no servidor).
+#
+# Compose 2.24+: env_file com required:false. Em versões antigas: crie .env antes do up.
 
 services:
   zapmass:
