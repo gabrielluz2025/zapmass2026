@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Toaster } from 'react-hot-toast';
+import React, { useEffect, useRef, useState } from 'react';
+import toast, { Toaster } from 'react-hot-toast';
 import { Crown, Loader2, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
@@ -13,6 +13,7 @@ import { WarmupTab } from './components/WarmupTab';
 import { PreLoginLanding } from './components/PreLoginLanding';
 import { HardGateScreen } from './components/billing/HardGateScreen';
 import { TrialAutoStart } from './components/billing/TrialAutoStart';
+import { TrialEndedModal } from './components/billing/TrialEndedModal';
 import { UpgradeProModal } from './components/billing/UpgradeProModal';
 import { ProHeaderPromo } from './components/shell/ProHeaderPromo';
 import { firestoreTimeToMs } from './utils/firestoreTime';
@@ -65,6 +66,60 @@ const MainLayout: React.FC = () => {
   const { readOnlyMode, readOnlyMessage, subscription, enforce, hasFullAccess } = useSubscription();
   const { currentView, setCurrentView } = useAppView();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [trialEndedOpen, setTrialEndedOpen] = useState(false);
+  const trialEndTimerRef = useRef<number | null>(null);
+  const trialEndedHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (!enforce || !user || !subscription) return;
+    if (subscription.status !== 'trialing') return;
+
+    const trialEndMs = firestoreTimeToMs(subscription.trialEndsAt);
+    if (trialEndMs == null) return;
+
+    const storageKey = `zapmass.trialEndedSeen.${user.uid}`;
+    const alreadySeen = (() => {
+      try {
+        return sessionStorage.getItem(storageKey) === '1';
+      } catch {
+        return false;
+      }
+    })();
+
+    const markSeenAndOpen = () => {
+      if (trialEndedHandledRef.current) return;
+      trialEndedHandledRef.current = true;
+      try {
+        sessionStorage.setItem(storageKey, '1');
+      } catch {
+        /* ignore */
+      }
+      setTrialEndedOpen(true);
+      toast('Seu teste gratuito acabou. Libere para sempre com o Pro.', {
+        icon: '⏰',
+        duration: 8000
+      });
+    };
+
+    const now = Date.now();
+    if (trialEndMs <= now) {
+      if (!alreadySeen) markSeenAndOpen();
+      return;
+    }
+
+    const delay = trialEndMs - now + 500;
+    if (trialEndTimerRef.current != null) window.clearTimeout(trialEndTimerRef.current);
+    trialEndTimerRef.current = window.setTimeout(() => {
+      markSeenAndOpen();
+    }, delay);
+
+    return () => {
+      if (trialEndTimerRef.current != null) {
+        window.clearTimeout(trialEndTimerRef.current);
+        trialEndTimerRef.current = null;
+      }
+    };
+  }, [enforce, user, subscription]);
 
   /** Cobranca desligada: mostra CTA no centro para voce ver/testar. Com cobranca: upgrade em teste, leitura ou dev. */
   const showUpgradeProCenter =
@@ -148,6 +203,7 @@ const MainLayout: React.FC = () => {
         </AppShell>
       </MainLayoutNavProvider>
       <UpgradeProModal isOpen={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
+      <TrialEndedModal isOpen={trialEndedOpen} onClose={() => setTrialEndedOpen(false)} />
     </>
   );
 };
