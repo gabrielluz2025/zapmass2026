@@ -1,0 +1,65 @@
+name: Deploy to VPS (prod)
+
+on:
+  push:
+    branches: [prod]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ZapMass
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout (informativo)
+        uses: actions/checkout@v4
+
+      - name: Deploy por SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            cd /opt/zapmass
+            echo "==> git pull"
+            git fetch --all --prune
+            git checkout prod || git checkout -b prod origin/prod
+            git reset --hard origin/prod
+            echo "==> docker compose build + up"
+            docker compose up -d --build
+            echo "==> prune imagens antigas"
+            docker image prune -f
+            echo "==> status"
+            docker compose ps
+
+      - name: Healthcheck pos-deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          command_timeout: 3m
+          script: |
+            set -e
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || echo 000)
+              echo "tentativa $i: HTTP $code"
+              if [ "$code" = "200" ]; then
+                echo "OK: API saudavel."
+                exit 0
+              fi
+              sleep 3
+            done
+            echo "FALHA: API nao respondeu 200 apos 30s"
+            docker compose -f /opt/zapmass/docker-compose.yml logs --tail=80 || true
+            exit 1
