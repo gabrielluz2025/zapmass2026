@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, CreditCard, Crown, Loader2, Sparkles, TrendingDown, Zap, X } from 'lucide-react';
+import { Check, CreditCard, Crown, Loader2, Repeat, Sparkles, TrendingDown, Zap, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
@@ -18,7 +18,7 @@ interface UpgradeProModalProps {
 }
 
 type Plan = 'monthly' | 'annual';
-type Method = 'pix' | 'card';
+type Method = 'pix' | 'card' | 'recurring';
 type LoadingKey = 'idle' | `${Plan}-${Method}`;
 
 const BENEFITS: string[] = [
@@ -29,7 +29,6 @@ const BENEFITS: string[] = [
   'Central de chat com contexto de disparo'
 ];
 
-/** Extrai um numero (R$ X,YY) de uma string de preco marketing do tipo "R$ 199,90 / mes". */
 function extractAmount(label: string): number | null {
   const m = label.match(/(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:,\d{1,2})?)/);
   if (!m) return null;
@@ -72,7 +71,11 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
       }
       if (data.init_point) {
         window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
-        toast.success('Conclua o pagamento na aba do Mercado Pago. Seu acesso libera após a confirmação.');
+        const msg =
+          method === 'recurring'
+            ? 'Conclua a autorização do débito automático. Seu acesso libera após a aprovação.'
+            : 'Conclua o pagamento na aba do Mercado Pago. Seu acesso libera após a confirmação.';
+        toast.success(msg);
         onClose();
       } else toast.error('Resposta sem link de checkout.');
     } catch (e) {
@@ -103,7 +106,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           ZapMass Pro
         </h2>
         <p className="text-[12px] leading-snug max-w-md mx-auto" style={{ color: 'var(--text-2)' }}>
-          Acesso completo sem limites. Pague via Pix com desconto ou cartão.
+          Pix (5% off), cartão à vista/parcelado ou débito automático — você escolhe.
         </p>
       </div>
 
@@ -131,10 +134,12 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           sublabel="Acesso por 30 dias"
           pixPrice={pixMonthly}
           cardInfo="Cartão, Pix, débito · 1x"
+          showRecurring
           loading={loading}
           busy={busy}
           onPix={() => startPayment('monthly', 'pix')}
           onCard={() => startPayment('monthly', 'card')}
+          onRecurring={() => startPayment('monthly', 'recurring')}
           plan="monthly"
         />
         <PlanCard
@@ -159,8 +164,8 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
       >
         <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
         <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
-          Pagamento seguro pelo <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong>. Acesso liberado
-          automaticamente após a confirmação. Desconto de 5% no Pix; parcelamento no cartão pode ter juros do MP.
+          Pagamento seguro pelo <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong>. Débito automático
+          renova todo mês no seu cartão — pode cancelar a qualquer momento em <strong>Minha assinatura</strong>.
         </p>
       </div>
     </Modal>
@@ -192,11 +197,13 @@ interface PlanCardProps {
   cardInfo: string;
   featured?: boolean;
   badge?: string;
+  showRecurring?: boolean;
   loading: LoadingKey;
   busy: boolean;
   plan: Plan;
   onPix: () => void;
   onCard: () => void;
+  onRecurring?: () => void;
 }
 
 const PlanCard: React.FC<PlanCardProps> = ({
@@ -207,14 +214,17 @@ const PlanCard: React.FC<PlanCardProps> = ({
   cardInfo,
   featured,
   badge,
+  showRecurring,
   loading,
   busy,
   plan,
   onPix,
-  onCard
+  onCard,
+  onRecurring
 }) => {
   const loadingPix = loading === `${plan}-pix`;
   const loadingCard = loading === `${plan}-card`;
+  const loadingRec = loading === `${plan}-recurring`;
 
   return (
     <div
@@ -279,13 +289,23 @@ const PlanCard: React.FC<PlanCardProps> = ({
           topLabel="Outras formas"
           subLabel={cardInfo}
         />
+        {showRecurring && onRecurring && (
+          <PayButton
+            variant="recurring"
+            loading={loadingRec}
+            disabled={busy}
+            onClick={onRecurring}
+            topLabel="Débito automático"
+            subLabel="Renova todo mês · Cancela quando quiser"
+          />
+        )}
       </div>
     </div>
   );
 };
 
 interface PayButtonProps {
-  variant: 'pix' | 'primary' | 'secondary';
+  variant: 'pix' | 'primary' | 'secondary' | 'recurring';
   topLabel: string;
   subLabel: string;
   loading?: boolean;
@@ -301,19 +321,25 @@ const PayButton: React.FC<PayButtonProps> = ({ variant, topLabel, subLabel, load
           color: '#fff',
           boxShadow: '0 5px 14px rgba(16,185,129,0.3)'
         }
-      : variant === 'primary'
+      : variant === 'recurring'
         ? {
-            background: 'var(--surface-2, #1f2937)',
-            color: 'var(--text-1)',
-            border: '1.5px solid var(--brand-600, #10b981)'
+            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            color: '#fff',
+            boxShadow: '0 5px 14px rgba(59,130,246,0.3)'
           }
-        : {
-            background: 'var(--surface-1)',
-            color: 'var(--text-1)',
-            border: '1px solid var(--border-strong)'
-          };
+        : variant === 'primary'
+          ? {
+              background: 'var(--surface-2, #1f2937)',
+              color: 'var(--text-1)',
+              border: '1.5px solid var(--brand-600, #10b981)'
+            }
+          : {
+              background: 'var(--surface-1)',
+              color: 'var(--text-1)',
+              border: '1px solid var(--border-strong)'
+            };
 
-  const Icon = variant === 'pix' ? Zap : CreditCard;
+  const Icon = variant === 'pix' ? Zap : variant === 'recurring' ? Repeat : CreditCard;
 
   return (
     <button
@@ -327,7 +353,7 @@ const PayButton: React.FC<PayButtonProps> = ({ variant, topLabel, subLabel, load
         {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
         {topLabel}
       </span>
-      <span className="text-[10.5px] font-semibold opacity-90">{subLabel}</span>
+      <span className="text-[10.5px] font-semibold opacity-90 text-right">{subLabel}</span>
     </button>
   );
 };

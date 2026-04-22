@@ -16,7 +16,8 @@ import {
   Moon,
   Sun,
   LogOut,
-  Code2
+  Code2,
+  Crown
 } from 'lucide-react';
 import { useZapMass } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -68,7 +69,10 @@ const navGroups: NavGroup[] = [
   },
   {
     label: 'Sistema',
-    items: [{ id: 'settings', label: 'Configuracoes', icon: Settings, description: 'Ajustes gerais' }]
+    items: [
+      { id: 'subscription', label: 'Minha assinatura', icon: Crown, description: 'Plano, renovacao e cartao' },
+      { id: 'settings', label: 'Configuracoes', icon: Settings, description: 'Ajustes gerais' }
+    ]
   }
 ];
 

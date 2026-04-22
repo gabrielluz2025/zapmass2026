@@ -8,6 +8,7 @@ import { DashboardTab } from './components/DashboardTab';
 import { ContactsTab } from './components/ContactsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { SettingsTab } from './components/SettingsTab';
+import { MySubscriptionTab } from './components/billing/MySubscriptionTab';
 import { ChatTab } from './components/ChatTab';
 import { WarmupTab } from './components/WarmupTab';
 import { PreLoginLanding } from './components/PreLoginLanding';
@@ -170,6 +171,8 @@ const MainLayout: React.FC = () => {
         return <ReportsTab />;
       case 'settings':
         return <SettingsTab />;
+      case 'subscription':
+        return <MySubscriptionTab />;
       case 'admin':
         if (!isAdminUserEmail(user?.email ?? null)) {
           return <ConnectionsTab />;
