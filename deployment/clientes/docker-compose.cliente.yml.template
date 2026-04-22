@@ -20,10 +20,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3001"
+      # Credenciais Firebase Admin partilhadas entre todos os clientes.
+      # Colocar /opt/zapmass/secrets/firebase-admin.json no host.
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
     env_file:
       - path: .env
         required: true
     volumes:
       - {{DATA_DIR}}:/app/data
+      - /opt/zapmass/secrets:/run/secrets:ro
     restart: unless-stopped
     shm_size: "2gb"

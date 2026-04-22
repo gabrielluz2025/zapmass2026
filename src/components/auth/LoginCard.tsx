@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, Shield, Sparkles, Zap } from 'lucide-react';
+import { Loader2, Lock, Shield, Sparkles, Zap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
@@ -19,7 +19,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   const { signInWithGoogle } = useAuth();
   const { config } = useAppConfig();
   const [loading, setLoading] = useState<'idle' | 'login' | 'trial'>('idle');
-  const trialBtn = `Entrar e ativar teste gratis (${formatTrialHoursLabel(config.trialHours)})`;
+  const trialBtn = `Ativar teste gratis (${formatTrialHoursLabel(config.trialHours)})`;
 
   const runLogin = async (trialAfter: boolean) => {
     if (trialAfter) {
@@ -45,108 +45,157 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
   return (
     <div
-      className="rounded-2xl p-7 sm:p-8 relative w-full"
+      className="landing-card-glow rounded-2xl p-6 sm:p-7 relative w-full"
       style={{
         background: 'var(--surface-0)',
         border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-lg, 0 20px 50px rgba(0,0,0,0.15))'
+        boxShadow: 'var(--shadow-lg, 0 20px 50px rgba(0,0,0,0.18))'
       }}
     >
-      <div className="flex items-center gap-2 mb-1">
-        <Sparkles className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
-        <span className="text-[11px] uppercase tracking-widest font-bold" style={{ color: 'var(--brand-600)' }}>
-          Bem-vindo
-        </span>
-      </div>
-      <h2 className="text-[22px] font-bold leading-tight mb-1" style={{ color: 'var(--text-1)' }}>
-        {title}
-      </h2>
-      <p className="text-[13px] leading-relaxed mb-6" style={{ color: 'var(--text-3)' }}>
-        {subtitle}
-      </p>
+      <div className="relative z-[1]">
+        {/* Badge topo */}
+        <div
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border mb-3"
+          style={{
+            background: 'rgba(16,185,129,0.08)',
+            borderColor: 'rgba(16,185,129,0.25)'
+          }}
+        >
+          <Sparkles className="w-3 h-3" style={{ color: 'var(--brand-600)' }} />
+          <span className="text-[10.5px] uppercase tracking-widest font-bold" style={{ color: 'var(--brand-600)' }}>
+            Bem-vindo
+          </span>
+        </div>
 
-      <button
-        type="button"
-        onClick={() => runLogin(false)}
-        disabled={loading !== 'idle'}
-        className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
-        style={{
-          background: '#fff',
-          color: '#111',
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.08)'
-        }}
-      >
-        {loading === 'login' ? (
+        <h2 className="text-[22px] font-extrabold leading-tight mb-1.5" style={{ color: 'var(--text-1)' }}>
+          {title}
+        </h2>
+        <p className="text-[13px] leading-relaxed mb-6" style={{ color: 'var(--text-3)' }}>
+          {subtitle}
+        </p>
+
+        {/* CTA principal: trial (se disponivel) OU Google */}
+        {showTrialOption ? (
           <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Entrando...
+            <button
+              type="button"
+              onClick={() => runLogin(true)}
+              disabled={loading !== 'idle'}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 55%, #047857 100%)',
+                boxShadow: '0 14px 32px rgba(16,185,129,0.35)'
+              }}
+            >
+              {loading === 'trial' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Abrindo Google...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  {trialBtn}
+                </>
+              )}
+            </button>
+
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+              <span className="text-[10.5px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                ou
+              </span>
+              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => runLogin(false)}
+              disabled={loading !== 'idle'}
+              className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{
+                background: '#fff',
+                color: '#111',
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.08)'
+              }}
+            >
+              {loading === 'login' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Entrando...
+                </>
+              ) : (
+                <>
+                  <GoogleLogo />
+                  Entrar com Google
+                </>
+              )}
+            </button>
           </>
         ) : (
-          <>
-            <GoogleLogo />
-            Entrar com Google
-          </>
-        )}
-      </button>
-
-      {showTrialOption && (
-        <>
-          <p className="text-center text-[11px] my-3" style={{ color: 'var(--text-3)' }}>
-            ou
-          </p>
           <button
             type="button"
-            onClick={() => runLogin(true)}
+            onClick={() => runLogin(false)}
             disabled={loading !== 'idle'}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-[13px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed border"
+            className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
             style={{
-              background: 'rgba(16,185,129,0.1)',
-              color: 'var(--brand-700, #047857)',
-              borderColor: 'rgba(16,185,129,0.35)'
+              background: '#fff',
+              color: '#111',
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.08)'
             }}
           >
-            {loading === 'trial' ? (
+            {loading === 'login' ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Abrindo Google...
+                Entrando...
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4" />
-                {trialBtn}
+                <GoogleLogo />
+                Entrar com Google
               </>
             )}
           </button>
-        </>
-      )}
+        )}
 
-      <div className="flex items-center gap-3 my-5">
-        <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-        <span className="text-[10.5px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-          Autenticacao segura
-        </span>
-        <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-      </div>
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-5">
+          <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+          <span className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+            <Lock className="w-3 h-3" />
+            Autenticacao segura
+          </span>
+          <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+        </div>
 
-      <div className="space-y-2.5">
-        <Feature icon={<Shield className="w-3.5 h-3.5" />} label="Login via Firebase Authentication" />
-        <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessao persistente (nao pede toda vez)" />
-        <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste gratuito ou planos Pro" />
+        {/* Trust features */}
+        <div className="space-y-2">
+          <Feature icon={<Shield className="w-3.5 h-3.5" />} label="Login via Firebase Authentication" />
+          <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessao persistente (nao pede toda vez)" />
+          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste gratuito ou planos Pro" />
+        </div>
       </div>
     </div>
   );
 };
 
 const Feature: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
-  <div className="flex items-center gap-2.5">
+  <div
+    className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg"
+    style={{ background: 'var(--surface-1)' }}
+  >
     <div
       className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
-      style={{ background: 'rgba(16,185,129,0.12)', color: 'var(--brand-600)' }}
+      style={{
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.22), rgba(16,185,129,0.08))',
+        color: 'var(--brand-600)'
+      }}
     >
       {icon}
     </div>
-    <span className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+    <span className="text-[12.5px] font-medium" style={{ color: 'var(--text-2)' }}>
       {label}
     </span>
   </div>

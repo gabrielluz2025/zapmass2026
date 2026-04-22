@@ -23,11 +23,17 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3001"
+      # Credenciais Firebase Admin (service account). Coloca o JSON em
+      # /opt/zapmass/secrets/firebase-admin.json no host (chmod 600).
+      # Se o ficheiro nao existir, o servidor sobe na mesma mas rotas que
+      # precisam de Firestore (trial, billing, admin) retornam 503.
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
     env_file:
       - path: .env
         required: false
     volumes:
       - zapmass-data:/app/data
+      - ./secrets:/run/secrets:ro
     restart: unless-stopped
     shm_size: "2gb"
 

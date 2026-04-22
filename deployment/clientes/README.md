@@ -20,6 +20,39 @@ Normalmente já estão prontos depois do setup inicial do ZapMass:
 - Nginx em `/etc/nginx/sites-available|enabled`.
 - `certbot` com plugin Nginx (`apt install certbot python3-certbot-nginx`).
 - A imagem `zapmass-zapmass:latest` construída pelo menos uma vez (o workflow de GitHub Actions já faz isto).
+- **Firebase Admin**: colocar o service account em `/opt/zapmass/secrets/firebase-admin.json` (chmod 600). Sem ele, o trial de 1h e os webhooks de pagamento retornam `503 Firebase Admin nao configurado no servidor.` (ver secção abaixo).
+
+## Credenciais Firebase Admin (obrigatório)
+
+O back-end precisa de uma Service Account do Firebase para:
+
+- Validar o ID token enviado pelo frontend ao ativar o **teste grátis de 1h**.
+- Escrever em `userSubscriptions/<uid>` no Firestore.
+- Processar webhooks de pagamento (Mercado Pago, InfinitePay).
+- Autenticar o painel admin.
+
+Passos (uma única vez — partilhado por todas as instâncias):
+
+1. **Firebase Console** → engrenagem → **Project settings** → aba **Service accounts** → botão **Generate new private key**. Faz download do `.json`.
+2. Na VPS, cria a pasta e copia o ficheiro:
+   ```bash
+   sudo mkdir -p /opt/zapmass/secrets
+   sudo chmod 750 /opt/zapmass/secrets
+   # copia o JSON (por scp ou cola o conteudo com nano)
+   sudo nano /opt/zapmass/secrets/firebase-admin.json
+   sudo chmod 600 /opt/zapmass/secrets/firebase-admin.json
+   ```
+3. Reinicia a instância principal:
+   ```bash
+   cd /opt/zapmass && docker compose up -d
+   ```
+4. Para **clientes já provisionados antes desta funcionalidade** (ex: `demo`), corre uma vez:
+   ```bash
+   sudo bash /opt/zapmass/deployment/clientes/scripts/aplicar-firebase-admin.sh
+   ```
+   O script adiciona o bind-mount `/opt/zapmass/secrets:/run/secrets:ro` e a variável `FIREBASE_SERVICE_ACCOUNT_PATH` aos `docker-compose.yml` e `.env` de cada cliente, e reinicia cada container. É idempotente.
+
+Clientes criados a partir de agora já vêm configurados automaticamente pelo `novo-cliente.sh`.
 
 ## Variáveis de ambiente opcionais
 
