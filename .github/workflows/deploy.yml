@@ -34,12 +34,29 @@ jobs:
             git fetch --all --prune
             git checkout prod || git checkout -b prod origin/prod
             git reset --hard origin/prod
-            echo "==> docker compose build + up"
+            echo "==> docker compose build + up (instancia principal)"
             docker compose up -d --build
+            if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml >/dev/null 2>&1; then
+              echo "==> atualizar containers dos clientes para a imagem nova"
+              for dir in /opt/zapmass/clientes/*/; do
+                slug="$(basename "$dir")"
+                case "$slug" in
+                  *removido*) continue ;;
+                esac
+                [ -f "${dir}docker-compose.yml" ] || continue
+                echo "    - cliente: ${slug}"
+                (cd "$dir" && docker compose up -d)
+              done
+            else
+              echo "==> sem clientes provisionados (so a instancia principal)"
+            fi
             echo "==> prune imagens antigas"
             docker image prune -f
             echo "==> status"
             docker compose ps
+            if [ -d /opt/zapmass/clientes ]; then
+              docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+            fi
 
       - name: Healthcheck pos-deploy
         uses: appleboy/ssh-action@v1.0.3

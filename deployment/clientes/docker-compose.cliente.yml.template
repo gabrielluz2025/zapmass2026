@@ -1,0 +1,29 @@
+# Template de docker-compose para UMA instancia isolada por cliente.
+# Este ficheiro e gerado automaticamente em /opt/zapmass/clientes/<slug>/docker-compose.yml
+# pelo script novo-cliente.sh. NAO editar a mao a copia gerada.
+#
+# Variaveis substituidas ({{ ... }}):
+#   {{SLUG}}       - identificador do cliente (ex.: acme)
+#   {{HOST_PORT}}  - porta no host (ex.: 3101)
+#   {{DATA_DIR}}   - caminho absoluto da pasta de dados no host
+#
+# A imagem "zapmass-zapmass:latest" e construida uma unica vez em /opt/zapmass
+# e reutilizada por todos os containers de cliente (poupa disco e tempo).
+
+services:
+  zapmass:
+    image: zapmass-zapmass:latest
+    container_name: zapmass-cli-{{SLUG}}
+    init: true
+    ports:
+      - "{{HOST_PORT}}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+    env_file:
+      - path: .env
+        required: true
+    volumes:
+      - {{DATA_DIR}}:/app/data
+    restart: unless-stopped
+    shm_size: "2gb"

@@ -1,0 +1,37 @@
+# Template de virtual-host Nginx gerado pelo novo-cliente.sh.
+# E colocado em /etc/nginx/sites-available/zapmass-<slug>
+# e linkado em /etc/nginx/sites-enabled/.
+#
+# Depois de criado, o script corre:
+#   certbot --nginx -d <DOMAIN>
+# para emitir certificado Let's Encrypt e fazer o redirect 80 -> 443.
+#
+# Variaveis substituidas ({{ ... }}):
+#   {{DOMAIN}}     - dominio completo (ex.: acme.zap-mass.com)
+#   {{HOST_PORT}}  - porta do container no host
+
+map $http_upgrade $zapmass_{{HOST_PORT}}_connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{DOMAIN}};
+
+    # O upload de midia pode ser grande (imagens, audios, videos do WhatsApp).
+    client_max_body_size 50m;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{HOST_PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $zapmass_{{HOST_PORT}}_connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+}
