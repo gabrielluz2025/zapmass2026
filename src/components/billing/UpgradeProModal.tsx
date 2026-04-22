@@ -130,7 +130,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           price={priceMonthly}
           sublabel="Acesso por 30 dias"
           pixPrice={pixMonthly}
-          cardInfo="À vista"
+          cardInfo="Cartão, Pix, débito · 1x"
           loading={loading}
           busy={busy}
           onPix={() => startPayment('monthly', 'pix')}
@@ -144,7 +144,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           sublabel="Acesso por 12 meses"
           badge="Economize ~25%"
           pixPrice={pixAnnual}
-          cardInfo="Até 12x"
+          cardInfo="Cartão até 12x, Pix, débito"
           loading={loading}
           busy={busy}
           onPix={() => startPayment('annual', 'pix')}
@@ -276,7 +276,7 @@ const PlanCard: React.FC<PlanCardProps> = ({
           loading={loadingCard}
           disabled={busy}
           onClick={onCard}
-          topLabel="Pagar com cartão"
+          topLabel="Outras formas"
           subLabel={cardInfo}
         />
       </div>

@@ -51,11 +51,17 @@ async function createPreference(params: CreatePreferenceParams): Promise<{ id: s
   const notificationUrl = `${backUrl.replace(/\/+$/, '')}/api/webhooks/mercadopago`;
 
   const planLabel = params.plan === 'monthly' ? 'Mensal' : 'Anual';
-  const methodLabel = params.method === 'pix' ? 'Pix' : 'Cartao';
-  const title = `ZapMass Pro - ${planLabel} (${methodLabel})`;
+  const title = `ZapMass Pro - ${planLabel}`;
 
   const maxInstallments = params.method === 'pix' ? 1 : params.plan === 'annual' ? 12 : 1;
 
+  /**
+   * Regras:
+   * - 'pix': checkout exclusivo do Pix com 5% de desconto (atalho rapido).
+   * - 'card': checkout com TODOS os metodos habilitados (cartao, Pix, debito,
+   *   carteira MP, etc.) sem desconto. Deixamos boleto/ATM de fora para evitar
+   *   fluxos com compensacao lenta ou caros. O MP decide o que mostrar pelo pais/conta.
+   */
   const payment_methods =
     params.method === 'pix'
       ? {
@@ -71,7 +77,7 @@ async function createPreference(params: CreatePreferenceParams): Promise<{ id: s
           default_installments: 1
         }
       : {
-          excluded_payment_types: [{ id: 'bank_transfer' }, { id: 'ticket' }, { id: 'atm' }, { id: 'digital_currency' }],
+          excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }],
           installments: maxInstallments,
           default_installments: 1
         };
