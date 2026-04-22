@@ -87,7 +87,10 @@ async function createPreference(params: CreatePreferenceParams): Promise<{ id: s
       {
         id: `zapmass-${params.plan}-${params.method}`,
         title,
-        description: `Assinatura ZapMass Pro (${planLabel}) paga via ${methodLabel}.`,
+        description:
+          params.method === 'pix'
+            ? `Assinatura ZapMass Pro (${planLabel}) via Pix com 5% de desconto.`
+            : `Assinatura ZapMass Pro (${planLabel}).`,
         quantity: 1,
         currency_id: 'BRL',
         unit_price: finalPrice
