@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Check, CreditCard, Crown, Loader2, Zap } from 'lucide-react';
+import { Check, CreditCard, Crown, Loader2, Sparkles, TrendingDown, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
-import { Button, Modal } from '../ui';
+import { Modal } from '../ui';
 
 const FALLBACK_MONTHLY =
   (import.meta.env.VITE_MARKETING_PRICE_MONTHLY as string | undefined)?.trim() || 'R$ 49,90 / mês';
@@ -15,12 +15,15 @@ interface UpgradeProModalProps {
   onClose: () => void;
 }
 
-type LoadingKey =
-  | 'idle'
-  | 'mp-monthly'
-  | 'mp-annual'
-  | 'ip-monthly'
-  | 'ip-annual';
+type LoadingKey = 'idle' | 'mp-monthly' | 'mp-annual';
+
+const BENEFITS: Array<{ icon: string; text: string }> = [
+  { icon: '🚀', text: 'Vários chips WhatsApp no mesmo painel' },
+  { icon: '📊', text: 'Campanhas com limite diário e atraso inteligente' },
+  { icon: '📥', text: 'Importação de contatos, listas e etiquetas' },
+  { icon: '📈', text: 'Relatórios de entrega, leitura e respostas' },
+  { icon: '💬', text: 'Central de chat com contexto de disparo' }
+];
 
 export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClose }) => {
   const { user } = useAuth();
@@ -41,40 +44,12 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Checkout Mercado Pago indisponivel.');
+        toast.error(typeof data?.error === 'string' ? data.error : 'Checkout Mercado Pago indisponível.');
         return;
       }
       if (data.init_point) {
         window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
-        toast.success('Conclua o pagamento na aba do Mercado Pago. Seu acesso libera apos a confirmacao.');
-        onClose();
-      } else toast.error('Resposta sem link de checkout.');
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro de rede.');
-    } finally {
-      setLoading('idle');
-    }
-  };
-
-  const startIp = async (plan: 'monthly' | 'annual') => {
-    if (!user) return;
-    setLoading(plan === 'monthly' ? 'ip-monthly' : 'ip-annual');
-    try {
-      const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/infinitepay/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ plan })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Checkout Infinite Pay indisponivel.');
-        return;
-      }
-      if (data.checkout_url) {
-        window.open(String(data.checkout_url), '_blank', 'noopener,noreferrer');
-        toast.success('Conclua o pagamento na aba da Infinite Pay.');
+        toast.success('Conclua o pagamento na aba do Mercado Pago. Seu acesso libera após a confirmação.');
         onClose();
       } else toast.error('Resposta sem link de checkout.');
     } catch (e) {
@@ -88,111 +63,173 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
   const busy = loading !== 'idle';
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="ZapMass Pro"
-      subtitle="Acesso completo: disparos, multi-chip, campanhas, relatórios e central de mensagens. Renovação por mês calendário (não só 30 dias fixos)."
-      icon={<Crown className="w-5 h-5 text-amber-500" />}
-      size="md"
-    >
-      <div className="space-y-5">
+    <Modal isOpen={isOpen} onClose={onClose} size="lg">
+      <div className="text-center -mt-1 mb-5">
         <div
-          className="rounded-xl p-4 space-y-3"
+          className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
           style={{
-            background: 'linear-gradient(135deg, rgba(245,158,11,0.15), rgba(234,88,12,0.1))',
-            border: '1px solid rgba(245, 158, 11, 0.35)'
+            background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+            boxShadow: '0 12px 32px rgba(245,158,11,0.35)'
           }}
         >
-          <p className="text-[13px] font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-            <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-            Por que vale a pena
-          </p>
-          <ul className="grid gap-2 text-[12px]" style={{ color: 'var(--text-2)' }}>
-            {[
-              'Vários chips WhatsApp no mesmo painel',
-              'Campanhas com limite diário e atraso inteligente',
-              'Importação de contatos, listas e etiquetas',
-              'Relatórios de entrega, leitura e respostas',
-              'Central de chat com contexto de disparo'
-            ].map((t) => (
-              <li key={t} className="flex items-start gap-2">
-                <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span>{t}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="flex flex-wrap gap-3 pt-1">
-            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-black/20 text-amber-100">
-              Mensal · {priceMonthly}
-            </span>
-            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-black/20 text-amber-100">
-              Anual · {priceAnnual}
-            </span>
-          </div>
-          <p className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>
-            Valores de referência para divulgação; o checkout confirma o valor final no Mercado Pago / Infinite Pay.
-          </p>
+          <Crown className="w-7 h-7 text-white" />
         </div>
+        <h2 className="text-[24px] font-extrabold leading-tight mb-1" style={{ color: 'var(--text-1)' }}>
+          ZapMass Pro
+        </h2>
+        <p className="text-[13px] leading-relaxed max-w-md mx-auto" style={{ color: 'var(--text-2)' }}>
+          Acesso completo sem limites. Renovação por mês calendário — e não apenas 30 dias fixos.
+        </p>
+      </div>
 
-        <section>
-          <p className="text-[12px] font-bold uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
-            Mercado Pago (assinatura)
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              size="sm"
-              type="button"
-              disabled={busy}
-              leftIcon={loading === 'mp-monthly' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-              onClick={() => startMp('monthly')}
-            >
-              Mensal
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              disabled={busy}
-              leftIcon={loading === 'mp-annual' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-              onClick={() => startMp('annual')}
-            >
-              Anual
-            </Button>
-          </div>
-        </section>
-        <section>
-          <p className="text-[12px] font-bold uppercase tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>
-            Infinite Pay (link de pagamento)
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              disabled={busy}
-              leftIcon={loading === 'ip-monthly' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-              onClick={() => startIp('monthly')}
-            >
-              Mensal
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              disabled={busy}
-              leftIcon={loading === 'ip-annual' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-              onClick={() => startIp('annual')}
-            >
-              Anual
-            </Button>
-          </div>
-        </section>
-        <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-          Apos o pagamento, o servidor atualiza seu acesso automaticamente. O plano mensal soma 1 mes calendario por cobranca; o anual soma 12 meses (como no calendario, nao apenas 30 dias fixos).
+      <div
+        className="rounded-2xl p-4 mb-5"
+        style={{
+          background: 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(234,88,12,0.06))',
+          border: '1px solid rgba(245, 158, 11, 0.28)'
+        }}
+      >
+        <p className="text-[11.5px] font-bold uppercase tracking-widest mb-3 flex items-center gap-1.5" style={{ color: '#f59e0b' }}>
+          <Zap className="w-3.5 h-3.5 fill-current" />
+          Tudo que está incluído
+        </p>
+        <ul className="grid sm:grid-cols-2 gap-x-4 gap-y-2 text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+          {BENEFITS.map((b) => (
+            <li key={b.text} className="flex items-start gap-2">
+              <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <span>{b.text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3 mb-4">
+        <PlanCard
+          label="Mensal"
+          price={priceMonthly}
+          sublabel="Cobrado todo mês"
+          ctaLabel="Assinar mensal"
+          loading={loading === 'mp-monthly'}
+          disabled={busy}
+          onClick={() => startMp('monthly')}
+        />
+        <PlanCard
+          featured
+          label="Anual"
+          price={priceAnnual}
+          sublabel="Melhor custo-benefício"
+          badge="Economize ~25%"
+          ctaLabel="Assinar anual"
+          loading={loading === 'mp-annual'}
+          disabled={busy}
+          onClick={() => startMp('annual')}
+        />
+      </div>
+
+      <div
+        className="flex items-start gap-2 p-3 rounded-xl"
+        style={{
+          background: 'var(--surface-0)',
+          border: '1px solid var(--border-subtle)'
+        }}
+      >
+        <Sparkles className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
+        <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+          Pagamento processado pelo <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong>.
+          Seu acesso é liberado automaticamente assim que o pagamento é confirmado. Pode cancelar a qualquer momento.
         </p>
       </div>
     </Modal>
+  );
+};
+
+interface PlanCardProps {
+  label: string;
+  price: string;
+  sublabel: string;
+  ctaLabel: string;
+  featured?: boolean;
+  badge?: string;
+  loading?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}
+
+const PlanCard: React.FC<PlanCardProps> = ({
+  label,
+  price,
+  sublabel,
+  ctaLabel,
+  featured,
+  badge,
+  loading,
+  disabled,
+  onClick
+}) => {
+  return (
+    <div
+      className="relative rounded-2xl p-4 flex flex-col gap-3 transition-all"
+      style={
+        featured
+          ? {
+              background: 'linear-gradient(135deg, rgba(16,185,129,0.10), rgba(59,130,246,0.06))',
+              border: '1.5px solid rgba(16,185,129,0.45)',
+              boxShadow: '0 10px 28px rgba(16,185,129,0.15)'
+            }
+          : {
+              background: 'var(--surface-0)',
+              border: '1px solid var(--border)'
+            }
+      }
+    >
+      {badge && (
+        <span
+          className="absolute -top-2.5 right-3 text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-full inline-flex items-center gap-1"
+          style={{
+            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+            color: '#fff',
+            boxShadow: '0 6px 18px rgba(16,185,129,0.45)'
+          }}
+        >
+          <TrendingDown className="w-3 h-3" />
+          {badge}
+        </span>
+      )}
+
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: featured ? 'var(--brand-600)' : 'var(--text-3)' }}>
+          {label}
+        </p>
+        <p className="text-[20px] font-extrabold mt-1 leading-tight" style={{ color: 'var(--text-1)' }}>
+          {price}
+        </p>
+        <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+          {sublabel}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-bold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+        style={
+          featured
+            ? {
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#fff',
+                boxShadow: '0 8px 22px rgba(16,185,129,0.35)'
+              }
+            : {
+                background: 'var(--surface-1)',
+                color: 'var(--text-1)',
+                border: '1px solid var(--border-strong)'
+              }
+        }
+      >
+        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+        {ctaLabel}
+      </button>
+    </div>
   );
 };
