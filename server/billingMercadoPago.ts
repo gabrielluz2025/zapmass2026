@@ -27,7 +27,9 @@ async function createPreapproval(params: {
 
   const backUrl = (process.env.MERCADOPAGO_BACK_URL || 'http://localhost:8000').trim();
 
-  const startDate = new Date().toISOString();
+  // Mercado Pago rejeita start_date no passado; damos 5 min de folga
+  // para cobrir latencia de rede/clock skew entre o nosso servidor e o MP.
+  const startDate = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
   const auto_recurring =
     params.plan === 'monthly'
