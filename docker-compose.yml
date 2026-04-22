@@ -16,7 +16,16 @@
 
 services:
   zapmass:
-    build: .
+    build:
+      context: .
+      # VITE_* precisa estar disponivel no build do frontend (Vite "cozinha" no bundle).
+      # Valores vem do .env da VPS via interpolacao do docker compose.
+      args:
+        VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
+        VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
+        VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
+        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-}
+        VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
     init: true
     ports:
       - "${HOST_PORT:-3001}:3001"
