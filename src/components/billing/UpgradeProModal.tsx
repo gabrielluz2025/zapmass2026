@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Check, CreditCard, Crown, Loader2, Sparkles, TrendingDown, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Check, CreditCard, Crown, Loader2, Sparkles, TrendingDown, Zap, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
@@ -10,12 +10,16 @@ const FALLBACK_MONTHLY =
 const FALLBACK_ANNUAL =
   (import.meta.env.VITE_MARKETING_PRICE_ANNUAL as string | undefined)?.trim() || 'R$ 479,90 / ano';
 
+const PIX_DISCOUNT_PCT = 0.05;
+
 interface UpgradeProModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type LoadingKey = 'idle' | 'mp-monthly' | 'mp-annual';
+type Plan = 'monthly' | 'annual';
+type Method = 'pix' | 'card';
+type LoadingKey = 'idle' | `${Plan}-${Method}`;
 
 const BENEFITS: string[] = [
   'Vários chips WhatsApp no mesmo painel',
@@ -25,6 +29,19 @@ const BENEFITS: string[] = [
   'Central de chat com contexto de disparo'
 ];
 
+/** Extrai um numero (R$ X,YY) de uma string de preco marketing do tipo "R$ 199,90 / mes". */
+function extractAmount(label: string): number | null {
+  const m = label.match(/(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:,\d{1,2})?)/);
+  if (!m) return null;
+  const raw = m[1].replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatBRL(v: number): string {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
 export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClose }) => {
   const { user } = useAuth();
   const { config } = useAppConfig();
@@ -32,15 +49,21 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
   const priceMonthly = config.marketingPriceMonthly.trim() || FALLBACK_MONTHLY;
   const priceAnnual = config.marketingPriceAnnual.trim() || FALLBACK_ANNUAL;
 
-  const startMp = async (plan: 'monthly' | 'annual') => {
+  const amountMonthly = useMemo(() => extractAmount(priceMonthly), [priceMonthly]);
+  const amountAnnual = useMemo(() => extractAmount(priceAnnual), [priceAnnual]);
+
+  const pixMonthly = amountMonthly ? formatBRL(amountMonthly * (1 - PIX_DISCOUNT_PCT)) : null;
+  const pixAnnual = amountAnnual ? formatBRL(amountAnnual * (1 - PIX_DISCOUNT_PCT)) : null;
+
+  const startPayment = async (plan: Plan, method: Method) => {
     if (!user) return;
-    setLoading(plan === 'monthly' ? 'mp-monthly' : 'mp-annual');
+    setLoading(`${plan}-${method}`);
     try {
       const idToken = await user.getIdToken();
       const res = await fetch('/api/billing/mercadopago/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ plan })
+        body: JSON.stringify({ plan, method })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
@@ -66,7 +89,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
     <Modal isOpen={isOpen} onClose={onClose} size="lg">
       <CloseX onClose={onClose} />
 
-      <div className="text-center -mt-1 mb-3.5">
+      <div className="text-center -mt-1 mb-3">
         <div
           className="mx-auto w-11 h-11 rounded-xl flex items-center justify-center mb-2"
           style={{
@@ -80,12 +103,12 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           ZapMass Pro
         </h2>
         <p className="text-[12px] leading-snug max-w-md mx-auto" style={{ color: 'var(--text-2)' }}>
-          Acesso completo sem limites. Renovação por mês calendário — e não apenas 30 dias fixos.
+          Acesso completo sem limites. Pague via Pix com desconto ou cartão.
         </p>
       </div>
 
       <div
-        className="rounded-xl px-3.5 py-2.5 mb-3.5"
+        className="rounded-xl px-3.5 py-2.5 mb-3"
         style={{
           background: 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(234,88,12,0.06))',
           border: '1px solid rgba(245, 158, 11, 0.28)'
@@ -105,22 +128,28 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
         <PlanCard
           label="Mensal"
           price={priceMonthly}
-          sublabel="Cobrado todo mês"
-          ctaLabel="Assinar mensal"
-          loading={loading === 'mp-monthly'}
-          disabled={busy}
-          onClick={() => startMp('monthly')}
+          sublabel="Acesso por 30 dias"
+          pixPrice={pixMonthly}
+          cardInfo="À vista"
+          loading={loading}
+          busy={busy}
+          onPix={() => startPayment('monthly', 'pix')}
+          onCard={() => startPayment('monthly', 'card')}
+          plan="monthly"
         />
         <PlanCard
           featured
           label="Anual"
           price={priceAnnual}
-          sublabel="Melhor custo-benefício"
+          sublabel="Acesso por 12 meses"
           badge="Economize ~25%"
-          ctaLabel="Assinar anual"
-          loading={loading === 'mp-annual'}
-          disabled={busy}
-          onClick={() => startMp('annual')}
+          pixPrice={pixAnnual}
+          cardInfo="Até 12x"
+          loading={loading}
+          busy={busy}
+          onPix={() => startPayment('annual', 'pix')}
+          onCard={() => startPayment('annual', 'card')}
+          plan="annual"
         />
       </div>
 
@@ -131,7 +160,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
         <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
         <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
           Pagamento seguro pelo <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong>. Acesso liberado
-          automaticamente após a confirmação. Cancele quando quiser.
+          automaticamente após a confirmação. Desconto de 5% no Pix; parcelamento no cartão pode ter juros do MP.
         </p>
       </div>
     </Modal>
@@ -159,28 +188,37 @@ interface PlanCardProps {
   label: string;
   price: string;
   sublabel: string;
-  ctaLabel: string;
+  pixPrice: string | null;
+  cardInfo: string;
   featured?: boolean;
   badge?: string;
-  loading?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
+  loading: LoadingKey;
+  busy: boolean;
+  plan: Plan;
+  onPix: () => void;
+  onCard: () => void;
 }
 
 const PlanCard: React.FC<PlanCardProps> = ({
   label,
   price,
   sublabel,
-  ctaLabel,
+  pixPrice,
+  cardInfo,
   featured,
   badge,
   loading,
-  disabled,
-  onClick
+  busy,
+  plan,
+  onPix,
+  onCard
 }) => {
+  const loadingPix = loading === `${plan}-pix`;
+  const loadingCard = loading === `${plan}-card`;
+
   return (
     <div
-      className="relative rounded-xl px-3.5 py-3 flex flex-col gap-2.5 transition-all"
+      className="relative rounded-xl px-3.5 py-3 flex flex-col gap-2.5"
       style={
         featured
           ? {
@@ -224,28 +262,72 @@ const PlanCard: React.FC<PlanCardProps> = ({
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={disabled}
-        className="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12.5px] font-bold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
-        style={
-          featured
-            ? {
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                color: '#fff',
-                boxShadow: '0 6px 18px rgba(16,185,129,0.35)'
-              }
-            : {
-                background: 'var(--surface-1)',
-                color: 'var(--text-1)',
-                border: '1px solid var(--border-strong)'
-              }
-        }
-      >
-        {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
-        {ctaLabel}
-      </button>
+      <div className="flex flex-col gap-1.5">
+        <PayButton
+          variant="pix"
+          loading={loadingPix}
+          disabled={busy}
+          onClick={onPix}
+          topLabel="Pagar com Pix"
+          subLabel={pixPrice ? `${pixPrice} · −5%` : 'Desconto 5%'}
+        />
+        <PayButton
+          variant={featured ? 'primary' : 'secondary'}
+          loading={loadingCard}
+          disabled={busy}
+          onClick={onCard}
+          topLabel="Pagar com cartão"
+          subLabel={cardInfo}
+        />
+      </div>
     </div>
+  );
+};
+
+interface PayButtonProps {
+  variant: 'pix' | 'primary' | 'secondary';
+  topLabel: string;
+  subLabel: string;
+  loading?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}
+
+const PayButton: React.FC<PayButtonProps> = ({ variant, topLabel, subLabel, loading, disabled, onClick }) => {
+  const style: React.CSSProperties =
+    variant === 'pix'
+      ? {
+          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+          color: '#fff',
+          boxShadow: '0 5px 14px rgba(16,185,129,0.3)'
+        }
+      : variant === 'primary'
+        ? {
+            background: 'var(--surface-2, #1f2937)',
+            color: 'var(--text-1)',
+            border: '1.5px solid var(--brand-600, #10b981)'
+          }
+        : {
+            background: 'var(--surface-1)',
+            color: 'var(--text-1)',
+            border: '1px solid var(--border-strong)'
+          };
+
+  const Icon = variant === 'pix' ? Zap : CreditCard;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+      style={style}
+    >
+      <span className="flex items-center gap-1.5 text-[12.5px] font-bold">
+        {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
+        {topLabel}
+      </span>
+      <span className="text-[10.5px] font-semibold opacity-90">{subLabel}</span>
+    </button>
   );
 };
