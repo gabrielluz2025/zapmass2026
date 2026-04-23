@@ -1758,8 +1758,6 @@ const emitConversationsUpdate = () => {
 // --- PROFILE PICTURE PROGRESSIVE LOADER ---
 const pictureFetchQueue = new Map<string, { connectionId: string; chatId: string }>();
 let pictureFetcherRunning = false;
-const PICTURE_FETCH_DELAY_MS = 120;
-const PICTURE_EMIT_BATCH = 6;
 
 const enqueueConversationPicture = (connectionId: string, chatId: string, conversationId: string) => {
     if (pictureFetchQueue.has(conversationId)) return;
@@ -1770,70 +1768,104 @@ const enqueueConversationPicture = (connectionId: string, chatId: string, conver
     }
 };
 
+// Busca em lote as fotos de perfil diretamente no Store do WhatsApp Web via Puppeteer.
+// Muito mais confiável e rápido que client.getProfilePicUrl() (que falha com frequência
+// em contas com muitas conversas por conta de rate limit / timeouts internos do wwebjs).
+const fetchProfilePicsBatch = async (client: any, chatIds: string[]): Promise<Map<string, string>> => {
+    const result = new Map<string, string>();
+    if (!chatIds.length) return result;
+    const pupPage = (client as any).pupPage;
+    if (!pupPage) return result;
+    try {
+        const jsCode = `(async () => {
+            var ids = ${JSON.stringify(chatIds)};
+            var W = window.Store;
+            if (!W || !W.Contact) return {};
+            var out = {};
+            var getThumbUrl = function(obj) {
+                if (!obj) return null;
+                var th = obj['__x_profilePicThumb'] || obj.profilePicThumbObj || obj.profilePicThumb;
+                return (th && (th.imgFull || th.img || th.eurl)) || null;
+            };
+            for (var i = 0; i < ids.length; i++) {
+                var id = ids[i];
+                try {
+                    var chatWid = (W.WidFactory && W.WidFactory.createWid) ? W.WidFactory.createWid(id) : id;
+                    var ct = null;
+                    if (W.Contact.get) {
+                        ct = W.Contact.get(chatWid) || W.Contact.get(id);
+                    }
+                    var url = getThumbUrl(ct);
+                    if (!url && W.ProfilePic && W.ProfilePic.profilePicFind) {
+                        var r = await W.ProfilePic.profilePicFind(chatWid, true).catch(function(){return null;});
+                        url = (r && (r.imgFull || r.img || r.eurl)) || null;
+                    }
+                    if (url && typeof url === 'string') {
+                        out[id] = url;
+                    }
+                } catch(e) { /* ignore individual */ }
+            }
+            return out;
+        })()`;
+        const payload: Record<string, string> = await pupPage.evaluate(jsCode);
+        for (const [id, url] of Object.entries(payload || {})) {
+            if (typeof url === 'string' && (url.startsWith('http') || url.startsWith('blob:'))) {
+                result.set(id, url);
+            }
+        }
+    } catch (e: any) {
+        console.log('[PicBatch] erro:', e?.message || e);
+    }
+    return result;
+};
+
 const runPictureFetcher = async () => {
-    let processed = 0;
-    let fetched = 0;
-    let sinceEmit = 0;
+    let totalProcessed = 0;
+    let totalFetched = 0;
     console.log(`[PicFetcher] iniciando. ${pictureFetchQueue.size} conversas na fila.`);
     try {
         while (pictureFetchQueue.size > 0) {
-            const nextEntry = pictureFetchQueue.entries().next().value;
-            if (!nextEntry) break;
-            const [convId, { connectionId, chatId }] = nextEntry;
-            pictureFetchQueue.delete(convId);
+            // Drena ate 15 entradas de uma vez e agrupa por connectionId
+            const entries = Array.from(pictureFetchQueue.entries()).slice(0, 15);
+            const byConn = new Map<string, Array<{ convId: string; chatId: string }>>();
+            for (const [convId, info] of entries) {
+                pictureFetchQueue.delete(convId);
+                const conv = conversations.find(c => c.id === convId);
+                if (!conv || conv.profilePicUrl) { totalProcessed++; continue; }
+                if (!byConn.has(info.connectionId)) byConn.set(info.connectionId, []);
+                byConn.get(info.connectionId)!.push({ convId, chatId: info.chatId });
+            }
 
-            const conv = conversations.find(c => c.id === convId);
-            if (!conv || conv.profilePicUrl) { processed++; continue; }
-
-            const client: any = clients.get(connectionId);
-            if (!client || typeof client.getProfilePicUrl !== 'function') { processed++; continue; }
-
-            try {
-                let pic: string | null = await Promise.race([
-                    client.getProfilePicUrl(chatId),
-                    new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-                ]).catch(() => null);
-
-                if (!pic && typeof client.getContactById === 'function') {
-                    pic = await Promise.race([
-                        (async () => {
-                            const ct = await client.getContactById(chatId).catch(() => null);
-                            return ct && typeof ct.getProfilePicUrl === 'function'
-                                ? await ct.getProfilePicUrl().catch(() => null)
-                                : null;
-                        })(),
-                        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-                    ]).catch(() => null);
-                }
-
-                if (pic && typeof pic === 'string' && pic.startsWith('http')) {
+            for (const [connId, items] of byConn.entries()) {
+                const client: any = clients.get(connId);
+                if (!client) { totalProcessed += items.length; continue; }
+                const chatIds = items.map(i => i.chatId);
+                const pics = await fetchProfilePicsBatch(client, chatIds);
+                let batchUpdated = 0;
+                for (const { convId, chatId } of items) {
+                    totalProcessed++;
+                    const url = pics.get(chatId);
+                    if (!url) continue;
                     const idx = conversations.findIndex(c => c.id === convId);
-                    if (idx >= 0) {
-                        conversations[idx] = { ...conversations[idx], profilePicUrl: pic };
-                        sinceEmit++;
-                        fetched++;
-                    }
+                    if (idx < 0) continue;
+                    conversations[idx] = { ...conversations[idx], profilePicUrl: url };
+                    totalFetched++;
+                    batchUpdated++;
                 }
-            } catch (e: any) {
-                console.log(`[PicFetcher] falha em ${chatId}:`, e?.message || e);
+                if (batchUpdated > 0) emitConversationsUpdate();
+                // Pequena pausa entre lotes para nao sobrecarregar o WhatsApp Web
+                await new Promise(r => setTimeout(r, 600));
             }
 
-            processed++;
-            if (sinceEmit >= PICTURE_EMIT_BATCH) {
-                emitConversationsUpdate();
-                sinceEmit = 0;
+            if (totalProcessed % 50 < 15) {
+                console.log(`[PicFetcher] progresso: ${totalProcessed} processadas, ${totalFetched} com foto, ${pictureFetchQueue.size} restantes.`);
             }
-            if (processed % 50 === 0) {
-                console.log(`[PicFetcher] progresso: ${processed} processadas, ${fetched} com foto, ${pictureFetchQueue.size} restantes.`);
-            }
-            await new Promise(r => setTimeout(r, PICTURE_FETCH_DELAY_MS));
         }
-        if (sinceEmit > 0) emitConversationsUpdate();
     } catch (err: any) {
         console.error('[PicFetcher] erro:', err?.message || err);
     } finally {
         pictureFetcherRunning = false;
-        console.log(`[PicFetcher] concluido. ${processed} processadas, ${fetched} com foto real.`);
+        console.log(`[PicFetcher] concluido. ${totalProcessed} processadas, ${totalFetched} com foto real.`);
     }
 };
 
@@ -1906,7 +1938,100 @@ export const fetchConversationPicture = async (conversationId: string): Promise<
     return null;
 };
 
-// Sync alternativo usando getContacts (getChats está com erro)
+// Sync via Store.Chat direto pelo Puppeteer — usado quando client.getChats() falha.
+// Traz TODAS as conversas do WhatsApp Web (incluindo arquivadas) com ultima mensagem,
+// contato, unread count e timestamp — do jeito que o proprio WhatsApp exibe.
+const syncConversationsViaStore = async (client: any, connectionId: string): Promise<boolean> => {
+    const pupPage = (client as any).pupPage;
+    if (!pupPage) return false;
+    console.log(`[SyncConv] Tentando sync via Store.Chat (Puppeteer) para ${connectionId}...`);
+    try {
+        const jsCode = `(async () => {
+            var W = window.Store;
+            if (!W || !W.Chat) return { error: 'no_store' };
+            var list = [];
+            try {
+                list = W.Chat.getModelsArray ? W.Chat.getModelsArray() : (W.Chat.models || []);
+            } catch(e) {}
+            if (!list || !list.length) return { error: 'empty' };
+            var out = [];
+            for (var i = 0; i < list.length; i++) {
+                try {
+                    var c = list[i];
+                    if (!c || !c.id) continue;
+                    var serialized = (c.id && (c.id._serialized || (typeof c.id.toString === 'function' && c.id.toString()))) || null;
+                    if (!serialized) continue;
+                    if (serialized === 'status@broadcast') continue;
+                    var last = (c.msgs && c.msgs.last) ? c.msgs.last : (c.lastReceivedKey ? null : null);
+                    var lastBody = (last && (last.body || last.caption)) || c.lastMessage && (c.lastMessage.body || c.lastMessage.caption) || '';
+                    var lastTs = (last && (last.t || last.timestamp)) || c.t || 0;
+                    var isGroup = !!c.isGroup || serialized.indexOf('@g.us') >= 0;
+                    var name = c.name || c.formattedTitle || (c.contact && (c.contact.name || c.contact.pushname || c.contact.formattedName)) || '';
+                    var number = (c.contact && c.contact.id && c.contact.id.user) || (c.id && c.id.user) || '';
+                    var unread = c.unreadCount || 0;
+                    out.push({
+                        id: serialized,
+                        name: name,
+                        number: number,
+                        unread: unread,
+                        lastBody: lastBody,
+                        lastTs: lastTs,
+                        isGroup: isGroup
+                    });
+                } catch(e) { /* ignora individual */ }
+            }
+            return { chats: out };
+        })()`;
+        const raw: any = await pupPage.evaluate(jsCode);
+        if (!raw || raw.error) {
+            console.warn(`[SyncConv] Store.Chat indisponivel: ${raw?.error || 'unknown'}`);
+            return false;
+        }
+        const rawChats: any[] = raw.chats || [];
+        console.log(`[SyncConv] Store.Chat retornou ${rawChats.length} conversas.`);
+        if (rawChats.length === 0) return false;
+
+        // Ordena por mais recente primeiro para emitir conversas uteis antes
+        rawChats.sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+
+        let processed = 0;
+        for (const rc of rawChats) {
+            const chatId: string = rc.id;
+            const conversationId = getConversationKey(connectionId, chatId);
+            const existing = conversations.find(c => c.id === conversationId);
+            const contactName = rc.name || (rc.number ? `+${rc.number}` : 'Contato');
+            const contactPhone = rc.number ? `+${rc.number}` : '';
+            const lastTs: number = rc.lastTs || 0;
+            const lastMessageTime = lastTs ? normalizeTimestamp(lastTs) : (existing?.lastMessageTime || '');
+            const lastMessageTimestamp = lastTs ? lastTs * 1000 : (existing?.lastMessageTimestamp || Date.now());
+            upsertConversation({
+                id: conversationId,
+                contactName,
+                contactPhone,
+                profilePicUrl: existing?.profilePicUrl,
+                connectionId,
+                unreadCount: rc.unread || 0,
+                lastMessage: rc.lastBody || existing?.lastMessage || '',
+                lastMessageTime,
+                lastMessageTimestamp,
+                messages: existing?.messages || [],
+                tags: existing?.tags || []
+            });
+            if (!rc.isGroup) {
+                enqueueConversationPicture(connectionId, chatId, conversationId);
+            }
+            processed++;
+        }
+        console.log(`[SyncConv] Store.Chat: ${processed} conversas processadas.`);
+        emitConversationsUpdate();
+        return true;
+    } catch (e: any) {
+        console.error('[SyncConv] Erro no sync via Store.Chat:', e?.message || e);
+        return false;
+    }
+};
+
+// Sync alternativo usando getContacts — ultimo recurso quando getChats E Store falham
 const syncConversationsFromContacts = async (client: any, connectionId: string) => {
     console.log(`[SyncConv] Iniciando sync via getContacts para ${connectionId}...`);
     try {
@@ -1955,7 +2080,30 @@ const syncConversationsFromContacts = async (client: any, connectionId: string) 
 const syncConversationsFromClient = async (client: any, connectionId: string) => {
     console.log(`[SyncConv] Iniciando sync para ${connectionId}...`);
     try {
-        const chats = await client.getChats();
+        // Retry ate 3x — logo apos o 'ready' o Store do WhatsApp Web as vezes ainda
+        // nao esta pronto, e a primeira chamada de getChats() pode lancar ou retornar 0.
+        let chats: any[] = [];
+        let lastErr: any = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const result = await Promise.race([
+                    client.getChats(),
+                    new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error('getChats timeout 45s')), 45000))
+                ]);
+                if (Array.isArray(result) && result.length > 0) {
+                    chats = result;
+                    break;
+                }
+                console.warn(`[SyncConv] getChats tentativa ${attempt} retornou ${Array.isArray(result) ? result.length : 'nao-array'}, tentando novamente...`);
+            } catch (e: any) {
+                lastErr = e;
+                console.warn(`[SyncConv] getChats tentativa ${attempt} falhou: ${e?.message || e}`);
+            }
+            if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 3000));
+        }
+        if (!chats.length) {
+            throw lastErr || new Error('getChats retornou vazio apos 3 tentativas');
+        }
         // getChats() já retorna ordenado por recência — preservar essa ordem
         console.log(`[SyncConv] Total de chats obtidos: ${chats.length}`);
         let processed = 0;
@@ -2183,14 +2331,24 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     console.log(`[handleClientReady] ✅ Conexão estabelecida - sincronizando conversas em background...`);
     setImmediate(() => {
         syncConversationsFromClient(client, id)
-            .catch(err => {
-                console.warn('[handleClientReady] getChats falhou, tentando via getContacts:', err?.message || err);
+            .catch(async (err) => {
+                console.warn('[handleClientReady] getChats falhou, tentando Store.Chat direto:', err?.message || err);
+                const ok = await syncConversationsViaStore(client, id).catch(e => {
+                    console.warn('[handleClientReady] Store.Chat falhou:', e?.message || e);
+                    return false;
+                });
+                if (ok) return;
+                console.warn('[handleClientReady] Fallback final via getContacts...');
                 return syncConversationsFromContacts(client, id).catch(e => {
                     console.warn('[handleClientReady] Sync de contatos também falhou:', e?.message || e);
                 });
             })
             .finally(() => {
+                // Foto de perfil: primeiro passo rapido (3s) e depois mais um (30s)
+                // para pegar contatos que so apareceram apos scroll/sincronizacao do WA Web.
                 setTimeout(() => enqueueMissingPicturesForConnection(id), 3000);
+                setTimeout(() => enqueueMissingPicturesForConnection(id), 30000);
+                setTimeout(() => enqueueMissingPicturesForConnection(id), 90000);
             });
     });
     emitConversationsUpdate();
