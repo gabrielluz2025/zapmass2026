@@ -328,7 +328,7 @@ export const ChatTab: React.FC = () => {
   const HISTORY_LEVELS = [200, 600, 1500, 3500, 8000];
 
   const loadMoreHistoryFor = useCallback(
-    async (conversationId: string, forceNext: boolean = false) => {
+    async (conversationId: string, forceNext: boolean = false, silent: boolean = false) => {
       if (!conversationId) return;
       if (historyExhausted.has(conversationId) && !forceNext) return;
       const current = historyRequestedRef.current.get(conversationId) || 0;
@@ -343,7 +343,12 @@ export const ChatTab: React.FC = () => {
       const res = await loadChatHistory(conversationId, nextLevel, false);
       setHistoryLoading((prev) => (prev === conversationId ? null : prev));
       if (!res.ok) {
-        if (res.error) toast.error(res.error);
+        // Erros esperados em conversas vazias/criadas por sistema — nao incomodar o usuario.
+        // Tambem suprimimos toasts em carregamentos automaticos (scroll ou auto-abrir).
+        const suppressed = ['Conversa nao encontrada.', 'Chat nao encontrado no cliente.', 'Canal desconectado.'];
+        if (res.error && !silent && !suppressed.includes(res.error)) {
+          toast.error(res.error);
+        }
         return;
       }
       // Se carregou e nao aumentou o total, significa que chegamos no inicio
@@ -363,7 +368,7 @@ export const ChatTab: React.FC = () => {
     if (already > 0) return;
     // Primeiro carregamento quando temos menos que 60 mensagens cacheadas
     if (conv.messages.length < 60) {
-      loadMoreHistoryFor(selectedChatId, true);
+      loadMoreHistoryFor(selectedChatId, true, true);
     }
   }, [selectedChatId, conversations, loadMoreHistoryFor]);
 
@@ -421,7 +426,7 @@ export const ChatTab: React.FC = () => {
         height: el.scrollHeight,
         top: el.scrollTop
       };
-      loadMoreHistoryFor(selectedChatId);
+      loadMoreHistoryFor(selectedChatId, false, true);
     }
   }, [selectedChatId, historyLoading, historyExhausted, loadMoreHistoryFor]);
 

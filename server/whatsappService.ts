@@ -3348,18 +3348,30 @@ export const loadChatHistory = async (
     skipMedia: boolean = true
 ): Promise<{ ok: boolean; total: number; error?: string }> => {
     try {
-        const conv = conversations.find((c) => c.id === conversationId);
-        if (!conv) return { ok: false, total: 0, error: 'Conversa nao encontrada.' };
         const [connectionId, ...chatParts] = conversationId.split(':');
         const chatId = chatParts.length > 0 ? chatParts.join(':') : '';
-        const client = clients.get(connectionId);
-        if (!client) return { ok: false, total: conv.messages.length, error: 'Canal desconectado.' };
+        const client: any = clients.get(connectionId);
+        if (!client) {
+            const conv0 = conversations.find((c) => c.id === conversationId);
+            return {
+                ok: false,
+                total: conv0?.messages.length || 0,
+                error: 'Canal desconectado.'
+            };
+        }
 
         const effectiveLimit = Math.max(50, Math.min(limit, MAX_MESSAGES));
         console.log(`[loadChatHistory] ${conversationId} → fetching ${effectiveLimit} (skipMedia=${skipMedia})`);
 
-        const chat = await client.getChatById(chatId).catch(() => null);
-        if (!chat) return { ok: false, total: conv.messages.length, error: 'Chat nao encontrado no cliente.' };
+        const chat: any = await client.getChatById(chatId).catch(() => null);
+        if (!chat) {
+            const conv0 = conversations.find((c) => c.id === conversationId);
+            return {
+                ok: false,
+                total: conv0?.messages.length || 0,
+                error: 'Chat nao encontrado no cliente.'
+            };
+        }
 
         const fetched = await chat.fetchMessages({ limit: effectiveLimit }).catch(() => []);
         // Converte em ordem cronologica (fetchMessages retorna do mais novo ao mais antigo)
@@ -3369,6 +3381,43 @@ export const loadChatHistory = async (
                 .map((m: any) => toChatMessage(m, { skipMedia }))
         );
         converted.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+
+        let conv = conversations.find((c) => c.id === conversationId);
+
+        // Conversa nao existia em memoria — cria uma entry a partir do chat do WhatsApp
+        // para poder manter o fluxo de historico sem jogar um erro na cara do usuario.
+        if (!conv) {
+            const contactName =
+                (chat.name && String(chat.name)) ||
+                (chat.contact?.pushname && String(chat.contact.pushname)) ||
+                (chat.contact?.name && String(chat.contact.name)) ||
+                (chat.id?.user && String(chat.id.user)) ||
+                chatId;
+            const contactPhone = (chat.id?.user && String(chat.id.user)) || chatId.replace(/\D/g, '');
+            const lastMsg = converted[converted.length - 1];
+            const newConv: Conversation = {
+                id: conversationId,
+                contactName,
+                contactPhone,
+                connectionId,
+                unreadCount: typeof chat.unreadCount === 'number' ? chat.unreadCount : 0,
+                lastMessage: lastMsg?.text || '',
+                lastMessageTime: lastMsg?.timestamp || '',
+                lastMessageTimestamp: lastMsg?.timestampMs,
+                messages: [],
+                tags: []
+            };
+            // Permitir que conversas da blocklist sejam recriadas quando o usuario
+            // explicitamente tenta abrir historico delas.
+            allowDeletedConversation(conversationId);
+            upsertConversation(newConv);
+            conv = conversations.find((c) => c.id === conversationId);
+            if (!conv) {
+                // upsert bloqueado ou falhou — ainda assim retornamos os dados carregados
+                return { ok: true, total: converted.length };
+            }
+            console.log(`[loadChatHistory] Conversa criada on-the-fly: ${conversationId}`);
+        }
 
         // Merge com mensagens locais (preserva marcacoes fromCampaign/campaignId e mensagens enviadas recentes)
         const byId = new Map<string, ChatMessage>();
