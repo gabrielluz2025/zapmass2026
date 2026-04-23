@@ -15,8 +15,6 @@ import {
   Users,
   Smile,
   X,
-  Phone,
-  Clock,
   MessageCircle,
   ArrowDown,
   Paperclip,
@@ -30,12 +28,19 @@ import {
   Eye,
   CornerDownLeft,
   LayoutGrid,
-  List
+  List,
+  Pin,
+  StickyNote,
+  Bell,
+  Star
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useZapMass } from '../context/ZapMassContext';
 import { ClientPipelineBoard } from './chat/ClientPipelineBoard';
+import { ClientCrmPanel } from './chat/ClientCrmPanel';
+import { ChatEmptyShowcase } from './chat/ChatEmptyShowcase';
+import { useClientCrm, STATUS_META, hashTagColor } from './chat/useClientCrm';
 import { Conversation, ChatMessage } from '../types';
 import { Input, Modal, Select, Tabs, Badge, Button } from './ui';
 
@@ -175,6 +180,7 @@ export const ChatTab: React.FC = () => {
     loadMessageMedia
   } = useZapMass();
   const { user } = useAuth();
+  const crm = useClientCrm(user?.uid);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [pipelineView, setPipelineView] = useState<'lista' | 'quadro'>('lista');
   const [inputText, setInputText] = useState('');
@@ -184,7 +190,7 @@ export const ChatTab: React.FC = () => {
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
-  const [chatFilter, setChatFilter] = useState<'all' | 'unread' | 'groups' | 'system' | 'empty'>('all');
+  const [chatFilter, setChatFilter] = useState<'all' | 'unread' | 'groups' | 'system' | 'empty' | 'pinned'>('all');
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [searchInChat, setSearchInChat] = useState('');
   const [showChatSearch, setShowChatSearch] = useState(false);
@@ -244,14 +250,21 @@ export const ChatTab: React.FC = () => {
     if (chatFilter === 'groups') list = list.filter((c) => c.id.endsWith('@g.us'));
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');
     if (chatFilter === 'empty') list = list.filter((c) => originByConv.get(c.id) === 'empty');
+    if (chatFilter === 'pinned') list = list.filter((c) => crm.get(c.id).pinned);
     return list
       .filter(
         (c) =>
           c.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
           c.contactPhone.includes(searchTerm)
       )
-      .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
-  }, [filteredByConnection, chatFilter, searchTerm, originByConv]);
+      .sort((a, b) => {
+        // Fixados sempre no topo
+        const pa = crm.get(a.id).pinned ? 1 : 0;
+        const pb = crm.get(b.id).pinned ? 1 : 0;
+        if (pa !== pb) return pb - pa;
+        return (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0);
+      });
+  }, [filteredByConnection, chatFilter, searchTerm, originByConv, crm]);
 
   const totalUnread = filteredByConnection.reduce((a, c) => a + c.unreadCount, 0);
   const totalGroups = filteredByConnection.filter((c) => c.id.endsWith('@g.us')).length;
@@ -655,6 +668,14 @@ export const ChatTab: React.FC = () => {
                 label: 'Nao lidas',
                 badge: totalUnread > 0 ? <Badge variant="success">{totalUnread}</Badge> : undefined
               },
+              ...(crm.stats.pinned > 0
+                ? [{
+                    id: 'pinned' as const,
+                    label: 'Fixadas',
+                    icon: <Pin className="w-3 h-3" />,
+                    badge: <Badge variant="warning">{crm.stats.pinned}</Badge>
+                  }]
+                : []),
               {
                 id: 'groups',
                 label: 'Grupos',
@@ -716,6 +737,10 @@ export const ChatTab: React.FC = () => {
             const lastMsgPreview = getLastMsgPreview(conv);
             const lastIcon = getLastMsgIcon(conv);
             const connection = connections.find((c) => c.id === conv.connectionId);
+            const crmData = crm.get(conv.id);
+            const crmStatus = crmData.status ? STATUS_META[crmData.status] : null;
+            const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
+            const hasNotes = !!(crmData.notes && crmData.notes.trim());
             return (
               <button
                 key={conv.id}
@@ -723,21 +748,30 @@ export const ChatTab: React.FC = () => {
                 onClick={() => selectChat(conv.id)}
                 className="w-full text-left flex items-center gap-3 px-3 py-2.5 transition-colors group relative"
                 style={{
-                  background: isActive ? 'var(--surface-2)' : 'transparent',
+                  background: isActive ? 'var(--surface-2)' : crmData.pinned ? 'rgba(245,158,11,0.04)' : 'transparent',
                   borderBottom: '1px solid var(--border-subtle)'
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) e.currentTarget.style.background = 'var(--surface-1)';
                 }}
                 onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'transparent';
+                  if (!isActive) e.currentTarget.style.background = crmData.pinned ? 'rgba(245,158,11,0.04)' : 'transparent';
                 }}
               >
+                {/* Barra lateral colorida do status */}
+                {crmStatus && (
+                  <span
+                    className="absolute left-0 top-0 bottom-0 w-[3px]"
+                    style={{ background: crmStatus.color }}
+                    aria-hidden
+                  />
+                )}
                 <div className="relative flex-shrink-0">
                   <img
                     src={getAvatar(conv.contactName, conv.profilePicUrl)}
                     className="w-11 h-11 rounded-full object-cover"
                     alt=""
+                    style={crmStatus ? { boxShadow: `0 0 0 2px ${crmStatus.color}55` } : undefined}
                   />
                   {isGroup && (
                     <div
@@ -747,17 +781,37 @@ export const ChatTab: React.FC = () => {
                       <Users className="w-2.5 h-2.5" style={{ color: 'var(--text-2)' }} />
                     </div>
                   )}
+                  {crmData.pinned && (
+                    <div
+                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                      style={{ background: '#f59e0b', boxShadow: '0 2px 6px rgba(245,158,11,0.5)' }}
+                      title="Contato fixado"
+                    >
+                      <Pin className="w-2.5 h-2.5 text-white fill-white" />
+                    </div>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
+                  <div className="flex items-center justify-between mb-0.5 gap-2">
+                    <div className="flex items-center gap-1 min-w-0 flex-1">
+                      <span
+                        className="text-[13.5px] font-semibold truncate"
+                        style={{ color: 'var(--text-1)' }}
+                      >
+                        {conv.contactName}
+                      </span>
+                      {crmData.favoriteAt && (
+                        <Star className="w-3 h-3 flex-shrink-0 fill-current" style={{ color: '#f59e0b' }} />
+                      )}
+                      {hasNotes && (
+                        <StickyNote className="w-3 h-3 flex-shrink-0" style={{ color: '#10b981' }} />
+                      )}
+                      {hasReminder && (
+                        <Bell className="w-3 h-3 flex-shrink-0" style={{ color: '#ef4444' }} />
+                      )}
+                    </div>
                     <span
-                      className="text-[13.5px] font-semibold truncate"
-                      style={{ color: 'var(--text-1)' }}
-                    >
-                      {conv.contactName}
-                    </span>
-                    <span
-                      className="text-[10.5px] flex-shrink-0 ml-2 tabular-nums font-medium"
+                      className="text-[10.5px] flex-shrink-0 tabular-nums font-medium"
                       style={{ color: conv.unreadCount > 0 ? 'var(--brand-600)' : 'var(--text-3)' }}
                     >
                       {conv.lastMessageTime}
@@ -771,6 +825,15 @@ export const ChatTab: React.FC = () => {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {crmStatus && (
+                        <span
+                          className="text-[9.5px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-0.5"
+                          style={{ background: crmStatus.bg, color: crmStatus.color }}
+                          title={`Status: ${crmStatus.label}`}
+                        >
+                          {crmStatus.emoji}
+                        </span>
+                      )}
                       {origin === 'system' && (
                         <span
                           className="text-[9.5px] px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 font-semibold"
@@ -807,7 +870,60 @@ export const ChatTab: React.FC = () => {
                       )}
                     </div>
                   </div>
+                  {/* Tags CRM inline */}
+                  {(crmData.tags && crmData.tags.length > 0) && (
+                    <div className="flex items-center gap-1 mt-1 overflow-hidden">
+                      {crmData.tags.slice(0, 3).map((tag) => {
+                        const color = hashTagColor(tag);
+                        return (
+                          <span
+                            key={tag}
+                            className="text-[9.5px] px-1.5 py-[1px] rounded-full font-semibold truncate"
+                            style={{
+                              background: `${color}1a`,
+                              color,
+                              border: `1px solid ${color}33`,
+                              maxWidth: 80
+                            }}
+                          >
+                            {tag}
+                          </span>
+                        );
+                      })}
+                      {crmData.tags.length > 3 && (
+                        <span className="text-[9.5px]" style={{ color: 'var(--text-3)' }}>
+                          +{crmData.tags.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
+                {/* Pin rapido no hover */}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    crm.togglePin(conv.id);
+                    toast.success(crmData.pinned ? 'Desafixado' : 'Fixado no topo');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      crm.togglePin(conv.id);
+                    }
+                  }}
+                  className={`absolute right-10 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-opacity cursor-pointer ${
+                    crmData.pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  }`}
+                  style={{
+                    background: crmData.pinned ? 'rgba(245,158,11,0.15)' : 'var(--surface-2)',
+                    color: crmData.pinned ? '#f59e0b' : 'var(--text-3)'
+                  }}
+                  title={crmData.pinned ? 'Desafixar' : 'Fixar'}
+                >
+                  <Pin className={`w-3.5 h-3.5 ${crmData.pinned ? 'fill-current' : ''}`} />
+                </span>
                 {origin !== 'phone' && (
                   <span
                     role="button"
@@ -880,15 +996,47 @@ export const ChatTab: React.FC = () => {
                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
                 onClick={() => setShowContactInfo(!showContactInfo)}
               >
-                <img
-                  src={getAvatar(selectedConversation.contactName, selectedConversation.profilePicUrl)}
-                  className="w-9 h-9 rounded-full object-cover flex-shrink-0"
-                  alt=""
-                />
+                <div className="relative flex-shrink-0">
+                  <img
+                    src={getAvatar(selectedConversation.contactName, selectedConversation.profilePicUrl)}
+                    className="w-9 h-9 rounded-full object-cover"
+                    alt=""
+                    style={
+                      crm.get(selectedConversation.id).status
+                        ? { boxShadow: `0 0 0 2px ${STATUS_META[crm.get(selectedConversation.id).status!].color}66` }
+                        : undefined
+                    }
+                  />
+                  {crm.get(selectedConversation.id).pinned && (
+                    <div
+                      className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                      style={{ background: '#f59e0b' }}
+                      title="Fixado"
+                    >
+                      <Pin className="w-2 h-2 text-white fill-white" />
+                    </div>
+                  )}
+                </div>
                 <div className="min-w-0">
-                  <h3 className="text-[14px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                    {selectedConversation.contactName}
-                  </h3>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-[14px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                      {selectedConversation.contactName}
+                    </h3>
+                    {(() => {
+                      const s = crm.get(selectedConversation.id).status;
+                      if (!s) return null;
+                      const m = STATUS_META[s];
+                      return (
+                        <span
+                          className="text-[9.5px] px-1.5 py-0.5 rounded-full font-bold inline-flex items-center gap-0.5"
+                          style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}55` }}
+                        >
+                          <span>{m.emoji}</span>
+                          {m.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   <p className="text-[11.5px] truncate" style={{ color: 'var(--text-3)' }}>
                     {selectedConversation.contactPhone}
                     {selectedConnection && <span> - {selectedConnection.name}</span>}
@@ -896,10 +1044,29 @@ export const ChatTab: React.FC = () => {
                 </div>
               </button>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" onClick={() => setShowChatSearch(!showChatSearch)}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    crm.togglePin(selectedConversation.id);
+                    toast.success(crm.get(selectedConversation.id).pinned ? 'Desafixado' : 'Fixado no topo');
+                  }}
+                  title={crm.get(selectedConversation.id).pinned ? 'Desafixar' : 'Fixar'}
+                >
+                  <Pin
+                    className={`w-4 h-4 ${crm.get(selectedConversation.id).pinned ? 'fill-current' : ''}`}
+                    style={{ color: crm.get(selectedConversation.id).pinned ? '#f59e0b' : undefined }}
+                  />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setShowChatSearch(!showChatSearch)} title="Buscar mensagens">
                   <Search className="w-4 h-4" />
                 </Button>
-                <Button variant="ghost" size="icon" onClick={() => setShowContactInfo(!showContactInfo)}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowContactInfo(!showContactInfo)}
+                  title="Ficha do cliente"
+                >
                   <Info className="w-4 h-4" />
                 </Button>
                 <Button variant="ghost" size="icon">
@@ -1185,212 +1352,26 @@ export const ChatTab: React.FC = () => {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center relative">
-            <div
-              className="absolute bottom-0 left-0 right-0 h-[4px]"
-              style={{ background: 'var(--brand-500)' }}
-            />
-            <div className="max-w-md px-8">
-              <div
-                className="w-28 h-28 mx-auto mb-5 flex items-center justify-center rounded-3xl"
-                style={{ background: 'rgba(16,185,129,0.1)' }}
-              >
-                <Workflow className="w-12 h-12" style={{ color: 'var(--brand-600)' }} />
-              </div>
-              <h1 className="text-[22px] font-bold mb-2 tracking-tight" style={{ color: 'var(--text-1)' }}>
-                Pipeline de mensagens
-              </h1>
-              <p className="text-[13.5px] leading-relaxed mb-4" style={{ color: 'var(--text-2)' }}>
-                Acompanhe o fluxo das suas conversas: envio, entrega, leitura e respostas. Selecione um contato na lista
-                para abrir o thread.
-              </p>
-              <div
-                className="flex items-center justify-center gap-1 flex-wrap text-[10px] font-medium mb-6"
-                style={{ color: 'var(--text-3)' }}
-              >
-                <span className="px-2 py-1 rounded-md" style={{ background: 'var(--surface-2)' }}>
-                  Enviado
-                </span>
-                <ChevronRight className="w-3 h-3 opacity-40" />
-                <span className="px-2 py-1 rounded-md" style={{ background: 'var(--surface-2)' }}>
-                  Entregue
-                </span>
-                <ChevronRight className="w-3 h-3 opacity-40" />
-                <span className="px-2 py-1 rounded-md" style={{ background: 'var(--surface-2)' }}>
-                  Lido
-                </span>
-                <ChevronRight className="w-3 h-3 opacity-40" />
-                <span className="px-2 py-1 rounded-md" style={{ background: 'var(--surface-2)' }}>
-                  Resposta
-                </span>
-              </div>
-              <div
-                className="flex items-center justify-center gap-6 pt-5"
-                style={{ borderTop: '1px solid var(--border-subtle)' }}
-              >
-                <div className="text-center">
-                  <div className="text-[20px] font-bold" style={{ color: 'var(--brand-600)' }}>
-                    {conversations.length}
-                  </div>
-                  <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                    Conversas
-                  </div>
-                </div>
-                <div className="w-px h-8" style={{ background: 'var(--border-subtle)' }} />
-                <div className="text-center">
-                  <div className="text-[20px] font-bold" style={{ color: 'var(--brand-600)' }}>
-                    {totalUnread}
-                  </div>
-                  <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                    Nao lidas
-                  </div>
-                </div>
-                <div className="w-px h-8" style={{ background: 'var(--border-subtle)' }} />
-                <div className="text-center">
-                  <div className="text-[20px] font-bold" style={{ color: 'var(--brand-600)' }}>
-                    {connections.length}
-                  </div>
-                  <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                    Chips
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ChatEmptyShowcase
+            totalConversations={conversations.length}
+            totalUnread={totalUnread}
+            totalChannels={connections.length}
+            crmStats={crm.stats}
+          />
         )}
       </div>
 
       {showContactInfo && selectedConversation && (
-        <div
-          className="hidden lg:flex w-[320px] flex-col flex-shrink-0"
-          style={{ background: 'var(--surface-0)', borderLeft: '1px solid var(--border-subtle)' }}
-        >
-          <div
-            className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
-            style={{ borderBottom: '1px solid var(--border-subtle)' }}
-          >
-            <Button variant="ghost" size="icon" onClick={() => setShowContactInfo(false)}>
-              <X className="w-4 h-4" />
-            </Button>
-            <span className="text-[14px] font-semibold" style={{ color: 'var(--text-1)' }}>
-              Info do contato
-            </span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            <div className="flex flex-col items-center py-6 px-4">
-              <img
-                src={getAvatar(selectedConversation.contactName, selectedConversation.profilePicUrl)}
-                className="w-[140px] h-[140px] rounded-full object-cover mb-4"
-                alt=""
-              />
-              <h3 className="text-[18px] font-bold" style={{ color: 'var(--text-1)' }}>
-                {selectedConversation.contactName}
-              </h3>
-              <p className="text-[13px] mt-1" style={{ color: 'var(--text-3)' }}>
-                {selectedConversation.contactPhone}
-              </p>
-            </div>
-
-            {pipelineAgg && (
-              <div className="py-4 px-5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                <p className="ui-eyebrow mb-3">Pipeline</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { k: 'Enviadas', v: pipelineAgg.sent },
-                    { k: 'Entregues', v: pipelineAgg.delivered },
-                    { k: 'Lidas', v: pipelineAgg.read },
-                    { k: 'Respostas', v: pipelineAgg.replies }
-                  ].map((row) => (
-                    <div
-                      key={row.k}
-                      className="rounded-lg px-2.5 py-2"
-                      style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                    >
-                      <p className="text-[18px] font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>
-                        {row.v.toLocaleString('pt-BR')}
-                      </p>
-                      <p className="text-[10px] font-medium mt-0.5" style={{ color: 'var(--text-3)' }}>
-                        {row.k}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div
-              className="py-4 px-5"
-              style={{ borderTop: '1px solid var(--border-subtle)' }}
-            >
-              <p className="ui-eyebrow mb-3">Detalhes</p>
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <Phone className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-3)' }} />
-                  <div>
-                    <p className="text-[13px]" style={{ color: 'var(--text-1)' }}>
-                      {selectedConversation.contactPhone}
-                    </p>
-                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                      Telefone
-                    </p>
-                  </div>
-                </div>
-                {selectedConnection && (
-                  <div className="flex items-center gap-3">
-                    <MessageCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-3)' }} />
-                    <div>
-                      <p className="text-[13px]" style={{ color: 'var(--text-1)' }}>
-                        {selectedConnection.name}
-                      </p>
-                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                        Chip conectado
-                      </p>
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-3">
-                  <Clock className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-3)' }} />
-                  <div>
-                    <p className="text-[13px]" style={{ color: 'var(--text-1)' }}>
-                      {selectedConversation.messages.length} mensagens
-                    </p>
-                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                      No historico
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="py-4 px-5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <div className="flex items-center justify-between mb-3">
-                <p className="ui-eyebrow">Midia</p>
-                <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                  {
-                    selectedConversation.messages.filter((m) => ['image', 'video', 'document'].includes(m.type))
-                      .length
-                  }
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-1">
-                {selectedConversation.messages
-                  .filter((m) => m.type === 'image' && m.mediaUrl)
-                  .slice(-6)
-                  .map((m, i) => (
-                    <div key={i} className="aspect-square rounded overflow-hidden">
-                      <img src={m.mediaUrl} className="w-full h-full object-cover" alt="" />
-                    </div>
-                  ))}
-              </div>
-              {selectedConversation.messages.filter((m) => m.type === 'image' && m.mediaUrl).length === 0 && (
-                <p className="text-[12px] text-center py-4" style={{ color: 'var(--text-3)' }}>
-                  Nenhuma midia
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        <ClientCrmPanel
+          conversation={selectedConversation}
+          connectionName={selectedConnection?.name}
+          avatar={getAvatar(selectedConversation.contactName, selectedConversation.profilePicUrl)}
+          crmData={crm.get(selectedConversation.id)}
+          pipelineAgg={pipelineAgg}
+          onClose={() => setShowContactInfo(false)}
+          onUpdate={(patch) => crm.update(selectedConversation.id, patch)}
+          onClear={() => crm.clear(selectedConversation.id)}
+        />
       )}
 
       {/* ============================ MODAL DE AUDITORIA DE ORIGEM ============================ */}
