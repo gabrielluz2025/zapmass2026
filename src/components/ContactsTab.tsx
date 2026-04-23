@@ -1,12 +1,33 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers } from 'lucide-react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
+import { useAppView } from '../context/AppViewContext';
+import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, EmptyState, SectionHeader, StatCard } from './ui';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
+
+// Colunas do modelo de importacao (tambem usadas em todos os exports)
+const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: string; width: number }> = [
+  { key: 'name', label: 'Nome', width: 28 },
+  { key: 'phone', label: 'Telefone', width: 18 },
+  { key: 'birthday', label: 'Aniversario', width: 14 },
+  { key: 'email', label: 'Email', width: 28 },
+  { key: 'street', label: 'Rua', width: 28 },
+  { key: 'number', label: 'Numero', width: 8 },
+  { key: 'neighborhood', label: 'Bairro', width: 18 },
+  { key: 'city', label: 'Cidade', width: 20 },
+  { key: 'state', label: 'UF', width: 6 },
+  { key: 'zipCode', label: 'CEP', width: 12 },
+  { key: 'church', label: 'Igreja', width: 22 },
+  { key: 'role', label: 'Cargo (Igreja)', width: 20 },
+  { key: 'profession', label: 'Cargo Profissional', width: 22 },
+  { key: 'tags', label: 'Tags (separadas por ;)', width: 22 },
+  { key: 'status', label: 'Status', width: 10 }
+];
 
 /** Chave unica por telefone (BR: adiciona 55 se faltar) — duplicados e temperatura. */
 const normPhoneKey = (p: string): string => {
@@ -317,9 +338,44 @@ const parseSmartText = (text: string): SmartRow[] => {
   return rows;
 };
 
+/** Rascunho de campanha "vazio" — só com destinatário. */
+const emptyCampaignDraft = (): CampaignWizardDraft => {
+  const stageId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `s-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return {
+    name: '',
+    sendMode: 'list',
+    selectedListId: '',
+    manualNumbers: '',
+    selectedConnectionIds: [],
+    delaySeconds: 45,
+    campaignFlowMode: 'sequential',
+    messageStages: [
+      {
+        id: stageId,
+        body: '',
+        acceptAnyReply: true,
+        validTokensText: '1, 2, sim, nao',
+        invalidReplyBody: 'Não entendi. Responda com uma das opções acima.'
+      }
+    ],
+    filterCities: [],
+    filterChurches: [],
+    filterRoles: [],
+    filterProfessions: [],
+    filterDDDs: [],
+    filterSearch: '',
+    selectedContactPhones: [],
+    manualSelection: false
+  };
+};
+
 export const ContactsTab: React.FC = () => {
   const { contacts, contactLists, conversations, addContact, removeContact, updateContact, createContactList, deleteContactList, updateContactList } = useZapMass();
-  
+  const { setCurrentView } = useAppView();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -363,6 +419,160 @@ export const ContactsTab: React.FC = () => {
     }
   }, [contactLists, listManageId]);
 
+  /** Abre a conversa deste contato no Chat (via handshake sessionStorage). */
+  const openInChat = (contact: Contact) => {
+    const digits = (contact.phone || '').replace(/\D/g, '');
+    if (!digits) {
+      toast.error('Contato sem telefone válido.');
+      return;
+    }
+    try {
+      sessionStorage.setItem('zapmass.openChatByPhone', digits);
+    } catch {
+      /* ignore */
+    }
+    setCurrentView('chat');
+  };
+
+  /** Dispara a Wizard de nova campanha com base em um rascunho pré-preenchido. */
+  const launchCampaignWithDraft = (draft: CampaignWizardDraft, toastMsg?: string) => {
+    try {
+      sessionStorage.setItem('zapmass.pendingCampaignDraft', JSON.stringify(draft));
+    } catch {
+      /* ignore */
+    }
+    if (toastMsg) toast.success(toastMsg);
+    setCurrentView('campaigns');
+  };
+
+  /** Cria uma campanha para 1 contato (modo manual). */
+  const handleCreateCampaignForContact = (contact: Contact) => {
+    const digits = (contact.phone || '').replace(/\D/g, '');
+    if (!digits || digits.length < 10) {
+      toast.error('Telefone inválido. Edite o contato primeiro.');
+      return;
+    }
+    const draft = emptyCampaignDraft();
+    draft.sendMode = 'manual';
+    draft.manualNumbers = digits;
+    draft.name = `Mensagem para ${contact.name || digits}`;
+    launchCampaignWithDraft(draft, 'Abrindo novo envio 1:1...');
+  };
+
+  /** Cria campanha com a seleção atual (modo manual com vários telefones). */
+  const handleCreateCampaignWithSelection = () => {
+    const validPhones = selectedIds
+      .map((id) => contacts.find((c) => c.id === id))
+      .filter((c): c is Contact => !!c)
+      .map((c) => (c.phone || '').replace(/\D/g, ''))
+      .filter((p) => p.length >= 10);
+    if (validPhones.length === 0) {
+      toast.error('Selecione contatos com telefone válido.');
+      return;
+    }
+    const draft = emptyCampaignDraft();
+    draft.sendMode = 'manual';
+    draft.manualNumbers = validPhones.join('\n');
+    draft.name = `Campanha (${validPhones.length} contatos)`;
+    launchCampaignWithDraft(draft, `Abrindo campanha com ${validPhones.length} contato(s)…`);
+  };
+
+  /** Cria campanha usando uma lista já existente. */
+  const handleCreateCampaignWithList = (list: ContactList) => {
+    const count = (list.contactIds || []).length;
+    if (count === 0) {
+      toast.error('Esta lista está vazia.');
+      return;
+    }
+    const draft = emptyCampaignDraft();
+    draft.sendMode = 'list';
+    draft.selectedListId = list.id;
+    draft.name = `Campanha — ${list.name}`;
+    launchCampaignWithDraft(draft, `Abrindo campanha com "${list.name}" (${count})…`);
+  };
+
+  const handleCopyPhone = async (contact: Contact) => {
+    const digits = (contact.phone || '').replace(/\D/g, '');
+    if (!digits) {
+      toast.error('Sem telefone para copiar.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(digits);
+      toast.success('Telefone copiado.');
+    } catch {
+      toast.error('Não foi possível copiar.');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Remover ${selectedIds.length} contato(s) da base? Esta ação não pode ser desfeita.`)) return;
+    let n = 0;
+    for (const id of selectedIds) {
+      await removeContact(id);
+      n++;
+    }
+    setSelectedIds([]);
+    toast.success(`${n} contato(s) removido(s).`);
+  };
+
+  const handleBulkExport = () => {
+    if (selectedIds.length === 0) return;
+    const selected = contacts.filter((c) => selectedIds.includes(c.id));
+    const header = TEMPLATE_COLUMNS.map(c => c.label);
+    const rows = selected.map(c => TEMPLATE_COLUMNS.map(col => {
+      if (col.key === 'tags') return (c.tags || []).join(';');
+      if (col.key === 'status') return c.status;
+      const v = (c as any)[col.key];
+      return v == null ? '' : String(v);
+    }));
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    ws['!cols'] = TEMPLATE_COLUMNS.map(c => ({ wch: c.width }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'SeleÃ§Ã£o');
+    XLSX.writeFile(wb, `contatos_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast.success(`${selected.length} contato(s) exportado(s).`);
+  };
+
+  const handleBulkAddTag = async () => {
+    if (selectedIds.length === 0) return;
+    const raw = window.prompt('Nova tag para os contatos selecionados (separe várias com vírgula):', '');
+    if (raw == null) return;
+    const tags = raw.split(/[,;]/).map((t) => t.trim()).filter(Boolean);
+    if (tags.length === 0) {
+      toast.error('Informe ao menos uma tag.');
+      return;
+    }
+    let n = 0;
+    for (const id of selectedIds) {
+      const c = contacts.find((x) => x.id === id);
+      if (!c) continue;
+      const merged = Array.from(new Set([...(c.tags || []), ...tags]));
+      await updateContact(id, { tags: merged });
+      n++;
+    }
+    toast.success(`Tag aplicada em ${n} contato(s).`);
+  };
+
+  const handleBulkRemoveTag = async () => {
+    if (selectedIds.length === 0) return;
+    const raw = window.prompt('Tag a remover dos selecionados:', '');
+    if (raw == null) return;
+    const tag = raw.trim();
+    if (!tag) return;
+    const lower = tag.toLowerCase();
+    let n = 0;
+    for (const id of selectedIds) {
+      const c = contacts.find((x) => x.id === id);
+      if (!c) continue;
+      if (!(c.tags || []).some((t) => t.toLowerCase() === lower)) continue;
+      await updateContact(id, { tags: (c.tags || []).filter((t) => t.toLowerCase() !== lower) });
+      n++;
+    }
+    toast.success(`Tag "${tag}" removida de ${n} contato(s).`);
+  };
+
   const openListManage = (listId: string) => {
     setListManageId(listId);
     setListManageSubTab('members');
@@ -400,7 +610,7 @@ export const ContactsTab: React.FC = () => {
       setShowCreateList(false);
       setSelectedIds([]);
     } catch {
-      toast.error('Nao foi possivel criar a lista agora.');
+      toast.error('Não foi possível criar a lista agora.');
     }
   };
 
@@ -425,7 +635,7 @@ export const ContactsTab: React.FC = () => {
       toast.success(`Lista "${quickListName.trim()}" criada com ${validIds.length} contatos.`);
       setQuickListName('');
     } catch {
-      toast.error('Nao foi possivel criar a lista.');
+      toast.error('Não foi possível criar a lista.');
     }
   };
 
@@ -677,6 +887,193 @@ export const ContactsTab: React.FC = () => {
     return result;
   }, [conversations, contacts]);
 
+  // ============================================================
+  //  SMART STATS — métricas acionáveis para aparecer no hero
+  // ============================================================
+  const smartStats = useMemo(() => {
+    const today = new Date();
+    const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const in7 = new Date(today);
+    in7.setDate(in7.getDate() + 7);
+
+    // Aniversariantes hoje + próximos 7 dias
+    const parseBirthday = (raw: string): { m: number; d: number } | null => {
+      if (!raw) return null;
+      const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return { m: parseInt(iso[2], 10), d: parseInt(iso[3], 10) };
+      const br = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+      if (br) return { m: parseInt(br[2], 10), d: parseInt(br[1], 10) };
+      return null;
+    };
+
+    let bdayToday = 0;
+    let bdayWeek = 0;
+    for (const c of contacts) {
+      const b = parseBirthday(c.birthday || '');
+      if (!b) continue;
+      const mm = String(b.m).padStart(2, '0');
+      const dd = String(b.d).padStart(2, '0');
+      if (`${mm}-${dd}` === todayMD) bdayToday++;
+      for (let i = 0; i < 7; i++) {
+        const dt = new Date(today);
+        dt.setDate(dt.getDate() + i);
+        if (b.m === dt.getMonth() + 1 && b.d === dt.getDate()) {
+          bdayWeek++;
+          break;
+        }
+      }
+    }
+
+    const hot = contacts.filter((c) => contactTemps[c.id]?.temp === 'hot').length;
+    const warm = contacts.filter((c) => contactTemps[c.id]?.temp === 'warm').length;
+    const cold = contacts.filter((c) => contactTemps[c.id]?.temp === 'cold').length;
+    const newOnes = contacts.filter((c) => contactTemps[c.id]?.temp === 'new').length;
+
+    // Dormentes: já foi quente/morno mas sem resposta há mais de 30 dias
+    const DAY = 86400000;
+    const now = Date.now();
+    const dormant = contacts.filter((c) => {
+      const t = contactTemps[c.id];
+      if (!t) return false;
+      if (t.sent === 0) return false;
+      if (!t.lastReplyTs) return t.sent >= 2 && (now - t.lastSentTs) / DAY > 60;
+      return (now - t.lastReplyTs) / DAY > 30 && (now - t.lastReplyTs) / DAY <= 180;
+    }).length;
+
+    // Completude: % de contatos com endereço completo
+    const addressComplete = contacts.filter(
+      (c) => c.street && c.number && c.neighborhood && c.city && c.state && c.zipCode
+    ).length;
+    const addressPct = contacts.length === 0 ? 0 : Math.round((addressComplete / contacts.length) * 100);
+
+    const noCity = contacts.filter((c) => !(c.city || '').trim()).length;
+    const noTag = contacts.filter((c) => (c.tags || []).length === 0).length;
+    const invalid = contacts.filter((c) => c.status !== 'VALID').length;
+
+    // Detecta duplicatas de telefone
+    const phoneCount: Record<string, number> = {};
+    for (const c of contacts) {
+      const k = normPhoneKey(c.phone);
+      if (!k) continue;
+      phoneCount[k] = (phoneCount[k] || 0) + 1;
+    }
+    const duplicates = contacts.filter((c) => (phoneCount[normPhoneKey(c.phone)] || 0) > 1).length;
+
+    // Novos últimos 7 dias (precisa parsear ID se tiver timestamp)
+    // Como fallback, conta contatos cuja tag inclui "Novo"/"Importado" criados recentemente.
+    const last7 = contacts.filter((c) => {
+      // ids smart_/import_/etc. têm timestamp embutido
+      const m = (c.id || '').match(/_(\d{13})_/);
+      if (!m) return false;
+      const ts = parseInt(m[1], 10);
+      return Number.isFinite(ts) && now - ts < 7 * DAY;
+    }).length;
+
+    return {
+      total: contacts.length,
+      hot,
+      warm,
+      cold,
+      newOnes,
+      dormant,
+      bdayToday,
+      bdayWeek,
+      addressComplete,
+      addressPct,
+      noCity,
+      noTag,
+      invalid,
+      duplicates,
+      last7
+    };
+  }, [contacts, contactTemps]);
+
+  // ============================================================
+  //  SEGMENTOS INTELIGENTES — chips que aplicam filtros prontos
+  // ============================================================
+  type SmartSegmentId =
+    | 'birthday-week'
+    | 'hot-inactive'
+    | 'cold-reactivation'
+    | 'no-tag'
+    | 'no-address'
+    | 'duplicates'
+    | 'invalid'
+    | 'last-7-days';
+
+  const getSmartSegmentMatches = (id: SmartSegmentId, c: Contact): boolean => {
+    const t = contactTemps[c.id];
+    const DAY = 86400000;
+    const now = Date.now();
+    switch (id) {
+      case 'birthday-week': {
+        if (!c.birthday) return false;
+        const iso = c.birthday.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const br = c.birthday.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+        const m = iso ? parseInt(iso[2], 10) : br ? parseInt(br[2], 10) : null;
+        const d = iso ? parseInt(iso[3], 10) : br ? parseInt(br[1], 10) : null;
+        if (!m || !d) return false;
+        for (let i = 0; i < 7; i++) {
+          const dt = new Date();
+          dt.setDate(dt.getDate() + i);
+          if (m === dt.getMonth() + 1 && d === dt.getDate()) return true;
+        }
+        return false;
+      }
+      case 'hot-inactive':
+        return !!t && t.temp === 'hot' && (!t.lastReplyTs || (now - t.lastReplyTs) / DAY > 15);
+      case 'cold-reactivation':
+        return !!t && t.temp === 'cold' && t.sent > 0;
+      case 'no-tag':
+        return (c.tags || []).length === 0;
+      case 'no-address':
+        return !c.street || !c.city || !c.zipCode;
+      case 'duplicates': {
+        if (!c.phone) return false;
+        const k = normPhoneKey(c.phone);
+        const count = contacts.filter((x) => normPhoneKey(x.phone) === k).length;
+        return count > 1;
+      }
+      case 'invalid':
+        return c.status !== 'VALID';
+      case 'last-7-days': {
+        const m = (c.id || '').match(/_(\d{13})_/);
+        if (!m) return false;
+        const ts = parseInt(m[1], 10);
+        return Number.isFinite(ts) && now - ts < 7 * DAY;
+      }
+      default:
+        return false;
+    }
+  };
+
+  const [activeSegment, setActiveSegment] = useState<SmartSegmentId | null>(null);
+
+  const smartSegments: Array<{
+    id: SmartSegmentId;
+    label: string;
+    icon: React.ElementType;
+    count: number;
+    color: string;
+    hint: string;
+  }> = useMemo(() => {
+    const list: Array<{ id: SmartSegmentId; label: string; icon: React.ElementType; color: string; hint: string }> = [
+      { id: 'birthday-week',      label: 'Aniversários (7d)',    icon: Cake,        color: 'amber',   hint: 'Faça um envio personalizado' },
+      { id: 'hot-inactive',       label: 'Quentes sem contato',  icon: Flame,       color: 'red',     hint: 'Não perca o engajamento' },
+      { id: 'cold-reactivation',  label: 'Reativar frios',       icon: Snowflake,   color: 'sky',     hint: 'Campanha de win-back' },
+      { id: 'last-7-days',        label: 'Novos (7d)',           icon: Sparkles,    color: 'emerald', hint: 'Acolhida para novatos' },
+      { id: 'no-tag',             label: 'Sem tag',              icon: Tag,         color: 'slate',   hint: 'Organize sua base' },
+      { id: 'no-address',         label: 'Sem endereço',         icon: MapPinOff,   color: 'slate',   hint: 'Complete os dados' },
+      { id: 'duplicates',         label: 'Duplicados',           icon: Layers,      color: 'violet',  hint: 'Mescle ou exclua' },
+      { id: 'invalid',            label: 'Inválidos',            icon: AlertCircle, color: 'rose',    hint: 'Corrija os telefones' }
+    ];
+    return list.map((s) => ({
+      ...s,
+      count: contacts.filter((c) => getSmartSegmentMatches(s.id, c)).length
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contacts, contactTemps]);
+
   const fileImportRowsView = useMemo((): FileImportRowView[] => {
     if (fileImportRows.length === 0) return [];
     const existingKeys = new Set(contacts.map(c => normPhoneKey(c.phone)).filter(Boolean));
@@ -790,7 +1187,8 @@ export const ContactsTab: React.FC = () => {
     const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
     const matchesTag = !filterTag || c.tags.some(t => t.toLowerCase() === filterTag.toLowerCase());
     const matchesTemp = filterTemp === 'ALL' || contactTemps[c.id]?.temp === filterTemp;
-    return matchesSearch && matchesStatus && matchesTag && matchesTemp;
+    const matchesSegment = !activeSegment || getSmartSegmentMatches(activeSegment, c);
+    return matchesSearch && matchesStatus && matchesTag && matchesTemp && matchesSegment;
   });
 
   const listFilteredContacts = filteredContacts;
@@ -810,7 +1208,7 @@ export const ContactsTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('Tem certeza que deseja remover este contato da base?')) {
+    if (window.confirm('Tem certeza de que deseja remover este contato da base?')) {
       removeContact(id);
       // Adjust page if empty
       if (paginatedContacts.length === 1 && currentPage > 1) {
@@ -825,7 +1223,7 @@ export const ContactsTab: React.FC = () => {
       await deleteContactList(id);
       toast.success('Lista removida com sucesso.');
     } catch {
-      toast.error('Nao foi possivel remover a lista.');
+      toast.error('Não foi possível remover a lista.');
     }
   };
 
@@ -867,7 +1265,7 @@ export const ContactsTab: React.FC = () => {
       setEditingListId(null);
       setEditingListName('');
     } catch {
-      toast.error('Nao foi possivel atualizar a lista.');
+      toast.error('N�o foi poss�vel atualizar a lista.');
     }
   };
 
@@ -892,7 +1290,7 @@ export const ContactsTab: React.FC = () => {
     const nextIds = mergeContactsIntoListIds(list.contactIds || [], validIds, contacts);
     const added = nextIds.length - (list.contactIds?.length || 0);
     if (added === 0) {
-      toast.error('Nenhum contato novo para incluir (ja estao na lista ou invalidos).');
+      toast.error('Nenhum contato novo para incluir (jÃ¡ estÃ£o na lista ou invÃ¡lidos).');
       return;
     }
     try {
@@ -903,7 +1301,7 @@ export const ContactsTab: React.FC = () => {
       toast.success(`${added} contato(s) incluido(s) em "${list.name}".`);
       setSelectedIds([]);
     } catch {
-      toast.error('Nao foi possivel atualizar a lista.');
+      toast.error('N�o foi poss�vel atualizar a lista.');
     }
   };
 
@@ -923,7 +1321,7 @@ export const ContactsTab: React.FC = () => {
       });
       toast.success('Contato removido da lista.');
     } catch {
-      toast.error('Nao foi possivel atualizar a lista.');
+      toast.error('N�o foi poss�vel atualizar a lista.');
     }
   };
 
@@ -944,7 +1342,7 @@ export const ContactsTab: React.FC = () => {
     const nextIds = mergeContactsIntoListIds(list.contactIds || [], validIds, contacts);
     const added = nextIds.length - (list.contactIds?.length || 0);
     if (added === 0) {
-      toast.error('Nenhum contato novo para incluir (ja estao na lista ou invalidos).');
+      toast.error('Nenhum contato novo para incluir (jÃ¡ estÃ£o na lista ou invÃ¡lidos).');
       return;
     }
     try {
@@ -955,7 +1353,7 @@ export const ContactsTab: React.FC = () => {
       toast.success(`${added} contato(s) incluido(s) em "${list.name}".`);
       setListAddSelectedIds([]);
     } catch {
-      toast.error('Nao foi possivel atualizar a lista.');
+      toast.error('N�o foi poss�vel atualizar a lista.');
     }
   };
 
@@ -969,25 +1367,6 @@ export const ContactsTab: React.FC = () => {
       (c.church || '').toLowerCase().includes(t)
     );
   };
-
-  // Colunas do modelo de importacao (tambem usadas no export)
-  const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: string; width: number }> = [
-    { key: 'name', label: 'Nome', width: 28 },
-    { key: 'phone', label: 'Telefone', width: 18 },
-    { key: 'birthday', label: 'Aniversario', width: 14 },
-    { key: 'email', label: 'Email', width: 28 },
-    { key: 'street', label: 'Rua', width: 28 },
-    { key: 'number', label: 'Numero', width: 8 },
-    { key: 'neighborhood', label: 'Bairro', width: 18 },
-    { key: 'city', label: 'Cidade', width: 20 },
-    { key: 'state', label: 'UF', width: 6 },
-    { key: 'zipCode', label: 'CEP', width: 12 },
-    { key: 'church', label: 'Igreja', width: 22 },
-    { key: 'role', label: 'Cargo (Igreja)', width: 20 },
-    { key: 'profession', label: 'Cargo Profissional', width: 22 },
-    { key: 'tags', label: 'Tags (separadas por ;)', width: 22 },
-    { key: 'status', label: 'Status', width: 10 }
-  ];
 
   const handleDownloadTemplate = () => {
     const headers = TEMPLATE_COLUMNS.map(c => c.label);
@@ -1043,7 +1422,7 @@ export const ContactsTab: React.FC = () => {
 
   const handleSaveNewContact = async () => {
     if (!newContact.name || !newContact.phone) {
-      alert('Por favor, preencha pelo menos Nome e Telefone.');
+      alert('Por favor, preencha ao menos Nome e Telefone.');
       return;
     }
     const cleanPhone = (newContact.phone || '').replace(/\D/g, '');
@@ -1140,7 +1519,7 @@ export const ContactsTab: React.FC = () => {
       <SectionHeader
         eyebrow={<><Users className="w-3 h-3" />Contatos</>}
         title="Base de Contatos"
-        description="Gerencie contatos, edite dados rapidamente e organize listas para campanhas."
+        description="Organize sua audiência, segmente de forma inteligente e dispare campanhas com 1 clique."
         icon={<Users className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
         actions={
           <>
@@ -1198,7 +1577,17 @@ export const ContactsTab: React.FC = () => {
                 </p>
               </div>
             </div>
-            <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-900/50 self-start">
+            <div className="flex items-center gap-2 self-start">
+              <button
+                type="button"
+                onClick={() => handleCreateCampaignWithList(managedListForView)}
+                className="ui-btn-primary whitespace-nowrap text-xs"
+                title="Abrir wizard de campanha com esta lista"
+              >
+                <Rocket className="w-3.5 h-3.5" />
+                Criar campanha
+              </button>
+            <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-900/50">
               <button
                 type="button"
                 onClick={() => setListManageSubTab('members')}
@@ -1224,6 +1613,7 @@ export const ContactsTab: React.FC = () => {
               >
                 Adicionar
               </button>
+            </div>
             </div>
           </div>
 
@@ -1358,7 +1748,7 @@ export const ContactsTab: React.FC = () => {
                       filterStatus === s ? 'brand-soft brand-text brand-border' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
                     }`}
                   >
-                    {s === 'ALL' ? 'Todos' : s === 'VALID' ? '✅ Válidos' : '❌ Inválidos'}
+                    {s === 'ALL' ? 'Todos' : s === 'VALID' ? 'Válidos' : 'Inválidos'}
                   </button>
                 ))}
               </div>
@@ -1417,39 +1807,47 @@ export const ContactsTab: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Total contatos" value={contacts.length} icon={<Users className="w-4 h-4" />} helper="Base ativa" />
+      {/* Insight hero — 6 cards acionáveis */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard
-          label="Validos"
+          label="Base total"
+          value={smartStats.total}
+          icon={<Users className="w-4 h-4" />}
+          helper={smartStats.last7 > 0 ? `+${smartStats.last7} últimos 7d` : 'Base ativa'}
+        />
+        <StatCard
+          label="Válidos"
           value={validCount}
           icon={<CheckCircle2 className="w-4 h-4" />}
-          helper="Prontos para disparo"
+          helper={`${smartStats.total ? Math.round((validCount / smartStats.total) * 100) : 0}% da base`}
           accent="success"
         />
         <StatCard
-          label="Invalidos"
-          value={invalidCount}
-          icon={<AlertCircle className="w-4 h-4" />}
-          helper="Precisam revisar"
-          accent="danger"
+          label="Quentes"
+          value={smartStats.hot}
+          icon={<Flame className="w-4 h-4" />}
+          helper={smartStats.warm > 0 ? `+${smartStats.warm} mornos` : 'Engajados recentes'}
+          accent="warning"
         />
-        <Card>
-          <p className="text-[10.5px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-            Segmentos
-          </p>
-          <div className="mt-3 flex flex-wrap gap-1">
-            {topTags.length === 0 && (
-              <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                Sem tags.
-              </span>
-            )}
-            {topTags.map(([tag, count]) => (
-              <Badge key={tag} variant="neutral">
-                {tag} ({count})
-              </Badge>
-            ))}
-          </div>
-        </Card>
+        <StatCard
+          label="Aniversários"
+          value={smartStats.bdayWeek}
+          icon={<Cake className="w-4 h-4" />}
+          helper={smartStats.bdayToday > 0 ? `${smartStats.bdayToday} hoje • 7 dias` : 'Nos próximos 7 dias'}
+        />
+        <StatCard
+          label="Dormentes"
+          value={smartStats.dormant}
+          icon={<Clock className="w-4 h-4" />}
+          helper="Sem resposta > 30d"
+        />
+        <StatCard
+          label="Completude"
+          value={`${smartStats.addressPct}%`}
+          icon={<TrendingUp className="w-4 h-4" />}
+          helper={smartStats.invalid > 0 ? `${smartStats.invalid} inválidos` : 'Endereço completo'}
+          accent={smartStats.addressPct >= 70 ? 'success' : smartStats.addressPct >= 40 ? 'warning' : 'danger'}
+        />
       </div>
 
       {/* Filters Bar */}
@@ -1487,29 +1885,177 @@ export const ContactsTab: React.FC = () => {
         </div>
       </div>
 
+      {/* Segmentos Inteligentes + Tags + Atividade */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="ui-card p-4 lg:col-span-2">
-          <h3 className="font-bold text-slate-900 dark:text-white mb-3">Segmentos rápidos</h3>
-          <div className="flex flex-wrap gap-2">
-            {topTags.map(([tag, count]) => (
-              <button key={tag} className="px-3 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800">
-                {tag} • {count}
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-violet-500" /> Segmentos Inteligentes
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">Clique em um segmento para filtrar a lista abaixo.</p>
+            </div>
+            {activeSegment && (
+              <button
+                onClick={() => { setActiveSegment(null); setCurrentPage(1); }}
+                className="text-[11px] font-semibold text-slate-500 hover:text-rose-500 underline"
+              >
+                Limpar segmento
               </button>
-            ))}
-            {topTags.length === 0 && <span className="text-sm text-slate-400">Cadastre tags para criar segmentos.</span>}
+            )}
           </div>
-        </div>
-        <div className="ui-card p-4">
-          <h3 className="font-bold text-slate-900 dark:text-white mb-3">Últimos contatos</h3>
-          <div className="space-y-2">
-            {recentContacts.length === 0 && <p className="text-sm text-slate-400">Sem contatos recentes.</p>}
-            {recentContacts.map(contact => (
-              <div key={contact.id} className="flex items-center justify-between text-sm">
-                <span className="text-slate-700 dark:text-slate-300">{contact.name}</span>
-                <span className="text-xs text-slate-400">{contact.phone}</span>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {smartSegments.map((seg) => {
+              const Icon = seg.icon;
+              const active = activeSegment === seg.id;
+              const colorMap: Record<string, string> = {
+                amber: 'from-amber-50 to-amber-100 text-amber-700 border-amber-200 dark:from-amber-950/30 dark:to-amber-950/10 dark:text-amber-300 dark:border-amber-900/40',
+                red: 'from-rose-50 to-rose-100 text-rose-700 border-rose-200 dark:from-rose-950/30 dark:to-rose-950/10 dark:text-rose-300 dark:border-rose-900/40',
+                sky: 'from-sky-50 to-sky-100 text-sky-700 border-sky-200 dark:from-sky-950/30 dark:to-sky-950/10 dark:text-sky-300 dark:border-sky-900/40',
+                emerald: 'from-emerald-50 to-emerald-100 text-emerald-700 border-emerald-200 dark:from-emerald-950/30 dark:to-emerald-950/10 dark:text-emerald-300 dark:border-emerald-900/40',
+                slate: 'from-slate-50 to-slate-100 text-slate-700 border-slate-200 dark:from-slate-800/60 dark:to-slate-800/30 dark:text-slate-300 dark:border-slate-700',
+                violet: 'from-violet-50 to-violet-100 text-violet-700 border-violet-200 dark:from-violet-950/30 dark:to-violet-950/10 dark:text-violet-300 dark:border-violet-900/40',
+                rose: 'from-rose-50 to-rose-100 text-rose-700 border-rose-200 dark:from-rose-950/30 dark:to-rose-950/10 dark:text-rose-300 dark:border-rose-900/40'
+              };
+              const bgMap = colorMap[seg.color] || colorMap.slate;
+              return (
+                <button
+                  key={seg.id}
+                  type="button"
+                  disabled={seg.count === 0}
+                  onClick={() => {
+                    setActiveSegment(active ? null : seg.id);
+                    setCurrentPage(1);
+                  }}
+                  className={`group relative text-left p-3 rounded-xl border bg-gradient-to-br transition-all ${
+                    active
+                      ? `${bgMap} ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 ring-violet-400 shadow-lg scale-[1.02]`
+                      : seg.count === 0
+                        ? 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700 opacity-50 cursor-not-allowed text-slate-400'
+                        : `${bgMap} hover:shadow-md hover:scale-[1.01]`
+                  }`}
+                  title={seg.hint}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <p className="text-[11px] font-bold leading-tight truncate">{seg.label}</p>
+                      </div>
+                      <p className="text-xl font-black tabular-nums mt-1">{seg.count}</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] opacity-70 mt-1 line-clamp-1">{seg.hint}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tags populares como atalho secundário */}
+          {topTags.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Tags populares</p>
+              <div className="flex flex-wrap gap-1.5">
+                {topTags.map(([tag, count]) => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      setFilterTag(filterTag === tag ? '' : tag);
+                      setCurrentPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                      filterTag === tag
+                        ? 'brand-soft brand-text brand-border'
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {tag} <span className="opacity-60 tabular-nums">{count}</span>
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
+        </div>
+
+        {/* Atividade recente — com temperatura e último toque */}
+        <div className="ui-card p-4 flex flex-col">
+          <h3 className="font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-emerald-500" /> Atividade recente
+          </h3>
+          {(() => {
+            // Ordena por última movimentação (resposta > leitura > envio)
+            const withTs = contacts
+              .map((c) => {
+                const t = contactTemps[c.id];
+                const latest = t
+                  ? Math.max(t.lastReplyTs || 0, t.lastReadTs || 0, t.lastSentTs || 0)
+                  : 0;
+                return { c, t, latest };
+              })
+              .filter((x) => x.latest > 0)
+              .sort((a, b) => b.latest - a.latest)
+              .slice(0, 5);
+
+            if (withTs.length === 0) {
+              return (
+                <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                  <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-2">
+                    <MessageCircle className="w-5 h-5 text-slate-400" />
+                  </div>
+                  <p className="text-xs text-slate-500">Nenhuma atividade registrada ainda.</p>
+                  <button
+                    onClick={() => setCurrentView('campaigns')}
+                    className="mt-3 text-[11px] font-bold text-emerald-600 hover:underline"
+                  >
+                    Criar primeira campanha →
+                  </button>
+                </div>
+              );
+            }
+
+            const fmtAgo = (ms: number) => {
+              const diff = Date.now() - ms;
+              const min = Math.floor(diff / 60000);
+              if (min < 1) return 'agora';
+              if (min < 60) return `${min}min`;
+              const h = Math.floor(min / 60);
+              if (h < 24) return `${h}h`;
+              const d = Math.floor(h / 24);
+              if (d < 30) return `${d}d`;
+              return `${Math.floor(d / 30)}m`;
+            };
+
+            return (
+              <div className="space-y-2 flex-1">
+                {withTs.map(({ c, t, latest }) => {
+                  const acc = t ? TEMP_ACCENT[t.temp] : TEMP_ACCENT.new;
+                  const Icon = t?.temp === 'hot' ? Flame : t?.temp === 'warm' ? Flame : t?.temp === 'cold' ? Snowflake : Info;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => openInChat(c)}
+                      className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors group text-left"
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${acc.bg} ${acc.fg}`}>
+                        {c.name.charAt(0).toUpperCase() || '?'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{c.name}</span>
+                          {t && <Icon className={`w-3 h-3 shrink-0 ${acc.fg}`} />}
+                        </div>
+                        <p className="text-[10.5px] text-slate-500 truncate">
+                          {t?.lastReplyTs === latest ? 'respondeu' : t?.lastReadTs === latest ? 'leu' : 'recebeu'} há {fmtAgo(latest)}
+                        </p>
+                      </div>
+                      <MessageCircle className="w-4 h-4 text-slate-300 group-hover:text-emerald-500 shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -1524,7 +2070,7 @@ export const ContactsTab: React.FC = () => {
             <input
               value={quickListName}
               onChange={(e) => setQuickListName(e.target.value)}
-              placeholder="Ex: Lideranca SP"
+              placeholder="Ex: Liderança SP"
               className="ui-input flex-1"
             />
             <button onClick={() => void handleCreateQuickList()} className="ui-btn-primary whitespace-nowrap">
@@ -1532,17 +2078,19 @@ export const ContactsTab: React.FC = () => {
             </button>
           </div>
           <p className="text-[11px] text-slate-400 mt-2">
-            Usa contatos selecionados; se nada estiver selecionado, usa os contatos filtrados na tela.
+            Usa contatos selecionados; se nada estiver selecionado, usa os contatos do filtro atual.
           </p>
         </div>
         {contactLists.length === 0 ? (
           <p className="text-sm text-slate-400">Nenhuma lista criada ainda. Selecione contatos abaixo e crie sua primeira lista.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {contactLists.map((list) => (
+            {contactLists.map((list) => {
+              const count = list.contactIds?.length || list.count || 0;
+              return (
               <div
                 key={list.id}
-                className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 flex items-start justify-between gap-3"
+                className="group rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 flex items-start justify-between gap-3 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md transition-all"
               >
                 {editingListId === list.id ? (
                   <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
@@ -1563,11 +2111,32 @@ export const ContactsTab: React.FC = () => {
                     className="min-w-0 flex-1 text-left rounded-lg -m-1 p-1 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
                     title="Gerir contatos desta lista"
                   >
-                    <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{list.name}</p>
-                    <p className="text-xs text-slate-400 mt-1">{(list.contactIds?.length || list.count || 0)} contatos — clique para adicionar ou remover</p>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs shrink-0">
+                        {list.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{list.name}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          <span className="tabular-nums font-semibold">{count}</span> contato{count !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
                   </button>
                 )}
-                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    disabled={count === 0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCreateCampaignWithList(list);
+                    }}
+                    className="p-1.5 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Criar campanha com esta lista"
+                  >
+                    <Rocket className="w-4 h-4" />
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -1592,82 +2161,149 @@ export const ContactsTab: React.FC = () => {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {selectedIds.length > 0 && (
-        <div className="ui-card p-4 border-l-4 border-emerald-500">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-            <div className="flex-1">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Selecao ativa</p>
-              <p className="text-sm font-semibold text-slate-900 dark:text-white mt-1">
-                {selectedIds.length} contato{selectedIds.length > 1 ? 's' : ''} selecionado{selectedIds.length > 1 ? 's' : ''}
-              </p>
-              <p className="text-xs text-slate-400 mt-1">
-                Inclua em uma lista existente ou crie uma lista nova para campanhas.
-              </p>
+        <div className="ui-card p-4 border-l-4 border-emerald-500 bg-gradient-to-r from-emerald-50/40 to-transparent dark:from-emerald-950/20">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-300 uppercase tracking-widest flex items-center gap-1.5">
+                  <CheckSquare className="w-3 h-3" /> Seleção ativa
+                </p>
+                <p className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
+                  {selectedIds.length} contato{selectedIds.length > 1 ? 's' : ''} selecionado{selectedIds.length > 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedIds([])}
+                className="text-[11px] font-semibold text-slate-500 hover:text-rose-500 underline self-start sm:self-auto"
+              >
+                Limpar seleção
+              </button>
             </div>
-            <div className="flex flex-col gap-3 w-full lg:max-w-xl">
-              {contactLists.length > 0 && (
-                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                  <select
-                    value={addToListSelectId}
-                    onChange={(e) => setAddToListSelectId(e.target.value)}
-                    className="ui-input flex-1 text-sm"
-                  >
-                    <option value="">Escolha uma lista...</option>
-                    {contactLists.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name} ({l.contactIds?.length || 0})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => void handleAddSelectionToList()}
-                    disabled={!addToListSelectId}
-                    className="ui-btn-primary whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <UserPlus className="w-4 h-4" /> Incluir na lista
-                  </button>
-                </div>
-              )}
-              <div className="flex flex-col sm:flex-row gap-2">
-                {showCreateList && (
-                  <input
-                    type="text"
-                    value={newListName}
-                    onChange={(e) => setNewListName(e.target.value)}
-                    className="ui-input flex-1"
-                    placeholder="Nome da lista"
-                  />
-                )}
-                <button
-                  onClick={() => {
-                    if (showCreateList) {
-                      void handleCreateListFromSelection();
-                    } else {
-                      setShowCreateList(true);
-                    }
-                  }}
-                  className="ui-btn whitespace-nowrap border border-slate-200 dark:border-slate-600"
-                >
-                  <ListPlus className="w-4 h-4" /> {showCreateList ? 'Salvar lista nova' : 'Criar lista nova'}
-                </button>
-                {showCreateList && (
-                  <button
-                    onClick={() => {
-                      setShowCreateList(false);
-                      setNewListName('');
-                    }}
-                    className="ui-btn whitespace-nowrap"
-                  >
-                    Cancelar
-                  </button>
+
+            {/* Ações principais — ponte para outras abas */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={handleCreateCampaignWithSelection}
+                className="group flex items-center gap-2 p-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-sm hover:shadow-md"
+                title="Ir para Campanhas com estes contatos"
+              >
+                <Rocket className="w-4 h-4" />
+                <span className="truncate">Criar campanha</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleBulkAddTag()}
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors"
+                title="Adicionar tag em massa"
+              >
+                <Tag className="w-4 h-4 text-violet-500" />
+                <span className="truncate">Adicionar tag</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkExport}
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors"
+                title="Exportar somente a seleção"
+              >
+                <Download className="w-4 h-4 text-sky-500" />
+                <span className="truncate">Exportar seleção</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleBulkDelete()}
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-300 font-bold text-xs transition-colors"
+                title="Excluir em massa"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="truncate">Excluir</span>
+              </button>
+            </div>
+
+            {/* Ações secundárias — listas */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div>
+                <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Lista existente</p>
+                {contactLists.length > 0 ? (
+                  <div className="flex gap-2">
+                    <select
+                      value={addToListSelectId}
+                      onChange={(e) => setAddToListSelectId(e.target.value)}
+                      className="ui-input flex-1 text-sm"
+                    >
+                      <option value="">Escolha uma lista...</option>
+                      {contactLists.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name} ({l.contactIds?.length || 0})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleAddSelectionToList()}
+                      disabled={!addToListSelectId}
+                      className="ui-btn-primary whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                    >
+                      <UserPlus className="w-4 h-4" /> Incluir
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 italic">Nenhuma lista cadastrada ainda.</p>
                 )}
               </div>
+              <div>
+                <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Nova lista</p>
+                <div className="flex gap-2">
+                  {showCreateList ? (
+                    <>
+                      <input
+                        type="text"
+                        value={newListName}
+                        onChange={(e) => setNewListName(e.target.value)}
+                        className="ui-input flex-1 text-sm"
+                        placeholder="Nome da lista"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => void handleCreateListFromSelection()}
+                        className="ui-btn-primary whitespace-nowrap text-xs"
+                      >
+                        <Save className="w-4 h-4" /> Salvar
+                      </button>
+                      <button
+                        onClick={() => { setShowCreateList(false); setNewListName(''); }}
+                        className="ui-btn whitespace-nowrap text-xs"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setShowCreateList(true)}
+                      className="ui-btn whitespace-nowrap border border-slate-200 dark:border-slate-600 text-xs w-full justify-center"
+                    >
+                      <ListPlus className="w-4 h-4" /> Criar nova lista
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Remover tag (secundário) */}
+            <div className="flex items-center gap-3 text-[11px]">
+              <button
+                onClick={() => void handleBulkRemoveTag()}
+                className="font-semibold text-slate-500 hover:text-rose-500 underline decoration-dotted"
+              >
+                Remover tag da seleção
+              </button>
             </div>
           </div>
         </div>
@@ -1720,7 +2356,7 @@ export const ContactsTab: React.FC = () => {
                   </button>
                 </th>
                 <th className="px-4 py-3 text-xs uppercase tracking-wider">Nome / Telefone</th>
-                <th className="px-4 py-3 text-xs uppercase tracking-wider hidden md:table-cell">Cidade / Endereco</th>
+                <th className="px-4 py-3 text-xs uppercase tracking-wider hidden md:table-cell">Cidade / Endereço</th>
                 <th className="px-4 py-3 text-xs uppercase tracking-wider hidden lg:table-cell">Igreja &amp; Cargo</th>
                 <th className="px-4 py-3 text-xs uppercase tracking-wider hidden sm:table-cell">Tags</th>
                 <th className="px-4 py-3 text-xs uppercase tracking-wider hidden md:table-cell">Listas</th>
@@ -1771,7 +2407,7 @@ export const ContactsTab: React.FC = () => {
                     </div>
                   </td>
 
-                  {/* Cidade + endereco (campos novos aparecem aqui; edicao completa no lapis) */}
+                  {/* Cidade + endereÃ§o (campos novos aparecem aqui; ediÃ§Ã£o completa no lÃ¡pis) */}
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -1840,7 +2476,7 @@ export const ContactsTab: React.FC = () => {
                     {(() => {
                       const n = contactListMembership.counts[contact.id] || 0;
                       const names = contactListMembership.names[contact.id];
-                      const title = names?.length ? names.join(', ') : 'Nao esta em nenhuma lista';
+                      const title = names?.length ? names.join(', ') : 'NÃ£o estÃ¡ em nenhuma lista';
                       return (
                         <span
                           title={title}
@@ -1868,7 +2504,40 @@ export const ContactsTab: React.FC = () => {
 
                   {/* Ações */}
                   <td className="px-6 py-4 text-right">
-                    <div className="inline-flex items-center gap-1">
+                    <div className="inline-flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openInChat(contact);
+                        }}
+                        className="text-slate-300 hover:text-emerald-600 p-1.5 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors"
+                        title="Abrir conversa no chat"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCreateCampaignForContact(contact);
+                        }}
+                        className="text-slate-300 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
+                        title="Nova campanha para este contato"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleCopyPhone(contact);
+                        }}
+                        className="text-slate-300 hover:text-sky-600 p-1.5 rounded-md hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"
+                        title="Copiar telefone"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1904,8 +2573,12 @@ export const ContactsTab: React.FC = () => {
           <div className="p-10">
             <EmptyState
               icon={<Users className="w-5 h-5" style={{ color: 'var(--text-3)' }} />}
-              title="Nenhum contato encontrado"
-              description="Tente ajustar os filtros ou importe contatos via CSV para comecar."
+              title={contacts.length === 0 ? 'Sua base está vazia' : 'Nenhum contato no filtro atual'}
+              description={
+                contacts.length === 0
+                  ? 'Comece importando uma planilha, colando do Excel ou cadastrando manualmente.'
+                  : 'Ajuste os filtros, limpe o segmento selecionado ou tente outra busca.'
+              }
             />
           </div>
         )}
@@ -1950,7 +2623,7 @@ export const ContactsTab: React.FC = () => {
                        {editingContactId ? 'Editar Contato' : 'Novo Contato'}
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5 ml-10">
-                      {editingContactId ? 'Atualize os dados e salve as alteracoes.' : 'Preencha os dados abaixo para cadastrar manualmente.'}
+                      {editingContactId ? 'Atualize os dados e salve as alteraÃ§Ãµes.' : 'Preencha os dados abaixo para cadastrar manualmente.'}
                     </p>
                  </div>
                  <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
@@ -2028,10 +2701,10 @@ export const ContactsTab: React.FC = () => {
                  {/* Divider */}
                  <div className="border-t border-slate-100 dark:border-slate-800"></div>
 
-                 {/* Section: Endereco */}
+                 {/* Section: EndereÃ§o */}
                  <div className="space-y-4">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                       <Home className="w-3.5 h-3.5" /> Endereco
+                       <Home className="w-3.5 h-3.5" /> EndereÃ§o
                     </h4>
 
                     <div className="bg-amber-50/40 p-4 rounded-xl border border-amber-100/50 space-y-4">
@@ -2048,7 +2721,7 @@ export const ContactsTab: React.FC = () => {
                              />
                           </div>
                           <div className="col-span-6 md:col-span-2">
-                             <label htmlFor="newContactNumber" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Numero</label>
+                             <label htmlFor="newContactNumber" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">NÃºmero</label>
                              <input
                                id="newContactNumber"
                                type="text"
@@ -2248,7 +2921,7 @@ export const ContactsTab: React.FC = () => {
                     </div>
 
                     <div>
-                       <label htmlFor="newContactNotes" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Observacoes</label>
+                       <label htmlFor="newContactNotes" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">ObservaÃ§Ãµes</label>
                        <textarea
                          id="newContactNotes"
                          name="newContactNotes"
@@ -2294,7 +2967,7 @@ export const ContactsTab: React.FC = () => {
                   <FileSpreadsheet className="w-5 h-5 text-violet-600" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-[15px] font-bold text-slate-900 dark:text-white truncate">Revisar importacao</h3>
+                  <h3 className="text-[15px] font-bold text-slate-900 dark:text-white truncate">Revisar importaÃ§Ã£o</h3>
                   <p className="text-[12px] text-slate-500 truncate">{fileImportLabel}</p>
                 </div>
               </div>
@@ -2478,7 +3151,7 @@ export const ContactsTab: React.FC = () => {
                     setFileImportRows([]);
                   }}
                 >
-                  Confirmar importacao
+                  Confirmar importaÃ§Ã£o
                 </Button>
               </div>
             </div>
@@ -2505,7 +3178,7 @@ export const ContactsTab: React.FC = () => {
                   <Wand2 className="w-5 h-5 text-sky-600" />
                 </div>
                 <div>
-                  <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">Importacao inteligente</h3>
+                  <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">ImportaÃ§Ã£o inteligente</h3>
                   <p className="text-[12px] text-slate-500">Cole do Excel/Word/bloco-de-notas e o sistema organiza automaticamente.</p>
                 </div>
               </div>
@@ -2571,7 +3244,7 @@ export const ContactsTab: React.FC = () => {
                         const parsed = parseSmartText(smartImportRaw);
                         setSmartImportPreviewFilter('all');
                         setSmartImportRows(parsed.map(p => ({ ...p, include: true })));
-                        if (parsed.length === 0) toast.error('Nao consegui identificar contatos no texto.');
+                        if (parsed.length === 0) toast.error('NÃ£o consegui identificar contatos no texto.');
                         else toast.success(`${parsed.length} linha(s) analisada(s). Revise duplicados e avisos antes de importar.`);
                       }}
                     >
@@ -2728,7 +3401,7 @@ export const ContactsTab: React.FC = () => {
 
             <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/50">
               <p className="text-[11.5px] text-slate-500 hidden sm:block">
-                Os campos em amarelo estao incompletos (nome ou telefone invalidos). Voce pode editar cada celula antes de importar.
+                Os campos em amarelo estÃ£o incompletos (nome ou telefone invÃ¡lidos). VocÃª pode editar cada cÃ©lula antes de importar.
               </p>
               <div className="flex items-center gap-2 ml-auto">
                 <Button
@@ -2785,7 +3458,7 @@ export const ContactsTab: React.FC = () => {
                         birthday: rv.birthday || '',
                         email: rv.email || '',
                         notes: rv.notes || '',
-                        tags: ['Importacao Rapida'],
+                        tags: ['ImportaÃ§Ã£o RÃ¡pida'],
                         status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
                         lastMsg: 'Nunca'
                       };

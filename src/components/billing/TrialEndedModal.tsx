@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Clock3, CreditCard, Crown, Loader2, Repeat, Sparkles, TrendingDown, Zap, X } from 'lucide-react';
+import { Check, Clock3, CreditCard, Crown, Loader2, Repeat, ShieldCheck, Sparkles, TrendingDown, XCircle, Zap, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
@@ -181,13 +181,20 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
         />
       </div>
 
+      {/* Reassurance: derruba objeção */}
+      <div className="grid grid-cols-3 gap-2 mb-2.5">
+        <TrialReassure icon={<ShieldCheck className="w-3.5 h-3.5" />} title="Mercado Pago" sub="Seguro e certificado" />
+        <TrialReassure icon={<XCircle className="w-3.5 h-3.5" />} title="Sem fidelidade" sub="Cancele em 1 clique" />
+        <TrialReassure icon={<Zap className="w-3.5 h-3.5" />} title="Acesso na hora" sub="Libera após aprovação" />
+      </div>
+
       <div
         className="flex items-center justify-between gap-3 pt-2.5 border-t"
         style={{ borderColor: 'var(--border-subtle)' }}
       >
         <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
-          Pagamento via <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong>. Acesso liberado
-          automaticamente após confirmação.
+          Acesso liberado automaticamente após confirmação do pagamento. Cancele quando quiser em{' '}
+          <strong style={{ color: 'var(--text-2)' }}>Minha assinatura</strong>.
         </p>
         <button
           type="button"
@@ -201,6 +208,35 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
     </Modal>
   );
 };
+
+const TrialReassure: React.FC<{ icon: React.ReactNode; title: string; sub: string }> = ({
+  icon,
+  title,
+  sub
+}) => (
+  <div
+    className="flex items-center gap-2 px-2 py-1.5 rounded-lg"
+    style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+  >
+    <div
+      className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+      style={{
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.06))',
+        color: 'var(--brand-600)'
+      }}
+    >
+      {icon}
+    </div>
+    <div className="min-w-0 leading-tight">
+      <p className="text-[11px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
+        {title}
+      </p>
+      <p className="text-[10px] truncate" style={{ color: 'var(--text-3)' }}>
+        {sub}
+      </p>
+    </div>
+  </div>
+);
 
 interface PlanCardProps {
   label: string;

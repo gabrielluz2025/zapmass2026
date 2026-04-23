@@ -5,21 +5,18 @@ import {
   Calendar,
   Check,
   CheckCheck,
-  CheckCircle2,
   Clock,
   Copy,
   Download,
   FileSpreadsheet,
-  Gauge,
   MessageSquare,
   Pause,
   Play,
   Reply,
   Search,
+  Share2,
   Smartphone,
-  Sparkles,
   Terminal,
-  Timer,
   TrendingUp,
   User,
   Users,
@@ -39,6 +36,11 @@ import {
 } from '../../types';
 import { useZapMass } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
+import { PerformanceFunnel } from '../PerformanceFunnel';
+import { CampaignScoreCard } from './CampaignScoreCard';
+import { CampaignDetailInsights } from './CampaignDetailInsights';
+import { CampaignMessagePreview } from './CampaignMessagePreview';
+import { CampaignChipsPodium } from './CampaignChipsPodium';
 
 interface CampaignDetailsProps {
   campaign: Campaign;
@@ -78,10 +80,8 @@ const STATUS_META: Record<ReportStatus, { label: string; color: string; variant:
   REPLIED:   { label: 'Respondeu',  color: '#10b981',       variant: 'success', icon: <Reply className="w-3 h-3" /> }
 };
 
-// Normaliza telefone para comparacao (somente digitos)
 const cleanPhone = (raw: string): string => (raw || '').replace(/\D/g, '');
 
-// Encontra o contato (nome) pelo telefone
 const findContactName = (phone: string, contacts: Contact[]): string => {
   const target = cleanPhone(phone);
   if (!target) return '';
@@ -91,9 +91,6 @@ const findContactName = (phone: string, contacts: Contact[]): string => {
   return '';
 };
 
-// Encontra a conversa correspondente a este envio de campanha. Como uma campanha
-// pode usar varios chips, varremos todas as conversas relevantes do connectionId
-// permitido pela campanha e procuramos a mensagem com fromCampaign+campaignId.
 const findCampaignMessage = (
   phone: string,
   campaignId: string,
@@ -103,10 +100,6 @@ const findCampaignMessage = (
   const target = cleanPhone(phone);
   if (!target) return null;
 
-  // WhatsApp as vezes separa a conversa em @c.us e @lid. Aqui juntamos
-  // TODAS as conversas do mesmo numero (dentro das conexoes permitidas) e
-  // procuramos: (a) a mensagem com fromCampaign+campaignId em qualquer uma
-  // delas e (b) a resposta mais antiga >= ao envio em qualquer uma delas.
   const matches = conversations.filter((conv) => {
     if (allowedConnectionIds.length > 0 && !allowedConnectionIds.includes(conv.connectionId)) return false;
     return cleanPhone(conv.contactPhone) === target;
@@ -151,9 +144,9 @@ const formatDateTimeBR = (raw?: string): { date: string; time: string; relative:
   const mins = Math.floor(diffMs / 60000);
   let relative = '';
   if (mins < 1) relative = 'agora';
-  else if (mins < 60) relative = `ha ${mins} min`;
-  else if (mins < 1440) relative = `ha ${Math.floor(mins / 60)}h`;
-  else relative = `ha ${Math.floor(mins / 1440)}d`;
+  else if (mins < 60) relative = `há ${mins} min`;
+  else if (mins < 1440) relative = `há ${Math.floor(mins / 60)}h`;
+  else relative = `há ${Math.floor(mins / 1440)}d`;
   return { date, time, relative };
 };
 
@@ -169,6 +162,64 @@ const formatDuration = (seconds: number): string => {
   return minutes ? `${h}h ${minutes}m` : `${h}h`;
 };
 
+// Etapas da timeline por status
+const timelineStepsFor = (status: ReportStatus) => {
+  if (status === 'FAILED') return { sent: false, delivered: false, read: false, replied: false, failed: true };
+  return {
+    sent: ['SENT', 'DELIVERED', 'READ', 'REPLIED'].includes(status),
+    delivered: ['DELIVERED', 'READ', 'REPLIED'].includes(status),
+    read: ['READ', 'REPLIED'].includes(status),
+    replied: status === 'REPLIED',
+    failed: false
+  };
+};
+
+const RowTimeline: React.FC<{ status: ReportStatus }> = ({ status }) => {
+  const s = timelineStepsFor(status);
+  const step = (active: boolean, color: string, title: string) => (
+    <span
+      className="inline-flex items-center gap-0.5"
+      title={title}
+      style={{ color: active ? color : 'var(--text-3)', opacity: active ? 1 : 0.35 }}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full block"
+        style={{
+          background: active ? color : 'var(--surface-2)',
+          boxShadow: active ? `0 0 6px ${color}` : 'none'
+        }}
+      />
+    </span>
+  );
+  const line = (active: boolean, color: string) => (
+    <span
+      className="h-0.5 w-3 block rounded-full"
+      style={{ background: active ? color : 'var(--surface-2)', opacity: active ? 1 : 0.4 }}
+    />
+  );
+  if (s.failed) {
+    return (
+      <span className="inline-flex items-center gap-1" title="Falha">
+        <XCircle className="w-3.5 h-3.5" style={{ color: '#ef4444' }} />
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5" aria-label="timeline do envio">
+      {step(s.sent, '#94a3b8', 'Enviada')}
+      {line(s.delivered, '#3b82f6')}
+      {step(s.delivered, '#3b82f6', 'Entregue')}
+      {line(s.read, '#8b5cf6')}
+      {step(s.read, '#8b5cf6', 'Lida')}
+      {line(s.replied, '#10b981')}
+      {step(s.replied, '#10b981', 'Respondeu')}
+    </span>
+  );
+};
+
+// =============================================================
+// MAIN
+// =============================================================
 export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   campaign,
   connections,
@@ -184,13 +235,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [logFilter, setLogFilter] = useState<LogFilter>('ALL');
   const [now, setNow] = useState(Date.now());
   const [openRow, setOpenRow] = useState<ReportRow | null>(null);
-  const [showPerf, setShowPerf] = useState(false);
 
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
 
-  // Tick para ETA / "ha N segundos" enquanto a campanha esta ativa
   useEffect(() => {
     if (!isRunning) return;
     const id = setInterval(() => setNow(Date.now()), 5000);
@@ -218,6 +267,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     : isDone
     ? '#3b82f6'
     : 'var(--text-3)';
+  const accentHex = isRunning ? '#10b981' : isPaused ? '#f59e0b' : isDone ? '#3b82f6' : '#94a3b8';
 
   const startedAt = useMemo(() => {
     const d = new Date(campaign.createdAt);
@@ -231,12 +281,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
   const startedFmt = formatDateTimeBR(campaign.createdAt);
 
-  // Gera relatorio detalhado combinando logs (tentativas) + conversations (status real e respostas).
-  // Status calculado em ordem de prioridade: REPLIED > READ > DELIVERED > SENT > FAILED > PENDING.
+  // Detailed report (lógica preservada)
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
-
-    // 1) Indexa por telefone os eventos relevantes deste campaignId
     const byPhone = new Map<string, ReportRow>();
     systemLogs.forEach((log, idx) => {
       if (!log.payload || typeof log.payload !== 'object') return;
@@ -251,7 +298,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       const existing = byPhone.get(phone);
       const ts = new Date(log.timestamp).getTime();
 
-      // Prefere o evento de SUCESSO (mais recente) sobre falhas anteriores
       if (existing && existing.status !== 'FAILED' && isError) return;
 
       byPhone.set(phone, {
@@ -266,7 +312,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       });
     });
 
-    // 2) Enriquecer com nome do contato + status real (delivered/read/replied) e texto da resposta
     const rows: ReportRow[] = [];
     byPhone.forEach((row) => {
       const contactName = findContactName(row.phone, contacts);
@@ -349,7 +394,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     });
   }, [detailedReport, detailFilter, detailSearch]);
 
-  // Resumo agregado para o relatorio de desempenho (modal)
   const performance = useMemo(() => {
     const total = detailedReport.length;
     const counts: Record<ReportStatus, number> = {
@@ -358,6 +402,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     let sumResponseMs = 0;
     let countResponses = 0;
     const perChip = new Map<string, { sent: number; replied: number }>();
+    const failedPerChip = new Map<string, number>();
     const perHour = new Map<number, number>();
 
     for (const r of detailedReport) {
@@ -367,6 +412,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         cur.sent++;
         if (r.status === 'REPLIED') cur.replied++;
         perChip.set(r.connectionId, cur);
+        if (r.status === 'FAILED') {
+          failedPerChip.set(r.connectionId, (failedPerChip.get(r.connectionId) || 0) + 1);
+        }
       }
       if (r.status === 'REPLIED' && r.replyTimestampMs && r.sentTimestampMs) {
         sumResponseMs += r.replyTimestampMs - r.sentTimestampMs;
@@ -409,7 +457,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return {
       total, counts, delivered, read, replied,
       successPct, deliveryPct, readPct, replyPct,
-      avgResponseSec, chipBreakdown, hourBreakdown, peakHour
+      avgResponseSec, chipBreakdown, hourBreakdown, peakHour, failedPerChip
     };
   }, [detailedReport, connections]);
 
@@ -430,9 +478,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     });
   }, [campaignLogs, logFilter]);
 
-  const liveLogs = useMemo(() => {
-    return campaignLogs.slice(-12).reverse();
-  }, [campaignLogs]);
+  const liveLogs = useMemo(() => campaignLogs.slice(-12).reverse(), [campaignLogs]);
 
   const handleFilterClick = (filter: ReportFilter) => {
     setDetailFilter(filter);
@@ -467,7 +513,23 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const copyPhone = (phone: string) => {
     navigator.clipboard.writeText(phone).then(
       () => toast.success(`${phone} copiado.`),
-      () => toast.error('Nao foi possivel copiar.')
+      () => toast.error('Não foi possível copiar.')
+    );
+  };
+
+  const shareReport = () => {
+    const lines = [
+      `📊 Relatório: ${campaign.name}`,
+      `Status: ${isRunning ? 'Em execução' : isPaused ? 'Pausada' : isDone ? 'Concluída' : 'Pendente'}`,
+      `Total: ${campaign.totalContacts} contatos`,
+      `Entregues: ${campaign.successCount} (${successRate}%)`,
+      `Respostas: ${performance.replied} (${performance.replyPct}%)`,
+      `Falhas: ${campaign.failedCount}`,
+      startedAt ? `Iniciada em: ${startedFmt.date} ${startedFmt.time}` : ''
+    ].filter(Boolean).join('\n');
+    navigator.clipboard.writeText(lines).then(
+      () => toast.success('Resumo copiado para compartilhar.'),
+      () => toast.error('Falha ao copiar.')
     );
   };
 
@@ -476,9 +538,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return c?.status === ConnectionStatus.CONNECTED;
   }).length;
 
+  // Donut geometry (hero)
+  const donutSize = 200;
+  const donutStroke = 18;
+  const donutR = (donutSize - donutStroke) / 2;
+  const donutC = 2 * Math.PI * donutR;
+  const successArc = (campaign.successCount / Math.max(1, campaign.totalContacts)) * donutC;
+  const failArc = (campaign.failedCount / Math.max(1, campaign.totalContacts)) * donutC;
+
   return (
     <div className="space-y-5 pb-20">
-      {/* ============================ HERO ============================ */}
+      {/* ============================ HERO MISSION REPORT ============================ */}
       <div
         className="relative overflow-hidden rounded-2xl"
         style={{
@@ -486,366 +556,417 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           border: '1px solid var(--border)'
         }}
       >
-        {/* Glow lateral colorido conforme status */}
         <div
           className="absolute top-0 left-0 w-1.5 h-full"
-          style={{ background: accent, boxShadow: `0 0 24px ${accent}80` }}
+          style={{ background: accent, boxShadow: `0 0 28px ${accentHex}66` }}
         />
         <div
-          className="absolute -top-24 -right-24 w-72 h-72 rounded-full opacity-[0.08] pointer-events-none"
-          style={{ background: `radial-gradient(circle, ${accent} 0%, transparent 60%)` }}
+          className="absolute -top-28 -right-28 w-96 h-96 rounded-full opacity-[0.1] pointer-events-none"
+          style={{ background: `radial-gradient(circle, ${accentHex} 0%, transparent 60%)` }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.04]"
+          style={{
+            backgroundImage:
+              'linear-gradient(to right, var(--text-2) 1px, transparent 1px), linear-gradient(to bottom, var(--text-2) 1px, transparent 1px)',
+            backgroundSize: '28px 28px'
+          }}
+          aria-hidden
         />
 
-        <div className="relative p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-          <div className="flex items-start gap-4 min-w-0">
-            <Button variant="secondary" size="icon" onClick={onBack} title="Voltar">
-              <ArrowLeft className="w-4 h-4" />
+        <div className="relative p-5 sm:p-6">
+          {/* Top action bar */}
+          <div className="flex items-center justify-between gap-2 mb-5">
+            <Button variant="secondary" size="sm" leftIcon={<ArrowLeft className="w-4 h-4" />} onClick={onBack}>
+              Voltar
             </Button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                <h2 className="text-[20px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
-                  {campaign.name}
-                </h2>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {!isDone && (
+                <Button
+                  variant={isRunning ? 'secondary' : 'primary'}
+                  size="sm"
+                  leftIcon={isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  onClick={() => onTogglePause(campaign.id)}
+                >
+                  {isRunning ? 'Pausar' : 'Retomar'}
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Share2 className="w-4 h-4" />}
+                onClick={shareReport}
+                title="Copiar resumo para compartilhar"
+              >
+                Compartilhar
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Download className="w-4 h-4" />}
+                onClick={exportReportCsv}
+              >
+                CSV
+              </Button>
+            </div>
+          </div>
+
+          {/* Bento grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            {/* Title + metadata (span 7) */}
+            <div className="lg:col-span-7 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-2">
+                <span
+                  className="text-[10px] font-extrabold uppercase tracking-[0.18em]"
+                  style={{ color: 'var(--text-3)' }}
+                >
+                  Mission Report
+                </span>
                 <Badge variant={statusVariant} dot={isRunning}>
-                  {isRunning ? 'Em execucao' : isPaused ? 'Pausada' : isDone ? 'Concluida' : 'Pendente'}
+                  {isRunning ? 'Em execução' : isPaused ? 'Pausada' : isDone ? 'Concluída' : 'Pendente'}
                 </Badge>
               </div>
+              <h1
+                className="font-black tracking-tight leading-[1.05] mb-3"
+                style={{
+                  color: 'var(--text-1)',
+                  fontSize: 'clamp(26px, 3.2vw, 38px)'
+                }}
+              >
+                {campaign.name}
+              </h1>
               <div
-                className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[12.5px]"
+                className="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[12.5px]"
                 style={{ color: 'var(--text-3)' }}
               >
-                <span className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5" />
-                  {startedFmt.date} as {startedFmt.time}
+                  <span style={{ color: 'var(--text-2)' }}>{startedFmt.date}</span>
+                  <span>às {startedFmt.time}</span>
                   <span className="text-[11px] opacity-70">({startedFmt.relative})</span>
                 </span>
-                <span className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5">
                   <FileSpreadsheet className="w-3.5 h-3.5" />
                   {campaign.contactListName || 'Lista direta'}
                 </span>
-                <span className="flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5" />
-                  {onlineChips}/{campaign.selectedConnectionIds.length} chip
-                  {campaign.selectedConnectionIds.length > 1 ? 's' : ''} online
-                </span>
-                <span className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5" />
-                  {campaign.totalContacts.toLocaleString('pt-BR')} contatos
+                  <span style={{ color: 'var(--text-2)' }}>{campaign.totalContacts.toLocaleString('pt-BR')}</span>
+                  contatos
                 </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span style={{ color: onlineChips > 0 ? '#10b981' : 'var(--text-2)' }}>
+                    {onlineChips}/{campaign.selectedConnectionIds.length}
+                  </span>
+                  chip{campaign.selectedConnectionIds.length > 1 ? 's' : ''} online
+                </span>
+              </div>
+
+              {/* Vital stats */}
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <VitalStat
+                  label="Tempo"
+                  value={formatDuration(elapsedSec)}
+                  hint={isDone ? 'Total' : isRunning ? 'decorrido' : 'pausada'}
+                />
+                <VitalStat
+                  label="Ritmo"
+                  value={throughputPerMin > 0 ? `${throughputPerMin}/min` : '—'}
+                  hint={isRunning ? 'média viva' : 'média final'}
+                  accent="#3b82f6"
+                />
+                <VitalStat
+                  label={isRunning ? 'ETA' : 'Restantes'}
+                  value={isRunning && etaSec > 0 ? formatDuration(etaSec) : remaining.toLocaleString('pt-BR')}
+                  hint={isRunning ? 'previsto' : remaining > 0 ? 'aguardando' : 'concluído'}
+                  accent="#f59e0b"
+                />
+                <VitalStat
+                  label="Taxa sucesso"
+                  value={`${successRate}%`}
+                  hint={successRate >= 90 ? 'excelente' : successRate >= 70 ? 'bom' : 'acompanhar'}
+                  accent={successRate >= 90 ? '#10b981' : successRate >= 70 ? '#3b82f6' : '#f59e0b'}
+                />
+              </div>
+            </div>
+
+            {/* Progress donut (span 5) */}
+            <div className="lg:col-span-5 flex justify-center lg:justify-end">
+              <div className="relative" style={{ width: donutSize, height: donutSize }}>
+                <svg width={donutSize} height={donutSize} viewBox={`0 0 ${donutSize} ${donutSize}`}>
+                  <defs>
+                    <linearGradient id="heroSuccess" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#10b981" />
+                      <stop offset="100%" stopColor="#059669" />
+                    </linearGradient>
+                    <linearGradient id="heroFail" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#ef4444" />
+                      <stop offset="100%" stopColor="#dc2626" />
+                    </linearGradient>
+                  </defs>
+                  <circle
+                    cx={donutSize / 2}
+                    cy={donutSize / 2}
+                    r={donutR}
+                    fill="none"
+                    stroke="var(--surface-2)"
+                    strokeWidth={donutStroke}
+                  />
+                  {/* Success arc */}
+                  <circle
+                    cx={donutSize / 2}
+                    cy={donutSize / 2}
+                    r={donutR}
+                    fill="none"
+                    stroke="url(#heroSuccess)"
+                    strokeWidth={donutStroke}
+                    strokeDasharray={`${successArc} ${donutC}`}
+                    strokeDashoffset={0}
+                    strokeLinecap="round"
+                    transform={`rotate(-90 ${donutSize / 2} ${donutSize / 2})`}
+                    style={{
+                      transition: 'stroke-dasharray 1s ease-out',
+                      filter: 'drop-shadow(0 0 8px rgba(16,185,129,0.5))'
+                    }}
+                  />
+                  {/* Failed arc (continues after success) */}
+                  {campaign.failedCount > 0 && (
+                    <circle
+                      cx={donutSize / 2}
+                      cy={donutSize / 2}
+                      r={donutR}
+                      fill="none"
+                      stroke="url(#heroFail)"
+                      strokeWidth={donutStroke}
+                      strokeDasharray={`${failArc} ${donutC}`}
+                      strokeDashoffset={-successArc}
+                      strokeLinecap="round"
+                      transform={`rotate(-90 ${donutSize / 2} ${donutSize / 2})`}
+                    />
+                  )}
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span
+                    className="text-[11px] font-bold uppercase tracking-[0.14em]"
+                    style={{ color: 'var(--text-3)' }}
+                  >
+                    Progresso
+                  </span>
+                  <span
+                    className="text-[54px] font-black tabular-nums leading-none"
+                    style={{
+                      background: `linear-gradient(135deg, ${accentHex}, ${accentHex}aa)`,
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text'
+                    }}
+                  >
+                    {progress}%
+                  </span>
+                  <span className="text-[11px] mt-0.5 tabular-nums" style={{ color: 'var(--text-3)' }}>
+                    {campaign.processedCount.toLocaleString('pt-BR')} /{' '}
+                    {campaign.totalContacts.toLocaleString('pt-BR')}
+                  </span>
+                  {isRunning && (
+                    <div className="mt-1 flex items-center gap-1">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full animate-pulse"
+                        style={{ background: '#10b981' }}
+                      />
+                      <span
+                        className="text-[9.5px] font-bold uppercase tracking-widest"
+                        style={{ color: '#10b981' }}
+                      >
+                        AO VIVO
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-
-          {!isDone && (
-            <div className="flex items-center gap-2">
-              <Button
-                variant={isRunning ? 'secondary' : 'primary'}
-                leftIcon={isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                onClick={() => onTogglePause(campaign.id)}
-              >
-                {isRunning ? 'Pausar disparo' : 'Retomar disparo'}
-              </Button>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* ============================ KPI STRIP ============================ */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-        <button
+      {/* ============================ KPI PILLS (clickable filters) ============================ */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        <KpiPill
+          label="Entregues"
+          value={campaign.successCount.toLocaleString('pt-BR')}
+          helper={`${successRate}% do total`}
+          color="#10b981"
           onClick={() => handleFilterClick('SENT_GROUP')}
-          className="text-left rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99]"
-        >
-          <KpiCard
-            label="Entregues"
-            value={campaign.successCount.toLocaleString('pt-BR')}
-            icon={<CheckCircle2 className="w-4 h-4" />}
-            helper={`${successRate}% dos processados`}
-            color="#10b981"
-            barPercent={successRate}
-            interactive
-          />
-        </button>
-        <button
+        />
+        <KpiPill
+          label="Responderam"
+          value={performance.replied.toLocaleString('pt-BR')}
+          helper={performance.replied > 0 ? `${performance.replyPct}%` : 'sem respostas'}
+          color="#8b5cf6"
           onClick={() => handleFilterClick('REPLIED')}
-          className="text-left rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99]"
-        >
-          <KpiCard
-            label="Responderam"
-            value={performance.replied.toLocaleString('pt-BR')}
-            icon={<Reply className="w-4 h-4" />}
-            helper={
-              performance.replied > 0
-                ? `${performance.replyPct}% — clique para ver`
-                : 'Sem respostas ainda'
-            }
-            color="#10b981"
-            barPercent={performance.replyPct}
-            interactive
-          />
-        </button>
-        <button
+        />
+        <KpiPill
+          label="Falhas"
+          value={campaign.failedCount.toLocaleString('pt-BR')}
+          helper={campaign.failedCount > 0 ? `${failureRate}%` : 'nenhuma'}
+          color="#ef4444"
           onClick={() => handleFilterClick('FAILED')}
-          className="text-left rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99]"
-        >
-          <KpiCard
-            label="Falhas"
-            value={campaign.failedCount.toLocaleString('pt-BR')}
-            icon={<XCircle className="w-4 h-4" />}
-            helper={
-              campaign.failedCount > 0 ? `${failureRate}% — clique para ver` : 'Nenhuma falha registrada'
-            }
-            color="#ef4444"
-            barPercent={failureRate}
-            interactive
-          />
-        </button>
-        <KpiCard
+        />
+        <KpiPill
           label="Pendentes"
           value={remaining.toLocaleString('pt-BR')}
-          icon={<Clock className="w-4 h-4" />}
-          helper={
-            isRunning
-              ? `ETA ${formatDuration(etaSec)}`
-              : remaining > 0
-              ? 'Aguardando retomar'
-              : 'Tudo processado'
-          }
+          helper={isRunning ? `ETA ${formatDuration(etaSec)}` : 'aguardando'}
           color="#f59e0b"
-          barPercent={campaign.totalContacts > 0 ? (remaining / campaign.totalContacts) * 100 : 0}
-        />
-        <KpiCard
-          label="Taxa de sucesso"
-          value={`${successRate}%`}
-          icon={<TrendingUp className="w-4 h-4" />}
-          helper={
-            successRate >= 90
-              ? 'Excelente performance'
-              : successRate >= 70
-              ? 'Performance ok'
-              : 'Acompanhar canais'
-          }
-          color={successRate >= 90 ? '#10b981' : successRate >= 70 ? '#3b82f6' : '#f59e0b'}
-          barPercent={successRate}
+          onClick={() => handleFilterClick('PENDING')}
         />
       </div>
 
-      {/* ============================ PROGRESSO + CHIPS ============================ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <div className="flex items-start justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center brand-soft">
-                <Gauge className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="ui-title text-[14px]">Progresso do disparo</h3>
-                <p className="ui-subtitle text-[12px]">
-                  {isRunning ? 'Atualizado em tempo real' : isPaused ? 'Pausada — pronta para retomar' : 'Relatorio final'}
-                </p>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[28px] font-bold tabular-nums leading-none" style={{ color: accent }}>
-                {progress}%
-              </div>
-              <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                {campaign.processedCount.toLocaleString('pt-BR')} de{' '}
-                {campaign.totalContacts.toLocaleString('pt-BR')}
-              </div>
-            </div>
-          </div>
-
-          {/* Barra de progresso com gradiente segmentado (sucesso/falha) */}
+      {/* ============================ JORNADA DA MENSAGEM ============================ */}
+      <div>
+        <div className="flex items-center gap-2.5 mb-3">
           <div
-            className="h-3 rounded-full overflow-hidden mb-4 flex"
-            style={{ background: 'var(--surface-2)' }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(59,130,246,0.12))',
+              border: '1px solid rgba(16,185,129,0.25)'
+            }}
           >
-            <div
-              className="h-full transition-all duration-700 relative"
-              style={{
-                width: `${(campaign.successCount / Math.max(1, campaign.totalContacts)) * 100}%`,
-                background: 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
-              }}
-            >
-              {isRunning && <div className="absolute inset-0 bg-white/20 animate-pulse" />}
-            </div>
-            <div
-              className="h-full transition-all duration-700"
-              style={{
-                width: `${(campaign.failedCount / Math.max(1, campaign.totalContacts)) * 100}%`,
-                background: 'linear-gradient(90deg, #ef4444 0%, #dc2626 100%)'
-              }}
-            />
+            <TrendingUp className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
           </div>
-
-          {/* Estatisticas inline */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <MiniStat
-              icon={<Timer className="w-3.5 h-3.5" />}
-              label="Iniciado"
-              value={startedFmt.time || '—'}
-              hint={startedFmt.date}
-            />
-            <MiniStat
-              icon={<Clock className="w-3.5 h-3.5" />}
-              label="Tempo decorrido"
-              value={formatDuration(elapsedSec)}
-              hint={isDone ? 'Finalizado' : isRunning ? 'rodando' : isPaused ? 'pausado' : ''}
-            />
-            <MiniStat
-              icon={<Zap className="w-3.5 h-3.5" />}
-              label="Throughput"
-              value={throughputPerMin > 0 ? `${throughputPerMin}/min` : '—'}
-              hint={isRunning ? 'media real' : 'media final'}
-            />
-            <MiniStat
-              icon={<Sparkles className="w-3.5 h-3.5" />}
-              label={isRunning ? 'Tempo estimado' : 'Restantes'}
-              value={isRunning && etaSec > 0 ? formatDuration(etaSec) : remaining.toLocaleString('pt-BR')}
-              hint={isRunning ? 'previsto' : remaining > 0 ? 'aguardando' : 'concluido'}
-            />
+          <div>
+            <h3 className="ui-title text-[15px]">Jornada da mensagem</h3>
+            <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+              funil completo com taxas de conversão e benchmarks de mercado
+            </p>
           </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2.5">
-              <div
-                className="w-9 h-9 rounded-lg flex items-center justify-center"
-                style={{ background: 'rgba(59,130,246,0.12)' }}
-              >
-                <Smartphone className="w-4 h-4 text-blue-500" />
-              </div>
-              <div>
-                <h3 className="ui-title text-[14px]">Chips em uso</h3>
-                <p className="ui-subtitle text-[12px]">
-                  {onlineChips} online de {campaign.selectedConnectionIds.length}
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
-            {campaign.selectedConnectionIds.map((connId) => {
-              const conn = connections.find((c) => c.id === connId);
-              if (!conn) return null;
-              const isOnline = conn.status === ConnectionStatus.CONNECTED;
-              const sentToday = conn.messagesSentToday || 0;
-              return (
-                <div
-                  key={conn.id}
-                  className="flex items-center justify-between gap-2 p-2.5 rounded-xl transition-colors"
-                  style={{
-                    background: 'var(--surface-1)',
-                    border: '1px solid var(--border-subtle)'
-                  }}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="relative flex-shrink-0">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full block"
-                        style={{
-                          background: isOnline ? '#10b981' : 'var(--danger)',
-                          boxShadow: isOnline ? '0 0 8px rgba(16,185,129,0.6)' : 'none'
-                        }}
-                      />
-                      {isOnline && (
-                        <span className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping opacity-50" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p
-                        className="text-[12.5px] font-semibold truncate leading-tight"
-                        style={{ color: 'var(--text-1)' }}
-                      >
-                        {conn.name}
-                      </p>
-                      <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                        {sentToday.toLocaleString('pt-BR')} envios hoje
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant={isOnline ? 'success' : 'danger'}>{isOnline ? 'Online' : 'Offline'}</Badge>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
+        </div>
+        <PerformanceFunnel
+          sent={performance.total || campaign.successCount + campaign.failedCount}
+          delivered={performance.delivered}
+          read={performance.read}
+          replied={performance.replied}
+          height={340}
+        />
       </div>
 
-      {/* ============================ LOGS AO VIVO ============================ */}
-      <Card className="p-0 overflow-hidden">
-        <div
-          className="flex items-center justify-between gap-2 px-4 py-2.5"
-          style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
-        >
-          <div className="flex items-center gap-2">
-            <div className="flex gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#ef4444' }} />
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#f59e0b' }} />
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#10b981' }} />
+      {/* ============================ SCORE + MESSAGE PREVIEW ============================ */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3">
+          <CampaignScoreCard
+            inputs={{
+              delivered: performance.delivered,
+              read: performance.read,
+              replied: performance.replied,
+              total: performance.total || campaign.totalContacts,
+              throughputPerMin,
+              failed: performance.counts.FAILED
+            }}
+          />
+        </div>
+        <div className="lg:col-span-2">
+          <CampaignMessagePreview campaign={campaign} />
+        </div>
+      </div>
+
+      {/* ============================ INSIGHTS ============================ */}
+      <CampaignDetailInsights
+        data={{
+          total: performance.total,
+          delivered: performance.delivered,
+          read: performance.read,
+          replied: performance.replied,
+          failed: performance.counts.FAILED,
+          avgResponseSec: performance.avgResponseSec,
+          peakHour: performance.peakHour,
+          chipBreakdown: performance.chipBreakdown,
+          throughputPerMin,
+          isRunning
+        }}
+      />
+
+      {/* ============================ CHIPS PODIUM + LOGS ============================ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <CampaignChipsPodium
+          selectedConnectionIds={campaign.selectedConnectionIds}
+          connections={connections}
+          chipBreakdown={performance.chipBreakdown}
+          failedPerChip={performance.failedPerChip}
+        />
+
+        {/* Logs ao vivo */}
+        <Card className="p-0 overflow-hidden flex flex-col">
+          <div
+            className="flex items-center justify-between gap-2 px-4 py-2.5"
+            style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
+          >
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#ef4444' }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#f59e0b' }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#10b981' }} />
+              </div>
+              <Terminal className="w-3.5 h-3.5 ml-2" style={{ color: 'var(--text-3)' }} />
+              <span className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
+                zapmass • logs ao vivo
+              </span>
+              {liveLogs.length > 0 && (
+                <Badge variant="neutral">
+                  {liveLogs.length} evento{liveLogs.length > 1 ? 's' : ''}
+                </Badge>
+              )}
             </div>
-            <Terminal className="w-3.5 h-3.5 ml-2" style={{ color: 'var(--text-3)' }} />
-            <span className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
-              zapmass • logs ao vivo
-            </span>
-            {liveLogs.length > 0 && (
-              <Badge variant="neutral">
-                {liveLogs.length} evento{liveLogs.length > 1 ? 's' : ''}
-              </Badge>
+            <button
+              onClick={() => setShowLogModal(true)}
+              className="text-[11px] font-mono"
+              style={{ color: 'var(--brand-500)' }}
+            >
+              ver todos →
+            </button>
+          </div>
+          <div
+            className="p-4 flex-1 min-h-[220px] max-h-[340px] overflow-y-auto font-mono text-[11.5px] space-y-1.5"
+            style={{ background: 'var(--surface-0)' }}
+          >
+            {liveLogs.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
+                  {isRunning
+                    ? '$ aguardando primeiro evento do disparo...'
+                    : isDone
+                    ? '$ disparo concluído — sem novos eventos'
+                    : '$ nenhum evento registrado'}
+                </p>
+              </div>
+            ) : (
+              liveLogs.map((log, idx) => {
+                const payload = (log.payload || {}) as { message?: string; to?: string; error?: string };
+                const isErr = log.event.includes('error');
+                const isWarn = log.event.includes('warn');
+                const tone = isErr ? '#ef4444' : isWarn ? '#f59e0b' : '#10b981';
+                const symbol = isErr ? '✖' : isWarn ? '⚠' : '✓';
+                return (
+                  <div key={`${log.timestamp}-${idx}`} className="flex gap-3 items-start">
+                    <span className="min-w-[64px]" style={{ color: 'var(--text-3)' }}>
+                      {new Date(log.timestamp).toLocaleTimeString('pt-BR')}
+                    </span>
+                    <span style={{ color: tone, minWidth: 14 }}>{symbol}</span>
+                    <span className="flex-1" style={{ color: 'var(--text-2)' }}>
+                      {payload.message || payload.error || log.event}
+                      {payload.to && (
+                        <span className="ml-1.5" style={{ color: 'var(--text-3)' }}>
+                          → {payload.to}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })
             )}
           </div>
-          <button
-            onClick={() => setShowLogModal(true)}
-            className="text-[11px] font-mono"
-            style={{ color: 'var(--brand-500)' }}
-          >
-            ver todos →
-          </button>
-        </div>
-        <div
-          className="p-4 max-h-56 overflow-y-auto font-mono text-[11.5px] space-y-1.5"
-          style={{ background: 'var(--surface-0)' }}
-        >
-          {liveLogs.length === 0 ? (
-            <div className="py-6 text-center">
-              <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
-                {isRunning
-                  ? '$ aguardando primeiro evento do disparo...'
-                  : isDone
-                  ? '$ disparo concluido — sem novos eventos'
-                  : '$ nenhum evento registrado'}
-              </p>
-            </div>
-          ) : (
-            liveLogs.map((log, idx) => {
-              const payload = (log.payload || {}) as { message?: string; to?: string; error?: string };
-              const isErr = log.event.includes('error');
-              const isWarn = log.event.includes('warn');
-              const tone = isErr ? '#ef4444' : isWarn ? '#f59e0b' : '#10b981';
-              const symbol = isErr ? '✖' : isWarn ? '⚠' : '✓';
-              return (
-                <div key={`${log.timestamp}-${idx}`} className="flex gap-3 items-start">
-                  <span className="min-w-[64px]" style={{ color: 'var(--text-3)' }}>
-                    {new Date(log.timestamp).toLocaleTimeString('pt-BR')}
-                  </span>
-                  <span style={{ color: tone, minWidth: 14 }}>{symbol}</span>
-                  <span className="flex-1" style={{ color: 'var(--text-2)' }}>
-                    {payload.message || payload.error || log.event}
-                    {payload.to && (
-                      <span className="ml-1.5" style={{ color: 'var(--text-3)' }}>
-                        → {payload.to}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </Card>
+        </Card>
+      </div>
 
-      {/* ============================ RELATORIO DETALHADO ============================ */}
+      {/* ============================ RELATÓRIO DETALHADO ============================ */}
       <div ref={reportSectionRef} className="scroll-mt-6">
         <Card>
           <div className="flex flex-col lg:flex-row gap-3 justify-between lg:items-center mb-4">
@@ -854,17 +975,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 <FileSpreadsheet className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="ui-title text-[14px]">Relatorio de envios</h3>
+                <h3 className="ui-title text-[14px]">Relatório de envios</h3>
                 <p className="ui-subtitle text-[12px]">
                   {filteredReport.length} de {detailedReport.length} contato
-                  {detailedReport.length === 1 ? '' : 's'} • status atualizado em tempo real
+                  {detailedReport.length === 1 ? '' : 's'} • status em tempo real
                 </p>
               </div>
             </div>
             <div className="flex gap-2 flex-col sm:flex-row sm:items-center">
               <div className="md:w-56">
                 <Input
-                  placeholder="Buscar nome, numero ou resposta..."
+                  placeholder="Buscar nome, número ou resposta..."
                   value={detailSearch}
                   onChange={(e) => setDetailSearch(e.target.value)}
                   leftIcon={<Search className="w-4 h-4" />}
@@ -881,14 +1002,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   { id: 'FAILED', label: 'Falhas' }
                 ]}
               />
-              <Button
-                variant="secondary"
-                size="sm"
-                leftIcon={<BarChart3 className="w-3.5 h-3.5" />}
-                onClick={() => setShowPerf(true)}
-              >
-                Desempenho
-              </Button>
               <Button variant="secondary" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={exportReportCsv}>
                 CSV
               </Button>
@@ -896,7 +1009,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           </div>
 
           <div
-            className="overflow-x-auto max-h-[520px] overflow-y-auto rounded-xl"
+            className="overflow-x-auto max-h-[560px] overflow-y-auto rounded-xl"
             style={{ border: '1px solid var(--border-subtle)' }}
           >
             <table className="w-full text-[13px] text-left">
@@ -905,7 +1018,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
               >
                 <tr>
-                  {['Contato', 'Status', 'Enviado em', 'Resposta / Detalhe', ''].map((h, i) => (
+                  {['Contato', 'Timeline', 'Status', 'Enviado / Respondeu', 'Resposta / Detalhe', ''].map((h, i) => (
                     <th
                       key={i}
                       className="px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-widest"
@@ -932,6 +1045,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                         ? `${item.replyText.slice(0, 80)}…`
                         : item.replyText
                       : '';
+                    const replyLatency =
+                      item.replyTimestampMs && item.sentTimestampMs
+                        ? Math.round((item.replyTimestampMs - item.sentTimestampMs) / 1000)
+                        : null;
                     return (
                       <tr
                         key={item.id}
@@ -973,6 +1090,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                           </div>
                         </td>
                         <td className="px-4 py-3">
+                          <RowTimeline status={item.status} />
+                        </td>
+                        <td className="px-4 py-3">
                           <Badge variant={meta.variant} dot>
                             <span className="inline-flex items-center gap-1">
                               {meta.icon}
@@ -990,7 +1110,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                               style={{ color: '#10b981' }}
                             >
                               <Reply className="w-2.5 h-2.5" />
-                              respondeu {item.replyTime}
+                              {item.replyTime}
+                              {replyLatency !== null && replyLatency > 0 && (
+                                <span className="opacity-70">· em {formatDuration(replyLatency)}</span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -1024,7 +1147,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                               copyPhone(item.phone);
                             }}
                             className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-2)]"
-                            title="Copiar numero"
+                            title="Copiar número"
                           >
                             <Copy className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
                           </button>
@@ -1034,13 +1157,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   })
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center" style={{ color: 'var(--text-3)' }}>
+                    <td colSpan={6} className="px-4 py-12 text-center" style={{ color: 'var(--text-3)' }}>
                       <div className="flex flex-col items-center gap-2">
                         <FileSpreadsheet className="w-8 h-8 opacity-40" />
                         <p className="text-[13px] font-semibold">Nenhum registro encontrado</p>
                         <p className="text-[11.5px]">
                           {detailedReport.length === 0
-                            ? 'Os envios aparecerao aqui assim que forem processados.'
+                            ? 'Os envios aparecerão aqui assim que forem processados.'
                             : 'Ajuste os filtros para visualizar mais resultados.'}
                         </p>
                       </div>
@@ -1118,7 +1241,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       >
         {openRow && (
           <div className="space-y-4">
-            {/* Status atual + timeline */}
             <div
               className="rounded-xl p-4"
               style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -1157,11 +1279,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 </Badge>
               </div>
 
-              {/* Timeline */}
               <div className="space-y-2 text-[12.5px]">
                 <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
                   <Check className="w-3.5 h-3.5" style={{ color: '#94a3b8' }} />
-                  <span>Enviada as</span>
+                  <span>Enviada às</span>
                   <span className="font-mono" style={{ color: 'var(--text-1)' }}>{openRow.sentTime}</span>
                 </div>
                 {(openRow.status === 'DELIVERED' || openRow.status === 'READ' || openRow.status === 'REPLIED') && (
@@ -1179,7 +1300,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 {openRow.status === 'REPLIED' && openRow.replyTime && (
                   <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
                     <Reply className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
-                    <span>Respondeu as</span>
+                    <span>Respondeu às</span>
                     <span className="font-mono" style={{ color: '#10b981' }}>{openRow.replyTime}</span>
                     {openRow.replyTimestampMs && openRow.sentTimestampMs && (
                       <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
@@ -1197,7 +1318,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               </div>
             </div>
 
-            {/* Conversa estilo whatsapp */}
             {(openRow.sentMessage || openRow.replyText) && (
               <div
                 className="rounded-xl p-4 space-y-2"
@@ -1247,7 +1367,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
             <div className="flex justify-end gap-2">
               <Button variant="secondary" size="sm" leftIcon={<Copy className="w-3.5 h-3.5" />} onClick={() => copyPhone(openRow.phone)}>
-                Copiar numero
+                Copiar número
               </Button>
               {openRow.replyText && (
                 <Button
@@ -1268,307 +1388,102 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           </div>
         )}
       </Modal>
-
-      {/* ============================ MODAL RELATORIO DE DESEMPENHO ============================ */}
-      <Modal
-        isOpen={showPerf}
-        onClose={() => setShowPerf(false)}
-        title="Relatorio de desempenho"
-        subtitle={campaign.name}
-        icon={<BarChart3 className="w-5 h-5" />}
-        size="lg"
-      >
-        <div className="space-y-4">
-          {/* Header metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-            <PerfStat label="Total" value={performance.total} helper="contatos processados" color="#3b82f6" />
-            <PerfStat label="Entregues" value={performance.delivered} helper={`${performance.deliveryPct}% do total`} color="#10b981" />
-            <PerfStat label="Lidas" value={performance.read} helper={`${performance.readPct}% do total`} color="#8b5cf6" />
-            <PerfStat label="Respostas" value={performance.replied} helper={`${performance.replyPct}% do total`} color="#10b981" />
-          </div>
-
-          {/* Funnel */}
-          <div
-            className="rounded-xl p-4"
-            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-          >
-            <h4 className="ui-title text-[13px] mb-3">Funil de desempenho</h4>
-            <div className="space-y-2">
-              {[
-                { label: 'Enviadas', value: performance.total, color: '#3b82f6' },
-                { label: 'Entregues', value: performance.delivered, color: '#0ea5e9' },
-                { label: 'Lidas', value: performance.read, color: '#8b5cf6' },
-                { label: 'Responderam', value: performance.replied, color: '#10b981' }
-              ].map((row) => {
-                const pct = performance.total > 0 ? (row.value / performance.total) * 100 : 0;
-                return (
-                  <div key={row.label}>
-                    <div className="flex justify-between text-[12px] mb-1">
-                      <span style={{ color: 'var(--text-2)' }}>{row.label}</span>
-                      <span className="font-mono font-semibold" style={{ color: 'var(--text-1)' }}>
-                        {row.value.toLocaleString('pt-BR')} <span style={{ color: 'var(--text-3)' }}>({Math.round(pct)}%)</span>
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${pct}%`,
-                          background: `linear-gradient(90deg, ${row.color}, ${row.color}cc)`
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Resposta tempo + distribuicao hora */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div
-              className="rounded-xl p-4"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <h4 className="ui-title text-[13px] mb-2">Tempo medio de resposta</h4>
-              {performance.replied > 0 ? (
-                <>
-                  <div className="text-[28px] font-bold" style={{ color: 'var(--text-1)' }}>
-                    {formatDuration(performance.avgResponseSec)}
-                  </div>
-                  <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-                    entre envio e primeira resposta
-                  </p>
-                </>
-              ) : (
-                <p className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
-                  Ainda sem respostas para calcular.
-                </p>
-              )}
-            </div>
-            <div
-              className="rounded-xl p-4"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <h4 className="ui-title text-[13px] mb-2">Taxa de resposta</h4>
-              <div className="flex items-end gap-2">
-                <div className="text-[28px] font-bold" style={{ color: 'var(--text-1)' }}>
-                  {performance.replyPct}%
-                </div>
-                <div className="text-[11.5px] mb-1.5" style={{ color: 'var(--text-3)' }}>
-                  {performance.replied} de {performance.total}
-                </div>
-              </div>
-              <div className="h-2 rounded-full overflow-hidden mt-2" style={{ background: 'var(--surface-2)' }}>
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${performance.replyPct}%`,
-                    background: 'linear-gradient(90deg, #10b981, #059669)'
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Distribuicao por hora */}
-          <div
-            className="rounded-xl p-4"
-            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="ui-title text-[13px]">Distribuicao por hora</h4>
-              {performance.peakHour && performance.peakHour.count > 0 && (
-                <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                  Pico: {String(performance.peakHour.hour).padStart(2, '0')}h ({performance.peakHour.count} envios)
-                </span>
-              )}
-            </div>
-            <div className="flex items-end gap-0.5 h-20">
-              {performance.hourBreakdown.map((h) => {
-                const maxCount = Math.max(1, ...performance.hourBreakdown.map((x) => x.count));
-                const barHeight = h.count > 0 ? (h.count / maxCount) * 100 : 0;
-                return (
-                  <div key={h.hour} className="flex-1 flex flex-col items-center justify-end gap-1" title={`${h.hour}h: ${h.count}`}>
-                    <div
-                      className="w-full rounded-t transition-all"
-                      style={{
-                        height: `${barHeight}%`,
-                        background: h.count > 0 ? 'linear-gradient(180deg, #3b82f6, #1d4ed8)' : 'transparent',
-                        minHeight: h.count > 0 ? 2 : 0
-                      }}
-                    />
-                    {h.hour % 3 === 0 && (
-                      <span className="text-[9px] font-mono" style={{ color: 'var(--text-3)' }}>
-                        {String(h.hour).padStart(2, '0')}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Breakdown por chip */}
-          {performance.chipBreakdown.length > 0 && (
-            <div
-              className="rounded-xl p-4"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <h4 className="ui-title text-[13px] mb-3">Desempenho por chip</h4>
-              <div className="space-y-2">
-                {performance.chipBreakdown.map((chip) => (
-                  <div key={chip.id} className="flex items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                        {chip.name}
-                      </div>
-                      <div className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                        {chip.sent} envios • {chip.replied} respostas ({chip.replyRate}%)
-                      </div>
-                    </div>
-                    <div className="w-32 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${chip.replyRate}%`,
-                          background: 'linear-gradient(90deg, #10b981, #059669)'
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-end">
-            <Button
-              variant="secondary"
-              size="sm"
-              leftIcon={<Download className="w-3.5 h-3.5" />}
-              onClick={exportReportCsv}
-            >
-              Exportar CSV
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 };
 
 // =====================================================================
-// SUBCOMPONENTES locais — KPI premium, mini stat e perf stat
+// SUBCOMPONENTES LOCAIS
 // =====================================================================
-
-interface PerfStatProps {
+interface VitalStatProps {
   label: string;
-  value: number;
-  helper?: string;
-  color: string;
+  value: React.ReactNode;
+  hint?: React.ReactNode;
+  accent?: string;
 }
 
-const PerfStat: React.FC<PerfStatProps> = ({ label, value, helper, color }) => (
+const VitalStat: React.FC<VitalStatProps> = ({ label, value, hint, accent }) => (
   <div
-    className="rounded-xl p-3 relative overflow-hidden"
-    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+    className="rounded-xl p-2.5 relative overflow-hidden"
+    style={{
+      background: 'var(--surface-1)',
+      border: '1px solid var(--border-subtle)'
+    }}
   >
-    <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: color }} />
-    <div className="text-[10.5px] uppercase tracking-wider font-bold mb-0.5" style={{ color: 'var(--text-3)' }}>
+    {accent && (
+      <div
+        className="absolute top-0 left-0 w-full h-0.5"
+        style={{ background: accent, opacity: 0.7 }}
+      />
+    )}
+    <div
+      className="text-[9.5px] font-extrabold uppercase tracking-[0.14em] mb-0.5"
+      style={{ color: 'var(--text-3)' }}
+    >
       {label}
     </div>
-    <div className="text-[22px] font-bold" style={{ color: 'var(--text-1)' }}>
-      {value.toLocaleString('pt-BR')}
+    <div
+      className="text-[15.5px] font-black tabular-nums leading-tight"
+      style={{ color: 'var(--text-1)' }}
+    >
+      {value}
     </div>
-    {helper && (
-      <div className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-        {helper}
+    {hint && (
+      <div className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+        {hint}
       </div>
     )}
   </div>
 );
 
-interface KpiCardProps {
+interface KpiPillProps {
   label: string;
   value: React.ReactNode;
   helper?: React.ReactNode;
-  icon?: React.ReactNode;
   color: string;
-  barPercent?: number;
-  interactive?: boolean;
+  onClick?: () => void;
 }
 
-const KpiCard: React.FC<KpiCardProps> = ({ label, value, helper, icon, color, barPercent = 0, interactive }) => {
-  const safePct = Math.max(0, Math.min(100, barPercent || 0));
-  return (
+const KpiPill: React.FC<KpiPillProps> = ({ label, value, helper, color, onClick }) => (
+  <button
+    onClick={onClick}
+    className="text-left rounded-2xl p-4 transition-all hover:scale-[1.015] active:scale-[0.985] relative overflow-hidden group"
+    style={{
+      background: 'var(--surface-0)',
+      border: '1px solid var(--border-subtle)'
+    }}
+  >
     <div
-      className={`relative rounded-xl p-4 h-full overflow-hidden ${interactive ? 'cursor-pointer' : ''}`}
+      className="absolute left-0 top-0 h-full w-1"
+      style={{ background: color, opacity: 0.85 }}
+    />
+    <div
+      className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
       style={{
-        background: 'var(--surface-0)',
-        border: '1px solid var(--border-subtle)'
+        background: `radial-gradient(200px 80px at 100% 0%, ${color}22, transparent 70%)`
       }}
-    >
+    />
+    <div className="relative">
       <div
-        className="absolute top-0 left-0 w-full h-0.5"
-        style={{ background: color, opacity: 0.7 }}
-      />
-      <div className="flex items-start justify-between gap-3 mb-2.5">
-        <span className="ui-eyebrow">{label}</span>
-        {icon && (
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: `${color}1a`, color }}
-          >
-            {icon}
-          </div>
-        )}
+        className="text-[10px] font-extrabold uppercase tracking-[0.14em] mb-1"
+        style={{ color: 'var(--text-3)' }}
+      >
+        {label}
       </div>
-      <div className="text-[26px] font-bold tracking-tight leading-none tabular-nums" style={{ color: 'var(--text-1)' }}>
+      <div
+        className="text-[26px] font-black tabular-nums leading-none"
+        style={{ color: 'var(--text-1)' }}
+      >
         {value}
       </div>
       {helper && (
-        <div className="text-[11.5px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+        <div
+          className="text-[11px] font-semibold mt-1.5"
+          style={{ color }}
+        >
           {helper}
         </div>
       )}
-      {/* Mini barra inferior representando proporcao */}
-      <div
-        className="mt-3 h-1 rounded-full overflow-hidden"
-        style={{ background: 'var(--surface-2)' }}
-      >
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${safePct}%`, background: color }}
-        />
-      </div>
     </div>
-  );
-};
-
-interface MiniStatProps {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  hint?: React.ReactNode;
-}
-
-const MiniStat: React.FC<MiniStatProps> = ({ icon, label, value, hint }) => (
-  <div
-    className="rounded-xl p-3"
-    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-  >
-    <div className="flex items-center gap-1.5 mb-1" style={{ color: 'var(--text-3)' }}>
-      {icon}
-      <span className="text-[10.5px] font-semibold uppercase tracking-wider">{label}</span>
-    </div>
-    <div className="text-[15px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-      {value}
-    </div>
-    {hint && (
-      <div className="text-[10.5px] mt-1" style={{ color: 'var(--text-3)' }}>
-        {hint}
-      </div>
-    )}
-  </div>
+  </button>
 );

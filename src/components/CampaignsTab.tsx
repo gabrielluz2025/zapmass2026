@@ -88,6 +88,32 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     localStorage.setItem(LS_DISMISSED, JSON.stringify(dismissedInsights));
   }, [dismissedInsights]);
 
+  // Draft chegando da aba Contatos ("Criar campanha com selecionados"/"lista") via sessionStorage.
+  // O handshake usa storage para sobreviver a navegação entre abas sem prop drilling.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('zapmass.pendingCampaignDraft');
+      if (!raw) return;
+      sessionStorage.removeItem('zapmass.pendingCampaignDraft');
+      const draft = JSON.parse(raw) as CampaignWizardDraft;
+      if (!draft || typeof draft !== 'object') return;
+      const uid = user?.uid;
+      if (!uid) return;
+      if (!isWhatsAppRiskAcknowledged(uid)) {
+        setPendingDraft(draft);
+        setRiskModalOpen(true);
+      } else {
+        setWizardDraft(draft);
+        setWizardSessionId((s) => s + 1);
+        setSubTab('create');
+        setViewState('create');
+      }
+    } catch {
+      /* ignore */
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
   const goToCreateWizard = () => {
     setWizardDraft(null);
     setPendingDraft(null);

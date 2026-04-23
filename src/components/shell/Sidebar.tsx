@@ -50,9 +50,9 @@ const navGroups: NavGroup[] = [
   {
     label: 'Principal',
     items: [
-      { id: 'dashboard', label: 'Painel', icon: LayoutDashboard, description: 'Visao geral' },
-      { id: 'connections', label: 'Conexoes', icon: Radio, description: 'Frota WhatsApp' },
-      { id: 'chat', label: 'Pipeline', icon: Workflow, description: 'Envio ate resposta' }
+      { id: 'dashboard', label: 'Painel', icon: LayoutDashboard, description: 'Visão geral' },
+      { id: 'connections', label: 'Conexões', icon: Radio, description: 'Frota WhatsApp' },
+      { id: 'chat', label: 'Pipeline', icon: Workflow, description: 'Envio até resposta' }
     ]
   },
   {
@@ -60,18 +60,18 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'campaigns', label: 'Campanhas', icon: Send, description: 'Criar e gerenciar' },
       { id: 'contacts', label: 'Contatos', icon: Users, description: 'Listas e base' },
-      { id: 'reports', label: 'Relatorios', icon: BarChart3, description: 'Analise e metricas' }
+      { id: 'reports', label: 'Relatórios', icon: BarChart3, description: 'Análise e métricas' }
     ]
   },
   {
-    label: 'Operacoes',
+    label: 'Operações',
     items: [{ id: 'warmup', label: 'Aquecimento', icon: Flame, description: 'Warmup seguro' }]
   },
   {
     label: 'Sistema',
     items: [
-      { id: 'subscription', label: 'Minha assinatura', icon: Crown, description: 'Plano, renovacao e cartao' },
-      { id: 'settings', label: 'Configuracoes', icon: Settings, description: 'Ajustes gerais' }
+      { id: 'subscription', label: 'Minha assinatura', icon: Crown, description: 'Plano, renovação e cartão' },
+      { id: 'settings', label: 'Configurações', icon: Settings, description: 'Ajustes gerais' }
     ]
   }
 ];
@@ -80,12 +80,12 @@ const ADMIN_NAV_ITEM: NavItemDef = {
   id: 'admin',
   label: 'Painel do criador',
   icon: Shield,
-  description: 'Precos, teste e textos remotos'
+  description: 'Preços, teste e textos remotos'
 };
 
 const CREATOR_STUDIO_ITEM: NavItemDef = {
   id: 'creator-studio',
-  label: 'Estudio',
+  label: 'Estúdio',
   icon: Code2,
   description: 'Ferramentas internas e API'
 };
@@ -264,7 +264,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between px-3 py-2'} rounded-lg`}
           style={!collapsed ? { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' } : {}}
         >
-          {!collapsed && <span className="text-[11.5px] font-semibold text-slate-400">Aparencia</span>}
+          {!collapsed && <span className="text-[11.5px] font-semibold text-slate-400">Aparência</span>}
           <button
             onClick={() => setMode(toggleMode(mode))}
             className="p-1.5 rounded-md transition-all hover:bg-white/10 text-slate-400 hover:text-white active:scale-90"

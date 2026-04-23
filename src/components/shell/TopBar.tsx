@@ -14,16 +14,17 @@ interface TopBarProps {
 }
 
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
-  dashboard: { title: 'Painel', subtitle: 'Visao geral da operacao' },
-  connections: { title: 'Conexoes WhatsApp', subtitle: 'Frota de canais conectados' },
-  chat: { title: 'Pipeline de mensagens', subtitle: 'Do envio a entrega, leitura e resposta' },
+  dashboard: { title: 'Painel', subtitle: 'Visão geral da operação' },
+  connections: { title: 'Conexões WhatsApp', subtitle: 'Frota de canais conectados' },
+  chat: { title: 'Pipeline de mensagens', subtitle: 'Do envio à entrega, leitura e resposta' },
   campaigns: { title: 'Campanhas', subtitle: 'Centro de missões, A/B, modelos e disparos' },
   contacts: { title: 'Contatos', subtitle: 'Base e listas de contatos' },
-  reports: { title: 'Relatorios', subtitle: 'Analise de performance' },
-  warmup: { title: 'Aquecimento', subtitle: 'Warmup dos numeros' },
-  settings: { title: 'Configuracoes', subtitle: 'Ajustes do sistema' },
-  admin: { title: 'Painel do criador', subtitle: 'Configuracao remota do produto' },
-  'creator-studio': { title: 'Estudio do criador', subtitle: 'Ferramentas internas e diagnostico' }
+  reports: { title: 'Relatórios', subtitle: 'Análise de performance' },
+  warmup: { title: 'Aquecimento', subtitle: 'Warmup dos números' },
+  subscription: { title: 'Minha assinatura', subtitle: 'Plano, pagamento e renovação' },
+  settings: { title: 'Configurações', subtitle: 'Ajustes do sistema' },
+  admin: { title: 'Painel do criador', subtitle: 'Configuração remota do produto' },
+  'creator-studio': { title: 'Estúdio do criador', subtitle: 'Ferramentas internas e diagnóstico' }
 };
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -51,7 +52,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
-  const displayName = user?.displayName || user?.email?.split('@')[0] || 'Usuario';
+  const displayName = user?.displayName || user?.email?.split('@')[0] || 'Usuário';
   const email = user?.email || '';
   const photoURL = user?.photoURL || null;
   const initials = displayName
@@ -109,7 +110,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           >
             <div
               className="flex items-center gap-1.5 px-2.5 shrink-0"
-              title="Latencia do servidor"
+              title="Latência do servidor"
             >
               <Activity className={`w-3.5 h-3.5 shrink-0 ${latencyColor}`} />
               <span className="text-[11px] font-semibold tabular-nums" style={{ color: 'var(--text-2)' }}>

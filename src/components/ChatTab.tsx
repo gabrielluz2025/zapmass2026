@@ -233,6 +233,46 @@ export const ChatTab: React.FC = () => {
     }
   }, [pipelineView, pipelineViewStorageKey]);
 
+  // Handshake vindo da aba Contatos: abrir conversa por telefone.
+  // Evita prop drilling — Contatos grava sessionStorage + navega, aqui resolvemos.
+  useEffect(() => {
+    try {
+      const phone = sessionStorage.getItem('zapmass.openChatByPhone');
+      if (!phone) return;
+      sessionStorage.removeItem('zapmass.openChatByPhone');
+      const digits = phone.replace(/\D/g, '');
+      if (!digits) return;
+      // Procura conversa que case o contactPhone (flexibilidade BR: com/sem 55).
+      const candidates = conversations.filter((c) => {
+        const cd = (c.contactPhone || '').replace(/\D/g, '');
+        if (!cd) return false;
+        return (
+          cd === digits ||
+          cd.endsWith(digits) ||
+          digits.endsWith(cd) ||
+          (cd.length >= 10 && digits.length >= 10 && cd.slice(-10) === digits.slice(-10))
+        );
+      });
+      if (candidates.length > 0) {
+        const best = candidates.sort(
+          (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+        )[0];
+        setSelectedChatId(best.id);
+        setShowMobileChat(true);
+      } else {
+        // Sem conversa aberta: apenas preenche busca por telefone para o usuário ver.
+        setSearchTerm(digits.slice(-10));
+        toast('Nenhuma conversa com este número ainda. Crie uma campanha ou aguarde resposta.', {
+          icon: 'ℹ️'
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    // Queremos rodar apenas uma vez quando conversations carrega.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations.length]);
+
   const selectedConversation = conversations.find((c) => c.id === selectedChatId);
   const selectedConnection = connections.find((c) => c.id === selectedConversation?.connectionId);
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selectedConversation), [selectedConversation]);

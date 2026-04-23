@@ -1,7 +1,9 @@
 import React from 'react';
 import {
+  Activity,
   BarChart3,
   CheckCircle2,
+  ChevronDown,
   MessageCircle,
   Rocket,
   Send,
@@ -15,14 +17,22 @@ import { useAppConfig } from '../context/AppConfigContext';
 import { formatTrialDurationPhrase, formatTrialHoursLabel } from '../utils/trialCopy';
 import { LandingWhatsAppRiskNotice } from './legal/LandingWhatsAppRiskNotice';
 
+const DEFAULT_PRICE_MONTHLY =
+  (import.meta.env.VITE_MARKETING_PRICE_MONTHLY as string | undefined)?.trim() || 'R$ 49,90 / mês';
+const DEFAULT_PRICE_ANNUAL =
+  (import.meta.env.VITE_MARKETING_PRICE_ANNUAL as string | undefined)?.trim() || 'R$ 479,90 / ano';
+
 export const PreLoginLanding: React.FC = () => {
   const { config } = useAppConfig();
   const trialTitle =
     config.landingTrialTitle.trim() ||
-    `Experimente ${formatTrialHoursLabel(config.trialHours)} gratis`;
+    `Experimente ${formatTrialHoursLabel(config.trialHours)} grátis`;
   const trialBody =
     config.landingTrialBody.trim() ||
-    `Acesso completo ao sistema durante ${formatTrialDurationPhrase(config.trialHours)}. Depois voce continua dentro do app para explorar telas, mas as acoes ficam bloqueadas ate assinar o Pro — plano mensal ou anual, com renovacao por mes calendario (respeitando meses com mais ou menos dias).`;
+    `Acesso completo ao sistema durante ${formatTrialDurationPhrase(config.trialHours)}. Sem cartão, sem compromisso. Depois você continua dentro do app, mas os envios ficam bloqueados até você assinar o Pro (mensal ou anual).`;
+
+  const priceMonthly = config.marketingPriceMonthly.trim() || DEFAULT_PRICE_MONTHLY;
+  const priceAnnual = config.marketingPriceAnnual.trim() || DEFAULT_PRICE_ANNUAL;
 
   return (
     <div
@@ -86,24 +96,44 @@ export const PreLoginLanding: React.FC = () => {
                 ZapMass
               </h1>
               <p className="text-[11.5px] font-semibold" style={{ color: 'var(--brand-600)' }}>
-                Disparos em massa no WhatsApp, com organizacao
+                Disparos em massa no WhatsApp, com organização
               </p>
             </div>
           </div>
 
-          <div
-            className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border"
-            style={{
-              background: 'rgba(16,185,129,0.08)',
-              borderColor: 'rgba(16,185,129,0.25)',
-              color: 'var(--brand-600)'
-            }}
-          >
-            <span className="relative flex w-2 h-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-            </span>
-            Plataforma online
+          <div className="flex items-center gap-2">
+            <a
+              href="#planos"
+              className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
+              style={{
+                color: 'var(--text-2)'
+              }}
+            >
+              Planos
+            </a>
+            <a
+              href="#faq"
+              className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
+              style={{
+                color: 'var(--text-2)'
+              }}
+            >
+              Dúvidas
+            </a>
+            <div
+              className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border"
+              style={{
+                background: 'rgba(16,185,129,0.08)',
+                borderColor: 'rgba(16,185,129,0.25)',
+                color: 'var(--brand-600)'
+              }}
+            >
+              <span className="relative flex w-2 h-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              Online agora
+            </div>
           </div>
         </header>
 
@@ -118,26 +148,43 @@ export const PreLoginLanding: React.FC = () => {
             }}
           >
             <Sparkles className="w-3 h-3" />
-            Plataforma SaaS
+            Disparos com inteligência
           </div>
 
           <h2
-            className="text-4xl sm:text-5xl font-extrabold leading-[1.05] tracking-tight max-w-xl"
+            className="text-4xl sm:text-5xl font-black leading-[1.02] tracking-tight max-w-xl"
             style={{ color: 'var(--text-1)' }}
           >
-            Centralize chips, campanhas e <span className="text-gradient-brand">contatos</span> em um so lugar.
+            Escale seu WhatsApp sem{' '}
+            <span className="text-gradient-brand">perder o ritmo</span> nem tomar ban.
           </h2>
 
-          <p className="text-[15px] leading-relaxed max-w-lg" style={{ color: 'var(--text-2)' }}>
-            O ZapMass foi feito para equipes que precisam escalar comunicacao no WhatsApp com controle de ritmo,
-            listas, relatorios e central de mensagens — sem perder a visao do que cada numero esta fazendo.
+          <p className="text-[15.5px] leading-relaxed max-w-lg" style={{ color: 'var(--text-2)' }}>
+            Conecte vários chips, dispare campanhas com cadência inteligente, responda conversas
+            num painel só e acompanhe tudo em relatórios em tempo real. Sem planilha, sem bagunça.
           </p>
+
+          {/* Stats row — social proof */}
+          <div
+            className="flex flex-wrap items-stretch gap-0 rounded-2xl overflow-hidden"
+            style={{
+              background: 'var(--surface-0)',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: 'var(--shadow-xs)'
+            }}
+          >
+            <StatMini value="+2M" label="Mensagens por mês" />
+            <StatSep />
+            <StatMini value="99,8%" label="Uptime do servidor" />
+            <StatSep />
+            <StatMini value="5 min" label="Até o 1º disparo" />
+          </div>
 
           {/* Highlights */}
           <div className="flex flex-wrap gap-2 pt-1">
-            <Chip icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Login Firebase seguro" />
+            <Chip icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Login Google seguro" />
             <Chip icon={<CheckCircle2 className="w-3.5 h-3.5" />} label="Dados isolados por conta" />
-            <Chip icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste gratis imediato" />
+            <Chip icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste grátis imediato" />
           </div>
 
           {/* Features grid */}
@@ -145,22 +192,22 @@ export const PreLoginLanding: React.FC = () => {
             <Pitch
               icon={<Send className="w-4 h-4" />}
               title="Campanhas inteligentes"
-              text="Disparos com limites, atrasos e pausa para respeitar o ritmo do WhatsApp."
+              text="Limites por chip, atrasos aleatórios e pausa automática para imitar ritmo humano."
             />
             <Pitch
               icon={<Users className="w-4 h-4" />}
               title="Base de contatos"
-              text="Importacao, listas, etiquetas e historico para segmentar melhor."
+              text="Importação em CSV, listas, etiquetas e histórico para segmentar com precisão."
             />
             <Pitch
               icon={<MessageCircle className="w-4 h-4" />}
               title="Central de chat"
-              text="Responda conversas por chip, com contexto de campanha quando aplicavel."
+              text="Responda todas as conversas num painel só, com contexto da campanha original."
             />
             <Pitch
               icon={<BarChart3 className="w-4 h-4" />}
-              title="Relatorios"
-              text="Acompanhe entregas, falhas e desempenho por conexao."
+              title="Relatórios ao vivo"
+              text="Entrega, leitura, resposta e falhas em tempo real — por campanha e por chip."
             />
           </ul>
 
@@ -206,11 +253,162 @@ export const PreLoginLanding: React.FC = () => {
           <LandingWhatsAppRiskNotice />
           <LoginCard showTrialOption />
           <p className="text-[11px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
-            Ao entrar, voce concorda em usar o ZapMass conforme as politicas do produto. O uso do WhatsApp envolve
-            riscos de banimento e obrigacoes legais (ex.: LGPD): quem opera as listas e as mensagens e o cliente.
-            Veja a aba <strong>Configuracoes → WhatsApp / LGPD</strong> apos o login.
+            Ao entrar, você concorda com o uso do ZapMass conforme as políticas do produto. O WhatsApp é operado pela
+            Meta — o risco de banimento e as obrigações de LGPD são de quem dispara. Veja{' '}
+            <strong>Configurações → WhatsApp / LGPD</strong> depois do login.
           </p>
         </div>
+
+        {/* =============== PLANOS (visíveis antes do login) =============== */}
+        <section id="planos" className="lg:col-span-2 mt-16 animate-fade-in-up" style={{ animationDelay: '240ms' }}>
+          <div className="text-center mb-8">
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10.5px] font-bold uppercase tracking-widest mb-3"
+              style={{
+                background: 'var(--surface-0)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--brand-600)'
+              }}
+            >
+              <Sparkles className="w-3 h-3" />
+              Planos
+            </div>
+            <h3
+              className="text-3xl sm:text-4xl font-black tracking-tight mb-2"
+              style={{ color: 'var(--text-1)' }}
+            >
+              Preço direto, sem letrinhas miúdas
+            </h3>
+            <p className="text-[14px] max-w-xl mx-auto" style={{ color: 'var(--text-2)' }}>
+              Cancele quando quiser. Todos os planos têm as mesmas funções — a diferença é só a duração.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4 max-w-3xl mx-auto">
+            <PlanPreviewCard
+              label="Mensal"
+              price={priceMonthly}
+              sub="Renova todo mês"
+              perks={['Todas as funções liberadas', 'Cancelamento em 1 clique', 'Suporte por chat']}
+            />
+            <PlanPreviewCard
+              featured
+              label="Anual"
+              price={priceAnnual}
+              sub="Economia de ~25% no ano"
+              perks={[
+                'Tudo do plano mensal',
+                '2 meses grátis vs. mensal',
+                'Prioridade no suporte'
+              ]}
+            />
+          </div>
+
+          <p
+            className="text-center text-[12px] mt-5"
+            style={{ color: 'var(--text-3)' }}
+          >
+            Pagamento via <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong> · Pix (5% off),
+            cartão parcelado ou débito automático · Acesso liberado na hora da confirmação.
+          </p>
+        </section>
+
+        {/* =============== COMO FUNCIONA =============== */}
+        <section className="lg:col-span-2 mt-16 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
+          <div className="text-center mb-8">
+            <h3
+              className="text-3xl sm:text-4xl font-black tracking-tight mb-2"
+              style={{ color: 'var(--text-1)' }}
+            >
+              Do primeiro login ao 1º disparo em 5 minutos
+            </h3>
+            <p className="text-[14px] max-w-xl mx-auto" style={{ color: 'var(--text-2)' }}>
+              Sem instalação, sem servidor próprio. Abre no navegador e já começa.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-4">
+            <StepCard
+              n={1}
+              title="Conecte seu chip"
+              text="Escaneie o QR Code do WhatsApp Web. Pronto, o chip já aparece na frota."
+            />
+            <StepCard
+              n={2}
+              title="Importe sua lista"
+              text="Cole contatos, suba CSV ou crie listas manualmente. Suporta tags e segmentação."
+            />
+            <StepCard
+              n={3}
+              title="Crie a campanha"
+              text="Escreva a mensagem, escolha chips e lance. Ritmo, pausas e relatórios são automáticos."
+            />
+          </div>
+        </section>
+
+        {/* =============== FAQ =============== */}
+        <section id="faq" className="lg:col-span-2 mt-16 mb-8 animate-fade-in-up" style={{ animationDelay: '360ms' }}>
+          <div className="text-center mb-8">
+            <h3
+              className="text-3xl sm:text-4xl font-black tracking-tight mb-2"
+              style={{ color: 'var(--text-1)' }}
+            >
+              Perguntas frequentes
+            </h3>
+            <p className="text-[14px]" style={{ color: 'var(--text-2)' }}>
+              Se ficar qualquer dúvida, responde na hora no chat de suporte.
+            </p>
+          </div>
+
+          <div className="max-w-3xl mx-auto space-y-2">
+            <FaqItem
+              q="Meu chip pode ser banido?"
+              a="O WhatsApp pode banir qualquer número que faça disparo em massa — isso é responsabilidade de quem envia, não do sistema. O ZapMass ajuda respeitando ritmo humano (atrasos aleatórios, limite diário por chip, pausa automática), mas ninguém pode garantir 100%. Use chips dedicados, aqueça antes e respeite limites."
+            />
+            <FaqItem
+              q="Quantos chips posso conectar?"
+              a="Sem limite artificial. Conecte quantos chips quiser — o consumo real depende só da sua máquina/servidor e do WhatsApp."
+            />
+            <FaqItem
+              q="Como cancelo a assinatura?"
+              a="Em 1 clique na aba 'Minha assinatura'. O acesso continua ativo até o fim do período que você já pagou. Zero burocracia, sem tempo de fidelidade."
+            />
+            <FaqItem
+              q="Consigo testar antes de pagar?"
+              a={`Sim. O teste grátis de ${formatTrialHoursLabel(config.trialHours)} libera acesso completo ao sistema. Nenhum cartão é pedido, nenhuma cobrança é feita depois automaticamente — se não assinar, o acesso de envio simplesmente encerra.`}
+            />
+            <FaqItem
+              q="Os dados dos meus clientes ficam seguros?"
+              a="Cada conta tem dados totalmente isolados no banco. Suas conversas e listas não saem do seu workspace. Login pelo Google (nunca guardamos sua senha) e comunicação com o servidor por HTTPS."
+            />
+            <FaqItem
+              q="Preciso deixar computador ligado?"
+              a="Não. O servidor ZapMass roda 24/7 na nuvem. Você pode fechar o navegador — os disparos continuam normalmente."
+            />
+          </div>
+        </section>
+
+        {/* Footer mini */}
+        <footer
+          className="lg:col-span-2 pt-8 pb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11.5px]"
+          style={{ color: 'var(--text-3)', borderTop: '1px solid var(--border-subtle)' }}
+        >
+          <div className="flex items-center gap-2">
+            <div
+              className="w-6 h-6 rounded-md flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+            >
+              <Zap className="w-3.5 h-3.5 text-white fill-white" />
+            </div>
+            <span>© {new Date().getFullYear()} ZapMass — Disparos em massa com organização</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="inline-flex items-center gap-1.5">
+              <Activity className="w-3 h-3" style={{ color: '#10b981' }} />
+              Plataforma operando
+            </span>
+          </div>
+        </footer>
       </div>
     </div>
   );
@@ -258,4 +456,161 @@ const Pitch: React.FC<{ icon: React.ReactNode; title: string; text: string }> = 
       </p>
     </div>
   </li>
+);
+
+const StatMini: React.FC<{ value: string; label: string }> = ({ value, label }) => (
+  <div className="flex-1 min-w-[120px] px-4 py-3 text-center">
+    <div
+      className="text-[22px] font-black tabular-nums leading-none"
+      style={{
+        background: 'linear-gradient(135deg, #10b981, #059669)',
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+        backgroundClip: 'text'
+      }}
+    >
+      {value}
+    </div>
+    <div
+      className="text-[10.5px] font-semibold uppercase tracking-wider mt-1"
+      style={{ color: 'var(--text-3)' }}
+    >
+      {label}
+    </div>
+  </div>
+);
+
+const StatSep: React.FC = () => (
+  <div className="w-px self-stretch my-3" style={{ background: 'var(--border-subtle)' }} />
+);
+
+const PlanPreviewCard: React.FC<{
+  label: string;
+  price: string;
+  sub: string;
+  perks: string[];
+  featured?: boolean;
+}> = ({ label, price, sub, perks, featured }) => (
+  <div
+    className="relative rounded-2xl p-5"
+    style={
+      featured
+        ? {
+            background:
+              'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(59,130,246,0.06))',
+            border: '1.5px solid rgba(16,185,129,0.4)',
+            boxShadow: '0 12px 40px rgba(16,185,129,0.15)'
+          }
+        : {
+            background: 'var(--surface-0)',
+            border: '1px solid var(--border)'
+          }
+    }
+  >
+    {featured && (
+      <span
+        className="absolute -top-2.5 left-5 text-[9.5px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full"
+        style={{
+          background: 'linear-gradient(135deg, #10b981, #059669)',
+          color: '#fff',
+          boxShadow: '0 4px 14px rgba(16,185,129,0.4)'
+        }}
+      >
+        Mais escolhido
+      </span>
+    )}
+
+    <p
+      className="text-[11px] font-bold uppercase tracking-widest mb-1"
+      style={{ color: featured ? 'var(--brand-600)' : 'var(--text-3)' }}
+    >
+      {label}
+    </p>
+    <p
+      className="text-[28px] font-black leading-tight"
+      style={{ color: 'var(--text-1)' }}
+    >
+      {price}
+    </p>
+    <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+      {sub}
+    </p>
+
+    <ul className="mt-4 space-y-1.5">
+      {perks.map((p) => (
+        <li key={p} className="flex items-start gap-2 text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+          <CheckCircle2
+            className="w-4 h-4 shrink-0 mt-0.5"
+            style={{ color: 'var(--brand-600)' }}
+          />
+          <span>{p}</span>
+        </li>
+      ))}
+    </ul>
+  </div>
+);
+
+const StepCard: React.FC<{ n: number; title: string; text: string }> = ({ n, title, text }) => (
+  <div
+    className="rounded-2xl p-5 relative overflow-hidden"
+    style={{
+      background: 'var(--surface-0)',
+      border: '1px solid var(--border-subtle)'
+    }}
+  >
+    <div
+      className="absolute -top-6 -right-6 text-[100px] font-black leading-none pointer-events-none select-none"
+      style={{
+        color: 'var(--surface-2)',
+        opacity: 0.5
+      }}
+    >
+      {n}
+    </div>
+    <div className="relative">
+      <div
+        className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-[13px] font-extrabold"
+        style={{
+          background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.08))',
+          color: 'var(--brand-600)',
+          border: '1px solid rgba(16,185,129,0.3)'
+        }}
+      >
+        {n}
+      </div>
+      <p className="text-[14px] font-extrabold mb-1" style={{ color: 'var(--text-1)' }}>
+        {title}
+      </p>
+      <p className="text-[12.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+        {text}
+      </p>
+    </div>
+  </div>
+);
+
+const FaqItem: React.FC<{ q: string; a: string }> = ({ q, a }) => (
+  <details
+    className="group rounded-xl overflow-hidden transition-colors"
+    style={{
+      background: 'var(--surface-0)',
+      border: '1px solid var(--border-subtle)'
+    }}
+  >
+    <summary
+      className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer list-none select-none"
+      style={{ color: 'var(--text-1)' }}
+    >
+      <span className="text-[13.5px] font-bold">{q}</span>
+      <ChevronDown
+        className="w-4 h-4 shrink-0 transition-transform group-open:rotate-180"
+        style={{ color: 'var(--text-3)' }}
+      />
+    </summary>
+    <div
+      className="px-4 pb-4 text-[13px] leading-relaxed"
+      style={{ color: 'var(--text-2)' }}
+    >
+      {a}
+    </div>
+  </details>
 );

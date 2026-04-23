@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, CreditCard, Crown, Loader2, Repeat, Sparkles, TrendingDown, Zap, X } from 'lucide-react';
+import { Check, CreditCard, Crown, Loader2, Repeat, ShieldCheck, Sparkles, TrendingDown, XCircle, Zap, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
@@ -158,19 +158,67 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
         />
       </div>
 
+      {/* Reassurance row — garantias visuais que derrubam objeção */}
+      <div className="grid grid-cols-3 gap-2 mb-2.5">
+        <ReassureBadge
+          icon={<ShieldCheck className="w-3.5 h-3.5" />}
+          title="Mercado Pago"
+          sub="Seguro e certificado"
+        />
+        <ReassureBadge
+          icon={<XCircle className="w-3.5 h-3.5" />}
+          title="Sem fidelidade"
+          sub="Cancele em 1 clique"
+        />
+        <ReassureBadge
+          icon={<Zap className="w-3.5 h-3.5" />}
+          title="Acesso na hora"
+          sub="Libera após aprovação"
+        />
+      </div>
+
       <div
         className="flex items-start gap-2 px-3 py-2 rounded-lg"
         style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
       >
         <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
         <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
-          Pagamento seguro pelo <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong>. Débito automático
-          renova todo mês no seu cartão — pode cancelar a qualquer momento em <strong>Minha assinatura</strong>.
+          Débito automático renova todo mês no seu cartão — pode cancelar a qualquer momento em{' '}
+          <strong>Minha assinatura</strong>. Sem letra miúda, sem fidelidade.
         </p>
       </div>
     </Modal>
   );
 };
+
+const ReassureBadge: React.FC<{ icon: React.ReactNode; title: string; sub: string }> = ({
+  icon,
+  title,
+  sub
+}) => (
+  <div
+    className="flex items-center gap-2 px-2 py-1.5 rounded-lg"
+    style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+  >
+    <div
+      className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+      style={{
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.06))',
+        color: 'var(--brand-600)'
+      }}
+    >
+      {icon}
+    </div>
+    <div className="min-w-0 leading-tight">
+      <p className="text-[11px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
+        {title}
+      </p>
+      <p className="text-[10px] truncate" style={{ color: 'var(--text-3)' }}>
+        {sub}
+      </p>
+    </div>
+  </div>
+);
 
 const CloseX: React.FC<{ onClose: () => void }> = ({ onClose }) => (
   <button

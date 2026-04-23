@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, Lock, Shield, Sparkles, Zap } from 'lucide-react';
+import { Loader2, Lock, ShieldCheck, Sparkles, Zap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
@@ -13,7 +13,7 @@ interface LoginCardProps {
 
 export const LoginCard: React.FC<LoginCardProps> = ({
   title = 'Entre na sua conta',
-  subtitle = 'Faca login com seu Google para acessar o painel de disparos, conexoes e campanhas.',
+  subtitle = 'Acesse o painel de disparos, conexões e campanhas em 1 clique com sua conta Google.',
   showTrialOption = false
 }) => {
   const { signInWithGoogle } = useAuth();
@@ -90,7 +90,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               {loading === 'trial' ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Abrindo Google...
+                  Abrindo Google…
                 </>
               ) : (
                 <>
@@ -123,7 +123,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               {loading === 'login' ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Entrando...
+                  Entrando…
                 </>
               ) : (
                 <>
@@ -149,7 +149,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             {loading === 'login' ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Entrando...
+                Entrando…
               </>
             ) : (
               <>
@@ -165,16 +165,16 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
           <span className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
             <Lock className="w-3 h-3" />
-            Autenticacao segura
+            Entrada segura
           </span>
           <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
         </div>
 
         {/* Trust features */}
         <div className="space-y-2">
-          <Feature icon={<Shield className="w-3.5 h-3.5" />} label="Login via Firebase Authentication" />
-          <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessao persistente (nao pede toda vez)" />
-          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste gratuito ou planos Pro" />
+          <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Nunca guardamos sua senha — login é pelo Google" />
+          <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
+          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Cancela quando quiser — sem fidelidade" />
         </div>
       </div>
     </div>
