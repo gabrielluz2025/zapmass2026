@@ -1,5 +1,14 @@
-import React, { useState } from 'react';
-import { BarChart3, CheckCircle2, LayoutDashboard, Plus, Rocket, Send, Smartphone, Target } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+  Command,
+  LayoutDashboard,
+  Plus,
+  Send,
+  Smartphone,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { CampaignReplyFlow, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../types';
 import type { CampaignWizardDraft } from '../types/campaignMission';
@@ -8,7 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { isWhatsAppRiskAcknowledged, saveWhatsAppRiskAck } from '../utils/whatsappRiskStorage';
 import { appendAudit } from '../utils/campaignMissionStorage';
 import { buildDraftFromCampaign } from '../utils/campaignDraft';
-import { Badge, Button, Card, Input, SectionHeader, Select, StatCard, Tabs as UITabs } from './ui';
+import { Badge, Button, Card, Input, Select, Tabs as UITabs, Modal } from './ui';
 import {
   CampaignDetails,
   CampaignMissionControl,
@@ -17,6 +26,9 @@ import {
   CampaignsOverview,
   NewCampaignWizard
 } from './campaigns';
+import { CampaignCockpitHero } from './campaigns/CampaignCockpitHero';
+import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
+import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
 
 interface CampaignsTabProps {
@@ -24,6 +36,19 @@ interface CampaignsTabProps {
 }
 
 type SubTab = 'overview' | 'mission' | 'campaigns' | 'create';
+
+const LS_TEST_OPEN = 'zapmass.campaigns.testOpen';
+const LS_DISMISSED = 'zapmass.campaigns.dismissedInsights';
+
+const loadDismissed = (): string[] => {
+  try {
+    const raw = localStorage.getItem(LS_DISMISSED);
+    if (!raw) return [];
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
+  }
+};
 
 export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const { user } = useAuth();
@@ -44,6 +69,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const [viewState, setViewState] = useState<'list' | 'create' | 'details'>('list');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [riskModalOpen, setRiskModalOpen] = useState(false);
+  const [testOpen, setTestOpen] = useState(() => localStorage.getItem(LS_TEST_OPEN) === '1');
   const [testFromConn, setTestFromConn] = useState<string>('');
   const [testToPhone, setTestToPhone] = useState<string>('');
   const [testMessage, setTestMessage] = useState<string>('Teste de disparo - ZapMass');
@@ -51,6 +77,16 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const [wizardDraft, setWizardDraft] = useState<CampaignWizardDraft | null>(null);
   const [wizardSessionId, setWizardSessionId] = useState(0);
   const [pendingDraft, setPendingDraft] = useState<CampaignWizardDraft | null>(null);
+  const [dismissedInsights, setDismissedInsights] = useState<string[]>(loadDismissed);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem(LS_TEST_OPEN, testOpen ? '1' : '0');
+  }, [testOpen]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_DISMISSED, JSON.stringify(dismissedInsights));
+  }, [dismissedInsights]);
 
   const goToCreateWizard = () => {
     setWizardDraft(null);
@@ -80,7 +116,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const requestCreateFlow = () => {
     const uid = user?.uid;
     if (!uid) {
-      toast.error('Faca login para criar campanhas.');
+      toast.error('Faça login para criar campanhas.');
       return;
     }
     if (!isWhatsAppRiskAcknowledged(uid)) {
@@ -92,9 +128,6 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   };
 
   const activeCampaign = campaigns.find((c) => c.id === selectedCampaignId);
-  const runningCampaigns = campaigns.filter((c) => c.status === CampaignStatus.RUNNING).length;
-  const completedCampaigns = campaigns.filter((c) => c.status === CampaignStatus.COMPLETED).length;
-  const onlineCount = connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length;
 
   const openDetails = (id: string) => {
     setSelectedCampaignId(id);
@@ -155,8 +188,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       throw new Error('Sem chips conectados');
     }
     if (payload.numbers.length === 0) {
-      toast.error('Nenhum numero valido foi encontrado.');
-      throw new Error('Sem numeros');
+      toast.error('Nenhum número válido foi encontrado.');
+      throw new Error('Sem números');
     }
 
     const id = await startCampaign(
@@ -181,9 +214,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
 
     const isAbA = payload.name.includes(' — Var A');
     const isAbB = payload.name.includes(' — Var B');
-    if (isAbA) {
-      return;
-    }
+    if (isAbA) return;
     if (isAbB) {
       toast.success('Laboratório A/B: as duas campanhas foram iniciadas. Compare os resultados na lista.');
     } else {
@@ -238,6 +269,37 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     });
   };
 
+  // --- Atalhos de teclado ---
+  useEffect(() => {
+    if (viewState !== 'list') return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isTyping =
+        tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable;
+      if (isTyping && e.key !== 'Escape') return;
+
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        requestCreateFlow();
+      } else if (e.key === '1') {
+        setSubTab('overview');
+      } else if (e.key === '2') {
+        setSubTab('mission');
+      } else if (e.key === '3') {
+        setSubTab('campaigns');
+      } else if (e.key === 't' || e.key === 'T') {
+        setTestOpen((v) => !v);
+      } else if (e.key === '?') {
+        setShortcutsOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewState]);
+
+  const dismissInsight = (id: string) => setDismissedInsights((prev) => [...prev, id]);
+
   return (
     <>
       <WhatsAppRiskAcceptModal
@@ -277,110 +339,139 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         />
       ) : (
         <div className="space-y-5 pb-24 lg:pb-10">
-          <SectionHeader
-            eyebrow={
-              <>
-                <Rocket className="w-3 h-3" />
-                Campanhas
-              </>
-            }
-            title="Campanhas WhatsApp"
-            description="Dashboard, centro de missões (linha do tempo, chips, modelos), lista e criação com laboratório A/B."
-            icon={<Rocket className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
-            actions={
-              <Button variant="primary" size="lg" leftIcon={<Plus className="w-4 h-4" />} onClick={requestCreateFlow}>
-                Nova Campanha
-              </Button>
-            }
+          <CampaignCockpitHero
+            campaigns={campaigns}
+            connections={connections}
+            onCreate={requestCreateFlow}
+            onOpenDetails={openDetails}
+            onTogglePause={toggleCampaignStatus}
           />
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Total" value={campaigns.length} icon={<Target className="w-4 h-4" />} />
-            <StatCard label="Ativas" value={runningCampaigns} icon={<Send className="w-4 h-4" />} accent="success" />
-            <StatCard
-              label="Concluidas"
-              value={completedCampaigns}
-              icon={<CheckCircle2 className="w-4 h-4" />}
-              accent="info"
-            />
-            <StatCard
-              label="Chips Online"
-              value={onlineCount}
-              icon={<Smartphone className="w-4 h-4" />}
-              accent="warning"
-            />
-          </div>
+          <CampaignInsightsBanner
+            campaigns={campaigns}
+            connections={connections}
+            onOpenDetails={openDetails}
+            dismissedIds={dismissedInsights}
+            onDismiss={dismissInsight}
+          />
 
+          <CampaignTemplatesGallery onUseTemplate={openWizardWithDraft} />
+
+          {/* Teste de disparo — colapsável */}
           <Card>
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.12)' }}>
+            <button
+              type="button"
+              onClick={() => setTestOpen((v) => !v)}
+              className="w-full flex items-center gap-2.5 text-left"
+              aria-expanded={testOpen}
+            >
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(59,130,246,0.12)' }}
+              >
                 <Smartphone className="w-4 h-4 text-blue-500" />
               </div>
-              <div className="flex-1">
-                <h3 className="ui-title text-[15px]">Teste de disparo</h3>
-                <p className="ui-subtitle text-[12px]">Valide o envio antes de rodar campanha grande</p>
+              <div className="flex-1 min-w-0">
+                <h3 className="ui-title text-[14.5px]">Teste de disparo</h3>
+                <p className="ui-subtitle text-[11.5px] truncate">
+                  Valide o envio em 1 número antes de rodar uma campanha cheia
+                </p>
               </div>
-              <Badge variant="info">Depuracao</Badge>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="ui-eyebrow mb-1.5 block">Conexao origem</label>
-                <Select value={testFromConn} onChange={(e) => setTestFromConn(e.target.value)}>
-                  <option value="">Selecione...</option>
-                  {connections.filter((c) => c.status === ConnectionStatus.CONNECTED).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <label className="ui-eyebrow mb-1.5 block">Numero destino</label>
-                <Input
-                  placeholder="Ex: 5511999999999"
-                  value={testToPhone}
-                  onChange={(e) => setTestToPhone(e.target.value.replace(/\D/g, ''))}
-                />
-              </div>
-              <div>
-                <label className="ui-eyebrow mb-1.5 block">Mensagem</label>
-                <Input value={testMessage} onChange={(e) => setTestMessage(e.target.value)} />
-              </div>
-            </div>
-            <div className="flex items-center justify-between mt-4 gap-3">
-              <div
-                className="text-[12.5px] min-h-[20px]"
-                style={{
-                  color: testResult?.startsWith('Enviado')
-                    ? 'var(--brand-600)'
-                    : testResult?.startsWith('Erro')
-                    ? '#ef4444'
-                    : 'var(--text-3)'
-                }}
+              <Badge variant="info">Depuração</Badge>
+              <span
+                className="p-1 rounded-md transition-colors shrink-0"
+                style={{ color: 'var(--text-3)' }}
+                aria-hidden
               >
-                {testResult || 'Aguardando teste...'}
+                {testOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </span>
+            </button>
+
+            {testOpen && (
+              <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="ui-eyebrow mb-1.5 block">Conexão origem</label>
+                    <Select value={testFromConn} onChange={(e) => setTestFromConn(e.target.value)}>
+                      <option value="">Selecione...</option>
+                      {connections
+                        .filter((c) => c.status === ConnectionStatus.CONNECTED)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="ui-eyebrow mb-1.5 block">Número destino</label>
+                    <Input
+                      placeholder="Ex: 5511999999999"
+                      value={testToPhone}
+                      onChange={(e) => setTestToPhone(e.target.value.replace(/\D/g, ''))}
+                    />
+                  </div>
+                  <div>
+                    <label className="ui-eyebrow mb-1.5 block">Mensagem</label>
+                    <Input
+                      value={testMessage}
+                      onChange={(e) => setTestMessage(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-4 gap-3 flex-wrap">
+                  <div
+                    className="text-[12.5px] min-h-[20px]"
+                    style={{
+                      color: testResult?.startsWith('Enviado')
+                        ? 'var(--brand-600)'
+                        : testResult?.startsWith('Erro')
+                        ? '#ef4444'
+                        : 'var(--text-3)'
+                    }}
+                  >
+                    {testResult || 'Aguardando teste...'}
+                  </div>
+                  <Button
+                    variant="primary"
+                    leftIcon={<Send className="w-4 h-4" />}
+                    disabled={!testFromConn || !testToPhone || !testMessage.trim()}
+                    onClick={handleTestDispatch}
+                  >
+                    Testar disparo
+                  </Button>
+                </div>
               </div>
-              <Button
-                variant="primary"
-                leftIcon={<Send className="w-4 h-4" />}
-                disabled={!testFromConn || !testToPhone || !testMessage.trim()}
-                onClick={handleTestDispatch}
-              >
-                Testar disparo
-              </Button>
-            </div>
+            )}
           </Card>
 
-          <UITabs
-            value={subTab}
-            onChange={(v) => handleSubTabChange(v as SubTab)}
-            items={[
-              { id: 'overview', label: 'Dashboard', icon: <BarChart3 className="w-3.5 h-3.5" /> },
-              { id: 'mission', label: 'Centro', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
-              { id: 'campaigns', label: `Campanhas (${campaigns.length})`, icon: <Send className="w-3.5 h-3.5" /> },
-              { id: 'create', label: 'Nova', icon: <Plus className="w-3.5 h-3.5" /> }
-            ]}
-          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <UITabs
+              value={subTab}
+              onChange={(v) => handleSubTabChange(v as SubTab)}
+              items={[
+                { id: 'overview', label: 'Dashboard', icon: <BarChart3 className="w-3.5 h-3.5" /> },
+                { id: 'mission', label: 'Centro', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
+                { id: 'campaigns', label: `Campanhas (${campaigns.length})`, icon: <Send className="w-3.5 h-3.5" /> },
+                { id: 'create', label: 'Nova', icon: <Plus className="w-3.5 h-3.5" /> }
+              ]}
+            />
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => setShortcutsOpen(true)}
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors"
+              style={{
+                background: 'var(--surface-1)',
+                color: 'var(--text-3)',
+                border: '1px solid var(--border-subtle)'
+              }}
+              title="Atalhos de teclado"
+            >
+              <Command className="w-3.5 h-3.5" />
+              Atalhos
+            </button>
+          </div>
 
           {subTab === 'mission' && (
             <CampaignMissionControl
@@ -425,6 +516,43 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           onTogglePause={toggleCampaignStatus}
         />
       )}
+
+      <Modal
+        isOpen={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        title="Atalhos de teclado"
+      >
+        <div className="space-y-1">
+          {[
+            { k: 'N', d: 'Nova campanha' },
+            { k: '1', d: 'Ir para Dashboard' },
+            { k: '2', d: 'Ir para Centro de missões' },
+            { k: '3', d: 'Ir para lista de campanhas' },
+            { k: 'T', d: 'Abrir/fechar Teste de disparo' },
+            { k: '?', d: 'Mostrar esta tela de atalhos' }
+          ].map((row) => (
+            <div
+              key={row.k}
+              className="flex items-center justify-between py-1.5"
+              style={{ borderBottom: '1px solid var(--border-subtle)' }}
+            >
+              <span className="text-[13px]" style={{ color: 'var(--text-2)' }}>
+                {row.d}
+              </span>
+              <kbd
+                className="text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums"
+                style={{
+                  background: 'var(--surface-1)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-1)'
+                }}
+              >
+                {row.k}
+              </kbd>
+            </div>
+          ))}
+        </div>
+      </Modal>
     </>
   );
 };
