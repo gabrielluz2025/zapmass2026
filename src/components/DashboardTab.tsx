@@ -185,65 +185,6 @@ const DashboardStat: React.FC<{
 );
 
 /**
- * Anel circular de progresso animado. Usado para Entrega/Leitura/Resposta.
- */
-const CircularRing: React.FC<{
-  value: number;
-  label: string;
-  color: string;
-  size?: number;
-}> = ({ value, label, color, size = 86 }) => {
-  const stroke = 8;
-  const radius = (size - stroke) / 2;
-  const circ = 2 * Math.PI * radius;
-  const pct = Math.max(0, Math.min(100, value));
-  const offset = circ - (pct / 100) * circ;
-  return (
-    <div className="flex flex-col items-center gap-1.5">
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} className="-rotate-90">
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke="var(--surface-2)"
-            strokeWidth={stroke}
-          />
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={color}
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={circ}
-            strokeDashoffset={offset}
-            style={{
-              transition: 'stroke-dashoffset 1s cubic-bezier(0.2, 0.7, 0.2, 1)',
-              filter: `drop-shadow(0 0 8px ${color}66)`
-            }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[18px] font-extrabold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-            {pct}
-            <span className="text-[11px] font-bold ml-0.5" style={{ color: 'var(--text-3)' }}>%</span>
-          </span>
-        </div>
-      </div>
-      <span
-        className="text-[10.5px] font-bold uppercase tracking-widest"
-        style={{ color: 'var(--text-3)' }}
-      >
-        {label}
-      </span>
-    </div>
-  );
-};
-
-/**
  * Cartao de atalho rapido para outras abas. Colorido, gradiente e hover animado.
  */
 const QuickAction: React.FC<{
@@ -1012,40 +953,189 @@ export const DashboardTab: React.FC = () => {
               )}
             </div>
 
-            {!funnelEmpty && (
-              <div
-                className="lg:w-[248px] shrink-0 rounded-2xl p-4 flex flex-col gap-4"
-                style={{
-                  border: '1px solid var(--border-subtle)',
-                  background:
-                    'linear-gradient(165deg, var(--surface-1) 0%, var(--surface-2) 100%)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
-                }}
-              >
-                <div className="flex items-center justify-between">
-                  <p
-                    className="text-[10.5px] font-bold uppercase tracking-[0.14em]"
-                    style={{ color: 'var(--text-3)' }}
-                  >
-                    Conversão
-                  </p>
-                  <Badge variant="success" dot />
-                </div>
+            {!funnelEmpty && (() => {
+              // Performance score: media ponderada (entrega importa mais para WhatsApp)
+              const perfScore = Math.round(
+                deliveryRate * 0.45 + readRate * 0.30 + replyRate * 0.25
+              );
+              const perfColor =
+                perfScore >= 70 ? '#10b981' : perfScore >= 40 ? '#f59e0b' : '#ef4444';
+              const perfLabel =
+                perfScore >= 70 ? 'Excelente' : perfScore >= 40 ? 'Bom' : 'Melhorar';
 
-                <div className="grid grid-cols-3 gap-1 pt-1">
-                  <CircularRing value={deliveryRate} label="Entrega" color="#3b82f6" size={78} />
-                  <CircularRing value={readRate} label="Leitura" color="#8b5cf6" size={78} />
-                  <CircularRing value={replyRate} label="Resposta" color="#f59e0b" size={78} />
-                </div>
+              const breakdown = [
+                {
+                  label: 'Entrega',
+                  pct: deliveryRate,
+                  count: metrics.totalDelivered,
+                  total: metrics.totalSent,
+                  color: '#3b82f6',
+                  icon: <CheckCheck className="w-3.5 h-3.5" />
+                },
+                {
+                  label: 'Leitura',
+                  pct: readRate,
+                  count: metrics.totalRead,
+                  total: metrics.totalSent,
+                  color: '#8b5cf6',
+                  icon: <CheckCheck className="w-3.5 h-3.5" />
+                },
+                {
+                  label: 'Resposta',
+                  pct: replyRate,
+                  count: metrics.totalReplied,
+                  total: metrics.totalSent,
+                  color: '#f59e0b',
+                  icon: <Reply className="w-3.5 h-3.5" />
+                }
+              ];
 
-                <p
-                  className="text-[10.5px] leading-snug pt-2 mt-auto"
-                  style={{ color: 'var(--text-3)', borderTop: '1px solid var(--border-subtle)' }}
+              return (
+                <div
+                  className="lg:w-[288px] shrink-0 rounded-2xl p-4 flex flex-col gap-4 relative overflow-hidden"
+                  style={{
+                    border: '1px solid var(--border-subtle)',
+                    background:
+                      'linear-gradient(165deg, var(--surface-1) 0%, var(--surface-2) 100%)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
+                  }}
                 >
-                  Percentuais sobre o total de envios acumulado no servidor.
-                </p>
-              </div>
-            )}
+                  <div
+                    className="absolute -top-20 -right-20 w-56 h-56 rounded-full pointer-events-none opacity-[0.15]"
+                    style={{
+                      background: `radial-gradient(circle, ${perfColor}, transparent 70%)`
+                    }}
+                    aria-hidden
+                  />
+
+                  <div className="relative flex items-center justify-between">
+                    <p
+                      className="text-[10.5px] font-bold uppercase tracking-[0.14em]"
+                      style={{ color: 'var(--text-3)' }}
+                    >
+                      Desempenho geral
+                    </p>
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9.5px] font-bold uppercase tracking-widest"
+                      style={{
+                        background: `${perfColor}22`,
+                        color: perfColor,
+                        border: `1px solid ${perfColor}44`
+                      }}
+                    >
+                      <span className="w-1 h-1 rounded-full animate-pulse" style={{ background: perfColor }} />
+                      Live
+                    </span>
+                  </div>
+
+                  {/* HERO RING: performance score */}
+                  <div
+                    className="relative rounded-2xl p-4 pt-3 text-center overflow-hidden"
+                    style={{
+                      background: `linear-gradient(165deg, ${perfColor}15 0%, ${perfColor}05 100%)`,
+                      border: `1px solid ${perfColor}33`
+                    }}
+                  >
+                    <div className="relative flex items-center justify-center">
+                      <svg width={130} height={130} className="-rotate-90">
+                        <circle
+                          cx={65}
+                          cy={65}
+                          r={58}
+                          fill="none"
+                          stroke="var(--surface-2)"
+                          strokeWidth={10}
+                        />
+                        <circle
+                          cx={65}
+                          cy={65}
+                          r={58}
+                          fill="none"
+                          stroke={perfColor}
+                          strokeWidth={10}
+                          strokeLinecap="round"
+                          strokeDasharray={2 * Math.PI * 58}
+                          strokeDashoffset={2 * Math.PI * 58 * (1 - Math.max(0, Math.min(100, perfScore)) / 100)}
+                          style={{
+                            transition: 'stroke-dashoffset 1.2s cubic-bezier(0.2, 0.7, 0.2, 1)',
+                            filter: `drop-shadow(0 0 10px ${perfColor}88)`
+                          }}
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span
+                          className="text-[30px] font-extrabold tabular-nums leading-none"
+                          style={{ color: 'var(--text-1)' }}
+                        >
+                          {perfScore}
+                          <span className="text-[14px] font-bold ml-0.5" style={{ color: 'var(--text-3)' }}>
+                            %
+                          </span>
+                        </span>
+                        <span
+                          className="text-[9.5px] font-bold uppercase tracking-widest mt-0.5"
+                          style={{ color: perfColor }}
+                        >
+                          {perfLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
+                      Média ponderada de entrega, leitura e resposta
+                    </p>
+                  </div>
+
+                  {/* BREAKDOWN: lista de metricas com mini-barras */}
+                  <div className="relative space-y-2.5">
+                    {breakdown.map((row) => (
+                      <div key={row.label}>
+                        <div className="flex items-center justify-between gap-3 mb-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+                              style={{
+                                background: `${row.color}1a`,
+                                color: row.color,
+                                border: `1px solid ${row.color}33`
+                              }}
+                            >
+                              {row.icon}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[12.5px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                                {row.label}
+                              </p>
+                              <p className="text-[10.5px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                                {row.count.toLocaleString('pt-BR')} de {row.total.toLocaleString('pt-BR')}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className="text-[15px] font-extrabold tabular-nums leading-none"
+                            style={{ color: row.color }}
+                          >
+                            {row.pct}%
+                          </span>
+                        </div>
+                        <div
+                          className="h-1.5 rounded-full overflow-hidden"
+                          style={{ background: 'var(--surface-2)' }}
+                        >
+                          <div
+                            className="h-full rounded-full transition-all duration-1000 ease-out"
+                            style={{
+                              width: `${Math.max(2, Math.min(100, row.pct))}%`,
+                              background: `linear-gradient(90deg, ${row.color}, ${row.color}cc)`,
+                              boxShadow: `0 0 8px ${row.color}55`
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <div
