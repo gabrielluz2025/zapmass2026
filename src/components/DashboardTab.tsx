@@ -3,14 +3,12 @@ import {
   Send,
   CheckCheck,
   Reply,
-  Gift,
   Cake,
   Calendar,
   User,
   Smartphone,
   ChevronDown,
   AlertTriangle,
-  Activity,
   TrendingUp,
   Clock,
   Zap,
@@ -20,11 +18,18 @@ import {
   ShieldCheck,
   MessageCircle,
   Sparkles,
-  RotateCcw
+  RotateCcw,
+  Users,
+  Flame,
+  FolderInput,
+  Rocket,
+  ArrowRight,
+  Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
+import { useAppView } from '../context/AppViewContext';
 import { Card, Button, Badge, Modal, Textarea, Select } from './ui';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
@@ -115,39 +120,6 @@ const getChannelCapacity = (ramTotalGb: number | undefined) => {
 };
 
 /**
- * Mini-card KPI usado no hero do dashboard. Compacto, grande, colorido.
- */
-const HeroStat: React.FC<{ label: string; value: string; color: string; icon?: React.ReactNode }> = ({
-  label,
-  value,
-  color,
-  icon
-}) => (
-  <div
-    className="relative overflow-hidden px-3.5 py-2.5 rounded-xl backdrop-blur-sm"
-    style={{
-      background: 'var(--surface-1)',
-      border: '1px solid var(--border-subtle)'
-    }}
-  >
-    <div
-      className="absolute -top-6 -right-6 w-16 h-16 rounded-full opacity-20 pointer-events-none"
-      style={{ background: `radial-gradient(circle, ${color}, transparent 70%)` }}
-      aria-hidden
-    />
-    <div className="relative flex items-center gap-1.5 mb-0.5">
-      {icon && <span style={{ color }}>{icon}</span>}
-      <p className="text-[9.5px] font-bold uppercase tracking-widest truncate" style={{ color: 'var(--text-3)' }}>
-        {label}
-      </p>
-    </div>
-    <p className="relative text-[19px] font-extrabold leading-tight tabular-nums truncate" style={{ color }}>
-      {value}
-    </p>
-  </div>
-);
-
-/**
  * Stat card visual com gradiente, glow e barra de progresso opcional.
  * Substitui o StatCard padrao apenas no dashboard (mais impacto visual).
  */
@@ -212,8 +184,107 @@ const DashboardStat: React.FC<{
   </div>
 );
 
+/**
+ * Anel circular de progresso animado. Usado para Entrega/Leitura/Resposta.
+ */
+const CircularRing: React.FC<{
+  value: number;
+  label: string;
+  color: string;
+  size?: number;
+}> = ({ value, label, color, size = 86 }) => {
+  const stroke = 8;
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const pct = Math.max(0, Math.min(100, value));
+  const offset = circ - (pct / 100) * circ;
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="var(--surface-2)"
+            strokeWidth={stroke}
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={circ}
+            strokeDashoffset={offset}
+            style={{
+              transition: 'stroke-dashoffset 1s cubic-bezier(0.2, 0.7, 0.2, 1)',
+              filter: `drop-shadow(0 0 8px ${color}66)`
+            }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-[18px] font-extrabold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+            {pct}
+            <span className="text-[11px] font-bold ml-0.5" style={{ color: 'var(--text-3)' }}>%</span>
+          </span>
+        </div>
+      </div>
+      <span
+        className="text-[10.5px] font-bold uppercase tracking-widest"
+        style={{ color: 'var(--text-3)' }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+};
+
+/**
+ * Cartao de atalho rapido para outras abas. Colorido, gradiente e hover animado.
+ */
+const QuickAction: React.FC<{
+  label: string;
+  hint: string;
+  icon: React.ReactNode;
+  gradient: [string, string];
+  onClick: () => void;
+}> = ({ label, hint, icon, gradient, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 animate-fade-in-up"
+    style={{
+      background: `linear-gradient(135deg, ${gradient[0]} 0%, ${gradient[1]} 100%)`,
+      boxShadow: `0 10px 24px -12px ${gradient[0]}aa`
+    }}
+  >
+    <div
+      className="absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-30 pointer-events-none transition-transform duration-500 group-hover:scale-125"
+      style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.6), transparent 70%)' }}
+      aria-hidden
+    />
+    <div className="relative flex items-start justify-between">
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/20 backdrop-blur-sm ring-1 ring-white/30 text-white">
+        {icon}
+      </div>
+      <ArrowRight className="w-4 h-4 text-white/80 transition-transform duration-300 group-hover:translate-x-1" />
+    </div>
+    <p className="relative mt-3 text-[15px] font-extrabold text-white leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
+      {label}
+    </p>
+    <p className="relative text-[11.5px] mt-0.5 text-white/85 leading-snug line-clamp-2">
+      {hint}
+    </p>
+  </button>
+);
+
 export const DashboardTab: React.FC = () => {
   const { connections, sendMessage, campaigns, contacts, conversations, socket, startCampaign, systemMetrics, funnelStats, clearFunnelStats } = useZapMass();
+  const { setCurrentView } = useAppView();
 
   const [confirmClearFunnel, setConfirmClearFunnel] = useState(false);
 
@@ -508,70 +579,93 @@ export const DashboardTab: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-10">
-      {/* HERO HEADER - animated gradient + live KPIs */}
+      {/* ========== HERO PREMIUM: mesh gradient + CTAs + live status ========== */}
       <div
-        className="relative overflow-hidden rounded-3xl px-5 py-5 sm:px-7 sm:py-6 animate-fade-in-up"
+        className="relative overflow-hidden rounded-[28px] px-5 py-6 sm:px-8 sm:py-8 animate-fade-in-up"
         style={{
-          background: 'linear-gradient(135deg, var(--surface-0) 0%, var(--surface-1) 100%)',
+          background:
+            'linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(59,130,246,0.14) 45%, rgba(139,92,246,0.14) 100%), linear-gradient(135deg, var(--surface-0) 0%, var(--surface-1) 100%)',
           border: '1px solid var(--border)',
-          boxShadow: '0 20px 60px -30px rgba(16,185,129,0.2)'
+          boxShadow: '0 24px 80px -40px rgba(16,185,129,0.45), 0 8px 24px -12px rgba(0,0,0,0.15)'
         }}
       >
-        {/* Orbs animados */}
+        {/* Orbs mesh */}
         <div
-          className="absolute -top-24 -right-12 w-80 h-80 rounded-full animate-blob pointer-events-none"
+          className="absolute -top-28 -right-16 w-[28rem] h-[28rem] rounded-full animate-blob pointer-events-none"
           style={{
-            background: 'radial-gradient(circle, rgba(16,185,129,0.22), transparent 60%)',
-            filter: 'blur(28px)'
+            background: 'radial-gradient(circle, rgba(16,185,129,0.45), transparent 60%)',
+            filter: 'blur(40px)'
           }}
           aria-hidden
         />
         <div
-          className="absolute -bottom-20 -left-10 w-72 h-72 rounded-full animate-blob-slow pointer-events-none"
+          className="absolute top-10 left-1/3 w-72 h-72 rounded-full animate-blob-slow pointer-events-none"
           style={{
-            background: 'radial-gradient(circle, rgba(59,130,246,0.14), transparent 60%)',
-            filter: 'blur(32px)'
+            background: 'radial-gradient(circle, rgba(139,92,246,0.35), transparent 60%)',
+            filter: 'blur(36px)'
+          }}
+          aria-hidden
+        />
+        <div
+          className="absolute -bottom-24 -left-20 w-80 h-80 rounded-full animate-blob pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle, rgba(59,130,246,0.35), transparent 60%)',
+            filter: 'blur(42px)',
+            animationDelay: '6s'
           }}
           aria-hidden
         />
 
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div className="flex items-start gap-4 min-w-0">
             <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 relative animate-glow-pulse"
+              className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl flex items-center justify-center shrink-0 relative animate-glow-pulse text-[32px]"
               style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 12px 32px -8px rgba(16,185,129,0.55)'
+                boxShadow: '0 16px 40px -10px rgba(16,185,129,0.6)'
               }}
             >
-              <BarChart3 className="w-7 h-7 text-white" />
+              <span className="drop-shadow-[0_2px_6px_rgba(0,0,0,0.3)]">
+                {hour < 6 ? '🌙' : hour < 12 ? '☀️' : hour < 18 ? '🌤️' : '🌙'}
+              </span>
             </div>
             <div className="min-w-0">
               <div className="flex items-center flex-wrap gap-2 mb-1.5">
                 <span
                   className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-widest"
                   style={{
-                    background: 'rgba(16,185,129,0.12)',
-                    color: 'var(--brand-600)',
-                    border: '1px solid rgba(16,185,129,0.28)'
+                    background: 'rgba(16,185,129,0.16)',
+                    color: '#10b981',
+                    border: '1px solid rgba(16,185,129,0.35)',
+                    backdropFilter: 'blur(4px)'
                   }}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Motor ativo
+                  <span className="relative flex w-1.5 h-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                  </span>
+                  Sistema operacional
                 </span>
-                <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-3)' }}>
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    color: 'var(--text-2)',
+                    border: '1px solid var(--border-subtle)'
+                  }}
+                >
                   <Clock className="w-3 h-3" />
                   {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
               <h1
-                className="text-[24px] sm:text-[30px] font-extrabold leading-tight tracking-tight"
+                className="text-[26px] sm:text-[34px] font-extrabold leading-[1.1] tracking-tight"
                 style={{ color: 'var(--text-1)' }}
               >
                 {greeting},{' '}
                 <span
                   style={{
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 45%, #3b82f6 100%)',
+                    background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%)',
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     backgroundClip: 'text'
@@ -579,40 +673,124 @@ export const DashboardTab: React.FC = () => {
                 >
                   Administrador
                 </span>
+                <span className="text-[22px] sm:text-[30px] ml-1">👋</span>
               </h1>
-              <p className="mt-1 text-[13px] capitalize" style={{ color: 'var(--text-2)' }}>
+              <p className="mt-1.5 text-[13px] sm:text-[14px] capitalize" style={{ color: 'var(--text-2)' }}>
                 {now.toLocaleDateString('pt-BR', {
                   weekday: 'long',
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric'
                 })}
+                {onlineCount > 0 && (
+                  <span className="ml-2 text-[12.5px]" style={{ color: 'var(--text-3)' }}>
+                    · <strong style={{ color: '#10b981' }}>{onlineCount}</strong> canal
+                    {onlineCount > 1 ? 'is' : ''} online
+                  </span>
+                )}
               </p>
             </div>
           </div>
 
-          {/* KPIs ao vivo no hero */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 shrink-0 w-full lg:w-auto">
-            <HeroStat
-              label="Canais"
-              value={`${onlineCount}/${connections.length || 0}`}
-              color="#10b981"
-              icon={<Cpu className="w-3 h-3" />}
-            />
-            <HeroStat
-              label="Enviadas"
-              value={metrics.totalSent.toLocaleString('pt-BR')}
-              color="#3b82f6"
-              icon={<Send className="w-3 h-3" />}
-            />
-            <HeroStat
-              label="Entrega"
-              value={`${deliveryRate}%`}
-              color="#8b5cf6"
-              icon={<TrendingUp className="w-3 h-3" />}
-            />
+          {/* CTAs principais */}
+          <div className="flex items-stretch gap-2 shrink-0 w-full lg:w-auto">
+            <button
+              type="button"
+              onClick={() => setCurrentView('campaigns')}
+              className="group relative overflow-hidden flex-1 lg:flex-none inline-flex items-center gap-2 px-4 sm:px-5 py-3 rounded-2xl text-[13.5px] font-bold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                boxShadow: '0 10px 28px -10px rgba(16,185,129,0.7)'
+              }}
+            >
+              <Plus className="w-4 h-4 shrink-0 transition-transform duration-300 group-hover:rotate-90" />
+              <span>Nova campanha</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('connections')}
+              className="flex-1 lg:flex-none inline-flex items-center gap-2 px-4 sm:px-5 py-3 rounded-2xl text-[13.5px] font-bold transition-all duration-300 hover:-translate-y-0.5"
+              style={{
+                background: 'var(--surface-0)',
+                color: 'var(--text-1)',
+                border: '1px solid var(--border)',
+                backdropFilter: 'blur(6px)'
+              }}
+            >
+              <Smartphone className="w-4 h-4 shrink-0" style={{ color: '#10b981' }} />
+              <span>Conectar canal</span>
+            </button>
           </div>
         </div>
+
+        {/* Status bar horizontal com metricas ao vivo */}
+        <div
+          className="relative z-10 mt-6 grid grid-cols-2 sm:grid-cols-4 gap-px rounded-2xl overflow-hidden"
+          style={{
+            background: 'var(--border)',
+            border: '1px solid var(--border-subtle)'
+          }}
+        >
+          {[
+            { label: 'Canais online', value: `${onlineCount}/${connections.length || 0}`, color: '#10b981', icon: <Cpu className="w-3.5 h-3.5" /> },
+            { label: 'Mensagens enviadas', value: metrics.totalSent.toLocaleString('pt-BR'), color: '#3b82f6', icon: <Send className="w-3.5 h-3.5" /> },
+            { label: 'Taxa de entrega', value: `${deliveryRate}%`, color: '#8b5cf6', icon: <CheckCheck className="w-3.5 h-3.5" /> },
+            { label: 'Respostas', value: metrics.totalReplied.toLocaleString('pt-BR'), color: '#f59e0b', icon: <Reply className="w-3.5 h-3.5" /> }
+          ].map((s) => (
+            <div
+              key={s.label}
+              className="px-4 py-3 flex items-center gap-3"
+              style={{ background: 'var(--surface-0)' }}
+            >
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: `${s.color}22`, color: s.color, border: `1px solid ${s.color}33` }}
+              >
+                {s.icon}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest truncate" style={{ color: 'var(--text-3)' }}>
+                  {s.label}
+                </p>
+                <p className="text-[17px] font-extrabold leading-tight tabular-nums truncate" style={{ color: 'var(--text-1)' }}>
+                  {s.value}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ========== QUICK ACTIONS: atalhos grandes coloridos ========== */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <QuickAction
+          label="Campanhas"
+          hint="Crie e acompanhe disparos em massa"
+          icon={<Rocket className="w-5 h-5" />}
+          gradient={['#10b981', '#059669']}
+          onClick={() => setCurrentView('campaigns')}
+        />
+        <QuickAction
+          label="Canais"
+          hint="Conecte WhatsApps e gerencie QR codes"
+          icon={<Smartphone className="w-5 h-5" />}
+          gradient={['#3b82f6', '#1d4ed8']}
+          onClick={() => setCurrentView('connections')}
+        />
+        <QuickAction
+          label="Contatos"
+          hint="Importe listas e edite aniversários"
+          icon={<Users className="w-5 h-5" />}
+          gradient={['#8b5cf6', '#6d28d9']}
+          onClick={() => setCurrentView('contacts')}
+        />
+        <QuickAction
+          label="Aquecimento"
+          hint="Reduza o risco de banimento dos chips"
+          icon={<Flame className="w-5 h-5" />}
+          gradient={['#f59e0b', '#d97706']}
+          onClick={() => setCurrentView('warmup')}
+        />
       </div>
 
       {/* STAT CARDS - com glow, progress e animação */}
@@ -836,43 +1014,35 @@ export const DashboardTab: React.FC = () => {
 
             {!funnelEmpty && (
               <div
-                className="lg:w-[248px] shrink-0 rounded-2xl p-3.5 space-y-3.5"
+                className="lg:w-[248px] shrink-0 rounded-2xl p-4 flex flex-col gap-4"
                 style={{
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  background: 'linear-gradient(165deg, var(--surface-2) 0%, var(--surface-1) 100%)',
+                  border: '1px solid var(--border-subtle)',
+                  background:
+                    'linear-gradient(165deg, var(--surface-1) 0%, var(--surface-2) 100%)',
                   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
                 }}
               >
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-3)' }}>
-                  Resumo
-                </p>
-                <ul className="space-y-3 text-[12.5px]">
-                  {[
-                    { label: 'Entrega', v: deliveryRate, color: '#3b82f6' },
-                    { label: 'Leitura', v: readRate, color: '#8b5cf6' },
-                    { label: 'Resposta', v: replyRate, color: '#f59e0b' }
-                  ].map((row) => (
-                    <li key={row.label}>
-                      <div className="flex justify-between gap-2 mb-1">
-                        <span style={{ color: 'var(--text-3)' }}>{row.label}</span>
-                        <span className="font-semibold tabular-nums" style={{ color: 'var(--text-1)' }}>
-                          {row.v}%
-                        </span>
-                      </div>
-                      <div
-                        className="h-1.5 rounded-full overflow-hidden"
-                        style={{ background: 'var(--surface-2)' }}
-                      >
-                        <div
-                          className="h-full rounded-full transition-all duration-700"
-                          style={{ width: `${Math.min(100, row.v)}%`, background: row.color, opacity: 0.85 }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-[10.5px] leading-snug pt-0.5 border-t border-white/[0.06]" style={{ color: 'var(--text-3)' }}>
-                  Percentuais referem-se ao total de envios acumulado no servidor.
+                <div className="flex items-center justify-between">
+                  <p
+                    className="text-[10.5px] font-bold uppercase tracking-[0.14em]"
+                    style={{ color: 'var(--text-3)' }}
+                  >
+                    Conversão
+                  </p>
+                  <Badge variant="success" dot />
+                </div>
+
+                <div className="grid grid-cols-3 gap-1 pt-1">
+                  <CircularRing value={deliveryRate} label="Entrega" color="#3b82f6" size={78} />
+                  <CircularRing value={readRate} label="Leitura" color="#8b5cf6" size={78} />
+                  <CircularRing value={replyRate} label="Resposta" color="#f59e0b" size={78} />
+                </div>
+
+                <p
+                  className="text-[10.5px] leading-snug pt-2 mt-auto"
+                  style={{ color: 'var(--text-3)', borderTop: '1px solid var(--border-subtle)' }}
+                >
+                  Percentuais sobre o total de envios acumulado no servidor.
                 </p>
               </div>
             )}
