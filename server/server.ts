@@ -676,12 +676,12 @@ const handleGracefulShutdown = (signal: string) => {
     });
   } catch { /* ignore */ }
 
-  // Timeout duro: se demorar mais de 25s (abaixo do stop_grace_period de 30s),
+  // Timeout duro: se demorar mais de 40s (abaixo do stop_grace_period de 45s),
   // forcamos saida. Isso evita que o Docker mande SIGKILL no meio do flush.
   const hardTimeout = setTimeout(() => {
     console.warn('⏱️ Shutdown demorou demais — saindo forcado.');
     process.exit(0);
-  }, 25000);
+  }, 40000);
   hardTimeout.unref();
 
   waService

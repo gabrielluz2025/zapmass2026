@@ -999,6 +999,7 @@ const handleIncomingForFunnel = (conversationId: string, incomingTs: number, pho
 // processo morrer. Sem isto o SIGTERM do Docker (compose up -d --build) escapa
 // para o Chrome como SIGKILL apos 10s, corrompendo dados e forcando novo QR.
 let isShuttingDown = false;
+export const isServerShuttingDown = () => isShuttingDown;
 export const shutdownAll = async (reason: string = 'SIGTERM'): Promise<void> => {
     if (isShuttingDown) return;
     isShuttingDown = true;
@@ -1008,12 +1009,31 @@ export const shutdownAll = async (reason: string = 'SIGTERM'): Promise<void> => 
         if (st.timeout) clearTimeout(st.timeout);
     }
     reconnectState.clear();
-    // Persiste estados voluteis antes de encerrar
+    // Antes de destruir, congelamos os status atuais no disco. O handler
+    // 'disconnected' que vai disparar durante o destroy nao persiste mais
+    // nada (checa isServerShuttingDown), entao o arquivo que sobrevive
+    // reflete o estado real antes do deploy (CONNECTED, etc).
     try {
         await persistConnections();
     } catch (e) {
         console.warn('[shutdown] Falha ao persistir connections:', (e as any)?.message || e);
     }
+    // Antes de destruir, tiramos backup de cada sessao ativa. Se o Chromium
+    // corromper os arquivos durante a saida, temos um snapshot consistente
+    // que o proximo boot usa para restaurar sem precisar de QR.
+    const backupTasks: Promise<void>[] = [];
+    for (const [id] of clients.entries()) {
+        const conn = connectionsInfo.find(c => c.id === id);
+        if (conn?.status === ConnectionStatus.CONNECTED) {
+            backupTasks.push(
+                Promise.race([
+                    backupSession(id).then(() => {}),
+                    new Promise<void>((resolve) => setTimeout(resolve, 5000))
+                ])
+            );
+        }
+    }
+    await Promise.all(backupTasks);
     // Destroi clientes com timeout individual — se um cliente trava, nao pode
     // segurar o shutdown inteiro (precisamos sair antes do SIGKILL).
     const tasks: Promise<void>[] = [];
@@ -1032,7 +1052,9 @@ export const shutdownAll = async (reason: string = 'SIGTERM'): Promise<void> => 
                         console.warn(`[shutdown] Erro ao destruir ${id}: ${e?.message || e}`);
                     }
                 })(),
-                new Promise<void>((resolve) => setTimeout(resolve, 8000))
+                // 15s — Chromium precisa de tempo para flushar IndexedDB.
+                // docker-compose tem stop_grace_period: 45s, entao ha folga.
+                new Promise<void>((resolve) => setTimeout(resolve, 15000))
             ])
         );
     }
@@ -2358,7 +2380,23 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     initChannelMetrics(id);
     startHealthCheck(id);
     advancedFeatures.initWarmup(id);
+
+    // Backup da sessao 60s apos conectar — garante que temos um snapshot
+    // consistente no disco caso o proximo SIGTERM corrompa os arquivos do
+    // Chromium. O backup so e tirado com a conexao estavel por >60s para
+    // evitar salvar estados transitorios.
+    setTimeout(() => {
+        const conn = connectionsInfo.find(c => c.id === id);
+        if (conn?.status === ConnectionStatus.CONNECTED && !isShuttingDown) {
+            backupSession(id).catch((e: any) => {
+                console.warn(`[SessionBackup] Falha no backup pos-ready ${id}:`, e?.message || e);
+            });
+        }
+    }, 60000);
 };
+
+// Controla quantas vezes ja tentamos restaurar backup por sessao nesta vida do processo
+const backupRestoreAttempts = new Map<string, number>();
 
 const initializeClient = async (id: string, name: string) => {
     console.log(`Inicializando cliente whatsapp-web.js: ${name} (${id})`);
@@ -2372,7 +2410,22 @@ const initializeClient = async (id: string, name: string) => {
     // Definir CONNECTING imediatamente — evita UI mostrar "Offline" enquanto Chrome carrega
     updateConnectionState(id, { status: ConnectionStatus.CONNECTING, lastActivity: 'Inicializando...' });
     emitConnectionsUpdate();
-    
+
+    // Se a sessao principal estiver faltando mas tivermos um backup do shutdown
+    // anterior, restauramos proativamente. Evita o usuario ver um QR novo quando
+    // o Chromium foi morto de forma tosca no deploy anterior.
+    try {
+        const sessionPath = path.join(authDir, `session-${id}`);
+        const backupPath = path.join(authDir, `session-${id}.backup`);
+        const sessionExists = await fs.promises.access(sessionPath).then(() => true).catch(() => false);
+        const backupExists = await fs.promises.access(backupPath).then(() => true).catch(() => false);
+        if (!sessionExists && backupExists && (backupRestoreAttempts.get(id) || 0) < 1) {
+            console.log(`[whatsapp-web.js] 🔁 Sessao ${name} ausente — restaurando do backup antes de iniciar.`);
+            await restoreSession(id).catch(() => false);
+            backupRestoreAttempts.set(id, 1);
+        }
+    } catch { /* ignore — initialize lida com a ausencia */ }
+
     // Limpar reconnect antigo se existir
     const state = reconnectState.get(id);
     if (state?.timeout) {
@@ -2482,6 +2535,13 @@ const initializeClient = async (id: string, name: string) => {
         }, 240000);
 
         client.on('disconnected', async (reason) => {
+            // Durante shutdown gracioso (SIGTERM do deploy), nao mudamos status
+            // nem agendamos reconexao — se mudassemos, o disco ficaria com
+            // DISCONNECTED e o proximo boot nao tentaria restaurar a sessao.
+            if (isShuttingDown) {
+                console.log(`[whatsapp-web.js] ${name} desconectado durante shutdown (${reason}) — ignorando.`);
+                return;
+            }
             console.warn(`[whatsapp-web.js] ${name} desconectado: ${reason}`);
             stopHealthCheck(id);
             // Limpar connectedSince ao desconectar genuinamente (será recalculado ao reconectar)
@@ -2620,6 +2680,9 @@ const initializeClient = async (id: string, name: string) => {
 
         const msg = String(err?.message || '');
         const isBrowserLock = msg.includes('browser is already running') || msg.includes('SingletonLock');
+        // Sinais classicos de sessao corrompida apos SIGKILL do Chromium.
+        // Se batermos nisso e tivermos um backup, restauramos e tentamos de novo.
+        const isCorruptionSignal = /Protocol error|Execution context was destroyed|Target closed|Session closed|IndexedDB|Failed to read|ENOENT.*LOCK|Unexpected token/i.test(msg);
 
         if (isBrowserLock) {
             // Chromium anterior deixou o userDataDir travado. Mata processos orfaos,
@@ -2628,6 +2691,18 @@ const initializeClient = async (id: string, name: string) => {
             await killOrphanChromeForSession(id);
             clearSessionLocks(id);
             setTimeout(() => scheduleReconnect(id, name, 'browser_lock'), 6000);
+        } else if (isCorruptionSignal && (backupRestoreAttempts.get(id) || 0) < 1) {
+            // Tenta restaurar do backup (criado no shutdown anterior) e reinicia.
+            backupRestoreAttempts.set(id, (backupRestoreAttempts.get(id) || 0) + 1);
+            console.warn(`[whatsapp-web.js] 🩺 Sessao ${name} parece corrompida (${msg.slice(0, 80)}) — tentando restore do backup...`);
+            const restored = await restoreSession(id).catch(() => false);
+            if (restored) {
+                clearSessionLocks(id);
+                setTimeout(() => scheduleReconnect(id, name, 'restored_from_backup'), 4000);
+            } else {
+                console.warn(`[whatsapp-web.js] Sem backup valido para ${name} — agendando reconnect normal.`);
+                scheduleReconnect(id, name, `init_error: ${msg || 'corrupcao'}`);
+            }
         } else if (!msg.includes('Failed to launch')) {
             scheduleReconnect(id, name, `init_error: ${msg || 'erro desconhecido'}`);
         }

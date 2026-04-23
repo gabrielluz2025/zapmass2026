@@ -47,7 +47,9 @@ services:
     shm_size: "2gb"
     # Da tempo para o Node/whatsapp-web.js fechar o Chromium com graca e
     # flushar a sessao no volume antes do SIGKILL (default seria 10s).
-    stop_grace_period: 30s
+    # 45s = 15s per-client destroy + 5s backup + folga para o Node finalizar
+    # e tirar backup de multiplas sessoes em paralelo.
+    stop_grace_period: 45s
 
 volumes:
   zapmass-data:
