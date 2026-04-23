@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useZapMass } from '../context/ZapMassContext';
 import { Badge, Button, Card, EmptyState, SectionHeader, Tabs } from './ui';
+import { PerformanceFunnel } from './PerformanceFunnel';
 import type { Campaign } from '../types';
 
 type PeriodFilter = '7d' | '30d' | '90d';
@@ -305,13 +306,13 @@ export const ReportsTab: React.FC = () => {
             </div>
             <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>Acumulado (desde o início)</span>
           </div>
-          <FunnelBars
-            steps={[
-              { label: 'Enviadas', value: funnel.sent, icon: <Send className="w-3.5 h-3.5" />, color: 'var(--brand-600)' },
-              { label: 'Entregues', value: funnel.delivered, icon: <CheckCheck className="w-3.5 h-3.5" />, color: '#3b82f6' },
-              { label: 'Lidas', value: funnel.read, icon: <Eye className="w-3.5 h-3.5" />, color: '#8b5cf6' },
-              { label: 'Respostas', value: funnel.replied, icon: <Reply className="w-3.5 h-3.5" />, color: '#f59e0b' }
-            ]}
+          <PerformanceFunnel
+            sent={funnel.sent}
+            delivered={funnel.delivered}
+            read={funnel.read}
+            replied={funnel.replied}
+            height={320}
+            showSidePanel={false}
           />
         </Card>
 
@@ -563,42 +564,6 @@ const KpiCard: React.FC<KpiCardProps> = ({ label, value, icon, accent, helper, d
     )}
   </div>
 );
-
-interface FunnelStep { label: string; value: number; icon: React.ReactNode; color: string; }
-const FunnelBars: React.FC<{ steps: FunnelStep[] }> = ({ steps }) => {
-  const max = Math.max(1, ...steps.map((s) => s.value));
-  return (
-    <div className="space-y-3">
-      {steps.map((step, idx) => {
-        const width = Math.max(6, Math.round((step.value / max) * 100));
-        const prevValue = idx > 0 ? steps[idx - 1].value : step.value;
-        const dropPct = idx > 0 && prevValue > 0 ? Math.round(((prevValue - step.value) / prevValue) * 100) : 0;
-        return (
-          <div key={step.label}>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="flex items-center gap-1.5 text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                <span style={{ color: step.color }}>{step.icon}</span>
-                {step.label}
-              </span>
-              <span className="flex items-center gap-2 text-[12px]">
-                <span className="font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>{fmt(step.value)}</span>
-                {idx > 0 && dropPct > 0 && (
-                  <span className="text-[10.5px] font-semibold" style={{ color: 'var(--text-3)' }}>
-                    −{dropPct}%
-                  </span>
-                )}
-              </span>
-            </div>
-            <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-              <div className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${width}%`, background: `linear-gradient(90deg, ${step.color}, color-mix(in srgb, ${step.color} 70%, #ffffff))` }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 const InsightRow: React.FC<{ icon: React.ReactNode; label: string; value: string; helper: string; truncate?: boolean }> = ({ icon, label, value, helper, truncate }) => (
   <div className="flex items-center gap-3 py-2" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
