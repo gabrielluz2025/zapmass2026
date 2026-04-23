@@ -45,6 +45,9 @@ services:
       - ./secrets:/run/secrets:ro
     restart: unless-stopped
     shm_size: "2gb"
+    # Da tempo para o Node/whatsapp-web.js fechar o Chromium com graca e
+    # flushar a sessao no volume antes do SIGKILL (default seria 10s).
+    stop_grace_period: 30s
 
 volumes:
   zapmass-data:

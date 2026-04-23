@@ -658,5 +658,55 @@ const bootstrap = async () => {
   }
 };
 
+// --- GRACEFUL SHUTDOWN ---
+// Docker manda SIGTERM no `compose up -d --build`. Sem este handler, o Node sai
+// abruptamente e o Chromium (Puppeteer / whatsapp-web.js) e morto com SIGKILL
+// apos 10s — as sessoes nao sao flushadas e na proxima subida o QR volta.
+// Aqui fechamos os clientes em paralelo (com timeout) e so entao sairmos.
+let gracefulExiting = false;
+const handleGracefulShutdown = (signal: string) => {
+  if (gracefulExiting) return;
+  gracefulExiting = true;
+  console.log(`\n🛑 ${signal} recebido — encerrando com graça...`);
+
+  // Fecha o servidor HTTP para nao aceitar novas conexoes
+  try {
+    httpServer?.close(() => {
+      console.log('📪 HTTP fechado.');
+    });
+  } catch { /* ignore */ }
+
+  // Timeout duro: se demorar mais de 25s (abaixo do stop_grace_period de 30s),
+  // forcamos saida. Isso evita que o Docker mande SIGKILL no meio do flush.
+  const hardTimeout = setTimeout(() => {
+    console.warn('⏱️ Shutdown demorou demais — saindo forcado.');
+    process.exit(0);
+  }, 25000);
+  hardTimeout.unref();
+
+  waService
+    .shutdownAll(signal)
+    .catch((e) => console.error('Erro no shutdownAll:', e))
+    .finally(() => {
+      try { io?.close(); } catch { /* ignore */ }
+      clearTimeout(hardTimeout);
+      console.log('👋 Bye.');
+      process.exit(0);
+    });
+};
+
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+process.on('SIGHUP', () => handleGracefulShutdown('SIGHUP'));
+// Nao derruba por uncaughtException — loga e segue (o servidor ja tem reconnect
+// automatico em varios pontos). Se o erro for irreversivel, o healthcheck
+// eventualmente devolve 500 e o compose reinicia o container.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err);
+});
+
 void bootstrap();
 

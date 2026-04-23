@@ -993,6 +993,54 @@ const handleIncomingForFunnel = (conversationId: string, incomingTs: number, pho
     }
 };
 
+// --- GRACEFUL SHUTDOWN ---
+// Fecha todos os clientes whatsapp-web.js de forma ordenada para que o Chromium
+// consiga persistir o estado da sessao (cookies, storage, IndexedDB) antes do
+// processo morrer. Sem isto o SIGTERM do Docker (compose up -d --build) escapa
+// para o Chrome como SIGKILL apos 10s, corrompendo dados e forcando novo QR.
+let isShuttingDown = false;
+export const shutdownAll = async (reason: string = 'SIGTERM'): Promise<void> => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`[shutdown] 🛑 Iniciando shutdown gracioso (${reason}). Clientes: ${clients.size}`);
+    // Cancela timers de reconexao pendentes
+    for (const [, st] of reconnectState.entries()) {
+        if (st.timeout) clearTimeout(st.timeout);
+    }
+    reconnectState.clear();
+    // Persiste estados voluteis antes de encerrar
+    try {
+        await persistConnections();
+    } catch (e) {
+        console.warn('[shutdown] Falha ao persistir connections:', (e as any)?.message || e);
+    }
+    // Destroi clientes com timeout individual — se um cliente trava, nao pode
+    // segurar o shutdown inteiro (precisamos sair antes do SIGKILL).
+    const tasks: Promise<void>[] = [];
+    for (const [id, client] of clients.entries()) {
+        tasks.push(
+            Promise.race([
+                (async () => {
+                    try {
+                        stopHealthCheck(id);
+                    } catch { /* ignore */ }
+                    try {
+                        console.log(`[shutdown] Destruindo cliente ${id}...`);
+                        await (client as any).destroy?.();
+                        console.log(`[shutdown] ✅ ${id} finalizado.`);
+                    } catch (e: any) {
+                        console.warn(`[shutdown] Erro ao destruir ${id}: ${e?.message || e}`);
+                    }
+                })(),
+                new Promise<void>((resolve) => setTimeout(resolve, 8000))
+            ])
+        );
+    }
+    await Promise.all(tasks);
+    clients.clear();
+    console.log('[shutdown] Todos os clientes finalizados.');
+};
+
 // --- INITIALIZATION ---
 export const init = (socketIo: SocketIOServer) => {
     io = socketIo;
