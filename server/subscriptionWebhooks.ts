@@ -1,9 +1,13 @@
 import type { Express, Request, Response } from 'express';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirebaseAdmin } from './firebaseAdmin.js';
 import {
   extendPaidSubscription,
   mergeUserSubscription,
   type SubscriptionPlan
 } from './subscriptionFirestore.js';
+import { sendPaymentConfirmationEmail } from './emailService.js';
+import { issueInvoice, isNfeEnabled } from './nfeService.js';
 
 const MP_API = 'https://api.mercadopago.com';
 
@@ -24,17 +28,129 @@ function parseExternalReference(ref: string | undefined | null): { uid: string; 
 async function mpGetJson(path: string): Promise<Record<string, unknown> | null> {
   const token = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
   if (!token) {
-    console.warn('[MP Webhook] MERCADOPAGO_ACCESS_TOKEN nao configurado — nao foi possivel consultar o recurso.');
+    console.warn('[MP Webhook] MERCADOPAGO_ACCESS_TOKEN nao configurado.');
     return null;
   }
-  const res = await fetch(`${MP_API}${path}`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  const res = await fetch(`${MP_API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) {
     console.error('[MP Webhook] Erro API', path, res.status, await res.text());
     return null;
   }
   return (await res.json()) as Record<string, unknown>;
+}
+
+function getBackUrl(): string {
+  return (process.env.MERCADOPAGO_BACK_URL || 'http://localhost:8000').trim().replace(/\/+$/, '');
+}
+
+/** Extrai o email do payer ou do tomador em payloads do MP (variados). */
+function extractPayerEmail(data: Record<string, unknown>): string | null {
+  const p = data.payer as Record<string, unknown> | undefined;
+  if (!p) return null;
+  const email = typeof p.email === 'string' ? p.email : null;
+  return email && email.includes('@') ? email : null;
+}
+
+function extractPayerName(data: Record<string, unknown>): string {
+  const p = data.payer as Record<string, unknown> | undefined;
+  if (!p) return '';
+  const first = typeof p.first_name === 'string' ? p.first_name : '';
+  const last = typeof p.last_name === 'string' ? p.last_name : '';
+  const full = `${first} ${last}`.trim();
+  if (full) return full;
+  return typeof p.email === 'string' ? p.email.split('@')[0] : '';
+}
+
+function extractPayerTaxId(data: Record<string, unknown>): string | null {
+  const p = data.payer as Record<string, unknown> | undefined;
+  const ident = p?.identification as Record<string, unknown> | undefined;
+  if (!ident) return null;
+  const num = typeof ident.number === 'string' ? ident.number : null;
+  return num ? num.replace(/\D/g, '') : null;
+}
+
+function mpPaymentMethodToOurMethod(paymentMethodId: string | undefined): 'pix' | 'card' | 'recurring' {
+  if (!paymentMethodId) return 'card';
+  if (paymentMethodId === 'pix') return 'pix';
+  return 'card';
+}
+
+/**
+ * Busca a data de expiracao atualizada do Firestore (apos extendPaidSubscription).
+ * Usamos esse valor no email para nao calcular errado.
+ */
+async function readAccessEndsAt(uid: string): Promise<Date | null> {
+  const app = getFirebaseAdmin();
+  if (!app) return null;
+  const db = getFirestore(app);
+  const snap = await db.collection('userSubscriptions').doc(uid).get();
+  const data = snap.data() as { accessEndsAt?: Timestamp | null } | undefined;
+  const ts = data?.accessEndsAt;
+  if (!ts) return null;
+  return ts.toDate();
+}
+
+/**
+ * Notificacoes pos-pagamento (email + NFS-e). Nao quebra o webhook em caso de falha.
+ */
+async function notifyAfterPayment(params: {
+  uid: string;
+  paymentData: Record<string, unknown>;
+  plan: 'monthly' | 'annual';
+  method: 'pix' | 'card' | 'recurring';
+  externalId: string;
+}) {
+  const { uid, paymentData, plan, method, externalId } = params;
+  const email = extractPayerEmail(paymentData);
+  const name = extractPayerName(paymentData);
+  const taxId = extractPayerTaxId(paymentData);
+  const amount =
+    typeof paymentData.transaction_amount === 'number'
+      ? (paymentData.transaction_amount as number)
+      : Number(paymentData.transaction_amount || 0);
+
+  const accessEndsAt = await readAccessEndsAt(uid);
+
+  if (email) {
+    await sendPaymentConfirmationEmail({
+      to: email,
+      name,
+      plan,
+      method,
+      amount,
+      accessEndsAt,
+      subscriptionUrl: `${getBackUrl()}/?view=subscription`,
+      nfeEnabled: isNfeEnabled()
+    });
+  } else {
+    console.warn('[MP Webhook] Pagamento sem email do payer - email nao enviado', externalId);
+  }
+
+  if (isNfeEnabled() && email && name && taxId) {
+    const description =
+      plan === 'annual'
+        ? 'Assinatura ZapMass Pro - Plano Anual (acesso por 12 meses).'
+        : 'Assinatura ZapMass Pro - Plano Mensal (acesso por 30 dias).';
+    const result = await issueInvoice({
+      uid,
+      description,
+      amount,
+      externalId,
+      borrower: { email, name, federalTaxNumber: taxId }
+    });
+    if (result) {
+      await mergeUserSubscription(uid, {
+        nfeLastInvoiceId: result.id,
+        nfeLastInvoiceStatus: result.status,
+        nfeLastInvoicePdfUrl: result.pdfUrl
+      });
+    }
+  } else if (isNfeEnabled()) {
+    console.warn(
+      '[MP Webhook] NFE.io ativo mas dados do payer incompletos (email/name/taxId). Nao emitido.',
+      externalId
+    );
+  }
 }
 
 async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
@@ -44,7 +160,7 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
   const ext = data.external_reference as string | undefined;
   const { uid, plan } = parseExternalReference(ext);
   if (!uid) {
-    console.warn('[MP Webhook] Pagamento sem external_reference valido (use UID do Firebase ou UID:monthly|annual).', paymentId);
+    console.warn('[MP Webhook] Pagamento sem external_reference valido.', paymentId);
     return;
   }
   if (status === 'approved') {
@@ -55,6 +171,20 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
       mercadoPagoLastPaymentId: paymentId
     });
     console.log('[MP Webhook] Assinatura ativa para', uid, paymentId);
+    const method = mpPaymentMethodToOurMethod(
+      typeof data.payment_method_id === 'string' ? data.payment_method_id : undefined
+    );
+    try {
+      await notifyAfterPayment({
+        uid,
+        paymentData: data,
+        plan: billingPlan,
+        method,
+        externalId: paymentId
+      });
+    } catch (e) {
+      console.error('[MP Webhook] notifyAfterPayment falhou (nao critico):', e);
+    }
   } else if (status === 'rejected' || status === 'cancelled') {
     await mergeUserSubscription(uid, {
       status: 'past_due',
@@ -62,7 +192,7 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
       plan: plan || null,
       mercadoPagoLastPaymentId: paymentId
     });
-    console.log('[MP Webhook] Pagamento nao aprovado — marcado past_due', uid, status);
+    console.log('[MP Webhook] Pagamento nao aprovado - marcado past_due', uid, status);
   }
 }
 
@@ -83,7 +213,27 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
       plan: billingPlan,
       mercadoPagoPreapprovalId: preapprovalId
     });
-    console.log('[MP Webhook] Preapproval autorizado — ativo', uid);
+    console.log('[MP Webhook] Preapproval autorizado - ativo', uid);
+    // Email avulso "debito auto ativado". NFS-e nao e emitida aqui - espera o payment event.
+    const email = typeof data.payer_email === 'string' ? data.payer_email : null;
+    const amount =
+      (data.auto_recurring as Record<string, unknown> | undefined)?.transaction_amount as number | undefined;
+    if (email && typeof amount === 'number') {
+      try {
+        const accessEndsAt = await readAccessEndsAt(uid);
+        await sendPaymentConfirmationEmail({
+          to: email,
+          plan: billingPlan,
+          method: 'recurring',
+          amount,
+          accessEndsAt,
+          subscriptionUrl: `${getBackUrl()}/?view=subscription`,
+          nfeEnabled: isNfeEnabled()
+        });
+      } catch (e) {
+        console.error('[MP Webhook] Email de preapproval falhou:', e);
+      }
+    }
   } else if (status === 'cancelled' || status === 'paused') {
     await mergeUserSubscription(uid, {
       status: 'canceled',
@@ -100,7 +250,7 @@ async function processMercadoPagoBody(body: Record<string, unknown>): Promise<vo
   const data = body.data as { id?: string } | undefined;
   const id = data?.id != null ? String(data.id) : '';
   if (!id) {
-    console.log('[MP Webhook] Sem data.id — ignorado.', JSON.stringify(body).slice(0, 500));
+    console.log('[MP Webhook] Sem data.id - ignorado.', JSON.stringify(body).slice(0, 500));
     return;
   }
   const t = type.toLowerCase();
@@ -116,7 +266,6 @@ async function processMercadoPagoBody(body: Record<string, unknown>): Promise<vo
 }
 
 export function registerSubscriptionWebhooks(app: Express): void {
-  /** Mercado Pago envia POST JSON (notificacoes). Responda 200 rapidamente para evitar reenvios. */
   app.post('/api/webhooks/mercadopago', async (req: Request, res: Response) => {
     try {
       const body = (req.body || {}) as Record<string, unknown>;
@@ -129,17 +278,10 @@ export function registerSubscriptionWebhooks(app: Express): void {
     }
   });
 
-  /** Alguns fluxos da MP testam GET na URL — retorne 200. */
   app.get('/api/webhooks/mercadopago', (_req: Request, res: Response) => {
     res.status(200).send('ok');
   });
 
-  /**
-   * Infinite Pay — webhook apos pagamento (URL publica; repasse em INFINITEPAY_WEBHOOK_URL ao criar o link).
-   * Opcional: INFINITEPAY_WEBHOOK_SECRET — se definido, exige header x-infinitepay-secret igual.
-   * Identificacao do usuario: external_reference ou order_nsu no formato "firebaseUid:monthly|annual".
-   * Pagamento aprovado: status paid/approved/completed, paid true, ou paid_amount >= amount (ver codigo).
-   */
   app.post('/api/webhooks/infinitepay', async (req: Request, res: Response) => {
     try {
       const secret = process.env.INFINITEPAY_WEBHOOK_SECRET?.trim();
@@ -202,7 +344,13 @@ export function registerSubscriptionWebhooks(app: Express): void {
   );
   if (!hasAdmin) {
     console.warn(
-      '[Assinaturas] Firebase Admin nao configurado — webhooks nao persistem no Firestore. Defina FIREBASE_SERVICE_ACCOUNT_PATH ou FIREBASE_SERVICE_ACCOUNT_JSON.'
+      '[Assinaturas] Firebase Admin nao configurado - webhooks nao persistem no Firestore. Defina FIREBASE_SERVICE_ACCOUNT_PATH ou FIREBASE_SERVICE_ACCOUNT_JSON.'
     );
+  }
+  if (!process.env.RESEND_API_KEY?.trim()) {
+    console.warn('[Assinaturas] RESEND_API_KEY ausente - emails de confirmacao nao serao enviados.');
+  }
+  if (!isNfeEnabled()) {
+    console.log('[Assinaturas] NFE.io desativado - NFS-e nao sera emitida. Configure NFE_IO_* quando tiveres CNPJ.');
   }
 }

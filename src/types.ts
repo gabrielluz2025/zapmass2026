@@ -184,6 +184,12 @@ export interface UserSubscription {
   accessEndsAt?: unknown;
   /** Evita segundo teste de 1h na mesma conta. */
   freeTrialUsed?: boolean;
+  /** Id da NFS-e mais recente emitida (NFE.io). */
+  nfeLastInvoiceId?: string;
+  /** Status (Processing|Issued|Cancelled|Error). */
+  nfeLastInvoiceStatus?: string;
+  /** URL publica do PDF da NFS-e emitida (disponivel apos aprovacao da prefeitura). */
+  nfeLastInvoicePdfUrl?: string;
   updatedAt?: unknown;
 }
 

@@ -19,6 +19,12 @@ export interface UserSubscriptionDoc {
   accessEndsAt?: Timestamp | null;
   /** Se true, o teste de 1h ja foi concedido nesta conta (nao repetir). */
   freeTrialUsed?: boolean;
+  /** Id da ultima NFS-e emitida no NFE.io (quando nfe-io ativo). */
+  nfeLastInvoiceId?: string;
+  /** Status da ultima NFS-e (Processing|Issued|Cancelled|Error). */
+  nfeLastInvoiceStatus?: string;
+  /** URL do PDF da ultima NFS-e emitida (disponivel apos aprovacao da prefeitura). */
+  nfeLastInvoicePdfUrl?: string;
 }
 
 const COLLECTION = 'userSubscriptions';

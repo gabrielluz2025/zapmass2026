@@ -7,8 +7,33 @@ type AppViewContextValue = {
 
 const AppViewContext = createContext<AppViewContextValue | null>(null);
 
+const ALLOWED_VIEWS = new Set([
+  'connections',
+  'dashboard',
+  'chat',
+  'warmup',
+  'campaigns',
+  'contacts',
+  'reports',
+  'settings',
+  'subscription',
+  'admin',
+  'creator-studio'
+]);
+
+function readInitialView(): string {
+  if (typeof window === 'undefined') return 'connections';
+  try {
+    const v = new URLSearchParams(window.location.search).get('view');
+    if (v && ALLOWED_VIEWS.has(v)) return v;
+  } catch {
+    // ignora erros de URL malformada
+  }
+  return 'connections';
+}
+
 export const AppViewProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [currentView, setCurrentView] = useState('connections');
+  const [currentView, setCurrentView] = useState<string>(readInitialView);
   const value = useMemo(() => ({ currentView, setCurrentView }), [currentView]);
   return <AppViewContext.Provider value={value}>{children}</AppViewContext.Provider>;
 };

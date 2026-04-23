@@ -4,6 +4,7 @@ import {
   CalendarDays,
   Check,
   Crown,
+  FileText,
   Loader2,
   Repeat,
   ShieldCheck,
@@ -263,6 +264,48 @@ export const MySubscriptionTab: React.FC = () => {
           </li>
         </ul>
       </section>
+
+      {subscription?.nfeLastInvoiceId && (
+        <section
+          className="rounded-2xl px-5 py-4"
+          style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+        >
+          <h2 className="text-[14px] font-bold mb-2 flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+            <FileText className="w-4 h-4" style={{ color: '#3b82f6' }} />
+            Nota fiscal
+          </h2>
+          <div className="flex flex-wrap items-center gap-3 justify-between">
+            <div className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+              <p>
+                <strong style={{ color: 'var(--text-1)' }}>Última NFS-e:</strong> {subscription.nfeLastInvoiceId}
+              </p>
+              <p className="opacity-85 mt-0.5">
+                Status: <strong>{subscription.nfeLastInvoiceStatus || 'Processing'}</strong>
+              </p>
+            </div>
+            {subscription.nfeLastInvoicePdfUrl ? (
+              <a
+                href={subscription.nfeLastInvoicePdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-bold transition-all hover:scale-[1.01]"
+                style={{
+                  background: 'var(--surface-1)',
+                  color: 'var(--text-1)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                <FileText className="w-4 h-4" />
+                Baixar PDF
+              </a>
+            ) : (
+              <span className="text-[11.5px] opacity-75" style={{ color: 'var(--text-3)' }}>
+                PDF em processamento na prefeitura...
+              </span>
+            )}
+          </div>
+        </section>
+      )}
 
       <UpgradeProModal isOpen={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </div>
