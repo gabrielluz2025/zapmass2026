@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   User
 } from 'firebase/auth';
@@ -22,11 +24,51 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: async () => {}
 });
 
+// Mapeia codigos de erro do Firebase para mensagens amigaveis em pt-BR.
+const mapAuthErrorMessage = (err: any): string => {
+  const code: string = err?.code || '';
+  switch (code) {
+    case 'auth/popup-blocked':
+      return 'Seu navegador bloqueou o popup de login. Vamos redirecionar para o Google...';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Login cancelado.';
+    case 'auth/network-request-failed':
+      return 'Sem conexao com a internet. Verifique sua rede e tente novamente.';
+    case 'auth/too-many-requests':
+      return 'Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.';
+    case 'auth/user-disabled':
+      return 'Esta conta foi desabilitada. Fale com o suporte.';
+    case 'auth/unauthorized-domain':
+      return 'Dominio nao autorizado. Peca ao admin para adicionar este dominio no Firebase.';
+    case 'auth/operation-not-supported-in-this-environment':
+    case 'auth/web-storage-unsupported':
+      return 'Seu navegador nao suporta este login. Ative cookies e tente novamente.';
+    default:
+      return err?.message || 'Falha ao entrar com Google.';
+  }
+};
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Finaliza login via redirect (fallback quando o popup foi bloqueado).
+    getRedirectResult(auth)
+      .then((res) => {
+        if (res?.user) {
+          toast.success('Login realizado com sucesso.');
+        }
+      })
+      .catch((err) => {
+        const code = err?.code || '';
+        if (code && code !== 'auth/no-auth-event') {
+          console.error('[AuthContext] getRedirectResult:', err);
+          toast.error(mapAuthErrorMessage(err));
+        }
+      });
+
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       setUser(fbUser);
       setLoading(false);
@@ -43,8 +85,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         return;
       }
+      // Popup bloqueado pelo navegador / bloqueador de anuncios / iframe sem permissao
+      // => cai automaticamente para fluxo de redirect (mesma aba).
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/web-storage-unsupported'
+      ) {
+        try {
+          toast.loading('Redirecionando para o Google...', { id: 'google-redirect', duration: 3000 });
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr: any) {
+          console.error('[AuthContext] signInWithRedirect fallback:', redirectErr);
+          toast.error(mapAuthErrorMessage(redirectErr));
+          return;
+        }
+      }
       console.error('[AuthContext] signInWithGoogle:', err);
-      toast.error(err?.message || 'Falha ao entrar com Google.');
+      toast.error(mapAuthErrorMessage(err));
     }
   };
 

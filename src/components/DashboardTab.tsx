@@ -25,7 +25,7 @@ import {
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
-import { StatCard, Card, Button, Badge, Modal, Textarea, Select, Input, SectionHeader } from './ui';
+import { Card, Button, Badge, Modal, Textarea, Select } from './ui';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
   id: string;
@@ -113,6 +113,104 @@ const getChannelCapacity = (ramTotalGb: number | undefined) => {
   }
   return { safe, critical };
 };
+
+/**
+ * Mini-card KPI usado no hero do dashboard. Compacto, grande, colorido.
+ */
+const HeroStat: React.FC<{ label: string; value: string; color: string; icon?: React.ReactNode }> = ({
+  label,
+  value,
+  color,
+  icon
+}) => (
+  <div
+    className="relative overflow-hidden px-3.5 py-2.5 rounded-xl backdrop-blur-sm"
+    style={{
+      background: 'var(--surface-1)',
+      border: '1px solid var(--border-subtle)'
+    }}
+  >
+    <div
+      className="absolute -top-6 -right-6 w-16 h-16 rounded-full opacity-20 pointer-events-none"
+      style={{ background: `radial-gradient(circle, ${color}, transparent 70%)` }}
+      aria-hidden
+    />
+    <div className="relative flex items-center gap-1.5 mb-0.5">
+      {icon && <span style={{ color }}>{icon}</span>}
+      <p className="text-[9.5px] font-bold uppercase tracking-widest truncate" style={{ color: 'var(--text-3)' }}>
+        {label}
+      </p>
+    </div>
+    <p className="relative text-[19px] font-extrabold leading-tight tabular-nums truncate" style={{ color }}>
+      {value}
+    </p>
+  </div>
+);
+
+/**
+ * Stat card visual com gradiente, glow e barra de progresso opcional.
+ * Substitui o StatCard padrao apenas no dashboard (mais impacto visual).
+ */
+const DashboardStat: React.FC<{
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  gradient: [string, string];
+  helper?: React.ReactNode;
+  progress?: number;
+}> = ({ label, value, icon, gradient, helper, progress }) => (
+  <div
+    className="relative overflow-hidden rounded-2xl px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 animate-fade-in-up"
+    style={{
+      background: 'var(--surface-0)',
+      border: '1px solid var(--border)',
+      boxShadow: '0 4px 16px -8px rgba(0,0,0,0.08)'
+    }}
+  >
+    <div
+      className="absolute -top-12 -right-12 w-36 h-36 rounded-full opacity-[0.10] pointer-events-none"
+      style={{ background: `radial-gradient(circle, ${gradient[0]}, transparent 60%)` }}
+      aria-hidden
+    />
+    <div className="relative flex items-center gap-3 mb-3">
+      <div
+        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-white"
+        style={{
+          background: `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`,
+          boxShadow: `0 6px 18px -6px ${gradient[0]}`
+        }}
+      >
+        {icon}
+      </div>
+      <p className="text-[10.5px] font-bold uppercase tracking-widest truncate" style={{ color: 'var(--text-3)' }}>
+        {label}
+      </p>
+    </div>
+    <p className="relative text-[30px] font-extrabold leading-none tabular-nums tracking-tight" style={{ color: 'var(--text-1)' }}>
+      {value}
+    </p>
+    {helper && (
+      <p className="relative text-[11.5px] mt-2 leading-snug" style={{ color: 'var(--text-3)' }}>
+        {helper}
+      </p>
+    )}
+    {progress != null && (
+      <div
+        className="relative h-1 rounded-full mt-3 overflow-hidden"
+        style={{ background: 'var(--surface-2)' }}
+      >
+        <div
+          className="h-full rounded-full transition-all duration-1000 ease-out"
+          style={{
+            width: `${Math.max(2, Math.min(100, progress))}%`,
+            background: `linear-gradient(90deg, ${gradient[0]}, ${gradient[1]})`,
+            boxShadow: `0 0 12px ${gradient[0]}55`
+          }}
+        />
+      </div>
+    )}
+  </div>
+);
 
 export const DashboardTab: React.FC = () => {
   const { connections, sendMessage, campaigns, contacts, conversations, socket, startCampaign, systemMetrics, funnelStats, clearFunnelStats } = useZapMass();
@@ -409,67 +507,147 @@ export const DashboardTab: React.FC = () => {
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
 
   return (
-    <div className="space-y-6 pb-10">
-      <SectionHeader
-        eyebrow={
-          <>
-            <Activity className="w-3 h-3" />
-            Sistema Ativo
-          </>
-        }
-        title={`${greeting}, Administrador`}
-        description={now.toLocaleDateString('pt-BR', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric'
-        })}
-        icon={<BarChart3 className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
-        actions={
-          <div className="flex items-center gap-2">
-            <Badge variant="success" dot>
-              Motor ativo
-            </Badge>
-            <Badge variant="neutral">
-              <Clock className="w-3 h-3 mr-1" />
-              {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-            </Badge>
-            <Badge variant="info">
-              <Cpu className="w-3 h-3 mr-1" />
-              {onlineCount}/{connections.length} canais
-            </Badge>
-          </div>
-        }
-      />
+    <div className="space-y-5 pb-10">
+      {/* HERO HEADER - animated gradient + live KPIs */}
+      <div
+        className="relative overflow-hidden rounded-3xl px-5 py-5 sm:px-7 sm:py-6 animate-fade-in-up"
+        style={{
+          background: 'linear-gradient(135deg, var(--surface-0) 0%, var(--surface-1) 100%)',
+          border: '1px solid var(--border)',
+          boxShadow: '0 20px 60px -30px rgba(16,185,129,0.2)'
+        }}
+      >
+        {/* Orbs animados */}
+        <div
+          className="absolute -top-24 -right-12 w-80 h-80 rounded-full animate-blob pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle, rgba(16,185,129,0.22), transparent 60%)',
+            filter: 'blur(28px)'
+          }}
+          aria-hidden
+        />
+        <div
+          className="absolute -bottom-20 -left-10 w-72 h-72 rounded-full animate-blob-slow pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle, rgba(59,130,246,0.14), transparent 60%)',
+            filter: 'blur(32px)'
+          }}
+          aria-hidden
+        />
 
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+          <div className="flex items-start gap-4 min-w-0">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 relative animate-glow-pulse"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                boxShadow: '0 12px 32px -8px rgba(16,185,129,0.55)'
+              }}
+            >
+              <BarChart3 className="w-7 h-7 text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center flex-wrap gap-2 mb-1.5">
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-widest"
+                  style={{
+                    background: 'rgba(16,185,129,0.12)',
+                    color: 'var(--brand-600)',
+                    border: '1px solid rgba(16,185,129,0.28)'
+                  }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Motor ativo
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-3)' }}>
+                  <Clock className="w-3 h-3" />
+                  {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              <h1
+                className="text-[24px] sm:text-[30px] font-extrabold leading-tight tracking-tight"
+                style={{ color: 'var(--text-1)' }}
+              >
+                {greeting},{' '}
+                <span
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 45%, #3b82f6 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text'
+                  }}
+                >
+                  Administrador
+                </span>
+              </h1>
+              <p className="mt-1 text-[13px] capitalize" style={{ color: 'var(--text-2)' }}>
+                {now.toLocaleDateString('pt-BR', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </p>
+            </div>
+          </div>
+
+          {/* KPIs ao vivo no hero */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 shrink-0 w-full lg:w-auto">
+            <HeroStat
+              label="Canais"
+              value={`${onlineCount}/${connections.length || 0}`}
+              color="#10b981"
+              icon={<Cpu className="w-3 h-3" />}
+            />
+            <HeroStat
+              label="Enviadas"
+              value={metrics.totalSent.toLocaleString('pt-BR')}
+              color="#3b82f6"
+              icon={<Send className="w-3 h-3" />}
+            />
+            <HeroStat
+              label="Entrega"
+              value={`${deliveryRate}%`}
+              color="#8b5cf6"
+              icon={<TrendingUp className="w-3 h-3" />}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* STAT CARDS - com glow, progress e animação */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <StatCard
+        <DashboardStat
           label="Enviadas"
           value={animSent.toLocaleString('pt-BR')}
           icon={<Send className="w-4 h-4" />}
-          helper={metrics.totalSent > 0 ? `${campaigns.length} campanha${campaigns.length > 1 ? 's' : ''}` : 'Sem campanhas'}
-          accent="success"
+          gradient={['#10b981', '#059669']}
+          helper={metrics.totalSent > 0 ? `${campaigns.length} campanha${campaigns.length > 1 ? 's' : ''} registrada${campaigns.length > 1 ? 's' : ''}` : 'Aguardando a primeira campanha'}
+          progress={metrics.totalSent > 0 ? 100 : 0}
         />
-        <StatCard
+        <DashboardStat
           label="Entregues"
           value={animDelivered.toLocaleString('pt-BR')}
           icon={<CheckCheck className="w-4 h-4" />}
-          helper={`${deliveryRate}% dos envios`}
-          accent="info"
+          gradient={['#3b82f6', '#1d4ed8']}
+          helper={metrics.totalSent > 0 ? `${deliveryRate}% dos envios chegaram` : 'Ainda sem envios'}
+          progress={deliveryRate}
         />
-        <StatCard
+        <DashboardStat
           label="Lidas"
           value={animRead.toLocaleString('pt-BR')}
           icon={<CheckCheck className="w-4 h-4" />}
-          helper={`${readRate}% de leitura`}
-          accent="info"
+          gradient={['#8b5cf6', '#6d28d9']}
+          helper={metrics.totalSent > 0 ? `${readRate}% taxa de leitura` : 'Aguardando leituras'}
+          progress={readRate}
         />
-        <StatCard
-          label="Respostas de campanhas"
+        <DashboardStat
+          label="Respostas"
           value={animReplied.toLocaleString('pt-BR')}
           icon={<Reply className="w-4 h-4" />}
-          helper={`${replyRate}% engajamento - 1 por disparo`}
-          accent="warning"
+          gradient={['#f59e0b', '#d97706']}
+          helper={metrics.totalSent > 0 ? `${replyRate}% engajamento` : 'Aguardando engajamento'}
+          progress={replyRate}
         />
       </div>
 
@@ -513,14 +691,33 @@ export const DashboardTab: React.FC = () => {
             <div className="flex-1 min-w-0">
               {funnelEmpty ? (
                 <div
-                  className="rounded-2xl border border-dashed px-4 py-10 text-center"
-                  style={{ borderColor: 'var(--border-1)', color: 'var(--text-3)' }}
+                  className="rounded-2xl px-4 py-12 text-center relative overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(135deg, var(--surface-1) 0%, var(--surface-2) 100%)',
+                    border: '1px dashed var(--border)'
+                  }}
                 >
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-2)' }}>
+                  <div
+                    className="absolute inset-0 opacity-[0.08] pointer-events-none"
+                    style={{
+                      background: 'radial-gradient(400px 140px at 50% 0%, rgba(16,185,129,0.6), transparent 70%)'
+                    }}
+                    aria-hidden
+                  />
+                  <div
+                    className="relative mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(59,130,246,0.14))',
+                      border: '1px solid rgba(16,185,129,0.22)'
+                    }}
+                  >
+                    <TrendingUp className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />
+                  </div>
+                  <p className="relative text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
                     Nenhum evento acumulado ainda
                   </p>
-                  <p className="text-[12px] mt-1 max-w-sm mx-auto">
-                    Assim que houver envios, o funil mostra a conversão entre etapas em tempo real.
+                  <p className="relative text-[12px] mt-1.5 max-w-sm mx-auto leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    Assim que houver envios, o funil mostra a conversão entre etapas <strong style={{ color: 'var(--text-2)' }}>em tempo real</strong>.
                   </p>
                 </div>
               ) : (
@@ -829,8 +1026,22 @@ export const DashboardTab: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {topSenders.length === 0 ? (
-              <div className="col-span-full text-[13px] py-6 text-center" style={{ color: 'var(--text-3)' }}>
-                Nenhum canal ativo ainda.
+              <div className="col-span-full py-10 text-center">
+                <div
+                  className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.12))',
+                    border: '1px solid rgba(16,185,129,0.2)'
+                  }}
+                >
+                  <Smartphone className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />
+                </div>
+                <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
+                  Nenhum canal ativo ainda
+                </p>
+                <p className="text-[12px] mt-1 max-w-xs mx-auto" style={{ color: 'var(--text-3)' }}>
+                  Conecte seu primeiro WhatsApp na aba <strong style={{ color: 'var(--text-2)' }}>Canais</strong> para começar a enviar campanhas.
+                </p>
               </div>
             ) : (
               topSenders.map((conn) => (
