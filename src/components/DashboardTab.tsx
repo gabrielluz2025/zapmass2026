@@ -30,6 +30,7 @@ import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
+import { useAuth } from '../context/AuthContext';
 import { Card, Button, Badge, Modal, Textarea, Select } from './ui';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
@@ -226,6 +227,39 @@ const QuickAction: React.FC<{
 export const DashboardTab: React.FC = () => {
   const { connections, sendMessage, campaigns, contacts, conversations, socket, startCampaign, systemMetrics, funnelStats, clearFunnelStats } = useZapMass();
   const { setCurrentView } = useAppView();
+  const { user } = useAuth();
+  const firstName = useMemo(() => {
+    const raw = user?.displayName || user?.email?.split('@')[0] || '';
+    const clean = raw.trim().split(/\s+/)[0] || '';
+    if (!clean) return 'por aqui';
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+  }, [user?.displayName, user?.email]);
+
+  // Melhor horario para disparos — calculado a partir das respostas recebidas
+  // (mensagens inbound das ultimas 4 semanas). Mostramos em faixa de 90 min
+  // em volta da hora mais ativa.
+  const bestWindow = useMemo(() => {
+    const cutoff = Date.now() - 28 * 86_400_000;
+    const byHour = new Array(24).fill(0);
+    let total = 0;
+    conversations.forEach((conv) => {
+      conv.messages?.forEach((m) => {
+        const ts = m.timestampMs || (m.timestamp ? new Date(m.timestamp).getTime() : 0);
+        if (!ts || ts < cutoff) return;
+        if (m.sender !== 'them') return;
+        byHour[new Date(ts).getHours()] += 1;
+        total += 1;
+      });
+    });
+    if (total < 5) return null;
+    const peak = byHour.indexOf(Math.max(...byHour));
+    const start = Math.max(0, peak);
+    const endH = Math.min(23, peak + 1);
+    return {
+      label: `${String(start).padStart(2, '0')}h–${String(endH).padStart(2, '0')}h30`,
+      count: byHour[peak]
+    };
+  }, [conversations]);
 
   const [confirmClearFunnel, setConfirmClearFunnel] = useState(false);
 
@@ -612,7 +646,7 @@ export const DashboardTab: React.FC = () => {
                     backgroundClip: 'text'
                   }}
                 >
-                  Administrador
+                  {firstName}
                 </span>
                 <span className="text-[22px] sm:text-[30px] ml-1">👋</span>
               </h1>
@@ -625,8 +659,8 @@ export const DashboardTab: React.FC = () => {
                 })}
                 {onlineCount > 0 && (
                   <span className="ml-2 text-[12.5px]" style={{ color: 'var(--text-3)' }}>
-                    · <strong style={{ color: '#10b981' }}>{onlineCount}</strong> canal
-                    {onlineCount > 1 ? 'is' : ''} online
+                    · <strong style={{ color: '#10b981' }}>{onlineCount}</strong>{' '}
+                    {onlineCount > 1 ? 'canais' : 'canal'} online
                   </span>
                 )}
               </p>
@@ -1163,14 +1197,22 @@ export const DashboardTab: React.FC = () => {
                 Insight operacional
               </p>
               <p className="text-[12.5px] mt-1 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-                Melhor janela para disparos: <strong className="text-[var(--text-1)]">10h às 11h30</strong>. Taxa de
-                resposta atual: <strong style={{ color: replyRate > 0 ? 'var(--brand-600)' : '#f59e0b' }}>{replyRate}%</strong>
-                {replyRate === 0 ? (
+                {bestWindow ? (
                   <>
-                    . <span className="text-[var(--text-3)]">Sem respostas registradas ainda — priorize horário e texto do convite.</span>
+                    Os seus clientes mais respondem entre{' '}
+                    <strong className="text-[var(--text-1)]">{bestWindow.label}</strong>. Taxa de resposta atual:{' '}
+                    <strong style={{ color: replyRate > 0 ? 'var(--brand-600)' : '#f59e0b' }}>{replyRate}%</strong>.
                   </>
                 ) : (
-                  '.'
+                  <>
+                    Taxa de resposta atual:{' '}
+                    <strong style={{ color: replyRate > 0 ? 'var(--brand-600)' : '#f59e0b' }}>{replyRate}%</strong>.{' '}
+                    <span className="text-[var(--text-3)]">
+                      {replyRate === 0
+                        ? 'Sem respostas registradas ainda — priorize horário e texto do convite.'
+                        : 'Continue acompanhando — logo vamos apontar o melhor horário da sua audiência.'}
+                    </span>
+                  </>
                 )}
               </p>
             </div>

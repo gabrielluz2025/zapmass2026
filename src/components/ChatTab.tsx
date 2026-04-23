@@ -32,7 +32,10 @@ import {
   Pin,
   StickyNote,
   Bell,
-  Star
+  Star,
+  Copy,
+  RotateCcw,
+  Image as ImageIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -194,6 +197,8 @@ export const ChatTab: React.FC = () => {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [searchInChat, setSearchInChat] = useState('');
   const [showChatSearch, setShowChatSearch] = useState(false);
+  const [showChatMenu, setShowChatMenu] = useState(false);
+  const chatMenuRef = useRef<HTMLDivElement>(null);
   const [showAudit, setShowAudit] = useState(false);
   const [auditSelection, setAuditSelection] = useState<Set<string>>(new Set());
   const [auditCategory, setAuditCategory] = useState<ConversationOrigin>('system');
@@ -387,6 +392,17 @@ export const ChatTab: React.FC = () => {
       fetchConversationPicture(selectedChatId);
     }
   }, [selectedChatId, selectedConversation?.profilePicUrl]);
+
+  useEffect(() => {
+    if (!showChatMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (chatMenuRef.current && !chatMenuRef.current.contains(e.target as Node)) {
+        setShowChatMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showChatMenu]);
 
   // Para preservar a posicao de rolagem apos carregar historico antigo (senao o
   // usuario "pula" para o topo sozinho). Guardamos a altura/scroll antes do update.
@@ -1074,9 +1090,84 @@ export const ChatTab: React.FC = () => {
                 >
                   <Info className="w-4 h-4" />
                 </Button>
-                <Button variant="ghost" size="icon">
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
+                <div className="relative" ref={chatMenuRef}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowChatMenu((v) => !v)}
+                    title="Mais opções"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </Button>
+                  {showChatMenu && (
+                    <div
+                      className="absolute right-0 top-full mt-1 z-30 min-w-[220px] rounded-xl shadow-lg py-1.5"
+                      style={{
+                        background: 'var(--surface-0)',
+                        border: '1px solid var(--border-subtle)',
+                        boxShadow: '0 14px 40px rgba(0,0,0,0.18)'
+                      }}
+                    >
+                      <ChatMenuItem
+                        icon={<CheckCheck className="w-3.5 h-3.5" />}
+                        label="Marcar como lida"
+                        onClick={() => {
+                          markAsRead(selectedConversation.id);
+                          setShowChatMenu(false);
+                          toast.success('Conversa marcada como lida');
+                        }}
+                      />
+                      <ChatMenuItem
+                        icon={<Pin className="w-3.5 h-3.5" />}
+                        label={crm.get(selectedConversation.id).pinned ? 'Desafixar conversa' : 'Fixar no topo'}
+                        onClick={() => {
+                          crm.togglePin(selectedConversation.id);
+                          setShowChatMenu(false);
+                          toast.success(crm.get(selectedConversation.id).pinned ? 'Desafixado' : 'Fixado no topo');
+                        }}
+                      />
+                      <ChatMenuItem
+                        icon={<Info className="w-3.5 h-3.5" />}
+                        label="Ver ficha do cliente"
+                        onClick={() => {
+                          setShowContactInfo(true);
+                          setShowChatMenu(false);
+                        }}
+                      />
+                      <ChatMenuItem
+                        icon={<Search className="w-3.5 h-3.5" />}
+                        label="Buscar nesta conversa"
+                        onClick={() => {
+                          setShowChatSearch(true);
+                          setShowChatMenu(false);
+                        }}
+                      />
+                      <div className="h-px my-1" style={{ background: 'var(--border-subtle)' }} />
+                      <ChatMenuItem
+                        icon={<Copy className="w-3.5 h-3.5" />}
+                        label="Copiar número"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(selectedConversation.contactPhone || '').then(() => {
+                            toast.success('Número copiado');
+                          }).catch(() => toast.error('Não foi possível copiar'));
+                          setShowChatMenu(false);
+                        }}
+                      />
+                      <ChatMenuItem
+                        icon={<RotateCcw className="w-3.5 h-3.5" />}
+                        label="Recarregar histórico"
+                        onClick={() => {
+                          const limit = (historyRequestedRef.current.get(selectedConversation.id) || 100) + 100;
+                          historyRequestedRef.current.set(selectedConversation.id, limit);
+                          setHistoryLoading(selectedConversation.id);
+                          loadChatHistory(selectedConversation.id, limit);
+                          setShowChatMenu(false);
+                          toast.success('Buscando mensagens…');
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1318,7 +1409,32 @@ export const ChatTab: React.FC = () => {
               >
                 <MessageCircle className="w-5 h-5" />
               </button>
-              <button type="button" className="p-2 rounded-lg" style={{ color: 'var(--text-2)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  toast((t) => (
+                    <div className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text-1)' }}>
+                      <div className="font-semibold mb-1 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5" style={{ color: 'var(--brand-600)' }} />
+                        Envio de arquivos em breve
+                      </div>
+                      <p style={{ color: 'var(--text-3)' }}>
+                        Por enquanto, cole uma URL de imagem ou documento na mensagem — o WhatsApp gera a prévia.
+                      </p>
+                      <button
+                        onClick={() => toast.dismiss(t.id)}
+                        className="mt-1.5 text-[11.5px] font-semibold"
+                        style={{ color: 'var(--brand-600)' }}
+                      >
+                        Entendi
+                      </button>
+                    </div>
+                  ), { duration: 5000 });
+                }}
+                className="p-2 rounded-lg transition-colors hover:bg-[var(--surface-2)]"
+                style={{ color: 'var(--text-2)' }}
+                title="Anexar (em breve)"
+              >
                 <Paperclip className="w-5 h-5" />
               </button>
 
@@ -1587,3 +1703,16 @@ export const ChatTab: React.FC = () => {
     </div>
   );
 };
+
+// Item de menu do dropdown do header do chat
+const ChatMenuItem: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }> = ({ icon, label, onClick, danger }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[12.5px] text-left transition-colors hover:bg-[var(--surface-1)]"
+    style={{ color: danger ? 'var(--danger)' : 'var(--text-1)' }}
+  >
+    <span style={{ color: danger ? 'var(--danger)' : 'var(--text-3)' }}>{icon}</span>
+    <span className="font-medium">{label}</span>
+  </button>
+);
