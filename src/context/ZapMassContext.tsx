@@ -844,8 +844,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
     const { id, ...payload } = contact;
-    await addDoc(collection(db, 'users', uid, 'contacts'), payload);
+    const ref = await addDoc(collection(db, 'users', uid, 'contacts'), payload);
     toast.success('Contato adicionado com sucesso!');
+    return ref.id;
   };
 
   const removeContact = async (id: string, options?: { silent?: boolean }) => {

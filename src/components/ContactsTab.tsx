@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
@@ -15,6 +15,8 @@ import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
 import { ContactsInsightsModal } from './contacts/workspace/ContactsInsightsModal';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
+
+const DEFAULT_CHURCH_ROLES = ['Membro', 'Visitante', 'Lider', 'Diacono', 'Pastor', 'Musico', 'Obreiro', 'Professor'];
 
 // Colunas do modelo de importacao (tambem usadas em todos os exports)
 const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: string; width: number }> = [
@@ -57,6 +59,8 @@ type FileImportRowView = FileImportRow & {
   duplicateName?: string;
   problems: string[];
 };
+
+type ImportTargetMode = 'none' | 'existing' | 'new';
 
 type SmartRow = {
   id: string;
@@ -381,6 +385,21 @@ const emptyCampaignDraft = (): CampaignWizardDraft => {
 export const ContactsTab: React.FC = () => {
   const { contacts, contactLists, conversations, addContact, removeContact, updateContact, createContactList, deleteContactList, updateContactList } = useZapMass();
   const { setCurrentView } = useAppView();
+  /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
+  const deferredConversations = useDeferredValue(conversations);
+
+  /** Telefones que aparecem mais de uma vez — O(n), usado em filtros e segmentos (antes era O(n²) no segmento duplicados). */
+  const phoneDupKeys = useMemo(() => {
+    const cnt: Record<string, number> = {};
+    for (const c of contacts) {
+      const k = normPhoneKey(c.phone);
+      if (!k) continue;
+      cnt[k] = (cnt[k] || 0) + 1;
+    }
+    const dup = new Set<string>();
+    for (const k in cnt) if (cnt[k] > 1) dup.add(k);
+    return dup;
+  }, [contacts]);
 
   // NOVO LAYOUT: filtro smart único (sidebar) + drawer + modal de insights
   const [activeFilter, setActiveFilter] = useState<SmartFilterId>(() => {
@@ -430,6 +449,15 @@ export const ContactsTab: React.FC = () => {
   const [fileImportRows, setFileImportRows] = useState<FileImportRow[]>([]);
   const [fileImportFilter, setFileImportFilter] = useState<FileImportPreviewFilter>('all');
   const [fileImportLabel, setFileImportLabel] = useState('');
+  const [fileImportTargetMode, setFileImportTargetMode] = useState<ImportTargetMode>('none');
+  const [fileImportTargetListId, setFileImportTargetListId] = useState('');
+  const [fileImportNewListName, setFileImportNewListName] = useState('');
+  const [smartImportTargetMode, setSmartImportTargetMode] = useState<ImportTargetMode>('none');
+  const [smartImportTargetListId, setSmartImportTargetListId] = useState('');
+  const [smartImportNewListName, setSmartImportNewListName] = useState('');
+  const [newContactTargetMode, setNewContactTargetMode] = useState<ImportTargetMode>('none');
+  const [newContactTargetListId, setNewContactTargetListId] = useState('');
+  const [newContactNewListName, setNewContactNewListName] = useState('');
 
   useEffect(() => {
     if (listManageId && !contactLists.some((l) => l.id === listManageId)) {
@@ -839,6 +867,9 @@ export const ContactsTab: React.FC = () => {
       setFileImportRows(preview);
       setFileImportLabel(file.name);
       setFileImportFilter('all');
+      setFileImportTargetMode('none');
+      setFileImportTargetListId('');
+      setFileImportNewListName('');
       setFileImportOpen(true);
       toast.success(`Arquivo carregado: ${preview.length} linha(s). ${nProb > 0 ? `${nProb} com aviso — revise antes de importar.` : 'Pronto para importar.'}`);
     } catch (err: any) {
@@ -848,16 +879,20 @@ export const ContactsTab: React.FC = () => {
   };
 
   const ITEMS_PER_PAGE = 15;
-  const validCount = contacts.filter(c => c.status === 'VALID').length;
-  const invalidCount = contacts.filter(c => c.status === 'INVALID').length;
-  const tagCounts = contacts.reduce<Record<string, number>>((acc, contact) => {
-    contact.tags.forEach(tag => {
-      acc[tag] = (acc[tag] || 0) + 1;
-    });
-    return acc;
-  }, {});
-  const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const recentContacts = contacts.slice(0, 5);
+  const { validCount, topTags, recentContacts } = useMemo(() => {
+    const validCount = contacts.filter((c) => c.status === 'VALID').length;
+    const tagCounts = contacts.reduce<Record<string, number>>((acc, contact) => {
+      contact.tags.forEach((tag) => {
+        acc[tag] = (acc[tag] || 0) + 1;
+      });
+      return acc;
+    }, {});
+    const topTags = Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+    const recentContacts = contacts.slice(0, 5);
+    return { validCount, topTags, recentContacts };
+  }, [contacts]);
 
   // Indice de temperatura: Map<contactId, TempStats>.
   // Usa TODAS as mensagens enviadas por voce (nao so campanhas com fromCampaign), para refletir
@@ -885,15 +920,20 @@ export const ContactsTab: React.FC = () => {
       return byPhone[phone];
     };
 
+    // Limite por conversa: históricos enormes (milhares de mensagens) não precisam ser
+    // varridos na íntegra só para estimar temperatura — evita picos de CPU na aba Contatos.
+    const MAX_MESSAGES_SCAN_PER_CONV = 500;
+
     // Performance: duas passadas sem sort.
     // 1ª passada: acumula envios/leituras/entregas e pega maxOutTs por conversa.
     // 2ª passada: conta respostas (mensagens dela com ts > maxOutTs da conversa).
     // Isso troca O(N log N) por 2×O(N) — em bases com muitas mensagens, é ordens de grandeza mais rápido.
-    for (const conv of conversations) {
+    for (const conv of deferredConversations) {
       const phoneKey = normPhoneKey(convPrimaryDigits(conv));
       if (!phoneKey || phoneKey.length < 12) continue;
       const s = accum(phoneKey);
-      const msgs = conv.messages || [];
+      const all = conv.messages || [];
+      const msgs = all.length > MAX_MESSAGES_SCAN_PER_CONV ? all.slice(all.length - MAX_MESSAGES_SCAN_PER_CONV) : all;
       let maxOutTs = 0;
       for (let i = 0; i < msgs.length; i++) {
         const m = msgs[i];
@@ -931,7 +971,7 @@ export const ContactsTab: React.FC = () => {
       result[c.id] = { ...base, temp: cls.temp, score: cls.score };
     }
     return result;
-  }, [conversations, contacts]);
+  }, [deferredConversations, contacts]);
 
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
@@ -1064,7 +1104,7 @@ export const ContactsTab: React.FC = () => {
     | 'invalid'
     | 'last-7-days';
 
-  const getSmartSegmentMatches = (id: SmartSegmentId, c: Contact): boolean => {
+  const getSmartSegmentMatches = useCallback((id: SmartSegmentId, c: Contact): boolean => {
     const t = contactTemps[c.id];
     const DAY = 86400000;
     const now = Date.now();
@@ -1092,10 +1132,8 @@ export const ContactsTab: React.FC = () => {
       case 'no-address':
         return !c.street || !c.city || !c.zipCode;
       case 'duplicates': {
-        if (!c.phone) return false;
         const k = normPhoneKey(c.phone);
-        const count = contacts.filter((x) => normPhoneKey(x.phone) === k).length;
-        return count > 1;
+        return !!k && phoneDupKeys.has(k);
       }
       case 'invalid':
         return c.status !== 'VALID';
@@ -1108,7 +1146,7 @@ export const ContactsTab: React.FC = () => {
       default:
         return false;
     }
-  };
+  }, [contactTemps, phoneDupKeys]);
 
   const [activeSegment, setActiveSegment] = useState<SmartSegmentId | null>(null);
 
@@ -1134,8 +1172,7 @@ export const ContactsTab: React.FC = () => {
       ...s,
       count: contacts.filter((c) => getSmartSegmentMatches(s.id, c)).length
     }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contacts, contactTemps]);
+  }, [contacts, getSmartSegmentMatches]);
 
   const fileImportRowsView = useMemo((): FileImportRowView[] => {
     if (fileImportRows.length === 0) return [];
@@ -1215,39 +1252,26 @@ export const ContactsTab: React.FC = () => {
     return v;
   }, [smartImportRowsView, smartImportPreviewFilter]);
 
-  // Sugestoes dinamicas (cargos e profissoes ja cadastrados) para os comboboxes
-  const DEFAULT_CHURCH_ROLES = ['Membro', 'Visitante', 'Lider', 'Diacono', 'Pastor', 'Musico', 'Obreiro', 'Professor'];
-  const roleSuggestions = Array.from(
-    new Set([
-      ...DEFAULT_CHURCH_ROLES,
-      ...contacts.map(c => (c.role || '').trim()).filter(Boolean)
-    ])
-  ).sort((a, b) => a.localeCompare(b));
-  const professionSuggestions = Array.from(
-    new Set(contacts.map(c => (c.profession || '').trim()).filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b));
-  const churchSuggestions = Array.from(
-    new Set(contacts.map(c => (c.church || '').trim()).filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b));
-  const citySuggestions = Array.from(
-    new Set(contacts.map(c => (c.city || '').trim()).filter(Boolean))
-  ).sort((a, b) => a.localeCompare(b));
+  // Sugestões para comboboxes — memoizado (antes recalculava 4 passadas em todo render).
+  const { roleSuggestions, professionSuggestions, churchSuggestions, citySuggestions } = useMemo(() => {
+    const roleSuggestions = Array.from(
+      new Set([...DEFAULT_CHURCH_ROLES, ...contacts.map((c) => (c.role || '').trim()).filter(Boolean)])
+    ).sort((a, b) => a.localeCompare(b));
+    const professionSuggestions = Array.from(
+      new Set(contacts.map((c) => (c.profession || '').trim()).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b));
+    const churchSuggestions = Array.from(
+      new Set(contacts.map((c) => (c.church || '').trim()).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b));
+    const citySuggestions = Array.from(
+      new Set(contacts.map((c) => (c.city || '').trim()).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b));
+    return { roleSuggestions, professionSuggestions, churchSuggestions, citySuggestions };
+  }, [contacts]);
 
   // ============================================================
   //  FILTRO SMART — sidebar do novo layout (all / hot / bday_today / list:xxx / ...)
   // ============================================================
-  const phoneDupKeys = useMemo(() => {
-    const cnt: Record<string, number> = {};
-    for (const c of contacts) {
-      const k = normPhoneKey(c.phone);
-      if (!k) continue;
-      cnt[k] = (cnt[k] || 0) + 1;
-    }
-    const dup = new Set<string>();
-    for (const k in cnt) if (cnt[k] > 1) dup.add(k);
-    return dup;
-  }, [contacts]);
-
   const matchesSmartFilter = useCallback((c: Contact, filter: SmartFilterId): boolean => {
     if (filter === 'all') return true;
     if (typeof filter === 'string' && filter.startsWith('list:')) {
@@ -1293,38 +1317,54 @@ export const ContactsTab: React.FC = () => {
     }
   }, [contactLists, contactTemps, phoneDupKeys]);
 
-  // Filter Logic
-  const filteredContacts = contacts.filter(c => {
+  // Filter Logic — memoizado: antes rodava filtro completo em todo re-render (digitar, modal, etc.).
+  const filteredContacts = useMemo(() => {
     const q = searchTerm.toLowerCase();
-    const matchesSearch = !q ||
-      c.name.toLowerCase().includes(q) ||
-      c.phone.includes(searchTerm) ||
-      c.tags.some(t => t.toLowerCase().includes(q)) ||
-      (c.city?.toLowerCase().includes(q) ?? false) ||
-      (c.state?.toLowerCase().includes(q) ?? false) ||
-      (c.street?.toLowerCase().includes(q) ?? false) ||
-      (c.neighborhood?.toLowerCase().includes(q) ?? false) ||
-      (c.zipCode?.toLowerCase().includes(q) ?? false) ||
-      (c.church?.toLowerCase().includes(q) ?? false) ||
-      (c.role?.toLowerCase().includes(q) ?? false) ||
-      (c.profession?.toLowerCase().includes(q) ?? false);
-    const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
-    const matchesTag = !filterTag || c.tags.some(t => t.toLowerCase() === filterTag.toLowerCase());
-    const matchesTemp = filterTemp === 'ALL' || contactTemps[c.id]?.temp === filterTemp;
-    const matchesSegment = !activeSegment || getSmartSegmentMatches(activeSegment, c);
-    const matchesSmart = matchesSmartFilter(c, activeFilter);
-    return matchesSearch && matchesStatus && matchesTag && matchesTemp && matchesSegment && matchesSmart;
-  });
+    return contacts.filter((c) => {
+      const matchesSearch =
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        c.phone.includes(searchTerm) ||
+        c.tags.some((t) => t.toLowerCase().includes(q)) ||
+        (c.city?.toLowerCase().includes(q) ?? false) ||
+        (c.state?.toLowerCase().includes(q) ?? false) ||
+        (c.street?.toLowerCase().includes(q) ?? false) ||
+        (c.neighborhood?.toLowerCase().includes(q) ?? false) ||
+        (c.zipCode?.toLowerCase().includes(q) ?? false) ||
+        (c.church?.toLowerCase().includes(q) ?? false) ||
+        (c.role?.toLowerCase().includes(q) ?? false) ||
+        (c.profession?.toLowerCase().includes(q) ?? false);
+      const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
+      const matchesTag = !filterTag || c.tags.some((t) => t.toLowerCase() === filterTag.toLowerCase());
+      const matchesTemp = filterTemp === 'ALL' || contactTemps[c.id]?.temp === filterTemp;
+      const matchesSegment = !activeSegment || getSmartSegmentMatches(activeSegment, c);
+      const matchesSmart = matchesSmartFilter(c, activeFilter);
+      return matchesSearch && matchesStatus && matchesTag && matchesTemp && matchesSegment && matchesSmart;
+    });
+  }, [
+    contacts,
+    searchTerm,
+    filterStatus,
+    filterTag,
+    filterTemp,
+    activeSegment,
+    activeFilter,
+    contactTemps,
+    matchesSmartFilter,
+    getSmartSegmentMatches
+  ]);
 
   const listFilteredContacts = filteredContacts;
 
   // Pagination Logic
   const totalPages = Math.ceil(listFilteredContacts.length / ITEMS_PER_PAGE);
-  const paginatedContacts = listFilteredContacts.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+  const paginatedContacts = useMemo(
+    () =>
+      listFilteredContacts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
+    [listFilteredContacts, currentPage, ITEMS_PER_PAGE]
   );
-  const allPageSelected = paginatedContacts.length > 0 && paginatedContacts.every(c => selectedIds.includes(c.id));
+  const allPageSelected =
+    paginatedContacts.length > 0 && paginatedContacts.every((c) => selectedIds.includes(c.id));
 
   const handlePageChange = (newPage: number) => {
     if (newPage > 0 && newPage <= totalPages) {
@@ -1370,6 +1410,9 @@ export const ContactsTab: React.FC = () => {
       email: contact.email || '',
       notes: contact.notes || ''
     });
+    setNewContactTargetMode('none');
+    setNewContactTargetListId('');
+    setNewContactNewListName('');
     setIsModalOpen(true);
   };
 
@@ -1545,12 +1588,69 @@ export const ContactsTab: React.FC = () => {
     toast.success(`Exportados ${contacts.length} contatos em XLSX.`);
   };
 
+  const attachContactsToList = useCallback(async (
+    contactIds: string[],
+    mode: ImportTargetMode,
+    selectedListId: string,
+    newListName: string,
+    originLabel: string
+  ): Promise<{ attached: number; listName?: string }> => {
+    if (contactIds.length === 0 || mode === 'none') return { attached: 0 };
+    if (mode === 'existing') {
+      const target = contactLists.find((l) => l.id === selectedListId);
+      if (!target) throw new Error('Lista selecionada não encontrada.');
+      const nextIds = Array.from(new Set([...(target.contactIds || []), ...contactIds]));
+      await updateContactList(target.id, {
+        contactIds: nextIds,
+        notes: `${target.notes || ''}\nAtualizada por ${originLabel} em ${new Date().toLocaleString()}`.trim()
+      });
+      return { attached: contactIds.length, listName: target.name };
+    }
+    const listName = newListName.trim();
+    if (!listName) throw new Error('Informe o nome da nova lista.');
+    await createContactList(listName, contactIds, `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`);
+    return { attached: contactIds.length, listName };
+  }, [contactLists, createContactList, updateContactList]);
+
+  const normalizeImportRow = (row: FileImportRow): FileImportRow => {
+    const normalizedPhone = normalizeBRPhone(row.contact.phone || '');
+    const normalizedContact: Contact = {
+      ...row.contact,
+      name: (row.contact.name || '').trim(),
+      phone: normalizedPhone,
+      state: (row.contact.state || '').toUpperCase().slice(0, 2)
+    };
+    const problems: string[] = [];
+    if (!normalizedContact.name) problems.push('Nome ausente');
+    const digits = (normalizedPhone || '').replace(/\D/g, '');
+    if (!digits) problems.push('Telefone ausente');
+    else if (digits.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
+    return {
+      ...row,
+      contact: normalizedContact,
+      include: !row.duplicate && problems.length === 0,
+      problems
+    };
+  };
+
+  const autoFixFileImportRows = () => {
+    setFileImportRows((prev) => prev.map((row) => normalizeImportRow(row)));
+  };
+
   const handleSaveNewContact = async () => {
     if (!newContact.name || !newContact.phone) {
       alert('Por favor, preencha ao menos Nome e Telefone.');
       return;
     }
     const cleanPhone = (newContact.phone || '').replace(/\D/g, '');
+    if (newContactTargetMode === 'existing' && !newContactTargetListId) {
+      toast.error('Escolha uma lista de destino.');
+      return;
+    }
+    if (newContactTargetMode === 'new' && !newContactNewListName.trim()) {
+      toast.error('Informe o nome da nova lista.');
+      return;
+    }
 
     if (editingContactId) {
       await updateContact(editingContactId, {
@@ -1570,6 +1670,15 @@ export const ContactsTab: React.FC = () => {
         notes: newContact.notes || '',
         status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID'
       });
+      if (newContactTargetMode !== 'none') {
+        await attachContactsToList(
+          [editingContactId],
+          newContactTargetMode,
+          newContactTargetListId,
+          newContactNewListName,
+          'edição de contato'
+        );
+      }
     } else {
       const contact: Contact = {
         id: Date.now().toString(),
@@ -1591,11 +1700,23 @@ export const ContactsTab: React.FC = () => {
         status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID',
         lastMsg: 'Nunca'
       };
-      await addContact(contact);
+      const createdId = await addContact(contact);
+      if (createdId && newContactTargetMode !== 'none') {
+        await attachContactsToList(
+          [createdId],
+          newContactTargetMode,
+          newContactTargetListId,
+          newContactNewListName,
+          'novo contato'
+        );
+      }
     }
 
     setIsModalOpen(false);
     setEditingContactId(null);
+    setNewContactTargetMode('none');
+    setNewContactTargetListId('');
+    setNewContactNewListName('');
     setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
   };
 
@@ -1642,11 +1763,17 @@ export const ContactsTab: React.FC = () => {
   const openNewContactModal = useCallback(() => {
                 setEditingContactId(null);
                 setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
+                setNewContactTargetMode('none');
+                setNewContactTargetListId('');
+                setNewContactNewListName('');
                 setIsModalOpen(true);
   }, []);
   const openSmartImport = useCallback(() => {
     setSmartImportRaw('');
     setSmartImportRows([]);
+    setSmartImportTargetMode('none');
+    setSmartImportTargetListId('');
+    setSmartImportNewListName('');
     setSmartImportOpen(true);
   }, []);
   const openImportXLSX = useCallback(() => {
@@ -2134,7 +2261,7 @@ export const ContactsTab: React.FC = () => {
                       {editingContactId ? 'Atualize os dados e salve as alteraÃ§Ãµes.' : 'Preencha os dados abaixo para cadastrar manualmente.'}
                     </p>
                  </div>
-                 <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
+                 <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
                     <X className="w-5 h-5" />
                  </button>
               </div>
@@ -2441,12 +2568,63 @@ export const ContactsTab: React.FC = () => {
                        />
                     </div>
                  </div>
+
+                 <div className="border-t border-slate-100 dark:border-slate-800"></div>
+
+                 <div className="space-y-3">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <Layers className="w-3.5 h-3.5" /> Lista de destino
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {([
+                        ['none', 'Sem lista'],
+                        ['existing', 'Lista existente'],
+                        ['new', 'Criar nova lista']
+                      ] as const).map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setNewContactTargetMode(mode)}
+                          className={`px-3 py-2 rounded-lg border text-xs font-semibold ${
+                            newContactTargetMode === mode
+                              ? 'brand-soft brand-text brand-border'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {newContactTargetMode === 'existing' && (
+                      <select
+                        className="ui-input"
+                        value={newContactTargetListId}
+                        onChange={(e) => setNewContactTargetListId(e.target.value)}
+                      >
+                        <option value="">Escolha uma lista</option>
+                        {contactLists.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.name} ({l.contactIds?.length || 0})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {newContactTargetMode === 'new' && (
+                      <input
+                        type="text"
+                        className="ui-input"
+                        value={newContactNewListName}
+                        onChange={(e) => setNewContactNewListName(e.target.value)}
+                        placeholder="Nome da nova lista"
+                      />
+                    )}
+                 </div>
               </div>
 
               {/* Modal Footer */}
               <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 rounded-b-2xl flex justify-between items-center gap-4">
                  <button 
-                    onClick={() => { setIsModalOpen(false); setEditingContactId(null); }}
+                    onClick={() => { setIsModalOpen(false); setEditingContactId(null); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); }}
                     className="px-6 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                  >
                     Cancelar
@@ -2508,6 +2686,11 @@ export const ContactsTab: React.FC = () => {
               <p className="text-[11px] text-slate-500">
                 Duplicados = mesmo telefone ja cadastrado ou repetido no arquivo. Linhas com problema nao sao importadas ate voce corrigir e marcar o checkbox.
               </p>
+              <div className="flex items-center justify-end">
+                <Button variant="ghost" size="sm" type="button" onClick={autoFixFileImportRows}>
+                  Correção automática (todos)
+                </Button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-auto p-3 sm:p-4">
@@ -2599,7 +2782,50 @@ export const ContactsTab: React.FC = () => {
               </table>
             </div>
 
-            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-slate-50 dark:bg-slate-900/50">
+            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-white dark:bg-slate-900">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([
+                    ['none', 'Importar sem lista'],
+                    ['existing', 'Adicionar em lista existente'],
+                    ['new', 'Criar nova lista com importados']
+                  ] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setFileImportTargetMode(mode)}
+                      className={`px-3 py-2 rounded-lg border text-xs font-semibold ${
+                        fileImportTargetMode === mode
+                          ? 'brand-soft brand-text brand-border'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {fileImportTargetMode === 'existing' && (
+                  <select className="ui-input" value={fileImportTargetListId} onChange={(e) => setFileImportTargetListId(e.target.value)}>
+                    <option value="">Escolha uma lista</option>
+                    {contactLists.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} ({l.contactIds?.length || 0})
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {fileImportTargetMode === 'new' && (
+                  <input
+                    type="text"
+                    className="ui-input"
+                    value={fileImportNewListName}
+                    onChange={(e) => setFileImportNewListName(e.target.value)}
+                    placeholder="Nome da nova lista"
+                  />
+                )}
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <p className="text-[11px] text-slate-500">
                 A importar:{' '}
                 <b>
@@ -2620,7 +2846,16 @@ export const ContactsTab: React.FC = () => {
                   leftIcon={<Save className="w-4 h-4" />}
                   disabled={fileImportRowsView.filter(rv => rv.include && !rv.duplicate && rv.problems.length === 0).length === 0}
                   onClick={async () => {
+                    if (fileImportTargetMode === 'existing' && !fileImportTargetListId) {
+                      toast.error('Escolha uma lista de destino.');
+                      return;
+                    }
+                    if (fileImportTargetMode === 'new' && !fileImportNewListName.trim()) {
+                      toast.error('Informe o nome da nova lista.');
+                      return;
+                    }
                     const keysAdded = new Set(contacts.map(c => normPhoneKey(c.phone)).filter(Boolean));
+                    const createdIds: string[] = [];
                     let added = 0;
                     let skippedDup = 0;
                     let skippedProb = 0;
@@ -2640,27 +2875,46 @@ export const ContactsTab: React.FC = () => {
                         skippedDup++;
                         continue;
                       }
-                      await addContact({
+                      const createdId = await addContact({
                         ...rv.contact,
                         id: `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
                         name: rv.contact.name.trim() || 'Sem Nome',
                         phone,
                         status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID'
                       });
+                      if (typeof createdId === 'string' && createdId) createdIds.push(createdId);
                       keysAdded.add(k);
                       added++;
+                    }
+                    let attached = 0;
+                    let listName = '';
+                    if (createdIds.length > 0 && fileImportTargetMode !== 'none') {
+                      const result = await attachContactsToList(
+                        createdIds,
+                        fileImportTargetMode,
+                        fileImportTargetListId,
+                        fileImportNewListName,
+                        'importação de arquivo'
+                      );
+                      attached = result.attached;
+                      listName = result.listName || '';
                     }
                     toast.success(
                       `${added} contato(s) importado(s).` +
                         (skippedDup ? ` ${skippedDup} duplicado(s) ignorado(s).` : '') +
-                        (skippedProb ? ` ${skippedProb} com problema nao importado(s).` : '')
+                        (skippedProb ? ` ${skippedProb} com problema nao importado(s).` : '') +
+                        (attached > 0 ? ` ${attached} vinculado(s) em "${listName}".` : '')
                     );
                     setFileImportOpen(false);
                     setFileImportRows([]);
+                    setFileImportTargetMode('none');
+                    setFileImportTargetListId('');
+                    setFileImportNewListName('');
                   }}
                 >
                   Confirmar importaÃ§Ã£o
                 </Button>
+              </div>
               </div>
             </div>
           </div>
@@ -2798,6 +3052,22 @@ export const ContactsTab: React.FC = () => {
                       <span className="text-slate-400">de {smartImportRows.length}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setSmartImportRows((rows) =>
+                            rows.map((r) => ({
+                              ...r,
+                              name: (r.name || '').trim(),
+                              phone: normalizeBRPhone(r.phone || ''),
+                              state: (r.state || '').toUpperCase().slice(0, 2)
+                            }))
+                          )
+                        }
+                      >
+                        Correção automática (todos)
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => setSmartImportRows(rows => rows.map(r => ({ ...r, include: true })))}>
                         Marcar todos
                       </Button>
@@ -2907,10 +3177,52 @@ export const ContactsTab: React.FC = () => {
               )}
             </div>
 
-            <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/50">
-              <p className="text-[11.5px] text-slate-500 hidden sm:block">
-                Os campos em amarelo estÃ£o incompletos (nome ou telefone invÃ¡lidos). VocÃª pode editar cada cÃ©lula antes de importar.
+            <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
+              <p className="text-[11.5px] text-slate-500">
+                Os campos em amarelo estão incompletos (nome ou telefone inválidos). Você pode editar cada célula antes de importar.
               </p>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-white dark:bg-slate-900">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([
+                    ['none', 'Importar sem lista'],
+                    ['existing', 'Adicionar em lista existente'],
+                    ['new', 'Criar nova lista com importados']
+                  ] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setSmartImportTargetMode(mode)}
+                      className={`px-3 py-2 rounded-lg border text-xs font-semibold ${
+                        smartImportTargetMode === mode
+                          ? 'brand-soft brand-text brand-border'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {smartImportTargetMode === 'existing' && (
+                  <select className="ui-input" value={smartImportTargetListId} onChange={(e) => setSmartImportTargetListId(e.target.value)}>
+                    <option value="">Escolha uma lista</option>
+                    {contactLists.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} ({l.contactIds?.length || 0})
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {smartImportTargetMode === 'new' && (
+                  <input
+                    type="text"
+                    className="ui-input"
+                    value={smartImportNewListName}
+                    onChange={(e) => setSmartImportNewListName(e.target.value)}
+                    placeholder="Nome da nova lista"
+                  />
+                )}
+              </div>
               <div className="flex items-center gap-2 ml-auto">
                 <Button
                   variant="secondary"
@@ -2934,7 +3246,16 @@ export const ContactsTab: React.FC = () => {
                     }).length === 0
                   }
                   onClick={async () => {
+                    if (smartImportTargetMode === 'existing' && !smartImportTargetListId) {
+                      toast.error('Escolha uma lista de destino.');
+                      return;
+                    }
+                    if (smartImportTargetMode === 'new' && !smartImportNewListName.trim()) {
+                      toast.error('Informe o nome da nova lista.');
+                      return;
+                    }
                     const keysAdded = new Set(contacts.map(c => normPhoneKey(c.phone)).filter(Boolean));
+                    const createdIds: string[] = [];
                     let imported = 0;
                     let skipped = 0;
                     for (const rv of smartImportRowsView) {
@@ -2970,15 +3291,36 @@ export const ContactsTab: React.FC = () => {
                         status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
                         lastMsg: 'Nunca'
                       };
-                      await addContact(c);
+                      const createdId = await addContact(c);
+                      if (typeof createdId === 'string' && createdId) createdIds.push(createdId);
                       keysAdded.add(k);
                       imported++;
                     }
-                    toast.success(`${imported} contato(s) importado(s).` + (skipped ? ` ${skipped} linha(s) ignorada(s) (duplicado ou com problema).` : ''));
+                    let attached = 0;
+                    let listName = '';
+                    if (createdIds.length > 0 && smartImportTargetMode !== 'none') {
+                      const result = await attachContactsToList(
+                        createdIds,
+                        smartImportTargetMode,
+                        smartImportTargetListId,
+                        smartImportNewListName,
+                        'importação inteligente'
+                      );
+                      attached = result.attached;
+                      listName = result.listName || '';
+                    }
+                    toast.success(
+                      `${imported} contato(s) importado(s).` +
+                      (skipped ? ` ${skipped} linha(s) ignorada(s) (duplicado ou com problema).` : '') +
+                      (attached > 0 ? ` ${attached} vinculado(s) em "${listName}".` : '')
+                    );
                     setSmartImportOpen(false);
                     setSmartImportRaw('');
                     setSmartImportRows([]);
                     setSmartImportPreviewFilter('all');
+                    setSmartImportTargetMode('none');
+                    setSmartImportTargetListId('');
+                    setSmartImportNewListName('');
                   }}
                 >
                   Importar{' '}
