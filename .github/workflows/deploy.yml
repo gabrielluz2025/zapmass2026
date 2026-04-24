@@ -68,15 +68,20 @@ jobs:
           command_timeout: 3m
           script: |
             set -e
-            for i in 1 2 3 4 5 6 7 8 9 10; do
+            echo "==> aguardando API ficar saudavel"
+            # Evita falso negativo quando o container reinicia mais lento.
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
               code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || echo 000)
               echo "tentativa $i: HTTP $code"
               if [ "$code" = "200" ]; then
                 echo "OK: API saudavel."
                 exit 0
               fi
-              sleep 3
+              sleep 6
             done
-            echo "FALHA: API nao respondeu 200 apos 30s"
+            echo "FALHA: API nao respondeu 200 apos 120s"
+            echo "==> status docker compose"
+            docker compose -f /opt/zapmass/docker-compose.yml ps || true
+            echo "==> ultimos logs"
             docker compose -f /opt/zapmass/docker-compose.yml logs --tail=80 || true
             exit 1
