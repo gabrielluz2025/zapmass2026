@@ -78,6 +78,17 @@ type AdminUserAccessRow = {
   updatedAt: string | null;
 };
 
+type AdminAccessAuditRow = {
+  id: string;
+  targetUid: string;
+  targetEmail: string;
+  adminUid: string;
+  adminEmail: string;
+  action: string;
+  note: string;
+  createdAt: string | null;
+};
+
 function tsToIso(v: unknown): string | null {
   if (!v) return null;
   if (typeof (v as { toDate?: () => Date }).toDate === 'function') {
@@ -240,6 +251,7 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         blocked?: boolean;
         manualGrant?: boolean;
         grantDays?: number | null;
+        grantMode?: 'set' | 'extend';
         adminNote?: string;
       };
 
@@ -273,7 +285,11 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         if (body.manualGrant) {
           const days = Number(body.grantDays || 0);
           if (Number.isFinite(days) && days > 0) {
-            const end = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+            const mode = body.grantMode === 'extend' ? 'extend' : 'set';
+            const currentManualEnd = tsToIso(cur.manualAccessEndsAt);
+            const currentManualMs = currentManualEnd ? new Date(currentManualEnd).getTime() : 0;
+            const baseMs = mode === 'extend' ? Math.max(Date.now(), currentManualMs || 0) : Date.now();
+            const end = new Date(baseMs + days * 24 * 60 * 60 * 1000);
             updates.manualAccessEndsAt = Timestamp.fromDate(end);
           } else {
             updates.manualAccessEndsAt = null;
@@ -297,11 +313,62 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       await ref.set(updates, { merge: true });
       const next = await ref.get();
       const row = await rowFromSubscriptionDoc(uid, next.data() as Record<string, unknown>, new Map(), email);
+
+      // Auditoria administrativa para rastrear ações críticas de acesso.
+      let action = 'update';
+      if (typeof body.blocked === 'boolean') {
+        action = body.blocked ? 'block' : 'unblock';
+      } else if (typeof body.manualGrant === 'boolean') {
+        action = body.manualGrant ? (body.grantMode === 'extend' ? 'extend-manual-access' : 'grant-manual-access') : 'revoke-manual-access';
+      }
+      await db.collection('adminAccessAudit').add({
+        targetUid: uid,
+        targetEmail: row.email || email || '',
+        adminUid: auth.uid,
+        adminEmail: auth.email,
+        action,
+        note: typeof body.adminNote === 'string' ? body.adminNote.trim() : '',
+        createdAt: FieldValue.serverTimestamp()
+      });
+
       console.log('[api/admin/access-user] atualizado por', auth.email, '=>', uid);
       return res.json({ ok: true, user: row });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/admin/access-user]', msg);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/admin/access-audit', async (req: Request, res: Response) => {
+    try {
+      const auth = await assertAdminFromBearer(req, res);
+      if (!auth) return;
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      }
+      const db = getFirestore(adminApp);
+      const rawLimit = Number(req.query.limit || 100);
+      const limit = Number.isFinite(rawLimit) ? Math.max(10, Math.min(300, Math.round(rawLimit))) : 100;
+      const snap = await db.collection('adminAccessAudit').orderBy('createdAt', 'desc').limit(limit).get();
+      const rows: AdminAccessAuditRow[] = snap.docs.map((d) => {
+        const x = d.data() as Record<string, unknown>;
+        return {
+          id: d.id,
+          targetUid: typeof x.targetUid === 'string' ? x.targetUid : '',
+          targetEmail: typeof x.targetEmail === 'string' ? x.targetEmail : '',
+          adminUid: typeof x.adminUid === 'string' ? x.adminUid : '',
+          adminEmail: typeof x.adminEmail === 'string' ? x.adminEmail : '',
+          action: typeof x.action === 'string' ? x.action : 'update',
+          note: typeof x.note === 'string' ? x.note : '',
+          createdAt: tsToIso(x.createdAt)
+        };
+      });
+      return res.json({ ok: true, audit: rows });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[api/admin/access-audit]', msg);
       return res.status(500).json({ ok: false, error: msg });
     }
   });

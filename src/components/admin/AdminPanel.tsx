@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search } from 'lucide-react';
+import { Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
@@ -20,6 +20,17 @@ type AccessUser = {
   adminNote: string;
   updatedAt: string | null;
 };
+type AccessAudit = {
+  id: string;
+  targetUid: string;
+  targetEmail: string;
+  adminUid: string;
+  adminEmail: string;
+  action: string;
+  note: string;
+  createdAt: string | null;
+};
+type AccessFilter = 'all' | 'manual' | 'blocked' | 'active' | 'trialing' | 'expiring7';
 
 const toPtDateTime = (iso: string | null | undefined): string => {
   if (!iso) return '—';
@@ -46,6 +57,9 @@ export const AdminPanel: React.FC = () => {
   const [grantEmail, setGrantEmail] = useState('');
   const [grantDays, setGrantDays] = useState('30');
   const [grantNote, setGrantNote] = useState('');
+  const [filter, setFilter] = useState<AccessFilter>('all');
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
 
   useEffect(() => {
     setMarketingPriceMonthly(config.marketingPriceMonthly);
@@ -123,15 +137,45 @@ export const AdminPanel: React.FC = () => {
   useEffect(() => {
     if (tab !== 'access') return;
     void loadAccessUsers(search);
+    void loadAudit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   const activeCount = useMemo(() => users.filter((u) => !u.blocked).length, [users]);
   const blockedCount = useMemo(() => users.filter((u) => u.blocked).length, [users]);
   const manualCount = useMemo(() => users.filter((u) => u.manualGrant).length, [users]);
+  const expiringSoonCount = useMemo(() => {
+    const now = Date.now();
+    const limit = now + 7 * 24 * 60 * 60 * 1000;
+    return users.filter((u) => {
+      const candidates = [u.manualAccessEndsAt, u.accessEndsAt, u.trialEndsAt]
+        .map((v) => (v ? new Date(v).getTime() : 0))
+        .filter((ms) => ms > now && ms <= limit);
+      return candidates.length > 0;
+    }).length;
+  }, [users]);
+
+  const filteredUsers = useMemo(() => {
+    if (filter === 'all') return users;
+    const now = Date.now();
+    const limit = now + 7 * 24 * 60 * 60 * 1000;
+    return users.filter((u) => {
+      if (filter === 'manual') return u.manualGrant;
+      if (filter === 'blocked') return u.blocked;
+      if (filter === 'active') return u.status === 'active' && !u.blocked;
+      if (filter === 'trialing') return u.status === 'trialing' && !u.blocked;
+      if (filter === 'expiring7') {
+        const check = [u.manualAccessEndsAt, u.accessEndsAt, u.trialEndsAt]
+          .map((v) => (v ? new Date(v).getTime() : 0))
+          .filter((ms) => ms > now && ms <= limit);
+        return check.length > 0;
+      }
+      return true;
+    });
+  }, [users, filter]);
 
   const updateAccessUser = async (
-    payload: Partial<AccessUser> & { uid?: string; email?: string; manualGrant?: boolean; grantDays?: number | null }
+    payload: Partial<AccessUser> & { uid?: string; email?: string; manualGrant?: boolean; grantDays?: number | null; grantMode?: 'set' | 'extend' }
   ) => {
     const res = await fetch('/api/admin/access-user', {
       method: 'PUT',
@@ -143,6 +187,26 @@ export const AdminPanel: React.FC = () => {
       throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao atualizar acesso.');
     }
     return data.user as AccessUser;
+  };
+
+  const loadAudit = async () => {
+    if (!user) return;
+    setAuditLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/access-audit?limit=80', {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar auditoria.');
+      }
+      setAuditRows(Array.isArray(data.audit) ? data.audit : []);
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível carregar auditoria.');
+    } finally {
+      setAuditLoading(false);
+    }
   };
 
   const handleGrantByEmail = async () => {
@@ -190,6 +254,21 @@ export const AdminPanel: React.FC = () => {
       toast.success('Liberação manual revogada.');
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível revogar liberação.');
+    }
+  };
+
+  const quickExtend = async (u: AccessUser, days: number) => {
+    try {
+      const updated = await updateAccessUser({
+        uid: u.uid,
+        manualGrant: true,
+        grantDays: days,
+        grantMode: 'extend'
+      });
+      setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
+      toast.success(`Acesso estendido por +${days} dia(s).`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível estender acesso.');
     }
   };
 
@@ -335,6 +414,10 @@ export const AdminPanel: React.FC = () => {
               <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Liberação manual</p>
               <p className="text-xl font-bold text-sky-500">{manualCount}</p>
             </div>
+            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
+              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Expiram em 7 dias</p>
+              <p className="text-xl font-bold text-amber-500">{expiringSoonCount}</p>
+            </div>
           </div>
 
           <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
@@ -385,6 +468,33 @@ export const AdminPanel: React.FC = () => {
               <Button variant="secondary" size="sm" onClick={() => void loadAccessUsers(search)}>
                 Buscar
               </Button>
+              <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="w-3.5 h-3.5" />} onClick={() => void loadAccessUsers(search)}>
+                Atualizar
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                ['all', 'Todos'],
+                ['manual', 'Manual'],
+                ['blocked', 'Bloqueados'],
+                ['active', 'Ativos'],
+                ['trialing', 'Trial'],
+                ['expiring7', 'Expiram em 7 dias']
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setFilter(id as AccessFilter)}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-semibold"
+                  style={{
+                    background: filter === id ? 'var(--brand-50)' : 'var(--surface-1)',
+                    color: filter === id ? 'var(--brand-700)' : 'var(--text-2)',
+                    border: '1px solid var(--border-subtle)'
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
@@ -395,7 +505,7 @@ export const AdminPanel: React.FC = () => {
               ) : users.length === 0 ? (
                 <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Nenhum usuário encontrado.</p>
               ) : (
-                users.map((u) => (
+                filteredUsers.map((u) => (
                   <div
                     key={u.uid}
                     className="rounded-xl border p-3"
@@ -440,8 +550,68 @@ export const AdminPanel: React.FC = () => {
                             Revogar manual
                           </Button>
                         )}
+                        <div className="grid grid-cols-3 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void quickExtend(u, 7)}
+                            className="text-[10px] px-1.5 py-1 rounded border"
+                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-2)' }}
+                            title="Estender +7 dias"
+                          >
+                            +7d
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void quickExtend(u, 30)}
+                            className="text-[10px] px-1.5 py-1 rounded border"
+                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-2)' }}
+                            title="Estender +30 dias"
+                          >
+                            +30d
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void quickExtend(u, 90)}
+                            className="text-[10px] px-1.5 py-1 rounded border"
+                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-2)' }}
+                            title="Estender +90 dias"
+                          >
+                            +90d
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[14px] font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                <History className="w-4 h-4" />
+                Histórico de ações do admin
+              </h3>
+              <Button variant="secondary" size="sm" onClick={() => void loadAudit()}>
+                Atualizar histórico
+              </Button>
+            </div>
+            <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+              {auditLoading ? (
+                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Carregando histórico...</p>
+              ) : auditRows.length === 0 ? (
+                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Sem ações registradas ainda.</p>
+              ) : (
+                auditRows.map((r) => (
+                  <div key={r.id} className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                    <p className="text-[11.5px]" style={{ color: 'var(--text-1)' }}>
+                      <strong>{r.action}</strong> em <strong>{r.targetEmail || r.targetUid}</strong>
+                    </p>
+                    <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                      por {r.adminEmail || r.adminUid} • {toPtDateTime(r.createdAt)}
+                    </p>
+                    {r.note ? <p className="text-[10.5px]" style={{ color: 'var(--text-2)' }}>Obs: {r.note}</p> : null}
                   </div>
                 ))
               )}
