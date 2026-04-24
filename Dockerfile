@@ -66,6 +66,8 @@ COPY package.json package-lock.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/src/utils ./src/utils
+# insightMerge e mergeLegacyUserDocs importam tipos (Contact, Campaign, etc.)
+COPY --from=builder /app/src/types.ts ./src/types.ts
 COPY --from=builder /app/VERSION ./VERSION
 
 RUN npm ci --omit=dev \
