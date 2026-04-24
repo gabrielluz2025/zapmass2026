@@ -185,6 +185,11 @@ export const ChatTab: React.FC = () => {
   const { user } = useAuth();
   const crm = useClientCrm(user?.uid);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  // Conversas "rascunho" criadas localmente para contatos sem histórico real.
+  // Permitem abrir o chat e enviar a primeira mensagem sem depender de campanha.
+  // Assim que o servidor responde com a conversa real (mesmo id), o rascunho
+  // é automaticamente descartado pela mesclagem em `mergedConversations`.
+  const [draftConversations, setDraftConversations] = useState<Conversation[]>([]);
   const [pipelineView, setPipelineView] = useState<'lista' | 'quadro'>('lista');
   const [inputText, setInputText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -235,59 +240,151 @@ export const ChatTab: React.FC = () => {
 
   // Handshake vindo da aba Contatos: abrir conversa por telefone.
   // Evita prop drilling — Contatos grava sessionStorage + navega, aqui resolvemos.
+  // Se não existir conversa real com esse número, criamos um rascunho local
+  // para que o usuário possa iniciar o chat direto (sem precisar de campanha).
   useEffect(() => {
     try {
-      const phone = sessionStorage.getItem('zapmass.openChatByPhone');
-      if (!phone) return;
+      const raw = sessionStorage.getItem('zapmass.openChatByPhone');
+      if (!raw) return;
       sessionStorage.removeItem('zapmass.openChatByPhone');
-      const digits = phone.replace(/\D/g, '');
+
+      // Aceita tanto string pura (legado) quanto payload JSON {phone, name, profilePicUrl}
+      let phoneRaw = raw;
+      let contactName = '';
+      let profilePicUrl = '';
+      if (raw.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(raw) as { phone?: string; name?: string; profilePicUrl?: string };
+          phoneRaw = parsed.phone || '';
+          contactName = (parsed.name || '').trim();
+          profilePicUrl = parsed.profilePicUrl || '';
+        } catch {
+          /* ignora, segue como string pura */
+        }
+      }
+
+      const digits = (phoneRaw || '').replace(/\D/g, '');
       if (!digits) return;
+
       // Procura conversa que case o contactPhone (flexibilidade BR: com/sem 55).
-      const candidates = conversations.filter((c) => {
-        const cd = (c.contactPhone || '').replace(/\D/g, '');
-        if (!cd) return false;
-        return (
-          cd === digits ||
+      const matchesDigits = (cd: string) =>
+        !!cd &&
+        (cd === digits ||
           cd.endsWith(digits) ||
           digits.endsWith(cd) ||
-          (cd.length >= 10 && digits.length >= 10 && cd.slice(-10) === digits.slice(-10))
-        );
-      });
-      if (candidates.length > 0) {
-        const best = candidates.sort(
+          (cd.length >= 10 && digits.length >= 10 && cd.slice(-10) === digits.slice(-10)));
+
+      const candidatesReal = conversations.filter((c) =>
+        matchesDigits((c.contactPhone || '').replace(/\D/g, ''))
+      );
+      const candidatesDraft = draftConversations.filter((c) =>
+        matchesDigits((c.contactPhone || '').replace(/\D/g, ''))
+      );
+
+      if (candidatesReal.length > 0) {
+        const best = candidatesReal.sort(
           (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
         )[0];
         setSelectedChatId(best.id);
         setShowMobileChat(true);
-      } else {
-        // Sem conversa aberta: apenas preenche busca por telefone para o usuário ver.
-        setSearchTerm(digits.slice(-10));
-        toast('Nenhuma conversa com este número ainda. Crie uma campanha ou aguarde resposta.', {
-          icon: 'ℹ️'
-        });
+        return;
+      }
+
+      if (candidatesDraft.length > 0) {
+        setSelectedChatId(candidatesDraft[0].id);
+        setShowMobileChat(true);
+        return;
+      }
+
+      // Nenhum histórico: vamos criar um rascunho local de conversa.
+      // Precisamos de uma conexão ativa para montar um conversationId válido.
+      const connectedList = connections.filter((c) => c.status === 'CONNECTED');
+      const chosen = connectedList[0] || connections[0];
+      if (!chosen) {
+        toast.error(
+          'Nenhuma conexão WhatsApp disponível. Conecte um número antes de iniciar a conversa.',
+          { duration: 4500 }
+        );
+        return;
+      }
+
+      // id segue o padrão usado pelo backend: "connectionId:{e164}@c.us"
+      const draftId = `${chosen.id}:${digits}@c.us`;
+      const displayName = contactName || `+${digits}`;
+      const draft: Conversation = {
+        id: draftId,
+        contactName: displayName,
+        contactPhone: digits,
+        profilePicUrl: profilePicUrl || undefined,
+        connectionId: chosen.id,
+        unreadCount: 0,
+        lastMessage: '',
+        lastMessageTime: '',
+        lastMessageTimestamp: Date.now(),
+        messages: [],
+        tags: [],
+      };
+      setDraftConversations((prev) => {
+        if (prev.some((d) => d.id === draftId)) return prev;
+        return [...prev, draft];
+      });
+      setSelectedChatId(draftId);
+      setShowMobileChat(true);
+      if (chosen.status !== 'CONNECTED') {
+        toast(
+          'Atenção: a conexão selecionada não está online. Conecte-a antes de enviar a mensagem.',
+          { icon: '⚠️', duration: 4500 }
+        );
       }
     } catch {
       /* ignore */
     }
     // Queremos rodar apenas uma vez quando conversations carrega.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations.length]);
+  }, [conversations.length, connections.length]);
 
-  const selectedConversation = conversations.find((c) => c.id === selectedChatId);
+  // Mescla conversas reais + rascunhos locais (reais têm prioridade).
+  // Quando o servidor retorna a conversa real com mesmo id, o rascunho é
+  // descartado automaticamente.
+  const mergedConversations = useMemo(() => {
+    if (draftConversations.length === 0) return conversations;
+    const realIds = new Set(conversations.map((c) => c.id));
+    const validDrafts = draftConversations.filter((d) => !realIds.has(d.id));
+    if (validDrafts.length === 0) return conversations;
+    return [...conversations, ...validDrafts];
+  }, [conversations, draftConversations]);
+
+  // Limpa rascunhos cujos ids já existem entre as conversas reais.
+  useEffect(() => {
+    if (draftConversations.length === 0) return;
+    const realIds = new Set(conversations.map((c) => c.id));
+    const stillPending = draftConversations.filter((d) => !realIds.has(d.id));
+    if (stillPending.length !== draftConversations.length) {
+      setDraftConversations(stillPending);
+    }
+  }, [conversations, draftConversations]);
+
+  const selectedConversation = mergedConversations.find((c) => c.id === selectedChatId);
   const selectedConnection = connections.find((c) => c.id === selectedConversation?.connectionId);
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selectedConversation), [selectedConversation]);
+  // Verdadeiro quando a conversa selecionada ainda é apenas um rascunho local
+  // (usuário clicou em "abrir chat" para um contato que não tem histórico).
+  const isSelectedDraft = useMemo(
+    () => !!selectedChatId && draftConversations.some((d) => d.id === selectedChatId),
+    [selectedChatId, draftConversations]
+  );
 
   const filteredByConnection =
     selectedConnectionId === 'ALL'
-      ? conversations
-      : conversations.filter((c) => c.connectionId === selectedConnectionId);
+      ? mergedConversations
+      : mergedConversations.filter((c) => c.connectionId === selectedConnectionId);
 
   // Classifica uma unica vez e reusa em filtros + contadores
   const originByConv = useMemo(() => {
     const map = new Map<string, ConversationOrigin>();
-    for (const c of conversations) map.set(c.id, classifyConversation(c));
+    for (const c of mergedConversations) map.set(c.id, classifyConversation(c));
     return map;
-  }, [conversations]);
+  }, [mergedConversations]);
 
   const filteredConversations = useMemo(() => {
     let list = filteredByConnection;
@@ -407,6 +504,8 @@ export const ChatTab: React.FC = () => {
   // Auto-carrega historico ao abrir um chat que ainda tem poucas mensagens.
   useEffect(() => {
     if (!selectedChatId) return;
+    // Rascunhos locais não têm histórico no servidor — ignoramos.
+    if (isSelectedDraft) return;
     const conv = conversations.find((c) => c.id === selectedChatId);
     if (!conv) return;
     const already = historyRequestedRef.current.get(selectedChatId) || 0;
@@ -415,7 +514,7 @@ export const ChatTab: React.FC = () => {
     if (conv.messages.length < 60) {
       loadMoreHistoryFor(selectedChatId, true, true);
     }
-  }, [selectedChatId, conversations, loadMoreHistoryFor]);
+  }, [selectedChatId, conversations, loadMoreHistoryFor, isSelectedDraft]);
 
   const handleLoadMediaOnDemand = async (messageId: string) => {
     if (!selectedChatId) return;
@@ -424,14 +523,15 @@ export const ChatTab: React.FC = () => {
   };
 
   useEffect(() => {
-    if (selectedChatId) markAsRead(selectedChatId);
-  }, [selectedChatId, selectedConversation?.messages.length]);
+    // Não faz sentido marcar como lida em um rascunho local.
+    if (selectedChatId && !isSelectedDraft) markAsRead(selectedChatId);
+  }, [selectedChatId, selectedConversation?.messages.length, isSelectedDraft]);
 
   useEffect(() => {
-    if (selectedChatId && selectedConversation && !selectedConversation.profilePicUrl) {
+    if (selectedChatId && selectedConversation && !selectedConversation.profilePicUrl && !isSelectedDraft) {
       fetchConversationPicture(selectedChatId);
     }
-  }, [selectedChatId, selectedConversation?.profilePicUrl]);
+  }, [selectedChatId, selectedConversation?.profilePicUrl, isSelectedDraft]);
 
   useEffect(() => {
     if (!showChatMenu) return;
@@ -1249,7 +1349,27 @@ export const ChatTab: React.FC = () => {
                 backgroundSize: '24px 24px'
               }}
             >
+              {/* Banner especial: conversa nova sem histórico (rascunho local). */}
+              {isSelectedDraft && (
+                <div className="flex justify-center mb-3">
+                  <div
+                    className="text-[12px] px-3.5 py-2 rounded-xl inline-flex items-center gap-2 shadow-sm max-w-[92%]"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(16,185,129,0.10), rgba(16,185,129,0.04))',
+                      color: 'var(--text-1)',
+                      border: '1px solid rgba(16,185,129,0.35)'
+                    }}
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
+                    <span>
+                      Nova conversa com <strong>{selectedConversation?.contactName}</strong>. Envie a primeira mensagem abaixo — ela será criada no WhatsApp ao enviar.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Banner de historico no topo — mostra progresso ou botao manual "Carregar mensagens antigas" */}
+              {!isSelectedDraft && (
               <div className="flex justify-center mb-3">
                 {historyLoading === selectedChatId ? (
                   <span
@@ -1294,7 +1414,9 @@ export const ChatTab: React.FC = () => {
                   </button>
                 )}
               </div>
+              )}
 
+              {!isSelectedDraft && (
               <div className="flex justify-center mb-4">
                 <span
                   className="text-[11px] px-2.5 py-1 rounded-full shadow-sm"
@@ -1303,6 +1425,7 @@ export const ChatTab: React.FC = () => {
                   {selectedConversation.messages.length} mensagens
                 </span>
               </div>
+              )}
 
               <div className="space-y-1">
                 {selectedConversation.messages.map((msg, idx) => {

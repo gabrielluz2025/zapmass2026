@@ -446,7 +446,16 @@ export const ContactsTab: React.FC = () => {
       return;
     }
     try {
-      sessionStorage.setItem('zapmass.openChatByPhone', digits);
+      // Enviamos um payload JSON completo para que o Chat consiga criar um
+      // rascunho de conversa (com nome/telefone) caso ainda não exista
+      // histórico com este número — assim o usuário pode iniciar a conversa
+      // sem precisar criar campanha nem esperar resposta.
+      const payload = JSON.stringify({
+        phone: digits,
+        name: contact.name || '',
+        profilePicUrl: '',
+      });
+      sessionStorage.setItem('zapmass.openChatByPhone', payload);
     } catch {
       /* ignore */
     }
