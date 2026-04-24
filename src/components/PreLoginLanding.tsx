@@ -251,7 +251,10 @@ export const PreLoginLanding: React.FC = () => {
         {/* Coluna direita (login) */}
         <div className="lg:col-start-2 space-y-4 animate-fade-in-up" style={{ animationDelay: '160ms' }}>
           <LandingWhatsAppRiskNotice />
-          <LoginCard showTrialOption />
+          <LoginCard
+            showTrialOption
+            subtitle={`Entre com Google em 1 clique. No primeiro acesso, o teste grátis de ${formatTrialHoursLabel(config.trialHours)} é ativado automaticamente.`}
+          />
           <p className="text-[11px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
             Ao entrar, você concorda com o uso do ZapMass conforme as políticas do produto. O WhatsApp é operado pela
             Meta — o risco de banimento e as obrigações de LGPD são de quem dispara. Veja{' '}

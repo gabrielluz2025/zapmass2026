@@ -7,7 +7,7 @@ import { formatTrialHoursLabel } from '../../utils/trialCopy';
 interface LoginCardProps {
   title?: string;
   subtitle?: string;
-  /** Mostra segunda acao para iniciar teste de 1h apos o login. */
+  /** Quando true, o CTA principal ja inicia o teste apos login (fluxo unificado). */
   showTrialOption?: boolean;
 }
 
@@ -19,7 +19,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   const { signInWithGoogle } = useAuth();
   const { config } = useAppConfig();
   const [loading, setLoading] = useState<'idle' | 'login' | 'trial'>('idle');
-  const trialBtn = `Ativar teste gratis (${formatTrialHoursLabel(config.trialHours)})`;
+  const trialBtn = `Entrar com Google e iniciar teste grátis (${formatTrialHoursLabel(config.trialHours)})`;
 
   const runLogin = async (trialAfter: boolean) => {
     if (trialAfter) {
@@ -74,7 +74,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           {subtitle}
         </p>
 
-        {/* CTA principal: trial (se disponivel) OU Google */}
+        {/* CTA principal unificado */}
         {showTrialOption ? (
           <>
             <button
@@ -94,44 +94,14 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4" />
+                  <GoogleLogo />
                   {trialBtn}
                 </>
               )}
             </button>
-
-            <div className="flex items-center gap-3 my-4">
-              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-              <span className="text-[10.5px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-                ou
-              </span>
-              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-            </div>
-
-            <button
-              type="button"
-              onClick={() => runLogin(false)}
-              disabled={loading !== 'idle'}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
-              style={{
-                background: '#fff',
-                color: '#111',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.08)'
-              }}
-            >
-              {loading === 'login' ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Entrando…
-                </>
-              ) : (
-                <>
-                  <GoogleLogo />
-                  Entrar com Google
-                </>
-              )}
-            </button>
+            <p className="text-[11.5px] mt-2 text-center" style={{ color: 'var(--text-3)' }}>
+              Fluxo único: você entra com Google e o teste é ativado automaticamente no primeiro acesso.
+            </p>
           </>
         ) : (
           <button
