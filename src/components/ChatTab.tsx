@@ -190,6 +190,8 @@ export const ChatTab: React.FC = () => {
   // Assim que o servidor responde com a conversa real (mesmo id), o rascunho
   // é automaticamente descartado pela mesclagem em `mergedConversations`.
   const [draftConversations, setDraftConversations] = useState<Conversation[]>([]);
+  // Canal escolhido por draft (id da conversa draft -> id da conexão).
+  const [draftChannelById, setDraftChannelById] = useState<Record<string, string>>({});
   const [pipelineView, setPipelineView] = useState<'lista' | 'quadro'>('lista');
   const [inputText, setInputText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -297,26 +299,18 @@ export const ChatTab: React.FC = () => {
       }
 
       // Nenhum histórico: vamos criar um rascunho local de conversa.
-      // Precisamos de uma conexão ativa para montar um conversationId válido.
+      // Se não houver canal, ainda assim abrimos o chat (somente envio fica bloqueado).
       const connectedList = connections.filter((c) => c.status === 'CONNECTED');
       const chosen = connectedList[0] || connections[0];
-      if (!chosen) {
-        toast.error(
-          'Nenhuma conexão WhatsApp disponível. Conecte um número antes de iniciar a conversa.',
-          { duration: 4500 }
-        );
-        return;
-      }
-
-      // id segue o padrão usado pelo backend: "connectionId:{e164}@c.us"
-      const draftId = `${chosen.id}:${digits}@c.us`;
+      // id segue o padrão do backend quando há canal; sem canal usamos id local.
+      const draftId = chosen ? `${chosen.id}:${digits}@c.us` : `draft:${digits}`;
       const displayName = contactName || `+${digits}`;
       const draft: Conversation = {
         id: draftId,
         contactName: displayName,
         contactPhone: digits,
         profilePicUrl: profilePicUrl || undefined,
-        connectionId: chosen.id,
+        connectionId: chosen?.id || '',
         unreadCount: 0,
         lastMessage: '',
         lastMessageTime: '',
@@ -328,9 +322,18 @@ export const ChatTab: React.FC = () => {
         if (prev.some((d) => d.id === draftId)) return prev;
         return [...prev, draft];
       });
+      setDraftChannelById((prev) => ({
+        ...prev,
+        [draftId]: chosen?.id || ''
+      }));
       setSelectedChatId(draftId);
       setShowMobileChat(true);
-      if (chosen.status !== 'CONNECTED') {
+      if (!chosen) {
+        toast('Conversa aberta sem canal. Escolha um canal para enviar a primeira mensagem.', {
+          icon: 'ℹ️',
+          duration: 4500
+        });
+      } else if (chosen.status !== 'CONNECTED') {
         toast(
           'Atenção: a conexão selecionada não está online. Conecte-a antes de enviar a mensagem.',
           { icon: '⚠️', duration: 4500 }
@@ -361,6 +364,14 @@ export const ChatTab: React.FC = () => {
     const stillPending = draftConversations.filter((d) => !realIds.has(d.id));
     if (stillPending.length !== draftConversations.length) {
       setDraftConversations(stillPending);
+      const stillIds = new Set(stillPending.map((d) => d.id));
+      setDraftChannelById((prev) => {
+        const next: Record<string, string> = {};
+        for (const [key, value] of Object.entries(prev)) {
+          if (stillIds.has(key)) next[key] = value;
+        }
+        return next;
+      });
     }
   }, [conversations, draftConversations]);
 
@@ -373,6 +384,16 @@ export const ChatTab: React.FC = () => {
     () => !!selectedChatId && draftConversations.some((d) => d.id === selectedChatId),
     [selectedChatId, draftConversations]
   );
+  const selectedDraftChannelId = useMemo(() => {
+    if (!selectedChatId) return '';
+    return draftChannelById[selectedChatId] || selectedConversation?.connectionId || '';
+  }, [selectedChatId, draftChannelById, selectedConversation?.connectionId]);
+  const canSendCurrent = useMemo(() => {
+    if (!selectedChatId) return false;
+    if (!inputText.trim()) return false;
+    if (!isSelectedDraft) return true;
+    return !!selectedDraftChannelId;
+  }, [selectedChatId, inputText, isSelectedDraft, selectedDraftChannelId]);
 
   const filteredByConnection =
     selectedConnectionId === 'ALL'
@@ -600,7 +621,37 @@ export const ChatTab: React.FC = () => {
   const handleSendMessage = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!inputText.trim() || !selectedChatId) return;
-    sendMessage(selectedChatId, inputText);
+    if (isSelectedDraft) {
+      const digits = (selectedConversation?.contactPhone || '').replace(/\D/g, '');
+      const chosenConnectionId = selectedDraftChannelId;
+      if (!chosenConnectionId) {
+        toast.error('Escolha um canal para enviar a primeira mensagem.');
+        return;
+      }
+      if (!digits) {
+        toast.error('Telefone inválido para iniciar conversa.');
+        return;
+      }
+
+      const realConversationId = `${chosenConnectionId}:${digits}@c.us`;
+      if (realConversationId !== selectedChatId) {
+        setDraftConversations((prev) =>
+          prev.map((d) =>
+            d.id === selectedChatId ? { ...d, id: realConversationId, connectionId: chosenConnectionId } : d
+          )
+        );
+        setDraftChannelById((prev) => {
+          const next = { ...prev };
+          delete next[selectedChatId];
+          next[realConversationId] = chosenConnectionId;
+          return next;
+        });
+        setSelectedChatId(realConversationId);
+      }
+      sendMessage(realConversationId, inputText);
+    } else {
+      sendMessage(selectedChatId, inputText);
+    }
     setInputText('');
     setShowEmojiPicker(false);
     setShowQuickReplies(false);
@@ -1602,6 +1653,33 @@ export const ChatTab: React.FC = () => {
               </button>
 
               <form onSubmit={handleSendMessage} className="flex items-center gap-2 flex-1">
+                {isSelectedDraft && (
+                  <select
+                    value={selectedDraftChannelId}
+                    onChange={(e) => {
+                      const nextConnectionId = e.target.value;
+                      if (!selectedChatId) return;
+                      setDraftChannelById((prev) => ({
+                        ...prev,
+                        [selectedChatId]: nextConnectionId
+                      }));
+                    }}
+                    className="py-2 px-2.5 rounded-lg text-[12.5px] outline-none border max-w-[170px]"
+                    style={{
+                      background: 'var(--surface-1)',
+                      color: 'var(--text-1)',
+                      borderColor: 'var(--border-subtle)'
+                    }}
+                    title="Escolha o canal para enviar"
+                  >
+                    <option value="">Escolher canal</option>
+                    {connections.map((conn) => (
+                      <option key={conn.id} value={conn.id}>
+                        {conn.name} {conn.status === 'CONNECTED' ? '• online' : '• offline'}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <input
                   ref={inputRef}
                   type="text"
@@ -1623,12 +1701,13 @@ export const ChatTab: React.FC = () => {
                 />
                 <button
                   type="submit"
-                  disabled={!inputText.trim()}
+                  disabled={!canSendCurrent}
                   className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-40"
                   style={{
-                    background: inputText.trim() ? 'var(--brand-600)' : 'var(--surface-2)',
-                    color: inputText.trim() ? '#fff' : 'var(--text-3)'
+                    background: canSendCurrent ? 'var(--brand-600)' : 'var(--surface-2)',
+                    color: canSendCurrent ? '#fff' : 'var(--text-3)'
                   }}
+                  title={isSelectedDraft && !selectedDraftChannelId ? 'Escolha um canal para enviar' : 'Enviar'}
                 >
                   {inputText.trim() ? <Send className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                 </button>
