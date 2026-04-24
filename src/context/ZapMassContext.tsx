@@ -21,7 +21,7 @@ import {
   CampaignGeoState,
   CampaignGeoUfStats
 } from '../types';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, getDoc, query, orderBy, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, getDoc, getDocs, query, orderBy, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { useAppView } from './AppViewContext';
@@ -101,6 +101,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   campaignGeo: INITIAL_CAMPAIGN_GEO,
   warmupChipStats: {},
   clearWarmupChipStats: () => {},
+  clearAllUserData: async () => {},
   warmupActive: false,
   warmupNextRound: 0,
   startWarmupTimer: () => {},
@@ -840,6 +841,75 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     toast.success('Contato atualizado com sucesso!');
   };
 
+  const clearAllUserData = async () => {
+    const uid = currentUidRef.current;
+    if (!uid) throw new Error('Faça login para limpar os dados.');
+
+    // Coleções que pertencem ao usuário e devem ser totalmente limpas.
+    const userCollections = [
+      'contacts',
+      'contactLists',
+      'campaigns',
+      'connections',
+      'systemLogs',
+      'warmupQueue',
+      'metrics'
+    ];
+
+    for (const collName of userCollections) {
+      const snap = await getDocs(collection(db, 'users', uid, collName));
+      if (snap.empty) continue;
+
+      // Firestore limita operações por batch; executamos em blocos de 400.
+      let batch = writeBatch(db);
+      let pending = 0;
+      for (const row of snap.docs) {
+        batch.delete(row.ref);
+        pending++;
+        if (pending >= 400) {
+          await batch.commit();
+          batch = writeBatch(db);
+          pending = 0;
+        }
+      }
+      if (pending > 0) await batch.commit();
+    }
+
+    // Limpa estado local imediatamente para refletir a ação na UI sem atraso.
+    setContacts([]);
+    setContactLists([]);
+    setCampaigns([]);
+    setConnections([]);
+    setConversations([]);
+    setBirthdays([]);
+    setSystemLogs([]);
+    setWarmupQueue([]);
+    setWarmedCount(0);
+    setMetrics(INITIAL_METRICS);
+    setCampaignStatus({ isRunning: false, total: 0, processed: 0, success: 0, failed: 0 });
+    setFunnelStats(INITIAL_FUNNEL);
+    setCampaignGeo(INITIAL_CAMPAIGN_GEO);
+    setWarmupChipStats({});
+    setWarmupActive(false);
+    setWarmupNextRound(0);
+
+    // Limpa preferências locais ligadas ao workspace atual do usuário.
+    const storageKeys = [
+      'zapmass_settings',
+      'zapmass.contactsFilter',
+      'zapmass.pendingCampaignDraft',
+      'zapmass.openChatByPhone'
+    ];
+    for (const key of storageKeys) {
+      try {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
   const createContactList = async (name: string, contactIds: string[], description?: string) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para criar lista.');
@@ -1182,6 +1252,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       campaignGeo,
       warmupChipStats,
       clearWarmupChipStats,
+      clearAllUserData,
       warmupActive,
       warmupNextRound,
       startWarmupTimer,

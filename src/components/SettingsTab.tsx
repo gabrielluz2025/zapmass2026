@@ -104,7 +104,7 @@ function serializeServerSettings(s: SystemSettings): string {
 }
 
 export const SettingsTab: React.FC = () => {
-  const { socket } = useZapMass();
+  const { socket, clearAllUserData } = useZapMass();
   const { user, signOut } = useAuth();
   const goToView = useMainLayoutNav();
   const { subscription, loading: subLoading } = useSubscription();
@@ -127,6 +127,7 @@ export const SettingsTab: React.FC = () => {
   const [themeId, setThemeId] = useState<ThemeId>('emerald');
   const [mode, setMode] = useState<ModeId>('dark');
   const [savedOk, setSavedOk] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
   const settingsBaselineRef = useRef(serializeServerSettings(saved));
 
   const [ackTick, setAckTick] = useState(0);
@@ -172,6 +173,32 @@ export const SettingsTab: React.FC = () => {
   const handleModeChange = (next: ModeId) => {
     setMode(next);
     applyMode(next);
+  };
+
+  const handleClearAllData = async () => {
+    if (clearingAll) return;
+    const typed = window.prompt(
+      'Atenção: esta ação apaga contatos, listas, campanhas, conexões e dados locais.\n\nPara continuar, digite EXATAMENTE: APAGAR TUDO'
+    );
+    if (typed !== 'APAGAR TUDO') {
+      toast('Ação cancelada. Confirmação inválida.', { icon: 'ℹ️' });
+      return;
+    }
+    const ok = window.confirm(
+      'Confirma apagar TODOS os dados do sistema agora?\n\nEsta ação é irreversível.'
+    );
+    if (!ok) return;
+
+    try {
+      setClearingAll(true);
+      const loadingId = toast.loading('Apagando todos os dados...');
+      await clearAllUserData();
+      toast.success('Todos os dados foram apagados com sucesso.', { id: loadingId, duration: 2600 });
+    } catch (err: any) {
+      toast.error(err?.message || 'Não foi possível apagar todos os dados.');
+    } finally {
+      setClearingAll(false);
+    }
   };
 
   const currentSection = SECTIONS.find(s => s.id === section)!;
@@ -548,6 +575,37 @@ export const SettingsTab: React.FC = () => {
               <Badge variant={socket?.connected ? 'success' : 'danger'} dot>
                 {socket?.connected ? 'Online' : 'Offline'}
               </Badge>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex items-start gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(239,68,68,0.14)' }}
+              >
+                <AlertTriangle className="w-4 h-4 text-red-500" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                  Zona de perigo
+                </p>
+                <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  Remove todos os dados do seu ambiente: contatos, listas, campanhas, conexões e histórico local.
+                  Sempre exigimos confirmação em duas etapas.
+                </p>
+                <div className="mt-3">
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => void handleClearAllData()}
+                    disabled={clearingAll}
+                    leftIcon={<AlertTriangle className="w-4 h-4" />}
+                  >
+                    {clearingAll ? 'Apagando tudo...' : 'Apagar tudo'}
+                  </Button>
+                </div>
+              </div>
             </div>
           </Card>
         </div>

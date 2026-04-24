@@ -324,4 +324,5 @@ export interface ZapMassContextType {
   campaignGeo: CampaignGeoState;
   warmupChipStats: Record<string, WarmupChipStats>;
   clearWarmupChipStats: (connectionId?: string) => void;
+  clearAllUserData: () => Promise<void>;
 }
