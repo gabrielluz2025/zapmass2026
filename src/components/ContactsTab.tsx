@@ -536,13 +536,22 @@ export const ContactsTab: React.FC = () => {
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return;
     if (!window.confirm(`Remover ${selectedIds.length} contato(s) da base? Esta ação não pode ser desfeita.`)) return;
-    let n = 0;
-    for (const id of selectedIds) {
-      await removeContact(id);
-      n++;
-    }
+    const removingToastId = toast.loading('Removendo contatos...');
+    const results = await Promise.allSettled(
+      selectedIds.map((id) => removeContact(id, { silent: true }))
+    );
+    const n = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - n;
     setSelectedIds([]);
-    toast.success(`${n} contato(s) removido(s).`);
+    if (failed > 0) {
+      toast.error(
+        `${n} contato(s) removido(s), ${failed} com falha.`,
+        { id: removingToastId }
+      );
+      return;
+    }
+    // Feedback único e discreto (sem spam de "Contato removido").
+    toast.success(`${n} removido(s).`, { id: removingToastId, duration: 1800 });
   };
 
   const handleBulkExport = () => {
@@ -1631,9 +1640,9 @@ export const ContactsTab: React.FC = () => {
   };
 
   const openNewContactModal = useCallback(() => {
-    setEditingContactId(null);
-    setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
-    setIsModalOpen(true);
+                setEditingContactId(null);
+                setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
+                setIsModalOpen(true);
   }, []);
   const openSmartImport = useCallback(() => {
     setSmartImportRaw('');
@@ -1818,13 +1827,13 @@ export const ContactsTab: React.FC = () => {
   return (
     <div className="space-y-5 pb-10 relative">
       {/* input file escondido, usado pelos botões do hero/tabela */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".csv,.txt,.xlsx,.xls"
-        className="hidden"
-        onChange={handleImportCSV}
-      />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.txt,.xlsx,.xls"
+              className="hidden"
+              onChange={handleImportCSV}
+            />
 
       {!listManageId && (
         <ContactsHeaderBar
@@ -2064,7 +2073,7 @@ export const ContactsTab: React.FC = () => {
                   : 'Ajuste o filtro na lateral ou tente outra busca.'
             }
           />
-        </div>
+          </div>
       </div>
       <ContactsBulkBar
         count={selectedIds.length}
@@ -2106,7 +2115,7 @@ export const ContactsTab: React.FC = () => {
         onSegmentCampaign={handleSegmentCreateCampaign}
         onBirthdayCampaign={handleBirthdayCampaign}
       />
-
+      
       {/* ... Modal Code (unchanged logic, just inside this updated component) ... */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
@@ -2989,4 +2998,5 @@ export const ContactsTab: React.FC = () => {
     </div>
   );
 };
+      
       

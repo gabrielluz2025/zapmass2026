@@ -289,7 +289,7 @@ export interface ZapMassContextType {
   reconnectConnection: (id: string) => void;
   forceQr: (id: string) => void;
   addContact: (contact: Contact) => Promise<void> | void;
-  removeContact: (id: string) => Promise<void> | void;
+  removeContact: (id: string, options?: { silent?: boolean }) => Promise<void> | void;
   updateContact: (id: string, updates: Partial<Contact>) => Promise<void>;
   createContactList: (name: string, contactIds: string[], description?: string) => Promise<void>;
   deleteContactList: (id: string) => Promise<void>;

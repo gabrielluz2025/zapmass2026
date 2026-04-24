@@ -811,12 +811,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     toast.success('Contato adicionado com sucesso!');
   };
 
-  const removeContact = async (id: string) => {
+  const removeContact = async (id: string, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para remover contato.');
     await deleteDoc(doc(db, 'users', uid, 'contacts', id)).catch(() => {});
     await deleteDoc(doc(db, 'contacts', id)).catch(() => {});
-    toast.success('Contato removido.');
+    if (!options?.silent) {
+      toast.success('Contato removido.');
+    }
   };
 
   const updateContact = async (id: string, updates: Partial<Contact>) => {
