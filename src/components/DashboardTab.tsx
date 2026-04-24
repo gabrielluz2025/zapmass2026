@@ -919,100 +919,170 @@ export const DashboardTab: React.FC = () => {
           </div>
         </Card>
 
-        <Card>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(236,72,153,0.12)' }}>
-                <Cake className="w-4 h-4 text-pink-500" />
+        <Card className="overflow-hidden p-0">
+          <div
+            className="px-4 pt-4 pb-3 flex items-start justify-between gap-3"
+            style={{
+              background:
+                'linear-gradient(160deg, rgba(236,72,153,0.14) 0%, rgba(147,51,234,0.08) 45%, transparent 100%)',
+              borderBottom: '1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent)'
+            }}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(236,72,153,0.35), rgba(168,85,247,0.3))',
+                  border: '1px solid rgba(244, 114, 182, 0.45)',
+                  boxShadow: '0 8px 24px -8px rgba(236, 72, 153, 0.45)'
+                }}
+              >
+                <Cake className="w-5 h-5 text-white drop-shadow" />
               </div>
-              <div>
-                <h3 className="ui-title text-[15px]">Aniversariantes</h3>
-                <p className="ui-subtitle text-[12px]">
+              <div className="min-w-0">
+                <h3 className="ui-title text-[15px] leading-tight" style={{ color: 'var(--text-1)' }}>
+                  Aniversariantes
+                </h3>
+                <p className="ui-subtitle text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
                   {todaysBirthdays.length > 0
-                    ? `${todaysBirthdays.length} hoje - ${weekBirthdays.length} nesta semana`
-                    : `Proximos ${BIRTHDAY_RANGE_DAYS} dias`}
+                    ? `${todaysBirthdays.length} hoje · ${weekBirthdays.length} nesta semana`
+                    : `Próximos ${BIRTHDAY_RANGE_DAYS} dias no calendário`}
                 </p>
               </div>
             </div>
-            <Badge variant="neutral">{upcomingBirthdays.length}</Badge>
+            <div
+              className="shrink-0 min-w-[2.5rem] h-8 px-2.5 rounded-full flex items-center justify-center text-[12px] font-bold tabular-nums"
+              style={{
+                background: 'var(--surface-2)',
+                color: 'var(--text-2)',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              {upcomingBirthdays.length}
+            </div>
           </div>
 
-          {upcomingBirthdays.length > 0 && (
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<Sparkles className="w-3.5 h-3.5" />}
-              className="w-full mb-3"
-              onClick={openBulkBirthday}
-            >
-              Felicitar todos ({weekBirthdays.length})
-            </Button>
-          )}
+          <div className="px-4 pt-1 pb-4">
+            {upcomingBirthdays.length > 0 && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Sparkles className="w-3.5 h-3.5" />}
+                className="w-full mb-3 mt-3"
+                onClick={openBulkBirthday}
+              >
+                Felicitar todos ({weekBirthdays.length})
+              </Button>
+            )}
 
-          <div className="flex-1 overflow-y-auto max-h-[320px] space-y-1.5">
-            {upcomingBirthdays.length === 0 ? (
-              <div className="py-8 text-center">
-                <Cake className="w-8 h-8 mx-auto mb-2" style={{ color: 'var(--text-3)' }} />
-                <p className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
-                  Nenhum aniversariante proximo
-                </p>
-                <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-                  Adicione a data de nascimento em Contatos.
-                </p>
-              </div>
-            ) : (
-              upcomingBirthdays.map((contact) => (
+            <div className="flex-1 overflow-y-auto max-h-[300px] space-y-2 min-h-[11rem]">
+              {upcomingBirthdays.length === 0 ? (
                 <div
-                  key={contact.id}
-                  className="p-2.5 rounded-lg transition-colors flex items-center justify-between group hover:bg-[var(--surface-2)]"
-                  style={{ background: 'var(--surface-1)' }}
+                  className="relative rounded-2xl overflow-hidden mt-2 flex flex-col items-center justify-center text-center px-4 py-9"
+                  style={{
+                    background:
+                      'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 96%, #ec4899) 0%, var(--surface-1) 100%)',
+                    border: '1px solid color-mix(in srgb, var(--border-subtle) 90%, #f472b6)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
+                  }}
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {contact.profilePicUrl ? (
-                      <img
-                        src={contact.profilePicUrl}
-                        alt={contact.name}
-                        className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-pink-50 dark:bg-pink-500/10 text-pink-500">
-                        {contact.daysRemaining === 0 ? <Cake className="w-4 h-4" /> : <User className="w-4 h-4" />}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
-                        {contact.name}
-                        {contact.age != null && (
-                          <span className="ml-1.5 text-[10.5px] font-normal" style={{ color: 'var(--text-3)' }}>
-                            - {contact.age} anos
-                          </span>
-                        )}
-                      </p>
-                      <div className="flex items-center gap-1.5 text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                        <Calendar className="w-3 h-3" />
-                        <span>{contact.birthdayLabel}</span>
-                        {contact.daysRemaining === 0 ? (
-                          <span className="ml-1 px-1.5 py-0.5 rounded font-bold bg-pink-100 dark:bg-pink-500/15 text-pink-600">
-                            Hoje
-                          </span>
-                        ) : contact.daysRemaining === 1 ? (
-                          <span className="ml-1 px-1.5 py-0.5 rounded font-bold bg-amber-100 dark:bg-amber-500/15 text-amber-600">
-                            Amanha
-                          </span>
-                        ) : (
-                          <span className="ml-1" style={{ color: 'var(--text-3)' }}>
-                            em {contact.daysRemaining} dias
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                  <div
+                    className="absolute inset-0 pointer-events-none opacity-[0.35]"
+                    style={{
+                      background: 'radial-gradient(400px 160px at 50% 0%, rgba(236,72,153,0.3), transparent 65%)'
+                    }}
+                  />
+                  <div
+                    className="relative w-16 h-16 rounded-2xl flex items-center justify-center mb-3"
+                    style={{
+                      background: 'linear-gradient(160deg, rgba(236,72,153,0.2), rgba(168,85,247,0.12))',
+                      border: '1px solid rgba(244, 114, 182, 0.25)',
+                      boxShadow: '0 12px 32px -16px rgba(236, 72, 153, 0.5)'
+                    }}
+                  >
+                    <Cake className="w-8 h-8" style={{ color: '#f472b6' }} />
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => handleOpenChat(contact)} title="Enviar parabens agora">
-                    <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                  <p className="relative text-[14px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+                    Nenhum aniversariante próximo
+                  </p>
+                  <p className="relative text-[12px] mt-1.5 max-w-[16rem] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    Preencha a data de nascimento nos contatos e aparecem aqui, com lembrete e parabéns em um clique.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-4 relative"
+                    leftIcon={<Users className="w-3.5 h-3.5" />}
+                    rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                    onClick={() => setCurrentView('contacts')}
+                  >
+                    Ir para Contatos
                   </Button>
                 </div>
-              ))
-            )}
+              ) : (
+                upcomingBirthdays.map((contact) => (
+                  <div
+                    key={contact.id}
+                    className={`p-2.5 rounded-xl transition-all flex items-center justify-between group border ${
+                      contact.daysRemaining === 0
+                        ? 'border-pink-500/30 bg-pink-500/[0.07] dark:bg-pink-500/10'
+                        : 'border-transparent'
+                    } hover:border-[var(--border-subtle)] hover:bg-[var(--surface-2)]`}
+                    style={contact.daysRemaining === 0 ? undefined : { background: 'var(--surface-1)' }}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {contact.profilePicUrl ? (
+                        <img
+                          src={contact.profilePicUrl}
+                          alt={contact.name}
+                          className="w-9 h-9 rounded-xl object-cover flex-shrink-0 ring-1 ring-white/10"
+                        />
+                      ) : (
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-pink-50 dark:bg-pink-500/10 text-pink-500">
+                          {contact.daysRemaining === 0 ? <Cake className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
+                          {contact.name}
+                          {contact.age != null && (
+                            <span className="ml-1.5 text-[10.5px] font-normal" style={{ color: 'var(--text-3)' }}>
+                              — {contact.age} anos
+                            </span>
+                          )}
+                        </p>
+                        <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                          <Calendar className="w-3 h-3 shrink-0" />
+                          <span>{contact.birthdayLabel}</span>
+                          {contact.daysRemaining === 0 ? (
+                            <span className="ml-0.5 px-1.5 py-0.5 rounded-md font-bold text-[10px] bg-pink-100 dark:bg-pink-500/20 text-pink-600 dark:text-pink-300">
+                              Hoje
+                            </span>
+                          ) : contact.daysRemaining === 1 ? (
+                            <span className="ml-0.5 px-1.5 py-0.5 rounded-md font-bold text-[10px] bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                              Amanhã
+                            </span>
+                          ) : (
+                            <span className="ml-0.5" style={{ color: 'var(--text-3)' }}>
+                              em {contact.daysRemaining} dias
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenChat(contact)}
+                      title="Enviar parabéns agora"
+                      className="shrink-0"
+                    >
+                      <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </Card>
       </div>
@@ -1474,10 +1544,10 @@ export const DashboardTab: React.FC = () => {
               <Select value={bulkDaysRange} onChange={(e) => setBulkDaysRange(Number(e.target.value))}>
                 <option value={0}>Apenas hoje</option>
                 <option value={1}>Ate amanha</option>
-                <option value={3}>Proximos 3 dias</option>
-                <option value={7}>Proximos 7 dias</option>
-                <option value={15}>Proximos 15 dias</option>
-                <option value={30}>Proximos 30 dias</option>
+                <option value={3}>Próximos 3 dias</option>
+                <option value={7}>Próximos 7 dias</option>
+                <option value={15}>Próximos 15 dias</option>
+                <option value={30}>Próximos 30 dias</option>
               </Select>
             </div>
           </div>
