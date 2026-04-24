@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History } from 'lucide-react';
+import {
+  Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History, Sparkles,
+  TrendingUp, KeyRound, Copy, BarChart3, Lightbulb
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
-import { Button } from '../ui';
+import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState } from '../ui';
 
 type AdminTab = 'config' | 'access';
 type AccessUser = {
@@ -75,6 +78,28 @@ const toPtDateTime = (iso: string | null | undefined): string => {
   } catch {
     return '—';
   }
+};
+
+const copyToClipboard = async (text: string, okMessage = 'Copiado para a área de transferência.') => {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(okMessage);
+  } catch {
+    toast.error('Não foi possível copiar.');
+  }
+};
+
+const userInitial = (email: string): string => {
+  const s = (email || '?').trim();
+  return s ? s[0].toUpperCase() : '?';
+};
+
+const statusBadgeVariant = (status: string, blocked: boolean): 'success' | 'warning' | 'danger' | 'info' | 'neutral' => {
+  if (blocked) return 'danger';
+  const s = (status || '').toLowerCase();
+  if (s === 'active') return 'success';
+  if (s === 'trialing') return 'info';
+  return 'neutral';
 };
 
 export const AdminPanel: React.FC = () => {
@@ -212,6 +237,25 @@ export const AdminPanel: React.FC = () => {
     });
   }, [users, filter]);
 
+  const filterCounts = useMemo(() => {
+    const now = Date.now();
+    const limit = now + 7 * 24 * 60 * 60 * 1000;
+    const exp7 = users.filter((u) => {
+      const check = [u.manualAccessEndsAt, u.accessEndsAt, u.trialEndsAt]
+        .map((v) => (v ? new Date(v).getTime() : 0))
+        .filter((ms) => ms > now && ms <= limit);
+      return check.length > 0;
+    }).length;
+    return {
+      all: users.length,
+      manual: users.filter((u) => u.manualGrant).length,
+      blocked: users.filter((u) => u.blocked).length,
+      active: users.filter((u) => u.status === 'active' && !u.blocked).length,
+      trialing: users.filter((u) => u.status === 'trialing' && !u.blocked).length,
+      expiring7: exp7
+    };
+  }, [users]);
+
   const updateAccessUser = async (
     payload: Partial<AccessUser> & { uid?: string; email?: string; manualGrant?: boolean; grantDays?: number | null; grantMode?: 'set' | 'extend' }
   ) => {
@@ -331,437 +375,609 @@ export const AdminPanel: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 p-1">
-      <div className="flex items-start gap-3">
+    <div className="max-w-5xl mx-auto px-2 sm:px-0 pb-10 space-y-8">
+      <Card variant="premium" className="overflow-hidden !p-0 border border-slate-200/80 dark:border-slate-700/80 shadow-lg shadow-slate-900/5 dark:shadow-none">
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-          style={{
-            background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.15))',
-            border: '1px solid rgba(16,185,129,0.35)'
-          }}
+          className="relative p-6 sm:p-8 bg-gradient-to-br from-[var(--surface-0)] via-[var(--surface-0)] to-emerald-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/40"
         >
-          <Shield className="w-5 h-5 text-emerald-500" />
+          <div className="absolute right-0 top-0 w-64 h-64 bg-gradient-to-br from-emerald-400/10 to-transparent rounded-full blur-3xl pointer-events-none" />
+          <div className="relative flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+            <div className="flex gap-4 min-w-0">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ring-2 ring-emerald-500/20"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.1))',
+                  boxShadow: '0 0 0 1px color-mix(in srgb, var(--brand-500) 30%, transparent)'
+                }}
+              >
+                <Shield className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+                  Painel do criador
+                </h2>
+                <p className="text-sm mt-2 max-w-2xl leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                  Ajuste preços, duração do teste e textos exibidos aos clientes; na aba <strong className="text-[var(--text-2)]">Acesso</strong> você
+                  libera planos, bloqueia abusos e acompanha métricas. Dados vivem no Firestore (
+                  <code className="text-xs px-1 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80" style={{ color: 'var(--text-2)' }}>
+                    appConfig/global
+                  </code>
+                  , assinaturas).
+                </p>
+              </div>
+            </div>
+            <div className="flex p-1 rounded-xl shrink-0 bg-slate-100/80 dark:bg-slate-800/60 ring-1 ring-slate-200/80 dark:ring-slate-700/80">
+              <button
+                type="button"
+                onClick={() => setTab('config')}
+                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
+                  tab === 'config'
+                    ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <TrendingUp className="w-3.5 h-3.5" />
+                Comercial
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('access')}
+                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
+                  tab === 'access'
+                    ? 'bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                Acesso
+              </button>
+            </div>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text-1)' }}>
-            Painel do criador
-          </h2>
-          <p className="text-[13px] leading-relaxed mt-1" style={{ color: 'var(--text-3)' }}>
-            Estes valores ficam em <code className="text-[12px]">appConfig/global</code> no Firestore. Precos abaixo
-            alimentam o modal Pro quando preenchidos; vazio usa o fallback do front (Vite). A duracao do teste gratuito
-            (horas) e aplicada pelo servidor em <code className="text-[12px]">POST /api/billing/trial/start</code>.
-          </p>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab('config')}
-          className="px-3 py-2 rounded-lg text-[12px] font-semibold"
-          style={{
-            background: tab === 'config' ? 'var(--brand-50)' : 'var(--surface-1)',
-            color: tab === 'config' ? 'var(--brand-700)' : 'var(--text-2)',
-            border: tab === 'config' ? '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)' : '1px solid var(--border-subtle)'
-          }}
-        >
-          Configuração comercial
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('access')}
-          className="px-3 py-2 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5"
-          style={{
-            background: tab === 'access' ? 'rgba(14,165,233,0.14)' : 'var(--surface-1)',
-            color: tab === 'access' ? '#0369a1' : 'var(--text-2)',
-            border: tab === 'access' ? '1px solid rgba(14,165,233,0.35)' : '1px solid var(--border-subtle)'
-          }}
-        >
-          <Users className="w-3.5 h-3.5" />
-          Controle de acesso
-        </button>
-      </div>
+      </Card>
 
       {tab === 'config' && (
-        <div
-          className="rounded-xl border p-5 space-y-4"
-          style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}
-        >
-        <div>
-          <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
-            Preco mensal (texto exibido)
-          </label>
-          <input
-            className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-emerald-500/30"
-            style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-            value={marketingPriceMonthly}
-            onChange={(e) => setMarketingPriceMonthly(e.target.value)}
-            placeholder="Ex.: R$ 49,90 / mes"
+        <div className="space-y-6">
+          <SectionHeader
+            title="Exibição comercial e trial"
+            description="Estes textos e números alimentam modais, landing e API de teste. Publicação leva alguns segundos para replicar."
           />
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
-            Preco anual (texto exibido)
-          </label>
-          <input
-            className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-emerald-500/30"
-            style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-            value={marketingPriceAnnual}
-            onChange={(e) => setMarketingPriceAnnual(e.target.value)}
-            placeholder="Ex.: R$ 479,90 / ano"
-          />
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
-            Duracao do teste (horas, 1 a 168)
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={168}
-            className="w-full max-w-[200px] rounded-lg border px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-emerald-500/30"
-            style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-            value={trialHours}
-            onChange={(e) => setTrialHours(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
-            Titulo do bloco de teste na landing (opcional)
-          </label>
-          <input
-            className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-emerald-500/30"
-            style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-            value={landingTrialTitle}
-            onChange={(e) => setLandingTrialTitle(e.target.value)}
-            placeholder="Vazio = montar automaticamente a partir das horas"
-          />
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
-            Texto do bloco de teste na landing (opcional)
-          </label>
-          <textarea
-            rows={4}
-            className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-emerald-500/30 resize-y min-h-[100px]"
-            style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-            value={landingTrialBody}
-            onChange={(e) => setLandingTrialBody(e.target.value)}
-            placeholder="Vazio = texto padrao da landing (menciona a duracao configurada)"
-          />
-        </div>
-
-        <Button variant="primary" type="button" disabled={saving} leftIcon={saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} onClick={() => void save()}>
-          Salvar e publicar
-        </Button>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <CardHeader
+                title="Preços (marketing)"
+                subtitle="O que o cliente lê no upgrade. Vazio cai no fallback do front."
+                icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
+              />
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="ui-eyebrow text-[10px]">Mensal (texto livre)</label>
+                  <input
+                    className="ui-input mt-1"
+                    value={marketingPriceMonthly}
+                    onChange={(e) => setMarketingPriceMonthly(e.target.value)}
+                    placeholder="Ex.: R$ 49,90 / mês"
+                  />
+                </div>
+                <div>
+                  <label className="ui-eyebrow text-[10px]">Anual (texto livre)</label>
+                  <input
+                    className="ui-input mt-1"
+                    value={marketingPriceAnnual}
+                    onChange={(e) => setMarketingPriceAnnual(e.target.value)}
+                    placeholder="Ex.: R$ 479,90 / ano"
+                  />
+                </div>
+              </div>
+            </Card>
+            <Card>
+              <CardHeader
+                title="Janela de teste"
+                subtitle="1–168 h. Aplicada em POST /api/billing/trial/start."
+                icon={<Clock3 className="w-4 h-4 text-sky-600" />}
+              />
+              <div className="mt-4">
+                <label className="ui-eyebrow text-[10px]">Duração (horas)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={168}
+                  className="ui-input mt-1 max-w-[200px]"
+                  value={trialHours}
+                  onChange={(e) => setTrialHours(e.target.value)}
+                />
+              </div>
+            </Card>
+          </div>
+          <Card>
+            <CardHeader
+              title="Landing — bloco de teste grátis"
+              subtitle="Título e corpo opcionais na página inicial."
+              icon={<Sparkles className="w-4 h-4 text-amber-600" />}
+            />
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="ui-eyebrow text-[10px]">Título</label>
+                <input
+                  className="ui-input mt-1"
+                  value={landingTrialTitle}
+                  onChange={(e) => setLandingTrialTitle(e.target.value)}
+                  placeholder="Vazio = título automático a partir das horas"
+                />
+              </div>
+              <div>
+                <label className="ui-eyebrow text-[10px]">Texto</label>
+                <textarea
+                  rows={4}
+                  className="ui-input mt-1 resize-y min-h-[100px]"
+                  value={landingTrialBody}
+                  onChange={(e) => setLandingTrialBody(e.target.value)}
+                  placeholder="Vazio = texto padrão da landing"
+                />
+              </div>
+            </div>
+          </Card>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="primary"
+              type="button"
+              disabled={saving}
+              leftIcon={saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              onClick={() => void save()}
+            >
+              Salvar e publicar
+            </Button>
+            <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+              Recomenda-se validar o modal Pro e a landing após publicar.
+            </p>
+          </div>
         </div>
       )}
 
       {tab === 'access' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
-              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Ativos</p>
-              <p className="text-xl font-bold" style={{ color: 'var(--text-1)' }}>{activeCount}</p>
-            </div>
-            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
-              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Bloqueados</p>
-              <p className="text-xl font-bold text-red-500">{blockedCount}</p>
-            </div>
-            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
-              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Liberação manual</p>
-              <p className="text-xl font-bold text-sky-500">{manualCount}</p>
-            </div>
-            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
-              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Expiram em 7 dias</p>
-              <p className="text-xl font-bold text-amber-500">{expiringSoonCount}</p>
-            </div>
-          </div>
+        <div className="space-y-8">
+          <SectionHeader
+            title="Comando de acessos"
+            description="KPIs em tempo quase real, busca, filtros com contagem, liberação manual e trilha de auditoria. No desktop o painel analítico acompanha a rolagem (fixo à direita)."
+          />
 
-          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
-            <h3 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>Liberar acesso sem contratação</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input
-                className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none"
-                style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-                placeholder="E-mail do usuário"
-                value={grantEmail}
-                onChange={(e) => setGrantEmail(e.target.value)}
-              />
-              <input
-                type="number"
-                min={0}
-                className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none"
-                style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-                placeholder="Período em dias (0 = sem prazo)"
-                value={grantDays}
-                onChange={(e) => setGrantDays(e.target.value)}
-              />
-            </div>
-            <textarea
-              rows={2}
-              className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none resize-y"
-              style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-              placeholder="Observação administrativa (opcional)"
-              value={grantNote}
-              onChange={(e) => setGrantNote(e.target.value)}
+          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <StatCard
+              label="Contas (não bloqueadas)"
+              value={activeCount}
+              icon={<Users className="w-4 h-4 text-emerald-600" />}
+              helper="Inclui trial, manual e ativos"
+              accent="default"
             />
-            <Button variant="primary" size="sm" leftIcon={<Clock3 className="w-4 h-4" />} onClick={() => void handleGrantByEmail()}>
-              Conceder liberação
-            </Button>
+            <StatCard
+              label="Bloqueados"
+              value={blockedCount}
+              icon={<Lock className="w-4 h-4 text-red-500" />}
+              helper="Não acessam o app"
+              accent="danger"
+            />
+            <StatCard
+              label="Liberação manual"
+              value={manualCount}
+              icon={<KeyRound className="w-4 h-4 text-sky-600" />}
+              helper="Acesso concedido por você"
+              accent="info"
+            />
+            <StatCard
+              label="Expira em 7 dias"
+              value={expiringSoonCount}
+              icon={<Clock3 className="w-4 h-4 text-amber-600" />}
+              helper="Trial, pago ou manual"
+              accent="warning"
+            />
           </div>
 
-          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
-            <div className="flex flex-wrap gap-2">
-              <div className="flex-1 min-w-[220px] relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-3)' }} />
+          <div className="grid md:grid-cols-3 gap-3">
+            {[
+              {
+                t: 'Bloqueio',
+                d: 'Use para cortar acesso imediato (ex.: fraude, chargeback). O usuário vê tela de bloqueio no login.',
+                i: <Lock className="w-4 h-4" />
+              },
+              {
+                t: 'Extensão rápida',
+                d: '+7d, +30d e +90d somam ao prazo de liberação manual (modo extensão) sem sobrescrever tudo.',
+                i: <Clock3 className="w-4 h-4" />
+              },
+              {
+                t: 'Perfil analítico',
+                d: 'Clique no e-mail e veja contatos, campanhas, conexões e listas. Ideal para suporte e cobrança.',
+                i: <BarChart3 className="w-4 h-4" />
+              }
+            ].map((tip) => (
+              <div
+                key={tip.t}
+                className="flex gap-3 p-4 rounded-xl border text-left"
+                style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}
+              >
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 brand-soft text-emerald-600">{tip.i}</div>
+                <div>
+                  <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>{tip.t}</p>
+                  <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>{tip.d}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <Card>
+            <CardHeader
+              title="Liberar acesso sem contratação"
+              subtitle="Concede acesso pago (manualGrant) por e-mail, com prazo ou sem prazo (0 = indefinido, conforme regras do servidor)."
+              icon={<KeyRound className="w-4 h-4 text-emerald-600" />}
+            />
+            <div className="mt-4 grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="ui-eyebrow text-[10px]">E-mail do usuário</label>
                 <input
-                  className="w-full rounded-lg border pl-9 pr-3 py-2 text-[13px] outline-none"
-                  style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
-                  placeholder="Buscar por e-mail ou uid"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  className="ui-input mt-1"
+                  placeholder="exemplo@email.com"
+                  value={grantEmail}
+                  onChange={(e) => setGrantEmail(e.target.value)}
                 />
               </div>
-              <Button variant="secondary" size="sm" onClick={() => void loadAccessUsers(search)}>
-                Buscar
-              </Button>
-              <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="w-3.5 h-3.5" />} onClick={() => void loadAccessUsers(search)}>
-                Atualizar
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                ['all', 'Todos'],
-                ['manual', 'Manual'],
-                ['blocked', 'Bloqueados'],
-                ['active', 'Ativos'],
-                ['trialing', 'Trial'],
-                ['expiring7', 'Expiram em 7 dias']
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setFilter(id as AccessFilter)}
-                  className="px-2.5 py-1 rounded-md text-[11px] font-semibold"
-                  style={{
-                    background: filter === id ? 'var(--brand-50)' : 'var(--surface-1)',
-                    color: filter === id ? 'var(--brand-700)' : 'var(--text-2)',
-                    border: '1px solid var(--border-subtle)'
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
-              {usersLoading ? (
-                <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-3)' }}>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Carregando usuários...
-                </div>
-              ) : users.length === 0 ? (
-                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Nenhum usuário encontrado.</p>
-              ) : (
-                filteredUsers.map((u) => (
-                  <div
-                    key={u.uid}
-                    className="rounded-xl border p-3"
-                    style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <button
-                          type="button"
-                          className="text-[13px] font-semibold truncate text-left underline-offset-2 hover:underline"
-                          style={{ color: 'var(--text-1)' }}
-                          onClick={() => void openInsights(u)}
-                          title="Abrir perfil analítico do usuário"
-                        >
-                          {u.email || u.uid}
-                        </button>
-                        <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>{u.uid}</p>
-                        <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-                          Status: <strong>{u.status}</strong> • Plano: <strong>{u.plan || '—'}</strong> • Provedor: <strong>{u.provider}</strong>
-                        </p>
-                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                          Trial até: <strong>{toPtDateTime(u.trialEndsAt)}</strong> • Pago até: <strong>{toPtDateTime(u.accessEndsAt)}</strong>
-                        </p>
-                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                          Manual até: <strong>{toPtDateTime(u.manualAccessEndsAt)}</strong>
-                        </p>
-                        {u.adminNote ? (
-                          <p className="text-[11px] mt-1" style={{ color: 'var(--text-2)' }}>
-                            Obs: {u.adminNote}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Button
-                          variant={u.blocked ? 'secondary' : 'danger'}
-                          size="sm"
-                          leftIcon={u.blocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                          onClick={() => void toggleBlock(u)}
-                        >
-                          {u.blocked ? 'Desbloquear' : 'Bloquear'}
-                        </Button>
-                        {u.manualGrant && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => void revokeManual(u)}
-                          >
-                            Revogar manual
-                          </Button>
-                        )}
-                        <div className="grid grid-cols-3 gap-1">
-                          <button
-                            type="button"
-                            onClick={() => void quickExtend(u, 7)}
-                            className="text-[10px] px-1.5 py-1 rounded border"
-                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-2)' }}
-                            title="Estender +7 dias"
-                          >
-                            +7d
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void quickExtend(u, 30)}
-                            className="text-[10px] px-1.5 py-1 rounded border"
-                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-2)' }}
-                            title="Estender +30 dias"
-                          >
-                            +30d
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void quickExtend(u, 90)}
-                            className="text-[10px] px-1.5 py-1 rounded border"
-                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-2)' }}
-                            title="Estender +90 dias"
-                          >
-                            +90d
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-[14px] font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                <History className="w-4 h-4" />
-                Histórico de ações do admin
-              </h3>
-              <Button variant="secondary" size="sm" onClick={() => void loadAudit()}>
-                Atualizar histórico
-              </Button>
-            </div>
-            <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-              {auditLoading ? (
-                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Carregando histórico...</p>
-              ) : auditRows.length === 0 ? (
-                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Sem ações registradas ainda.</p>
-              ) : (
-                auditRows.map((r) => (
-                  <div key={r.id} className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                    <p className="text-[11.5px]" style={{ color: 'var(--text-1)' }}>
-                      <strong>{r.action}</strong> em <strong>{r.targetEmail || r.targetUid}</strong>
-                    </p>
-                    <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                      por {r.adminEmail || r.adminUid} • {toPtDateTime(r.createdAt)}
-                    </p>
-                    {r.note ? <p className="text-[10.5px]" style={{ color: 'var(--text-2)' }}>Obs: {r.note}</p> : null}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
-            <h3 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-              Perfil analítico do usuário
-            </h3>
-            {insightsLoading ? (
-              <div className="text-[12px] inline-flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Carregando métricas do usuário...
+              <div>
+                <label className="ui-eyebrow text-[10px]">Dias (0 = ver servidor)</label>
+                <input
+                  type="number"
+                  min={0}
+                  className="ui-input mt-1"
+                  placeholder="30"
+                  value={grantDays}
+                  onChange={(e) => setGrantDays(e.target.value)}
+                />
               </div>
-            ) : !insights ? (
-              <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
-                Clique no nome de um usuário para ver tempo de uso, disparos, conexões, contatos e segmentos.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                  <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                    {insights.email || insights.uid}
-                  </p>
-                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                    Tempo de uso: <strong>{insights.daysSinceFirstActivity} dia(s)</strong> desde a primeira atividade.
-                  </p>
-                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                    Conta criada: <strong>{toPtDateTime(insights.accountCreatedAt)}</strong> • Último login: <strong>{toPtDateTime(insights.lastSignInAt)}</strong>
-                  </p>
-                </div>
+            </div>
+            <div className="mt-3">
+              <label className="ui-eyebrow text-[10px]">Observação (auditoria)</label>
+              <textarea
+                rows={2}
+                className="ui-input mt-1 resize-y"
+                placeholder="Opcional: motivo, ticket interno, etc."
+                value={grantNote}
+                onChange={(e) => setGrantNote(e.target.value)}
+              />
+            </div>
+            <div className="mt-4">
+              <Button variant="primary" size="sm" leftIcon={<Clock3 className="w-4 h-4" />} onClick={() => void handleGrantByEmail()}>
+                Conceder liberação
+              </Button>
+            </div>
+          </Card>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <Metric label="Contatos" value={insights.counts.contactsTotal} />
-                  <Metric label="Válidos" value={insights.counts.contactsValid} />
-                  <Metric label="Inválidos" value={insights.counts.contactsInvalid} />
-                  <Metric label="Listas" value={insights.counts.contactLists} />
-                  <Metric label="Conexões" value={insights.counts.connectionsTotal} />
-                  <Metric label="Online" value={insights.counts.connectionsConnected} />
-                  <Metric label="Campanhas" value={insights.counts.campaignsTotal} />
-                  <Metric label="Concluídas" value={insights.counts.campaignsCompleted} />
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <Metric label="Alvo total" value={insights.campaignTotals.targeted} />
-                  <Metric label="Processados" value={insights.campaignTotals.processed} />
-                  <Metric label="Sucesso" value={insights.campaignTotals.success} />
-                  <Metric label="Falhas" value={insights.campaignTotals.failed} />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                    <p className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-2)' }}>Segmentos (listas) principais</p>
-                    {insights.listSegmentsTop.length === 0 ? (
-                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Sem listas.</p>
-                    ) : insights.listSegmentsTop.map((s) => (
-                      <p key={s.listName} className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                        {s.listName}: <strong>{s.contacts}</strong>
-                      </p>
-                    ))}
-                  </div>
-                  <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                    <p className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-2)' }}>Tags mais usadas</p>
-                    {insights.contactTagsTop.length === 0 ? (
-                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Sem tags.</p>
-                    ) : insights.contactTagsTop.map((t) => (
-                      <p key={t.tag} className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                        {t.tag}: <strong>{t.count}</strong>
-                      </p>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
-                  <p className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-2)' }}>Campanhas recentes</p>
-                  {insights.recentCampaigns.length === 0 ? (
-                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Sem campanhas recentes.</p>
-                  ) : insights.recentCampaigns.map((c) => (
-                    <p key={c.id} className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                      {c.name} • {c.status} • alvo {c.totalContacts} • sucesso {c.successCount} • falhas {c.failedCount}
+          <div className="lg:grid lg:grid-cols-[1fr_400px] gap-6 items-start">
+            <div className="space-y-6 min-w-0">
+              <div className="rounded-xl border p-4 sm:p-5 space-y-4" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="text-[15px] font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                      <Search className="w-4 h-4 text-emerald-500" />
+                      Base de assinaturas
+                    </h3>
+                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                      {usersLoading ? 'Carregando…' : `Exibindo ${filteredUsers.length} de ${users.length} usuário(s) nesta busca.`}
                     </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => void loadAccessUsers(search)}>
+                      Buscar
+                    </Button>
+                    <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="w-3.5 h-3.5" />} onClick={() => void loadAccessUsers(search)}>
+                      Atualizar
+                    </Button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    className="ui-input pl-10"
+                    placeholder="E-mail, parte do e-mail ou UID…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && void loadAccessUsers(search)}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      ['all', 'Todos', 'all'] as const,
+                      ['manual', 'Manual', 'manual'] as const,
+                      ['blocked', 'Bloqueados', 'blocked'] as const,
+                      ['active', 'Ativos', 'active'] as const,
+                      ['trialing', 'Trial', 'trialing'] as const,
+                      ['expiring7', '7 dias', 'expiring7'] as const
+                    ] as const
+                  ).map(([id, label, countKey]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setFilter(id as AccessFilter)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
+                        filter === id
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
+                          : 'bg-[var(--surface-1)] text-[var(--text-2)] border-[var(--border-subtle)] hover:border-slate-300 dark:hover:border-slate-600'
+                      }`}
+                    >
+                      {label}
+                      <span className="tabular-nums text-[10px] opacity-70">{filterCounts[countKey]}</span>
+                    </button>
                   ))}
                 </div>
+                <div className="space-y-2 max-h-[min(56vh,520px)] overflow-y-auto pr-1 -mr-1">
+                  {usersLoading ? (
+                    <div className="flex items-center justify-center gap-2 py-10 text-sm" style={{ color: 'var(--text-3)' }}>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Carregando usuários…
+                    </div>
+                  ) : users.length === 0 ? (
+                    <EmptyState
+                      icon={<Users className="w-7 h-7" />}
+                      title="Nenhum registro"
+                      description="Ajuste a busca ou importe/acesse com outro filtro. Administradores podem não aparecer nesta lista."
+                    />
+                  ) : filteredUsers.length === 0 ? (
+                    <p className="text-center text-sm py-8" style={{ color: 'var(--text-3)' }}>
+                      Nenhum usuário com este filtro. Tente <strong className="text-[var(--text-2)]">Todos</strong>.
+                    </p>
+                  ) : (
+                    filteredUsers.map((u) => (
+                      <div
+                        key={u.uid}
+                        className="group rounded-xl border p-3 sm:p-4 transition-shadow hover:shadow-md"
+                        style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+                      >
+                        <div className="flex flex-col sm:flex-row gap-3 sm:items-start sm:justify-between">
+                          <div className="flex gap-3 min-w-0">
+                            <div
+                              className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 text-sm font-bold text-white shadow-inner"
+                              style={{
+                                background: 'linear-gradient(135deg, #059669, #0d9488)',
+                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)'
+                              }}
+                            >
+                              {userInitial(u.email || u.uid)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="text-[14px] font-semibold truncate text-left hover:underline"
+                                  style={{ color: 'var(--text-1)' }}
+                                  onClick={() => void openInsights(u)}
+                                >
+                                  {u.email || 'Sem e-mail'}
+                                </button>
+                                <Badge variant={statusBadgeVariant(u.status, u.blocked)} dot>
+                                  {u.blocked ? 'Bloqueado' : u.status}
+                                </Badge>
+                                {u.manualGrant ? <Badge variant="info">Manual</Badge> : null}
+                              </div>
+                              <div className="flex items-center gap-1 mt-1">
+                                <p className="text-[10px] font-mono truncate" style={{ color: 'var(--text-3)' }} title={u.uid}>
+                                  {u.uid}
+                                </p>
+                                <button
+                                  type="button"
+                                  className="p-0.5 rounded hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
+                                  title="Copiar UID"
+                                  onClick={() => void copyToClipboard(u.uid)}
+                                >
+                                  <Copy className="w-3 h-3 text-slate-400" />
+                                </button>
+                              </div>
+                              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]" style={{ color: 'var(--text-3)' }}>
+                                <span>Plano: <strong style={{ color: 'var(--text-2)' }}>{u.plan || '—'}</strong></span>
+                                  <span>Provedor: <strong style={{ color: 'var(--text-2)' }}>{u.provider}</strong></span>
+                                <span>Trial: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.trialEndsAt)}</strong></span>
+                                <span>Pago: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.accessEndsAt)}</strong></span>
+                                <span className="sm:col-span-2">Manual: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.manualAccessEndsAt)}</strong></span>
+                              </div>
+                              {u.adminNote ? (
+                                <p className="text-[11px] mt-2 p-2 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/30 dark:border-amber-800/30" style={{ color: 'var(--text-2)' }}>
+                                  <Lightbulb className="w-3 h-3 inline mr-1 text-amber-600" />
+                                  {u.adminNote}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-1.5 sm:items-end shrink-0 w-full sm:w-auto">
+                            <div className="flex flex-wrap gap-1.5 sm:justify-end">
+                              <Button
+                                variant={u.blocked ? 'secondary' : 'danger'}
+                                size="sm"
+                                leftIcon={u.blocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                                onClick={() => void toggleBlock(u)}
+                              >
+                                {u.blocked ? 'Desbloquear' : 'Bloquear'}
+                              </Button>
+                              {u.manualGrant && (
+                                <Button variant="secondary" size="sm" onClick={() => void revokeManual(u)}>
+                                  Revogar manual
+                                </Button>
+                              )}
+                            </div>
+                            <p className="text-[9px] uppercase font-bold text-slate-400 text-right w-full sm:w-auto">Extensão manual</p>
+                            <div className="grid grid-cols-3 gap-1 w-full sm:w-[168px]">
+                              {[7, 30, 90].map((d) => (
+                                <button
+                                  key={d}
+                                  type="button"
+                                  onClick={() => void quickExtend(u, d)}
+                                  className="text-[10px] font-semibold px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:border-emerald-300"
+                                  title={`+${d} dias`}
+                                >
+                                  +{d}d
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            )}
+
+              <div className="rounded-xl border p-4 sm:p-5 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[15px] font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                    <History className="w-4 h-4 text-violet-500" />
+                    Trilha de auditoria
+                  </h3>
+                  <Button variant="secondary" size="sm" onClick={() => void loadAudit()}>
+                    Atualizar
+                  </Button>
+                </div>
+                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                  Registro de bloqueios, liberações e ajustes feitos por administradores.
+                </p>
+                <div className="relative pl-2 space-y-0 max-h-[280px] overflow-y-auto pr-1">
+                  <div className="absolute left-2 top-2 bottom-2 w-px bg-gradient-to-b from-violet-400/50 via-slate-300/40 to-transparent dark:from-violet-500/40" />
+                  {auditLoading ? (
+                    <p className="text-[12px] pl-4" style={{ color: 'var(--text-3)' }}>Carregando…</p>
+                  ) : auditRows.length === 0 ? (
+                    <p className="text-[12px] pl-4" style={{ color: 'var(--text-3)' }}>Nenhuma ação registrada ainda.</p>
+                  ) : (
+                    auditRows.map((r) => (
+                      <div key={r.id} className="relative pl-6 pb-3 last:pb-0">
+                        <div className="absolute left-0 top-1.5 w-2 h-2 rounded-full bg-violet-500 ring-2 ring-white dark:ring-slate-900" />
+                        <p className="text-[12px] font-medium" style={{ color: 'var(--text-1)' }}>
+                          <span className="text-violet-600 dark:text-violet-400">{r.action}</span>
+                          {' · '}
+                          <span>{r.targetEmail || r.targetUid}</span>
+                        </p>
+                        <p className="text-[10.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                          {r.adminEmail || r.adminUid} · {toPtDateTime(r.createdAt)}
+                        </p>
+                        {r.note ? <p className="text-[10.5px] mt-1 italic" style={{ color: 'var(--text-2)' }}>“{r.note}”</p> : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <aside className="space-y-4 lg:sticky lg:top-4 self-start w-full min-w-0">
+              <div className="rounded-xl border p-4 sm:p-5 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[15px] font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                    <BarChart3 className="w-4 h-4 text-sky-500" />
+                    Perfil analítico
+                  </h3>
+                  {insights && (
+                    <Button variant="ghost" size="sm" onClick={() => setInsights(null)}>
+                      Limpar
+                    </Button>
+                  )}
+                </div>
+                {insightsLoading ? (
+                  <div className="text-[12px] flex items-center gap-2 py-6 justify-center" style={{ color: 'var(--text-3)' }}>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Carregando…
+                  </div>
+                ) : !insights ? (
+                  <div className="text-center py-6 px-2">
+                    <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center brand-soft">
+                      <BarChart3 className="w-6 h-6 text-sky-500 opacity-60" />
+                    </div>
+                    <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                      Selecione um <strong className="text-[var(--text-2)]">e-mail</strong> na lista para ver contatos, campanhas, conexões e listas.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                      <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>{insights.email || insights.uid}</p>
+                      <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+                        <strong className="text-[var(--text-2)]">{insights.daysSinceFirstActivity}</strong> dia(s) desde a primeira atividade
+                      </p>
+                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                        Conta: {toPtDateTime(insights.accountCreatedAt)} · Login: {toPtDateTime(insights.lastSignInAt)}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Metric label="Contatos" value={insights.counts.contactsTotal} />
+                      <Metric label="Válidos" value={insights.counts.contactsValid} />
+                      <Metric label="Listas" value={insights.counts.contactLists} />
+                      <Metric label="Campanhas" value={insights.counts.campaignsTotal} />
+                    </div>
+                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                      <p className="text-[10px] uppercase font-bold tracking-wide mb-2" style={{ color: 'var(--text-3)' }}>Entrega de campanhas</p>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <span style={{ color: 'var(--text-3)' }}>Alvo <strong className="text-[var(--text-1)]">{insights.campaignTotals.targeted}</strong></span>
+                        <span style={{ color: 'var(--text-3)' }}>Sucesso <strong className="text-emerald-600">{insights.campaignTotals.success}</strong></span>
+                        <span style={{ color: 'var(--text-3)' }}>Falhas <strong className="text-red-500">{insights.campaignTotals.failed}</strong></span>
+                        <span style={{ color: 'var(--text-3)' }}>Processados <strong className="text-[var(--text-1)]">{insights.campaignTotals.processed}</strong></span>
+                      </div>
+                      {insights.campaignTotals.targeted > 0 && (
+                        <div className="mt-2">
+                          <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400"
+                              style={{
+                                width: `${Math.min(100, Math.round((100 * insights.campaignTotals.success) / Math.max(1, insights.campaignTotals.targeted)))}%`
+                              }}
+                            />
+                          </div>
+                          <p className="text-[10px] mt-1 text-slate-500">
+                            ≈{Math.round((100 * insights.campaignTotals.success) / Math.max(1, insights.campaignTotals.targeted))}% do alvo com envio OK
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                      <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                        <p className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-3)' }}>Listas (top)</p>
+                        {insights.listSegmentsTop.length === 0 ? (
+                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nenhuma.</p>
+                        ) : (
+                          insights.listSegmentsTop.map((s) => (
+                            <div key={s.listName} className="flex justify-between text-[11px] py-0.5" style={{ color: 'var(--text-2)' }}>
+                              <span className="truncate pr-2">{s.listName}</span>
+                              <span className="font-semibold text-emerald-600">{s.contacts}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                        <p className="text-[10px] font-bold uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-3)' }}>Tags (top)</p>
+                        {insights.contactTagsTop.length === 0 ? (
+                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nenhuma.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {insights.contactTagsTop.map((t) => (
+                              <span key={t.tag} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800" style={{ color: 'var(--text-2)' }}>
+                                {t.tag} <strong className="text-emerald-600">{t.count}</strong>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>Campanhas recentes</p>
+                      {insights.recentCampaigns.length === 0 ? (
+                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nenhuma.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {insights.recentCampaigns.map((c) => (
+                            <li key={c.id} className="text-[11px] border-l-2 border-sky-400/50 pl-2" style={{ color: 'var(--text-2)' }}>
+                              <span className="font-medium" style={{ color: 'var(--text-1)' }}>{c.name}</span>
+                              <span className="text-slate-400"> · {c.status}</span>
+                              <br />
+                              <span className="text-[10px] text-slate-500">Alvo {c.totalContacts} · ✓{c.successCount} · ✗{c.failedCount}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </aside>
           </div>
         </div>
       )}
