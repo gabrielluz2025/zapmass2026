@@ -102,6 +102,29 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             <p className="text-[11.5px] mt-2 text-center" style={{ color: 'var(--text-3)' }}>
               Fluxo único: você entra com Google e o teste é ativado automaticamente no primeiro acesso.
             </p>
+            <button
+              type="button"
+              onClick={() => runLogin(false)}
+              disabled={loading !== 'idle'}
+              className="w-full mt-2.5 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-[12.5px] font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{
+                background: 'var(--surface-1)',
+                color: 'var(--text-2)',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              {loading === 'login' ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Entrando…
+                </>
+              ) : (
+                <>
+                  <GoogleLogo />
+                  Já sou cliente — entrar direto
+                </>
+              )}
+            </button>
           </>
         ) : (
           <button
