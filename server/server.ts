@@ -206,6 +206,20 @@ setInterval(() => {
   if (io) io.emit('system-metrics', getSystemMetrics());
 }, 10000);
 
+/**
+ * Cada clique dispara `create-connection`; com `await` na leitura do Firestore, varias
+ * invocacoes em paralelo veem o mesmo count (ex.: 0) antes de qualquer `push` — o teto
+ * nunca e aplicado. Enfileiramos por uid para a contagem e o create serem atomicos.
+ */
+const createConnectionTailByKey = new Map<string, Promise<unknown>>();
+
+function enqueuePerKey(key: string, run: () => Promise<void>): void {
+  const next = (createConnectionTailByKey.get(key) ?? Promise.resolve())
+    .then(() => run())
+    .catch((e) => console.error('[create-connection] encadeado', e));
+  createConnectionTailByKey.set(key, next);
+}
+
 const logEvent = (event: string, payload?: Record<string, unknown>) => {
   const timestamp = new Date().toISOString();
   const data = payload ? ` ${JSON.stringify(payload)}` : '';
@@ -284,35 +298,41 @@ const registerSocketHandlers = () => {
       socket.emit('pong-latency', ts);
     });
     
-    socket.on('create-connection', async ({ name }) => {
-      let maxAllowed = BASE_CONNECTION_SLOTS;
-      if (uid && uid !== 'anonymous') {
-        try {
-          const [sub, isServAdmin] = await Promise.all([
-            readUserSubscriptionForLimits(uid),
-            isUidTreatedAsServerAdmin(uid)
-          ]);
-          maxAllowed = getMaxConnectionSlots(sub, { serverAdmin: isServAdmin });
-        } catch (e) {
-          console.error('[create-connection] leitura assinatura; aplica teto base', e);
-          maxAllowed = BASE_CONNECTION_SLOTS;
+    socket.on('create-connection', ({ name }: { name?: string }) => {
+      const queueKey = uid;
+      enqueuePerKey(queueKey, async () => {
+        let maxAllowed = BASE_CONNECTION_SLOTS;
+        if (uid && uid !== 'anonymous') {
+          try {
+            const [sub, isServAdmin] = await Promise.all([
+              readUserSubscriptionForLimits(uid),
+              isUidTreatedAsServerAdmin(uid)
+            ]);
+            maxAllowed = getMaxConnectionSlots(sub, { serverAdmin: isServAdmin });
+          } catch (e) {
+            console.error('[create-connection] leitura assinatura; aplica teto base', e);
+            maxAllowed = BASE_CONNECTION_SLOTS;
+          }
         }
-      }
-      const count = countUserScopedConnections(waService.getConnections(), uid);
-      if (count >= maxAllowed) {
-        socket.emit('connection-limit-reached', {
-          current: count,
-          max: maxAllowed,
-          message:
-            maxAllowed <= BASE_CONNECTION_SLOTS
-              ? `Limite de ${maxAllowed} canal(is): incluidos no plano. Contrate canais extras em Minha assinatura (ate 5 no total).`
-              : `Voce atingiu o maximo de ${maxAllowed} canal(is). Incluimos 2 no base; e possivel contratar de 1 a 3 canais extras ate 5 no total.`
-        });
-        return;
-      }
-      userLog('ui:create-connection', { name });
-      waService.createConnection(name, uid && uid !== 'anonymous' ? uid : undefined);
-      socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
+        const count = countUserScopedConnections(waService.getConnections(), uid);
+        if (count >= maxAllowed) {
+          socket.emit('connection-limit-reached', {
+            current: count,
+            max: maxAllowed,
+            message:
+              maxAllowed <= BASE_CONNECTION_SLOTS
+                ? `Limite de ${maxAllowed} canal(is): incluidos no plano. Contrate canais extras em Minha assinatura (ate 5 no total).`
+                : `Voce atingiu o maximo de ${maxAllowed} canal(is). Incluimos 2 no base; e possivel contratar de 1 a 3 canais extras ate 5 no total.`
+          });
+          return;
+        }
+        userLog('ui:create-connection', { name });
+        await waService.createConnection(
+          typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp',
+          uid && uid !== 'anonymous' ? uid : undefined
+        );
+        socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
+      });
     });
 
     socket.on('delete-connection', ({ id }) => {
