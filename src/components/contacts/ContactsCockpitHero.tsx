@@ -34,7 +34,7 @@ const miniFormat = (n: number): string => {
   return n.toLocaleString('pt-BR');
 };
 
-export const ContactsCockpitHero: React.FC<Props> = ({
+const ContactsCockpitHeroBase: React.FC<Props> = ({
   stats,
   onNewContact,
   onImportXLSX,
@@ -204,6 +204,8 @@ export const ContactsCockpitHero: React.FC<Props> = ({
     </div>
   );
 };
+
+export const ContactsCockpitHero = React.memo(ContactsCockpitHeroBase);
 
 interface MiniStatProps {
   label: string;

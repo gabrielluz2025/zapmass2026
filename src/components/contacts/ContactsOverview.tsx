@@ -26,7 +26,7 @@ interface ContactsOverviewProps {
   onGoToBirthdays: () => void;
 }
 
-export const ContactsOverview: React.FC<ContactsOverviewProps> = ({
+const ContactsOverviewBase: React.FC<ContactsOverviewProps> = ({
   contacts,
   contactTemps,
   onOpenChat,
@@ -456,6 +456,8 @@ export const ContactsOverview: React.FC<ContactsOverviewProps> = ({
     </div>
   );
 };
+
+export const ContactsOverview = React.memo(ContactsOverviewBase);
 
 const QuickAction: React.FC<{
   icon: React.ReactNode;

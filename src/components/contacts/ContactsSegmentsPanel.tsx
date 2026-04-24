@@ -29,7 +29,7 @@ const colorMap: Record<SmartSegmentDef['color'], { bg: string; fg: string; borde
   slate:   { bg: 'from-slate-500/15 to-slate-500/5',     fg: 'text-slate-600 dark:text-slate-300',     border: 'border-slate-200/60 dark:border-slate-700/60',     chip: 'bg-slate-500/10',      accent: 'bg-slate-500' }
 };
 
-export const ContactsSegmentsPanel: React.FC<Props> = ({
+const ContactsSegmentsPanelBase: React.FC<Props> = ({
   segments,
   getMatches,
   onApplyFilterOnBase,
@@ -196,3 +196,5 @@ export const ContactsSegmentsPanel: React.FC<Props> = ({
     </div>
   );
 };
+
+export const ContactsSegmentsPanel = React.memo(ContactsSegmentsPanelBase);

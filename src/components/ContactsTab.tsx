@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
@@ -437,7 +437,7 @@ export const ContactsTab: React.FC = () => {
   }, [contactLists, listManageId]);
 
   /** Abre a conversa deste contato no Chat (via handshake sessionStorage). */
-  const openInChat = (contact: Contact) => {
+  const openInChat = useCallback((contact: Contact) => {
     const digits = (contact.phone || '').replace(/\D/g, '');
     if (!digits) {
       toast.error('Contato sem telefone válido.');
@@ -449,10 +449,10 @@ export const ContactsTab: React.FC = () => {
       /* ignore */
     }
     setCurrentView('chat');
-  };
+  }, [setCurrentView]);
 
   /** Dispara a Wizard de nova campanha com base em um rascunho pré-preenchido. */
-  const launchCampaignWithDraft = (draft: CampaignWizardDraft, toastMsg?: string) => {
+  const launchCampaignWithDraft = useCallback((draft: CampaignWizardDraft, toastMsg?: string) => {
     try {
       sessionStorage.setItem('zapmass.pendingCampaignDraft', JSON.stringify(draft));
     } catch {
@@ -460,7 +460,7 @@ export const ContactsTab: React.FC = () => {
     }
     if (toastMsg) toast.success(toastMsg);
     setCurrentView('campaigns');
-  };
+  }, [setCurrentView]);
 
   /** Cria uma campanha para 1 contato (modo manual). */
   const handleCreateCampaignForContact = (contact: Contact) => {
@@ -865,28 +865,37 @@ export const ContactsTab: React.FC = () => {
       return byPhone[phone];
     };
 
+    // Performance: duas passadas sem sort.
+    // 1ª passada: acumula envios/leituras/entregas e pega maxOutTs por conversa.
+    // 2ª passada: conta respostas (mensagens dela com ts > maxOutTs da conversa).
+    // Isso troca O(N log N) por 2×O(N) — em bases com muitas mensagens, é ordens de grandeza mais rápido.
     for (const conv of conversations) {
       const phoneKey = normPhoneKey(convPrimaryDigits(conv));
       if (!phoneKey || phoneKey.length < 12) continue;
       const s = accum(phoneKey);
-      const msgs = [...(conv.messages || [])].sort(
-        (a, b) => ((a as any).timestampMs || 0) - ((b as any).timestampMs || 0)
-      );
-      let lastOutTs = 0;
-      for (const m of msgs) {
+      const msgs = conv.messages || [];
+      let maxOutTs = 0;
+      for (let i = 0; i < msgs.length; i++) {
+        const m = msgs[i];
         const ts = (m as any).timestampMs || (m.timestamp ? Date.parse(m.timestamp) : 0) || 0;
         if (m.sender === 'me') {
           s.sent++;
           if (ts > s.lastSentTs) s.lastSentTs = ts;
-          if (ts > lastOutTs) lastOutTs = ts;
+          if (ts > maxOutTs) maxOutTs = ts;
           const st = (m as any).status;
           if (st === 'delivered' || st === 'read') s.delivered++;
           if (st === 'read') {
             s.read++;
             if (ts > s.lastReadTs) s.lastReadTs = ts;
           }
-        } else if (m.sender === 'them') {
-          if (lastOutTs && ts > lastOutTs) {
+        }
+      }
+      if (maxOutTs > 0) {
+        for (let i = 0; i < msgs.length; i++) {
+          const m = msgs[i];
+          if (m.sender !== 'them') continue;
+          const ts = (m as any).timestampMs || (m.timestamp ? Date.parse(m.timestamp) : 0) || 0;
+          if (ts > maxOutTs) {
             s.replied++;
             if (ts > s.lastReplyTs) s.lastReplyTs = ts;
           }
@@ -1548,41 +1557,51 @@ export const ContactsTab: React.FC = () => {
     });
   };
 
-  const openNewContactModal = () => {
+  const openNewContactModal = useCallback(() => {
     setEditingContactId(null);
     setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
     setIsModalOpen(true);
-  };
-  const openSmartImport = () => { setSmartImportRaw(''); setSmartImportRows([]); setSmartImportOpen(true); };
+  }, []);
+  const openSmartImport = useCallback(() => {
+    setSmartImportRaw('');
+    setSmartImportRows([]);
+    setSmartImportOpen(true);
+  }, []);
+  const openImportXLSX = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
-  const contactsSubTabItems = [
+  const contactsSubTabItems = useMemo(() => [
     { id: 'overview', label: 'Visão geral', icon: <LayoutGrid className="w-3.5 h-3.5" /> },
     { id: 'base', label: 'Base', icon: <Database className="w-3.5 h-3.5" />, badge: filteredContacts.length > 0 ? <span className="text-[10px] font-bold opacity-70">{filteredContacts.length}</span> : undefined },
     { id: 'lists', label: 'Listas', icon: <ListChecks className="w-3.5 h-3.5" />, badge: contactLists.length > 0 ? <span className="text-[10px] font-bold opacity-70">{contactLists.length}</span> : undefined },
     { id: 'segments', label: 'Segmentos', icon: <Sparkles className="w-3.5 h-3.5" />, badge: smartSegments.filter(s => s.count > 0).length > 0 ? <span className="text-[10px] font-bold opacity-70">{smartSegments.filter(s => s.count > 0).length}</span> : undefined },
     { id: 'birthdays', label: 'Aniversariantes', icon: <Cake className="w-3.5 h-3.5" />, badge: smartStats.bdayWeek > 0 ? <span className="text-[10px] font-bold px-1 rounded bg-amber-500 text-white">{smartStats.bdayWeek}</span> : undefined }
-  ];
+  ], [filteredContacts.length, contactLists.length, smartSegments, smartStats.bdayWeek]);
 
   // Converte os smartSegments existentes para o formato do painel (mapeia 'red' → 'rose').
-  const segmentsForPanel = smartSegments.map((s) => ({
+  const segmentsForPanel = useMemo(() => smartSegments.map((s) => ({
     id: s.id,
     label: s.label,
     icon: s.icon as unknown as import('lucide-react').LucideIcon,
     color: (s.color === 'red' ? 'rose' : s.color) as 'rose' | 'amber' | 'sky' | 'emerald' | 'violet' | 'slate',
     hint: s.hint,
     count: s.count
-  }));
+  })), [smartSegments]);
 
-  const getSegmentMatchList = (segId: string): Contact[] =>
-    contacts.filter((c) => getSmartSegmentMatches(segId as SmartSegmentId, c));
+  const getSegmentMatchList = useCallback((segId: string): Contact[] =>
+    contacts.filter((c) => getSmartSegmentMatches(segId as SmartSegmentId, c)),
+  // getSmartSegmentMatches é definido inline no mesmo escopo; conteúdo estável a menos que contacts/contactTemps mudem.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [contacts, contactTemps]);
 
-  const handleSegmentApplyFilter = (segId: string) => {
+  const handleSegmentApplyFilter = useCallback((segId: string) => {
     setActiveSegment(segId as SmartSegmentId);
     setActiveSubTab('base');
     setCurrentPage(1);
-  };
+  }, []);
 
-  const buildDraftFromContacts = (people: Contact[], nameBase: string): CampaignWizardDraft | null => {
+  const buildDraftFromContacts = useCallback((people: Contact[], nameBase: string): CampaignWizardDraft | null => {
     const validPhones = people
       .map((c) => (c.phone || '').replace(/\D/g, ''))
       .filter((p) => p.length >= 10);
@@ -1592,27 +1611,48 @@ export const ContactsTab: React.FC = () => {
     draft.manualNumbers = validPhones.join('\n');
     draft.name = nameBase;
     return draft;
-  };
+  }, []);
 
-  const handleSegmentCreateCampaign = (matches: Contact[], segmentLabel: string) => {
+  const handleSegmentCreateCampaign = useCallback((matches: Contact[], segmentLabel: string) => {
     const draft = buildDraftFromContacts(matches, `Segmento: ${segmentLabel}`);
     if (!draft) { toast.error('Este segmento não tem contatos com telefone válido.'); return; }
     launchCampaignWithDraft(draft, `Abrindo campanha para "${segmentLabel}"…`);
-  };
+  }, [buildDraftFromContacts, launchCampaignWithDraft]);
 
-  const handleBirthdayCampaign = (people: Contact[]) => {
+  const handleBirthdayCampaign = useCallback((people: Contact[]) => {
     const name = people.length === 1 ? `Aniversário: ${people[0].name}` : `Aniversariantes (${people.length})`;
     const draft = buildDraftFromContacts(people, name);
     if (!draft) { toast.error('Sem telefones válidos nestes aniversariantes.'); return; }
     launchCampaignWithDraft(draft, 'Abrindo campanha de aniversário…');
-  };
+  }, [buildDraftFromContacts, launchCampaignWithDraft]);
 
-  const handleCreateCampaignWithFiltered = () => {
+  const handleCreateCampaignWithFiltered = useCallback(() => {
     const draft = buildDraftFromContacts(filteredContacts, `Campanha (${filteredContacts.length} contatos)`);
     if (!draft) { toast.error('Nenhum contato no filtro atual.'); return; }
     setActiveSubTab('base');
     launchCampaignWithDraft(draft);
-  };
+  }, [buildDraftFromContacts, launchCampaignWithDraft, filteredContacts]);
+
+  const handleGoToSegments = useCallback(() => setActiveSubTab('segments'), []);
+  const handleGoToBirthdays = useCallback(() => setActiveSubTab('birthdays'), []);
+
+  /** Stats passadas ao Hero — memoizadas para o Hero memoizado não re-renderizar à toa. */
+  const heroStats = useMemo(() => ({
+    total: smartStats.total,
+    valid: validCount,
+    invalid: smartStats.invalid,
+    hot: smartStats.hot,
+    warm: smartStats.warm,
+    cold: smartStats.cold,
+    newOnes: smartStats.newOnes,
+    dormant: smartStats.dormant,
+    bdayToday: smartStats.bdayToday,
+    bdayWeek: smartStats.bdayWeek,
+    addressPct: smartStats.addressPct,
+    last7: smartStats.last7,
+    duplicates: smartStats.duplicates,
+    growth30d: contactsGrowth30d
+  }), [smartStats, validCount, contactsGrowth30d]);
 
   return (
     <div className="space-y-5 pb-10 relative">
@@ -1628,24 +1668,9 @@ export const ContactsTab: React.FC = () => {
       {!listManageId && (
         <>
           <ContactsCockpitHero
-            stats={{
-              total: smartStats.total,
-              valid: validCount,
-              invalid: smartStats.invalid,
-              hot: smartStats.hot,
-              warm: smartStats.warm,
-              cold: smartStats.cold,
-              newOnes: smartStats.newOnes,
-              dormant: smartStats.dormant,
-              bdayToday: smartStats.bdayToday,
-              bdayWeek: smartStats.bdayWeek,
-              addressPct: smartStats.addressPct,
-              last7: smartStats.last7,
-              duplicates: smartStats.duplicates,
-              growth30d: contactsGrowth30d
-            }}
+            stats={heroStats}
             onNewContact={openNewContactModal}
-            onImportXLSX={() => fileInputRef.current?.click()}
+            onImportXLSX={openImportXLSX}
             onSmartImport={openSmartImport}
             onDownloadTemplate={handleDownloadTemplate}
             onExport={handleExport}
@@ -1854,8 +1879,8 @@ export const ContactsTab: React.FC = () => {
           contactTemps={contactTemps}
           onOpenChat={openInChat}
           onNewCampaign={handleCreateCampaignWithFiltered}
-          onGoToSegments={() => setActiveSubTab('segments')}
-          onGoToBirthdays={() => setActiveSubTab('birthdays')}
+          onGoToSegments={handleGoToSegments}
+          onGoToBirthdays={handleGoToBirthdays}
         />
       )}
 

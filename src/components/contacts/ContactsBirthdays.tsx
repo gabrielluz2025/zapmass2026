@@ -44,7 +44,7 @@ function daysUntilNext(day: number, month: number): number {
   return Math.round((next.getTime() - today.getTime()) / 86400000);
 }
 
-export const ContactsBirthdays: React.FC<ContactsBirthdaysProps> = ({
+const ContactsBirthdaysBase: React.FC<ContactsBirthdaysProps> = ({
   contacts,
   onOpenChat,
   onBirthdayCampaign
@@ -346,6 +346,8 @@ export const ContactsBirthdays: React.FC<ContactsBirthdaysProps> = ({
     </div>
   );
 };
+
+export const ContactsBirthdays = React.memo(ContactsBirthdaysBase);
 
 const BdayStat: React.FC<{ label: string; value: number; hint: string; accent: 'emerald' | 'amber' | 'sky' | 'violet' }> = ({ label, value, hint, accent }) => {
   const map: Record<string, string> = {
