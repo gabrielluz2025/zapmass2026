@@ -31,6 +31,42 @@ type AccessAudit = {
   createdAt: string | null;
 };
 type AccessFilter = 'all' | 'manual' | 'blocked' | 'active' | 'trialing' | 'expiring7';
+type AccessUserInsights = {
+  uid: string;
+  email: string;
+  accountCreatedAt: string | null;
+  lastSignInAt: string | null;
+  firstActivityAt: string | null;
+  daysSinceFirstActivity: number;
+  counts: {
+    contactsTotal: number;
+    contactsValid: number;
+    contactsInvalid: number;
+    contactLists: number;
+    connectionsTotal: number;
+    connectionsConnected: number;
+    campaignsTotal: number;
+    campaignsRunning: number;
+    campaignsCompleted: number;
+  };
+  campaignTotals: {
+    targeted: number;
+    processed: number;
+    success: number;
+    failed: number;
+  };
+  contactTagsTop: Array<{ tag: string; count: number }>;
+  listSegmentsTop: Array<{ listName: string; contacts: number }>;
+  recentCampaigns: Array<{
+    id: string;
+    name: string;
+    status: string;
+    createdAt: string | null;
+    successCount: number;
+    failedCount: number;
+    totalContacts: number;
+  }>;
+};
 
 const toPtDateTime = (iso: string | null | undefined): string => {
   if (!iso) return '—';
@@ -60,6 +96,8 @@ export const AdminPanel: React.FC = () => {
   const [filter, setFilter] = useState<AccessFilter>('all');
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insights, setInsights] = useState<AccessUserInsights | null>(null);
 
   useEffect(() => {
     setMarketingPriceMonthly(config.marketingPriceMonthly);
@@ -269,6 +307,26 @@ export const AdminPanel: React.FC = () => {
       toast.success(`Acesso estendido por +${days} dia(s).`);
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível estender acesso.');
+    }
+  };
+
+  const openInsights = async (u: AccessUser) => {
+    if (!user) return;
+    setInsightsLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/admin/access-user-insights?uid=${encodeURIComponent(u.uid)}`, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar perfil do usuário.');
+      }
+      setInsights(data.insights as AccessUserInsights);
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível abrir o perfil analítico.');
+    } finally {
+      setInsightsLoading(false);
     }
   };
 
@@ -513,9 +571,15 @@ export const AdminPanel: React.FC = () => {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                        <button
+                          type="button"
+                          className="text-[13px] font-semibold truncate text-left underline-offset-2 hover:underline"
+                          style={{ color: 'var(--text-1)' }}
+                          onClick={() => void openInsights(u)}
+                          title="Abrir perfil analítico do usuário"
+                        >
                           {u.email || u.uid}
-                        </p>
+                        </button>
                         <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>{u.uid}</p>
                         <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
                           Status: <strong>{u.status}</strong> • Plano: <strong>{u.plan || '—'}</strong> • Provedor: <strong>{u.provider}</strong>
@@ -617,8 +681,101 @@ export const AdminPanel: React.FC = () => {
               )}
             </div>
           </div>
+
+          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+            <h3 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
+              Perfil analítico do usuário
+            </h3>
+            {insightsLoading ? (
+              <div className="text-[12px] inline-flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Carregando métricas do usuário...
+              </div>
+            ) : !insights ? (
+              <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
+                Clique no nome de um usuário para ver tempo de uso, disparos, conexões, contatos e segmentos.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                  <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                    {insights.email || insights.uid}
+                  </p>
+                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                    Tempo de uso: <strong>{insights.daysSinceFirstActivity} dia(s)</strong> desde a primeira atividade.
+                  </p>
+                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                    Conta criada: <strong>{toPtDateTime(insights.accountCreatedAt)}</strong> • Último login: <strong>{toPtDateTime(insights.lastSignInAt)}</strong>
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Metric label="Contatos" value={insights.counts.contactsTotal} />
+                  <Metric label="Válidos" value={insights.counts.contactsValid} />
+                  <Metric label="Inválidos" value={insights.counts.contactsInvalid} />
+                  <Metric label="Listas" value={insights.counts.contactLists} />
+                  <Metric label="Conexões" value={insights.counts.connectionsTotal} />
+                  <Metric label="Online" value={insights.counts.connectionsConnected} />
+                  <Metric label="Campanhas" value={insights.counts.campaignsTotal} />
+                  <Metric label="Concluídas" value={insights.counts.campaignsCompleted} />
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Metric label="Alvo total" value={insights.campaignTotals.targeted} />
+                  <Metric label="Processados" value={insights.campaignTotals.processed} />
+                  <Metric label="Sucesso" value={insights.campaignTotals.success} />
+                  <Metric label="Falhas" value={insights.campaignTotals.failed} />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                    <p className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-2)' }}>Segmentos (listas) principais</p>
+                    {insights.listSegmentsTop.length === 0 ? (
+                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Sem listas.</p>
+                    ) : insights.listSegmentsTop.map((s) => (
+                      <p key={s.listName} className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                        {s.listName}: <strong>{s.contacts}</strong>
+                      </p>
+                    ))}
+                  </div>
+                  <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                    <p className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-2)' }}>Tags mais usadas</p>
+                    {insights.contactTagsTop.length === 0 ? (
+                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Sem tags.</p>
+                    ) : insights.contactTagsTop.map((t) => (
+                      <p key={t.tag} className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                        {t.tag}: <strong>{t.count}</strong>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                  <p className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-2)' }}>Campanhas recentes</p>
+                  {insights.recentCampaigns.length === 0 ? (
+                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Sem campanhas recentes.</p>
+                  ) : insights.recentCampaigns.map((c) => (
+                    <p key={c.id} className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                      {c.name} • {c.status} • alvo {c.totalContacts} • sucesso {c.successCount} • falhas {c.failedCount}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 };
+
+const Metric: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+  <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+    <p className="text-[10px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>
+      {label}
+    </p>
+    <p className="text-[18px] font-extrabold leading-tight" style={{ color: 'var(--text-1)' }}>
+      {value}
+    </p>
+  </div>
+);

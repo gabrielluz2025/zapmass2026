@@ -89,6 +89,43 @@ type AdminAccessAuditRow = {
   createdAt: string | null;
 };
 
+type AdminUserInsights = {
+  uid: string;
+  email: string;
+  accountCreatedAt: string | null;
+  lastSignInAt: string | null;
+  firstActivityAt: string | null;
+  daysSinceFirstActivity: number;
+  counts: {
+    contactsTotal: number;
+    contactsValid: number;
+    contactsInvalid: number;
+    contactLists: number;
+    connectionsTotal: number;
+    connectionsConnected: number;
+    campaignsTotal: number;
+    campaignsRunning: number;
+    campaignsCompleted: number;
+  };
+  campaignTotals: {
+    targeted: number;
+    processed: number;
+    success: number;
+    failed: number;
+  };
+  contactTagsTop: Array<{ tag: string; count: number }>;
+  listSegmentsTop: Array<{ listName: string; contacts: number }>;
+  recentCampaigns: Array<{
+    id: string;
+    name: string;
+    status: string;
+    createdAt: string | null;
+    successCount: number;
+    failedCount: number;
+    totalContacts: number;
+  }>;
+};
+
 function tsToIso(v: unknown): string | null {
   if (!v) return null;
   if (typeof (v as { toDate?: () => Date }).toDate === 'function') {
@@ -100,6 +137,23 @@ function tsToIso(v: unknown): string | null {
   }
   if (typeof v === 'string') return v;
   return null;
+}
+
+function asEpoch(v: unknown): number {
+  if (!v) return 0;
+  if (typeof (v as { toDate?: () => Date }).toDate === 'function') {
+    try {
+      return (v as { toDate: () => Date }).toDate().getTime();
+    } catch {
+      return 0;
+    }
+  }
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const t = Date.parse(v);
+    return Number.isFinite(t) ? t : 0;
+  }
+  return 0;
 }
 
 async function rowFromSubscriptionDoc(
@@ -369,6 +423,137 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/admin/access-audit]', msg);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/admin/access-user-insights', async (req: Request, res: Response) => {
+    try {
+      const auth = await assertAdminFromBearer(req, res);
+      if (!auth) return;
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      }
+      const db = getFirestore(adminApp);
+      const uid = String(req.query.uid || '').trim();
+      if (!uid) {
+        return res.status(400).json({ ok: false, error: 'Informe uid.' });
+      }
+
+      const userRec = await getAuth(adminApp).getUser(uid).catch(() => null);
+      const email = userRec?.email || '';
+      const accountCreatedAt = userRec?.metadata?.creationTime ? new Date(userRec.metadata.creationTime).toISOString() : null;
+      const lastSignInAt = userRec?.metadata?.lastSignInTime ? new Date(userRec.metadata.lastSignInTime).toISOString() : null;
+
+      const [contactsSnap, listsSnap, campaignsSnap, connSnap] = await Promise.all([
+        db.collection('users').doc(uid).collection('contacts').get(),
+        db.collection('users').doc(uid).collection('contact_lists').get(),
+        db.collection('users').doc(uid).collection('campaigns').get(),
+        db.collection('users').doc(uid).collection('connections').get().catch(() => null)
+      ]);
+
+      const contacts: Record<string, unknown>[] = contactsSnap.docs.map((d) => d.data() as Record<string, unknown>);
+      const lists: Array<Record<string, unknown> & { id: string }> = listsSnap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Record<string, unknown>)
+      }));
+      const campaigns: Array<Record<string, unknown> & { id: string }> = campaignsSnap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Record<string, unknown>)
+      }));
+      const conns = connSnap?.docs?.map((d) => d.data() as Record<string, unknown>) || [];
+
+      const contactsValid = contacts.filter((c) => String(c.status || '').toUpperCase() !== 'INVALID').length;
+      const contactsInvalid = contacts.length - contactsValid;
+      const campaignsRunning = campaigns.filter((c) => String(c.status || '') === 'RUNNING').length;
+      const campaignsCompleted = campaigns.filter((c) => String(c.status || '') === 'COMPLETED').length;
+      const connectionsConnected = conns.filter((c) => String(c.status || '') === 'CONNECTED').length;
+
+      const targeted = campaigns.reduce((acc, c) => acc + (Number(c.totalContacts) || 0), 0);
+      const processed = campaigns.reduce((acc, c) => acc + (Number(c.processedCount) || 0), 0);
+      const success = campaigns.reduce((acc, c) => acc + (Number(c.successCount) || 0), 0);
+      const failed = campaigns.reduce((acc, c) => acc + (Number(c.failedCount) || 0), 0);
+
+      const tagMap = new Map<string, number>();
+      for (const c of contacts) {
+        const tags = Array.isArray(c.tags) ? c.tags : [];
+        for (const t of tags) {
+          const tag = String(t || '').trim();
+          if (!tag) continue;
+          tagMap.set(tag, (tagMap.get(tag) || 0) + 1);
+        }
+      }
+      const contactTagsTop = Array.from(tagMap.entries())
+        .map(([tag, count]) => ({ tag, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8);
+
+      const listSegmentsTop = lists
+        .map((l) => ({
+          listName: String(l.name || 'Lista'),
+          contacts: Array.isArray(l.contactIds) ? l.contactIds.length : Number(l.count) || 0
+        }))
+        .sort((a, b) => b.contacts - a.contacts)
+        .slice(0, 8);
+
+      const recentCampaigns = campaigns
+        .sort((a, b) => asEpoch(b.createdAt) - asEpoch(a.createdAt))
+        .slice(0, 6)
+        .map((c) => ({
+          id: String(c.id || ''),
+          name: String(c.name || 'Campanha'),
+          status: String(c.status || '—'),
+          createdAt: tsToIso(c.createdAt),
+          successCount: Number(c.successCount) || 0,
+          failedCount: Number(c.failedCount) || 0,
+          totalContacts: Number(c.totalContacts) || 0
+        }));
+
+      const firstActivityMsCandidates = [
+        ...contacts.map((c) => asEpoch(c.createdAt)),
+        ...lists.map((l) => asEpoch(l.createdAt)),
+        ...campaigns.map((c) => asEpoch(c.createdAt))
+      ].filter((x) => x > 0);
+      const firstActivityMs =
+        firstActivityMsCandidates.length > 0 ? Math.min(...firstActivityMsCandidates) : 0;
+      const firstActivityAt = firstActivityMs > 0 ? new Date(firstActivityMs).toISOString() : null;
+      const daysSinceFirstActivity =
+        firstActivityMs > 0 ? Math.max(0, Math.floor((Date.now() - firstActivityMs) / (1000 * 60 * 60 * 24))) : 0;
+
+      const payload: AdminUserInsights = {
+        uid,
+        email,
+        accountCreatedAt,
+        lastSignInAt,
+        firstActivityAt,
+        daysSinceFirstActivity,
+        counts: {
+          contactsTotal: contacts.length,
+          contactsValid,
+          contactsInvalid,
+          contactLists: lists.length,
+          connectionsTotal: conns.length,
+          connectionsConnected,
+          campaignsTotal: campaigns.length,
+          campaignsRunning,
+          campaignsCompleted
+        },
+        campaignTotals: {
+          targeted,
+          processed,
+          success,
+          failed
+        },
+        contactTagsTop,
+        listSegmentsTop,
+        recentCampaigns
+      };
+
+      return res.json({ ok: true, insights: payload });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[api/admin/access-user-insights]', msg);
       return res.status(500).json({ ok: false, error: msg });
     }
   });
