@@ -19,7 +19,7 @@ interface ClientPipelineBoardProps {
   conversations: Conversation[];
   selectedChatId: string | null;
   onSelectChat: (id: string) => void;
-  getAvatar: (name: string, pic?: string) => string;
+  getConvAvatar: (conv: Conversation) => string;
   connectionName?: (connectionId: string) => string | undefined;
 }
 
@@ -28,7 +28,7 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
   conversations,
   selectedChatId,
   onSelectChat,
-  getAvatar,
+  getConvAvatar,
   connectionName
 }) => {
   const [state, setState] = useState<ClientPipelineBoardPersisted>(() => defaultPipelineState());
@@ -252,7 +252,7 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
                           aria-hidden
                         />
                         <img
-                          src={getAvatar(conv.contactName, conv.profilePicUrl)}
+                          src={getConvAvatar(conv)}
                           className="w-9 h-9 rounded-full object-cover flex-shrink-0"
                           alt=""
                         />

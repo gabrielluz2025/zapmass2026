@@ -607,10 +607,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('conversation-picture', ({ conversationId, profilePicUrl }: { conversationId: string; profilePicUrl?: string | null }) => {
       if (!conversationId || !profilePicUrl) return;
-      if (!ownsConnectionId(conversationId.split(':')[0] || '')) return;
-      setConversations((prev) =>
-        prev.map((c) => (c.id === conversationId ? { ...c, profilePicUrl } : c))
-      );
+      setConversations((prev) => {
+        const c = prev.find((x) => x.id === conversationId);
+        if (!c || !ownsConnectionId(c.connectionId)) return prev;
+        return prev.map((x) => (x.id === conversationId ? { ...x, profilePicUrl } : x));
+      });
     });
 
     // Real system metrics

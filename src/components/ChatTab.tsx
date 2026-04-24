@@ -53,6 +53,17 @@ import { Input, Modal, Select, Tabs, Badge, Button } from './ui';
 // =====================================================================
 type ConversationOrigin = 'phone' | 'system' | 'empty';
 
+/** Mesma logica de match que ao abrir chat por contato (BR, com/sem 55, ultimos digitos). */
+const phonesMatchDigits = (a: string, b: string): boolean => {
+  const ca = a.replace(/\D/g, '');
+  const cb = b.replace(/\D/g, '');
+  if (!ca || !cb) return false;
+  if (ca === cb) return true;
+  if (ca.endsWith(cb) || cb.endsWith(ca)) return true;
+  if (ca.length >= 10 && cb.length >= 10 && ca.slice(-10) === cb.slice(-10)) return true;
+  return false;
+};
+
 const classifyConversation = (conv: Conversation): ConversationOrigin => {
   const msgs = conv.messages || [];
   if (msgs.length === 0) return 'empty';
@@ -174,6 +185,7 @@ const OutboundPipelineBar: React.FC<{ status: ChatMessage['status'] }> = ({ stat
 export const ChatTab: React.FC = () => {
   const {
     conversations,
+    contacts,
     connections,
     sendMessage,
     markAsRead,
@@ -219,6 +231,29 @@ export const ChatTab: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   // Evita flood ao backend: controla quando cada avatar foi requisitado.
   const avatarFetchAtRef = useRef<Map<string, number>>(new Map());
+
+  const getAvatar = (name: string, pic?: string) =>
+    pic || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=059669&color=fff&size=200`;
+
+  /** Foto do WhatsApp (quando veio) ou `profilePicUrl` da agenda em Contatos. */
+  const resolveProfilePic = useCallback(
+    (conv: Conversation): string | undefined => {
+      if (conv.profilePicUrl) return conv.profilePicUrl;
+      const dConv = (conv.contactPhone || '').replace(/\D/g, '');
+      if (!dConv) return undefined;
+      for (const ct of contacts) {
+        if (!ct.profilePicUrl) continue;
+        if (phonesMatchDigits(ct.phone || '', dConv)) return ct.profilePicUrl;
+      }
+      return undefined;
+    },
+    [contacts]
+  );
+
+  const getConvAvatar = useCallback(
+    (conv: Conversation) => getAvatar(conv.contactName, resolveProfilePic(conv)),
+    [resolveProfilePic]
+  );
 
   const pipelineViewStorageKey = useMemo(
     () => `zapmass-pipeline-tab-view:v1:${user?.uid || 'anon'}`,
@@ -431,22 +466,22 @@ export const ChatTab: React.FC = () => {
       });
   }, [filteredByConnection, chatFilter, searchTerm, originByConv, crm]);
 
-  // Traz foto real também para a lista lateral (não só no chat aberto).
-  // Carregamos apenas as primeiras conversas visíveis para manter performance.
+  // Traz foto do WhatsApp para a lista (inclui conversas de disparo, onde antes nao pedia — sem foto de API).
+  // Com agenda: `resolveProfilePic` ja usa a foto do contato; aqui so complementa via servidor.
   useEffect(() => {
     const now = Date.now();
     const cooldownMs = 5 * 60 * 1000;
-    const candidates = filteredConversations.slice(0, 28);
+    const candidates = filteredConversations.slice(0, 40);
     for (const conv of candidates) {
       if (!conv?.id || conv.id.endsWith('@g.us')) continue;
       if (conv.profilePicUrl) continue;
-      if (originByConv.get(conv.id) !== 'phone') continue;
+      if (resolveProfilePic(conv)) continue;
       const lastFetch = avatarFetchAtRef.current.get(conv.id) || 0;
       if (now - lastFetch < cooldownMs) continue;
       avatarFetchAtRef.current.set(conv.id, now);
       fetchConversationPicture(conv.id);
     }
-  }, [filteredConversations, originByConv, fetchConversationPicture]);
+  }, [filteredConversations, fetchConversationPicture, resolveProfilePic]);
 
   const totalUnread = filteredByConnection.reduce((a, c) => a + c.unreadCount, 0);
   const totalGroups = filteredByConnection.filter((c) => c.id.endsWith('@g.us')).length;
@@ -568,10 +603,11 @@ export const ChatTab: React.FC = () => {
   }, [selectedChatId, selectedConversation?.messages.length, isSelectedDraft]);
 
   useEffect(() => {
-    if (selectedChatId && selectedConversation && !selectedConversation.profilePicUrl && !isSelectedDraft) {
-      fetchConversationPicture(selectedChatId);
-    }
-  }, [selectedChatId, selectedConversation?.profilePicUrl, isSelectedDraft]);
+    if (!selectedChatId || !selectedConversation || isSelectedDraft) return;
+    if (selectedConversation.profilePicUrl) return;
+    if (resolveProfilePic(selectedConversation)) return;
+    fetchConversationPicture(selectedChatId);
+  }, [selectedChatId, selectedConversation, isSelectedDraft, resolveProfilePic, fetchConversationPicture]);
 
   useEffect(() => {
     if (!showChatMenu) return;
@@ -682,9 +718,6 @@ export const ChatTab: React.FC = () => {
     inputRef.current?.focus();
   };
 
-  const getAvatar = (name: string, pic?: string) =>
-    pic || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=059669&color=fff&size=200`;
-
   const getLastMsgPreview = (conv: Conversation) => {
     const last = conv.messages[conv.messages.length - 1];
     if (!last) return conv.lastMessage || '';
@@ -785,10 +818,11 @@ export const ChatTab: React.FC = () => {
 
   return (
     <div
-      className="flex h-[calc(100vh-5.5rem)] overflow-hidden rounded-xl"
+      className="flex h-[calc(100vh-5.5rem)] overflow-hidden rounded-2xl"
       style={{
-        border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-md)'
+        border: '1px solid var(--border-subtle)',
+        boxShadow: '0 20px 50px -24px color-mix(in srgb, var(--brand-500) 18%, transparent), var(--shadow-md)',
+        background: 'linear-gradient(165deg, color-mix(in srgb, var(--surface-0) 90%, #0f172a) 0%, var(--surface-0) 100%)'
       }}
     >
       <div
@@ -798,15 +832,27 @@ export const ChatTab: React.FC = () => {
         style={{ background: 'var(--surface-0)', borderRight: '1px solid var(--border-subtle)' }}
       >
         <div
-          className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-          style={{ borderBottom: '1px solid var(--border-subtle)' }}
+          className="flex items-center justify-between px-4 py-3.5 flex-shrink-0"
+          style={{
+            borderBottom: '1px solid var(--border-subtle)',
+            background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand-500) 8%, var(--surface-0)) 0%, var(--surface-0) 100%)'
+          }}
         >
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center brand-soft flex-shrink-0">
-              <Workflow className="w-4 h-4" />
+            <div
+              className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
+              style={{
+                background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 22%, transparent), color-mix(in srgb, var(--brand-600) 12%, var(--surface-1)))',
+                border: '1px solid color-mix(in srgb, var(--brand-500) 30%, transparent)',
+                boxShadow: '0 8px 20px -8px color-mix(in srgb, var(--brand-500) 45%, transparent)'
+              }}
+            >
+              <Workflow className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
             </div>
             <div className="min-w-0">
-              <h2 className="ui-title text-[15px] leading-tight">Pipeline</h2>
+              <h2 className="ui-title text-[15px] leading-tight" style={{ color: 'var(--text-1)' }}>
+                Pipeline
+              </h2>
               <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
                 <Smartphone className="w-3 h-3 inline -mt-0.5 mr-0.5" />
                 {totalPhone} do celular
@@ -956,7 +1002,7 @@ export const ChatTab: React.FC = () => {
               conversations={filteredConversations}
               selectedChatId={selectedChatId}
               onSelectChat={selectChat}
-              getAvatar={getAvatar}
+              getConvAvatar={getConvAvatar}
               connectionName={(id) => connections.find((c) => c.id === id)?.name}
             />
           ) : (
@@ -977,15 +1023,15 @@ export const ChatTab: React.FC = () => {
                 key={conv.id}
                 type="button"
                 onClick={() => selectChat(conv.id)}
-                className="w-full text-left flex items-center gap-3 px-3 py-2.5 transition-all group relative"
+                className="w-full text-left flex items-center gap-3 px-3 py-2.5 transition-all group relative rounded-lg mx-1.5 mb-0.5"
                 style={{
                   background: isActive
-                    ? 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 10%, transparent), var(--surface-1))'
+                    ? 'linear-gradient(120deg, color-mix(in srgb, var(--brand-500) 12%, var(--surface-1)) 0%, var(--surface-1) 100%)'
                     : crmData.pinned
-                      ? 'rgba(245,158,11,0.04)'
+                      ? 'rgba(245,158,11,0.05)'
                       : 'transparent',
-                  borderBottom: '1px solid var(--border-subtle)',
-                  boxShadow: isActive ? 'inset 0 0 0 1px color-mix(in srgb, var(--brand-500) 30%, transparent)' : 'none'
+                  borderBottom: 'none',
+                  boxShadow: isActive ? 'inset 0 0 0 1.5px color-mix(in srgb, var(--brand-500) 35%, transparent), 0 4px 14px -6px color-mix(in srgb, var(--brand-500) 20%, transparent)' : 'none'
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) {
@@ -995,7 +1041,7 @@ export const ChatTab: React.FC = () => {
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) {
-                    e.currentTarget.style.background = crmData.pinned ? 'rgba(245,158,11,0.04)' : 'transparent';
+                    e.currentTarget.style.background = crmData.pinned ? 'rgba(245,158,11,0.05)' : 'transparent';
                     e.currentTarget.style.transform = 'translateY(0)';
                   }
                 }}
@@ -1010,12 +1056,13 @@ export const ChatTab: React.FC = () => {
                 )}
                 <div className="relative flex-shrink-0">
                   <img
-                    src={getAvatar(conv.contactName, conv.profilePicUrl)}
-                    className="w-11 h-11 rounded-full object-cover ring-1"
+                    src={getConvAvatar(conv)}
+                    className="w-12 h-12 rounded-2xl object-cover"
                     alt=""
                     style={{
-                      ...(crmStatus ? { boxShadow: `0 0 0 2px ${crmStatus.color}55` } : {}),
-                      borderColor: 'var(--border-subtle)'
+                      border: '2px solid color-mix(in srgb, var(--surface-0) 50%, var(--border-subtle))',
+                      boxShadow: '0 4px 14px -4px rgba(0,0,0,0.25)',
+                      ...(crmStatus ? { boxShadow: `0 0 0 2px ${crmStatus.color}66, 0 4px 14px -4px rgba(0,0,0,0.2)` } : {})
                     }}
                   />
                   {isGroup && (
@@ -1229,8 +1276,11 @@ export const ChatTab: React.FC = () => {
         {selectedConversation ? (
           <>
             <div
-              className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
-              style={{ background: 'var(--surface-0)', borderBottom: '1px solid var(--border-subtle)' }}
+              className="flex items-center gap-3 px-4 py-3.5 flex-shrink-0"
+              style={{
+                background: 'linear-gradient(180deg, var(--surface-0) 0%, color-mix(in srgb, var(--surface-1) 50%, var(--surface-0)) 100%)',
+                borderBottom: '1px solid var(--border-subtle)'
+              }}
             >
               <button
                 onClick={() => setShowMobileChat(false)}
@@ -1246,13 +1296,19 @@ export const ChatTab: React.FC = () => {
               >
                 <div className="relative flex-shrink-0">
                   <img
-                    src={getAvatar(selectedConversation.contactName, selectedConversation.profilePicUrl)}
-                    className="w-9 h-9 rounded-full object-cover"
+                    src={getConvAvatar(selectedConversation)}
+                    className="w-11 h-11 rounded-2xl object-cover"
                     alt=""
                     style={
                       crm.get(selectedConversation.id).status
-                        ? { boxShadow: `0 0 0 2px ${STATUS_META[crm.get(selectedConversation.id).status!].color}66` }
-                        : undefined
+                        ? {
+                            border: '2px solid var(--border-subtle)',
+                            boxShadow: `0 0 0 2px ${STATUS_META[crm.get(selectedConversation.id).status!].color}77, 0 8px 20px -8px rgba(0,0,0,0.3)`
+                          }
+                        : {
+                            border: '2px solid color-mix(in srgb, var(--border-subtle) 80%, transparent)',
+                            boxShadow: '0 8px 22px -10px rgba(0,0,0,0.35)'
+                          }
                     }
                   />
                   {crm.get(selectedConversation.id).pinned && (
@@ -1764,7 +1820,7 @@ export const ChatTab: React.FC = () => {
         <ClientCrmPanel
           conversation={selectedConversation}
           connectionName={selectedConnection?.name}
-          avatar={getAvatar(selectedConversation.contactName, selectedConversation.profilePicUrl)}
+          avatar={getConvAvatar(selectedConversation)}
           crmData={crm.get(selectedConversation.id)}
           pipelineAgg={pipelineAgg}
           onClose={() => setShowContactInfo(false)}
@@ -1945,7 +2001,7 @@ export const ChatTab: React.FC = () => {
                       />
                     )}
                     <img
-                      src={getAvatar(c.contactName, c.profilePicUrl)}
+                      src={getConvAvatar(c)}
                       alt=""
                       className="w-9 h-9 rounded-full object-cover flex-shrink-0"
                     />
