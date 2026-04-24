@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Timer, Zap } from 'lucide-react';
 import { useSubscription } from '../../context/SubscriptionContext';
+import { useAuth } from '../../context/AuthContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
 import { clearTrialEndLocal, readTrialEndMsFromLocal } from '../../utils/trialLocalEnd';
+import { isAdminUserEmail } from '../../utils/adminAccess';
 
 function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, totalSeconds);
@@ -21,9 +23,12 @@ interface ProHeaderPromoProps {
 /** Centro do header: apenas cronometro do teste ou pill Pro ativo (CTA fica na barra unificada a direita). */
 export const ProHeaderPromo: React.FC<ProHeaderPromoProps> = ({ showProActivePill, accessEndLabel }) => {
   const { subscription } = useSubscription();
+  const { user } = useAuth();
   const [, setTick] = useState(0);
+  const isAdmin = isAdminUserEmail(user?.email ?? null);
 
   const trialEndMs = useMemo(() => {
+    if (isAdmin) return null;
     const now = Date.now();
     const fromFs = firestoreTimeToMs(subscription?.trialEndsAt);
     const fromLocal = readTrialEndMsFromLocal();
@@ -32,7 +37,7 @@ export const ProHeaderPromo: React.FC<ProHeaderPromoProps> = ({ showProActivePil
     const b = ok(fromLocal);
     if (a != null && b != null) return Math.max(a, b);
     return a ?? b ?? null;
-  }, [subscription]);
+  }, [subscription, isAdmin]);
 
   const trialActive = trialEndMs != null && trialEndMs > Date.now();
 
@@ -51,6 +56,8 @@ export const ProHeaderPromo: React.FC<ProHeaderPromoProps> = ({ showProActivePil
 
   const remainingSec =
     trialEndMs != null ? Math.max(0, Math.floor((trialEndMs - Date.now()) / 1000)) : 0;
+
+  if (isAdmin) return null;
 
   if (showProActivePill && !trialActive) {
     return (

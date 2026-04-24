@@ -71,8 +71,11 @@ const MainLayout: React.FC = () => {
   const trialEndTimerRef = useRef<number | null>(null);
   const trialEndedHandledRef = useRef(false);
 
+  const isAdmin = isAdminUserEmail(user?.email ?? null);
+
   useEffect(() => {
     if (!enforce || !user || !subscription) return;
+    if (isAdmin) return;
     if (subscription.status !== 'trialing') return;
 
     const trialEndMs = firestoreTimeToMs(subscription.trialEndsAt);
@@ -120,14 +123,14 @@ const MainLayout: React.FC = () => {
         trialEndTimerRef.current = null;
       }
     };
-  }, [enforce, user, subscription]);
+  }, [enforce, user, subscription, isAdmin]);
 
   /** Cobranca desligada: mostra CTA no centro para voce ver/testar. Com cobranca: upgrade em teste, leitura ou dev. */
   const showUpgradeProCenter =
-    !enforce || readOnlyMode || subscription?.status === 'trialing';
+    !isAdmin && (!enforce || readOnlyMode || subscription?.status === 'trialing');
 
   const showProActivePill =
-    enforce && hasFullAccess && subscription?.status === 'active';
+    !isAdmin && enforce && hasFullAccess && subscription?.status === 'active';
 
   const accessEndLabel = formatAccessEndPtBR(subscription?.accessEndsAt);
 
