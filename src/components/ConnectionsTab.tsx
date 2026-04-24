@@ -94,7 +94,7 @@ export const ConnectionsTab: React.FC = () => {
   const { connections, addConnection, removeConnection, reconnectConnection, forceQr } =
     useZapMass();
   const { user } = useAuth();
-  const { subscription } = useSubscription();
+  const { subscription, readOnlyMode, enforce: subEnforce } = useSubscription();
   const goToView = useMainLayoutNav();
   const isAdmin = isAdminUserEmail(user?.email ?? null);
   const maxConnectionSlots = useMemo(
@@ -106,6 +106,9 @@ export const ConnectionsTab: React.FC = () => {
     [connections, user?.uid]
   );
   const atConnectionLimit = !isAdmin && scopedCount >= maxConnectionSlots;
+  /** Apos trial / sem plano: nao criar novos canais ate contratar. */
+  const blockNewBySubscription = subEnforce && readOnlyMode && !isAdmin;
+  const cannotCreateConnection = atConnectionLimit || blockNewBySubscription;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -299,6 +302,23 @@ export const ConnectionsTab: React.FC = () => {
     setSelected(new Set(sortedFiltered.map((c) => c.id)));
   }, [sortedFiltered]);
 
+  const requestNewConnection = useCallback(
+    (name: string) => {
+      if (blockNewBySubscription) {
+        toast.error('Assine o ZapMass para criar novos canais. Abra Minha assinatura.');
+        return;
+      }
+      if (atConnectionLimit) {
+        toast.error(
+          'Limite de canais atingido. Em Minha assinatura, contrate 1 a 3 canais extras (ate 5 no total).'
+        );
+        return;
+      }
+      addConnection(name);
+    },
+    [addConnection, atConnectionLimit, blockNewBySubscription]
+  );
+
   const runBulk = useCallback(
     (kind: 'remove' | 'reconnect') => {
       const ids = Array.from(selected);
@@ -331,6 +351,16 @@ export const ConnectionsTab: React.FC = () => {
       } else if (e.key === 'l' || e.key === 'L') {
         setView('list');
       } else if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        if (cannotCreateConnection) {
+          toast(
+            atConnectionLimit
+              ? 'Limite de canais. Use Minha assinatura para extras.'
+              : 'Assine o plano para criar novos canais.',
+            { icon: '🔒', duration: 4000 }
+          );
+          return;
+        }
         setIsModalOpen(true);
       } else if (e.key === 'Escape') {
         if (selectMode) clearSelection();
@@ -342,7 +372,7 @@ export const ConnectionsTab: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectMode, searchTerm, filterStatus, clearSelection]);
+  }, [selectMode, searchTerm, filterStatus, clearSelection, cannotCreateConnection, atConnectionLimit]);
 
   // --- alertas inteligentes ---
   const alerts = useMemo(() => {
@@ -430,13 +460,19 @@ export const ConnectionsTab: React.FC = () => {
                 variant="primary"
                 size="lg"
                 leftIcon={<Plus className="w-4 h-4" />}
-                disabled={atConnectionLimit}
+                disabled={cannotCreateConnection}
                 title={
-                  atConnectionLimit
-                    ? 'Limite de canais. Contrate extras em Minha assinatura.'
-                    : 'Adicionar conexão'
+                  blockNewBySubscription
+                    ? 'Assine o plano para adicionar canais.'
+                    : atConnectionLimit
+                      ? 'Limite de canais. Contrate extras em Minha assinatura.'
+                      : 'Adicionar conexão'
                 }
                 onClick={() => {
+                  if (blockNewBySubscription) {
+                    toast('Assine o ZapMass em Minha assinatura para criar novos canais.', { icon: '🔒', duration: 5000 });
+                    return;
+                  }
                   if (atConnectionLimit) {
                     toast(
                       'Limite de canais atingido. Em Minha assinatura, contrate 1 a 3 canais extras (até 5 no total, +R$ 100/mês por slot).',
@@ -449,9 +485,9 @@ export const ConnectionsTab: React.FC = () => {
               >
                 Conectar WhatsApp
               </Button>
-              {atConnectionLimit && (
+              {cannotCreateConnection && (
                 <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
-                  Aumentar limite
+                  {blockNewBySubscription ? 'Ver planos' : 'Aumentar limite'}
                 </Button>
               )}
             </div>
@@ -850,7 +886,18 @@ export const ConnectionsTab: React.FC = () => {
               <Button
                 variant="primary"
                 leftIcon={<Plus className="w-4 h-4" />}
-                onClick={() => setIsModalOpen(true)}
+                disabled={cannotCreateConnection}
+                onClick={() => {
+                  if (blockNewBySubscription) {
+                    toast('Assine o plano para adicionar canais.', { icon: '🔒' });
+                    return;
+                  }
+                  if (atConnectionLimit) {
+                    toast('Limite de canais atingido. Veja Minha assinatura para extras.', { icon: '🔒' });
+                    return;
+                  }
+                  setIsModalOpen(true);
+                }}
               >
                 Conectar WhatsApp
               </Button>
@@ -872,7 +919,7 @@ export const ConnectionsTab: React.FC = () => {
       <AddConnectionModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSuccess={addConnection}
+        onSuccess={requestNewConnection}
       />
 
       {/* Confirmação de ação em lote */}

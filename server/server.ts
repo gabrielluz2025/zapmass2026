@@ -21,6 +21,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import {
+  BASE_CONNECTION_SLOTS,
   countUserScopedConnections,
   getMaxConnectionSlots,
   readUserSubscriptionForLimits,
@@ -284,28 +285,33 @@ const registerSocketHandlers = () => {
     });
     
     socket.on('create-connection', async ({ name }) => {
+      let maxAllowed = BASE_CONNECTION_SLOTS;
       if (uid && uid !== 'anonymous') {
         try {
           const [sub, isServAdmin] = await Promise.all([
             readUserSubscriptionForLimits(uid),
             isUidTreatedAsServerAdmin(uid)
           ]);
-          const max = getMaxConnectionSlots(sub, { serverAdmin: isServAdmin });
-          const count = countUserScopedConnections(waService.getConnections(), uid);
-          if (count >= max) {
-            socket.emit('connection-limit-reached', {
-              current: count,
-              max,
-              message: `Voce atingiu o maximo de ${max} canal(is) no seu plano. Incluimos 2; e possivel contratar de 1 a 3 canais extras (R$ 100/mo por canal em media — ver "Minha assinatura") ate 5 canais.`
-            });
-            return;
-          }
+          maxAllowed = getMaxConnectionSlots(sub, { serverAdmin: isServAdmin });
         } catch (e) {
-          console.error('[create-connection] limite de canais', e);
+          console.error('[create-connection] leitura assinatura; aplica teto base', e);
+          maxAllowed = BASE_CONNECTION_SLOTS;
         }
       }
+      const count = countUserScopedConnections(waService.getConnections(), uid);
+      if (count >= maxAllowed) {
+        socket.emit('connection-limit-reached', {
+          current: count,
+          max: maxAllowed,
+          message:
+            maxAllowed <= BASE_CONNECTION_SLOTS
+              ? `Limite de ${maxAllowed} canal(is): incluidos no plano. Contrate canais extras em Minha assinatura (ate 5 no total).`
+              : `Voce atingiu o maximo de ${maxAllowed} canal(is). Incluimos 2 no base; e possivel contratar de 1 a 3 canais extras ate 5 no total.`
+        });
+        return;
+      }
       userLog('ui:create-connection', { name });
-      waService.createConnection(name, uid);
+      waService.createConnection(name, uid && uid !== 'anonymous' ? uid : undefined);
       socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
     });
 
