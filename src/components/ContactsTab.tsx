@@ -7,12 +7,12 @@ import { useAppView } from '../context/AppViewContext';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, EmptyState, SectionHeader, StatCard } from './ui';
-import { Tabs } from './ui/Tabs';
-import { ContactsCockpitHero } from './contacts/ContactsCockpitHero';
-import { ContactsOverview } from './contacts/ContactsOverview';
-import { ContactsSegmentsPanel } from './contacts/ContactsSegmentsPanel';
-import { ContactsBirthdays } from './contacts/ContactsBirthdays';
-import { LayoutGrid, Database, ListChecks } from 'lucide-react';
+import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
+import { ContactsSidebar, type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
+import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual';
+import { ContactsBulkBar } from './contacts/workspace/ContactsBulkBar';
+import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
+import { ContactsInsightsModal } from './contacts/workspace/ContactsInsightsModal';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -382,17 +382,19 @@ export const ContactsTab: React.FC = () => {
   const { contacts, contactLists, conversations, addContact, removeContact, updateContact, createContactList, deleteContactList, updateContactList } = useZapMass();
   const { setCurrentView } = useAppView();
 
-  type ContactsSubTab = 'overview' | 'base' | 'lists' | 'segments' | 'birthdays';
-  const [activeSubTab, setActiveSubTab] = useState<ContactsSubTab>(() => {
+  // NOVO LAYOUT: filtro smart único (sidebar) + drawer + modal de insights
+  const [activeFilter, setActiveFilter] = useState<SmartFilterId>(() => {
     try {
-      const v = localStorage.getItem('zapmass.contactsSubTab');
-      if (v === 'overview' || v === 'base' || v === 'lists' || v === 'segments' || v === 'birthdays') return v;
+      const v = localStorage.getItem('zapmass.contactsFilter');
+      if (typeof v === 'string' && v.length > 0) return v as SmartFilterId;
     } catch { /* ignore */ }
-    return 'overview';
+    return 'all';
   });
   useEffect(() => {
-    try { localStorage.setItem('zapmass.contactsSubTab', activeSubTab); } catch { /* ignore */ }
-  }, [activeSubTab]);
+    try { localStorage.setItem('zapmass.contactsFilter', String(activeFilter)); } catch { /* ignore */ }
+  }, [activeFilter]);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1213,25 +1215,87 @@ export const ContactsTab: React.FC = () => {
     new Set(contacts.map(c => (c.city || '').trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
+  // ============================================================
+  //  FILTRO SMART — sidebar do novo layout (all / hot / bday_today / list:xxx / ...)
+  // ============================================================
+  const phoneDupKeys = useMemo(() => {
+    const cnt: Record<string, number> = {};
+    for (const c of contacts) {
+      const k = normPhoneKey(c.phone);
+      if (!k) continue;
+      cnt[k] = (cnt[k] || 0) + 1;
+    }
+    const dup = new Set<string>();
+    for (const k in cnt) if (cnt[k] > 1) dup.add(k);
+    return dup;
+  }, [contacts]);
+
+  const matchesSmartFilter = useCallback((c: Contact, filter: SmartFilterId): boolean => {
+    if (filter === 'all') return true;
+    if (typeof filter === 'string' && filter.startsWith('list:')) {
+      const listId = filter.slice(5);
+      const list = contactLists.find((l) => l.id === listId);
+      return !!list?.contactIds?.includes(c.id);
+    }
+    const t = contactTemps[c.id];
+    switch (filter) {
+      case 'hot': return t?.temp === 'hot';
+      case 'warm': return t?.temp === 'warm';
+      case 'cold': return t?.temp === 'cold';
+      case 'new': return !t || t.temp === 'new';
+      case 'invalid': return c.status !== 'VALID';
+      case 'no_address': return !c.street || !c.city || !c.zipCode;
+      case 'duplicates': return phoneDupKeys.has(normPhoneKey(c.phone));
+      case 'dormant': {
+        if (!t || t.sent === 0) return false;
+        const DAY = 86400000;
+        const now = Date.now();
+        if (!t.lastReplyTs) return t.sent >= 2 && (now - t.lastSentTs) / DAY > 60;
+        const d = (now - t.lastReplyTs) / DAY;
+        return d > 30 && d <= 180;
+      }
+      case 'bday_today':
+      case 'bday_week': {
+        if (!c.birthday) return false;
+        const iso = c.birthday.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const br = c.birthday.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+        const m = iso ? parseInt(iso[2], 10) : br ? parseInt(br[2], 10) : null;
+        const d = iso ? parseInt(iso[3], 10) : br ? parseInt(br[1], 10) : null;
+        if (!m || !d) return false;
+        const today = new Date();
+        if (filter === 'bday_today') return m === today.getMonth() + 1 && d === today.getDate();
+        for (let i = 0; i < 7; i++) {
+          const dt = new Date(today);
+          dt.setDate(dt.getDate() + i);
+          if (m === dt.getMonth() + 1 && d === dt.getDate()) return true;
+        }
+        return false;
+      }
+      default: return true;
+    }
+  }, [contactLists, contactTemps, phoneDupKeys]);
+
   // Filter Logic
   const filteredContacts = contacts.filter(c => {
     const q = searchTerm.toLowerCase();
-    const matchesSearch = c.name.toLowerCase().includes(q) ||
+    const matchesSearch = !q ||
+      c.name.toLowerCase().includes(q) ||
       c.phone.includes(searchTerm) ||
       c.tags.some(t => t.toLowerCase().includes(q)) ||
-      c.city?.toLowerCase().includes(q) ||
-      c.state?.toLowerCase().includes(q) ||
-      c.street?.toLowerCase().includes(q) ||
-      c.neighborhood?.toLowerCase().includes(q) ||
-      c.zipCode?.toLowerCase().includes(q) ||
-      c.church?.toLowerCase().includes(q) ||
-      c.role?.toLowerCase().includes(q) ||
-      c.profession?.toLowerCase().includes(q);
+      (c.city?.toLowerCase().includes(q) ?? false) ||
+      (c.state?.toLowerCase().includes(q) ?? false) ||
+      (c.street?.toLowerCase().includes(q) ?? false) ||
+      (c.neighborhood?.toLowerCase().includes(q) ?? false) ||
+      (c.zipCode?.toLowerCase().includes(q) ?? false) ||
+      (c.church?.toLowerCase().includes(q) ?? false) ||
+      (c.role?.toLowerCase().includes(q) ?? false) ||
+      (c.profession?.toLowerCase().includes(q) ?? false);
     const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
     const matchesTag = !filterTag || c.tags.some(t => t.toLowerCase() === filterTag.toLowerCase());
     const matchesTemp = filterTemp === 'ALL' || contactTemps[c.id]?.temp === filterTemp;
     const matchesSegment = !activeSegment || getSmartSegmentMatches(activeSegment, c);
-    return matchesSearch && matchesStatus && matchesTag && matchesTemp && matchesSegment;
+    const matchesSmart = matchesSmartFilter(c, activeFilter);
+    return matchesSearch && matchesStatus && matchesTag && matchesTemp && matchesSegment && matchesSmart;
   });
 
   const listFilteredContacts = filteredContacts;
@@ -1571,14 +1635,6 @@ export const ContactsTab: React.FC = () => {
     fileInputRef.current?.click();
   }, []);
 
-  const contactsSubTabItems = useMemo(() => [
-    { id: 'overview', label: 'Visão geral', icon: <LayoutGrid className="w-3.5 h-3.5" /> },
-    { id: 'base', label: 'Base', icon: <Database className="w-3.5 h-3.5" />, badge: filteredContacts.length > 0 ? <span className="text-[10px] font-bold opacity-70">{filteredContacts.length}</span> : undefined },
-    { id: 'lists', label: 'Listas', icon: <ListChecks className="w-3.5 h-3.5" />, badge: contactLists.length > 0 ? <span className="text-[10px] font-bold opacity-70">{contactLists.length}</span> : undefined },
-    { id: 'segments', label: 'Segmentos', icon: <Sparkles className="w-3.5 h-3.5" />, badge: smartSegments.filter(s => s.count > 0).length > 0 ? <span className="text-[10px] font-bold opacity-70">{smartSegments.filter(s => s.count > 0).length}</span> : undefined },
-    { id: 'birthdays', label: 'Aniversariantes', icon: <Cake className="w-3.5 h-3.5" />, badge: smartStats.bdayWeek > 0 ? <span className="text-[10px] font-bold px-1 rounded bg-amber-500 text-white">{smartStats.bdayWeek}</span> : undefined }
-  ], [filteredContacts.length, contactLists.length, smartSegments, smartStats.bdayWeek]);
-
   // Converte os smartSegments existentes para o formato do painel (mapeia 'red' → 'rose').
   const segmentsForPanel = useMemo(() => smartSegments.map((s) => ({
     id: s.id,
@@ -1596,8 +1652,18 @@ export const ContactsTab: React.FC = () => {
   [contacts, contactTemps]);
 
   const handleSegmentApplyFilter = useCallback((segId: string) => {
-    setActiveSegment(segId as SmartSegmentId);
-    setActiveSubTab('base');
+    // Mapeia os segmentos do modal de Insights para filtros da nova sidebar.
+    const map: Record<string, SmartFilterId> = {
+      'birthday-week': 'bday_week',
+      'hot-inactive': 'hot',
+      'cold-reactivation': 'cold',
+      'no-tag': 'all',
+      'no-address': 'no_address',
+      'duplicates': 'duplicates',
+      'invalid': 'invalid',
+      'last-7-days': 'all'
+    };
+    setActiveFilter(map[segId] || 'all');
     setCurrentPage(1);
   }, []);
 
@@ -1629,30 +1695,116 @@ export const ContactsTab: React.FC = () => {
   const handleCreateCampaignWithFiltered = useCallback(() => {
     const draft = buildDraftFromContacts(filteredContacts, `Campanha (${filteredContacts.length} contatos)`);
     if (!draft) { toast.error('Nenhum contato no filtro atual.'); return; }
-    setActiveSubTab('base');
     launchCampaignWithDraft(draft);
   }, [buildDraftFromContacts, launchCampaignWithDraft, filteredContacts]);
 
-  const handleGoToSegments = useCallback(() => setActiveSubTab('segments'), []);
-  const handleGoToBirthdays = useCallback(() => setActiveSubTab('birthdays'), []);
-
-  /** Stats passadas ao Hero — memoizadas para o Hero memoizado não re-renderizar à toa. */
-  const heroStats = useMemo(() => ({
-    total: smartStats.total,
-    valid: validCount,
-    invalid: smartStats.invalid,
+  /** Contadores para a sidebar (memoizado — recalcula só quando a base ou temps mudam). */
+  const sidebarCounts: SidebarCounts = useMemo(() => ({
+    all: contacts.length,
     hot: smartStats.hot,
     warm: smartStats.warm,
     cold: smartStats.cold,
-    newOnes: smartStats.newOnes,
+    new: smartStats.newOnes,
+    bday_today: smartStats.bdayToday,
+    bday_week: smartStats.bdayWeek,
     dormant: smartStats.dormant,
-    bdayToday: smartStats.bdayToday,
-    bdayWeek: smartStats.bdayWeek,
-    addressPct: smartStats.addressPct,
-    last7: smartStats.last7,
-    duplicates: smartStats.duplicates,
-    growth30d: contactsGrowth30d
-  }), [smartStats, validCount, contactsGrowth30d]);
+    invalid: smartStats.invalid,
+    no_address: contacts.filter((c) => !c.street || !c.city || !c.zipCode).length,
+    duplicates: smartStats.duplicates
+  }), [contacts, smartStats]);
+
+  /** Stats enxutas para o HeaderBar (sem sparklines, sem grids pesados). */
+  const headerStats = useMemo(() => ({
+    total: smartStats.total,
+    valid: validCount,
+    newLast7: smartStats.last7,
+    hot: smartStats.hot,
+    bdayToday: smartStats.bdayToday
+  }), [smartStats, validCount]);
+
+  /** Contato em destaque (drawer) — tempStats equivalente. */
+  const selectedContactTemps = selectedContact ? contactTemps[selectedContact.id] : undefined;
+
+  const handleCreateListQuick = useCallback(async (name: string) => {
+    try {
+      await createContactList(name, []);
+      toast.success(`Lista "${name}" criada.`);
+    } catch {
+      toast.error('Não foi possível criar a lista.');
+    }
+  }, [createContactList]);
+
+  const handleManageList = useCallback((listId: string) => {
+    setListManageId(listId);
+  }, []);
+
+  const handleRowClick = useCallback((c: Contact) => {
+    setSelectedContact(c);
+  }, []);
+
+  const handleToggleSelectOne = useCallback((id: string) => {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }, []);
+
+  const handleToggleSelectAllVisible = useCallback(() => {
+    setSelectedIds((prev) => {
+      const visible = filteredContacts.map((c) => c.id);
+      const allSelected = visible.length > 0 && visible.every((id) => prev.includes(id));
+      if (allSelected) return prev.filter((id) => !visible.includes(id));
+      const union = new Set([...prev, ...visible]);
+      return Array.from(union);
+    });
+  }, [filteredContacts]);
+
+  const handleBulkAddToList = useCallback(async () => {
+    if (contactLists.length === 0) {
+      toast.error('Crie uma lista primeiro na sidebar.');
+      return;
+    }
+    const names = contactLists.map((l, i) => `${i + 1}. ${l.name}`).join('\n');
+    const resp = window.prompt(`Em qual lista adicionar ${selectedIds.length} contato(s)?\n\n${names}\n\nDigite o número:`);
+    const idx = resp ? parseInt(resp, 10) - 1 : -1;
+    const target = contactLists[idx];
+    if (!target) { toast.error('Lista inválida.'); return; }
+    const merged = Array.from(new Set([...(target.contactIds || []), ...selectedIds]));
+    try {
+      await updateContactList(target.id, { contactIds: merged });
+      toast.success(`${selectedIds.length} contato(s) adicionado(s) a "${target.name}".`);
+    } catch {
+      toast.error('Não foi possível atualizar a lista.');
+    }
+  }, [selectedIds, contactLists, updateContactList]);
+
+  const handleAddSingleToList = useCallback(async (c: Contact) => {
+    if (contactLists.length === 0) { toast.error('Crie uma lista primeiro.'); return; }
+    const names = contactLists.map((l, i) => `${i + 1}. ${l.name}`).join('\n');
+    const resp = window.prompt(`Em qual lista adicionar ${c.name}?\n\n${names}\n\nDigite o número:`);
+    const idx = resp ? parseInt(resp, 10) - 1 : -1;
+    const target = contactLists[idx];
+    if (!target) { toast.error('Lista inválida.'); return; }
+    if ((target.contactIds || []).includes(c.id)) {
+      toast('Contato já está nessa lista.', { icon: 'ℹ️' });
+      return;
+    }
+    try {
+      await updateContactList(target.id, { contactIds: [...(target.contactIds || []), c.id] });
+      toast.success(`${c.name} adicionado a "${target.name}".`);
+    } catch {
+      toast.error('Não foi possível atualizar a lista.');
+    }
+  }, [contactLists, updateContactList]);
+
+  const handleDeleteFromDrawer = useCallback(async (c: Contact) => {
+    if (!window.confirm(`Remover ${c.name || 'este contato'}?`)) return;
+    await removeContact(c.id);
+    setSelectedContact(null);
+    toast.success('Contato removido.');
+  }, [removeContact]);
+
+  const openInsights = useCallback(() => setInsightsOpen(true), []);
+  const closeInsights = useCallback(() => setInsightsOpen(false), []);
+  const closeDrawer = useCallback(() => setSelectedContact(null), []);
+  const clearBulkSelection = useCallback(() => setSelectedIds([]), []);
 
   return (
     <div className="space-y-5 pb-10 relative">
@@ -1666,21 +1818,15 @@ export const ContactsTab: React.FC = () => {
       />
 
       {!listManageId && (
-        <>
-          <ContactsCockpitHero
-            stats={heroStats}
-            onNewContact={openNewContactModal}
-            onImportXLSX={openImportXLSX}
-            onSmartImport={openSmartImport}
-            onDownloadTemplate={handleDownloadTemplate}
-            onExport={handleExport}
-          />
-          <Tabs
-            items={contactsSubTabItems}
-            value={activeSubTab}
-            onChange={(id) => setActiveSubTab(id as ContactsSubTab)}
-          />
-        </>
+        <ContactsHeaderBar
+          stats={headerStats}
+          onNewContact={openNewContactModal}
+          onImportXLSX={openImportXLSX}
+          onSmartImport={openSmartImport}
+          onDownloadTemplate={handleDownloadTemplate}
+          onExport={handleExport}
+          onOpenInsights={openInsights}
+        />
       )}
 
       {listManageId && (
@@ -1872,880 +2018,86 @@ export const ContactsTab: React.FC = () => {
         </div>
       ) : (
       <>
-      {/* Sub-aba: Visão Geral (novo ContactsOverview) */}
-      {activeSubTab === 'overview' && (
-        <ContactsOverview
-          contacts={contacts}
-          contactTemps={contactTemps}
-          onOpenChat={openInChat}
-          onNewCampaign={handleCreateCampaignWithFiltered}
-          onGoToSegments={handleGoToSegments}
-          onGoToBirthdays={handleGoToBirthdays}
+      {/* ========================================================
+           NOVO LAYOUT: WORKSPACE (sidebar + tabela virtualizada)
+         ======================================================== */}
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+        <ContactsSidebar
+          active={activeFilter}
+          onChange={(id) => { setActiveFilter(id); setSelectedIds([]); }}
+          counts={sidebarCounts}
+          lists={contactLists}
+          onCreateList={(name) => void handleCreateListQuick(name)}
+          onManageList={handleManageList}
+          query={searchTerm}
+          onQueryChange={setSearchTerm}
         />
-      )}
-
-      {/* Sub-aba: Segmentos Inteligentes */}
-      {activeSubTab === 'segments' && (
-        <ContactsSegmentsPanel
-          segments={segmentsForPanel}
-          getMatches={getSegmentMatchList}
-          onApplyFilterOnBase={handleSegmentApplyFilter}
-          onCreateCampaign={handleSegmentCreateCampaign}
-          onOpenChat={openInChat}
-        />
-      )}
-
-      {/* Sub-aba: Aniversariantes */}
-      {activeSubTab === 'birthdays' && (
-        <ContactsBirthdays
-          contacts={contacts}
-          onOpenChat={openInChat}
-          onBirthdayCampaign={handleBirthdayCampaign}
-        />
-      )}
-
-      {/* Sub-aba: Base (filtros, seleção, tabela) */}
-      {activeSubTab === 'base' && showFilterPanel && (
-        <div className="ui-card p-4 border-l-4 border-emerald-500">
-          <div className="flex flex-wrap gap-6 items-end">
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">Status</label>
-              <div className="flex gap-2">
-                {(['ALL', 'VALID', 'INVALID'] as const).map(s => (
-                  <button
-                    key={s}
-                    onClick={() => { setFilterStatus(s); setCurrentPage(1); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                      filterStatus === s ? 'brand-soft brand-text brand-border' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    {s === 'ALL' ? 'Todos' : s === 'VALID' ? 'Válidos' : 'Inválidos'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">Segmento (Tag)</label>
-              <div className="flex flex-wrap gap-1">
-                <button
-                  onClick={() => { setFilterTag(''); setCurrentPage(1); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    !filterTag ? 'brand-soft brand-text brand-border' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >Todas</button>
-                {topTags.map(([tag]) => (
-                  <button
-                    key={tag}
-                    onClick={() => { setFilterTag(tag); setCurrentPage(1); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                      filterTag === tag ? 'brand-soft brand-text brand-border' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-                    }`}
-                  >{tag}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase mb-2">Temperatura</label>
-              <div className="flex flex-wrap gap-1">
-                {(['ALL','hot','warm','cold','new'] as const).map(t => {
-                  const label = t === 'ALL' ? 'Todas' : TEMP_LABEL[t];
-                  const count = t === 'ALL'
-                    ? contacts.length
-                    : contacts.filter(c => contactTemps[c.id]?.temp === t).length;
-                  const active = filterTemp === t;
-                  const Icon = t === 'hot' ? Flame : t === 'warm' ? Flame : t === 'cold' ? Snowflake : t === 'new' ? Info : Filter;
-                  return (
-                    <button
-                      key={t}
-                      onClick={() => { setFilterTemp(t); setCurrentPage(1); }}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                        active ? 'brand-soft brand-text brand-border' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      {t !== 'ALL' && <Icon className="w-3 h-3" />}
-                      {label}
-                      <span className="text-[10px] opacity-60">{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <button
-              onClick={() => { setFilterStatus('ALL'); setFilterTag(''); setFilterTemp('ALL'); setCurrentPage(1); }}
-              className="text-xs text-slate-400 hover:text-red-500 ml-auto"
-            >Limpar filtros</button>
-          </div>
-        </div>
-      )}
-
-      {/* Filters Bar — apenas na sub-aba Base */}
-      {activeSubTab === 'base' && (
-      <div className="ui-card p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <label htmlFor="contactSearch" className="sr-only">Buscar contato</label>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-          <input 
-            id="contactSearch"
-            name="contactSearch"
-            type="text" 
-            placeholder="Buscar por nome, telefone, cidade, CEP, rua, igreja ou cargo..." 
-            className="ui-input pl-9"
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1); // Reset page on search
-            }}
+        <div className="flex flex-col gap-3 min-w-0">
+          <ContactsTableVirtual
+            rows={filteredContacts}
+            contactTemps={contactTemps}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelectOne}
+            onToggleSelectAll={handleToggleSelectAllVisible}
+            onRowClick={handleRowClick}
+            onEdit={beginEditContact}
+            onDelete={(c) => handleDelete(c.id)}
+            onOpenChat={openInChat}
+            onCreateCampaign={handleCreateCampaignForContact}
+            onCopyPhone={handleCopyPhone}
+            onAddToList={handleAddSingleToList}
+            selectedContactId={selectedContact?.id || null}
+            emptyHint={
+              searchTerm
+                ? <>Nenhum contato casa com "<b>{searchTerm}</b>".</>
+                : activeFilter === 'all'
+                  ? 'Sua base está vazia. Importe ou crie um contato.'
+                  : 'Ajuste o filtro na lateral ou tente outra busca.'
+            }
           />
         </div>
-        
-        <div className="flex gap-2 w-full md:w-auto">
-           <button 
-             onClick={() => setShowFilterPanel(!showFilterPanel)}
-             className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${showFilterPanel ? 'brand-soft brand-text brand-border' : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-transparent hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-           >
-             <Filter className="w-4 h-4" /> Filtros {(filterStatus !== 'ALL' || filterTag || filterTemp !== 'ALL') ? '●' : ''}
-           </button>
-           <button 
-             onClick={handleExport}
-             className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-lg text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-700 border border-transparent"
-           >
-             <Download className="w-4 h-4" /> Exportar
-           </button>
-        </div>
       </div>
-      )}
+      <ContactsBulkBar
+        count={selectedIds.length}
+        onClear={clearBulkSelection}
+        onCreateCampaign={handleCreateCampaignWithSelection}
+        onAddToList={handleBulkAddToList}
+        onAddTag={() => void handleBulkAddTag()}
+        onExport={handleBulkExport}
+        onDelete={() => void handleBulkDelete()}
+      />
 
-      {/* Bloco removido: Segmentos Inteligentes + Atividade — agora na sub-aba "Visão geral" (ContactsOverview) e "Segmentos" (ContactsSegmentsPanel). */}
-      {false && (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="ui-card p-4 lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-violet-500" /> Segmentos Inteligentes
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">Clique em um segmento para filtrar a lista abaixo.</p>
-            </div>
-            {activeSegment && (
-              <button
-                onClick={() => { setActiveSegment(null); setCurrentPage(1); }}
-                className="text-[11px] font-semibold text-slate-500 hover:text-rose-500 underline"
-              >
-                Limpar segmento
-              </button>
-            )}
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {smartSegments.map((seg) => {
-              const Icon = seg.icon;
-              const active = activeSegment === seg.id;
-              const colorMap: Record<string, string> = {
-                amber: 'from-amber-50 to-amber-100 text-amber-700 border-amber-200 dark:from-amber-950/30 dark:to-amber-950/10 dark:text-amber-300 dark:border-amber-900/40',
-                red: 'from-rose-50 to-rose-100 text-rose-700 border-rose-200 dark:from-rose-950/30 dark:to-rose-950/10 dark:text-rose-300 dark:border-rose-900/40',
-                sky: 'from-sky-50 to-sky-100 text-sky-700 border-sky-200 dark:from-sky-950/30 dark:to-sky-950/10 dark:text-sky-300 dark:border-sky-900/40',
-                emerald: 'from-emerald-50 to-emerald-100 text-emerald-700 border-emerald-200 dark:from-emerald-950/30 dark:to-emerald-950/10 dark:text-emerald-300 dark:border-emerald-900/40',
-                slate: 'from-slate-50 to-slate-100 text-slate-700 border-slate-200 dark:from-slate-800/60 dark:to-slate-800/30 dark:text-slate-300 dark:border-slate-700',
-                violet: 'from-violet-50 to-violet-100 text-violet-700 border-violet-200 dark:from-violet-950/30 dark:to-violet-950/10 dark:text-violet-300 dark:border-violet-900/40',
-                rose: 'from-rose-50 to-rose-100 text-rose-700 border-rose-200 dark:from-rose-950/30 dark:to-rose-950/10 dark:text-rose-300 dark:border-rose-900/40'
-              };
-              const bgMap = colorMap[seg.color] || colorMap.slate;
-              return (
-                <button
-                  key={seg.id}
-                  type="button"
-                  disabled={seg.count === 0}
-                  onClick={() => {
-                    setActiveSegment(active ? null : seg.id);
-                    setCurrentPage(1);
-                  }}
-                  className={`group relative text-left p-3 rounded-xl border bg-gradient-to-br transition-all ${
-                    active
-                      ? `${bgMap} ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 ring-violet-400 shadow-lg scale-[1.02]`
-                      : seg.count === 0
-                        ? 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700 opacity-50 cursor-not-allowed text-slate-400'
-                        : `${bgMap} hover:shadow-md hover:scale-[1.01]`
-                  }`}
-                  title={seg.hint}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <Icon className="w-3.5 h-3.5 shrink-0" />
-                        <p className="text-[11px] font-bold leading-tight truncate">{seg.label}</p>
-                      </div>
-                      <p className="text-xl font-black tabular-nums mt-1">{seg.count}</p>
-                    </div>
-                  </div>
-                  <p className="text-[10px] opacity-70 mt-1 line-clamp-1">{seg.hint}</p>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Tags populares como atalho secundário */}
-          {topTags.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Tags populares</p>
-              <div className="flex flex-wrap gap-1.5">
-                {topTags.map(([tag, count]) => (
-                  <button
-                    key={tag}
-                    onClick={() => {
-                      setFilterTag(filterTag === tag ? '' : tag);
-                      setCurrentPage(1);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
-                      filterTag === tag
-                        ? 'brand-soft brand-text brand-border'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    {tag} <span className="opacity-60 tabular-nums">{count}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Atividade recente — com temperatura e último toque */}
-        <div className="ui-card p-4 flex flex-col">
-          <h3 className="font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
-            <Rocket className="w-4 h-4 text-emerald-500" /> Atividade recente
-          </h3>
-          {(() => {
-            // Ordena por última movimentação (resposta > leitura > envio)
-            const withTs = contacts
-              .map((c) => {
-                const t = contactTemps[c.id];
-                const latest = t
-                  ? Math.max(t.lastReplyTs || 0, t.lastReadTs || 0, t.lastSentTs || 0)
-                  : 0;
-                return { c, t, latest };
-              })
-              .filter((x) => x.latest > 0)
-              .sort((a, b) => b.latest - a.latest)
-              .slice(0, 5);
-
-            if (withTs.length === 0) {
-              return (
-                <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-2">
-                    <MessageCircle className="w-5 h-5 text-slate-400" />
-                  </div>
-                  <p className="text-xs text-slate-500">Nenhuma atividade registrada ainda.</p>
-                  <button
-                    onClick={() => setCurrentView('campaigns')}
-                    className="mt-3 text-[11px] font-bold text-emerald-600 hover:underline"
-                  >
-                    Criar primeira campanha →
-                  </button>
-                </div>
-              );
-            }
-
-            const fmtAgo = (ms: number) => {
-              const diff = Date.now() - ms;
-              const min = Math.floor(diff / 60000);
-              if (min < 1) return 'agora';
-              if (min < 60) return `${min}min`;
-              const h = Math.floor(min / 60);
-              if (h < 24) return `${h}h`;
-              const d = Math.floor(h / 24);
-              if (d < 30) return `${d}d`;
-              return `${Math.floor(d / 30)}m`;
-            };
-
-            return (
-              <div className="space-y-2 flex-1">
-                {withTs.map(({ c, t, latest }) => {
-                  const acc = t ? TEMP_ACCENT[t.temp] : TEMP_ACCENT.new;
-                  const Icon = t?.temp === 'hot' ? Flame : t?.temp === 'warm' ? Flame : t?.temp === 'cold' ? Snowflake : Info;
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => openInChat(c)}
-                      className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors group text-left"
-                    >
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${acc.bg} ${acc.fg}`}>
-                        {c.name.charAt(0).toUpperCase() || '?'}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{c.name}</span>
-                          {t && <Icon className={`w-3 h-3 shrink-0 ${acc.fg}`} />}
-                        </div>
-                        <p className="text-[10.5px] text-slate-500 truncate">
-                          {t?.lastReplyTs === latest ? 'respondeu' : t?.lastReadTs === latest ? 'leu' : 'recebeu'} há {fmtAgo(latest)}
-                        </p>
-                      </div>
-                      <MessageCircle className="w-4 h-4 text-slate-300 group-hover:text-emerald-500 shrink-0" />
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-      )}
-
-      {/* Sub-aba: Listas */}
-      {activeSubTab === 'lists' && (
-      <div className="ui-card p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-slate-900 dark:text-white">Listas de Contatos</h3>
-          <span className="text-xs text-slate-400">{contactLists.length} lista{contactLists.length !== 1 ? 's' : ''}</span>
-        </div>
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 mb-3">
-          <p className="text-xs font-semibold text-slate-500 mb-2">Criar nova lista</p>
-          <div className="flex flex-col md:flex-row gap-2">
-            <input
-              value={quickListName}
-              onChange={(e) => setQuickListName(e.target.value)}
-              placeholder="Ex: Liderança SP"
-              className="ui-input flex-1"
-            />
-            <button onClick={() => void handleCreateQuickList()} className="ui-btn-primary whitespace-nowrap">
-              <ListPlus className="w-4 h-4" /> Criar Lista
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-400 mt-2">
-            Usa contatos selecionados; se nada estiver selecionado, usa os contatos do filtro atual.
-          </p>
-        </div>
-        {contactLists.length === 0 ? (
-          <p className="text-sm text-slate-400">Nenhuma lista criada ainda. Selecione contatos abaixo e crie sua primeira lista.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {contactLists.map((list) => {
-              const count = list.contactIds?.length || list.count || 0;
-              return (
-              <div
-                key={list.id}
-                className="group rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 flex items-start justify-between gap-3 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md transition-all"
-              >
-                {editingListId === list.id ? (
-                  <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center gap-2">
-                    <input
-                      value={editingListName}
-                      onChange={(e) => setEditingListName(e.target.value)}
-                      className="ui-input h-8 text-sm flex-1 min-w-0"
-                    />
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button type="button" onClick={() => void saveListName()} className="ui-btn-primary h-8 px-3">Salvar</button>
-                      <button type="button" onClick={() => { setEditingListId(null); setEditingListName(''); }} className="ui-btn h-8 px-3">Cancelar</button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => openListManage(list.id)}
-                    className="min-w-0 flex-1 text-left rounded-lg -m-1 p-1 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                    title="Gerir contatos desta lista"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs shrink-0">
-                        {list.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{list.name}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          <span className="tabular-nums font-semibold">{count}</span> contato{count !== 1 ? 's' : ''}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                )}
-                <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    disabled={count === 0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCreateCampaignWithList(list);
-                    }}
-                    className="p-1.5 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="Criar campanha com esta lista"
-                  >
-                    <Rocket className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      beginEditList(list);
-                    }}
-                    className="p-1.5 rounded-md text-slate-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-500/10"
-                    title="Editar nome da lista"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDeleteList(list.id, list.name);
-                    }}
-                    className="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
-                    title="Excluir lista"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-      )}
-
-      {/* Sub-aba: Base — seleção + tabela */}
-      {activeSubTab === 'base' && selectedIds.length > 0 && (
-        <div className="ui-card p-4 border-l-4 border-emerald-500 bg-gradient-to-r from-emerald-50/40 to-transparent dark:from-emerald-950/20">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black text-emerald-700 dark:text-emerald-300 uppercase tracking-widest flex items-center gap-1.5">
-                  <CheckSquare className="w-3 h-3" /> Seleção ativa
-                </p>
-                <p className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
-                  {selectedIds.length} contato{selectedIds.length > 1 ? 's' : ''} selecionado{selectedIds.length > 1 ? 's' : ''}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedIds([])}
-                className="text-[11px] font-semibold text-slate-500 hover:text-rose-500 underline self-start sm:self-auto"
-              >
-                Limpar seleção
-              </button>
-            </div>
-
-            {/* Ações principais — ponte para outras abas */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <button
-                type="button"
-                onClick={handleCreateCampaignWithSelection}
-                className="group flex items-center gap-2 p-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-sm hover:shadow-md"
-                title="Ir para Campanhas com estes contatos"
-              >
-                <Rocket className="w-4 h-4" />
-                <span className="truncate">Criar campanha</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleBulkAddTag()}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors"
-                title="Adicionar tag em massa"
-              >
-                <Tag className="w-4 h-4 text-violet-500" />
-                <span className="truncate">Adicionar tag</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleBulkExport}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors"
-                title="Exportar somente a seleção"
-              >
-                <Download className="w-4 h-4 text-sky-500" />
-                <span className="truncate">Exportar seleção</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleBulkDelete()}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-300 font-bold text-xs transition-colors"
-                title="Excluir em massa"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="truncate">Excluir</span>
-              </button>
-            </div>
-
-            {/* Ações secundárias — listas */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div>
-                <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Lista existente</p>
-                {contactLists.length > 0 ? (
-                  <div className="flex gap-2">
-                    <select
-                      value={addToListSelectId}
-                      onChange={(e) => setAddToListSelectId(e.target.value)}
-                      className="ui-input flex-1 text-sm"
-                    >
-                      <option value="">Escolha uma lista...</option>
-                      {contactLists.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.name} ({l.contactIds?.length || 0})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => void handleAddSelectionToList()}
-                      disabled={!addToListSelectId}
-                      className="ui-btn-primary whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                    >
-                      <UserPlus className="w-4 h-4" /> Incluir
-                    </button>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-slate-400 italic">Nenhuma lista cadastrada ainda.</p>
-                )}
-              </div>
-              <div>
-                <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Nova lista</p>
-                <div className="flex gap-2">
-                  {showCreateList ? (
-                    <>
-                      <input
-                        type="text"
-                        value={newListName}
-                        onChange={(e) => setNewListName(e.target.value)}
-                        className="ui-input flex-1 text-sm"
-                        placeholder="Nome da lista"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => void handleCreateListFromSelection()}
-                        className="ui-btn-primary whitespace-nowrap text-xs"
-                      >
-                        <Save className="w-4 h-4" /> Salvar
-                      </button>
-                      <button
-                        onClick={() => { setShowCreateList(false); setNewListName(''); }}
-                        className="ui-btn whitespace-nowrap text-xs"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setShowCreateList(true)}
-                      className="ui-btn whitespace-nowrap border border-slate-200 dark:border-slate-600 text-xs w-full justify-center"
-                    >
-                      <ListPlus className="w-4 h-4" /> Criar nova lista
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Remover tag (secundário) */}
-            <div className="flex items-center gap-3 text-[11px]">
-              <button
-                onClick={() => void handleBulkRemoveTag()}
-                className="font-semibold text-slate-500 hover:text-rose-500 underline decoration-dotted"
-              >
-                Remover tag da seleção
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Contacts Table — sub-aba Base */}
-      {activeSubTab === 'base' && (
-      <div className="ui-card overflow-hidden flex flex-col min-h-[400px]">
-        {/* Temperatura sempre visivel (o restante dos filtros continua no painel "Filtros") */}
-        <div className="px-3 sm:px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/40 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 shrink-0">Temperatura</span>
-          <div className="flex flex-wrap gap-1.5 flex-1">
-            {(['ALL', 'hot', 'warm', 'cold', 'new'] as const).map(t => {
-              const label = t === 'ALL' ? 'Todas' : TEMP_LABEL[t];
-              const count = t === 'ALL' ? contacts.length : contacts.filter(c => contactTemps[c.id]?.temp === t).length;
-              const active = filterTemp === t;
-              const Icon = t === 'hot' ? Flame : t === 'warm' ? Flame : t === 'cold' ? Snowflake : t === 'new' ? Info : Filter;
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => { setFilterTemp(t); setCurrentPage(1); }}
-                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
-                    active
-                      ? 'brand-soft brand-text brand-border'
-                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {t !== 'ALL' && <Icon className="w-3 h-3" />}
-                  {label}
-                  <span className="opacity-60 tabular-nums">{count}</span>
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowFilterPanel(true)}
-            className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline shrink-0 self-start sm:self-auto"
-          >
-            Mais filtros (status, tags…)
-          </button>
-        </div>
-        <div className="overflow-x-auto flex-1">
-          <table className="w-full text-sm text-left">
-            <thead className="text-slate-400 font-bold" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-              <tr>
-                <th className="px-4 py-3 w-10">
-                  <button onClick={toggleSelectAll} className="text-slate-400 hover:text-emerald-500 transition-colors">
-                    {allPageSelected ? <CheckSquare className="w-4 h-4 text-emerald-500" /> : <Square className="w-4 h-4" />}
-                  </button>
-                </th>
-                <th className="px-4 py-3 text-xs uppercase tracking-wider">Nome / Telefone</th>
-                <th className="px-4 py-3 text-xs uppercase tracking-wider hidden md:table-cell">Cidade / Endereço</th>
-                <th className="px-4 py-3 text-xs uppercase tracking-wider hidden lg:table-cell">Igreja &amp; Cargo</th>
-                <th className="px-4 py-3 text-xs uppercase tracking-wider hidden sm:table-cell">Tags</th>
-                <th className="px-4 py-3 text-xs uppercase tracking-wider hidden md:table-cell">Listas</th>
-                <th className="px-4 py-3 text-xs uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-right text-xs uppercase tracking-wider">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedContacts.map((contact) => {
-                const isSelected = selectedIds.includes(contact.id);
-                return (
-                <tr key={contact.id}
-                  onClick={() => toggleSelect(contact.id)}
-                  className="cursor-pointer transition-colors group"
-                  style={{ borderBottom: '1px solid var(--border)', background: isSelected ? 'rgba(16,185,129,0.05)' : undefined }}>
-                  <td className="px-4 py-3">
-                    {isSelected
-                      ? <CheckSquare className="w-4 h-4 text-emerald-500" />
-                      : <Square className="w-4 h-4 text-slate-300 group-hover:text-slate-500" />}
-                  </td>
-                  {/* Nome, Telefone e Temperatura */}
-                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 text-emerald-700" style={{ background: 'rgba(16,185,129,0.12)' }}>
-                        {contact.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-slate-900 dark:text-white text-sm">{contact.name}</span>
-                          {(() => {
-                            const t = contactTemps[contact.id];
-                            if (!t) return null;
-                            const acc = TEMP_ACCENT[t.temp];
-                            const Icon = t.temp === 'hot' ? Flame : t.temp === 'warm' ? Flame : t.temp === 'cold' ? Snowflake : Info;
-                            return (
-                              <span
-                                title={`Enviadas: ${t.sent} · Entregues: ${t.delivered} · Lidas: ${t.read} · Respostas: ${t.replied}`}
-                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${acc.bg} ${acc.fg} ${acc.border}`}
-                              >
-                                <Icon className="w-3 h-3" />
-                                {TEMP_LABEL[t.temp]}
-                              </span>
-                            );
-                          })()}
-                        </div>
-                        <div className="text-xs text-slate-400 font-mono">{contact.phone}</div>
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Cidade + endereÃ§o (campos novos aparecem aqui; ediÃ§Ã£o completa no lÃ¡pis) */}
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
-                       <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                       <span>
-                         {contact.city || <span className="text-slate-400">-</span>}
-                         {contact.state ? <span className="text-slate-500 font-medium"> / {contact.state}</span> : null}
-                       </span>
-                    </div>
-                    {(contact.street || contact.neighborhood || contact.zipCode || contact.number) ? (
-                      <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 pl-5 max-w-[220px]">
-                        <Home className="w-3 h-3 shrink-0 mt-0.5 text-slate-400" />
-                        <span className="line-clamp-2 break-words" title={[contact.street, contact.number].filter(Boolean).join(', ') + (contact.neighborhood ? ` · ${contact.neighborhood}` : '') + (contact.zipCode ? ` · CEP ${contact.zipCode}` : '')}>
-                          {[contact.street, contact.number].filter(Boolean).join(', ')}
-                          {contact.neighborhood ? ` · ${contact.neighborhood}` : ''}
-                          {contact.zipCode ? ` · CEP ${contact.zipCode}` : ''}
-                        </span>
-                      </div>
-                    ) : null}
-                  </td>
-
-                  {/* Igreja e Cargo */}
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5 text-slate-900 dark:text-white font-medium text-xs">
-                         <User className="w-3 h-3 text-blue-500" />
-                         {contact.role || 'Membro'}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-xs">
-                         <Church className="w-3 h-3 text-slate-400" />
-                         {contact.church || 'Não informada'}
-                      </div>
-                      {contact.profession && (
-                        <div className="flex items-center gap-1.5 text-sky-600 dark:text-sky-400 text-[11px]">
-                          <Briefcase className="w-3 h-3 text-sky-500" />
-                          {contact.profession}
-                        </div>
-                      )}
-                      {contact.birthday && (
-                        <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 text-[11px]">
-                           <span className="w-3 h-3 flex items-center justify-center">🎂</span>
-                           {(() => {
-                             try {
-                               const d = new Date(contact.birthday);
-                               if (isNaN(d.getTime())) return contact.birthday;
-                               return d.toLocaleDateString('pt-BR');
-                             } catch { return contact.birthday; }
-                           })()}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* Tags */}
-                  <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-1">
-                      {contact.tags.length > 0 ? contact.tags.map(tag => (
-                        <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                          {tag}
-                        </span>
-                      )) : <span className="text-slate-400 text-xs">-</span>}
-                    </div>
-                  </td>
-
-                  {/* Quantas listas o contato participa */}
-                  <td className="px-6 py-4 hidden md:table-cell" onClick={e => e.stopPropagation()}>
-                    {(() => {
-                      const n = contactListMembership.counts[contact.id] || 0;
-                      const names = contactListMembership.names[contact.id];
-                      const title = names?.length ? names.join(', ') : 'NÃ£o estÃ¡ em nenhuma lista';
-                      return (
-                        <span
-                          title={title}
-                          className={`inline-flex items-center gap-1.5 text-xs font-semibold tabular-nums ${n > 0 ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-400'}`}
-                        >
-                          <Layers className="w-3.5 h-3.5 shrink-0 opacity-80" />
-                          {n}
-                        </span>
-                      );
-                    })()}
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-6 py-4">
-                    {contact.status === 'VALID' ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium bg-green-50 text-green-700 border border-green-100">
-                        <CheckCircle2 className="w-3 h-3" /> Válido
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium bg-red-50 text-red-700 border border-red-100">
-                        <XCircle className="w-3 h-3" /> Inválido
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Ações */}
-                  <td className="px-6 py-4 text-right">
-                    <div className="inline-flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openInChat(contact);
-                        }}
-                        className="text-slate-300 hover:text-emerald-600 p-1.5 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors"
-                        title="Abrir conversa no chat"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCreateCampaignForContact(contact);
-                        }}
-                        className="text-slate-300 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
-                        title="Nova campanha para este contato"
-                      >
-                        <Send className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleCopyPhone(contact);
-                        }}
-                        className="text-slate-300 hover:text-sky-600 p-1.5 rounded-md hover:bg-sky-50 dark:hover:bg-sky-500/10 transition-colors"
-                        title="Copiar telefone"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          beginEditContact(contact);
-                        }}
-                        className="text-slate-300 hover:text-brand-600 p-1.5 rounded-md hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-colors"
-                        title="Editar contato"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(contact.id);
-                        }}
-                        className="text-slate-300 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-                        title="Apagar contato da base"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-              })}
-            </tbody>
-          </table>
-        </div>
-        
-        {listFilteredContacts.length === 0 && (
-          <div className="p-10">
-            <EmptyState
-              icon={<Users className="w-5 h-5" style={{ color: 'var(--text-3)' }} />}
-              title={contacts.length === 0 ? 'Sua base está vazia' : 'Nenhum contato no filtro atual'}
-              description={
-                contacts.length === 0
-                  ? 'Comece importando uma planilha, colando do Excel ou cadastrando manualmente.'
-                  : 'Ajuste os filtros, limpe o segmento selecionado ou tente outra busca.'
-              }
-            />
-          </div>
-        )}
-
-        {/* Pagination Controls */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
-           <span>Mostrando {paginatedContacts.length} de {listFilteredContacts.length} contatos</span>
-           <div className="flex gap-2 items-center">
-             <span className="mr-2">Página {currentPage} de {totalPages || 1}</span>
-             <button 
-               onClick={() => handlePageChange(currentPage - 1)}
-               disabled={currentPage === 1}
-               className="p-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-             >
-               <ChevronLeft className="w-4 h-4" />
-             </button>
-             <button 
-               onClick={() => handlePageChange(currentPage + 1)}
-               disabled={currentPage === totalPages || totalPages === 0}
-               className="p-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-             >
-               <ChevronRight className="w-4 h-4" />
-             </button>
-           </div>
-        </div>
-      </div>
-      )}
       </>
       )}
-      
+
+      {/* Drawer lateral de detalhe do contato */}
+      <ContactDetailDrawer
+        contact={selectedContact}
+        tempStats={selectedContactTemps}
+        onClose={closeDrawer}
+        onEdit={(c) => { setSelectedContact(null); beginEditContact(c); }}
+        onDelete={handleDeleteFromDrawer}
+        onOpenChat={(c) => { setSelectedContact(null); openInChat(c); }}
+        onCreateCampaign={(c) => { setSelectedContact(null); handleCreateCampaignForContact(c); }}
+        onCopyPhone={handleCopyPhone}
+        onAddToList={handleAddSingleToList}
+      />
+
+      {/* Modal de Insights (lazy — só carrega ao abrir) */}
+      <ContactsInsightsModal
+        open={insightsOpen}
+        onClose={closeInsights}
+        contacts={contacts}
+        contactTemps={contactTemps}
+        segments={segmentsForPanel}
+        getSegmentMatches={getSegmentMatchList}
+        onOpenChat={openInChat}
+        onCreateCampaignFiltered={handleCreateCampaignWithFiltered}
+        onApplyFilterOnBase={handleSegmentApplyFilter}
+        onSegmentCampaign={handleSegmentCreateCampaign}
+        onBirthdayCampaign={handleBirthdayCampaign}
+      />
+
       {/* ... Modal Code (unchanged logic, just inside this updated component) ... */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">

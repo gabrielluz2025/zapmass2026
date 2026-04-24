@@ -1,0 +1,40 @@
+feat(contacts): nova proposta Workspace - layout leve estilo Intercom/HubSpot
+
+Reescrita completa da aba Contatos focada em PERFORMANCE e PRODUTIVIDADE,
+substituindo o Command Center anterior que ficava pesado ao carregar.
+
+Arquitetura nova
+- Layout de 2 colunas: Sidebar (filtros) + Tabela virtualizada
+- Drawer lateral para detalhes/acoes do contato (estilo WhatsApp Web)
+- Modal "Insights" com dashboards ricos (lazy-loaded sob demanda)
+- Barra flutuante de acoes em lote (aparece so quando ha selecao)
+- Zero sub-abas — filtros viram itens de sidebar com contadores
+
+Novos componentes (em src/components/contacts/workspace/)
+- ContactsHeaderBar: header enxuto com KPIs flat e acoes primarias
+- ContactsSidebar: filtros smart (hot, warm, dormant...) + listas
+- ContactsTableVirtual: tabela com @tanstack/react-virtual
+  (so renderiza ~20 linhas visiveis, suporta dezenas de milhares)
+- ContactDetailDrawer: painel lateral de detalhe com quick actions
+- ContactsBulkBar: barra sticky de acoes em lote
+- ContactsInsightsModal: modal com React.lazy dos dashboards pesados
+
+Ganhos de performance
+- Code splitting: ContactsOverview (18KB), ContactsBirthdays (13KB),
+  ContactsSegmentsPanel (8KB) viraram chunks separados — baixam so
+  quando modal Insights abre.
+- Virtualizacao: mesmo com 10k contatos, so ~20 linhas no DOM.
+- Sem Hero com 8 KPIs animados + sparklines SVG na carga inicial.
+- Sem 6 donuts + heatmap 90d + 3 bar lists montados ao abrir aba.
+- Cargas pesadas removidas do caminho critico.
+
+Features preservadas
+- Importacao XLSX/CSV/smart, exportacao, template
+- Todos os 8 segmentos inteligentes (reorganizados na sidebar)
+- Gestao de listas (criar, editar membros, adicionar/remover)
+- Bulk actions: campanha, lista, tag, export, delete
+- Aniversariantes (filtro dedicado + modal de Insights)
+- Edicao de contato, temperatura, drawer com historico
+- Inter-tab: abrir chat, criar campanha 1:1 ou em lote
+
+Dependencia adicionada: @tanstack/react-virtual
