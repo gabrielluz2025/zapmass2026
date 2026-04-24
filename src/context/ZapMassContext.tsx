@@ -845,34 +845,64 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para limpar os dados.');
 
-    // Coleções que pertencem ao usuário e devem ser totalmente limpas.
-    const userCollections = [
-      'contacts',
-      'contactLists',
-      'campaigns',
-      'connections',
-      'systemLogs',
-      'warmupQueue',
-      'metrics'
-    ];
+    // Escopo estritamente do usuário logado: apenas em users/{uid}/...
+    // Mantemos a limpeza resiliente a regras de permissão por coleção.
+    let hadAnySuccess = false;
+    const errors: string[] = [];
 
-    for (const collName of userCollections) {
-      const snap = await getDocs(collection(db, 'users', uid, collName));
-      if (snap.empty) continue;
-
-      // Firestore limita operações por batch; executamos em blocos de 400.
-      let batch = writeBatch(db);
-      let pending = 0;
-      for (const row of snap.docs) {
-        batch.delete(row.ref);
-        pending++;
-        if (pending >= 400) {
-          await batch.commit();
-          batch = writeBatch(db);
-          pending = 0;
+    const deleteCollectionDocs = async (collPath: string) => {
+      try {
+        const snap = await getDocs(collection(db, collPath));
+        if (snap.empty) return;
+        let batch = writeBatch(db);
+        let pending = 0;
+        for (const row of snap.docs) {
+          batch.delete(row.ref);
+          pending++;
+          if (pending >= 400) {
+            await batch.commit();
+            batch = writeBatch(db);
+            pending = 0;
+          }
         }
+        if (pending > 0) await batch.commit();
+        hadAnySuccess = true;
+      } catch (err: any) {
+        errors.push(`${collPath}: ${err?.message || 'erro desconhecido'}`);
       }
-      if (pending > 0) await batch.commit();
+    };
+
+    // Coleções suportadas e usadas hoje no app.
+    await deleteCollectionDocs(`users/${uid}/contacts`);
+    await deleteCollectionDocs(`users/${uid}/contact_lists`);
+
+    // Campanhas: primeiro apaga logs de cada campanha, depois a campanha.
+    try {
+      const campaignSnap = await getDocs(collection(db, 'users', uid, 'campaigns'));
+      if (!campaignSnap.empty) {
+        for (const campaignDoc of campaignSnap.docs) {
+          await deleteCollectionDocs(`users/${uid}/campaigns/${campaignDoc.id}/logs`);
+        }
+        let batch = writeBatch(db);
+        let pending = 0;
+        for (const campaignDoc of campaignSnap.docs) {
+          batch.delete(campaignDoc.ref);
+          pending++;
+          if (pending >= 400) {
+            await batch.commit();
+            batch = writeBatch(db);
+            pending = 0;
+          }
+        }
+        if (pending > 0) await batch.commit();
+        hadAnySuccess = true;
+      }
+    } catch (err: any) {
+      errors.push(`users/${uid}/campaigns: ${err?.message || 'erro desconhecido'}`);
+    }
+
+    if (!hadAnySuccess && errors.length > 0) {
+      throw new Error('Permissão insuficiente para limpar os dados deste usuário.');
     }
 
     // Limpa estado local imediatamente para refletir a ação na UI sem atraso.
