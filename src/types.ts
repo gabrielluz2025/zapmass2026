@@ -190,6 +190,14 @@ export interface UserSubscription {
   nfeLastInvoiceStatus?: string;
   /** URL publica do PDF da NFS-e emitida (disponivel apos aprovacao da prefeitura). */
   nfeLastInvoicePdfUrl?: string;
+  /** Liberacao manual concedida pelo admin (independente de contrato). */
+  manualGrant?: boolean;
+  /** Fim da liberacao manual (Timestamp Firestore). Se vazio, sem prazo. */
+  manualAccessEndsAt?: unknown;
+  /** Conta bloqueada manualmente pelo admin. */
+  blocked?: boolean;
+  /** Observacao administrativa sobre acesso manual/bloqueio. */
+  adminNote?: string;
   updatedAt?: unknown;
 }
 

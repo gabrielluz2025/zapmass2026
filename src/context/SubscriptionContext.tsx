@@ -74,7 +74,13 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     if (!enforce) return true;
     if (!user) return false;
     if (!subscription) return false;
+    if (subscription.blocked === true) return false;
     const now = Date.now();
+    const manualEnd = firestoreTimeToMs(subscription.manualAccessEndsAt);
+    if (subscription.manualGrant === true) {
+      if (manualEnd == null) return true;
+      return now < manualEnd;
+    }
     const trialEnd = firestoreTimeToMs(subscription.trialEndsAt);
     const accessEnd = firestoreTimeToMs(subscription.accessEndsAt);
 
@@ -102,6 +108,16 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
   const readOnlyMessage = useMemo(() => {
     if (!readOnlyMode || !subscription) {
       return 'Acesso as acoes bloqueado. Assine o ZapMass Pro para continuar.';
+    }
+    if (subscription.blocked === true) {
+      return 'Sua conta foi bloqueada pelo administrador. Entre em contato com o suporte para liberar o acesso.';
+    }
+    if (subscription.manualGrant === true) {
+      const manualEnd = firestoreTimeToMs(subscription.manualAccessEndsAt);
+      if (manualEnd != null && Date.now() >= manualEnd) {
+        return 'Sua liberação administrativa expirou. Solicite renovação ao administrador ou assine um plano.';
+      }
+      return 'Seu acesso administrativo foi revogado. Solicite ajuste ao administrador.';
     }
     const now = Date.now();
     const trialEnd = firestoreTimeToMs(subscription.trialEndsAt);

@@ -1,19 +1,51 @@
-import React, { useEffect, useState } from 'react';
-import { Loader2, Save, Shield } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui';
 
+type AdminTab = 'config' | 'access';
+type AccessUser = {
+  uid: string;
+  email: string;
+  status: string;
+  provider: string;
+  plan: string | null;
+  blocked: boolean;
+  manualGrant: boolean;
+  trialEndsAt: string | null;
+  accessEndsAt: string | null;
+  manualAccessEndsAt: string | null;
+  adminNote: string;
+  updatedAt: string | null;
+};
+
+const toPtDateTime = (iso: string | null | undefined): string => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('pt-BR');
+  } catch {
+    return '—';
+  }
+};
+
 export const AdminPanel: React.FC = () => {
   const { user } = useAuth();
   const { config, reload } = useAppConfig();
+  const [tab, setTab] = useState<AdminTab>('config');
   const [saving, setSaving] = useState(false);
   const [marketingPriceMonthly, setMarketingPriceMonthly] = useState('');
   const [marketingPriceAnnual, setMarketingPriceAnnual] = useState('');
   const [trialHours, setTrialHours] = useState('1');
   const [landingTrialTitle, setLandingTrialTitle] = useState('');
   const [landingTrialBody, setLandingTrialBody] = useState('');
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [users, setUsers] = useState<AccessUser[]>([]);
+  const [search, setSearch] = useState('');
+  const [grantEmail, setGrantEmail] = useState('');
+  const [grantDays, setGrantDays] = useState('30');
+  const [grantNote, setGrantNote] = useState('');
 
   useEffect(() => {
     setMarketingPriceMonthly(config.marketingPriceMonthly);
@@ -58,6 +90,109 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  const authHeaders = async () => {
+    if (!user) throw new Error('Faça login.');
+    const idToken = await user.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`
+    };
+  };
+
+  const loadAccessUsers = async (searchTerm: string = '') => {
+    if (!user) return;
+    setUsersLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const qs = searchTerm.trim() ? `?search=${encodeURIComponent(searchTerm.trim())}` : '';
+      const res = await fetch(`/api/admin/access-users${qs}`, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao listar usuários.');
+      }
+      setUsers(Array.isArray(data.users) ? data.users : []);
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível carregar acessos.');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab !== 'access') return;
+    void loadAccessUsers(search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const activeCount = useMemo(() => users.filter((u) => !u.blocked).length, [users]);
+  const blockedCount = useMemo(() => users.filter((u) => u.blocked).length, [users]);
+  const manualCount = useMemo(() => users.filter((u) => u.manualGrant).length, [users]);
+
+  const updateAccessUser = async (
+    payload: Partial<AccessUser> & { uid?: string; email?: string; manualGrant?: boolean; grantDays?: number | null }
+  ) => {
+    const res = await fetch('/api/admin/access-user', {
+      method: 'PUT',
+      headers: await authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok) {
+      throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao atualizar acesso.');
+    }
+    return data.user as AccessUser;
+  };
+
+  const handleGrantByEmail = async () => {
+    if (!grantEmail.trim()) {
+      toast.error('Informe o e-mail do usuário.');
+      return;
+    }
+    const days = Math.max(0, Math.round(Number(grantDays) || 0));
+    try {
+      const updated = await updateAccessUser({
+        email: grantEmail.trim(),
+        manualGrant: true,
+        grantDays: days > 0 ? days : null,
+        adminNote: grantNote.trim()
+      });
+      setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
+      toast.success('Acesso liberado com sucesso.');
+      setGrantEmail('');
+      setGrantNote('');
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível liberar acesso.');
+    }
+  };
+
+  const toggleBlock = async (u: AccessUser) => {
+    try {
+      const updated = await updateAccessUser({
+        uid: u.uid,
+        blocked: !u.blocked
+      });
+      setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
+      toast.success(updated.blocked ? 'Usuário bloqueado.' : 'Usuário desbloqueado.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível atualizar bloqueio.');
+    }
+  };
+
+  const revokeManual = async (u: AccessUser) => {
+    try {
+      const updated = await updateAccessUser({
+        uid: u.uid,
+        manualGrant: false
+      });
+      setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
+      toast.success('Liberação manual revogada.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível revogar liberação.');
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto space-y-6 p-1">
       <div className="flex items-start gap-3">
@@ -82,10 +217,39 @@ export const AdminPanel: React.FC = () => {
         </div>
       </div>
 
-      <div
-        className="rounded-xl border p-5 space-y-4"
-        style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}
-      >
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab('config')}
+          className="px-3 py-2 rounded-lg text-[12px] font-semibold"
+          style={{
+            background: tab === 'config' ? 'var(--brand-50)' : 'var(--surface-1)',
+            color: tab === 'config' ? 'var(--brand-700)' : 'var(--text-2)',
+            border: tab === 'config' ? '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)' : '1px solid var(--border-subtle)'
+          }}
+        >
+          Configuração comercial
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('access')}
+          className="px-3 py-2 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5"
+          style={{
+            background: tab === 'access' ? 'rgba(14,165,233,0.14)' : 'var(--surface-1)',
+            color: tab === 'access' ? '#0369a1' : 'var(--text-2)',
+            border: tab === 'access' ? '1px solid rgba(14,165,233,0.35)' : '1px solid var(--border-subtle)'
+          }}
+        >
+          <Users className="w-3.5 h-3.5" />
+          Controle de acesso
+        </button>
+      </div>
+
+      {tab === 'config' && (
+        <div
+          className="rounded-xl border p-5 space-y-4"
+          style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}
+        >
         <div>
           <label className="block text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
             Preco mensal (texto exibido)
@@ -153,7 +317,138 @@ export const AdminPanel: React.FC = () => {
         <Button variant="primary" type="button" disabled={saving} leftIcon={saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} onClick={() => void save()}>
           Salvar e publicar
         </Button>
-      </div>
+        </div>
+      )}
+
+      {tab === 'access' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
+              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Ativos</p>
+              <p className="text-xl font-bold" style={{ color: 'var(--text-1)' }}>{activeCount}</p>
+            </div>
+            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
+              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Bloqueados</p>
+              <p className="text-xl font-bold text-red-500">{blockedCount}</p>
+            </div>
+            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
+              <p className="text-[11px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>Liberação manual</p>
+              <p className="text-xl font-bold text-sky-500">{manualCount}</p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+            <h3 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>Liberar acesso sem contratação</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none"
+                style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
+                placeholder="E-mail do usuário"
+                value={grantEmail}
+                onChange={(e) => setGrantEmail(e.target.value)}
+              />
+              <input
+                type="number"
+                min={0}
+                className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none"
+                style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
+                placeholder="Período em dias (0 = sem prazo)"
+                value={grantDays}
+                onChange={(e) => setGrantDays(e.target.value)}
+              />
+            </div>
+            <textarea
+              rows={2}
+              className="w-full rounded-lg border px-3 py-2 text-[13px] outline-none resize-y"
+              style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
+              placeholder="Observação administrativa (opcional)"
+              value={grantNote}
+              onChange={(e) => setGrantNote(e.target.value)}
+            />
+            <Button variant="primary" size="sm" leftIcon={<Clock3 className="w-4 h-4" />} onClick={() => void handleGrantByEmail()}>
+              Conceder liberação
+            </Button>
+          </div>
+
+          <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
+            <div className="flex flex-wrap gap-2">
+              <div className="flex-1 min-w-[220px] relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-3)' }} />
+                <input
+                  className="w-full rounded-lg border pl-9 pr-3 py-2 text-[13px] outline-none"
+                  style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
+                  placeholder="Buscar por e-mail ou uid"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => void loadAccessUsers(search)}>
+                Buscar
+              </Button>
+            </div>
+
+            <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+              {usersLoading ? (
+                <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-3)' }}>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Carregando usuários...
+                </div>
+              ) : users.length === 0 ? (
+                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>Nenhum usuário encontrado.</p>
+              ) : (
+                users.map((u) => (
+                  <div
+                    key={u.uid}
+                    className="rounded-xl border p-3"
+                    style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                          {u.email || u.uid}
+                        </p>
+                        <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>{u.uid}</p>
+                        <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+                          Status: <strong>{u.status}</strong> • Plano: <strong>{u.plan || '—'}</strong> • Provedor: <strong>{u.provider}</strong>
+                        </p>
+                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                          Trial até: <strong>{toPtDateTime(u.trialEndsAt)}</strong> • Pago até: <strong>{toPtDateTime(u.accessEndsAt)}</strong>
+                        </p>
+                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                          Manual até: <strong>{toPtDateTime(u.manualAccessEndsAt)}</strong>
+                        </p>
+                        {u.adminNote ? (
+                          <p className="text-[11px] mt-1" style={{ color: 'var(--text-2)' }}>
+                            Obs: {u.adminNote}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Button
+                          variant={u.blocked ? 'secondary' : 'danger'}
+                          size="sm"
+                          leftIcon={u.blocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                          onClick={() => void toggleBlock(u)}
+                        >
+                          {u.blocked ? 'Desbloquear' : 'Bloquear'}
+                        </Button>
+                        {u.manualGrant && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => void revokeManual(u)}
+                          >
+                            Revogar manual
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
