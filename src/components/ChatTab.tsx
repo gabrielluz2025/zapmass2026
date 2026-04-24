@@ -217,6 +217,8 @@ export const ChatTab: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Evita flood ao backend: controla quando cada avatar foi requisitado.
+  const avatarFetchAtRef = useRef<Map<string, number>>(new Map());
 
   const pipelineViewStorageKey = useMemo(
     () => `zapmass-pipeline-tab-view:v1:${user?.uid || 'anon'}`,
@@ -428,6 +430,23 @@ export const ChatTab: React.FC = () => {
         return (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0);
       });
   }, [filteredByConnection, chatFilter, searchTerm, originByConv, crm]);
+
+  // Traz foto real também para a lista lateral (não só no chat aberto).
+  // Carregamos apenas as primeiras conversas visíveis para manter performance.
+  useEffect(() => {
+    const now = Date.now();
+    const cooldownMs = 5 * 60 * 1000;
+    const candidates = filteredConversations.slice(0, 28);
+    for (const conv of candidates) {
+      if (!conv?.id || conv.id.endsWith('@g.us')) continue;
+      if (conv.profilePicUrl) continue;
+      if (originByConv.get(conv.id) !== 'phone') continue;
+      const lastFetch = avatarFetchAtRef.current.get(conv.id) || 0;
+      if (now - lastFetch < cooldownMs) continue;
+      avatarFetchAtRef.current.set(conv.id, now);
+      fetchConversationPicture(conv.id);
+    }
+  }, [filteredConversations, originByConv, fetchConversationPicture]);
 
   const totalUnread = filteredByConnection.reduce((a, c) => a + c.unreadCount, 0);
   const totalGroups = filteredByConnection.filter((c) => c.id.endsWith('@g.us')).length;
@@ -958,16 +977,27 @@ export const ChatTab: React.FC = () => {
                 key={conv.id}
                 type="button"
                 onClick={() => selectChat(conv.id)}
-                className="w-full text-left flex items-center gap-3 px-3 py-2.5 transition-colors group relative"
+                className="w-full text-left flex items-center gap-3 px-3 py-2.5 transition-all group relative"
                 style={{
-                  background: isActive ? 'var(--surface-2)' : crmData.pinned ? 'rgba(245,158,11,0.04)' : 'transparent',
-                  borderBottom: '1px solid var(--border-subtle)'
+                  background: isActive
+                    ? 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 10%, transparent), var(--surface-1))'
+                    : crmData.pinned
+                      ? 'rgba(245,158,11,0.04)'
+                      : 'transparent',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  boxShadow: isActive ? 'inset 0 0 0 1px color-mix(in srgb, var(--brand-500) 30%, transparent)' : 'none'
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive) e.currentTarget.style.background = 'var(--surface-1)';
+                  if (!isActive) {
+                    e.currentTarget.style.background = 'var(--surface-1)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  if (!isActive) e.currentTarget.style.background = crmData.pinned ? 'rgba(245,158,11,0.04)' : 'transparent';
+                  if (!isActive) {
+                    e.currentTarget.style.background = crmData.pinned ? 'rgba(245,158,11,0.04)' : 'transparent';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
                 }}
               >
                 {/* Barra lateral colorida do status */}
@@ -981,9 +1011,12 @@ export const ChatTab: React.FC = () => {
                 <div className="relative flex-shrink-0">
                   <img
                     src={getAvatar(conv.contactName, conv.profilePicUrl)}
-                    className="w-11 h-11 rounded-full object-cover"
+                    className="w-11 h-11 rounded-full object-cover ring-1"
                     alt=""
-                    style={crmStatus ? { boxShadow: `0 0 0 2px ${crmStatus.color}55` } : undefined}
+                    style={{
+                      ...(crmStatus ? { boxShadow: `0 0 0 2px ${crmStatus.color}55` } : {}),
+                      borderColor: 'var(--border-subtle)'
+                    }}
                   />
                   {isGroup && (
                     <div
@@ -1023,8 +1056,11 @@ export const ChatTab: React.FC = () => {
                       )}
                     </div>
                     <span
-                      className="text-[10.5px] flex-shrink-0 tabular-nums font-medium"
-                      style={{ color: conv.unreadCount > 0 ? 'var(--brand-600)' : 'var(--text-3)' }}
+                      className="text-[10.5px] flex-shrink-0 tabular-nums font-semibold px-1.5 py-0.5 rounded-md"
+                      style={{
+                        color: conv.unreadCount > 0 ? 'var(--brand-700)' : 'var(--text-3)',
+                        background: conv.unreadCount > 0 ? 'color-mix(in srgb, var(--brand-500) 14%, transparent)' : 'transparent'
+                      }}
                     >
                       {conv.lastMessageTime}
                     </span>
