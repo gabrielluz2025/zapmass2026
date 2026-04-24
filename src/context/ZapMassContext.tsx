@@ -109,6 +109,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
 };
 
 const ZapMassContext = createContext<ZapMassContextWithSocket>(EMPTY_CONTEXT);
+const legacyIgnoreKey = (uid: string) => `zapmass.ignoreLegacyData:${uid}`;
 
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentView } = useAppView();
@@ -315,6 +316,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const bindUser = (uid: string) => {
       stopAll();
       const b = fbMergeRef.current;
+      const ignoreLegacy = (() => {
+        try {
+          return localStorage.getItem(legacyIgnoreKey(uid)) === '1';
+        } catch {
+          return false;
+        }
+      })();
+      const allowLegacyNow = () => {
+        try {
+          return localStorage.getItem(legacyIgnoreKey(uid)) !== '1';
+        } catch {
+          return true;
+        }
+      };
       b.userContacts = [];
       b.legacyContacts = [];
       b.userLists = [];
@@ -335,18 +350,25 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             (err) => console.warn('[Firestore] users/.../contacts:', (err as Error)?.message || err)
           )
         );
-        cleanupFirestore.push(
-          onSnapshot(
-            query(collection(db, 'contacts')),
-            (snapshot) => {
-              b.legacyContacts = snapshot.docs.map((docSnap) =>
-                normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
-              );
-              setContacts(mergeContacts(b.userContacts, b.legacyContacts));
-            },
-            (err) => console.warn('[Firestore] /contacts (legado):', (err as Error)?.message || err)
-          )
-        );
+        if (!ignoreLegacy) {
+          cleanupFirestore.push(
+            onSnapshot(
+              query(collection(db, 'contacts')),
+              (snapshot) => {
+                if (!allowLegacyNow()) {
+                  b.legacyContacts = [];
+                  setContacts(mergeContacts(b.userContacts, []));
+                  return;
+                }
+                b.legacyContacts = snapshot.docs.map((docSnap) =>
+                  normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
+                );
+                setContacts(mergeContacts(b.userContacts, b.legacyContacts));
+              },
+              (err) => console.warn('[Firestore] /contacts (legado):', (err as Error)?.message || err)
+            )
+          );
+        }
       }
       if (needLists) {
         cleanupFirestore.push(
@@ -359,16 +381,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             (err) => console.warn('[Firestore] contact_lists (usuario):', (err as Error)?.message || err)
           )
         );
-        cleanupFirestore.push(
-          onSnapshot(
-            query(collection(db, 'contact_lists')),
-            (snapshot) => {
-              b.legacyLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
-              setContactLists(mergeContactLists(b.userLists, b.legacyLists));
-            },
-            (err) => console.warn('[Firestore] /contact_lists (legado):', (err as Error)?.message || err)
-          )
-        );
+        if (!ignoreLegacy) {
+          cleanupFirestore.push(
+            onSnapshot(
+              query(collection(db, 'contact_lists')),
+              (snapshot) => {
+                if (!allowLegacyNow()) {
+                  b.legacyLists = [];
+                  setContactLists(mergeContactLists(b.userLists, []));
+                  return;
+                }
+                b.legacyLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
+                setContactLists(mergeContactLists(b.userLists, b.legacyLists));
+              },
+              (err) => console.warn('[Firestore] /contact_lists (legado):', (err as Error)?.message || err)
+            )
+          );
+        }
       }
       if (needCampaigns) {
         cleanupFirestore.push(
@@ -381,16 +410,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             (err) => console.warn('[Firestore] campaigns (usuario):', (err as Error)?.message || err)
           )
         );
-        cleanupFirestore.push(
-          onSnapshot(
-            query(collection(db, 'campaigns')),
-            (snapshot) => {
-              b.legacyCampaigns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Campaign));
-              setCampaigns(mergeCampaigns(b.userCampaigns, b.legacyCampaigns));
-            },
-            (err) => console.warn('[Firestore] /campaigns (legado):', (err as Error)?.message || err)
-          )
-        );
+        if (!ignoreLegacy) {
+          cleanupFirestore.push(
+            onSnapshot(
+              query(collection(db, 'campaigns')),
+              (snapshot) => {
+                if (!allowLegacyNow()) {
+                  b.legacyCampaigns = [];
+                  setCampaigns(mergeCampaigns(b.userCampaigns, []));
+                  return;
+                }
+                b.legacyCampaigns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Campaign));
+                setCampaigns(mergeCampaigns(b.userCampaigns, b.legacyCampaigns));
+              },
+              (err) => console.warn('[Firestore] /campaigns (legado):', (err as Error)?.message || err)
+            )
+          );
+        }
       }
     };
 
@@ -947,6 +983,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       } catch {
         /* ignore */
       }
+    }
+    try {
+      localStorage.setItem(legacyIgnoreKey(uid), '1');
+    } catch {
+      /* ignore */
     }
     return summary;
   };
