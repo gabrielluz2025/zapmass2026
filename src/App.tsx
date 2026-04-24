@@ -155,6 +155,15 @@ const MainLayout: React.FC = () => {
   const effectiveReadOnly = studioUnlocked ? false : readOnlyMode;
   const effectiveReadOnlyBanner = studioUnlocked ? undefined : readOnlyMode ? readOnlyMessage : undefined;
 
+  // Quando o acesso expira, trava a navegação na aba de upgrade/assinatura.
+  useEffect(() => {
+    if (!enforce) return;
+    if (!readOnlyMode) return;
+    if (currentView !== 'subscription') {
+      setCurrentView('subscription');
+    }
+  }, [enforce, readOnlyMode, currentView, setCurrentView]);
+
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':

@@ -21,21 +21,24 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   const [loading, setLoading] = useState<'idle' | 'login' | 'trial'>('idle');
   const trialBtn = `Entrar com Google e iniciar teste grátis (${formatTrialHoursLabel(config.trialHours)})`;
 
-  const runLogin = async (trialAfter: boolean) => {
-    if (trialAfter) {
+  const runLogin = async (mode: 'trial' | 'customer') => {
+    if (mode === 'trial') {
       try {
         sessionStorage.setItem('zapmass.startTrialAfterLogin', '1');
+        sessionStorage.removeItem('zapmass.tryTrialIfNeededAfterLogin');
       } catch {
         /* ignore */
       }
     } else {
       try {
         sessionStorage.removeItem('zapmass.startTrialAfterLogin');
+        // Entrada "Já sou cliente": se não tiver assinatura ativa, tenta iniciar teste automaticamente.
+        sessionStorage.setItem('zapmass.tryTrialIfNeededAfterLogin', '1');
       } catch {
         /* ignore */
       }
     }
-    setLoading(trialAfter ? 'trial' : 'login');
+    setLoading(mode === 'trial' ? 'trial' : 'login');
     try {
       await signInWithGoogle();
     } finally {
@@ -79,7 +82,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           <>
             <button
               type="button"
-              onClick={() => runLogin(true)}
+              onClick={() => runLogin('trial')}
               disabled={loading !== 'idle'}
               className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
               style={{
@@ -104,7 +107,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             </p>
             <button
               type="button"
-              onClick={() => runLogin(false)}
+              onClick={() => runLogin('customer')}
               disabled={loading !== 'idle'}
               className="w-full mt-2.5 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-[12.5px] font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               style={{
@@ -129,7 +132,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         ) : (
           <button
             type="button"
-            onClick={() => runLogin(false)}
+            onClick={() => runLogin('customer')}
             disabled={loading !== 'idle'}
             className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
             style={{
