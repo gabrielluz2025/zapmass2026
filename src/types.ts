@@ -198,6 +198,10 @@ export interface UserSubscription {
   blocked?: boolean;
   /** Observacao administrativa sobre acesso manual/bloqueio. */
   adminNote?: string;
+  /** Canais além do incluído (0–3). Cada unidade: add-on pago, até 5 canais no total. */
+  extraChannelSlots?: number;
+  /** Assinatura MP do pacote de canais extras (débito recorrente). */
+  mercadoPagoChannelAddonPreapprovalId?: string;
   updatedAt?: unknown;
 }
 

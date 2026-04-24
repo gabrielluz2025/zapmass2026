@@ -20,6 +20,12 @@ import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
+import {
+  countUserScopedConnections,
+  getMaxConnectionSlots,
+  readUserSubscriptionForLimits,
+  isUidTreatedAsServerAdmin
+} from './connectionLimits.js';
 
 // --- REAL SYSTEM METRICS ---
 let _lastCpuInfo = os.cpus();
@@ -277,7 +283,27 @@ const registerSocketHandlers = () => {
       socket.emit('pong-latency', ts);
     });
     
-    socket.on('create-connection', ({ name }) => {
+    socket.on('create-connection', async ({ name }) => {
+      if (uid && uid !== 'anonymous') {
+        try {
+          const [sub, isServAdmin] = await Promise.all([
+            readUserSubscriptionForLimits(uid),
+            isUidTreatedAsServerAdmin(uid)
+          ]);
+          const max = getMaxConnectionSlots(sub, { serverAdmin: isServAdmin });
+          const count = countUserScopedConnections(waService.getConnections(), uid);
+          if (count >= max) {
+            socket.emit('connection-limit-reached', {
+              current: count,
+              max,
+              message: `Voce atingiu o maximo de ${max} canal(is) no seu plano. Incluimos 2; e possivel contratar de 1 a 3 canais extras (R$ 100/mo por canal em media — ver "Minha assinatura") ate 5 canais.`
+            });
+            return;
+          }
+        } catch (e) {
+          console.error('[create-connection] limite de canais', e);
+        }
+      }
       userLog('ui:create-connection', { name });
       waService.createConnection(name, uid);
       socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));

@@ -6,6 +6,7 @@ import {
   Crown,
   FileText,
   Loader2,
+  Radio,
   Repeat,
   ShieldCheck,
   TrendingUp,
@@ -56,6 +57,9 @@ export const MySubscriptionTab: React.FC = () => {
   );
   const daysLeft = daysUntil(accessEndsMs);
   const isRecurring = Boolean(subscription?.mercadoPagoPreapprovalId && subscription.status === 'active');
+  const isChannelRecurring = Boolean(subscription?.mercadoPagoChannelAddonPreapprovalId);
+  const [chaddonExtra, setChaddonExtra] = useState<1 | 2 | 3>(1);
+  const [chaddonBusy, setChaddonBusy] = useState<Method | 'cancelCh' | null>(null);
 
   const startPayment = async (plan: Plan, method: Method) => {
     if (!user) return;
@@ -81,6 +85,57 @@ export const MySubscriptionTab: React.FC = () => {
       toast.error('Erro de rede.');
     } finally {
       setBusy(null);
+    }
+  };
+
+  const startChannelAddon = async (method: Method, extra: 1 | 2 | 3) => {
+    if (!user) return;
+    setChaddonBusy(method);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/billing/mercadopago/channel-addon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ method, extraSlots: extra })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível abrir o checkout de canais extras.');
+        return;
+      }
+      if (data.init_point) {
+        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        toast.success('Abrimos o checkout. Após a confirmação, seu limite de canais sobe (até 5 no total).');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro de rede.');
+    } finally {
+      setChaddonBusy(null);
+    }
+  };
+
+  const cancelChannelAddon = async () => {
+    if (!user) return;
+    if (!window.confirm('Cancelar o débito automático dos canais extras? Seus canais além do 2º podem deixar de ser permitidos na próxima conexão.')) return;
+    setChaddonBusy('cancelCh');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/billing/mercadopago/cancel-channel-addon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível cancelar o add-on.');
+        return;
+      }
+      toast.success('Add-on de canais cancelado. Ajuste suas conexões se estiver acima de 2.');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro de rede.');
+    } finally {
+      setChaddonBusy(null);
     }
   };
 
@@ -225,6 +280,93 @@ export const MySubscriptionTab: React.FC = () => {
             />
           )}
         </div>
+      </section>
+
+      <section
+        className="rounded-2xl px-5 py-5"
+        style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+      >
+        <div className="flex items-center gap-2.5 mb-3">
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg, #10b981 0%, #06b6d4 100%)' }}
+          >
+            <Radio className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h2 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
+              Canais extras (WhatsApp)
+            </h2>
+            <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+              2 canais estão incluídos no Pro. E pode contratar de <strong>1 a 3 canais a mais</strong> (máx. 5) —{' '}
+              <strong className="text-[var(--text-2)]">R$ 100/mês por canal adicional</strong> (valor via{' '}
+              <code className="text-[10px]">MERCADOPAGO_CHANNEL_ADDON_MONTHLY</code> no servidor).
+            </p>
+          </div>
+        </div>
+        <p className="text-[12.5px] mb-3" style={{ color: 'var(--text-2)' }}>
+          Situação:{' '}
+          <strong style={{ color: 'var(--text-1)' }}>
+            {typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
+              ? `+${subscription.extraChannelSlots} extra(s) — até ${2 + (subscription.extraChannelSlots || 0)} canais.`
+              : 'Somente os 2 canais incluídos.'}
+          </strong>
+        </p>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <label className="text-[11.5px] font-semibold" style={{ color: 'var(--text-3)' }} htmlFor="chaddonN">
+            Quantos canais a mais (além do 2º)?
+          </label>
+          <select
+            id="chaddonN"
+            className="ui-input text-[12px] py-1.5 max-w-[120px]"
+            value={chaddonExtra}
+            onChange={(e) => setChaddonExtra(Number(e.target.value) as 1 | 2 | 3)}
+          >
+            <option value={1}>+1 (R$ 100/mo)</option>
+            <option value={2}>+2 (R$ 200/mo)</option>
+            <option value={3}>+3 (R$ 300/mo)</option>
+          </select>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Action
+            onClick={() => startChannelAddon('pix', chaddonExtra)}
+            loading={chaddonBusy === 'pix'}
+            disabled={!!chaddonBusy}
+            icon={<TrendingUp className="w-4 h-4" />}
+            label="Canais extras (Pix -5%)"
+            hint="Pagamento único — libera o pacote após aprovação"
+          />
+          <Action
+            onClick={() => startChannelAddon('card', chaddonExtra)}
+            loading={chaddonBusy === 'card'}
+            disabled={!!chaddonBusy}
+            icon={<Crown className="w-4 h-4" />}
+            label="Canais extras (cartão)"
+            hint="Checkout Mercado Pago"
+          />
+          <Action
+            onClick={() => startChannelAddon('recurring', chaddonExtra)}
+            loading={chaddonBusy === 'recurring'}
+            disabled={!!chaddonBusy}
+            primary
+            icon={<Repeat className="w-4 h-4" />}
+            label="Canais extras (débito auto)"
+            hint="Renova todo mês até cancelar"
+          />
+        </div>
+        {isChannelRecurring && (
+          <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+            <Action
+              onClick={() => void cancelChannelAddon()}
+              loading={chaddonBusy === 'cancelCh'}
+              disabled={!!chaddonBusy}
+              danger
+              icon={<XCircle className="w-4 h-4" />}
+              label="Cancelar débito dos canais extras"
+              hint="O limite volta ao teto padrão (2); remova conexões extras se necessário"
+            />
+          </div>
+        )}
       </section>
 
       <section

@@ -132,6 +132,11 @@ export const SettingsTab: React.FC = () => {
 
   const [ackTick, setAckTick] = useState(0);
   const riskAck = useMemo(() => (user?.uid ? getWhatsAppRiskAck(user.uid) : null), [user?.uid, ackTick]);
+  const [apiVersion, setApiVersion] = useState<{
+    version: string;
+    startedAt: string;
+    err?: string;
+  } | null>(null);
 
   const serverSettingsPayload = useMemo(
     () =>
@@ -155,6 +160,23 @@ export const SettingsTab: React.FC = () => {
     applyTheme(savedTheme);
     applyMode(savedMode);
   }, []);
+
+  useEffect(() => {
+    if (section !== 'conta') return;
+    let cancelled = false;
+    setApiVersion(null);
+    fetch('/api/version')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { version: string; startedAt: string }) => {
+        if (!cancelled) setApiVersion({ version: d.version, startedAt: d.startedAt });
+      })
+      .catch(() => {
+        if (!cancelled) setApiVersion({ version: '—', startedAt: '—', err: 'Falha ao consultar a API' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section]);
 
   const handleSaveSettings = () => {
     if (minDelay > maxDelay) {
@@ -564,6 +586,49 @@ export const SettingsTab: React.FC = () => {
               <Button variant="secondary" onClick={() => { signOut?.(); }}>
                 Sair da conta
               </Button>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex items-start gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(16, 185, 129, 0.12)' }}
+              >
+                <Zap className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+              </div>
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                  Versão no servidor (o que realmente estás a usar)
+                </p>
+                <p className="text-[11.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                  Se a interface nao tiver a melhoria que pediu, o commit abaixo nao bate com o do GitHub depois de <strong>push</strong> e{' '}
+                  <strong>deploy</strong>. Sem commit remoto, a VPS fica com codigo antigo.
+                </p>
+                <div
+                  className="mt-2 rounded-lg p-3 font-mono text-[11px] space-y-1"
+                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <p style={{ color: 'var(--text-2)' }}>
+                    <span className="text-[10px] uppercase font-bold" style={{ color: 'var(--text-3)' }}>Interface (bundle)</span>
+                    <br />
+                    <span className="select-all">{import.meta.env.VITE_GIT_REF || 'não embutido'}</span>
+                  </p>
+                  <p style={{ color: 'var(--text-2)' }}>
+                    <span className="text-[10px] uppercase font-bold" style={{ color: 'var(--text-3)' }}>API (ficheiro VERSION no servidor)</span>
+                    <br />
+                    {apiVersion?.err ? (
+                      <span className="text-amber-600 dark:text-amber-400">{apiVersion.err}</span>
+                    ) : (
+                      <span className="select-all">
+                        {apiVersion
+                          ? `${apiVersion.version} — arranque: ${new Date(apiVersion.startedAt).toLocaleString('pt-BR')}`
+                          : 'A carregar…'}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
             </div>
           </Card>
 

@@ -569,6 +569,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     });
 
+    socket.on('connection-limit-reached', (p: { current?: number; max?: number; message?: string }) => {
+      const msg =
+        typeof p?.message === 'string' && p.message.trim()
+          ? p.message
+          : `Limite de canais: ${p?.current ?? '?'}/${p?.max ?? '?'}. Acesse Minha assinatura para o pacote de canais extras.`;
+      toast.error(msg);
+    });
+
     socket.on('metrics-update', (newMetrics: DashboardMetrics) => {
       setMetrics(newMetrics);
     });

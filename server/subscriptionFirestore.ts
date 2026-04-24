@@ -17,6 +17,13 @@ export interface UserSubscriptionDoc {
   trialEndsAt?: Timestamp | null;
   /** Fim do periodo pago atual (mensal = +1 mes calendario; anual = +12 meses). */
   accessEndsAt?: Timestamp | null;
+  /**
+   * Canais extras contratados (0–3), além de 2 incluídos. Cada unidade = +R$ /mês (ver MERCADOPAGO_CHANNEL_ADDON_MONTHLY).
+   * Teto: 2 + extraChannelSlots ≤ 5.
+   */
+  extraChannelSlots?: number;
+  /** Preapproval do Mercado Pago dedicado ao add-on de canais (débito mensal do pacote de extras). */
+  mercadoPagoChannelAddonPreapprovalId?: string;
   /** Se true, o teste de 1h ja foi concedido nesta conta (nao repetir). */
   freeTrialUsed?: boolean;
   /** Id da ultima NFS-e emitida no NFE.io (quando nfe-io ativo). */

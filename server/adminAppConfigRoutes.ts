@@ -3,6 +3,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { defaultAppConfig, loadAppConfig, saveAppConfigMerge, type AppConfigGlobal } from './appConfigStore.js';
+import { loadMergedUserInsightData } from './insightMerge.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -448,23 +449,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const accountCreatedAt = userRec?.metadata?.creationTime ? new Date(userRec.metadata.creationTime).toISOString() : null;
       const lastSignInAt = userRec?.metadata?.lastSignInTime ? new Date(userRec.metadata.lastSignInTime).toISOString() : null;
 
-      const [contactsSnap, listsSnap, campaignsSnap, connSnap] = await Promise.all([
-        db.collection('users').doc(uid).collection('contacts').get(),
-        db.collection('users').doc(uid).collection('contact_lists').get(),
-        db.collection('users').doc(uid).collection('campaigns').get(),
-        db.collection('users').doc(uid).collection('connections').get().catch(() => null)
-      ]);
-
-      const contacts: Record<string, unknown>[] = contactsSnap.docs.map((d) => d.data() as Record<string, unknown>);
-      const lists: Array<Record<string, unknown> & { id: string }> = listsSnap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Record<string, unknown>)
-      }));
-      const campaigns: Array<Record<string, unknown> & { id: string }> = campaignsSnap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Record<string, unknown>)
-      }));
-      const conns = connSnap?.docs?.map((d) => d.data() as Record<string, unknown>) || [];
+      const merged = await loadMergedUserInsightData(db, uid);
+      const { contacts, lists, campaigns, conns, rawMinActivityEpoch } = merged;
 
       const contactsValid = contacts.filter((c) => String(c.status || '').toUpperCase() !== 'INVALID').length;
       const contactsInvalid = contacts.length - contactsValid;
@@ -513,12 +499,13 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         }));
 
       const firstActivityMsCandidates = [
-        ...contacts.map((c) => asEpoch(c.createdAt)),
+        rawMinActivityEpoch,
         ...lists.map((l) => asEpoch(l.createdAt)),
         ...campaigns.map((c) => asEpoch(c.createdAt))
       ].filter((x) => x > 0);
+      const firstFromAuth = accountCreatedAt ? new Date(accountCreatedAt).getTime() : 0;
       const firstActivityMs =
-        firstActivityMsCandidates.length > 0 ? Math.min(...firstActivityMsCandidates) : 0;
+        firstActivityMsCandidates.length > 0 ? Math.min(...firstActivityMsCandidates) : firstFromAuth;
       const firstActivityAt = firstActivityMs > 0 ? new Date(firstActivityMs).toISOString() : null;
       const daysSinceFirstActivity =
         firstActivityMs > 0 ? Math.max(0, Math.floor((Date.now() - firstActivityMs) / (1000 * 60 * 60 * 24))) : 0;

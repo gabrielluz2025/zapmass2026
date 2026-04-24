@@ -354,12 +354,12 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const openInsights = async (u: AccessUser) => {
+  const loadInsightsForUid = async (uid: string) => {
     if (!user) return;
     setInsightsLoading(true);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch(`/api/admin/access-user-insights?uid=${encodeURIComponent(u.uid)}`, {
+      const res = await fetch(`/api/admin/access-user-insights?uid=${encodeURIComponent(uid)}`, {
         headers: { Authorization: `Bearer ${idToken}` }
       });
       const data = await res.json().catch(() => ({}));
@@ -372,6 +372,14 @@ export const AdminPanel: React.FC = () => {
     } finally {
       setInsightsLoading(false);
     }
+  };
+
+  const openInsights = (u: AccessUser) => {
+    void loadInsightsForUid(u.uid);
+  };
+
+  const openMyLoginInsights = () => {
+    if (user) void loadInsightsForUid(user.uid);
   };
 
   return (
@@ -879,13 +887,20 @@ export const AdminPanel: React.FC = () => {
                     Carregando…
                   </div>
                 ) : !insights ? (
-                  <div className="text-center py-6 px-2">
-                    <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center brand-soft">
+                  <div className="text-center py-6 px-2 space-y-3">
+                    <div className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center brand-soft">
                       <BarChart3 className="w-6 h-6 text-sky-500 opacity-60" />
                     </div>
                     <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
                       Selecione um <strong className="text-[var(--text-2)]">e-mail</strong> na lista para ver contatos, campanhas, conexões e listas.
                     </p>
+                    <p className="text-[11px] leading-relaxed text-left rounded-lg p-2.5 border" style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                      <strong className="text-[var(--text-2)]">Sobre o login admin:</strong> o seu e-mail de administrador é removido da &quot;Base de assinaturas&quot; de propósito. Para ver
+                      <em> seus </em> dados (mesmo Firestore de quando você usa o app), clique abaixo.
+                    </p>
+                    <Button type="button" variant="primary" size="sm" className="w-full" onClick={openMyLoginInsights} leftIcon={<BarChart3 className="w-3.5 h-3.5" />}>
+                      Ver métricas do meu login
+                    </Button>
                   </div>
                 ) : (
                   <div className="space-y-3">

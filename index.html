@@ -3,36 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Evita index.html em cache (SPA): sem isto, o browser pode apontar para .js antigo e "nada mudou". -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>ZapMass — Enterprise Messaging</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23059669'/%3E%3Cpath d='M20 20l24 0 0 16-12 0-8 8 0-8-4 0z' fill='white'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800;14..32,900&display=swap" rel="stylesheet">
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "vite": "https://esm.sh/vite@^7.3.0",
-    "cors": "https://esm.sh/cors@^2.8.5",
-    "path": "https://esm.sh/path@^0.12.7",
-    "url": "https://esm.sh/url@^0.11.4",
-    "express": "https://esm.sh/express@^5.2.1",
-    "socket.io": "https://esm.sh/socket.io@^4.8.3",
-    "socket.io-client": "https://esm.sh/socket.io-client@^4.8.3",
-    "http": "https://esm.sh/http@^0.0.1-security",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "whatsapp-web.js": "https://esm.sh/whatsapp-web.js@^1.34.2",
-    "qrcode": "https://esm.sh/qrcode@^1.5.4",
-    "react-hot-toast": "https://esm.sh/react-hot-toast@2.4.1",
-    "papaparse": "https://esm.sh/papaparse@^5.5.3",
-    "firebase/": "https://esm.sh/firebase@^12.7.0/"
-  }
-}
-</script>
- 
 </head>
   <body>
     <div id="root"></div>

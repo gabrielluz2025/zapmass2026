@@ -31,6 +31,14 @@ import { ConnectionStatus } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import { useAuth } from '../context/AuthContext';
+import { useSubscription } from '../context/SubscriptionContext';
+import { isAdminUserEmail } from '../utils/adminAccess';
+import {
+  getMaxConnectionSlotsForUser,
+  countAccountScopedConnections,
+  BASE_CHANNEL_SLOTS,
+  MAX_CHANNELS_TOTAL
+} from '../utils/connectionLimitPolicy';
 import { Card, Button, Badge, Modal, Textarea, Select } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
@@ -229,6 +237,21 @@ export const DashboardTab: React.FC = () => {
   const { connections, sendMessage, campaigns, contacts, conversations, socket, startCampaign, systemMetrics, funnelStats, clearFunnelStats } = useZapMass();
   const { setCurrentView } = useAppView();
   const { user } = useAuth();
+  const { subscription } = useSubscription();
+  const isAdmin = isAdminUserEmail(user?.email ?? null);
+  const maxPlanChannelSlots = useMemo(
+    () => getMaxConnectionSlotsForUser(subscription, isAdmin),
+    [subscription, isAdmin]
+  );
+  const planScopedCount = useMemo(
+    () => countAccountScopedConnections(connections, user?.uid ?? null),
+    [connections, user?.uid]
+  );
+  const atPlanChannelLimit = !isAdmin && planScopedCount >= maxPlanChannelSlots;
+  const planUsagePct =
+    isAdmin || maxPlanChannelSlots <= 0
+      ? 0
+      : Math.min(100, Math.round((planScopedCount / maxPlanChannelSlots) * 100));
   const firstName = useMemo(() => {
     const raw = user?.displayName || user?.email?.split('@')[0] || '';
     const clean = raw.trim().split(/\s+/)[0] || '';
@@ -1061,93 +1084,185 @@ export const DashboardTab: React.FC = () => {
         <Card>
           {(() => {
             const cap = getChannelCapacity(systemMetrics?.ramTotalGb);
-            const total = connections.length;
-            const percent = cap.safe > 0 ? Math.min(100, Math.round((total / cap.safe) * 100)) : 0;
-            const level: 'ok' | 'warn' | 'critical' =
-              total >= cap.critical ? 'critical' : total > cap.safe ? 'warn' : 'ok';
-            const color =
-              level === 'critical' ? '#ef4444' : level === 'warn' ? '#f59e0b' : '#10b981';
-            const bg =
-              level === 'critical'
-                ? 'rgba(239,68,68,0.12)'
-                : level === 'warn'
-                ? 'rgba(245,158,11,0.12)'
-                : 'rgba(16,185,129,0.12)';
-            const icon =
-              level === 'critical' ? (
-                <AlertTriangle className="w-4 h-4" style={{ color }} />
-              ) : level === 'warn' ? (
-                <AlertTriangle className="w-4 h-4" style={{ color }} />
-              ) : (
-                <ShieldCheck className="w-4 h-4" style={{ color }} />
-              );
-            const headline =
-              level === 'critical'
-                ? 'Capacidade no limite'
-                : level === 'warn'
-                ? 'Proximo do limite seguro'
-                : 'Capacidade saudavel';
-            const subtitle =
+            const totalConns = connections.length;
+            const ramLoadPct =
+              cap.safe > 0 ? Math.min(100, Math.round((totalConns / cap.safe) * 100)) : 0;
+            const infraLevel: 'ok' | 'warn' | 'critical' =
+              totalConns >= cap.critical ? 'critical' : totalConns > cap.safe ? 'warn' : 'ok';
+            const ramColor =
+              infraLevel === 'critical' ? '#ef4444' : infraLevel === 'warn' ? '#f59e0b' : '#64748b';
+
+            const planLevel: 'ok' | 'warn' | 'full' =
+              atPlanChannelLimit ? 'full' : !isAdmin && planUsagePct >= 80 ? 'warn' : 'ok';
+            const planColor = planLevel === 'full' ? '#f59e0b' : planLevel === 'warn' ? '#fbbf24' : '#10b981';
+            const planBg =
+              planLevel === 'full'
+                ? 'rgba(245,158,11,0.10)'
+                : planLevel === 'warn'
+                ? 'rgba(251,191,36,0.10)'
+                : 'rgba(16,185,129,0.10)';
+
+            let headline = 'Tudo em ordem';
+            let subHead =
               systemMetrics?.ramTotalGb != null
-                ? `Servidor com ${systemMetrics.ramTotalGb} GB - limite recomendado ${cap.safe} canais`
-                : 'Analisando capacidade do servidor...';
+                ? `Máquina com ${systemMetrics.ramTotalGb} GB de RAM — uso dentro do recomendado.`
+                : 'Sincronizando métricas do servidor...';
+            if (atPlanChannelLimit) {
+              headline = 'Limite do plano atingido';
+              subHead = `Você está usando ${planScopedCount} de ${maxPlanChannelSlots} canais contratados. Libere um canal ou adquira extras em Minha assinatura.`;
+            } else if (infraLevel === 'critical') {
+              headline = 'Servidor no limite (memória)';
+              subHead = `Muitas sessões WhatsApp para a RAM desta máquina. Risco de travamentos.`;
+            } else if (infraLevel === 'warn') {
+              headline = 'Perto do teto de hardware';
+              subHead = `Com ${systemMetrics?.ramTotalGb ?? '?'} GB, o ideal é até ~${cap.safe} sessões; acima de ${cap.critical} o sistema fica instável.`;
+            } else if (planLevel === 'warn' && !isAdmin) {
+              headline = 'Quase no limite do plano';
+              subHead = `Faltam poucos canais para atingir seu teto (${maxPlanChannelSlots}). Considere o pacote de extras.`;
+            } else {
+              headline = 'Plano e servidor alinhados';
+              subHead = `${BASE_CHANNEL_SLOTS} canais no Pro; até ${MAX_CHANNELS_TOTAL} com add-on. A primeira seção (contrato) define quantos canais você pode criar; a de RAM é só referência de máquina.`;
+            }
+
+            const headerIcon =
+              atPlanChannelLimit || infraLevel !== 'ok' ? (
+                <AlertTriangle className="w-4 h-4" style={{ color: atPlanChannelLimit ? '#f59e0b' : ramColor }} />
+              ) : (
+                <ShieldCheck className="w-4 h-4" style={{ color: planColor }} />
+              );
+            const headerBg = atPlanChannelLimit ? 'rgba(245,158,11,0.12)' : planBg;
 
             return (
-              <div className="mb-4">
-                <div className="flex items-center gap-2.5 mb-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: bg }}>
-                    {icon}
+              <div className="mb-2 space-y-4">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: headerBg }}>
+                    {headerIcon}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="ui-title text-[15px]">{headline}</h3>
-                    <p className="ui-subtitle text-[12px] truncate">{subtitle}</p>
+                    <h3 className="ui-title text-[15px] leading-snug">{headline}</h3>
+                    <p className="ui-subtitle text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                      {subHead}
+                    </p>
+                    {atPlanChannelLimit && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        className="mt-2"
+                        onClick={() => setCurrentView('subscription')}
+                      >
+                        Ver minha assinatura / canais extras
+                      </Button>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-baseline justify-between mb-1.5">
-                  <div>
-                    <span className="text-[24px] font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>
-                      {total}
-                    </span>
-                    <span className="text-[13px] ml-1" style={{ color: 'var(--text-3)' }}>
-                      / {cap.safe} canais
-                    </span>
-                  </div>
-                  <span className="text-[11.5px] font-semibold tabular-nums" style={{ color }}>
-                    {percent}%
-                  </span>
-                </div>
                 <div
-                  className="w-full h-1.5 rounded-full overflow-hidden"
-                  style={{ background: 'var(--surface-2)' }}
+                  className="rounded-xl p-3.5 space-y-3"
+                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
                 >
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${percent}%`, background: color }}
-                  />
+                  <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                    Seu teto de canais (contrato)
+                  </p>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div>
+                      <span className="text-[28px] font-extrabold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                        {planScopedCount}
+                      </span>
+                      <span className="text-[14px] ml-1.5" style={{ color: 'var(--text-3)' }}>
+                        {isAdmin ? (
+                          <span className="text-[12px]">canais · conta admin (sem teto padrão)</span>
+                        ) : (
+                          <>/ {maxPlanChannelSlots} permitidos</>
+                        )}
+                      </span>
+                    </div>
+                    {!isAdmin && (
+                      <span className="text-[12px] font-bold tabular-nums shrink-0" style={{ color: planColor }}>
+                        {planUsagePct}%
+                      </span>
+                    )}
+                  </div>
+                  {!isAdmin && (
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${planUsagePct}%`,
+                          background: `linear-gradient(90deg, #10b981, ${planColor})`
+                        }}
+                      />
+                    </div>
+                  )}
+                  {!isAdmin && (
+                    <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                      Inclui <strong style={{ color: 'var(--text-2)' }}>{BASE_CHANNEL_SLOTS}</strong> no plano
+                      {typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
+                        ? ` + ${subscription.extraChannelSlots} extra(s) contratado(s).`
+                        : '. Extras: +R$ 100/mês por canal (até 5 no total).'}
+                    </p>
+                  )}
                 </div>
 
-                {systemMetrics?.ramUsedGb != null && systemMetrics?.ramTotalGb != null && (
-                  <div className="mt-3 flex items-center gap-2 text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-                    <MemoryStick className="w-3.5 h-3.5" />
-                    <span>
-                      RAM: <strong style={{ color: 'var(--text-2)' }}>{systemMetrics.ramUsedGb} GB</strong> de {systemMetrics.ramTotalGb} GB ({systemMetrics.ram}%)
+                <div className="rounded-xl p-3.5 space-y-2" style={{ border: '1px dashed var(--border-subtle)' }}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                    Referência de hardware (RAM)
+                  </p>
+                  <p className="text-[11.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                    {systemMetrics?.ramTotalGb != null ? (
+                      <>
+                        Com ~{systemMetrics.ramTotalGb} GB, esta máquina costuma operar bem até{' '}
+                        <strong style={{ color: 'var(--text-2)' }}>~{cap.safe} sessões</strong> simultâneas; acima de{' '}
+                        <strong style={{ color: 'var(--text-2)' }}>{cap.critical}</strong> o risco de instabilidade
+                        aumenta (Chromium + WhatsApp Web).
+                      </>
+                    ) : (
+                      'Aguardando leitura de RAM do servidor...'
+                    )}
+                  </p>
+                  <div className="flex items-baseline justify-between text-[12px]">
+                    <span style={{ color: 'var(--text-3)' }}>
+                      Uso vs. referência: <strong style={{ color: 'var(--text-1)' }}>{totalConns}</strong> / ~{cap.safe}
+                    </span>
+                    <span className="font-bold tabular-nums" style={{ color: ramColor }}>
+                      {ramLoadPct}%
                     </span>
                   </div>
-                )}
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${ramLoadPct}%`, background: ramColor }}
+                    />
+                  </div>
+                  {systemMetrics?.ramUsedGb != null && systemMetrics?.ramTotalGb != null && (
+                    <div className="flex items-center gap-2 text-[11.5px] pt-1" style={{ color: 'var(--text-3)' }}>
+                      <MemoryStick className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        RAM: <strong style={{ color: 'var(--text-2)' }}>{systemMetrics.ramUsedGb} GB</strong> de{' '}
+                        {systemMetrics.ramTotalGb} GB ({systemMetrics.ram}%)
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-                {level !== 'ok' && (
+                {infraLevel !== 'ok' && !atPlanChannelLimit && (
                   <div
-                    className="mt-3 p-2.5 rounded-lg text-[11.5px] leading-relaxed"
-                    style={{ background: bg, border: `1px solid ${color}33`, color: 'var(--text-2)' }}
+                    className="p-2.5 rounded-lg text-[11.5px] leading-relaxed"
+                    style={{
+                      background: 'rgba(245,158,11,0.10)',
+                      border: '1px solid rgba(245,158,11,0.25)',
+                      color: 'var(--text-2)'
+                    }}
                   >
-                    {level === 'critical' ? (
+                    {infraLevel === 'critical' ? (
                       <>
-                        <strong style={{ color }}>Atencao:</strong> voce esta acima do limite critico ({cap.critical}). Os canais podem ficar instaveis, cair com frequencia ou travar o servidor. Considere remover canais ociosos ou migrar para uma maquina com mais RAM.
+                        <strong style={{ color: '#ef4444' }}>Atenção (hardware):</strong> número de canais acima do
+                        crítico ({cap.critical}) para esta RAM. Reduza sessões ou use um servidor com mais memória.
                       </>
                     ) : (
                       <>
-                        <strong style={{ color }}>Aviso:</strong> voce ultrapassou o limite seguro de {cap.safe} canais para esta maquina. Acima de {cap.critical} o sistema pode ficar instavel.
+                        <strong style={{ color: '#f59e0b' }}>Aviso (hardware):</strong> acima de ~{cap.safe} sessões
+                        com {systemMetrics?.ramTotalGb ?? '?'} GB a estabilidade pode cair. Monitore travamentos.
                       </>
                     )}
                   </div>

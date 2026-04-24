@@ -11,6 +11,8 @@ interface ImportMetaEnv {
    * Nao use em build de producao para clientes.
    */
   readonly VITE_CREATOR_STUDIO?: string;
+  /** Commit enxertado no build (VPS: export VITE_GIT_REF antes do docker compose; local: git). */
+  readonly VITE_GIT_REF?: string;
 }
 
 interface ImportMeta {

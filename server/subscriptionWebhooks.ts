@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import {
   extendPaidSubscription,
@@ -11,18 +11,33 @@ import { issueInvoice, isNfeEnabled } from './nfeService.js';
 
 const MP_API = 'https://api.mercadopago.com';
 
-function parseExternalReference(ref: string | undefined | null): { uid: string; plan: SubscriptionPlan } {
-  if (!ref || typeof ref !== 'string') return { uid: '', plan: null };
+type ParsedMpRef =
+  | { kind: 'plan'; uid: string; plan: SubscriptionPlan }
+  | { kind: 'chaddon_once'; uid: string; extraSlots: number }
+  | { kind: 'chaddon_recur'; uid: string; extraSlots: number }
+  | { kind: 'none' };
+
+/**
+ * `uid:monthly|annual` (plano) ou `uid:chaddon_once:1` / `uid:chaddon_recur:2` (canais extras).
+ */
+function parseExternalReference(ref: string | undefined | null): ParsedMpRef {
+  if (!ref || typeof ref !== 'string') return { kind: 'none' };
   const parts = ref.split(':').map((s) => s.trim());
   const uid = parts[0] || '';
-  const p = (parts[1] || '').toLowerCase();
+  if (!uid) return { kind: 'none' };
+  const mid = (parts[1] || '').toLowerCase();
+  if (mid === 'chaddon_once' || mid === 'chaddon-once') {
+    const n = Math.min(3, Math.max(1, parseInt(parts[2] || '0', 10) || 0));
+    if (n >= 1 && n <= 3) return { kind: 'chaddon_once', uid, extraSlots: n };
+  }
+  if (mid === 'chaddon_recur' || mid === 'chaddon-recur') {
+    const n = Math.min(3, Math.max(1, parseInt(parts[2] || '0', 10) || 0));
+    if (n >= 1 && n <= 3) return { kind: 'chaddon_recur', uid, extraSlots: n };
+  }
+  const p = mid;
   const plan: SubscriptionPlan =
-    p === 'monthly' || p === 'mensal'
-      ? 'monthly'
-      : p === 'annual' || p === 'anual'
-        ? 'annual'
-        : null;
-  return { uid, plan };
+    p === 'monthly' || p === 'mensal' ? 'monthly' : p === 'annual' || p === 'anual' ? 'annual' : null;
+  return { kind: 'plan', uid, plan };
 }
 
 async function mpGetJson(path: string): Promise<Record<string, unknown> | null> {
@@ -158,11 +173,31 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
   if (!data) return;
   const status = String(data.status || '');
   const ext = data.external_reference as string | undefined;
-  const { uid, plan } = parseExternalReference(ext);
-  if (!uid) {
+  const parsed = parseExternalReference(ext);
+  if (parsed.kind === 'none' || !parsed.uid) {
     console.warn('[MP Webhook] Pagamento sem external_reference valido.', paymentId);
     return;
   }
+  const { uid } = parsed;
+
+  if (parsed.kind === 'chaddon_once' && status === 'approved') {
+    await mergeUserSubscription(uid, {
+      provider: 'mercadopago',
+      extraChannelSlots: parsed.extraSlots,
+      mercadoPagoLastPaymentId: paymentId
+    });
+    console.log('[MP Webhook] Canais extras (avulso) ativados', uid, parsed.extraSlots, paymentId);
+    return;
+  }
+  if (parsed.kind === 'chaddon_once' && (status === 'rejected' || status === 'cancelled')) {
+    console.log('[MP Webhook] chaddon avulso nao aprovado', uid, status);
+    return;
+  }
+  if (parsed.kind === 'chaddon_recur' || parsed.kind === 'chaddon_once') {
+    return;
+  }
+
+  const plan = parsed.kind === 'plan' ? parsed.plan : null;
   if (status === 'approved') {
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
     await extendPaidSubscription(uid, billingPlan, {
@@ -201,11 +236,36 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
   if (!data) return;
   const status = String(data.status || '');
   const ext = data.external_reference as string | undefined;
-  const { uid, plan } = parseExternalReference(ext);
-  if (!uid) {
+  const parsed = parseExternalReference(ext);
+  if (parsed.kind === 'none' || !parsed.uid) {
     console.warn('[MP Webhook] Preapproval sem external_reference valido.', preapprovalId);
     return;
   }
+  const { uid } = parsed;
+
+  if (parsed.kind === 'chaddon_recur') {
+    if (status === 'authorized') {
+      await mergeUserSubscription(uid, {
+        provider: 'mercadopago',
+        extraChannelSlots: parsed.extraSlots,
+        mercadoPagoChannelAddonPreapprovalId: preapprovalId
+      });
+      console.log('[MP Webhook] Preapproval canais extras ativo', uid, parsed.extraSlots);
+    } else if (status === 'cancelled' || status === 'paused') {
+      await mergeUserSubscription(uid, {
+        extraChannelSlots: 0,
+        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete()
+      } as any);
+      console.log('[MP Webhook] Preapproval canais extras cancelado', uid, status);
+    }
+    return;
+  }
+
+  if (parsed.kind !== 'plan') {
+    return;
+  }
+
+  const { plan } = parsed;
   if (status === 'authorized') {
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
     await extendPaidSubscription(uid, billingPlan, {

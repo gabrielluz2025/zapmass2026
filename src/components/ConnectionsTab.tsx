@@ -37,6 +37,16 @@ import { ConnectionCardNew as ConnectionCard } from './ConnectionCardNew';
 import { ConnectionListRow } from './ConnectionListRow';
 import { AddConnectionModal } from './AddConnectionModal';
 import { SectionHeader, StatCard, Tabs, Input, Button, EmptyState, Modal } from './ui';
+import { useAuth } from '../context/AuthContext';
+import { useSubscription } from '../context/SubscriptionContext';
+import { useMainLayoutNav } from '../context/MainLayoutNavContext';
+import { isAdminUserEmail } from '../utils/adminAccess';
+import {
+  getMaxConnectionSlotsForUser,
+  countAccountScopedConnections,
+  MAX_CHANNELS_TOTAL,
+  BASE_CHANNEL_SLOTS
+} from '../utils/connectionLimitPolicy';
 
 type FilterValue = 'ALL' | 'ONLINE' | 'OFFLINE' | 'PAIRING';
 type ViewMode = 'grid' | 'list';
@@ -83,6 +93,19 @@ const loadSort = (): SortKey => {
 export const ConnectionsTab: React.FC = () => {
   const { connections, addConnection, removeConnection, reconnectConnection, forceQr } =
     useZapMass();
+  const { user } = useAuth();
+  const { subscription } = useSubscription();
+  const goToView = useMainLayoutNav();
+  const isAdmin = isAdminUserEmail(user?.email ?? null);
+  const maxConnectionSlots = useMemo(
+    () => getMaxConnectionSlotsForUser(subscription, isAdmin),
+    [subscription, isAdmin]
+  );
+  const scopedCount = useMemo(
+    () => countAccountScopedConnections(connections, user?.uid ?? null),
+    [connections, user?.uid]
+  );
+  const atConnectionLimit = !isAdmin && scopedCount >= maxConnectionSlots;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -390,16 +413,48 @@ export const ConnectionsTab: React.FC = () => {
         description="Controle, monitore e otimize sua frota de canais WhatsApp em tempo real."
         icon={<Radio className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
         actions={
-          <div className="flex items-center gap-2">
-            <KeyboardHintButton />
-            <Button
-              variant="primary"
-              size="lg"
-              leftIcon={<Plus className="w-4 h-4" />}
-              onClick={() => setIsModalOpen(true)}
-            >
-              Conectar WhatsApp
-            </Button>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+            <p className="text-[11px] order-2 sm:order-1" style={{ color: 'var(--text-3)' }}>
+              {isAdmin
+                ? 'Criador: sem teto padrão de canais no painel.'
+                : `Canais usados: ${Math.min(scopedCount, maxConnectionSlots)}/${maxConnectionSlots} (máx. ${MAX_CHANNELS_TOTAL} com extras).`}{' '}
+              {!isAdmin && (
+                <span>
+                  {BASE_CHANNEL_SLOTS} incluídos; cada extra: +R$ 100/mês.
+                </span>
+              )}
+            </p>
+            <div className="flex items-center gap-2 order-1 sm:order-2 sm:shrink-0">
+              <KeyboardHintButton />
+              <Button
+                variant="primary"
+                size="lg"
+                leftIcon={<Plus className="w-4 h-4" />}
+                disabled={atConnectionLimit}
+                title={
+                  atConnectionLimit
+                    ? 'Limite de canais. Contrate extras em Minha assinatura.'
+                    : 'Adicionar conexão'
+                }
+                onClick={() => {
+                  if (atConnectionLimit) {
+                    toast(
+                      'Limite de canais atingido. Em Minha assinatura, contrate 1 a 3 canais extras (até 5 no total, +R$ 100/mês por slot).',
+                      { icon: '🔒', duration: 5000 }
+                    );
+                    return;
+                  }
+                  setIsModalOpen(true);
+                }}
+              >
+                Conectar WhatsApp
+              </Button>
+              {atConnectionLimit && (
+                <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
+                  Aumentar limite
+                </Button>
+              )}
+            </div>
           </div>
         }
       />

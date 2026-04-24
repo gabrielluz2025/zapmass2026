@@ -1,24 +1,60 @@
-name: Deploy to VPS (prod)
+# Deploy automático: push nas branches abaixo valida o build (npm) e, em seguida,
+# conecta na VPS, faz pull da MESMA branch e sobe o Docker. Configure os secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY.
+# Inclui nomes comuns: main, prod, principal, produção (se só listar main/prod, push em principal/produção NÃO dispara).
+# Fluxo: merge/push na branch que a repo e a VPS usam → workflow corre sem clicar "Run workflow".
+#
+# GitHub Actions: ações JS (checkout, etc.) migram de Node 20 → 24. Ver:
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 
+name: Build + deploy VPS
+
+# O env FORCE_* fica so no job `build` (checkout + setup-node). O job `deploy` usa so appleboy/ssh-action; evita acoplar o mesmo runtime JS em todo o pipeline.
+# No GitHub: se falhar, abra o run → veja o passo com X (build: npm; deploy: SSH; healthcheck: API 3001).
 on:
   push:
-    branches: [prod]
+    branches:
+      - main
+      - prod
+      - principal
+      - "produção"
   workflow_dispatch: {}
 
 concurrency:
-  group: deploy-prod
+  group: deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy ZapMass
+  build:
+    name: Validar build (Vite)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: Checkout (informativo)
+      - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Alinhar com o Dockerfile (node:22); Node 24 no CI pode quebrar deps nativos ou espelho npm.
+          node-version: "22"
+          cache: npm
+
+      - name: Instalar e compilar
+        run: |
+          set -euo pipefail
+          node -v
+          npm ci
+          npm run build
+
+  deploy:
+    name: SSH + Docker (VPS)
+    needs: build
+    if: success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
       - name: Deploy por SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -29,11 +65,16 @@ jobs:
           command_timeout: 20m
           script: |
             set -euo pipefail
+            BRANCH="${{ github.ref_name }}"
+            echo "==> branch alvo: ${BRANCH}"
             cd /opt/zapmass
-            echo "==> git pull"
+            echo "==> git pull (${BRANCH})"
             git fetch --all --prune
-            git checkout prod || git checkout -b prod origin/prod
-            git reset --hard origin/prod
+            git checkout "${BRANCH}" 2>/dev/null || git checkout -b "${BRANCH}" "origin/${BRANCH}"
+            git reset --hard "origin/${BRANCH}"
+            # Hash no JavaScript (Configuraçoes) — .git nao entra no contexto Docker
+            export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
+            echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
             echo "==> docker compose build + up (instancia principal)"
             docker compose up -d --build
             if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml >/dev/null 2>&1; then
@@ -58,7 +99,7 @@ jobs:
               docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
             fi
 
-      - name: Healthcheck pos-deploy
+      - name: Healthcheck pós-deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -69,7 +110,6 @@ jobs:
           script: |
             set -e
             echo "==> aguardando API ficar saudavel"
-            # Evita falso negativo quando o container reinicia mais lento.
             for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
               code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || echo 000)
               echo "tentativa $i: HTTP $code"

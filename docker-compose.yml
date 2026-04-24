@@ -26,6 +26,8 @@ services:
         VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
         VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-}
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
+        # Na VPS: `export VITE_GIT_REF=$(git rev-parse --short HEAD)` antes do up --build, ou o workflow de deploy define.
+        VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
     init: true
     ports:
       - "${HOST_PORT:-3001}:3001"

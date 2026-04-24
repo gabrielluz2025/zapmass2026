@@ -58,6 +58,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   }, [collapsed]);
 
   const sidebarOffset = collapsed ? 'lg:ml-[72px]' : 'lg:ml-[260px]';
+  /** Em modo leitura a area principal fica inativa, exceto na aba de assinatura (upgrade). */
+  const readOnlyBlockMain = readOnly && currentView !== 'subscription';
 
   return (
     <div className="min-h-screen flex" style={{ backgroundColor: 'var(--bg)' }}>
@@ -103,9 +105,9 @@ export const AppShell: React.FC<AppShellProps> = ({
         )}
         <div className="p-3 sm:p-5 lg:p-6 relative">
           <div
-            className={`max-w-[1500px] mx-auto page-enter ${readOnly ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
+            className={`max-w-[1500px] mx-auto page-enter ${readOnlyBlockMain ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
             key={currentView}
-            aria-disabled={readOnly}
+            aria-disabled={readOnlyBlockMain}
           >
             {children}
           </div>

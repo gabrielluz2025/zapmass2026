@@ -29,7 +29,8 @@ function readInitialView(): string {
   } catch {
     // ignora erros de URL malformada
   }
-  return 'connections';
+  // Painel: visão padrão (cartão "plano + RAM" e métricas gerais). Use ?view=connections para abrir em Conexões.
+  return 'dashboard';
 }
 
 export const AppViewProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
