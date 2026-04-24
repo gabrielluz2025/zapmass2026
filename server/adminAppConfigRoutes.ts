@@ -247,6 +247,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       let rows = await Promise.all(
         snap.docs.map((d) => rowFromSubscriptionDoc(d.id, d.data() as Record<string, unknown>, authEmailCache))
       );
+      const adminEmails = adminEmailSet();
+      rows = rows.filter((r) => !r.email || !adminEmails.has(r.email.toLowerCase()));
 
       if (search) {
         rows = rows.filter((r) => r.uid.toLowerCase().includes(search) || r.email.toLowerCase().includes(search));

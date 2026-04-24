@@ -5,6 +5,7 @@ import { firestoreTimeToMs } from '../utils/firestoreTime';
 import { useAuth } from './AuthContext';
 import { useAppConfig } from './AppConfigContext';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
+import { isAdminUserEmail } from '../utils/adminAccess';
 import type { UserSubscription } from '../types';
 
 interface SubscriptionContextValue {
@@ -73,6 +74,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
   const hasFullAccess = useMemo(() => {
     if (!enforce) return true;
     if (!user) return false;
+    if (isAdminUserEmail(user.email)) return true;
     if (!subscription) return false;
     if (subscription.blocked === true) return false;
     const now = Date.now();
@@ -96,12 +98,14 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const readOnlyMode = useMemo(() => {
     if (!enforce || !user) return false;
+    if (isAdminUserEmail(user.email)) return false;
     if (!subscription) return false;
     return !hasFullAccess;
   }, [enforce, user, subscription, hasFullAccess]);
 
   const needsOnboardingGate = useMemo(() => {
     if (!enforce || !user || loading) return false;
+    if (isAdminUserEmail(user.email)) return false;
     return subscription === null;
   }, [enforce, user, loading, subscription]);
 
