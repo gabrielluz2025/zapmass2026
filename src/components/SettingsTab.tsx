@@ -192,8 +192,17 @@ export const SettingsTab: React.FC = () => {
     try {
       setClearingAll(true);
       const loadingId = toast.loading('Apagando todos os dados...');
-      await clearAllUserData();
-      toast.success('Todos os dados foram apagados com sucesso.', { id: loadingId, duration: 2600 });
+      const result = await clearAllUserData();
+      const detail = `Contatos: ${result.contacts} • Listas: ${result.contactLists} • Campanhas: ${result.campaigns} • Logs: ${result.campaignLogs}`;
+      if (result.errors > 0) {
+        toast(`Limpeza concluída com avisos (${result.errors}). ${detail}`, {
+          id: loadingId,
+          icon: '⚠️',
+          duration: 5200
+        });
+      } else {
+        toast.success(`Limpeza concluída. ${detail}`, { id: loadingId, duration: 4200 });
+      }
     } catch (err: any) {
       toast.error(err?.message || 'Não foi possível apagar todos os dados.');
     } finally {

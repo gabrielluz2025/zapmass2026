@@ -101,7 +101,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   campaignGeo: INITIAL_CAMPAIGN_GEO,
   warmupChipStats: {},
   clearWarmupChipStats: () => {},
-  clearAllUserData: async () => {},
+  clearAllUserData: async () => ({ contacts: 0, contactLists: 0, campaigns: 0, campaignLogs: 0, errors: 0 }),
   warmupActive: false,
   warmupNextRound: 0,
   startWarmupTimer: () => {},
@@ -849,11 +849,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Mantemos a limpeza resiliente a regras de permissão por coleção.
     let hadAnySuccess = false;
     const errors: string[] = [];
+    const summary = {
+      contacts: 0,
+      contactLists: 0,
+      campaigns: 0,
+      campaignLogs: 0,
+      errors: 0
+    };
 
-    const deleteCollectionDocs = async (collPath: string) => {
+    const deleteCollectionDocs = async (collPath: string, counterKey?: keyof typeof summary) => {
       try {
         const snap = await getDocs(collection(db, collPath));
         if (snap.empty) return;
+        if (counterKey) summary[counterKey] += snap.docs.length;
         let batch = writeBatch(db);
         let pending = 0;
         for (const row of snap.docs) {
@@ -873,16 +881,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
 
     // Coleções suportadas e usadas hoje no app.
-    await deleteCollectionDocs(`users/${uid}/contacts`);
-    await deleteCollectionDocs(`users/${uid}/contact_lists`);
+    await deleteCollectionDocs(`users/${uid}/contacts`, 'contacts');
+    await deleteCollectionDocs(`users/${uid}/contact_lists`, 'contactLists');
 
     // Campanhas: primeiro apaga logs de cada campanha, depois a campanha.
     try {
       const campaignSnap = await getDocs(collection(db, 'users', uid, 'campaigns'));
       if (!campaignSnap.empty) {
         for (const campaignDoc of campaignSnap.docs) {
-          await deleteCollectionDocs(`users/${uid}/campaigns/${campaignDoc.id}/logs`);
+          await deleteCollectionDocs(`users/${uid}/campaigns/${campaignDoc.id}/logs`, 'campaignLogs');
         }
+        summary.campaigns += campaignSnap.docs.length;
         let batch = writeBatch(db);
         let pending = 0;
         for (const campaignDoc of campaignSnap.docs) {
@@ -904,6 +913,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!hadAnySuccess && errors.length > 0) {
       throw new Error('Permissão insuficiente para limpar os dados deste usuário.');
     }
+    summary.errors = errors.length;
 
     // Limpa estado local imediatamente para refletir a ação na UI sem atraso.
     setContacts([]);
@@ -938,6 +948,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         /* ignore */
       }
     }
+    return summary;
   };
 
   const createContactList = async (name: string, contactIds: string[], description?: string) => {
