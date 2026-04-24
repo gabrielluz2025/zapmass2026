@@ -7,6 +7,12 @@ import { useAppView } from '../context/AppViewContext';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, EmptyState, SectionHeader, StatCard } from './ui';
+import { Tabs } from './ui/Tabs';
+import { ContactsCockpitHero } from './contacts/ContactsCockpitHero';
+import { ContactsOverview } from './contacts/ContactsOverview';
+import { ContactsSegmentsPanel } from './contacts/ContactsSegmentsPanel';
+import { ContactsBirthdays } from './contacts/ContactsBirthdays';
+import { LayoutGrid, Database, ListChecks } from 'lucide-react';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -376,6 +382,17 @@ export const ContactsTab: React.FC = () => {
   const { contacts, contactLists, conversations, addContact, removeContact, updateContact, createContactList, deleteContactList, updateContactList } = useZapMass();
   const { setCurrentView } = useAppView();
 
+  type ContactsSubTab = 'overview' | 'base' | 'lists' | 'segments' | 'birthdays';
+  const [activeSubTab, setActiveSubTab] = useState<ContactsSubTab>(() => {
+    try {
+      const v = localStorage.getItem('zapmass.contactsSubTab');
+      if (v === 'overview' || v === 'base' || v === 'lists' || v === 'segments' || v === 'birthdays') return v;
+    } catch { /* ignore */ }
+    return 'overview';
+  });
+  useEffect(() => {
+    try { localStorage.setItem('zapmass.contactsSubTab', activeSubTab); } catch { /* ignore */ }
+  }, [activeSubTab]);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -890,6 +907,23 @@ export const ContactsTab: React.FC = () => {
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
   // ============================================================
+  // Série de 30 dias — crescimento (contatos criados por dia, IDs contêm timestamp).
+  const contactsGrowth30d = useMemo(() => {
+    const days = 30;
+    const buckets = new Array(days).fill(0);
+    const now = Date.now();
+    const DAY = 86400000;
+    for (const c of contacts) {
+      const m = (c.id || '').match(/_(\d{13})_/);
+      const ts = m ? parseInt(m[1], 10) : null;
+      if (!ts || !Number.isFinite(ts)) continue;
+      const age = Math.floor((now - ts) / DAY);
+      if (age < 0 || age >= days) continue;
+      buckets[days - 1 - age]++;
+    }
+    return buckets;
+  }, [contacts]);
+
   const smartStats = useMemo(() => {
     const today = new Date();
     const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -1514,45 +1548,124 @@ export const ContactsTab: React.FC = () => {
     });
   };
 
+  const openNewContactModal = () => {
+    setEditingContactId(null);
+    setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
+    setIsModalOpen(true);
+  };
+  const openSmartImport = () => { setSmartImportRaw(''); setSmartImportRows([]); setSmartImportOpen(true); };
+
+  const contactsSubTabItems = [
+    { id: 'overview', label: 'Visão geral', icon: <LayoutGrid className="w-3.5 h-3.5" /> },
+    { id: 'base', label: 'Base', icon: <Database className="w-3.5 h-3.5" />, badge: filteredContacts.length > 0 ? <span className="text-[10px] font-bold opacity-70">{filteredContacts.length}</span> : undefined },
+    { id: 'lists', label: 'Listas', icon: <ListChecks className="w-3.5 h-3.5" />, badge: contactLists.length > 0 ? <span className="text-[10px] font-bold opacity-70">{contactLists.length}</span> : undefined },
+    { id: 'segments', label: 'Segmentos', icon: <Sparkles className="w-3.5 h-3.5" />, badge: smartSegments.filter(s => s.count > 0).length > 0 ? <span className="text-[10px] font-bold opacity-70">{smartSegments.filter(s => s.count > 0).length}</span> : undefined },
+    { id: 'birthdays', label: 'Aniversariantes', icon: <Cake className="w-3.5 h-3.5" />, badge: smartStats.bdayWeek > 0 ? <span className="text-[10px] font-bold px-1 rounded bg-amber-500 text-white">{smartStats.bdayWeek}</span> : undefined }
+  ];
+
+  // Converte os smartSegments existentes para o formato do painel (mapeia 'red' → 'rose').
+  const segmentsForPanel = smartSegments.map((s) => ({
+    id: s.id,
+    label: s.label,
+    icon: s.icon as unknown as import('lucide-react').LucideIcon,
+    color: (s.color === 'red' ? 'rose' : s.color) as 'rose' | 'amber' | 'sky' | 'emerald' | 'violet' | 'slate',
+    hint: s.hint,
+    count: s.count
+  }));
+
+  const getSegmentMatchList = (segId: string): Contact[] =>
+    contacts.filter((c) => getSmartSegmentMatches(segId as SmartSegmentId, c));
+
+  const handleSegmentApplyFilter = (segId: string) => {
+    setActiveSegment(segId as SmartSegmentId);
+    setActiveSubTab('base');
+    setCurrentPage(1);
+  };
+
+  const buildDraftFromContacts = (people: Contact[], nameBase: string): CampaignWizardDraft | null => {
+    const validPhones = people
+      .map((c) => (c.phone || '').replace(/\D/g, ''))
+      .filter((p) => p.length >= 10);
+    if (validPhones.length === 0) return null;
+    const draft = emptyCampaignDraft();
+    draft.sendMode = 'manual';
+    draft.manualNumbers = validPhones.join('\n');
+    draft.name = nameBase;
+    return draft;
+  };
+
+  const handleSegmentCreateCampaign = (matches: Contact[], segmentLabel: string) => {
+    const draft = buildDraftFromContacts(matches, `Segmento: ${segmentLabel}`);
+    if (!draft) { toast.error('Este segmento não tem contatos com telefone válido.'); return; }
+    launchCampaignWithDraft(draft, `Abrindo campanha para "${segmentLabel}"…`);
+  };
+
+  const handleBirthdayCampaign = (people: Contact[]) => {
+    const name = people.length === 1 ? `Aniversário: ${people[0].name}` : `Aniversariantes (${people.length})`;
+    const draft = buildDraftFromContacts(people, name);
+    if (!draft) { toast.error('Sem telefones válidos nestes aniversariantes.'); return; }
+    launchCampaignWithDraft(draft, 'Abrindo campanha de aniversário…');
+  };
+
+  const handleCreateCampaignWithFiltered = () => {
+    const draft = buildDraftFromContacts(filteredContacts, `Campanha (${filteredContacts.length} contatos)`);
+    if (!draft) { toast.error('Nenhum contato no filtro atual.'); return; }
+    setActiveSubTab('base');
+    launchCampaignWithDraft(draft);
+  };
+
   return (
     <div className="space-y-5 pb-10 relative">
-      <SectionHeader
-        eyebrow={<><Users className="w-3 h-3" />Contatos</>}
-        title="Base de Contatos"
-        description="Organize sua audiência, segmente de forma inteligente e dispare campanhas com 1 clique."
-        icon={<Users className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
-        actions={
-          <>
-            <Button variant="secondary" leftIcon={<FileSpreadsheet className="w-4 h-4" />} onClick={handleDownloadTemplate}>
-              Modelo
-            </Button>
-            <Button variant="secondary" leftIcon={<Upload className="w-4 h-4" />} onClick={() => fileInputRef.current?.click()}>
-              Importar XLSX
-            </Button>
-            <Button variant="secondary" leftIcon={<Wand2 className="w-4 h-4" />} onClick={() => { setSmartImportRaw(''); setSmartImportRows([]); setSmartImportOpen(true); }}>
-              Colar do Excel/Word
-            </Button>
-            <Button
-              variant="primary"
-              leftIcon={<UserPlus className="w-4 h-4" />}
-              onClick={() => {
-                setEditingContactId(null);
-                setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
-                setIsModalOpen(true);
-              }}
-            >
-              Novo Contato
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.txt,.xlsx,.xls"
-              className="hidden"
-              onChange={handleImportCSV}
-            />
-          </>
-        }
+      {/* input file escondido, usado pelos botões do hero/tabela */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.txt,.xlsx,.xls"
+        className="hidden"
+        onChange={handleImportCSV}
       />
+
+      {!listManageId && (
+        <>
+          <ContactsCockpitHero
+            stats={{
+              total: smartStats.total,
+              valid: validCount,
+              invalid: smartStats.invalid,
+              hot: smartStats.hot,
+              warm: smartStats.warm,
+              cold: smartStats.cold,
+              newOnes: smartStats.newOnes,
+              dormant: smartStats.dormant,
+              bdayToday: smartStats.bdayToday,
+              bdayWeek: smartStats.bdayWeek,
+              addressPct: smartStats.addressPct,
+              last7: smartStats.last7,
+              duplicates: smartStats.duplicates,
+              growth30d: contactsGrowth30d
+            }}
+            onNewContact={openNewContactModal}
+            onImportXLSX={() => fileInputRef.current?.click()}
+            onSmartImport={openSmartImport}
+            onDownloadTemplate={handleDownloadTemplate}
+            onExport={handleExport}
+          />
+          <Tabs
+            items={contactsSubTabItems}
+            value={activeSubTab}
+            onChange={(id) => setActiveSubTab(id as ContactsSubTab)}
+          />
+        </>
+      )}
+
+      {listManageId && (
+        <SectionHeader
+          eyebrow={<><Users className="w-3 h-3" />Contatos</>}
+          title="Gestão de lista"
+          description="Administre os contatos vinculados a esta lista — edite, remova e adicione com facilidade."
+          icon={<Users className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
+        />
+      )}
 
       {listManageId && managedListForView ? (
         <div className="ui-card p-5 space-y-4">
@@ -1734,7 +1847,40 @@ export const ContactsTab: React.FC = () => {
         </div>
       ) : (
       <>
-      {showFilterPanel && (
+      {/* Sub-aba: Visão Geral (novo ContactsOverview) */}
+      {activeSubTab === 'overview' && (
+        <ContactsOverview
+          contacts={contacts}
+          contactTemps={contactTemps}
+          onOpenChat={openInChat}
+          onNewCampaign={handleCreateCampaignWithFiltered}
+          onGoToSegments={() => setActiveSubTab('segments')}
+          onGoToBirthdays={() => setActiveSubTab('birthdays')}
+        />
+      )}
+
+      {/* Sub-aba: Segmentos Inteligentes */}
+      {activeSubTab === 'segments' && (
+        <ContactsSegmentsPanel
+          segments={segmentsForPanel}
+          getMatches={getSegmentMatchList}
+          onApplyFilterOnBase={handleSegmentApplyFilter}
+          onCreateCampaign={handleSegmentCreateCampaign}
+          onOpenChat={openInChat}
+        />
+      )}
+
+      {/* Sub-aba: Aniversariantes */}
+      {activeSubTab === 'birthdays' && (
+        <ContactsBirthdays
+          contacts={contacts}
+          onOpenChat={openInChat}
+          onBirthdayCampaign={handleBirthdayCampaign}
+        />
+      )}
+
+      {/* Sub-aba: Base (filtros, seleção, tabela) */}
+      {activeSubTab === 'base' && showFilterPanel && (
         <div className="ui-card p-4 border-l-4 border-emerald-500">
           <div className="flex flex-wrap gap-6 items-end">
             <div>
@@ -1807,50 +1953,8 @@ export const ContactsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Insight hero — 6 cards acionáveis */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard
-          label="Base total"
-          value={smartStats.total}
-          icon={<Users className="w-4 h-4" />}
-          helper={smartStats.last7 > 0 ? `+${smartStats.last7} últimos 7d` : 'Base ativa'}
-        />
-        <StatCard
-          label="Válidos"
-          value={validCount}
-          icon={<CheckCircle2 className="w-4 h-4" />}
-          helper={`${smartStats.total ? Math.round((validCount / smartStats.total) * 100) : 0}% da base`}
-          accent="success"
-        />
-        <StatCard
-          label="Quentes"
-          value={smartStats.hot}
-          icon={<Flame className="w-4 h-4" />}
-          helper={smartStats.warm > 0 ? `+${smartStats.warm} mornos` : 'Engajados recentes'}
-          accent="warning"
-        />
-        <StatCard
-          label="Aniversários"
-          value={smartStats.bdayWeek}
-          icon={<Cake className="w-4 h-4" />}
-          helper={smartStats.bdayToday > 0 ? `${smartStats.bdayToday} hoje • 7 dias` : 'Nos próximos 7 dias'}
-        />
-        <StatCard
-          label="Dormentes"
-          value={smartStats.dormant}
-          icon={<Clock className="w-4 h-4" />}
-          helper="Sem resposta > 30d"
-        />
-        <StatCard
-          label="Completude"
-          value={`${smartStats.addressPct}%`}
-          icon={<TrendingUp className="w-4 h-4" />}
-          helper={smartStats.invalid > 0 ? `${smartStats.invalid} inválidos` : 'Endereço completo'}
-          accent={smartStats.addressPct >= 70 ? 'success' : smartStats.addressPct >= 40 ? 'warning' : 'danger'}
-        />
-      </div>
-
-      {/* Filters Bar */}
+      {/* Filters Bar — apenas na sub-aba Base */}
+      {activeSubTab === 'base' && (
       <div className="ui-card p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative w-full md:w-96">
           <label htmlFor="contactSearch" className="sr-only">Buscar contato</label>
@@ -1884,8 +1988,10 @@ export const ContactsTab: React.FC = () => {
            </button>
         </div>
       </div>
+      )}
 
-      {/* Segmentos Inteligentes + Tags + Atividade */}
+      {/* Bloco removido: Segmentos Inteligentes + Atividade — agora na sub-aba "Visão geral" (ContactsOverview) e "Segmentos" (ContactsSegmentsPanel). */}
+      {false && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="ui-card p-4 lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
@@ -2058,7 +2164,10 @@ export const ContactsTab: React.FC = () => {
           })()}
         </div>
       </div>
+      )}
 
+      {/* Sub-aba: Listas */}
+      {activeSubTab === 'lists' && (
       <div className="ui-card p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-bold text-slate-900 dark:text-white">Listas de Contatos</h3>
@@ -2166,8 +2275,10 @@ export const ContactsTab: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
-      {selectedIds.length > 0 && (
+      {/* Sub-aba: Base — seleção + tabela */}
+      {activeSubTab === 'base' && selectedIds.length > 0 && (
         <div className="ui-card p-4 border-l-4 border-emerald-500 bg-gradient-to-r from-emerald-50/40 to-transparent dark:from-emerald-950/20">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -2309,7 +2420,8 @@ export const ContactsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Contacts Table */}
+      {/* Contacts Table — sub-aba Base */}
+      {activeSubTab === 'base' && (
       <div className="ui-card overflow-hidden flex flex-col min-h-[400px]">
         {/* Temperatura sempre visivel (o restante dos filtros continua no painel "Filtros") */}
         <div className="px-3 sm:px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/40 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
@@ -2605,6 +2717,7 @@ export const ContactsTab: React.FC = () => {
            </div>
         </div>
       </div>
+      )}
       </>
       )}
       
