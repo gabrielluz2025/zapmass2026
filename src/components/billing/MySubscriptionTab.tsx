@@ -31,11 +31,16 @@ const CHANNEL_TIER_PRICES: Record<ChannelTier, number> = {
   4: 399.9,
   5: 459.9
 };
-const ANNUAL_FACTOR = 0.85;
+const CHANNEL_TIER_PRICES_ANNUAL: Record<ChannelTier, number> = {
+  1: 1529,
+  2: 2549,
+  3: 3365,
+  4: 4079,
+  5: 4691
+};
 
 function tierPrice(channels: ChannelTier, plan: Plan): number {
-  const monthly = CHANNEL_TIER_PRICES[channels];
-  return plan === 'annual' ? Math.round(monthly * 12 * ANNUAL_FACTOR * 100) / 100 : monthly;
+  return plan === 'annual' ? CHANNEL_TIER_PRICES_ANNUAL[channels] : CHANNEL_TIER_PRICES[channels];
 }
 
 function brl(v: number): string {

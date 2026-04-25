@@ -18,7 +18,13 @@ const CHANNEL_TIER_PRICES_MONTHLY: Record<ChannelTier, number> = {
   4: 399.9,
   5: 459.9
 };
-const ANNUAL_DISCOUNT_FACTOR_DEFAULT = 0.85; // 15% off
+const CHANNEL_TIER_PRICES_ANNUAL: Record<ChannelTier, number> = {
+  1: 1529,
+  2: 2549,
+  3: 3365,
+  4: 4079,
+  5: 4691
+};
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -58,7 +64,7 @@ function channelTierAnnualPrice(channels: ChannelTier): number {
   const envKey = `MERCADOPAGO_CHANNEL_TIER_${channels}_ANNUAL`;
   const envVal = parseFloat(process.env[envKey] || '');
   if (Number.isFinite(envVal) && envVal > 0) return envVal;
-  return roundMoney(channelTierMonthlyPrice(channels) * 12 * ANNUAL_DISCOUNT_FACTOR_DEFAULT);
+  return CHANNEL_TIER_PRICES_ANNUAL[channels];
 }
 
 function resolveCurrentChannelsFromSub(sub: Record<string, unknown> | undefined): ChannelTier {
