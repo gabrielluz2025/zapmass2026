@@ -89,8 +89,15 @@ jobs:
             # Hash no JavaScript (Configuraçoes) — .git nao entra no contexto Docker
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
             echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
-            echo "==> docker compose build + up (instancia principal)"
-            docker compose up -d --build
+            SWARM_ENABLED="${SWARM_ENABLED:-0}"
+            if [ "$SWARM_ENABLED" = "1" ]; then
+              echo "==> deploy em Docker Swarm (stack: zapmass)"
+              docker build -t zapmass:latest .
+              docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
+            else
+              echo "==> docker compose build + up (instancia principal)"
+              docker compose up -d --build
+            fi
             if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml >/dev/null 2>&1; then
               echo "==> atualizar containers dos clientes para a imagem nova"
               for dir in /opt/zapmass/clientes/*/; do
@@ -108,7 +115,11 @@ jobs:
             echo "==> prune imagens antigas"
             docker image prune -f
             echo "==> status"
-            docker compose ps
+            if [ "$SWARM_ENABLED" = "1" ]; then
+              docker stack services zapmass
+            else
+              docker compose ps
+            fi
             if [ -d /opt/zapmass/clientes ]; then
               docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
             fi

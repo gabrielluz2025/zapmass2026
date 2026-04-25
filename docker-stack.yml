@@ -1,0 +1,90 @@
+version: "3.9"
+
+services:
+  api:
+    image: zapmass:latest
+    build:
+      context: .
+      args:
+        VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
+        VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
+        VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
+        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-}
+        VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
+        VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
+    ports:
+      - target: 3001
+        published: ${HOST_PORT:-3001}
+        protocol: tcp
+        mode: host
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      REDIS_URL: redis://redis:6379
+      SESSION_PROCESS_MODE: api
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
+    env_file:
+      - .env
+    volumes:
+      - zapmass-data:/app/data
+      - ./secrets:/run/secrets:ro
+    deploy:
+      replicas: 1
+      update_config:
+        order: start-first
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001/api/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+
+  wa-worker:
+    image: zapmass:latest
+    command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      SESSION_PROCESS_MODE: worker
+      WORKER_ID: "{{.Task.Name}}"
+    volumes:
+      - zapmass-data:/app/data
+      - ./secrets:/run/secrets:ro
+    deploy:
+      replicas: ${WA_WORKER_REPLICAS:-2}
+      update_config:
+        order: start-first
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: any
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis-data:/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./deployment/swarm/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - target: 9090
+        published: ${PROMETHEUS_PORT:-9090}
+        protocol: tcp
+        mode: host
+    deploy:
+      replicas: 1
+
+volumes:
+  zapmass-data:
+  redis-data:

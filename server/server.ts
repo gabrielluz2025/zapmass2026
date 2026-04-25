@@ -27,6 +27,17 @@ import {
   readUserSubscriptionForLimits,
   isUidTreatedAsServerAdmin
 } from './connectionLimits.js';
+import {
+  getSessionRouterMetrics,
+  startSessionControlPlane,
+  stopSessionControlPlane,
+  submitCreateConnection,
+  submitForceQr,
+  submitReconnectConnection,
+  submitSendMedia,
+  submitSendMessage
+} from './sessionControlPlane.js';
+import { collectMetrics, metricsContentType, setConnectedSessionsGauge } from './observability.js';
 
 // --- REAL SYSTEM METRICS ---
 let _lastCpuInfo = os.cpus();
@@ -151,6 +162,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', serverTime: new Date(), version: getAppVersion() });
 });
 
+app.get('/api/session-router/metrics', (_req, res) => {
+  res.json(getSessionRouterMetrics());
+});
+
+app.get('/metrics', async (_req, res) => {
+  res.setHeader('Content-Type', metricsContentType());
+  res.send(await collectMetrics());
+});
+
 app.get('/api/version', (req, res) => {
   res.json({
     version: getAppVersion(),
@@ -204,6 +224,8 @@ if (process.env.NODE_ENV === 'production') {
 // Emit real system metrics every 10s
 setInterval(() => {
   if (io) io.emit('system-metrics', getSystemMetrics());
+  const connected = waService.getConnections().filter((conn) => conn.status === 'CONNECTED').length;
+  setConnectedSessionsGauge(connected);
 }, 10000);
 
 /**
@@ -327,8 +349,9 @@ const registerSocketHandlers = () => {
           return;
         }
         userLog('ui:create-connection', { name });
-        await waService.createConnection(
+        await submitCreateConnection(
           typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp',
+          uid,
           uid && uid !== 'anonymous' ? uid : undefined
         );
         socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
@@ -351,7 +374,7 @@ const registerSocketHandlers = () => {
         return;
       }
       userLog('ui:reconnect-connection', { id });
-      waService.reconnectConnection(id);
+      void submitReconnectConnection(id, uid);
     });
 
     socket.on('force-qr', ({ id }) => {
@@ -360,7 +383,7 @@ const registerSocketHandlers = () => {
         return;
       }
       userLog('ui:force-qr', { id });
-      waService.forceQr(id);
+      void submitForceQr(id, uid);
     });
 
     // Start Campaign: Agora aceita connectionIds (array) para balanceamento
@@ -455,7 +478,7 @@ const registerSocketHandlers = () => {
       }
       userLog('ui:send-message', { conversationId });
       try {
-        await waService.sendMessage(conversationId, text);
+        await submitSendMessage(conversationId, text, uid);
         logEvent('wa:send-message', { conversationId });
       } catch (error: any) {
         logEvent('wa:send-message-error', { conversationId, error: error?.message || 'Erro desconhecido' });
@@ -487,7 +510,7 @@ const registerSocketHandlers = () => {
           return;
         }
         try {
-          await waService.sendMedia(conversationId, { dataBase64, mimeType, fileName, caption });
+          await submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, uid);
           callback?.({ ok: true });
         } catch (error: any) {
           const message = error?.message || 'Falha ao enviar arquivo.';
@@ -724,6 +747,7 @@ const bootstrap = async () => {
   }
 
   registerSocketHandlers();
+  await startSessionControlPlane();
 
   const backupOnStart = process.env.BACKUP_ON_START === 'true';
   const backupIntervalMinutes = Number(process.env.BACKUP_INTERVAL_MINUTES || 0);
@@ -774,10 +798,14 @@ const handleGracefulShutdown = (signal: string) => {
     .shutdownAll(signal)
     .catch((e) => console.error('Erro no shutdownAll:', e))
     .finally(() => {
-      try { io?.close(); } catch { /* ignore */ }
-      clearTimeout(hardTimeout);
-      console.log('👋 Bye.');
-      process.exit(0);
+      void stopSessionControlPlane()
+        .catch((e) => console.error('Erro no stopSessionControlPlane:', e))
+        .finally(() => {
+          try { io?.close(); } catch { /* ignore */ }
+          clearTimeout(hardTimeout);
+          console.log('👋 Bye.');
+          process.exit(0);
+        });
     });
 };
 

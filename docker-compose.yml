@@ -34,6 +34,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3001"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SESSION_PROCESS_MODE: ${SESSION_PROCESS_MODE:-monolith}
       # Credenciais Firebase Admin (service account). Coloca o JSON em
       # /opt/zapmass/secrets/firebase-admin.json no host (chmod 600).
       # Se o ficheiro nao existir, o servidor sobe na mesma mas rotas que
@@ -52,6 +54,43 @@ services:
     # 45s = 15s per-client destroy + 5s backup + folga para o Node finalizar
     # e tirar backup de multiplas sessoes em paralelo.
     stop_grace_period: 45s
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    restart: unless-stopped
+    volumes:
+      - zapmass-redis:/data
+
+  wa-worker:
+    build:
+      context: .
+      args:
+        VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
+        VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
+        VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
+        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-}
+        VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
+        VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
+    command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
+    environment:
+      NODE_ENV: production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SESSION_PROCESS_MODE: worker
+      WORKER_ID: worker-compose
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - zapmass-data:/app/data
+      - ./secrets:/run/secrets:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+    profiles: ["workers"]
 
 volumes:
   zapmass-data:
+  zapmass-redis:
