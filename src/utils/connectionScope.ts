@@ -5,8 +5,7 @@
  */
 /**
  * Em multi-tenant estrito, canais "legado" (id sem `uid__`) não devem aparecer para
- * contas logadas (evita somar canais alheios). Em instalação típica (1 VPS = 1 dono)
- * o padrão é mostrar canais legados para todos, inclusive após reidratar sessao no deploy.
+ * contas logadas (evita vazar dados entre usuários).
  *
  * No servidor: ZAPMASS_STRICT_CONNECTION_SCOPE=1
  * No front (Vite): VITE_STRICT_CONNECTION_SCOPE=1
@@ -28,7 +27,8 @@ const strictConnectionScope = (): boolean => {
   } catch {
     /* ignore */
   }
-  return false;
+  // Segurança primeiro: por padrão sempre estrito.
+  return true;
 };
 
 export function isLegacyConnectionId(id: string): boolean {
@@ -41,11 +41,7 @@ export function ownsConnectionForUid(
 ): boolean {
   if (!connectionId) return false;
   if (isLegacyConnectionId(connectionId)) {
-    if (!strictConnectionScope()) {
-      // Padrão: mesma instância / um operador — canais legados visíveis a todos
-      // (incluindo apos deploy quando a sessao foi criada como legado).
-      return true;
-    }
+    if (!strictConnectionScope()) return true;
     // Modo multi-tenant estrito: so sessao "anonima" (operador) ve o legado.
     return !socketUid || socketUid === 'anonymous';
   }

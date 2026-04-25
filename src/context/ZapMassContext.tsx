@@ -113,6 +113,14 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
 
 const ZapMassContext = createContext<ZapMassContextWithSocket>(EMPTY_CONTEXT);
 const legacyIgnoreKey = (uid: string) => `zapmass.ignoreLegacyData:${uid}`;
+const allowLegacyMerge = (): boolean => {
+  try {
+    const v = (import.meta as { env?: { VITE_ENABLE_LEGACY_MERGE?: string } })?.env?.VITE_ENABLE_LEGACY_MERGE;
+    return v === '1' || v === 'true';
+  } catch {
+    return false;
+  }
+};
 
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentView } = useAppView();
@@ -319,7 +327,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const bindUser = (uid: string) => {
       stopAll();
       const b = fbMergeRef.current;
-      const ignoreLegacy = (() => {
+      const ignoreLegacy = !allowLegacyMerge() || (() => {
         try {
           return localStorage.getItem(legacyIgnoreKey(uid)) === '1';
         } catch {
