@@ -3,6 +3,34 @@
  * Visíveis a qualquer sessão no mesmo servidor (típico: uma instância, um operador).
  * Em servidor compartilhado com várias contas, considere migrar ids para `uid__...`.
  */
+/**
+ * Em multi-tenant estrito, canais "legado" (id sem `uid__`) não devem aparecer para
+ * contas logadas (evita somar canais alheios). Em instalação típica (1 VPS = 1 dono)
+ * o padrão é mostrar canais legados para todos, inclusive após reidratar sessao no deploy.
+ *
+ * No servidor: ZAPMASS_STRICT_CONNECTION_SCOPE=1
+ * No front (Vite): VITE_STRICT_CONNECTION_SCOPE=1
+ */
+const strictConnectionScope = (): boolean => {
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as { env?: { VITE_STRICT_CONNECTION_SCOPE?: string } }).env) {
+      const v = (import.meta as { env?: { VITE_STRICT_CONNECTION_SCOPE?: string } }).env?.VITE_STRICT_CONNECTION_SCOPE;
+      if (v === '1' || v === 'true') return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (typeof process !== 'undefined' && process.env?.ZAPMASS_STRICT_CONNECTION_SCOPE) {
+      const v = process.env.ZAPMASS_STRICT_CONNECTION_SCOPE;
+      return v === '1' || v === 'true';
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+};
+
 export function isLegacyConnectionId(id: string): boolean {
   return typeof id === 'string' && id.length > 0 && !id.includes('__');
 }
@@ -13,9 +41,12 @@ export function ownsConnectionForUid(
 ): boolean {
   if (!connectionId) return false;
   if (isLegacyConnectionId(connectionId)) {
-    // Só a sessão sem conta Firebase (operador "anónimo" no socket) vê canais puramente
-    // numéricos/legados. Conta logada: só vê {uid}__ — o limite do servidor fica alinhado à UI
-    // e nao soma "canal legado partilhado" a mais canais reais.
+    if (!strictConnectionScope()) {
+      // Padrão: mesma instância / um operador — canais legados visíveis a todos
+      // (incluindo apos deploy quando a sessao foi criada como legado).
+      return true;
+    }
+    // Modo multi-tenant estrito: so sessao "anonima" (operador) ve o legado.
     return !socketUid || socketUid === 'anonymous';
   }
 

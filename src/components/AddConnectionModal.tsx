@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, QrCode, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMass } from '../context/ZapMassContext';
@@ -15,6 +15,10 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   const [connectionName, setConnectionName] = useState('');
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const [currentConnectionId, setCurrentConnectionId] = useState<string | null>(null);
+  /** Evita corrida: ready pode chegar antes do setState do QR no mesmo tick. */
+  const pendingConnectionIdRef = useRef<string | null>(null);
+  const stepRef = useRef(step);
+  stepRef.current = step;
 
   // Reset state when modal opens
   useEffect(() => {
@@ -23,6 +27,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       setConnectionName('');
       setQrCodeData(null);
       setCurrentConnectionId(null);
+      pendingConnectionIdRef.current = null;
     }
   }, [isOpen]);
 
@@ -34,6 +39,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         console.log('QR Code Recebido Real:', data);
         setQrCodeData(data.qrCode);
         setCurrentConnectionId(data.connectionId);
+        pendingConnectionIdRef.current = data.connectionId;
         setStep('scanning');
         toast.success('QR Code Gerado! Escaneie agora.', {
             icon: '📷',
@@ -42,7 +48,14 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     };
 
     const handleReady = (data: { connectionId: string }) => {
-        if (data.connectionId === currentConnectionId || step === 'scanning') {
+        const pending = pendingConnectionIdRef.current;
+        const s = stepRef.current;
+        if (
+            data.connectionId === currentConnectionId ||
+            data.connectionId === pending ||
+            s === 'scanning' ||
+            s === 'loading_qr'
+        ) {
             setStep('success');
             toast.success('Dispositivo Sincronizado!', {
                icon: '🚀'
@@ -60,7 +73,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         socket.off('qr-code', handleQrCode);
         socket.off('connection-ready', handleReady);
     };
-  }, [socket, currentConnectionId, step, onClose]);
+  }, [socket, currentConnectionId, onClose]);
 
   const handleCreate = () => {
       if (!connectionName.trim()) return;
