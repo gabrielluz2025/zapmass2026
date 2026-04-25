@@ -21,6 +21,10 @@ const DEFAULT_PRICE_MONTHLY =
   (import.meta.env.VITE_MARKETING_PRICE_MONTHLY as string | undefined)?.trim() || 'R$ 49,90 / mês';
 const DEFAULT_PRICE_ANNUAL =
   (import.meta.env.VITE_MARKETING_PRICE_ANNUAL as string | undefined)?.trim() || 'R$ 479,90 / ano';
+const DEFAULT_CHANNEL_FROM_MONTHLY =
+  (import.meta.env.VITE_MARKETING_CHANNEL_FROM_MONTHLY as string | undefined)?.trim() || 'R$ 149,90 / mês';
+const DEFAULT_CHANNEL_FROM_ANNUAL =
+  (import.meta.env.VITE_MARKETING_CHANNEL_FROM_ANNUAL as string | undefined)?.trim() || 'R$ 1.529,00 / ano';
 
 export const PreLoginLanding: React.FC = () => {
   const { config } = useAppConfig();
@@ -33,6 +37,8 @@ export const PreLoginLanding: React.FC = () => {
 
   const priceMonthly = config.marketingPriceMonthly.trim() || DEFAULT_PRICE_MONTHLY;
   const priceAnnual = config.marketingPriceAnnual.trim() || DEFAULT_PRICE_ANNUAL;
+  const channelFromMonthly = config.marketingPriceMonthly.trim() || DEFAULT_CHANNEL_FROM_MONTHLY;
+  const channelFromAnnual = config.marketingPriceAnnual.trim() || DEFAULT_CHANNEL_FROM_ANNUAL;
 
   return (
     <div
@@ -173,11 +179,11 @@ export const PreLoginLanding: React.FC = () => {
               boxShadow: 'var(--shadow-xs)'
             }}
           >
-            <StatMini value="+2M" label="Mensagens por mês" />
+            <StatMini value="1 a 5" label="Planos por canais" />
             <StatSep />
-            <StatMini value="99,8%" label="Uptime do servidor" />
+            <StatMini value="Pix -5%" label="Desconto no checkout" />
             <StatSep />
-            <StatMini value="5 min" label="Até o 1º disparo" />
+            <StatMini value="24/7" label="Operação em nuvem" />
           </div>
 
           {/* Highlights */}
@@ -280,28 +286,32 @@ export const PreLoginLanding: React.FC = () => {
               className="text-3xl sm:text-4xl font-black tracking-tight mb-2"
               style={{ color: 'var(--text-1)' }}
             >
-              Preço direto, sem letrinhas miúdas
+              Planos por quantidade de canais
             </h3>
             <p className="text-[14px] max-w-xl mx-auto" style={{ color: 'var(--text-2)' }}>
-              Cancele quando quiser. Todos os planos têm as mesmas funções — a diferença é só a duração.
+              Você escolhe de 1 até 5 canais no checkout. Upgrade no meio do ciclo com cobrança pró-rata.
             </p>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4 max-w-3xl mx-auto">
             <PlanPreviewCard
               label="Mensal"
-              price={priceMonthly}
-              sub="Renova todo mês"
-              perks={['Todas as funções liberadas', 'Cancelamento em 1 clique', 'Suporte por chat']}
+              price={`${channelFromMonthly} (1 canal)`}
+              sub="Escala até 5 canais no checkout"
+              perks={[
+                'Planos: 1, 2, 3, 4 ou 5 canais',
+                'Upgrade com pró-rata',
+                'Cancelamento em 1 clique'
+              ]}
             />
             <PlanPreviewCard
               featured
               label="Anual"
-              price={priceAnnual}
-              sub="Economia de ~25% no ano"
+              price={`${channelFromAnnual} (1 canal)`}
+              sub="Economia no ciclo anual"
               perks={[
+                'Mesmas faixas de 1 a 5 canais',
                 'Tudo do plano mensal',
-                '2 meses grátis vs. mensal',
                 'Prioridade no suporte'
               ]}
             />
@@ -370,7 +380,7 @@ export const PreLoginLanding: React.FC = () => {
             />
             <FaqItem
               q="Quantos chips posso conectar?"
-              a="Sem limite artificial. Conecte quantos chips quiser — o consumo real depende só da sua máquina/servidor e do WhatsApp."
+              a="Depende do plano de canais escolhido no checkout: de 1 a 5 canais por conta. Você pode fazer upgrade quando quiser."
             />
             <FaqItem
               q="Como cancelo a assinatura?"
