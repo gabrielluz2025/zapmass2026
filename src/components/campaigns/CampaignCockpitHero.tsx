@@ -62,6 +62,11 @@ export const CampaignCockpitHero: React.FC<CampaignCockpitHeroProps> = ({
     const runningPending = Math.max(0, runningTotal - runningProcessed);
 
     const onlineChips = connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length;
+    const liveQueueAll = connections.reduce((acc, c) => acc + Math.max(0, Number(c.queueSize) || 0), 0);
+    const runningConnIds = new Set(running.flatMap((c) => c.selectedConnectionIds || []));
+    const liveQueueRunning = connections
+      .filter((c) => runningConnIds.has(c.id))
+      .reduce((acc, c) => acc + Math.max(0, Number(c.queueSize) || 0), 0);
     const activeChips = Math.max(1, onlineChips);
     const avgDelay =
       running.length > 0 && runningTotal > 0
@@ -93,6 +98,8 @@ export const CampaignCockpitHero: React.FC<CampaignCockpitHeroProps> = ({
       runningProgress,
       runningPending,
       onlineChips,
+      liveQueueAll,
+      liveQueueRunning,
       etaSeconds,
       featured
     };
@@ -354,13 +361,14 @@ export const CampaignCockpitHero: React.FC<CampaignCockpitHeroProps> = ({
           </div>
         </div>
 
-        {/* KPI trio compacto */}
+        {/* KPI compacto */}
         <div className="grid grid-cols-3 gap-2">
           <MiniKpi
             icon={<Target className="w-3.5 h-3.5" />}
-            label="Total"
-            value={fmtInt(campaigns.length)}
-            tone="#10b981"
+            label="Fila"
+            value={fmtInt(stats.liveQueueRunning || stats.liveQueueAll)}
+            tone="#f59e0b"
+            hint={stats.liveQueueRunning > 0 ? 'running' : 'global'}
           />
           <MiniKpi
             icon={<Send className="w-3.5 h-3.5" />}
@@ -588,7 +596,8 @@ const MiniKpi: React.FC<{
   label: string;
   value: string;
   tone: string;
-}> = ({ icon, label, value, tone }) => (
+  hint?: string;
+}> = ({ icon, label, value, tone, hint }) => (
   <div
     className="rounded-xl p-2.5 relative overflow-hidden"
     style={{
@@ -617,6 +626,11 @@ const MiniKpi: React.FC<{
       >
         {value}
       </p>
+      {hint && (
+        <p className="text-[9px] font-bold uppercase tracking-[0.12em] mt-0.5" style={{ color: 'var(--text-3)' }}>
+          {hint}
+        </p>
+      )}
     </div>
   </div>
 );

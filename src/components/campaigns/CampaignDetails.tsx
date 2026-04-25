@@ -134,6 +134,62 @@ const findCampaignMessage = (
   return { conv: campaignConv, msg: campaignMsg, reply };
 };
 
+const buildRowsFromConversations = (
+  campaign: Campaign,
+  contacts: Contact[],
+  conversations: Conversation[]
+): ReportRow[] => {
+  const allowed = campaign.selectedConnectionIds || [];
+  const scoped =
+    allowed.length > 0
+      ? conversations.filter((conv) => allowed.includes(conv.connectionId))
+      : conversations;
+  const byPhone = new Map<string, ReportRow>();
+
+  for (const conv of scoped) {
+    const msgs = (conv.messages || []).filter(
+      (m) => m.sender === 'me' && m.fromCampaign && m.campaignId === campaign.id
+    );
+    if (msgs.length === 0) continue;
+    const ordered = msgs.slice().sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0));
+    const sent = ordered[0];
+    const sentTs = sent.timestampMs ?? 0;
+    const reply = (conv.messages || [])
+      .filter((m) => m.sender === 'them' && (m.timestampMs ?? 0) >= sentTs)
+      .sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0))[0];
+
+    let status: ReportStatus = 'SENT';
+    if (reply) status = 'REPLIED';
+    else if (sent.status === 'read') status = 'READ';
+    else if (sent.status === 'delivered') status = 'DELIVERED';
+
+    const phone = cleanPhone(conv.contactPhone || '');
+    if (!phone) continue;
+    const existing = byPhone.get(phone);
+    // Se já existe para o mesmo telefone, preferimos o mais recente.
+    const existingTs = existing?.sentTimestampMs ?? 0;
+    if (existing && existingTs > sentTs) continue;
+
+    byPhone.set(phone, {
+      id: `conv-${conv.id}-${sent.id}`,
+      phone,
+      contactName: findContactName(phone, contacts) || conv.contactName || `+${phone}`,
+      status,
+      sentTime: sent.timestamp || '',
+      sentTimestampMs: sentTs,
+      replyText: reply?.text,
+      replyTime: reply?.timestamp,
+      replyTimestampMs: reply?.timestampMs,
+      conversationId: conv.id,
+      connectionId: conv.connectionId,
+      sentMessage: sent.text,
+      profilePicUrl: conv.profilePicUrl
+    });
+  }
+
+  return Array.from(byPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
+};
+
 const formatDateTimeBR = (raw?: string): { date: string; time: string; relative: string } => {
   if (!raw) return { date: '—', time: '', relative: '' };
   const d = new Date(raw);
@@ -278,6 +334,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const throughputPerMin =
     elapsedSec > 0 ? +(campaign.processedCount / (elapsedSec / 60)).toFixed(1) : 0;
   const remaining = Math.max(0, campaign.totalContacts - campaign.processedCount);
+  // Pendente "real-time": fila viva no backend (queueSize por chip selecionado).
+  // Em cenários com retry/reconexão, esse valor tende a refletir melhor o que ainda falta sair.
+  const pendingLive = useMemo(() => {
+    const selected = new Set(campaign.selectedConnectionIds || []);
+    if (selected.size === 0) return 0;
+    return connections
+      .filter((conn) => selected.has(conn.id))
+      .reduce((acc, conn) => acc + Math.max(0, Number(conn.queueSize) || 0), 0);
+  }, [campaign.selectedConnectionIds, connections]);
   const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
   const startedFmt = formatDateTimeBR(campaign.createdAt);
 
@@ -370,7 +435,27 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       });
     });
 
-    return rows.sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
+    const rowsFromLogs = rows.sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
+    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations);
+    const mergedByPhone = new Map<string, ReportRow>();
+    for (const row of rowsFromConversations) mergedByPhone.set(row.phone, row);
+    for (const row of rowsFromLogs) {
+      const existing = mergedByPhone.get(row.phone);
+      if (!existing) {
+        mergedByPhone.set(row.phone, row);
+        continue;
+      }
+      // Log de falha tem prioridade para não mascarar erro.
+      if (row.status === 'FAILED' && existing.status !== 'FAILED') {
+        mergedByPhone.set(row.phone, { ...existing, ...row });
+        continue;
+      }
+      // Caso contrário, mantemos o registro mais novo.
+      if ((row.sentTimestampMs || 0) > (existing.sentTimestampMs || 0)) {
+        mergedByPhone.set(row.phone, { ...existing, ...row });
+      }
+    }
+    return Array.from(mergedByPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
   }, [systemLogs, campaign.id, campaign.selectedConnectionIds, contacts, conversations]);
 
   const filteredReport = useMemo(() => {
@@ -814,8 +899,14 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         />
         <KpiPill
           label="Pendentes"
-          value={remaining.toLocaleString('pt-BR')}
-          helper={isRunning ? `ETA ${formatDuration(etaSec)}` : 'aguardando'}
+          value={pendingLive.toLocaleString('pt-BR')}
+          helper={
+            isRunning
+              ? `fila ao vivo${etaSec > 0 ? ` · ETA ${formatDuration(etaSec)}` : ''}`
+              : pendingLive > 0
+              ? 'fila aguardando'
+              : 'sem fila'
+          }
           color="#f59e0b"
           onClick={() => handleFilterClick('PENDING')}
         />
