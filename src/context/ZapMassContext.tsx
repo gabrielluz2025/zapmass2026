@@ -87,6 +87,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   deleteContactList: async () => {},
   updateContactList: async () => {},
   sendMessage: () => {},
+  sendMedia: async () => ({ ok: false, error: 'Sem conexao com servidor.' }),
   markAsRead: () => {},
   fetchConversationPicture: () => {},
   deleteLocalConversations: async () => 0,
@@ -1070,6 +1071,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     toast.success('Mensagem enviada', { duration: 2000, position: 'bottom-right' });
   };
 
+  const sendMedia = (
+    conversationId: string,
+    payload: { dataBase64: string; mimeType: string; fileName: string; caption?: string }
+  ): Promise<{ ok: boolean; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        resolve({ ok: false, error: 'Sem conexao com servidor.' });
+        return;
+      }
+      socket.emit('send-media', { conversationId, ...payload }, (resp?: { ok: boolean; error?: string }) => {
+        resolve(resp || { ok: false, error: 'Sem resposta do servidor.' });
+      });
+    });
+  };
+
   const markAsRead = (conversationId: string) => {
     socketRef.current?.emit('ui-log', { action: 'mark-as-read', conversationId });
     socketRef.current?.emit('mark-as-read', { conversationId });
@@ -1353,6 +1370,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       deleteContactList,
       updateContactList,
       sendMessage,
+      sendMedia,
       markAsRead,
       fetchConversationPicture,
       deleteLocalConversations,

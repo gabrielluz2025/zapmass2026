@@ -463,6 +463,40 @@ const registerSocketHandlers = () => {
       }
     });
 
+    socket.on(
+      'send-media',
+      async (
+        {
+          conversationId,
+          dataBase64,
+          mimeType,
+          fileName,
+          caption
+        }: {
+          conversationId: string;
+          dataBase64: string;
+          mimeType: string;
+          fileName: string;
+          caption?: string;
+        },
+        callback?: (resp: { ok: boolean; error?: string }) => void
+      ) => {
+        if (typeof conversationId === 'string' && !ownsConnectionId(conversationId.split(':')[0] || '')) {
+          denyCrossTenant('send-media', { conversationId });
+          callback?.({ ok: false, error: 'Conversa nao pertence a esta conta.' });
+          return;
+        }
+        try {
+          await waService.sendMedia(conversationId, { dataBase64, mimeType, fileName, caption });
+          callback?.({ ok: true });
+        } catch (error: any) {
+          const message = error?.message || 'Falha ao enviar arquivo.';
+          socket.emit('send-message-error', { conversationId, error: message });
+          callback?.({ ok: false, error: message });
+        }
+      }
+    );
+
     socket.on('ui-log', (data) => {
       const payload = (data || {}) as Record<string, unknown>;
       const action = typeof payload.action === 'string' ? payload.action : 'unknown';

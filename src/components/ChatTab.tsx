@@ -34,8 +34,7 @@ import {
   Bell,
   Star,
   Copy,
-  RotateCcw,
-  Image as ImageIcon
+  RotateCcw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -188,6 +187,7 @@ export const ChatTab: React.FC = () => {
     contacts,
     connections,
     sendMessage,
+    sendMedia,
     markAsRead,
     fetchConversationPicture,
     deleteLocalConversations,
@@ -229,6 +229,11 @@ export const ChatTab: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sendingMedia, setSendingMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [lastFailedFile, setLastFailedFile] = useState<File | null>(null);
   // Evita flood ao backend: controla quando cada avatar foi requisitado.
   const avatarFetchAtRef = useRef<Map<string, number>>(new Map());
 
@@ -711,6 +716,71 @@ export const ChatTab: React.FC = () => {
     setShowEmojiPicker(false);
     setShowQuickReplies(false);
     inputRef.current?.focus();
+  };
+
+  const handleFileSelected = async (file?: File | null) => {
+    if (!file || !selectedChatId) return;
+    if (isSelectedDraft && !selectedDraftChannelId) {
+      toast.error('Escolha um canal para enviar o arquivo.');
+      return;
+    }
+    const targetConversationId = isSelectedDraft
+      ? `${selectedDraftChannelId}:${(selectedConversation?.contactPhone || '').replace(/\D/g, '')}@c.us`
+      : selectedChatId;
+    if (!targetConversationId) return;
+    if (file.size > 16 * 1024 * 1024) {
+      toast.error('Arquivo muito grande. Limite de 16MB por envio.');
+      return;
+    }
+    setSendingMedia(true);
+    setUploadProgress(0);
+    setUploadStatus('idle');
+    let sentOk = false;
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Falha ao ler arquivo.'));
+        reader.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          const pct = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
+          setUploadProgress(pct);
+        };
+        reader.readAsDataURL(file);
+      });
+      const commaIdx = dataUrl.indexOf(',');
+      const dataBase64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+      const mimeType = file.type || 'application/octet-stream';
+      if (!dataBase64) throw new Error('Nao foi possivel processar o arquivo.');
+      const resp = await sendMedia(targetConversationId, {
+        dataBase64,
+        mimeType,
+        fileName: file.name || 'arquivo',
+        caption: inputText.trim() || undefined
+      });
+      if (!resp.ok) {
+        throw new Error(resp.error || 'Falha ao enviar arquivo.');
+      }
+      setUploadProgress(100);
+      setUploadStatus('success');
+      setLastFailedFile(null);
+      sentOk = true;
+      setInputText('');
+      if (isSelectedDraft && targetConversationId !== selectedChatId) {
+        setSelectedChatId(targetConversationId);
+      }
+    } catch (e: any) {
+      setUploadStatus('error');
+      setLastFailedFile(file);
+      toast.error(e?.message || 'Falha ao enviar arquivo.');
+    } finally {
+      setSendingMedia(false);
+      setTimeout(() => setUploadProgress(null), 500);
+      if (sentOk) {
+        setTimeout(() => setUploadStatus('idle'), 2200);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const insertEmoji = (emoji: string) => {
@@ -1715,34 +1785,57 @@ export const ChatTab: React.FC = () => {
               >
                 <MessageCircle className="w-5 h-5" />
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,application/*"
+                onChange={(e) => handleFileSelected(e.target.files?.[0] || null)}
+              />
               <button
                 type="button"
-                onClick={() => {
-                  toast((t) => (
-                    <div className="text-[12.5px] leading-relaxed" style={{ color: 'var(--text-1)' }}>
-                      <div className="font-semibold mb-1 flex items-center gap-1.5">
-                        <ImageIcon className="w-3.5 h-3.5" style={{ color: 'var(--brand-600)' }} />
-                        Envio de arquivos em breve
-                      </div>
-                      <p style={{ color: 'var(--text-3)' }}>
-                        Por enquanto, cole uma URL de imagem ou documento na mensagem — o WhatsApp gera a prévia.
-                      </p>
-                      <button
-                        onClick={() => toast.dismiss(t.id)}
-                        className="mt-1.5 text-[11.5px] font-semibold"
-                        style={{ color: 'var(--brand-600)' }}
-                      >
-                        Entendi
-                      </button>
-                    </div>
-                  ), { duration: 5000 });
-                }}
+                onClick={() => fileInputRef.current?.click()}
                 className="p-2 rounded-lg transition-colors hover:bg-[var(--surface-2)]"
                 style={{ color: 'var(--text-2)' }}
-                title="Anexar (em breve)"
+                title="Anexar arquivo"
               >
-                <Paperclip className="w-5 h-5" />
+                {sendingMedia ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
               </button>
+              {uploadProgress !== null && (
+                <div className="min-w-[160px] max-w-[220px] flex-1">
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                    <div
+                      className="h-full transition-all duration-200"
+                      style={{ width: `${uploadProgress}%`, background: 'var(--brand-600)' }}
+                    />
+                  </div>
+                  <p className="text-[10.5px] font-semibold mt-1 tabular-nums" style={{ color: 'var(--text-3)' }}>
+                    Upload {uploadProgress}%
+                  </p>
+                </div>
+              )}
+              {uploadProgress === null && uploadStatus === 'success' && (
+                <span
+                  className="text-[10.5px] font-semibold px-2 py-1 rounded-md"
+                  style={{ background: 'rgba(16,185,129,0.14)', color: '#059669' }}
+                >
+                  Enviado
+                </span>
+              )}
+              {uploadProgress === null && uploadStatus === 'error' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!lastFailedFile) return;
+                    handleFileSelected(lastFailedFile);
+                  }}
+                  className="text-[10.5px] font-semibold px-2 py-1 rounded-md transition-colors"
+                  style={{ background: 'rgba(239,68,68,0.14)', color: '#dc2626' }}
+                  title="Tentar enviar novamente"
+                >
+                  Falha no envio • Tentar novamente
+                </button>
+              )}
 
               <form onSubmit={handleSendMessage} className="flex items-center gap-2 flex-1">
                 {isSelectedDraft && (

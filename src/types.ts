@@ -315,6 +315,10 @@ export interface ZapMassContextType {
   deleteContactList: (id: string) => Promise<void>;
   updateContactList: (id: string, updates: Partial<ContactList>) => Promise<void>;
   sendMessage: (conversationId: string, text: string) => void;
+  sendMedia: (
+    conversationId: string,
+    payload: { dataBase64: string; mimeType: string; fileName: string; caption?: string }
+  ) => Promise<{ ok: boolean; error?: string }>;
   markAsRead: (conversationId: string) => void;
   fetchConversationPicture: (conversationId: string) => void;
   deleteLocalConversations: (conversationIds: string[]) => Promise<number>;

@@ -1,7 +1,8 @@
-# Deploy automático: push nas branches abaixo valida o build (npm) e, em seguida,
-# conecta na VPS, faz pull da MESMA branch e sobe o Docker. Configure os secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY.
-# Inclui nomes comuns: main, prod, principal, produção (se só listar main/prod, push em principal/produção NÃO dispara).
-# Fluxo: merge/push na branch que a repo e a VPS usam → workflow corre sem clicar "Run workflow".
+# Deploy automático com janela segura:
+# - Push em branches alvo dispara pipeline
+# - Fora da janela segura na VPS, o deploy é adiado automaticamente
+# - Trigger por cron garante que o deploy pendente aconteça sem ação manual
+# Configure os secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY.
 #
 # GitHub Actions: ações JS (checkout, etc.) migram de Node 20 → 24. Ver:
 # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
@@ -17,6 +18,9 @@ on:
       - prod
       - principal
       - "produção"
+  schedule:
+    # Roda a cada 30 min para aplicar deploy pendente na janela da madrugada.
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -65,6 +69,13 @@ jobs:
           command_timeout: 20m
           script: |
             set -euo pipefail
+            # Janela segura (hora local da VPS): apenas madrugada para reduzir impacto em canais ativos.
+            HOUR="$(date +%H)"
+            if [ "$HOUR" -ge 6 ]; then
+              echo "==> Fora da janela segura de deploy (agora: ${HOUR}h)."
+              echo "==> Deploy adiado automaticamente; cron retomará sem ação manual."
+              exit 0
+            fi
             BRANCH="${{ github.ref_name }}"
             echo "==> branch alvo: ${BRANCH}"
             cd /opt/zapmass

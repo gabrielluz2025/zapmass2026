@@ -1,7 +1,7 @@
 
 // --- whatsapp-web.js ---
 import whatsapp from 'whatsapp-web.js';
-const { Client, LocalAuth } = whatsapp;
+const { Client, LocalAuth, MessageMedia } = whatsapp;
 type WhatsAppClient = InstanceType<typeof Client>;
 
 import { Server as SocketIOServer, type Socket } from 'socket.io';
@@ -3548,14 +3548,15 @@ export const sendMessage = async (conversationId: string, text: string) => {
     }
 
     let jid = await resolveBestUserJidForSend(client, chatId);
+    let sentResult: any = null;
     try {
-        await client.sendMessage(jid, text);
+        sentResult = await client.sendMessage(jid, text);
     } catch (firstErr: unknown) {
         const m = String((firstErr as Error)?.message || '');
         if (!chatId.includes('@g.us') && m.includes('No LID for user')) {
             await new Promise((r) => setTimeout(r, 400));
             jid = await resolveBestUserJidForSend(client, chatId);
-            await client.sendMessage(jid, text);
+            sentResult = await client.sendMessage(jid, text);
         } else {
             throw firstErr;
         }
@@ -3565,22 +3566,112 @@ export const sendMessage = async (conversationId: string, text: string) => {
     allowDeletedConversation(conversationId);
 
     // Adicionar mensagem ao estado local para aparecer imediatamente
-    const conv = conversations.find(c => c.id === conversationId);
+    const effectiveConversationId = getConversationKey(connectionId, jid);
+    const nowMs = Date.now();
+    const msgId =
+        sentResult?.id?.id ||
+        sentResult?.id?._serialized ||
+        `${nowMs}_${Math.random().toString(36).slice(2, 8)}`;
+    const newMsg: ChatMessage = {
+        id: msgId,
+        text,
+        timestamp: new Date(nowMs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        sender: 'me',
+        status: 'sent',
+        type: 'text',
+        timestampMs: nowMs
+    };
+    let conv = conversations.find(c => c.id === effectiveConversationId) || conversations.find(c => c.id === conversationId);
     if (conv) {
-        const newMsg: ChatMessage = {
-            id: `${Date.now()}`,
-            text,
-            timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-            sender: 'me',
-            status: 'sent',
-            type: 'text'
-        };
         conv.messages = [...conv.messages.slice(-(MAX_MESSAGES - 1)), newMsg];
         conv.lastMessage = text;
         conv.lastMessageTime = newMsg.timestamp;
-        conv.lastMessageTimestamp = Date.now();
-        emitConversationsUpdate();
+        conv.lastMessageTimestamp = nowMs;
+        if (!conv.connectionId) conv.connectionId = connectionId;
+        if (conv.id !== effectiveConversationId) conv.id = effectiveConversationId;
+        upsertConversation(conv);
+    } else {
+        upsertConversation({
+            id: effectiveConversationId,
+            contactName: chatId.split('@')[0] || 'Contato',
+            contactPhone: `+${toPhoneKey(jid)}`,
+            profilePicUrl: undefined,
+            connectionId,
+            unreadCount: 0,
+            lastMessage: text,
+            lastMessageTime: newMsg.timestamp,
+            lastMessageTimestamp: nowMs,
+            messages: [newMsg],
+            tags: []
+        });
     }
+    emitConversationsUpdate();
+};
+
+const inferChatMessageTypeFromMime = (mimeType: string): ChatMessage['type'] => {
+    const mime = String(mimeType || '').toLowerCase();
+    if (mime.startsWith('image/')) return 'image';
+    if (mime.startsWith('video/')) return 'video';
+    if (mime.startsWith('audio/')) return 'audio';
+    return 'document';
+};
+
+export const sendMedia = async (
+    conversationId: string,
+    payload: { dataBase64: string; mimeType: string; fileName: string; caption?: string }
+) => {
+    const [connectionId, ...chatParts] = conversationId.split(':');
+    const chatId = chatParts.length > 0 ? chatParts.join(':') : conversationId;
+    const client = clients.get(connectionId);
+    if (!client) throw new Error(`Cliente nao encontrado para conexao ${connectionId}`);
+    if (!payload?.dataBase64 || !payload?.mimeType || !payload?.fileName) {
+        throw new Error('Arquivo invalido para envio.');
+    }
+    const media = new MessageMedia(payload.mimeType, payload.dataBase64, payload.fileName);
+    const jid = await maybeResolveUserJidForSend(client, chatId);
+    const sent: any = await client.sendMessage(jid, media, { caption: payload.caption || '' });
+    allowDeletedConversation(conversationId);
+    const nowMs = Date.now();
+    const msgId =
+        sent?.id?.id ||
+        sent?.id?._serialized ||
+        `${nowMs}_${Math.random().toString(36).slice(2, 8)}`;
+    const msgType = inferChatMessageTypeFromMime(payload.mimeType);
+    const localMessage: ChatMessage = {
+        id: msgId,
+        text: payload.caption || payload.fileName,
+        timestamp: new Date(nowMs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        sender: 'me',
+        status: 'sent',
+        type: msgType,
+        mediaUrl: `data:${payload.mimeType};base64,${payload.dataBase64}`,
+        timestampMs: nowMs
+    };
+    const effectiveConversationId = getConversationKey(connectionId, jid);
+    let conv = conversations.find((c) => c.id === effectiveConversationId) || conversations.find((c) => c.id === conversationId);
+    if (conv) {
+        conv.messages = [...conv.messages.slice(-(MAX_MESSAGES - 1)), localMessage];
+        conv.lastMessage = localMessage.text || `[${msgType.toUpperCase()}]`;
+        conv.lastMessageTime = localMessage.timestamp;
+        conv.lastMessageTimestamp = nowMs;
+        if (conv.id !== effectiveConversationId) conv.id = effectiveConversationId;
+        upsertConversation(conv);
+    } else {
+        upsertConversation({
+            id: effectiveConversationId,
+            contactName: chatId.split('@')[0] || 'Contato',
+            contactPhone: `+${toPhoneKey(jid)}`,
+            profilePicUrl: undefined,
+            connectionId,
+            unreadCount: 0,
+            lastMessage: localMessage.text || `[${msgType.toUpperCase()}]`,
+            lastMessageTime: localMessage.timestamp,
+            lastMessageTimestamp: nowMs,
+            messages: [localMessage],
+            tags: []
+        });
+    }
+    emitConversationsUpdate();
 };
 
 export const sendWarmupMessage = async (connectionId: string, toPhone: string, message: string) => {
