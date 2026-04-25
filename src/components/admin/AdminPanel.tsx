@@ -730,11 +730,11 @@ export const AdminPanel: React.FC = () => {
             </div>
             <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               <p className="text-[12px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
-                Liberar canais extras (3.º ao 5.º)
+                Liberar canais extras (3.o ao 5.o)
               </p>
               <div className="grid sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="ui-eyebrow text-[10px]">Slots extras (1-3)</label>
+                  <label className="ui-eyebrow text-[10px]">Quantidade de canais extras (+1 a +3)</label>
                   <input
                     type="number"
                     min={1}
@@ -745,7 +745,7 @@ export const AdminPanel: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="ui-eyebrow text-[10px]">Dias</label>
+                  <label className="ui-eyebrow text-[10px]">Validade em dias</label>
                   <input
                     type="number"
                     min={0}
@@ -755,7 +755,7 @@ export const AdminPanel: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="ui-eyebrow text-[10px]">Meses</label>
+                  <label className="ui-eyebrow text-[10px]">Validade em meses</label>
                   <input
                     type="number"
                     min={0}
@@ -766,11 +766,11 @@ export const AdminPanel: React.FC = () => {
                 </div>
               </div>
               <p className="text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
-                O prazo final pode combinar meses + dias (ex.: 1 mês e 15 dias). Se ambos 0, fica sem prazo.
+                O prazo final pode combinar meses + dias (ex.: 1 mes e 15 dias). Se ambos forem 0, fica sem prazo.
               </p>
               <div className="mt-3">
                 <Button variant="secondary" size="sm" leftIcon={<Users className="w-4 h-4" />} onClick={() => void handleGrantChannelsByEmail()}>
-                  Conceder canais extras
+                  Liberar canais extras para este usuario
                 </Button>
               </div>
             </div>
@@ -951,12 +951,12 @@ export const AdminPanel: React.FC = () => {
                                 </button>
                               ))}
                             </div>
-                            <p className="text-[9px] uppercase font-bold text-slate-400 text-right w-full sm:w-auto mt-1">Canais extras</p>
+                            <p className="text-[9px] uppercase font-bold text-slate-400 text-right w-full sm:w-auto mt-1">Canais extras (prazo rapido)</p>
                             <div className="grid grid-cols-3 gap-1 w-full sm:w-[168px]">
                               {[
-                                { label: '+7d', days: 7, months: 0 },
-                                { label: '+30d', days: 30, months: 0 },
-                                { label: '+1m', days: 0, months: 1 }
+                                { label: '+1 canal / 7d', days: 7, months: 0, slots: 1 },
+                                { label: '+1 canal / 30d', days: 30, months: 0, slots: 1 },
+                                { label: '+1 canal / 1m', days: 0, months: 1, slots: 1 }
                               ].map((x) => (
                                 <button
                                   key={x.label}
@@ -964,12 +964,12 @@ export const AdminPanel: React.FC = () => {
                                   onClick={() =>
                                     void quickExtendChannels(
                                       u,
-                                      Math.max(1, Math.min(3, Math.floor(Number(u.manualExtraChannelSlots) || 1))),
+                                      x.slots,
                                       x.days,
                                       x.months
                                     )
                                   }
-                                  className="text-[10px] font-semibold px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-sky-950/30 hover:border-sky-300"
+                                  className="text-[9px] leading-tight font-semibold px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-sky-950/30 hover:border-sky-300"
                                   title={`Estender canais extras ${x.label}`}
                                 >
                                   {x.label}
