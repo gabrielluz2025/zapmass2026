@@ -46,6 +46,22 @@ function nonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
+function tsToMs(v: unknown): number | null {
+  if (!v) return null;
+  if (typeof (v as { toMillis?: () => number }).toMillis === 'function') {
+    try {
+      return (v as { toMillis: () => number }).toMillis();
+    } catch {
+      return null;
+    }
+  }
+  if (typeof v === 'string') {
+    const n = Date.parse(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 /** Em teste, `extraChannelSlots` no doc só vale se houver prova de add-on (evita valor residual no merge). */
 function hasChannelAddonPurchaseProof(sub: UserSubscriptionDoc | null | undefined): boolean {
   if (!sub) return false;
@@ -63,6 +79,18 @@ function statusAllowsPaidExtras(sub: UserSubscriptionDoc | null | undefined): bo
   return st === 'active' || st === 'trialing';
 }
 
+function manualGrantedExtraSlots(sub: UserSubscriptionDoc | null | undefined): number {
+  if (!sub) return 0;
+  const raw = Math.max(
+    0,
+    Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub.manualExtraChannelSlots) || 0))
+  );
+  if (raw <= 0) return 0;
+  const endMs = tsToMs(sub.manualExtraChannelSlotsEndsAt);
+  if (endMs == null) return raw;
+  return endMs > Date.now() ? raw : 0;
+}
+
 /**
  * Cada slot extra pago = +1 acima de BASE (até 3 extras).
  * Firestore: `extraChannelSlots` 0..3
@@ -74,13 +102,16 @@ export function getMaxConnectionSlots(
   sub: UserSubscriptionDoc | null | undefined,
   options: { serverAdmin: boolean }
 ): number {
-  if (options.serverAdmin) return 999;
+  // Para canais WhatsApp, admin também respeita 2 + extras comprados.
+  // (ADMIN_EMAILS segue válido para rotas/painéis administrativos.)
+  void options.serverAdmin;
   const raw = Math.max(
     0,
     Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub?.extraChannelSlots) || 0))
   );
-  const effective =
-    statusAllowsPaidExtras(sub) && hasChannelAddonPurchaseProof(sub) ? raw : 0;
+  const paidExtras = statusAllowsPaidExtras(sub) && hasChannelAddonPurchaseProof(sub) ? raw : 0;
+  const manualExtras = manualGrantedExtraSlots(sub);
+  const effective = Math.max(paidExtras, manualExtras);
   return Math.min(MAX_CONNECTIONS_TOTAL, BASE_CONNECTION_SLOTS + effective);
 }
 

@@ -26,6 +26,10 @@ export interface UserSubscriptionDoc {
   mercadoPagoChannelAddonPreapprovalId?: string;
   /** Pagamento MP aprovado do add-on de canais avulso (uma vez) — usado para validar extras em teste. */
   mercadoPagoChannelAddonOneTimePaymentId?: string;
+  /** Slots extras concedidos manualmente pelo criador (0–3), podendo ter vencimento. */
+  manualExtraChannelSlots?: number;
+  /** Fim da concessão manual de slots extras. Se ausente, permanece sem prazo. */
+  manualExtraChannelSlotsEndsAt?: Timestamp | null;
   /** Liberacao manual (admin); permite confiar em `extraChannelSlots` no doc quando aplicavel. */
   manualGrant?: boolean;
   /** Se true, o teste de 1h ja foi concedido nesta conta (nao repetir). */

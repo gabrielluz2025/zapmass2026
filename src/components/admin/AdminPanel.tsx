@@ -20,6 +20,8 @@ type AccessUser = {
   trialEndsAt: string | null;
   accessEndsAt: string | null;
   manualAccessEndsAt: string | null;
+  manualExtraChannelSlots: number;
+  manualExtraChannelSlotsEndsAt: string | null;
   adminNote: string;
   updatedAt: string | null;
 };
@@ -118,6 +120,9 @@ export const AdminPanel: React.FC = () => {
   const [grantEmail, setGrantEmail] = useState('');
   const [grantDays, setGrantDays] = useState('30');
   const [grantNote, setGrantNote] = useState('');
+  const [channelGrantSlots, setChannelGrantSlots] = useState('1');
+  const [channelGrantDays, setChannelGrantDays] = useState('30');
+  const [channelGrantMonths, setChannelGrantMonths] = useState('0');
   const [filter, setFilter] = useState<AccessFilter>('all');
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
@@ -257,7 +262,17 @@ export const AdminPanel: React.FC = () => {
   }, [users]);
 
   const updateAccessUser = async (
-    payload: Partial<AccessUser> & { uid?: string; email?: string; manualGrant?: boolean; grantDays?: number | null; grantMode?: 'set' | 'extend' }
+    payload: Partial<AccessUser> & {
+      uid?: string;
+      email?: string;
+      manualGrant?: boolean;
+      grantDays?: number | null;
+      grantMode?: 'set' | 'extend';
+      manualExtraChannelSlots?: number | null;
+      channelGrantDays?: number | null;
+      channelGrantMonths?: number | null;
+      channelGrantMode?: 'set' | 'extend';
+    }
   ) => {
     const res = await fetch('/api/admin/access-user', {
       method: 'PUT',
@@ -313,6 +328,34 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  const handleGrantChannelsByEmail = async () => {
+    if (!grantEmail.trim()) {
+      toast.error('Informe o e-mail do usuário.');
+      return;
+    }
+    const slots = Math.max(0, Math.min(3, Math.floor(Number(channelGrantSlots) || 0)));
+    const days = Math.max(0, Math.floor(Number(channelGrantDays) || 0));
+    const months = Math.max(0, Math.floor(Number(channelGrantMonths) || 0));
+    if (slots <= 0) {
+      toast.error('Escolha de 1 a 3 canais extras.');
+      return;
+    }
+    try {
+      const updated = await updateAccessUser({
+        email: grantEmail.trim(),
+        manualExtraChannelSlots: slots,
+        channelGrantDays: days,
+        channelGrantMonths: months,
+        channelGrantMode: 'set',
+        adminNote: grantNote.trim()
+      });
+      setUsers((prev) => [updated, ...prev.filter((u) => u.uid !== updated.uid)]);
+      toast.success('Canais extras liberados.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível liberar canais extras.');
+    }
+  };
+
   const toggleBlock = async (u: AccessUser) => {
     try {
       const updated = await updateAccessUser({
@@ -351,6 +394,36 @@ export const AdminPanel: React.FC = () => {
       toast.success(`Acesso estendido por +${days} dia(s).`);
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível estender acesso.');
+    }
+  };
+
+  const quickExtendChannels = async (u: AccessUser, slots: number, days: number, months = 0) => {
+    try {
+      const updated = await updateAccessUser({
+        uid: u.uid,
+        manualExtraChannelSlots: Math.max(1, Math.min(3, Math.floor(slots))),
+        channelGrantDays: Math.max(0, Math.floor(days)),
+        channelGrantMonths: Math.max(0, Math.floor(months)),
+        channelGrantMode: 'extend'
+      });
+      setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
+      const suffix = months > 0 ? `+${months}m` : `+${days}d`;
+      toast.success(`Canais extras estendidos (${suffix}).`);
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível estender canais extras.');
+    }
+  };
+
+  const revokeExtraChannels = async (u: AccessUser) => {
+    try {
+      const updated = await updateAccessUser({
+        uid: u.uid,
+        manualExtraChannelSlots: 0
+      });
+      setUsers((prev) => prev.map((x) => (x.uid === updated.uid ? updated : x)));
+      toast.success('Canais extras manuais revogados.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Não foi possível revogar canais extras.');
     }
   };
 
@@ -655,6 +728,52 @@ export const AdminPanel: React.FC = () => {
                 Conceder liberação
               </Button>
             </div>
+            <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <p className="text-[12px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
+                Liberar canais extras (3.º ao 5.º)
+              </p>
+              <div className="grid sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="ui-eyebrow text-[10px]">Slots extras (1-3)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={3}
+                    className="ui-input mt-1"
+                    value={channelGrantSlots}
+                    onChange={(e) => setChannelGrantSlots(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="ui-eyebrow text-[10px]">Dias</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="ui-input mt-1"
+                    value={channelGrantDays}
+                    onChange={(e) => setChannelGrantDays(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="ui-eyebrow text-[10px]">Meses</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="ui-input mt-1"
+                    value={channelGrantMonths}
+                    onChange={(e) => setChannelGrantMonths(e.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
+                O prazo final pode combinar meses + dias (ex.: 1 mês e 15 dias). Se ambos 0, fica sem prazo.
+              </p>
+              <div className="mt-3">
+                <Button variant="secondary" size="sm" leftIcon={<Users className="w-4 h-4" />} onClick={() => void handleGrantChannelsByEmail()}>
+                  Conceder canais extras
+                </Button>
+              </div>
+            </div>
           </Card>
 
           <div className="lg:grid lg:grid-cols-[1fr_400px] gap-6 items-start">
@@ -782,6 +901,12 @@ export const AdminPanel: React.FC = () => {
                                 <span>Trial: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.trialEndsAt)}</strong></span>
                                 <span>Pago: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.accessEndsAt)}</strong></span>
                                 <span className="sm:col-span-2">Manual: <strong style={{ color: 'var(--text-2)' }}>{toPtDateTime(u.manualAccessEndsAt)}</strong></span>
+                                <span className="sm:col-span-2">
+                                  Canais extra (manual):{' '}
+                                  <strong style={{ color: 'var(--text-2)' }}>
+                                    +{Math.max(0, Math.min(3, Math.floor(Number(u.manualExtraChannelSlots) || 0)))} até {toPtDateTime(u.manualExtraChannelSlotsEndsAt)}
+                                  </strong>
+                                </span>
                               </div>
                               {u.adminNote ? (
                                 <p className="text-[11px] mt-2 p-2 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/30 dark:border-amber-800/30" style={{ color: 'var(--text-2)' }}>
@@ -806,6 +931,11 @@ export const AdminPanel: React.FC = () => {
                                   Revogar manual
                                 </Button>
                               )}
+                              {Number(u.manualExtraChannelSlots || 0) > 0 && (
+                                <Button variant="secondary" size="sm" onClick={() => void revokeExtraChannels(u)}>
+                                  Revogar canais
+                                </Button>
+                              )}
                             </div>
                             <p className="text-[9px] uppercase font-bold text-slate-400 text-right w-full sm:w-auto">Extensão manual</p>
                             <div className="grid grid-cols-3 gap-1 w-full sm:w-[168px]">
@@ -818,6 +948,31 @@ export const AdminPanel: React.FC = () => {
                                   title={`+${d} dias`}
                                 >
                                   +{d}d
+                                </button>
+                              ))}
+                            </div>
+                            <p className="text-[9px] uppercase font-bold text-slate-400 text-right w-full sm:w-auto mt-1">Canais extras</p>
+                            <div className="grid grid-cols-3 gap-1 w-full sm:w-[168px]">
+                              {[
+                                { label: '+7d', days: 7, months: 0 },
+                                { label: '+30d', days: 30, months: 0 },
+                                { label: '+1m', days: 0, months: 1 }
+                              ].map((x) => (
+                                <button
+                                  key={x.label}
+                                  type="button"
+                                  onClick={() =>
+                                    void quickExtendChannels(
+                                      u,
+                                      Math.max(1, Math.min(3, Math.floor(Number(u.manualExtraChannelSlots) || 1))),
+                                      x.days,
+                                      x.months
+                                    )
+                                  }
+                                  className="text-[10px] font-semibold px-1.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-sky-950/30 hover:border-sky-300"
+                                  title={`Estender canais extras ${x.label}`}
+                                >
+                                  {x.label}
                                 </button>
                               ))}
                             </div>

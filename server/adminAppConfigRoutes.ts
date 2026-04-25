@@ -75,6 +75,8 @@ type AdminUserAccessRow = {
   trialEndsAt: string | null;
   accessEndsAt: string | null;
   manualAccessEndsAt: string | null;
+  manualExtraChannelSlots: number;
+  manualExtraChannelSlotsEndsAt: string | null;
   adminNote: string;
   updatedAt: string | null;
 };
@@ -187,6 +189,8 @@ async function rowFromSubscriptionDoc(
     trialEndsAt: tsToIso(data?.trialEndsAt),
     accessEndsAt: tsToIso(data?.accessEndsAt),
     manualAccessEndsAt: tsToIso(data?.manualAccessEndsAt),
+    manualExtraChannelSlots: Math.max(0, Math.min(3, Math.floor(Number(data?.manualExtraChannelSlots) || 0))),
+    manualExtraChannelSlotsEndsAt: tsToIso(data?.manualExtraChannelSlotsEndsAt),
     adminNote: typeof data?.adminNote === 'string' ? data.adminNote : '',
     updatedAt: tsToIso(data?.updatedAt)
   };
@@ -276,6 +280,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
               trialEndsAt: null,
               accessEndsAt: null,
               manualAccessEndsAt: null,
+              manualExtraChannelSlots: 0,
+              manualExtraChannelSlotsEndsAt: null,
               adminNote: '',
               updatedAt: null
             });
@@ -309,6 +315,10 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         manualGrant?: boolean;
         grantDays?: number | null;
         grantMode?: 'set' | 'extend';
+        manualExtraChannelSlots?: number | null;
+        channelGrantDays?: number | null;
+        channelGrantMonths?: number | null;
+        channelGrantMode?: 'set' | 'extend';
         adminNote?: string;
       };
 
@@ -367,6 +377,29 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         }
       }
 
+      if (body.manualExtraChannelSlots != null) {
+        const slots = Math.max(0, Math.min(3, Math.floor(Number(body.manualExtraChannelSlots) || 0)));
+        updates.manualExtraChannelSlots = slots;
+        if (slots <= 0) {
+          updates.manualExtraChannelSlotsEndsAt = FieldValue.delete();
+        } else {
+          const addDays = Math.max(0, Math.floor(Number(body.channelGrantDays) || 0));
+          const addMonths = Math.max(0, Math.floor(Number(body.channelGrantMonths) || 0));
+          if (addDays > 0 || addMonths > 0) {
+            const mode = body.channelGrantMode === 'extend' ? 'extend' : 'set';
+            const currentEndIso = tsToIso(cur.manualExtraChannelSlotsEndsAt);
+            const currentEndMs = currentEndIso ? new Date(currentEndIso).getTime() : 0;
+            const baseMs = mode === 'extend' ? Math.max(Date.now(), currentEndMs || 0) : Date.now();
+            const end = new Date(baseMs);
+            if (addMonths > 0) end.setMonth(end.getMonth() + addMonths);
+            if (addDays > 0) end.setDate(end.getDate() + addDays);
+            updates.manualExtraChannelSlotsEndsAt = Timestamp.fromDate(end);
+          } else {
+            updates.manualExtraChannelSlotsEndsAt = null;
+          }
+        }
+      }
+
       await ref.set(updates, { merge: true });
       const next = await ref.get();
       const row = await rowFromSubscriptionDoc(uid, next.data() as Record<string, unknown>, new Map(), email);
@@ -375,6 +408,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       let action = 'update';
       if (typeof body.blocked === 'boolean') {
         action = body.blocked ? 'block' : 'unblock';
+      } else if (body.manualExtraChannelSlots != null) {
+        action = Number(body.manualExtraChannelSlots) > 0 ? 'grant-extra-channels' : 'revoke-extra-channels';
       } else if (typeof body.manualGrant === 'boolean') {
         action = body.manualGrant ? (body.grantMode === 'extend' ? 'extend-manual-access' : 'grant-manual-access') : 'revoke-manual-access';
       }

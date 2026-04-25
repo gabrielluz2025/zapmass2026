@@ -204,6 +204,10 @@ export interface UserSubscription {
   mercadoPagoChannelAddonPreapprovalId?: string;
   /** Pagamento MP que aprovou add-on de canais avulso (uma vez). */
   mercadoPagoChannelAddonOneTimePaymentId?: string;
+  /** Canais extras liberados manualmente pelo criador (0–3), além dos 2 incluídos. */
+  manualExtraChannelSlots?: number;
+  /** Vencimento da liberação manual de canais extras. */
+  manualExtraChannelSlotsEndsAt?: unknown;
   updatedAt?: unknown;
 }
 

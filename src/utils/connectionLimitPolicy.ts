@@ -25,6 +25,38 @@ function statusAllowsPaidExtras(sub: UserSubscription | null): boolean {
   return sub.status === 'active' || sub.status === 'trialing';
 }
 
+function toMs(v: unknown): number | null {
+  if (!v) return null;
+  if (typeof (v as { toMillis?: () => number }).toMillis === 'function') {
+    try {
+      return (v as { toMillis: () => number }).toMillis();
+    } catch {
+      return null;
+    }
+  }
+  if (typeof (v as { seconds?: unknown }).seconds === 'number') {
+    const sec = Number((v as { seconds: number }).seconds);
+    return Number.isFinite(sec) ? sec * 1000 : null;
+  }
+  if (typeof v === 'string') {
+    const n = Date.parse(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function manualGrantedExtraSlots(sub: UserSubscription | null): number {
+  if (!sub) return 0;
+  const raw = Math.max(
+    0,
+    Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub.manualExtraChannelSlots) || 0))
+  );
+  if (raw <= 0) return 0;
+  const endMs = toMs(sub.manualExtraChannelSlotsEndsAt);
+  if (endMs == null) return raw;
+  return endMs > Date.now() ? raw : 0;
+}
+
 /**
  * Teto de canais para o app (2 base + `extraChannelSlots` pagos, máx. 5).
  * Contas de administrador (lista ADMIN no servidor) vêem teto alto na UI.
@@ -39,8 +71,9 @@ export function getMaxConnectionSlotsForUser(
     0,
     Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(subscription?.extraChannelSlots) || 0))
   );
-  const effective =
+  const paidExtras =
     statusAllowsPaidExtras(subscription) && hasChannelAddonPurchaseProof(subscription) ? raw : 0;
+  const effective = Math.max(paidExtras, manualGrantedExtraSlots(subscription));
   return Math.min(MAX_CHANNELS_TOTAL, BASE_CHANNEL_SLOTS + effective);
 }
 
