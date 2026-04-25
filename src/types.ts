@@ -303,11 +303,11 @@ export interface ZapMassContextType {
   };
 
   // Actions
-  addConnection: (name: string) => void;
+  addConnection: (name: string) => void | Promise<void>;
   removeConnection: (id: string) => void;
   updateConnectionStatus: (id: string, status: ConnectionStatus) => void;
-  reconnectConnection: (id: string) => void;
-  forceQr: (id: string) => void;
+  reconnectConnection: (id: string) => void | Promise<void>;
+  forceQr: (id: string) => void | Promise<void>;
   addContact: (contact: Contact) => Promise<string | void> | void;
   removeContact: (id: string, options?: { silent?: boolean }) => Promise<void> | void;
   updateContact: (id: string, updates: Partial<Contact>) => Promise<void>;

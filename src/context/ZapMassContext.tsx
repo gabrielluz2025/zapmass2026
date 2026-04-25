@@ -75,11 +75,11 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   warmedCount: 0,
   isBackendConnected: false,
   campaignStatus: { isRunning: false, total: 0, processed: 0, success: 0, failed: 0 },
-  addConnection: () => {},
+  addConnection: async () => {},
   removeConnection: () => {},
   updateConnectionStatus: () => {},
-  reconnectConnection: () => {},
-  forceQr: () => {},
+  reconnectConnection: async () => {},
+  forceQr: async () => {},
   addContact: async () => {},
   removeContact: async () => {},
   updateContact: async () => {},
@@ -848,9 +848,67 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   // --- ACTIONS ---
-  const addConnection = (name: string) => {
-    socketRef.current?.emit('ui-log', { action: 'create-connection', name });
-    socketRef.current?.emit('create-connection', { name });
+  const waitForSocketConnected = (timeoutMs: number) =>
+    new Promise<void>((resolve, reject) => {
+      const sock = socketRef.current;
+      if (!sock) {
+        reject(new Error('Socket nao inicializado.'));
+        return;
+      }
+      if (sock.connected) {
+        resolve();
+        return;
+      }
+      const t = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Tempo esgotado ao conectar ao servidor.'));
+      }, timeoutMs);
+      const onConnect = () => {
+        cleanup();
+        resolve();
+      };
+      const cleanup = () => {
+        clearTimeout(t);
+        sock.off('connect', onConnect);
+      };
+      sock.on('connect', onConnect);
+    });
+
+  const refreshSocketAuthToken = async () => {
+    const sock = socketRef.current;
+    if (!sock) return;
+    const u = auth.currentUser;
+    if (u) {
+      try {
+        const token = await u.getIdToken();
+        (sock as Socket & { auth: { token?: string } }).auth = { token };
+      } catch {
+        (sock as Socket & { auth: { token?: string } }).auth = {};
+      }
+    } else {
+      (sock as Socket & { auth: { token?: string } }).auth = {};
+    }
+  };
+
+  const addConnection = async (name: string) => {
+    const sock = socketRef.current;
+    if (!sock) {
+      toast.error('Socket nao pronto. Atualize a pagina.');
+      return;
+    }
+    try {
+      await refreshSocketAuthToken();
+      if (!sock.connected) {
+        sock.connect();
+      }
+      await waitForSocketConnected(20000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Falha ao conectar ao servidor.';
+      toast.error(msg);
+      return;
+    }
+    sock.emit('ui-log', { action: 'create-connection', name });
+    sock.emit('create-connection', { name });
   };
 
   const removeConnection = (id: string) => {
@@ -863,15 +921,43 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     setConnections(prev => prev.map(c => c.id === id ? { ...c, status } : c));
   };
 
-  const reconnectConnection = (id: string) => {
-    socketRef.current?.emit('ui-log', { action: 'reconnect-connection', id });
-    socketRef.current?.emit('reconnect-connection', { id });
+  const reconnectConnection = async (id: string) => {
+    const sock = socketRef.current;
+    if (!sock) {
+      toast.error('Socket nao pronto. Atualize a pagina.');
+      return;
+    }
+    try {
+      await refreshSocketAuthToken();
+      if (!sock.connected) sock.connect();
+      await waitForSocketConnected(20000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Falha ao conectar ao servidor.';
+      toast.error(msg);
+      return;
+    }
+    sock.emit('ui-log', { action: 'reconnect-connection', id });
+    sock.emit('reconnect-connection', { id });
     toast('Tentando reconectar...', { icon: '🔄' });
   };
 
-  const forceQr = (id: string) => {
-    socketRef.current?.emit('ui-log', { action: 'force-qr', id });
-    socketRef.current?.emit('force-qr', { id });
+  const forceQr = async (id: string) => {
+    const sock = socketRef.current;
+    if (!sock) {
+      toast.error('Socket nao pronto. Atualize a pagina.');
+      return;
+    }
+    try {
+      await refreshSocketAuthToken();
+      if (!sock.connected) sock.connect();
+      await waitForSocketConnected(20000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Falha ao conectar ao servidor.';
+      toast.error(msg);
+      return;
+    }
+    sock.emit('ui-log', { action: 'force-qr', id });
+    sock.emit('force-qr', { id });
     toast('Forcando novo QR...', { icon: '🧩' });
   };
 

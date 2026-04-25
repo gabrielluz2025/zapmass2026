@@ -2348,6 +2348,7 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     emitConnectionsUpdate();
     persistConnections().catch(() => {});
     reconnectState.delete(id);
+    resumeQueueIfNeeded(id);
     
     // Sync de conversas de forma assíncrona e não-bloqueante
     console.log(`[handleClientReady] ✅ Conexão estabelecida - sincronizando conversas em background...`);
@@ -3496,6 +3497,20 @@ const processQueue = async () => {
     }
     
     await clearPersistedQueue(); // Limpar fila salva (campanha completa)
+};
+
+/**
+ * Apos deploy/restart o motor WhatsApp so fica pronto alguns segundos depois.
+ * Se havia fila/campanha salva, `loadQueue` pode ter chamado `processQueue` cedo
+ * demais — quando o canal volta a CONNECTED, retomamos aqui.
+ */
+const resumeQueueIfNeeded = (connectionId: string) => {
+    void connectionId;
+    const hasWork = messageQueue.length > 0 || !!currentCampaign.isRunning;
+    if (!hasWork) return;
+    if (isProcessingQueue) return;
+    console.log(`[QueueResume] Motor pronto — retomando fila se necessario (pendentes: ${messageQueue.length}, campanhaRunning=${!!currentCampaign.isRunning})`);
+    processQueue();
 };
 
 const handleCampaignProgress = () => {
