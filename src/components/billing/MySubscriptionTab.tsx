@@ -31,6 +31,12 @@ const CHANNEL_TIER_PRICES: Record<ChannelTier, number> = {
   4: 399.9,
   5: 459.9
 };
+const ANNUAL_FACTOR = 0.85;
+
+function tierPrice(channels: ChannelTier, plan: Plan): number {
+  const monthly = CHANNEL_TIER_PRICES[channels];
+  return plan === 'annual' ? Math.round(monthly * 12 * ANNUAL_FACTOR * 100) / 100 : monthly;
+}
 
 function brl(v: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
@@ -73,6 +79,7 @@ export const MySubscriptionTab: React.FC = () => {
   const isRecurring = Boolean(subscription?.mercadoPagoPreapprovalId && subscription.status === 'active');
   const [upgradeTarget, setUpgradeTarget] = useState<ChannelTier>(2);
   const [tierBusy, setTierBusy] = useState<null | 'pix' | 'card'>(null);
+  const [tierPlanMode, setTierPlanMode] = useState<Plan>('monthly');
   useEffect(() => {
     if (loading) return;
     if (!readAndClearChannelExtrasScrollFlag()) return;
@@ -133,7 +140,7 @@ export const MySubscriptionTab: React.FC = () => {
     }
   };
 
-  const startChannelTierPlan = async (method: 'pix' | 'card', channels: ChannelTier) => {
+  const startChannelTierPlan = async (method: 'pix' | 'card', channels: ChannelTier, plan: Plan) => {
     if (!user) return;
     setTierBusy(method);
     try {
@@ -141,7 +148,7 @@ export const MySubscriptionTab: React.FC = () => {
       const res = await fetch('/api/billing/mercadopago/channel-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ method, channels })
+        body: JSON.stringify({ method, channels, plan })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
@@ -155,8 +162,8 @@ export const MySubscriptionTab: React.FC = () => {
         const priceText = Number.isFinite(charged) ? ` Valor: ${brl(charged)}.` : '';
         toast.success(
           isUpgrade
-            ? `Upgrade pró-rata aberto para ${channels} canal(is).${priceText}`
-            : `Checkout aberto para ${channels} canal(is).${priceText}`
+            ? `Upgrade pró-rata (${plan === 'annual' ? 'anual' : 'mensal'}) aberto para ${channels} canal(is).${priceText}`
+            : `Checkout ${plan === 'annual' ? 'anual' : 'mensal'} aberto para ${channels} canal(is).${priceText}`
         );
       }
     } catch (e) {
@@ -186,7 +193,9 @@ export const MySubscriptionTab: React.FC = () => {
       )
     )
   ) as ChannelTier;
-  const monthlyDiff = Math.max(0, CHANNEL_TIER_PRICES[upgradeTarget] - CHANNEL_TIER_PRICES[contractedChannels]);
+  const selectedTierPrice = tierPrice(upgradeTarget, tierPlanMode);
+  const contractedTierPrice = tierPrice(contractedChannels, tierPlanMode);
+  const monthlyDiff = Math.max(0, selectedTierPrice - contractedTierPrice);
   const prorataHalf = monthlyDiff / 2;
 
   const statusLabel = getStatusLabel(subscription?.status, daysLeft, trialEndsMs);
@@ -328,13 +337,39 @@ export const MySubscriptionTab: React.FC = () => {
                 : 'Sem informação de plano por canais ainda (modelo legado).'}
           </strong>
         </p>
-        <h2 className="text-[14px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h2 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
           Selecione seu plano mensal
-        </h2>
+          </h2>
+          <div className="inline-flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border-subtle)' }}>
+            <button
+              type="button"
+              onClick={() => setTierPlanMode('monthly')}
+              className="px-2.5 py-1 text-[11px] font-semibold"
+              style={{
+                background: tierPlanMode === 'monthly' ? 'rgba(16,185,129,0.14)' : 'transparent',
+                color: 'var(--text-1)'
+              }}
+            >
+              Mensal
+            </button>
+            <button
+              type="button"
+              onClick={() => setTierPlanMode('annual')}
+              className="px-2.5 py-1 text-[11px] font-semibold"
+              style={{
+                background: tierPlanMode === 'annual' ? 'rgba(16,185,129,0.14)' : 'transparent',
+                color: 'var(--text-1)'
+              }}
+            >
+              Anual
+            </button>
+          </div>
+        </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
           {(Object.keys(CHANNEL_TIER_PRICES) as Array<keyof typeof CHANNEL_TIER_PRICES>).map((n) => {
             const tier = Number(n) as ChannelTier;
-            const price = CHANNEL_TIER_PRICES[tier];
+            const price = tierPrice(tier, tierPlanMode);
             const per = price / tier;
             const isCurrent = contractedChannels === tier;
             return (
@@ -361,7 +396,7 @@ export const MySubscriptionTab: React.FC = () => {
                   {brl(price)}
                 </p>
                 <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                  {brl(per)} por canal
+                  {brl(per)} por canal ({tierPlanMode === 'annual' ? 'ano' : 'mês'})
                 </p>
               </button>
             );
@@ -372,7 +407,7 @@ export const MySubscriptionTab: React.FC = () => {
           style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
         >
           <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            Upgrade simulado: {contractedChannels} → {upgradeTarget} canal{upgradeTarget > 1 ? 'is' : ''}
+            Upgrade simulado ({tierPlanMode === 'annual' ? 'anual' : 'mensal'}): {contractedChannels} → {upgradeTarget} canal{upgradeTarget > 1 ? 'is' : ''}
           </p>
           <p className="text-[11.5px]" style={{ color: 'var(--text-2)' }}>
             Diferença mensal: <strong>{brl(monthlyDiff)}</strong>. Exemplo pró-rata (50% do ciclo restante):{' '}
@@ -380,19 +415,19 @@ export const MySubscriptionTab: React.FC = () => {
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Action
-              onClick={() => void startChannelTierPlan('pix', upgradeTarget)}
+              onClick={() => void startChannelTierPlan('pix', upgradeTarget, tierPlanMode)}
               loading={tierBusy === 'pix'}
               disabled={!!tierBusy}
               icon={<TrendingUp className="w-4 h-4" />}
-              label={`Contratar ${upgradeTarget} canal(is) (Pix -5%)`}
+              label={`Contratar ${upgradeTarget} canal(is) ${tierPlanMode === 'annual' ? 'anual' : 'mensal'} (Pix -5%)`}
               hint="Novo modelo de plano por quantidade de canais"
             />
             <Action
-              onClick={() => void startChannelTierPlan('card', upgradeTarget)}
+              onClick={() => void startChannelTierPlan('card', upgradeTarget, tierPlanMode)}
               loading={tierBusy === 'card'}
               disabled={!!tierBusy}
               icon={<Crown className="w-4 h-4" />}
-              label={`Contratar ${upgradeTarget} canal(is) (cartão)`}
+              label={`Contratar ${upgradeTarget} canal(is) ${tierPlanMode === 'annual' ? 'anual' : 'mensal'} (cartão)`}
               hint="Checkout Mercado Pago"
             />
           </div>

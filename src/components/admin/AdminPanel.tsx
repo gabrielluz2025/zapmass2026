@@ -104,6 +104,39 @@ const statusBadgeVariant = (status: string, blocked: boolean): 'success' | 'warn
   return 'neutral';
 };
 
+const SUPPORT_SNIPPETS: Array<{ id: string; title: string; text: string }> = [
+  {
+    id: 'approved',
+    title: 'Pagamento aprovado',
+    text: 'Seu pagamento foi aprovado e seu plano já foi atualizado. Se a tela ainda não refletiu, atualize a página em 10-20 segundos.'
+  },
+  {
+    id: 'pending',
+    title: 'Pagamento pendente',
+    text: 'Seu pagamento está pendente. Assim que for confirmado pelo provedor, os canais são liberados automaticamente.'
+  },
+  {
+    id: 'rejected',
+    title: 'Pagamento recusado',
+    text: 'O pagamento foi recusado pelo emissor. Você pode tentar outro cartão ou Pix para concluir o upgrade.'
+  },
+  {
+    id: 'limit',
+    title: 'Limite atingido',
+    text: 'Você atingiu o limite de canais do seu plano atual. Abra Minha assinatura e escolha um plano com mais canais.'
+  },
+  {
+    id: 'prorata',
+    title: 'Upgrade pró-rata',
+    text: 'No upgrade durante ciclo ativo, cobramos só a diferença proporcional ao período restante (pró-rata).'
+  },
+  {
+    id: 'no-update',
+    title: 'Sem atualização após pagamento',
+    text: 'Me passe o e-mail da conta e o horário do pagamento para eu verificar o webhook e atualizar manualmente, se necessário.'
+  }
+];
+
 export const AdminPanel: React.FC = () => {
   const { user } = useAuth();
   const { config, reload } = useAppConfig();
@@ -773,6 +806,40 @@ export const AdminPanel: React.FC = () => {
                   Liberar canais extras para este usuario
                 </Button>
               </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Respostas rápidas de suporte"
+              subtitle="Textos prontos para atendimento sobre pagamento, limite e upgrade."
+              icon={<Copy className="w-4 h-4 text-sky-600" />}
+            />
+            <div className="mt-4 grid gap-2">
+              {SUPPORT_SNIPPETS.map((s) => (
+                <div
+                  key={s.id}
+                  className="rounded-lg border px-3 py-2.5 flex items-start justify-between gap-3"
+                  style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                      {s.title}
+                    </p>
+                    <p className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                      {s.text}
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    leftIcon={<Copy className="w-3.5 h-3.5" />}
+                    onClick={() => void copyToClipboard(s.text, `Mensagem "${s.title}" copiada.`)}
+                  >
+                    Copiar
+                  </Button>
+                </div>
+              ))}
             </div>
           </Card>
 

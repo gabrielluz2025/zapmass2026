@@ -14,7 +14,7 @@ const MP_API = 'https://api.mercadopago.com';
 type ParsedMpRef =
   | { kind: 'plan'; uid: string; plan: SubscriptionPlan }
   | { kind: 'tier_plan'; uid: string; plan: SubscriptionPlan; channels: number }
-  | { kind: 'tier_upgrade'; uid: string; fromChannels: number; toChannels: number }
+  | { kind: 'tier_upgrade'; uid: string; fromChannels: number; toChannels: number; plan: SubscriptionPlan }
   | { kind: 'chaddon_once'; uid: string; extraSlots: number }
   | { kind: 'chaddon_recur'; uid: string; extraSlots: number }
   | { kind: 'none' };
@@ -47,7 +47,10 @@ function parseExternalReference(ref: string | undefined | null): ParsedMpRef {
   if (mid === 'tier_upgrade') {
     const from = Math.max(1, Math.min(5, parseInt(parts[2] || '0', 10) || 0));
     const to = Math.max(1, Math.min(5, parseInt(parts[3] || '0', 10) || 0));
-    if (from >= 1 && to >= 1) return { kind: 'tier_upgrade', uid, fromChannels: from, toChannels: to };
+    const rawPlan = (parts[4] || 'monthly').toLowerCase();
+    const plan: SubscriptionPlan =
+      rawPlan === 'annual' || rawPlan === 'anual' ? 'annual' : rawPlan === 'monthly' || rawPlan === 'mensal' ? 'monthly' : null;
+    if (from >= 1 && to >= 1 && plan) return { kind: 'tier_upgrade', uid, fromChannels: from, toChannels: to, plan };
   }
   const p = mid;
   const plan: SubscriptionPlan =
@@ -218,7 +221,7 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
       await mergeUserSubscription(uid, {
         status: 'active',
         provider: 'mercadopago',
-        plan: 'monthly',
+        plan: parsed.plan || 'monthly',
         includedChannels: toChannels,
         extraChannelSlots: Math.max(0, toChannels - 1),
         mercadoPagoLastPaymentId: paymentId

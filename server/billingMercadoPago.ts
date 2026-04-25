@@ -18,6 +18,7 @@ const CHANNEL_TIER_PRICES_MONTHLY: Record<ChannelTier, number> = {
   4: 399.9,
   5: 459.9
 };
+const ANNUAL_DISCOUNT_FACTOR_DEFAULT = 0.85; // 15% off
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -51,6 +52,13 @@ function channelTierMonthlyPrice(channels: ChannelTier): number {
   const envVal = parseFloat(process.env[envKey] || '');
   if (Number.isFinite(envVal) && envVal > 0) return envVal;
   return CHANNEL_TIER_PRICES_MONTHLY[channels];
+}
+
+function channelTierAnnualPrice(channels: ChannelTier): number {
+  const envKey = `MERCADOPAGO_CHANNEL_TIER_${channels}_ANNUAL`;
+  const envVal = parseFloat(process.env[envKey] || '');
+  if (Number.isFinite(envVal) && envVal > 0) return envVal;
+  return roundMoney(channelTierMonthlyPrice(channels) * 12 * ANNUAL_DISCOUNT_FACTOR_DEFAULT);
 }
 
 function resolveCurrentChannelsFromSub(sub: Record<string, unknown> | undefined): ChannelTier {
@@ -238,6 +246,7 @@ async function createChannelTierPreference(params: {
   email: string;
   channels: ChannelTier;
   method: 'pix' | 'card';
+  plan: Plan;
   externalReference?: string;
   title?: string;
   description?: string;
@@ -247,9 +256,9 @@ async function createChannelTierPreference(params: {
   if (!access) throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado no servidor.');
   const backUrl = getBackUrl();
   const notificationUrl = `${backUrl}/api/webhooks/mercadopago`;
-  const basePrice = Number.isFinite(params.amountOverride) && (params.amountOverride || 0) > 0
-    ? Number(params.amountOverride)
-    : channelTierMonthlyPrice(params.channels);
+  const baseByPlan = params.plan === 'annual' ? channelTierAnnualPrice(params.channels) : channelTierMonthlyPrice(params.channels);
+  const basePrice =
+    Number.isFinite(params.amountOverride) && (params.amountOverride || 0) > 0 ? Number(params.amountOverride) : baseByPlan;
   const finalPrice =
     params.method === 'pix' ? roundMoney(basePrice * (1 - PIX_DISCOUNT_PCT)) : roundMoney(basePrice);
   const payment_methods =
@@ -268,7 +277,7 @@ async function createChannelTierPreference(params: {
         }
       : {
           excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }],
-          installments: 1,
+          installments: params.plan === 'annual' ? 12 : 1,
           default_installments: 1
         };
 
@@ -277,14 +286,15 @@ async function createChannelTierPreference(params: {
       {
         id: `zapmass-tier-${params.channels}-${params.method}`,
         title: params.title || `ZapMass Pro - ${params.channels} canal(is)`,
-        description: params.description || `Plano mensal com ${params.channels} canal(is).`,
+        description:
+          params.description || `Plano ${params.plan === 'annual' ? 'anual' : 'mensal'} com ${params.channels} canal(is).`,
         quantity: 1,
         currency_id: 'BRL',
         unit_price: finalPrice
       }
     ],
     payer: { email: params.email },
-    external_reference: params.externalReference || `${params.uid}:tier:${params.channels}:monthly`,
+    external_reference: params.externalReference || `${params.uid}:tier:${params.channels}:${params.plan}`,
     back_urls: { success: backUrl, failure: backUrl, pending: backUrl },
     auto_return: 'approved',
     notification_url: notificationUrl,
@@ -294,7 +304,7 @@ async function createChannelTierPreference(params: {
       uid: params.uid,
       kind: 'tier',
       channels: params.channels,
-      plan: 'monthly',
+      plan: params.plan,
       method: params.method,
       final_price: finalPrice
     }
@@ -518,8 +528,8 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
   });
 
   /**
-   * Novo modelo comercial: plano mensal por quantidade de canais (1..5).
-   * Body: { channels: 1|2|3|4|5, method: 'pix'|'card' }
+   * Novo modelo comercial: plano por quantidade de canais (1..5), mensal ou anual.
+   * Body: { channels: 1|2|3|4|5, plan: 'monthly'|'annual', method: 'pix'|'card' }
    */
   app.post('/api/billing/mercadopago/channel-plan', async (req: Request, res: Response) => {
     try {
@@ -551,29 +561,38 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       if (!channels) {
         return res.status(400).json({ ok: false, error: 'channels deve ser 1, 2, 3, 4 ou 5.' });
       }
+      const planRaw = String(req.body?.plan || 'monthly').toLowerCase();
+      const plan: Plan = planRaw === 'annual' ? 'annual' : 'monthly';
       const methodRaw = String(req.body?.method || 'card').toLowerCase();
       const method: 'pix' | 'card' = methodRaw === 'pix' ? 'pix' : 'card';
       const db = getFirestore(adminApp);
       const subSnap = await db.collection('userSubscriptions').doc(uid).get();
       const sub = (subSnap.data() || {}) as Record<string, unknown>;
       const currentChannels = resolveCurrentChannelsFromSub(sub);
+      const currentPlan: Plan = String(sub.plan || '') === 'annual' ? 'annual' : 'monthly';
       const accessEndMs = toMillis(sub.accessEndsAt);
       const now = Date.now();
       const hasActiveCycle = String(sub.status || '') === 'active' && accessEndMs != null && accessEndMs > now;
-      const isUpgrade = hasActiveCycle && channels > currentChannels;
+      const isUpgrade = hasActiveCycle && channels > currentChannels && currentPlan === plan;
 
-      let billedMonthly = channelTierMonthlyPrice(channels);
+      let billedPrice = plan === 'annual' ? channelTierAnnualPrice(channels) : channelTierMonthlyPrice(channels);
       let prorataRatio = 1;
-      let externalReference = `${uid}:tier:${channels}:monthly`;
+      let externalReference = `${uid}:tier:${channels}:${plan}`;
       let checkoutTitle = `ZapMass Pro - ${channels} canal(is)`;
-      let checkoutDescription = `Plano mensal com ${channels} canal(is).`;
+      let checkoutDescription = `Plano ${plan === 'annual' ? 'anual' : 'mensal'} com ${channels} canal(is).`;
 
       if (isUpgrade && accessEndMs != null) {
-        const ms30 = 30 * 24 * 60 * 60 * 1000;
-        prorataRatio = Math.max(0.05, Math.min(1, (accessEndMs - now) / ms30));
-        const diff = Math.max(0, channelTierMonthlyPrice(channels) - channelTierMonthlyPrice(currentChannels));
-        billedMonthly = roundMoney(Math.max(1, diff * prorataRatio));
-        externalReference = `${uid}:tier_upgrade:${currentChannels}:${channels}`;
+        const cycleMs = currentPlan === 'annual' ? 365 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+        prorataRatio = Math.max(0.05, Math.min(1, (accessEndMs - now) / cycleMs));
+        const diff = Math.max(
+          0,
+          (plan === 'annual' ? channelTierAnnualPrice(channels) : channelTierMonthlyPrice(channels)) -
+            (plan === 'annual'
+              ? channelTierAnnualPrice(currentChannels as ChannelTier)
+              : channelTierMonthlyPrice(currentChannels as ChannelTier))
+        );
+        billedPrice = roundMoney(Math.max(1, diff * prorataRatio));
+        externalReference = `${uid}:tier_upgrade:${currentChannels}:${channels}:${plan}`;
         checkoutTitle = `Upgrade ZapMass: ${currentChannels} → ${channels} canais`;
         checkoutDescription = `Upgrade pró-rata do ciclo atual (${Math.round(prorataRatio * 100)}% do período restante).`;
       }
@@ -583,19 +602,22 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         email,
         channels,
         method,
+        plan,
         externalReference,
         title: checkoutTitle,
         description: checkoutDescription,
-        amountOverride: billedMonthly
+        amountOverride: billedPrice
       });
       return res.json({
         ok: true,
         init_point: result.init_point,
         preference_id: result.id,
         channels,
+        plan,
         method,
         monthly_price_brl: channelTierMonthlyPrice(channels),
-        charged_brl: billedMonthly,
+        annual_price_brl: channelTierAnnualPrice(channels),
+        charged_brl: billedPrice,
         is_upgrade_prorata: isUpgrade,
         from_channels: currentChannels,
         prorata_ratio: isUpgrade ? roundMoney(prorataRatio) : 1
