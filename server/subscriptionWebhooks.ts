@@ -13,12 +13,15 @@ const MP_API = 'https://api.mercadopago.com';
 
 type ParsedMpRef =
   | { kind: 'plan'; uid: string; plan: SubscriptionPlan }
+  | { kind: 'tier_plan'; uid: string; plan: SubscriptionPlan; channels: number }
+  | { kind: 'tier_upgrade'; uid: string; fromChannels: number; toChannels: number }
   | { kind: 'chaddon_once'; uid: string; extraSlots: number }
   | { kind: 'chaddon_recur'; uid: string; extraSlots: number }
   | { kind: 'none' };
 
 /**
- * `uid:monthly|annual` (plano) ou `uid:chaddon_once:1` / `uid:chaddon_recur:2` (canais extras).
+ * `uid:monthly|annual` (plano legado), `uid:tier:3:monthly` (plano por canais),
+ * ou `uid:chaddon_once:1` / `uid:chaddon_recur:2` (canais extras legados).
  */
 function parseExternalReference(ref: string | undefined | null): ParsedMpRef {
   if (!ref || typeof ref !== 'string') return { kind: 'none' };
@@ -33,6 +36,18 @@ function parseExternalReference(ref: string | undefined | null): ParsedMpRef {
   if (mid === 'chaddon_recur' || mid === 'chaddon-recur') {
     const n = Math.min(3, Math.max(1, parseInt(parts[2] || '0', 10) || 0));
     if (n >= 1 && n <= 3) return { kind: 'chaddon_recur', uid, extraSlots: n };
+  }
+  if (mid === 'tier') {
+    const channels = Math.max(1, Math.min(5, parseInt(parts[2] || '0', 10) || 0));
+    const rawPlan = (parts[3] || 'monthly').toLowerCase();
+    const plan: SubscriptionPlan =
+      rawPlan === 'annual' || rawPlan === 'anual' ? 'annual' : rawPlan === 'monthly' || rawPlan === 'mensal' ? 'monthly' : null;
+    if (channels >= 1 && channels <= 5 && plan) return { kind: 'tier_plan', uid, plan, channels };
+  }
+  if (mid === 'tier_upgrade') {
+    const from = Math.max(1, Math.min(5, parseInt(parts[2] || '0', 10) || 0));
+    const to = Math.max(1, Math.min(5, parseInt(parts[3] || '0', 10) || 0));
+    if (from >= 1 && to >= 1) return { kind: 'tier_upgrade', uid, fromChannels: from, toChannels: to };
   }
   const p = mid;
   const plan: SubscriptionPlan =
@@ -197,14 +212,38 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
   if (parsed.kind === 'chaddon_recur' || parsed.kind === 'chaddon_once') {
     return;
   }
+  if (parsed.kind === 'tier_upgrade') {
+    if (status === 'approved') {
+      const toChannels = Math.max(1, Math.min(5, parsed.toChannels));
+      await mergeUserSubscription(uid, {
+        status: 'active',
+        provider: 'mercadopago',
+        plan: 'monthly',
+        includedChannels: toChannels,
+        extraChannelSlots: Math.max(0, toChannels - 1),
+        mercadoPagoLastPaymentId: paymentId
+      });
+      console.log('[MP Webhook] Upgrade pro-rata de canais aplicado', uid, parsed.fromChannels, '->', toChannels);
+    } else if (status === 'rejected' || status === 'cancelled') {
+      console.log('[MP Webhook] Upgrade pro-rata nao aprovado', uid, status);
+    }
+    return;
+  }
 
-  const plan = parsed.kind === 'plan' ? parsed.plan : null;
+  const plan = parsed.kind === 'plan' || parsed.kind === 'tier_plan' ? parsed.plan : null;
+  const includedChannels = parsed.kind === 'tier_plan' ? Math.max(1, Math.min(5, parsed.channels)) : null;
   if (status === 'approved') {
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
     await extendPaidSubscription(uid, billingPlan, {
       provider: 'mercadopago',
       plan: billingPlan,
-      mercadoPagoLastPaymentId: paymentId
+      mercadoPagoLastPaymentId: paymentId,
+      ...(includedChannels != null
+        ? {
+            includedChannels,
+            extraChannelSlots: Math.max(0, includedChannels - 1)
+          }
+        : {})
     });
     console.log('[MP Webhook] Assinatura ativa para', uid, paymentId);
     const method = mpPaymentMethodToOurMethod(

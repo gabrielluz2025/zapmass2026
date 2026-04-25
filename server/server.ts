@@ -321,8 +321,8 @@ const registerSocketHandlers = () => {
             max: maxAllowed,
             message:
               maxAllowed <= BASE_CONNECTION_SLOTS
-                ? `Limite de ${maxAllowed} canal(is): incluidos no plano. Contrate canais extras em Minha assinatura (ate 5 no total).`
-                : `Voce atingiu o maximo de ${maxAllowed} canal(is). Incluimos 2 no base; e possivel contratar de 1 a 3 canais extras ate 5 no total.`
+                ? `Limite de ${maxAllowed} canal(is) do plano atual. Ajuste o plano em Minha assinatura para liberar mais canais (ate 5).`
+                : `Voce atingiu o maximo de ${maxAllowed} canal(is) do plano contratado. Em Minha assinatura, selecione um plano com mais canais (ate 5).`
           });
           return;
         }

@@ -7,9 +7,17 @@ import { channelAddonUnitPriceBrl } from './connectionLimits.js';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
+type ChannelTier = 1 | 2 | 3 | 4 | 5;
 
 const PIX_DISCOUNT_PCT = 0.05;
 const MP_API = 'https://api.mercadopago.com';
+const CHANNEL_TIER_PRICES_MONTHLY: Record<ChannelTier, number> = {
+  1: 149.9,
+  2: 249.9,
+  3: 329.9,
+  4: 399.9,
+  5: 459.9
+};
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -31,6 +39,41 @@ function getPrices(): { monthly: number; annual: number } {
 
 function getBackUrl(): string {
   return (process.env.MERCADOPAGO_BACK_URL || 'http://localhost:8000').trim().replace(/\/+$/, '');
+}
+
+function parseChannelTier(v: unknown): ChannelTier | null {
+  const n = Math.floor(Number(v) || 0);
+  return n >= 1 && n <= 5 ? (n as ChannelTier) : null;
+}
+
+function channelTierMonthlyPrice(channels: ChannelTier): number {
+  const envKey = `MERCADOPAGO_CHANNEL_TIER_${channels}`;
+  const envVal = parseFloat(process.env[envKey] || '');
+  if (Number.isFinite(envVal) && envVal > 0) return envVal;
+  return CHANNEL_TIER_PRICES_MONTHLY[channels];
+}
+
+function resolveCurrentChannelsFromSub(sub: Record<string, unknown> | undefined): ChannelTier {
+  const included = Math.floor(Number(sub?.includedChannels) || 0);
+  if (included >= 1 && included <= 5) return included as ChannelTier;
+  const legacy = 2 + Math.max(0, Math.floor(Number(sub?.extraChannelSlots) || 0));
+  return Math.max(1, Math.min(5, legacy)) as ChannelTier;
+}
+
+function toMillis(v: unknown): number | null {
+  if (!v) return null;
+  if (typeof (v as { toMillis?: () => number }).toMillis === 'function') {
+    try {
+      return (v as { toMillis: () => number }).toMillis();
+    } catch {
+      return null;
+    }
+  }
+  if (typeof v === 'string') {
+    const t = Date.parse(v);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
 }
 
 interface CreateParams {
@@ -187,6 +230,93 @@ async function createPreapproval(params: CreateParams): Promise<{ id: string; in
   const id = String(data.id || '');
   const init_point = String(data.init_point || '');
   if (!init_point) throw new Error('Resposta do MP sem init_point para preapproval.');
+  return { id, init_point };
+}
+
+async function createChannelTierPreference(params: {
+  uid: string;
+  email: string;
+  channels: ChannelTier;
+  method: 'pix' | 'card';
+  externalReference?: string;
+  title?: string;
+  description?: string;
+  amountOverride?: number;
+}): Promise<{ id: string; init_point: string }> {
+  const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
+  if (!access) throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado no servidor.');
+  const backUrl = getBackUrl();
+  const notificationUrl = `${backUrl}/api/webhooks/mercadopago`;
+  const basePrice = Number.isFinite(params.amountOverride) && (params.amountOverride || 0) > 0
+    ? Number(params.amountOverride)
+    : channelTierMonthlyPrice(params.channels);
+  const finalPrice =
+    params.method === 'pix' ? roundMoney(basePrice * (1 - PIX_DISCOUNT_PCT)) : roundMoney(basePrice);
+  const payment_methods =
+    params.method === 'pix'
+      ? {
+          excluded_payment_types: [
+            { id: 'credit_card' },
+            { id: 'debit_card' },
+            { id: 'prepaid_card' },
+            { id: 'ticket' },
+            { id: 'atm' },
+            { id: 'digital_wallet' }
+          ],
+          installments: 1,
+          default_installments: 1
+        }
+      : {
+          excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }],
+          installments: 1,
+          default_installments: 1
+        };
+
+  const body = {
+    items: [
+      {
+        id: `zapmass-tier-${params.channels}-${params.method}`,
+        title: params.title || `ZapMass Pro - ${params.channels} canal(is)`,
+        description: params.description || `Plano mensal com ${params.channels} canal(is).`,
+        quantity: 1,
+        currency_id: 'BRL',
+        unit_price: finalPrice
+      }
+    ],
+    payer: { email: params.email },
+    external_reference: params.externalReference || `${params.uid}:tier:${params.channels}:monthly`,
+    back_urls: { success: backUrl, failure: backUrl, pending: backUrl },
+    auto_return: 'approved',
+    notification_url: notificationUrl,
+    statement_descriptor: 'ZAPMASS TIER',
+    payment_methods,
+    metadata: {
+      uid: params.uid,
+      kind: 'tier',
+      channels: params.channels,
+      plan: 'monthly',
+      method: params.method,
+      final_price: finalPrice
+    }
+  };
+
+  const res = await fetch(`${MP_API}/checkout/preferences`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${access}`,
+      'Content-Type': 'application/json',
+      'X-Idempotency-Key': `${params.uid}-tier-${params.channels}-${params.method}-${Date.now()}`
+    },
+    body: JSON.stringify(body)
+  });
+  const data = (await res.json()) as Record<string, unknown>;
+  if (!res.ok) {
+    const msg = typeof data.message === 'string' ? data.message : JSON.stringify(data).slice(0, 400);
+    throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
+  }
+  const id = String(data.id || '');
+  const init_point = String(data.init_point || '');
+  if (!init_point) throw new Error('Resposta do MP sem init_point (plano por canais).');
   return { id, init_point };
 }
 
@@ -388,6 +518,96 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
   });
 
   /**
+   * Novo modelo comercial: plano mensal por quantidade de canais (1..5).
+   * Body: { channels: 1|2|3|4|5, method: 'pix'|'card' }
+   */
+  app.post('/api/billing/mercadopago/channel-plan', async (req: Request, res: Response) => {
+    try {
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      }
+      const idToken = parseBearer(req);
+      if (!idToken) {
+        return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <Firebase ID token>.' });
+      }
+      let uid: string;
+      let email: string;
+      try {
+        const decoded = await getAuth(adminApp).verifyIdToken(idToken);
+        uid = decoded.uid;
+        const bodyEmail = typeof req.body?.payer_email === 'string' ? req.body.payer_email.trim() : '';
+        email = (decoded.email || bodyEmail || '').trim();
+      } catch {
+        return res.status(401).json({ ok: false, error: 'Token Firebase invalido ou expirado.' });
+      }
+      if (!email || !email.includes('@')) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Conta sem e-mail. Use login com e-mail ou envie payer_email no JSON do corpo.'
+        });
+      }
+      const channels = parseChannelTier(req.body?.channels);
+      if (!channels) {
+        return res.status(400).json({ ok: false, error: 'channels deve ser 1, 2, 3, 4 ou 5.' });
+      }
+      const methodRaw = String(req.body?.method || 'card').toLowerCase();
+      const method: 'pix' | 'card' = methodRaw === 'pix' ? 'pix' : 'card';
+      const db = getFirestore(adminApp);
+      const subSnap = await db.collection('userSubscriptions').doc(uid).get();
+      const sub = (subSnap.data() || {}) as Record<string, unknown>;
+      const currentChannels = resolveCurrentChannelsFromSub(sub);
+      const accessEndMs = toMillis(sub.accessEndsAt);
+      const now = Date.now();
+      const hasActiveCycle = String(sub.status || '') === 'active' && accessEndMs != null && accessEndMs > now;
+      const isUpgrade = hasActiveCycle && channels > currentChannels;
+
+      let billedMonthly = channelTierMonthlyPrice(channels);
+      let prorataRatio = 1;
+      let externalReference = `${uid}:tier:${channels}:monthly`;
+      let checkoutTitle = `ZapMass Pro - ${channels} canal(is)`;
+      let checkoutDescription = `Plano mensal com ${channels} canal(is).`;
+
+      if (isUpgrade && accessEndMs != null) {
+        const ms30 = 30 * 24 * 60 * 60 * 1000;
+        prorataRatio = Math.max(0.05, Math.min(1, (accessEndMs - now) / ms30));
+        const diff = Math.max(0, channelTierMonthlyPrice(channels) - channelTierMonthlyPrice(currentChannels));
+        billedMonthly = roundMoney(Math.max(1, diff * prorataRatio));
+        externalReference = `${uid}:tier_upgrade:${currentChannels}:${channels}`;
+        checkoutTitle = `Upgrade ZapMass: ${currentChannels} → ${channels} canais`;
+        checkoutDescription = `Upgrade pró-rata do ciclo atual (${Math.round(prorataRatio * 100)}% do período restante).`;
+      }
+
+      const result = await createChannelTierPreference({
+        uid,
+        email,
+        channels,
+        method,
+        externalReference,
+        title: checkoutTitle,
+        description: checkoutDescription,
+        amountOverride: billedMonthly
+      });
+      return res.json({
+        ok: true,
+        init_point: result.init_point,
+        preference_id: result.id,
+        channels,
+        method,
+        monthly_price_brl: channelTierMonthlyPrice(channels),
+        charged_brl: billedMonthly,
+        is_upgrade_prorata: isUpgrade,
+        from_channels: currentChannels,
+        prorata_ratio: isUpgrade ? roundMoney(prorataRatio) : 1
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[billing/mercadopago/channel-plan]', msg);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
+  /**
    * Cancela a assinatura recorrente (preapproval) do utilizador no MP.
    * O acesso pago continua ate o fim do ciclo atual (accessEndsAt nao e alterado aqui).
    */
@@ -438,115 +658,17 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
     }
   });
 
-  /**
-   * Pacote de canais extras: 1–3 slots (R$ unit × slots / mês no recorrente, ou avulso).
-   * Body: { extraSlots: 1|2|3, method: 'pix'|'card'|'recurring' }
-   */
-  app.post('/api/billing/mercadopago/channel-addon', async (req: Request, res: Response) => {
-    try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-      }
-      const idToken = parseBearer(req);
-      if (!idToken) {
-        return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <Firebase ID token>.' });
-      }
-      let uid: string;
-      let email: string;
-      try {
-        const decoded = await getAuth(adminApp).verifyIdToken(idToken);
-        uid = decoded.uid;
-        const bodyEmail = typeof req.body?.payer_email === 'string' ? req.body.payer_email.trim() : '';
-        email = (decoded.email || bodyEmail || '').trim();
-      } catch {
-        return res.status(401).json({ ok: false, error: 'Token Firebase invalido ou expirado.' });
-      }
-      if (!email || !email.includes('@')) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Conta sem e-mail. Use login com e-mail ou envie payer_email no JSON do corpo.'
-        });
-      }
-
-      const raw = Number(req.body?.extraSlots);
-      const extraSlots = raw === 1 || raw === 2 || raw === 3 ? (raw as 1 | 2 | 3) : null;
-      if (!extraSlots) {
-        return res.status(400).json({ ok: false, error: 'extraSlots deve ser 1, 2 ou 3 (canais além dos 2 incluídos, máx. 5 no total).' });
-      }
-
-      const methodRaw = String(req.body?.method || 'card').toLowerCase();
-      const method: ChannelAddonMethod =
-        methodRaw === 'pix' ? 'pix' : methodRaw === 'recurring' ? 'recurring' : 'card';
-
-      const result =
-        method === 'recurring'
-          ? await createChannelAddonPreapproval({ uid, email, extraSlots })
-          : await createChannelAddonPreference({
-              uid,
-              email,
-              extraSlots,
-              method: method === 'pix' ? 'pix' : 'card'
-            });
-
-      return res.json({
-        ok: true,
-        init_point: result.init_point,
-        preference_id: result.id,
-        extraSlots,
-        method,
-        unit_brl: channelAddonUnitPriceBrl(),
-        total_brl: roundMoney(channelAddonUnitPriceBrl() * extraSlots)
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[billing/mercadopago/channel-addon]', msg);
-      return res.status(500).json({ ok: false, error: msg });
-    }
+  app.post('/api/billing/mercadopago/channel-addon', (_req: Request, res: Response) => {
+    return res.status(410).json({
+      ok: false,
+      error: 'Rota legada descontinuada. Use /api/billing/mercadopago/channel-plan com channels=1..5.'
+    });
   });
 
-  app.post('/api/billing/mercadopago/cancel-channel-addon', async (req: Request, res: Response) => {
-    try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado.' });
-      const idToken = parseBearer(req);
-      if (!idToken) return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <token>.' });
-      let uid: string;
-      try {
-        const decoded = await getAuth(adminApp).verifyIdToken(idToken);
-        uid = decoded.uid;
-      } catch {
-        return res.status(401).json({ ok: false, error: 'Token invalido.' });
-      }
-      const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
-      if (!access) return res.status(503).json({ ok: false, error: 'MERCADOPAGO_ACCESS_TOKEN ausente.' });
-      const db = getFirestore(adminApp);
-      const snap = await db.collection('userSubscriptions').doc(uid).get();
-      const preId = (snap.data() as { mercadoPagoChannelAddonPreapprovalId?: string } | undefined)
-        ?.mercadoPagoChannelAddonPreapprovalId;
-      if (!preId) {
-        return res.status(404).json({ ok: false, error: 'Nenhum debito de canais extras ativo (recorrente).' });
-      }
-      const mpRes = await fetch(`${MP_API}/preapproval/${preId}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' })
-      });
-      if (!mpRes.ok) {
-        const text = await mpRes.text();
-        console.error('[billing/mercadopago/cancel-channel] MP', mpRes.status, text);
-        return res.status(502).json({ ok: false, error: 'MP recusou o cancelamento do add-on de canais.' });
-      }
-      await mergeUserSubscription(uid, {
-        extraChannelSlots: 0,
-        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete(),
-        mercadoPagoChannelAddonOneTimePaymentId: FieldValue.delete()
-      } as any);
-      return res.json({ ok: true });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[billing/mercadopago/cancel-channel]', msg);
-      return res.status(500).json({ ok: false, error: msg });
-    }
+  app.post('/api/billing/mercadopago/cancel-channel-addon', (_req: Request, res: Response) => {
+    return res.status(410).json({
+      ok: false,
+      error: 'Rota legada descontinuada. O modelo atual usa plano por quantidade de canais.'
+    });
   });
 }

@@ -22,6 +22,19 @@ import { readAndClearChannelExtrasScrollFlag } from '../../utils/openChannelExtr
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
+type ChannelTier = 1 | 2 | 3 | 4 | 5;
+
+const CHANNEL_TIER_PRICES: Record<ChannelTier, number> = {
+  1: 149.9,
+  2: 249.9,
+  3: 329.9,
+  4: 399.9,
+  5: 459.9
+};
+
+function brl(v: number): string {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+}
 
 function formatDate(ms: number | null): string {
   if (ms == null) return '—';
@@ -58,9 +71,8 @@ export const MySubscriptionTab: React.FC = () => {
   );
   const daysLeft = daysUntil(accessEndsMs);
   const isRecurring = Boolean(subscription?.mercadoPagoPreapprovalId && subscription.status === 'active');
-  const isChannelRecurring = Boolean(subscription?.mercadoPagoChannelAddonPreapprovalId);
-  const [chaddonExtra, setChaddonExtra] = useState<1 | 2 | 3>(1);
-  const [chaddonBusy, setChaddonBusy] = useState<Method | 'cancelCh' | null>(null);
+  const [upgradeTarget, setUpgradeTarget] = useState<ChannelTier>(2);
+  const [tierBusy, setTierBusy] = useState<null | 'pix' | 'card'>(null);
   useEffect(() => {
     if (loading) return;
     if (!readAndClearChannelExtrasScrollFlag()) return;
@@ -97,57 +109,6 @@ export const MySubscriptionTab: React.FC = () => {
     }
   };
 
-  const startChannelAddon = async (method: Method, extra: 1 | 2 | 3) => {
-    if (!user) return;
-    setChaddonBusy(method);
-    try {
-      const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/channel-addon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ method, extraSlots: extra })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível abrir o checkout de canais extras.');
-        return;
-      }
-      if (data.init_point) {
-        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
-        toast.success('Abrimos o checkout. Após a confirmação, seu limite de canais sobe (até 5 no total).');
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro de rede.');
-    } finally {
-      setChaddonBusy(null);
-    }
-  };
-
-  const cancelChannelAddon = async () => {
-    if (!user) return;
-    if (!window.confirm('Cancelar o débito automático dos canais extras? Seus canais além do 2º podem deixar de ser permitidos na próxima conexão.')) return;
-    setChaddonBusy('cancelCh');
-    try {
-      const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/cancel-channel-addon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível cancelar o add-on.');
-        return;
-      }
-      toast.success('Add-on de canais cancelado. Ajuste suas conexões se estiver acima de 2.');
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro de rede.');
-    } finally {
-      setChaddonBusy(null);
-    }
-  };
-
   const cancelRecurring = async () => {
     if (!user) return;
     if (!window.confirm('Cancelar o débito automático? Seu acesso continua até a data de expiração atual.')) return;
@@ -172,6 +133,40 @@ export const MySubscriptionTab: React.FC = () => {
     }
   };
 
+  const startChannelTierPlan = async (method: 'pix' | 'card', channels: ChannelTier) => {
+    if (!user) return;
+    setTierBusy(method);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/billing/mercadopago/channel-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ method, channels })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível abrir o checkout do plano por canais.');
+        return;
+      }
+      if (data.init_point) {
+        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        const charged = Number(data?.charged_brl);
+        const isUpgrade = data?.is_upgrade_prorata === true;
+        const priceText = Number.isFinite(charged) ? ` Valor: ${brl(charged)}.` : '';
+        toast.success(
+          isUpgrade
+            ? `Upgrade pró-rata aberto para ${channels} canal(is).${priceText}`
+            : `Checkout aberto para ${channels} canal(is).${priceText}`
+        );
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro de rede.');
+    } finally {
+      setTierBusy(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -182,6 +177,17 @@ export const MySubscriptionTab: React.FC = () => {
 
   const priceMonthly = config.marketingPriceMonthly.trim() || 'R$ 49,90 / mês';
   const priceAnnual = config.marketingPriceAnnual.trim() || 'R$ 479,90 / ano';
+  const contractedChannels = Math.max(
+    1,
+    Math.min(
+      5,
+      Math.floor(
+        Number(subscription?.includedChannels) || (2 + Math.max(0, Math.floor(Number(subscription?.extraChannelSlots) || 0)))
+      )
+    )
+  ) as ChannelTier;
+  const monthlyDiff = Math.max(0, CHANNEL_TIER_PRICES[upgradeTarget] - CHANNEL_TIER_PRICES[contractedChannels]);
+  const prorataHalf = monthlyDiff / 2;
 
   const statusLabel = getStatusLabel(subscription?.status, daysLeft, trialEndsMs);
   const providerLabel =
@@ -305,84 +311,93 @@ export const MySubscriptionTab: React.FC = () => {
           </div>
           <div>
             <h2 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-              Canais extras (WhatsApp)
+              Planos por quantidade de canais
             </h2>
             <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-              2 canais estão incluídos no Pro. E pode contratar de <strong>1 a 3 canais a mais</strong> (máx. 5) —{' '}
-              <strong className="text-[var(--text-2)]">R$ 100/mês por canal adicional</strong> (valor via{' '}
-              <code className="text-[10px]">MERCADOPAGO_CHANNEL_ADDON_MONTHLY</code> no servidor).
+              O plano contratado define seu limite total de canais (1 a 5), com upgrade pró-rata durante o ciclo.
             </p>
           </div>
         </div>
         <p className="text-[12.5px] mb-3" style={{ color: 'var(--text-2)' }}>
           Situação:{' '}
           <strong style={{ color: 'var(--text-1)' }}>
-            {typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
-              ? `+${subscription.extraChannelSlots} extra(s) — até ${2 + (subscription.extraChannelSlots || 0)} canais.`
-              : 'Somente os 2 canais incluídos.'}
+            {typeof subscription?.includedChannels === 'number' && subscription.includedChannels > 0
+              ? `${subscription.includedChannels} canal(is) no plano atual.`
+              : typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
+                ? `+${subscription.extraChannelSlots} extra(s) — até ${2 + (subscription.extraChannelSlots || 0)} canais.`
+                : 'Sem informação de plano por canais ainda (modelo legado).'}
           </strong>
         </p>
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <label className="text-[11.5px] font-semibold" style={{ color: 'var(--text-3)' }} htmlFor="chaddonN">
-            Quantos canais a mais (além do 2º)?
-          </label>
-          <select
-            id="chaddonN"
-            className="ui-input text-[12px] py-1.5 max-w-[120px]"
-            value={chaddonExtra}
-            onChange={(e) => setChaddonExtra(Number(e.target.value) as 1 | 2 | 3)}
-          >
-            <option value={1}>+1 (R$ 100/mo)</option>
-            <option value={2}>+2 (R$ 200/mo)</option>
-            <option value={3}>+3 (R$ 300/mo)</option>
-          </select>
+        <h2 className="text-[14px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
+          Selecione seu plano mensal
+        </h2>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
+          {(Object.keys(CHANNEL_TIER_PRICES) as Array<keyof typeof CHANNEL_TIER_PRICES>).map((n) => {
+            const tier = Number(n) as ChannelTier;
+            const price = CHANNEL_TIER_PRICES[tier];
+            const per = price / tier;
+            const isCurrent = contractedChannels === tier;
+            return (
+              <button
+                key={tier}
+                type="button"
+                onClick={() => setUpgradeTarget(tier)}
+                className="text-left rounded-lg px-3 py-2 border transition-all"
+                style={{
+                  borderColor:
+                    upgradeTarget === tier ? 'rgba(16,185,129,0.55)' : isCurrent ? 'rgba(59,130,246,0.55)' : 'var(--border-subtle)',
+                  background:
+                    upgradeTarget === tier
+                      ? 'linear-gradient(135deg, rgba(16,185,129,0.13), rgba(6,182,212,0.08))'
+                      : isCurrent
+                        ? 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.05))'
+                        : 'var(--surface-1)'
+                }}
+              >
+                <p className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>
+                  {tier} canal{tier > 1 ? 'is' : ''}
+                </p>
+                <p className="text-[14px] font-extrabold mt-0.5" style={{ color: 'var(--text-1)' }}>
+                  {brl(price)}
+                </p>
+                <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                  {brl(per)} por canal
+                </p>
+              </button>
+            );
+          })}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Action
-            onClick={() => startChannelAddon('pix', chaddonExtra)}
-            loading={chaddonBusy === 'pix'}
-            disabled={!!chaddonBusy}
-            icon={<TrendingUp className="w-4 h-4" />}
-            label="Canais extras (Pix -5%)"
-            hint="Pagamento único — libera o pacote após aprovação"
-          />
-          <Action
-            onClick={() => startChannelAddon('card', chaddonExtra)}
-            loading={chaddonBusy === 'card'}
-            disabled={!!chaddonBusy}
-            icon={<Crown className="w-4 h-4" />}
-            label="Canais extras (cartão)"
-            hint="Checkout Mercado Pago"
-          />
-          <Action
-            onClick={() => startChannelAddon('recurring', chaddonExtra)}
-            loading={chaddonBusy === 'recurring'}
-            disabled={!!chaddonBusy}
-            primary
-            icon={<Repeat className="w-4 h-4" />}
-            label="Canais extras (débito auto)"
-            hint="Renova todo mês até cancelar"
-          />
-        </div>
-        {isChannelRecurring && (
-          <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div
+          className="rounded-lg px-3.5 py-3 mb-4"
+          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+        >
+          <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+            Upgrade simulado: {contractedChannels} → {upgradeTarget} canal{upgradeTarget > 1 ? 'is' : ''}
+          </p>
+          <p className="text-[11.5px]" style={{ color: 'var(--text-2)' }}>
+            Diferença mensal: <strong>{brl(monthlyDiff)}</strong>. Exemplo pró-rata (50% do ciclo restante):{' '}
+            <strong>{brl(prorataHalf)}</strong>.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
             <Action
-              onClick={() => void cancelChannelAddon()}
-              loading={chaddonBusy === 'cancelCh'}
-              disabled={!!chaddonBusy}
-              danger
-              icon={<XCircle className="w-4 h-4" />}
-              label="Cancelar débito dos canais extras"
-              hint="O limite volta ao teto padrão (2); remova conexões extras se necessário"
+              onClick={() => void startChannelTierPlan('pix', upgradeTarget)}
+              loading={tierBusy === 'pix'}
+              disabled={!!tierBusy}
+              icon={<TrendingUp className="w-4 h-4" />}
+              label={`Contratar ${upgradeTarget} canal(is) (Pix -5%)`}
+              hint="Novo modelo de plano por quantidade de canais"
+            />
+            <Action
+              onClick={() => void startChannelTierPlan('card', upgradeTarget)}
+              loading={tierBusy === 'card'}
+              disabled={!!tierBusy}
+              icon={<Crown className="w-4 h-4" />}
+              label={`Contratar ${upgradeTarget} canal(is) (cartão)`}
+              hint="Checkout Mercado Pago"
             />
           </div>
-        )}
-      </section>
+        </div>
 
-      <section
-        className="rounded-2xl px-5 py-4"
-        style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-      >
         <h2 className="text-[14px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
           Como funciona
         </h2>

@@ -182,6 +182,8 @@ export interface UserSubscription {
   trialEndsAt?: unknown;
   /** Fim do periodo pago (mensal = +1 mes calendario; anual = +12 meses a partir da renovacao). */
   accessEndsAt?: unknown;
+  /** Quantidade de canais incluídos no plano contratado (1–5). */
+  includedChannels?: number;
   /** Evita segundo teste de 1h na mesma conta. */
   freeTrialUsed?: boolean;
   /** Id da NFS-e mais recente emitida (NFE.io). */
@@ -198,7 +200,7 @@ export interface UserSubscription {
   blocked?: boolean;
   /** Observacao administrativa sobre acesso manual/bloqueio. */
   adminNote?: string;
-  /** Canais além do incluído (0–3). Cada unidade: add-on pago, até 5 canais no total. */
+  /** Legado: canais além do incluído (modelo antigo base 2 + add-on). */
   extraChannelSlots?: number;
   /** Assinatura MP do pacote de canais extras (débito recorrente). */
   mercadoPagoChannelAddonPreapprovalId?: string;

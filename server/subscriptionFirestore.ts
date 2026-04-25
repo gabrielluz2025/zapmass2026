@@ -17,9 +17,11 @@ export interface UserSubscriptionDoc {
   trialEndsAt?: Timestamp | null;
   /** Fim do periodo pago atual (mensal = +1 mes calendario; anual = +12 meses). */
   accessEndsAt?: Timestamp | null;
+  /** Quantidade de canais incluídos no plano contratado (1–5). */
+  includedChannels?: number;
   /**
-   * Canais extras contratados (0–3), além de 2 incluídos. Cada unidade = +R$ /mês (ver MERCADOPAGO_CHANNEL_ADDON_MONTHLY).
-   * Teto: 2 + extraChannelSlots ≤ 5.
+   * Legado: canais extras contratados no modelo antigo (base 2 + add-on).
+   * Mantido para retrocompatibilidade.
    */
   extraChannelSlots?: number;
   /** Preapproval do Mercado Pago dedicado ao add-on de canais (débito mensal do pacote de extras). */

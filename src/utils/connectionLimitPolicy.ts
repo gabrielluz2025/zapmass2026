@@ -57,6 +57,12 @@ function manualGrantedExtraSlots(sub: UserSubscription | null): number {
   return endMs > Date.now() ? raw : 0;
 }
 
+function paidIncludedChannels(sub: UserSubscription | null): number {
+  const n = Math.floor(Number(sub?.includedChannels) || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(1, Math.min(MAX_CHANNELS_TOTAL, n));
+}
+
 /**
  * Teto de canais para o app (2 base + `extraChannelSlots` pagos, máx. 5).
  * Contas de administrador (lista ADMIN no servidor) vêem teto alto na UI.
@@ -67,6 +73,10 @@ export function getMaxConnectionSlotsForUser(
   isAdminUser: boolean
 ): number {
   if (isAdminUser) return ADMIN_PRACTICAL_MAX;
+  const included = paidIncludedChannels(subscription);
+  if (included > 0 && statusAllowsPaidExtras(subscription)) {
+    return Math.min(MAX_CHANNELS_TOTAL, included + manualGrantedExtraSlots(subscription));
+  }
   const raw = Math.max(
     0,
     Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(subscription?.extraChannelSlots) || 0))

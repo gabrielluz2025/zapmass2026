@@ -91,6 +91,12 @@ function manualGrantedExtraSlots(sub: UserSubscriptionDoc | null | undefined): n
   return endMs > Date.now() ? raw : 0;
 }
 
+function paidIncludedChannels(sub: UserSubscriptionDoc | null | undefined): number {
+  const n = Math.floor(Number(sub?.includedChannels) || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(1, Math.min(MAX_CONNECTIONS_TOTAL, n));
+}
+
 /**
  * Cada slot extra pago = +1 acima de BASE (até 3 extras).
  * Firestore: `extraChannelSlots` 0..3
@@ -105,6 +111,11 @@ export function getMaxConnectionSlots(
   // Para canais WhatsApp, admin também respeita 2 + extras comprados.
   // (ADMIN_EMAILS segue válido para rotas/painéis administrativos.)
   void options.serverAdmin;
+  const included = paidIncludedChannels(sub);
+  if (included > 0 && statusAllowsPaidExtras(sub)) {
+    const manualExtras = manualGrantedExtraSlots(sub);
+    return Math.min(MAX_CONNECTIONS_TOTAL, included + manualExtras);
+  }
   const raw = Math.max(
     0,
     Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub?.extraChannelSlots) || 0))

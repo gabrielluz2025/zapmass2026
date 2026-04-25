@@ -61,6 +61,7 @@ export function registerBillingTrialRoutes(app: Express): void {
         status: 'trialing',
         provider: 'none',
         plan: null,
+        includedChannels: 1,
         trialEndsAt: Timestamp.fromDate(trialEnds),
         freeTrialUsed: true,
         extraChannelSlots: 0,

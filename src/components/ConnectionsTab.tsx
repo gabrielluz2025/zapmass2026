@@ -44,8 +44,7 @@ import { isAdminUserEmail } from '../utils/adminAccess';
 import {
   getMaxConnectionSlotsForUser,
   countAccountScopedConnections,
-  MAX_CHANNELS_TOTAL,
-  BASE_CHANNEL_SLOTS
+  MAX_CHANNELS_TOTAL
 } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 
@@ -489,7 +488,7 @@ export const ConnectionsTab: React.FC = () => {
                 : `Canais usados: ${Math.min(scopedCount, maxConnectionSlots)}/${maxConnectionSlots} (máx. ${MAX_CHANNELS_TOTAL} com extras).`}{' '}
               {!isAdmin && (
                 <span>
-                  {BASE_CHANNEL_SLOTS} incluídos; cada extra: +R$ 100/mês.
+                  O limite contratado é aplicado por plano (1 a 5 canais).
                 </span>
               )}
             </p>
@@ -542,10 +541,8 @@ export const ConnectionsTab: React.FC = () => {
             Plano e canais WhatsApp
           </p>
           <p style={{ color: 'var(--text-2)' }}>
-            O Pro inclui <strong>{BASE_CHANNEL_SLOTS} canais</strong> por defeito. Pode contratar{' '}
-            <strong>1 a 3 canais a mais</strong> (máx. {MAX_CHANNELS_TOTAL} no total). Quando o limite
-            actual estiver preenchido e precisar de mais um (ex.: 3.º), use{' '}
-            <strong>Adquirir mais canais</strong> — abrimos a assinatura na secção certa.
+            O limite de canais segue o plano contratado (de <strong>1 a {MAX_CHANNELS_TOTAL}</strong>). Quando
+            precisar de mais canais, use <strong>Adquirir mais canais</strong> para abrir a assinatura na secção certa.
           </p>
           {needChannelExtraPurchase && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
