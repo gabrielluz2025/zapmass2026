@@ -19,32 +19,20 @@ import { useAppConfig } from '../../context/AppConfigContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
 import { UpgradeProModal } from './UpgradeProModal';
 import { readAndClearChannelExtrasScrollFlag } from '../../utils/openChannelExtraFlow';
+import {
+  CHANNEL_TIER_PRICES_ANNUAL,
+  CHANNEL_TIER_PRICES_MONTHLY,
+  brl
+} from '../../constants/channelTierPricing';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
 type ChannelTier = 1 | 2 | 3 | 4 | 5;
 
-const CHANNEL_TIER_PRICES: Record<ChannelTier, number> = {
-  1: 149.9,
-  2: 249.9,
-  3: 329.9,
-  4: 399.9,
-  5: 459.9
-};
-const CHANNEL_TIER_PRICES_ANNUAL: Record<ChannelTier, number> = {
-  1: 1529,
-  2: 2549,
-  3: 3365,
-  4: 4079,
-  5: 4691
-};
-
 function tierPrice(channels: ChannelTier, plan: Plan): number {
-  return plan === 'annual' ? CHANNEL_TIER_PRICES_ANNUAL[channels] : CHANNEL_TIER_PRICES[channels];
-}
-
-function brl(v: number): string {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+  return plan === 'annual'
+    ? CHANNEL_TIER_PRICES_ANNUAL[channels]
+    : CHANNEL_TIER_PRICES_MONTHLY[channels];
 }
 
 function formatDate(ms: number | null): string {
@@ -372,7 +360,7 @@ export const MySubscriptionTab: React.FC = () => {
           </div>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
-          {(Object.keys(CHANNEL_TIER_PRICES) as Array<keyof typeof CHANNEL_TIER_PRICES>).map((n) => {
+          {(Object.keys(CHANNEL_TIER_PRICES_MONTHLY) as Array<keyof typeof CHANNEL_TIER_PRICES_MONTHLY>).map((n) => {
             const tier = Number(n) as ChannelTier;
             const price = tierPrice(tier, tierPlanMode);
             const per = price / tier;

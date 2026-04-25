@@ -16,15 +16,16 @@ import { LoginCard } from './auth/LoginCard';
 import { useAppConfig } from '../context/AppConfigContext';
 import { formatTrialDurationPhrase, formatTrialHoursLabel } from '../utils/trialCopy';
 import { LandingWhatsAppRiskNotice } from './legal/LandingWhatsAppRiskNotice';
+import {
+  CHANNEL_TIER_PRICES_ANNUAL,
+  CHANNEL_TIER_PRICES_MONTHLY,
+  brl
+} from '../constants/channelTierPricing';
 
 const DEFAULT_PRICE_MONTHLY =
   (import.meta.env.VITE_MARKETING_PRICE_MONTHLY as string | undefined)?.trim() || 'R$ 49,90 / mês';
 const DEFAULT_PRICE_ANNUAL =
   (import.meta.env.VITE_MARKETING_PRICE_ANNUAL as string | undefined)?.trim() || 'R$ 479,90 / ano';
-const DEFAULT_CHANNEL_FROM_MONTHLY =
-  (import.meta.env.VITE_MARKETING_CHANNEL_FROM_MONTHLY as string | undefined)?.trim() || 'R$ 149,90 / mês';
-const DEFAULT_CHANNEL_FROM_ANNUAL =
-  (import.meta.env.VITE_MARKETING_CHANNEL_FROM_ANNUAL as string | undefined)?.trim() || 'R$ 1.529,00 / ano';
 
 export const PreLoginLanding: React.FC = () => {
   const { config } = useAppConfig();
@@ -37,8 +38,8 @@ export const PreLoginLanding: React.FC = () => {
 
   const priceMonthly = config.marketingPriceMonthly.trim() || DEFAULT_PRICE_MONTHLY;
   const priceAnnual = config.marketingPriceAnnual.trim() || DEFAULT_PRICE_ANNUAL;
-  const channelFromMonthly = config.marketingPriceMonthly.trim() || DEFAULT_CHANNEL_FROM_MONTHLY;
-  const channelFromAnnual = config.marketingPriceAnnual.trim() || DEFAULT_CHANNEL_FROM_ANNUAL;
+  const channelFromMonthly = `${brl(CHANNEL_TIER_PRICES_MONTHLY[1])} / mês`;
+  const channelFromAnnual = `${brl(CHANNEL_TIER_PRICES_ANNUAL[1])} / ano`;
 
   return (
     <div
