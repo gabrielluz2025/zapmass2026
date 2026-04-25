@@ -1,7 +1,7 @@
-# Deploy automático com janela segura:
+# Deploy automático:
 # - Push em branches alvo dispara pipeline
-# - Fora da janela segura na VPS, o deploy é adiado automaticamente
-# - Trigger por cron garante que o deploy pendente aconteça sem ação manual
+# - Push/manual (workflow_dispatch) faz deploy imediato na VPS
+# - Cron aplica pendentes respeitando a janela de madrugada (evita queda de canais no horario comercial)
 # Configure os secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY.
 #
 # GitHub Actions: ações JS (checkout, etc.) migram de Node 20 → 24. Ver:
@@ -69,12 +69,15 @@ jobs:
           command_timeout: 20m
           script: |
             set -euo pipefail
-            # Janela segura (hora local da VPS): apenas madrugada para reduzir impacto em canais ativos.
-            HOUR="$(date +%H)"
-            if [ "$HOUR" -ge 6 ]; then
-              echo "==> Fora da janela segura de deploy (agora: ${HOUR}h)."
-              echo "==> Deploy adiado automaticamente; cron retomará sem ação manual."
-              exit 0
+            # Janela segura (hora local da VPS) aplicada SOMENTE no cron.
+            # Push/Run workflow: aplicar deploy imediatamente (cada push ja e uma decisao explicita de subir).
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              HOUR="$(date +%H)"
+              if [ "$HOUR" -ge 6 ]; then
+                echo "==> (cron) Fora da janela segura de deploy (agora: ${HOUR}h)."
+                echo "==> (cron) Deploy adiado automaticamente; o proximo ciclo do cron retoma."
+                exit 0
+              fi
             fi
             BRANCH="${{ github.ref_name }}"
             echo "==> branch alvo: ${BRANCH}"
