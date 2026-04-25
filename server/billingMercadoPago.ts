@@ -539,7 +539,8 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       }
       await mergeUserSubscription(uid, {
         extraChannelSlots: 0,
-        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete()
+        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete(),
+        mercadoPagoChannelAddonOneTimePaymentId: FieldValue.delete()
       } as any);
       return res.json({ ok: true });
     } catch (e: unknown) {

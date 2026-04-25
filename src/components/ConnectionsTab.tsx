@@ -47,6 +47,7 @@ import {
   MAX_CHANNELS_TOTAL,
   BASE_CHANNEL_SLOTS
 } from '../utils/connectionLimitPolicy';
+import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 
 type FilterValue = 'ALL' | 'ONLINE' | 'OFFLINE' | 'PAIRING';
 type ViewMode = 'grid' | 'list';
@@ -105,10 +106,14 @@ export const ConnectionsTab: React.FC = () => {
     () => countAccountScopedConnections(connections, user?.uid ?? null),
     [connections, user?.uid]
   );
-  const atConnectionLimit = !isAdmin && scopedCount >= maxConnectionSlots;
+  const atSlotLimit = !isAdmin && scopedCount >= maxConnectionSlots;
   /** Apos trial / sem plano: nao criar novos canais ate contratar. */
   const blockNewBySubscription = subEnforce && readOnlyMode && !isAdmin;
-  const cannotCreateConnection = atConnectionLimit || blockNewBySubscription;
+  const canBuyMoreSlots = !isAdmin && maxConnectionSlots < MAX_CHANNELS_TOTAL;
+  const needChannelExtraPurchase = atSlotLimit && canBuyMoreSlots && !blockNewBySubscription;
+  const atPlatformMax = !isAdmin && atSlotLimit && maxConnectionSlots >= MAX_CHANNELS_TOTAL;
+  const canOpenNameModal = !blockNewBySubscription && scopedCount < maxConnectionSlots;
+  const primaryActionDisabled = blockNewBySubscription || atPlatformMax;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -302,21 +307,43 @@ export const ConnectionsTab: React.FC = () => {
     setSelected(new Set(sortedFiltered.map((c) => c.id)));
   }, [sortedFiltered]);
 
+  const handlePrimaryConnectClick = useCallback(() => {
+    if (blockNewBySubscription) {
+      toast.error('Assine o ZapMass para criar novos canais. Abra Minha assinatura.');
+      return;
+    }
+    if (atPlatformMax) {
+      toast.error('Voce ja esta no maximo de 5 canais. Remova um canal para adicionar outro.');
+      return;
+    }
+    if (needChannelExtraPurchase) {
+      openChannelExtraPurchaseFlow();
+      toast.success('Abrindo Minha assinatura na secao de canais extras.', { duration: 4500, icon: '📶' });
+      return;
+    }
+    setIsModalOpen(true);
+  }, [blockNewBySubscription, atPlatformMax, needChannelExtraPurchase]);
+
   const requestNewConnection = useCallback(
     (name: string) => {
       if (blockNewBySubscription) {
         toast.error('Assine o ZapMass para criar novos canais. Abra Minha assinatura.');
         return;
       }
-      if (atConnectionLimit) {
-        toast.error(
-          'Limite de canais atingido. Em Minha assinatura, contrate 1 a 3 canais extras (ate 5 no total).'
-        );
+      if (!canOpenNameModal) {
+        if (needChannelExtraPurchase) {
+          openChannelExtraPurchaseFlow();
+          toast.success('Abrindo Minha assinatura — canais extras.', { duration: 4500, icon: '📶' });
+        } else if (atPlatformMax) {
+          toast.error('Voce ja esta no maximo de 5 canais.');
+        } else {
+          toast.error('Limite de canais atingido.');
+        }
         return;
       }
       addConnection(name);
     },
-    [addConnection, atConnectionLimit, blockNewBySubscription]
+    [addConnection, blockNewBySubscription, canOpenNameModal, needChannelExtraPurchase, atPlatformMax]
   );
 
   const runBulk = useCallback(
@@ -352,13 +379,17 @@ export const ConnectionsTab: React.FC = () => {
         setView('list');
       } else if (e.key === 'n' || e.key === 'N') {
         e.preventDefault();
-        if (cannotCreateConnection) {
-          toast(
-            atConnectionLimit
-              ? 'Limite de canais. Use Minha assinatura para extras.'
-              : 'Assine o plano para criar novos canais.',
-            { icon: '🔒', duration: 4000 }
-          );
+        if (blockNewBySubscription) {
+          toast('Assine o plano para criar novos canais.', { icon: '🔒', duration: 4000 });
+          return;
+        }
+        if (atPlatformMax) {
+          toast('Voce ja esta no maximo de 5 canais.', { icon: '🔒', duration: 4000 });
+          return;
+        }
+        if (needChannelExtraPurchase) {
+          openChannelExtraPurchaseFlow();
+          toast.success('Abrindo canais extras em Minha assinatura.', { icon: '📶', duration: 4000 });
           return;
         }
         setIsModalOpen(true);
@@ -372,7 +403,15 @@ export const ConnectionsTab: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectMode, searchTerm, filterStatus, clearSelection, cannotCreateConnection, atConnectionLimit]);
+  }, [
+    selectMode,
+    searchTerm,
+    filterStatus,
+    clearSelection,
+    blockNewBySubscription,
+    atPlatformMax,
+    needChannelExtraPurchase
+  ]);
 
   // --- alertas inteligentes ---
   const alerts = useMemo(() => {
@@ -459,41 +498,70 @@ export const ConnectionsTab: React.FC = () => {
               <Button
                 variant="primary"
                 size="lg"
-                leftIcon={<Plus className="w-4 h-4" />}
-                disabled={cannotCreateConnection}
+                leftIcon={needChannelExtraPurchase ? <Radio className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                disabled={primaryActionDisabled}
                 title={
                   blockNewBySubscription
                     ? 'Assine o plano para adicionar canais.'
-                    : atConnectionLimit
-                      ? 'Limite de canais. Contrate extras em Minha assinatura.'
-                      : 'Adicionar conexão'
+                    : atPlatformMax
+                      ? 'Limite de 5 canais atingido. Remova um canal para adicionar outro.'
+                      : needChannelExtraPurchase
+                        ? 'Adquirir canais extras (3.º em diante) em Minha assinatura'
+                        : 'Adicionar conexão'
                 }
-                onClick={() => {
-                  if (blockNewBySubscription) {
-                    toast('Assine o ZapMass em Minha assinatura para criar novos canais.', { icon: '🔒', duration: 5000 });
-                    return;
-                  }
-                  if (atConnectionLimit) {
-                    toast(
-                      'Limite de canais atingido. Em Minha assinatura, contrate 1 a 3 canais extras (até 5 no total, +R$ 100/mês por slot).',
-                      { icon: '🔒', duration: 5000 }
-                    );
-                    return;
-                  }
-                  setIsModalOpen(true);
-                }}
+                onClick={handlePrimaryConnectClick}
               >
-                Conectar WhatsApp
+                {needChannelExtraPurchase ? 'Adquirir mais canais' : 'Conectar WhatsApp'}
               </Button>
-              {cannotCreateConnection && (
+              {primaryActionDisabled && !blockNewBySubscription && atPlatformMax && (
                 <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
-                  {blockNewBySubscription ? 'Ver planos' : 'Aumentar limite'}
+                  Minha assinatura
+                </Button>
+              )}
+              {blockNewBySubscription && (
+                <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
+                  Ver planos
                 </Button>
               )}
             </div>
           </div>
         }
       />
+
+      {!isAdmin && !blockNewBySubscription && (
+        <div
+          className="rounded-xl px-4 py-3 text-[12.5px] leading-relaxed"
+          style={{
+            background: needChannelExtraPurchase
+              ? 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(6,182,212,0.08))'
+              : 'var(--surface-0)',
+            border: `1px solid ${needChannelExtraPurchase ? 'rgba(16,185,129,0.35)' : 'var(--border-subtle)'}`
+          }}
+        >
+          <p className="font-bold mb-0.5" style={{ color: 'var(--text-1)' }}>
+            Plano e canais WhatsApp
+          </p>
+          <p style={{ color: 'var(--text-2)' }}>
+            O Pro inclui <strong>{BASE_CHANNEL_SLOTS} canais</strong> por defeito. Pode contratar{' '}
+            <strong>1 a 3 canais a mais</strong> (máx. {MAX_CHANNELS_TOTAL} no total). Quando o limite
+            actual estiver preenchido e precisar de mais um (ex.: 3.º), use{' '}
+            <strong>Adquirir mais canais</strong> — abrimos a assinatura na secção certa.
+          </p>
+          {needChannelExtraPurchase && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className="text-[11.5px] font-semibold rounded-md px-2 py-0.5"
+                style={{ background: 'rgba(16,185,129,0.2)', color: 'var(--text-1)' }}
+              >
+                Atingiu os {maxConnectionSlots} canais contratados — adquira slots extra para o próximo
+              </span>
+              <Button size="sm" variant="primary" onClick={handlePrimaryConnectClick}>
+                Abrir canais extras
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* KPI GRID - 4 colunas */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -886,20 +954,10 @@ export const ConnectionsTab: React.FC = () => {
               <Button
                 variant="primary"
                 leftIcon={<Plus className="w-4 h-4" />}
-                disabled={cannotCreateConnection}
-                onClick={() => {
-                  if (blockNewBySubscription) {
-                    toast('Assine o plano para adicionar canais.', { icon: '🔒' });
-                    return;
-                  }
-                  if (atConnectionLimit) {
-                    toast('Limite de canais atingido. Veja Minha assinatura para extras.', { icon: '🔒' });
-                    return;
-                  }
-                  setIsModalOpen(true);
-                }}
+                disabled={primaryActionDisabled}
+                onClick={handlePrimaryConnectClick}
               >
-                Conectar WhatsApp
+                {needChannelExtraPurchase ? 'Adquirir mais canais' : 'Conectar WhatsApp'}
               </Button>
             ) : (
               <Button

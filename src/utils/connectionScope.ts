@@ -12,7 +12,12 @@ export function ownsConnectionForUid(
   connectionId: string
 ): boolean {
   if (!connectionId) return false;
-  if (isLegacyConnectionId(connectionId)) return true;
+  if (isLegacyConnectionId(connectionId)) {
+    // Só a sessão sem conta Firebase (operador "anónimo" no socket) vê canais puramente
+    // numéricos/legados. Conta logada: só vê {uid}__ — o limite do servidor fica alinhado à UI
+    // e nao soma "canal legado partilhado" a mais canais reais.
+    return !socketUid || socketUid === 'anonymous';
+  }
 
   const idx = connectionId.indexOf('__');
   if (idx <= 0) return false;

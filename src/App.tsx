@@ -29,6 +29,7 @@ import { isAdminUserEmail } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
+import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
 
 const SessionSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div
@@ -166,6 +167,16 @@ const MainLayout: React.FC = () => {
       setCurrentView('subscription');
     }
   }, [enforce, readOnlyMode, currentView, setCurrentView]);
+
+  // Aba Conexões (ou servidor) pede a secção "Canais extras" em Minha assinatura.
+  useEffect(() => {
+    const go = () => {
+      markScrollToChannelExtras();
+      setCurrentView('subscription');
+    };
+    window.addEventListener(EVENT_OPEN_CHANNEL_EXTRAS, go);
+    return () => window.removeEventListener(EVENT_OPEN_CHANNEL_EXTRAS, go);
+  }, [setCurrentView]);
 
   const renderContent = () => {
     switch (currentView) {

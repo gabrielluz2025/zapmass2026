@@ -2,7 +2,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import type { UserSubscriptionDoc } from './subscriptionFirestore.js';
-import { isLegacyConnectionId } from '../src/utils/connectionScope.js';
+import { filterByConnectionScope } from '../src/utils/connectionScope.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
@@ -42,31 +42,56 @@ export async function readUserSubscriptionForLimits(uid: string): Promise<UserSu
   return snap.data() as UserSubscriptionDoc;
 }
 
+function nonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+/** Em teste, `extraChannelSlots` no doc só vale se houver prova de add-on (evita valor residual no merge). */
+function hasChannelAddonPurchaseProof(sub: UserSubscriptionDoc | null | undefined): boolean {
+  if (!sub) return false;
+  if (sub.manualGrant === true) return true;
+  if (nonEmptyString(sub.mercadoPagoChannelAddonPreapprovalId)) return true;
+  if (nonEmptyString(sub.mercadoPagoChannelAddonOneTimePaymentId)) return true;
+  return false;
+}
+
+/** Assinatura ou liberacao admin pode, em tese, usar extras; demais (ex.: `past_due`, `canceled`, `none`) nao. */
+function statusAllowsPaidExtras(sub: UserSubscriptionDoc | null | undefined): boolean {
+  if (!sub) return false;
+  if (sub.manualGrant === true) return true;
+  const st = sub.status;
+  return st === 'active' || st === 'trialing';
+}
+
 /**
  * Cada slot extra pago = +1 acima de BASE (até 3 extras).
  * Firestore: `extraChannelSlots` 0..3
+ *
+ * Nunca confia so em `extraChannelSlots`: sem prova (preapproval, pagamento one-time do add-on ou
+ * `manualGrant`) o teto fica em 2, mesmo com `active` e numero errado no documento.
  */
 export function getMaxConnectionSlots(
   sub: UserSubscriptionDoc | null | undefined,
   options: { serverAdmin: boolean }
 ): number {
   if (options.serverAdmin) return 999;
-  const extra = Math.max(
+  const raw = Math.max(
     0,
-    Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number((sub as { extraChannelSlots?: unknown })?.extraChannelSlots) || 0))
+    Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub?.extraChannelSlots) || 0))
   );
-  return Math.min(MAX_CONNECTIONS_TOTAL, BASE_CONNECTION_SLOTS + extra);
+  const effective =
+    statusAllowsPaidExtras(sub) && hasChannelAddonPurchaseProof(sub) ? raw : 0;
+  return Math.min(MAX_CONNECTIONS_TOTAL, BASE_CONNECTION_SLOTS + effective);
 }
 
 /**
- * Só canais com id `uid__...` contam para o teto. Canais legados (sem `__`) não entram
- * (evita bloquear quem ainda tem IDs antigos).
+ * Conta o mesmo subconjunto que `filterByConnectionScope` (e a UI) — inclui legados
+ * só para o socket "anonymous"; com UID real nao se misturam canais legados
+ * invisiveis a uma conta, que antes permitiam criação extra.
  */
 export function countUserScopedConnections(connections: Array<{ id: string }>, uid: string | null | undefined): number {
-  if (!uid || uid === 'anonymous') {
-    return connections.filter((c) => isLegacyConnectionId(c.id)).length;
-  }
-  return connections.filter((c) => typeof c.id === 'string' && c.id.startsWith(`${uid}__`)).length;
+  const scope = !uid || uid === 'anonymous' ? 'anonymous' : uid;
+  return filterByConnectionScope(scope, connections).length;
 }
 
 export function channelAddonUnitPriceBrl(): number {

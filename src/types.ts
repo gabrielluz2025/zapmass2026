@@ -202,6 +202,8 @@ export interface UserSubscription {
   extraChannelSlots?: number;
   /** Assinatura MP do pacote de canais extras (débito recorrente). */
   mercadoPagoChannelAddonPreapprovalId?: string;
+  /** Pagamento MP que aprovou add-on de canais avulso (uma vez). */
+  mercadoPagoChannelAddonOneTimePaymentId?: string;
   updatedAt?: unknown;
 }
 

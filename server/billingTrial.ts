@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getAuth } from 'firebase-admin/auth';
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { mergeUserSubscription, type UserSubscriptionDoc } from './subscriptionFirestore.js';
@@ -62,8 +62,11 @@ export function registerBillingTrialRoutes(app: Express): void {
         provider: 'none',
         plan: null,
         trialEndsAt: Timestamp.fromDate(trialEnds),
-        freeTrialUsed: true
-      });
+        freeTrialUsed: true,
+        extraChannelSlots: 0,
+        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete(),
+        mercadoPagoChannelAddonOneTimePaymentId: FieldValue.delete()
+      } as any);
 
       return res.json({ ok: true, trialEndsAt: trialEnds.toISOString() });
     } catch (e: unknown) {

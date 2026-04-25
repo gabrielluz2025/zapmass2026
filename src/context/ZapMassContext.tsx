@@ -26,6 +26,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { useAppView } from './AppViewContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
+import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
+import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import { mergeCampaigns, mergeContactLists, mergeContacts } from '../utils/mergeLegacyUserDocs';
 
 const INITIAL_METRICS: DashboardMetrics = {
@@ -430,8 +432,27 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     };
 
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
       currentUidRef.current = user?.uid ?? null;
+      // Garante que o Socket.io usa o mesmo UID que a UI — senão o servidor cria
+      // conexoes "legado" (sem prefixo) e a contagem do teto fica defasada.
+      const sock = socketRef.current;
+      if (sock) {
+        if (user) {
+          try {
+            const t = await user.getIdToken();
+            sock.auth = { token: t };
+          } catch {
+            (sock as Socket & { auth: { token?: string } }).auth = {};
+          }
+        } else {
+          (sock as Socket & { auth: { token?: string } }).auth = {};
+        }
+        if (sock.connected) {
+          sock.disconnect();
+        }
+        sock.connect();
+      }
       if (!user?.uid) {
         stopAll();
         setContacts([]);
@@ -570,6 +591,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('connection-limit-reached', (p: { current?: number; max?: number; message?: string }) => {
+      const maxN = Number(p?.max);
+      if (Number.isFinite(maxN) && maxN < MAX_CHANNELS_TOTAL) {
+        openChannelExtraPurchaseFlow();
+      }
       const msg =
         typeof p?.message === 'string' && p.message.trim()
           ? p.message

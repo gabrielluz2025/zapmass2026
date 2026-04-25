@@ -24,6 +24,10 @@ export interface UserSubscriptionDoc {
   extraChannelSlots?: number;
   /** Preapproval do Mercado Pago dedicado ao add-on de canais (débito mensal do pacote de extras). */
   mercadoPagoChannelAddonPreapprovalId?: string;
+  /** Pagamento MP aprovado do add-on de canais avulso (uma vez) — usado para validar extras em teste. */
+  mercadoPagoChannelAddonOneTimePaymentId?: string;
+  /** Liberacao manual (admin); permite confiar em `extraChannelSlots` no doc quando aplicavel. */
+  manualGrant?: boolean;
   /** Se true, o teste de 1h ja foi concedido nesta conta (nao repetir). */
   freeTrialUsed?: boolean;
   /** Id da ultima NFS-e emitida no NFE.io (quando nfe-io ativo). */

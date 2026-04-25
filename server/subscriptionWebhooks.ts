@@ -184,7 +184,8 @@ async function handleMercadoPagoPayment(paymentId: string): Promise<void> {
     await mergeUserSubscription(uid, {
       provider: 'mercadopago',
       extraChannelSlots: parsed.extraSlots,
-      mercadoPagoLastPaymentId: paymentId
+      mercadoPagoLastPaymentId: paymentId,
+      mercadoPagoChannelAddonOneTimePaymentId: paymentId
     });
     console.log('[MP Webhook] Canais extras (avulso) ativados', uid, parsed.extraSlots, paymentId);
     return;
@@ -254,7 +255,8 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
     } else if (status === 'cancelled' || status === 'paused') {
       await mergeUserSubscription(uid, {
         extraChannelSlots: 0,
-        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete()
+        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete(),
+        mercadoPagoChannelAddonOneTimePaymentId: FieldValue.delete()
       } as any);
       console.log('[MP Webhook] Preapproval canais extras cancelado', uid, status);
     }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -18,6 +18,7 @@ import { useSubscription } from '../../context/SubscriptionContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
 import { UpgradeProModal } from './UpgradeProModal';
+import { readAndClearChannelExtrasScrollFlag } from '../../utils/openChannelExtraFlow';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
@@ -60,6 +61,14 @@ export const MySubscriptionTab: React.FC = () => {
   const isChannelRecurring = Boolean(subscription?.mercadoPagoChannelAddonPreapprovalId);
   const [chaddonExtra, setChaddonExtra] = useState<1 | 2 | 3>(1);
   const [chaddonBusy, setChaddonBusy] = useState<Method | 'cancelCh' | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    if (!readAndClearChannelExtrasScrollFlag()) return;
+    const t = requestAnimationFrame(() => {
+      document.getElementById('canais-extras-whatsapp')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(t);
+  }, [loading]);
 
   const startPayment = async (plan: Plan, method: Method) => {
     if (!user) return;
@@ -283,7 +292,8 @@ export const MySubscriptionTab: React.FC = () => {
       </section>
 
       <section
-        className="rounded-2xl px-5 py-5"
+        id="canais-extras-whatsapp"
+        className="rounded-2xl px-5 py-5 scroll-mt-4"
         style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
       >
         <div className="flex items-center gap-2.5 mb-3">
