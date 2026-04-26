@@ -5,9 +5,12 @@
 # Configure os secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY.
 # Opcional: VPS_SSH_PORT se o sshd nao estiver na porta 22.
 #
-# "dial tcp ...: i/o timeout" = o runner do GitHub nao abre TCP ate o host (antes do SSH).
-# Verifique firewall/hPanel/UFW: porta SSH acessivel da internet (Actions usa IPs dinamicos).
-# Confirme VPS_HOST = IPv4 publico; chave/privada e usuario corretos no secret.
+# "dial tcp *:22: i/o timeout" = o runner NUNCA liga a TCP/SSH (antes de pedir chave). E rede/firewall.
+#  - Hostinger/hPanel: regra de firewall para TCP 22 (ou a porta do sshd) a partir de qualquer IP,
+#    ou nao restringir SSH a IP fixo — GitHub Actions usa IPs publicos variados.
+#  - Na VPS: `sudo ufw allow 22/tcp` (ou a porta real); rever fail2ban se bloqueou.
+#  - Secret VPS_HOST = IPv4 publico, sem espacos. Porta: VPS_SSH_PORT se nao for 22.
+#  - O app abrir em :3001 nao implica que o :22 chegue da internet; teste: `nc -zv IP 22` de fora.
 #
 # Se "o deploy passou" mas a UI nao muda: em Docker Swarm, rebuild com tag :latest nem sempre
 # recria tarefas. Este workflow corre `docker service update --force` em zapmass_api / wa-worker
@@ -75,7 +78,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 120s
+          # timeout = ligacao TCP/SSH; i/o timeout na porta = ver comentario no topo do ficheiro
+          timeout: 3m
           command_timeout: 20m
           script: |
             set -euo pipefail
@@ -179,7 +183,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 120s
+          timeout: 3m
           command_timeout: 3m
           script: |
             set -e
