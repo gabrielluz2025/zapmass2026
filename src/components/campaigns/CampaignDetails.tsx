@@ -35,7 +35,7 @@ import {
   WhatsAppConnection
 } from '../../types';
 import { useZapMass } from '../../context/ZapMassContext';
-import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
+import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { PerformanceFunnel } from '../PerformanceFunnel';
 import { CampaignScoreCard } from './CampaignScoreCard';
@@ -304,10 +304,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [isRunning]);
 
   const m = useMemo(() => getCampaignProgressMetrics(campaign), [campaign]);
-  const progress = m.progressPct;
-  const successRate = m.successRatePct;
-  const failureRate =
-    m.effectiveProcessed > 0 ? Math.round((campaign.failedCount / m.effectiveProcessed) * 100) : 0;
 
   const statusVariant: 'success' | 'warning' | 'info' | 'neutral' = isRunning
     ? 'success'
@@ -330,11 +326,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return isNaN(d.getTime()) ? null : d;
   }, [campaign.createdAt]);
 
-  const elapsedSec = startedAt ? Math.max(0, (now - startedAt.getTime()) / 1000) : 0;
-  const throughputPerMin = elapsedSec > 0 ? +(m.effectiveProcessed / (elapsedSec / 60)).toFixed(1) : 0;
-  const remaining = m.pending;
   // Pendente "real-time": fila viva no backend (queueSize por chip selecionado).
-  // Em cenários com retry/reconexão, esse valor tende a refletir melhor o que ainda falta sair.
   const pendingLive = useMemo(() => {
     const selected = new Set(campaign.selectedConnectionIds || []);
     if (selected.size === 0) return 0;
@@ -342,9 +334,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       .filter((conn) => selected.has(conn.id))
       .reduce((acc, conn) => acc + Math.max(0, Number(conn.queueSize) || 0), 0);
   }, [campaign.selectedConnectionIds, connections]);
-  const pendingKpi = isDone ? 0 : isRunning ? Math.max(remaining, pendingLive) : remaining;
-  const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
-  const startedFmt = formatDateTimeBR(campaign.createdAt);
 
   // Detailed report (lógica preservada)
   const detailedReport = useMemo<ReportRow[]>(() => {
@@ -546,6 +535,25 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     };
   }, [detailedReport, connections]);
 
+  const metrics = useMemo(
+    () =>
+      mergeCampaignMetricsWithReport(m, {
+        totalRows: performance.total,
+        failedCount: performance.counts.FAILED
+      }),
+    [m, performance]
+  );
+  const progress = metrics.progressPct;
+  const successRate = metrics.successRatePct;
+  const failureRate =
+    metrics.effectiveProcessed > 0 ? Math.round((metrics.fail / metrics.effectiveProcessed) * 100) : 0;
+  const startedFmt = formatDateTimeBR(campaign.createdAt);
+  const elapsedSec = startedAt ? Math.max(0, (now - startedAt.getTime()) / 1000) : 0;
+  const throughputPerMin = elapsedSec > 0 ? +(metrics.effectiveProcessed / (elapsedSec / 60)).toFixed(1) : 0;
+  const remaining = metrics.pending;
+  const pendingKpi = isDone ? 0 : isRunning ? Math.max(remaining, pendingLive) : remaining;
+  const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
+
   const campaignLogs = useMemo(() => {
     return systemLogs.filter((log) => {
       if (!log.payload || typeof log.payload !== 'object') return false;
@@ -607,9 +615,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       `📊 Relatório: ${campaign.name}`,
       `Status: ${isRunning ? 'Em execução' : isPaused ? 'Pausada' : isDone ? 'Concluída' : 'Pendente'}`,
       `Total: ${campaign.totalContacts} contatos`,
-      `Entregues: ${campaign.successCount} (${successRate}%)`,
+      `Entregues: ${metrics.ok} (${successRate}%)`,
       `Respostas: ${performance.replied} (${performance.replyPct}%)`,
-      `Falhas: ${campaign.failedCount}`,
+      `Falhas: ${metrics.fail}`,
       startedAt ? `Iniciada em: ${startedFmt.date} ${startedFmt.time}` : ''
     ].filter(Boolean).join('\n');
     navigator.clipboard.writeText(lines).then(
@@ -628,8 +636,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const donutStroke = 18;
   const donutR = (donutSize - donutStroke) / 2;
   const donutC = 2 * Math.PI * donutR;
-  const successArc = (campaign.successCount / Math.max(1, campaign.totalContacts)) * donutC;
-  const failArc = (campaign.failedCount / Math.max(1, campaign.totalContacts)) * donutC;
+  const successArc = (metrics.ok / Math.max(1, campaign.totalContacts)) * donutC;
+  const failArc = (metrics.fail / Math.max(1, campaign.totalContacts)) * donutC;
 
   return (
     <div className="space-y-5 pb-20">
@@ -816,7 +824,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     }}
                   />
                   {/* Failed arc (continues after success) */}
-                  {campaign.failedCount > 0 && (
+                  {metrics.fail > 0 && (
                     <circle
                       cx={donutSize / 2}
                       cy={donutSize / 2}
@@ -850,7 +858,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     {progress}%
                   </span>
                   <span className="text-[11px] mt-0.5 tabular-nums" style={{ color: 'var(--text-3)' }}>
-                    {m.effectiveProcessed.toLocaleString('pt-BR')} /{' '}
+                    {metrics.effectiveProcessed.toLocaleString('pt-BR')} /{' '}
                     {campaign.totalContacts.toLocaleString('pt-BR')}
                   </span>
                   {isRunning && (
@@ -878,7 +886,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         <KpiPill
           label="Entregues"
-          value={campaign.successCount.toLocaleString('pt-BR')}
+          value={metrics.ok.toLocaleString('pt-BR')}
           helper={`${successRate}% do total`}
           color="#10b981"
           onClick={() => handleFilterClick('SENT_GROUP')}
@@ -892,8 +900,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         />
         <KpiPill
           label="Falhas"
-          value={campaign.failedCount.toLocaleString('pt-BR')}
-          helper={campaign.failedCount > 0 ? `${failureRate}%` : 'nenhuma'}
+          value={metrics.fail.toLocaleString('pt-BR')}
+          helper={metrics.fail > 0 ? `${failureRate}%` : 'nenhuma'}
           color="#ef4444"
           onClick={() => handleFilterClick('FAILED')}
         />
