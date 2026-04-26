@@ -269,6 +269,7 @@ const logEvent = (event: string, payload?: Record<string, unknown>) => {
 const registerSocketHandlers = () => {
   waService.init(io);
   const allowAnonymousSocket = (() => {
+    if (process.env.NODE_ENV === 'production') return false;
     const raw = String(process.env.ALLOW_ANONYMOUS_SOCKET || '').toLowerCase();
     return raw === '1' || raw === 'true';
   })();
