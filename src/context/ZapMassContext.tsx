@@ -192,10 +192,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectingToastShownRef = useRef(false);
   const hasConnectedOnceRef = useRef(false);
-  /** `Date.now()` do ultimo `disconnect` (para nao spammar "Reconectado" em reconexao rapida / troca de aba). */
-  const lastSocketDisconnectAtRef = useRef<number | null>(null);
   const currentUidRef = useRef<string | null>(auth.currentUser?.uid ?? null);
   /** Mescla Firestore legado (coleções na raiz) com `users/{uid}/...`. */
   const fbMergeRef = useRef({
@@ -542,17 +539,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     }
 
-    const MEANINGFUL_OFFLINE_MS = 5000;
-
     socket.on('connect', () => {
       if (disconnectToastTimerRef.current) {
         clearTimeout(disconnectToastTimerRef.current);
         disconnectToastTimerRef.current = null;
       }
-      const lastDisc = lastSocketDisconnectAtRef.current;
-      const offlineMs = lastDisc != null ? Date.now() - lastDisc : 0;
-      lastSocketDisconnectAtRef.current = null;
-      reconnectingToastShownRef.current = false;
       setIsBackendConnected(true);
       if (!hasConnectedOnceRef.current) {
         hasConnectedOnceRef.current = true;
@@ -560,28 +551,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           icon: '🟢',
           style: { borderRadius: '10px', background: '#333', color: '#fff' }
         });
-      } else if (offlineMs >= MEANINGFUL_OFFLINE_MS) {
-        toast.success('Reconectado ao servidor.', {
-          icon: '🟢',
-          style: { borderRadius: '10px', background: '#333', color: '#fff' }
-        });
       }
+      // Sem toast em reconexao: troca de aba / retorno do fundo gera muito ruido; o painel
+      // usa isBackendConnected; toast so na primeira carga (acima) e se ficar 6s+ off (disconnect).
       console.log('🔌 Conectado ao servidor Socket.io');
     });
 
     socket.on('disconnect', (reason) => {
-      lastSocketDisconnectAtRef.current = Date.now();
       setIsBackendConnected(false);
-      if (reason !== 'io client disconnect' && !reconnectingToastShownRef.current) {
-        reconnectingToastShownRef.current = true;
-        toast('Reconectando ao servidor...', {
-          icon: '🟡',
-          duration: 2500,
-          style: { borderRadius: '10px', background: '#333', color: '#fff' }
-        });
+      if (disconnectToastTimerRef.current) {
+        clearTimeout(disconnectToastTimerRef.current);
+        disconnectToastTimerRef.current = null;
       }
-      if (disconnectToastTimerRef.current) clearTimeout(disconnectToastTimerRef.current);
-      // Evita falso positivo em quedas rápidas: só avisa erro após 6s offline contínuo.
+      if (reason === 'io client disconnect') {
+        return; // logout / socket.disconnect() intencional — sem aviso de falha
+      }
+      // Evita falso positivo em quedas rapidas: so avisa erro apos 6s offline continuo
+      // (reconexao comum nao dispara: connect() limpa este timer).
       disconnectToastTimerRef.current = setTimeout(() => {
         if (!socket.connected) {
           toast.error('Conexão perdida com o servidor.', {
@@ -589,6 +575,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             style: { borderRadius: '10px', background: '#333', color: '#fff' }
           });
         }
+        disconnectToastTimerRef.current = null;
       }, 6000);
     });
 
@@ -610,17 +597,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     });
 
-    const onReconnectAttempt = (attempt: number) => {
-      if (!reconnectingToastShownRef.current && attempt >= 1) {
-        reconnectingToastShownRef.current = true;
-        toast('Tentando reconectar...', {
-          icon: '🔄',
-          duration: 2500,
-          style: { borderRadius: '10px', background: '#333', color: '#fff' }
-        });
-      }
-    };
-    socket.io.on('reconnect_attempt', onReconnectAttempt);
     // Reconexao completa do manager (cobre casos em que o handler de `connect` nao dispara
     // na ordem esperada apos retoken / reload).
     const onManagerReconnect = () => {
@@ -920,7 +896,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         disconnectToastTimerRef.current = null;
       }
       clearInterval(pingInterval);
-      socket.io.off('reconnect_attempt', onReconnectAttempt);
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
