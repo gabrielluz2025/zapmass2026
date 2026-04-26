@@ -194,6 +194,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectingToastShownRef = useRef(false);
   const hasConnectedOnceRef = useRef(false);
+  /** `Date.now()` do ultimo `disconnect` (para nao spammar "Reconectado" em reconexao rapida / troca de aba). */
+  const lastSocketDisconnectAtRef = useRef<number | null>(null);
   const currentUidRef = useRef<string | null>(auth.currentUser?.uid ?? null);
   /** Mescla Firestore legado (coleções na raiz) com `users/{uid}/...`. */
   const fbMergeRef = useRef({
@@ -540,11 +542,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     }
 
+    const MEANINGFUL_OFFLINE_MS = 5000;
+
     socket.on('connect', () => {
       if (disconnectToastTimerRef.current) {
         clearTimeout(disconnectToastTimerRef.current);
         disconnectToastTimerRef.current = null;
       }
+      const lastDisc = lastSocketDisconnectAtRef.current;
+      const offlineMs = lastDisc != null ? Date.now() - lastDisc : 0;
+      lastSocketDisconnectAtRef.current = null;
       reconnectingToastShownRef.current = false;
       setIsBackendConnected(true);
       if (!hasConnectedOnceRef.current) {
@@ -553,7 +560,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           icon: '🟢',
           style: { borderRadius: '10px', background: '#333', color: '#fff' }
         });
-      } else {
+      } else if (offlineMs >= MEANINGFUL_OFFLINE_MS) {
         toast.success('Reconectado ao servidor.', {
           icon: '🟢',
           style: { borderRadius: '10px', background: '#333', color: '#fff' }
@@ -563,6 +570,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('disconnect', (reason) => {
+      lastSocketDisconnectAtRef.current = Date.now();
       setIsBackendConnected(false);
       if (reason !== 'io client disconnect' && !reconnectingToastShownRef.current) {
         reconnectingToastShownRef.current = true;

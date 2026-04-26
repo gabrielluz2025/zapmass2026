@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Send,
   CheckCheck,
@@ -16,6 +16,11 @@ import {
   Cpu,
   MemoryStick,
   ShieldCheck,
+  FileText,
+  Gauge,
+  CheckCircle2,
+  Wifi,
+  WifiOff,
   MessageCircle,
   Sparkles,
   RotateCcw,
@@ -234,7 +239,19 @@ const QuickAction: React.FC<{
 );
 
 export const DashboardTab: React.FC = () => {
-  const { connections, sendMessage, campaigns, contacts, conversations, socket, startCampaign, systemMetrics, funnelStats, clearFunnelStats } = useZapMass();
+  const {
+    connections,
+    sendMessage,
+    campaigns,
+    contacts,
+    conversations,
+    socket,
+    startCampaign,
+    systemMetrics,
+    funnelStats,
+    clearFunnelStats,
+    isBackendConnected
+  } = useZapMass();
   const { setCurrentView } = useAppView();
   const { user } = useAuth();
   const { subscription } = useSubscription();
@@ -1173,7 +1190,7 @@ export const DashboardTab: React.FC = () => {
                 : 'rgba(16,185,129,0.10)';
 
             let headline = 'Tudo em ordem';
-            let subHead =
+            let subHead: ReactNode =
               systemMetrics?.ramTotalGb != null
                 ? `Máquina com ${systemMetrics.ramTotalGb} GB de RAM — uso dentro do recomendado.`
                 : 'Sincronizando métricas do servidor...';
@@ -1191,7 +1208,22 @@ export const DashboardTab: React.FC = () => {
               subHead = `Faltam poucos canais para atingir seu teto (${maxPlanChannelSlots}). Considere o pacote de extras.`;
             } else {
               headline = 'Plano e servidor alinhados';
-              subHead = `${BASE_CHANNEL_SLOTS} canais no Pro; até ${MAX_CHANNELS_TOTAL} com add-on. A primeira seção (contrato) define quantos canais você pode criar; a de RAM é só referência de máquina.`;
+              subHead = (
+                <>
+                  <p className="leading-relaxed">
+                    <strong className="font-semibold" style={{ color: 'var(--text-2)' }}>
+                      Pro
+                    </strong>
+                    : {BASE_CHANNEL_SLOTS} canais no plano; até {MAX_CHANNELS_TOTAL} com add-on pago.
+                  </p>
+                  <p className="mt-1.5 leading-relaxed">
+                    A caixa <strong className="font-semibold" style={{ color: 'var(--text-2)' }}>Contrato</strong>{' '}
+                    mostra quantos canais você pode <em>criar</em>. A de{' '}
+                    <strong className="font-semibold" style={{ color: 'var(--text-2)' }}>RAM</strong> só estima
+                    conforto da máquina — não substitui o limite do plano.
+                  </p>
+                </>
+              );
             }
 
             const headerIcon =
@@ -1210,9 +1242,36 @@ export const DashboardTab: React.FC = () => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="ui-title text-[15px] leading-snug">{headline}</h3>
-                    <p className="ui-subtitle text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                      {subHead}
-                    </p>
+                    <div
+                      className="ui-subtitle mt-0.5 text-[12px] leading-relaxed space-y-0"
+                      style={{ color: 'var(--text-3)' }}
+                    >
+                      {typeof subHead === 'string' ? <p className="leading-relaxed">{subHead}</p> : subHead}
+                    </div>
+                    <div
+                      className="mt-2.5 flex items-start gap-2 rounded-lg px-2.5 py-2 text-[10.5px] font-medium leading-snug"
+                      style={{
+                        background: isBackendConnected
+                          ? 'rgba(16, 185, 129, 0.08)'
+                          : 'rgba(245, 158, 11, 0.12)',
+                        border: `1px solid ${
+                          isBackendConnected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.28)'
+                        }`
+                      }}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {isBackendConnected ? (
+                        <Wifi className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
+                      ) : (
+                        <WifiOff className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+                      )}
+                      <span style={{ color: 'var(--text-3)' }}>
+                        {isBackendConnected
+                          ? 'Painel em sincronia com o servidor (métricas e avisos).'
+                          : 'Reconectando… em poucos segundos os números voltam ao normal.'}
+                      </span>
+                    </div>
                     {atPlanChannelLimit && (
                       <Button
                         type="button"
@@ -1227,13 +1286,15 @@ export const DashboardTab: React.FC = () => {
                   </div>
                 </div>
 
-                <div
-                  className="rounded-xl p-3.5 space-y-3"
-                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-                    Seu teto de canais (contrato)
-                  </p>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div
+                    className="rounded-xl p-3.5 space-y-3"
+                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                  >
+                  <div className="flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-emerald-500/90" aria-hidden />
+                    <p className="text-[10px] font-bold uppercase tracking-widest">Contrato — teto de canais</p>
+                  </div>
                   <div className="flex items-baseline justify-between gap-2">
                     <div>
                       <span className="text-[28px] font-extrabold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
@@ -1272,47 +1333,59 @@ export const DashboardTab: React.FC = () => {
                         : '. Extras: +R$ 100/mês por canal (até 5 no total).'}
                     </p>
                   )}
-                </div>
+                  </div>
 
-                <div className="rounded-xl p-3.5 space-y-2" style={{ border: '1px dashed var(--border-subtle)' }}>
-                  <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-                    Referência de hardware (RAM)
-                  </p>
-                  <p className="text-[11.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                    {systemMetrics?.ramTotalGb != null ? (
-                      <>
-                        Com ~{systemMetrics.ramTotalGb} GB, esta máquina costuma operar bem até{' '}
-                        <strong style={{ color: 'var(--text-2)' }}>~{cap.safe} sessões</strong> simultâneas; acima de{' '}
-                        <strong style={{ color: 'var(--text-2)' }}>{cap.critical}</strong> o risco de instabilidade
-                        aumenta (Chromium + WhatsApp Web).
-                      </>
-                    ) : (
-                      'Aguardando leitura de RAM do servidor...'
-                    )}
-                  </p>
-                  <div className="flex items-baseline justify-between text-[12px]">
-                    <span style={{ color: 'var(--text-3)' }}>
-                      Uso vs. referência: <strong style={{ color: 'var(--text-1)' }}>{totalConns}</strong> / ~{cap.safe}
-                    </span>
-                    <span className="font-bold tabular-nums" style={{ color: ramColor }}>
-                      {ramLoadPct}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${ramLoadPct}%`, background: ramColor }}
-                    />
-                  </div>
-                  {systemMetrics?.ramUsedGb != null && systemMetrics?.ramTotalGb != null && (
-                    <div className="flex items-center gap-2 text-[11.5px] pt-1" style={{ color: 'var(--text-3)' }}>
-                      <MemoryStick className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        RAM: <strong style={{ color: 'var(--text-2)' }}>{systemMetrics.ramUsedGb} GB</strong> de{' '}
-                        {systemMetrics.ramTotalGb} GB ({systemMetrics.ram}%)
+                  <div
+                    className="rounded-xl p-3.5 space-y-2"
+                    style={{
+                      background: 'rgba(100, 116, 139, 0.06)',
+                      border: '1px dashed var(--border-subtle)'
+                    }}
+                  >
+                    <div className="flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
+                      <Gauge className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                      <p className="text-[10px] font-bold uppercase tracking-widest">Referência (RAM + sessões)</p>
+                    </div>
+                    <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                      {systemMetrics?.ramTotalGb != null ? (
+                        <>
+                          Com ~{systemMetrics.ramTotalGb} GB, costuma ser confortável até{' '}
+                          <strong style={{ color: 'var(--text-2)' }}>~{cap.safe} sessões</strong>; acima de{' '}
+                          <strong style={{ color: 'var(--text-2)' }}>{cap.critical}</strong> o risco de
+                          instabilidade sobe (Chromium + WhatsApp Web).
+                        </>
+                      ) : (
+                        'Aguardando leitura de RAM do servidor...'
+                      )}
+                    </p>
+                    <div className="flex items-baseline justify-between gap-2 text-[12px]">
+                      <span className="min-w-0" style={{ color: 'var(--text-3)' }}>
+                        Sessões / referência:{' '}
+                        <strong className="tabular-nums" style={{ color: 'var(--text-1)' }}>
+                          {totalConns}
+                        </strong>
+                        <span className="text-[11px]"> / ~{cap.safe}</span>
+                      </span>
+                      <span className="shrink-0 font-bold tabular-nums" style={{ color: ramColor }}>
+                        {ramLoadPct}%
                       </span>
                     </div>
-                  )}
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${ramLoadPct}%`, background: ramColor }}
+                      />
+                    </div>
+                    {systemMetrics?.ramUsedGb != null && systemMetrics?.ramTotalGb != null && (
+                      <div className="flex items-center gap-2 text-[11.5px] pt-1" style={{ color: 'var(--text-3)' }}>
+                        <MemoryStick className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                        <span>
+                          RAM: <strong style={{ color: 'var(--text-2)' }}>{systemMetrics.ramUsedGb} GB</strong> de{' '}
+                          {systemMetrics.ramTotalGb} GB ({systemMetrics.ram}%)
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {infraLevel !== 'ok' && !atPlanChannelLimit && (
@@ -1342,35 +1415,60 @@ export const DashboardTab: React.FC = () => {
           })()}
 
           <div
-            className="pt-3 flex items-center justify-between mb-2"
-            style={{ borderTop: '1px solid var(--border-subtle)' }}
+            className="mt-1 border-t pt-4"
+            style={{ borderColor: 'var(--border-subtle)' }}
           >
-            <span className="text-[12.5px] font-semibold" style={{ color: 'var(--text-2)' }}>
-              Canais offline
-            </span>
-            <span className="text-[18px] font-bold tabular-nums" style={{ color: offlineConnections.length > 0 ? '#ef4444' : 'var(--text-3)' }}>
-              {offlineConnections.length}
-            </span>
-          </div>
-          <div className="space-y-1.5 max-h-40 overflow-y-auto">
-            {offlineConnections.length === 0 ? (
-              <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
-                Tudo online no momento.
-              </p>
-            ) : (
-              offlineConnections.map((conn) => (
-                <div
-                  key={conn.id}
-                  className="flex items-center justify-between text-[11.5px] p-2 rounded-md"
-                  style={{ background: 'var(--surface-1)' }}
-                >
-                  <span className="truncate font-medium" style={{ color: 'var(--text-1)' }}>
-                    {conn.name}
-                  </span>
-                  <span style={{ color: 'var(--text-3)' }}>{conn.lastActivity || '-'}</span>
+            <div
+              className="mb-3 flex items-center justify-between gap-3 rounded-xl px-3 py-2.5"
+              style={{
+                background: offlineConnections.length > 0 ? 'rgba(239, 68, 68, 0.06)' : 'var(--surface-1)',
+                border: `1px solid ${
+                  offlineConnections.length > 0 ? 'rgba(239, 68, 68, 0.2)' : 'var(--border-subtle)'
+                }`
+              }}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                {offlineConnections.length === 0 ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" aria-hidden />
+                )}
+                <div className="min-w-0">
+                  <p className="text-[12.5px] font-semibold leading-tight" style={{ color: 'var(--text-2)' }}>
+                    Canais offline
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                    {offlineConnections.length === 0
+                      ? 'Nenhum canal desconectado agora.'
+                      : 'Reabra o WhatsApp Web na aba Canais.'}
+                  </p>
                 </div>
-              ))
-            )}
+              </div>
+              <span
+                className="shrink-0 text-[22px] font-extrabold tabular-nums leading-none"
+                style={{ color: offlineConnections.length > 0 ? '#ef4444' : 'var(--text-3)' }}
+              >
+                {offlineConnections.length}
+              </span>
+            </div>
+            <div className="max-h-40 space-y-1.5 overflow-y-auto">
+              {offlineConnections.length === 0 ? null : (
+                offlineConnections.map((conn) => (
+                  <div
+                    key={conn.id}
+                    className="flex items-center justify-between rounded-lg p-2 text-[11.5px]"
+                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <span className="truncate font-medium" style={{ color: 'var(--text-1)' }}>
+                      {conn.name}
+                    </span>
+                    <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-3)' }}>
+                      {conn.lastActivity || '—'}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </Card>
       </div>
