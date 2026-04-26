@@ -36,6 +36,12 @@ function roundMoney(v: number): number {
   return Math.round(v * 100) / 100;
 }
 
+/** Alinhado ao Vite (Intl pt-BR) — devolve o mesmo texto que a UI com GET /prices. */
+function formatPriceLabelBrl(amount: number, kind: 'monthly' | 'annual'): string {
+  const s = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
+  return kind === 'monthly' ? `${s} / mês` : `${s} / ano`;
+}
+
 function getPrices(): { monthly: number; annual: number } {
   const monthly = parseFloat(process.env.MERCADOPAGO_PRICE_MONTHLY || '49.9');
   const annual = parseFloat(process.env.MERCADOPAGO_PRICE_ANNUAL || '479.9');
@@ -486,7 +492,9 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         monthly,
         annual,
         pixDiscountPct: PIX_DISCOUNT_PCT,
-        currency: 'BRL'
+        currency: 'BRL',
+        displayMonthly: formatPriceLabelBrl(monthly, 'monthly'),
+        displayAnnual: formatPriceLabelBrl(annual, 'annual')
       });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -718,4 +726,16 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       error: 'Rota legada descontinuada. O modelo atual usa plano por quantidade de canais.'
     });
   });
+
+  try {
+    const p = getPrices();
+    console.log(
+      `[mercadopago] Precos de checkout (MERCADOPAGO_PRICE_*): ${formatPriceLabelBrl(p.monthly, 'monthly')} | ${formatPriceLabelBrl(
+        p.annual,
+        'annual'
+      )}`
+    );
+  } catch (e) {
+    console.error('[mercadopago] MERCADOPAGO_PRICE_* invalido no arranque:', e);
+  }
 }

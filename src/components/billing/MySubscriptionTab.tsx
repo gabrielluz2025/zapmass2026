@@ -19,6 +19,7 @@ import { useAppConfig } from '../../context/AppConfigContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
 import { UpgradeProModal } from './UpgradeProModal';
 import { readAndClearChannelExtrasScrollFlag } from '../../utils/openChannelExtraFlow';
+import { FALLBACK_MARKETING_LABEL_ANNUAL, FALLBACK_MARKETING_LABEL_MONTHLY, fetchServerBillingPrices } from '../../utils/marketingPrices';
 import {
   CHANNEL_TIER_PRICES_ANNUAL,
   CHANNEL_TIER_PRICES_MONTHLY,
@@ -73,6 +74,22 @@ export const MySubscriptionTab: React.FC = () => {
   const [upgradeTarget, setUpgradeTarget] = useState<ChannelTier>(2);
   const [tierBusy, setTierBusy] = useState<null | 'pix' | 'card'>(null);
   const [tierPlanMode, setTierPlanMode] = useState<Plan>('monthly');
+  const [serverProLabels, setServerProLabels] = useState<{
+    monthly: string;
+    annual: string;
+  } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchServerBillingPrices().then((p) => {
+      if (!alive || !p) return;
+      if (p.displayMonthly && p.displayAnnual) {
+        setServerProLabels({ monthly: p.displayMonthly, annual: p.displayAnnual });
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => {
     if (loading) return;
     if (!readAndClearChannelExtrasScrollFlag()) return;
@@ -175,8 +192,11 @@ export const MySubscriptionTab: React.FC = () => {
     );
   }
 
-  const priceMonthly = config.marketingPriceMonthly.trim() || 'R$ 49,90 / mês';
-  const priceAnnual = config.marketingPriceAnnual.trim() || 'R$ 479,90 / ano';
+  const priceMonthly =
+    serverProLabels?.monthly ||
+    (config.marketingPriceMonthly.trim() || FALLBACK_MARKETING_LABEL_MONTHLY);
+  const priceAnnual =
+    serverProLabels?.annual || (config.marketingPriceAnnual.trim() || FALLBACK_MARKETING_LABEL_ANNUAL);
   const contractedChannels = Math.max(
     1,
     Math.min(

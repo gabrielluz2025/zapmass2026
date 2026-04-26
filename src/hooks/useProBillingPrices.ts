@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { AppConfigGlobal } from '../types/appConfig';
 import {
   computeAnnualSavingsPercent,
+  FALLBACK_MARKETING_LABEL_ANNUAL,
+  FALLBACK_MARKETING_LABEL_MONTHLY,
   formatEquivalentPerMonth,
   formatMarketingBRL,
   formatPixSublabel,
@@ -12,11 +14,6 @@ import {
   roundMoneyBRL,
   fetchServerBillingPrices
 } from '../utils/marketingPrices';
-
-const ENV_MONTHLY =
-  (import.meta.env.VITE_MARKETING_PRICE_MONTHLY as string | undefined)?.trim() || 'R$ 49,90 / mês';
-const ENV_ANNUAL =
-  (import.meta.env.VITE_MARKETING_PRICE_ANNUAL as string | undefined)?.trim() || 'R$ 479,90 / ano';
 
 const DEFAULT_PIX = 0.05;
 
@@ -49,8 +46,8 @@ export function useProBillingPrices(
     };
   }, [isOpen]);
 
-  const configMonthly = config.marketingPriceMonthly.trim() || ENV_MONTHLY;
-  const configAnnual = config.marketingPriceAnnual.trim() || ENV_ANNUAL;
+  const configMonthly = config.marketingPriceMonthly.trim() || FALLBACK_MARKETING_LABEL_MONTHLY;
+  const configAnnual = config.marketingPriceAnnual.trim() || FALLBACK_MARKETING_LABEL_ANNUAL;
 
   return useMemo(() => {
     const pixDisc = server?.pixDiscountPct ?? DEFAULT_PIX;
@@ -58,8 +55,13 @@ export function useProBillingPrices(
     const aNum = server != null ? server.annual : parseMarketingPriceBRL(configAnnual);
 
     const priceMonthlyLabel =
-      server != null ? formatPriceMonthlyLabel(server.monthly) : configMonthly;
-    const priceAnnualLabel = server != null ? formatPriceAnnualLabel(server.annual) : configAnnual;
+      server != null
+        ? server.displayMonthly ?? formatPriceMonthlyLabel(server.monthly)
+        : configMonthly;
+    const priceAnnualLabel =
+      server != null
+        ? server.displayAnnual ?? formatPriceAnnualLabel(server.annual)
+        : configAnnual;
 
     const pixMonthlySub =
       mNum != null

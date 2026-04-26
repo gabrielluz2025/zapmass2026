@@ -4,7 +4,16 @@ export type ServerBillingPrices = {
   annual: number;
   pixDiscountPct: number;
   currency: 'BRL';
+  /** Mesma formatação que o Node usa, para a UI bater 100% com o checkout. */
+  displayMonthly?: string;
+  displayAnnual?: string;
 };
+
+/** Fallback se Firestore (appConfig) e API falharem — alinhe VITE_MARKETING_* no build. */
+export const FALLBACK_MARKETING_LABEL_MONTHLY =
+  (import.meta.env.VITE_MARKETING_PRICE_MONTHLY as string | undefined)?.trim() || 'R$ 49,90 / mês';
+export const FALLBACK_MARKETING_LABEL_ANNUAL =
+  (import.meta.env.VITE_MARKETING_PRICE_ANNUAL as string | undefined)?.trim() || 'R$ 479,90 / ano';
 
 const BRL_RE =
   /R\$\s*(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:,\d{1,2})?)/i;
@@ -81,11 +90,16 @@ export async function fetchServerBillingPrices(): Promise<ServerBillingPrices | 
     if (!Number.isFinite(pixDiscountPct) || pixDiscountPct < 0 || pixDiscountPct > 0.5) {
       return null;
     }
+    const displayMonthly = typeof data.displayMonthly === 'string' ? data.displayMonthly.trim() : undefined;
+    const displayAnnual = typeof data.displayAnnual === 'string' ? data.displayAnnual.trim() : undefined;
+
     return {
       monthly,
       annual,
       pixDiscountPct,
-      currency: 'BRL'
+      currency: 'BRL',
+      ...(displayMonthly ? { displayMonthly } : {}),
+      ...(displayAnnual ? { displayAnnual } : {})
     };
   } catch {
     return null;
