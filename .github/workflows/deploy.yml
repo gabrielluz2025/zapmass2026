@@ -89,12 +89,17 @@ jobs:
             # Hash no JavaScript (Configuraçoes) — .git nao entra no contexto Docker
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
             echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
-            # Carrega .env para injetar VITE_* no build do frontend (Vite).
-            # Sem isso, docker stack deploy usa imagem com bundle antigo.
+            # Carrega apenas VITE_* do .env de forma segura (sem source),
+            # evitando falha por sintaxe inválida em outras linhas do arquivo.
             if [ -f .env ]; then
-              set -a
-              . ./.env
-              set +a
+              while IFS='=' read -r k v; do
+                case "$k" in
+                  VITE_*)
+                    v="${v%$'\r'}"
+                    export "$k=$v"
+                    ;;
+                esac
+              done < <(grep -E '^[[:space:]]*VITE_[A-Z0-9_]*=' .env || true)
             fi
             # Em SSH não interativo, variáveis de shell/perfil podem não carregar.
             # Auto-detecta Swarm manager para evitar cair em compose por engano.
