@@ -89,6 +89,13 @@ jobs:
             # Hash no JavaScript (Configuraçoes) — .git nao entra no contexto Docker
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
             echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
+            # Carrega .env para injetar VITE_* no build do frontend (Vite).
+            # Sem isso, docker stack deploy usa imagem com bundle antigo.
+            if [ -f .env ]; then
+              set -a
+              . ./.env
+              set +a
+            fi
             # Em SSH não interativo, variáveis de shell/perfil podem não carregar.
             # Auto-detecta Swarm manager para evitar cair em compose por engano.
             SWARM_ENABLED="${SWARM_ENABLED:-auto}"
@@ -98,7 +105,14 @@ jobs:
             fi
             if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
               echo "==> deploy em Docker Swarm (stack: zapmass)"
-              docker build -t zapmass:latest .
+              docker build -t zapmass:latest \
+                --build-arg VITE_ADMIN_EMAILS="${VITE_ADMIN_EMAILS:-}" \
+                --build-arg VITE_MARKETING_PRICE_MONTHLY="${VITE_MARKETING_PRICE_MONTHLY:-}" \
+                --build-arg VITE_MARKETING_PRICE_ANNUAL="${VITE_MARKETING_PRICE_ANNUAL:-}" \
+                --build-arg VITE_ENFORCE_SUBSCRIPTION="${VITE_ENFORCE_SUBSCRIPTION:-}" \
+                --build-arg VITE_CREATOR_STUDIO="${VITE_CREATOR_STUDIO:-}" \
+                --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
+                .
               docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
             else
               echo "==> docker compose build + up (instancia principal)"
