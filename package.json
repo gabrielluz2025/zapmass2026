@@ -16,6 +16,7 @@
     "start": "cross-env NODE_ENV=production tsx server/server.ts",
     "backup": "tsx server/backupRunner.ts",
     "migrate:legacy:user": "tsx server/migrateLegacyToUser.ts",
+    "sanitize:tenant:campaigns": "tsx server/sanitizeTenantCampaigns.ts",
     "version:show": "node -e \"const fs=require('fs');console.log(fs.readFileSync('VERSION','utf8').trim())\"",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d --build",
