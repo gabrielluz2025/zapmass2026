@@ -3,6 +3,11 @@
 # - Push/manual (workflow_dispatch) faz deploy imediato na VPS
 # - Cron aplica pendentes respeitando a janela de madrugada (evita queda de canais no horario comercial)
 # Configure os secrets: VPS_HOST, VPS_USER, VPS_SSH_KEY.
+# Opcional: VPS_SSH_PORT se o sshd nao estiver na porta 22.
+#
+# "dial tcp ...: i/o timeout" = o runner do GitHub nao abre TCP ate o host (antes do SSH).
+# Verifique firewall/hPanel/UFW: porta SSH acessivel da internet (Actions usa IPs dinamicos).
+# Confirme VPS_HOST = IPv4 publico; chave/privada e usuario corretos no secret.
 #
 # GitHub Actions: ações JS (checkout, etc.) migram de Node 20 → 24. Ver:
 # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
@@ -65,7 +70,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          port: 22
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 120s
           command_timeout: 20m
           script: |
             set -euo pipefail
@@ -155,7 +161,8 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          port: 22
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 120s
           command_timeout: 3m
           script: |
             set -e
