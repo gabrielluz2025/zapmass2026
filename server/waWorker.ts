@@ -5,6 +5,9 @@ const WORKER_ID = process.env.WORKER_ID || `worker-${process.pid}`;
 
 const createNoopIo = () =>
   ({
+    sockets: {
+      sockets: new Map()
+    },
     emit: () => undefined,
     to: () => ({ emit: () => undefined })
   }) as any;
