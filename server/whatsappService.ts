@@ -679,6 +679,11 @@ const normalizeFunnelStats = (raw?: Partial<PersistedFunnelStats> | null): Persi
 
 let funnelStats: PersistedFunnelStats = makeEmptyFunnelStats();
 const funnelStatsByOwner = new Map<string, PersistedFunnelStats>();
+const hasAnyFunnelData = (stats: PersistedFunnelStats): boolean =>
+    (Number(stats.totalSent) || 0) > 0
+    || (Number(stats.totalDelivered) || 0) > 0
+    || (Number(stats.totalRead) || 0) > 0
+    || (Number(stats.totalReplied) || 0) > 0;
 
 // Rastreia em memoria (rebuild a cada restart) o estado de ack ja contabilizado
 // por mensagem de campanha, evitando dupla contagem quando o WhatsApp dispara
@@ -731,7 +736,13 @@ const ownerFunnelStats = (ownerUid: string | undefined): PersistedFunnelStats | 
     if (!ownerUid || ownerUid === 'anonymous') return null;
     const existing = funnelStatsByOwner.get(ownerUid);
     if (existing) return existing;
-    const seeded = makeEmptyFunnelStats();
+    // Compatibilidade com formato legado: se ainda nao existe bucket por owner
+    // e havia historico global salvo, migra para o primeiro usuario autenticado
+    // que efetivamente usar o funil.
+    const seeded =
+        funnelStatsByOwner.size === 0 && hasAnyFunnelData(funnelStats)
+            ? normalizeFunnelStats(funnelStats)
+            : makeEmptyFunnelStats();
     funnelStatsByOwner.set(ownerUid, seeded);
     return seeded;
 };
@@ -753,7 +764,7 @@ const emitFunnelStats = (ownerUidHint?: string) => {
     if (!io) return;
     const owner = ownerUidHint || funnelStatsRecipientUid();
     const payload = {
-        ...(owner ? (funnelStatsByOwner.get(owner) || makeEmptyFunnelStats()) : funnelStats)
+        ...(owner ? ownerFunnelStats(owner) || makeEmptyFunnelStats() : funnelStats)
     };
     if (owner) {
         io.to(`user:${owner}`).emit('funnel-stats-update', payload);
@@ -873,7 +884,7 @@ const loadDeletedConversationIds = async () => {
 export const getFunnelStats = (): PersistedFunnelStats => funnelStats;
 export const getFunnelStatsForUid = (uid: string): PersistedFunnelStats => {
     if (!uid || uid === 'anonymous') return funnelStats;
-    return funnelStatsByOwner.get(uid) || makeEmptyFunnelStats();
+    return ownerFunnelStats(uid) || makeEmptyFunnelStats();
 };
 
 export const clearFunnelStats = (ownerUid?: string) => {
