@@ -456,7 +456,11 @@ const emitConnectionsUpdate = () => {
 const emitToConnectionOwner = (event: string, connectionId: string, payload: Record<string, unknown>) => {
     if (!io) return;
     if (isLegacyConnectionId(connectionId)) {
-        io.emit(event, payload);
+        // Isolamento estrito: eventos de conexao legada so para sockets anonimos.
+        for (const socket of getConnectedSocketsSafe()) {
+            const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
+            if (!uid || uid === 'anonymous') socket.emit(event, payload);
+        }
         return;
     }
     const uid = ownerUidFromConnectionId(connectionId);
@@ -709,9 +713,6 @@ const emitFunnelStats = () => {
     };
     if (owner) {
         io.to(`user:${owner}`).emit('funnel-stats-update', payload);
-    } else {
-        // Conexoes legadas sem uid no id: mesmo comportamento antigo (instancia unica).
-        io.emit('funnel-stats-update', payload);
     }
 };
 
@@ -908,8 +909,6 @@ const emitCampaignGeoNow = (campaignId: string) => {
     const payload = { campaignId, byUf, updatedAt: Date.now() };
     if (ownerUid) {
         io.to(`user:${ownerUid}`).emit('campaign-geo-update', payload);
-    } else {
-        io.emit('campaign-geo-update', payload);
     }
     scheduleCampaignGeoSave();
 };
@@ -4091,8 +4090,6 @@ export const pauseCampaign = (campaignId: string) => {
     console.log(`[Campaign] ⏸️ Pausada: ${campaignId}`);
     if (currentCampaign.campaignId === campaignId) {
         emitToOwnerUid('campaign-paused', currentCampaign.ownerUid, { campaignId });
-    } else if (io) {
-        io.emit('campaign-paused', { campaignId });
     }
 };
 
@@ -4101,8 +4098,6 @@ export const resumeCampaign = (campaignId: string) => {
     console.log(`[Campaign] ▶️ Retomada: ${campaignId}`);
     if (currentCampaign.campaignId === campaignId) {
         emitToOwnerUid('campaign-resumed', currentCampaign.ownerUid, { campaignId });
-    } else if (io) {
-        io.emit('campaign-resumed', { campaignId });
     }
 };
 

@@ -94,6 +94,16 @@ process.on('unhandledRejection', (reason) => {
 const app = express();
 const httpServer = createServer(app);
 const serverStartedAt = new Date();
+const socketMaxHttpBufferMb = (() => {
+  const raw = Number(process.env.SOCKET_MAX_HTTP_BUFFER_MB ?? 80);
+  if (!Number.isFinite(raw)) return 80;
+  return Math.max(1, Math.min(512, Math.round(raw)));
+})();
+const jsonBodyLimitMb = (() => {
+  const raw = Number(process.env.JSON_BODY_LIMIT_MB ?? 25);
+  if (!Number.isFinite(raw)) return 25;
+  return Math.max(1, Math.min(512, Math.round(raw)));
+})();
 
 // Origens extras em producao: lista separada por virgula (URL publica do app, com porta se precisar)
 // Ex.: ALLOWED_ORIGINS=http://2.24.210.220:3001,https://app.seudominio.com
@@ -144,12 +154,14 @@ const io = new Server(httpServer, {
     credentials: true
   },
   transports: ['websocket', 'polling'], // Garante suporte a ambos
+  // Upload de mídia base64 via socket exige buffer maior que o padrão.
+  maxHttpBufferSize: socketMaxHttpBufferMb * 1024 * 1024,
   // Heartbeat mais tolerante para evitar quedas falsas sob carga/rede instavel.
   pingInterval: 25000,
   pingTimeout: 60000
 });
 
-app.use(express.json() as any);
+app.use(express.json({ limit: `${jsonBodyLimitMb}mb` }) as any);
 
 registerSubscriptionWebhooks(app);
 registerBillingMercadoPagoRoutes(app);
@@ -303,15 +315,27 @@ const registerSocketHandlers = () => {
     socket.emit('conversations-update', waService.getConversations().filter((c) => ownsConnectionId(c.connectionId)));
     socket.emit('warmup-update', getWarmupStateForUid());
     socket.emit('system-metrics', getSystemMetrics());
-    const persistedFunnel = waService.getFunnelStats();
-    socket.emit('funnel-stats-update', {
-      totalSent: Number(persistedFunnel.totalSent) || 0,
-      totalDelivered: Number(persistedFunnel.totalDelivered) || 0,
-      totalRead: Number(persistedFunnel.totalRead) || 0,
-      totalReplied: Number(persistedFunnel.totalReplied) || 0,
-      updatedAt: Number(persistedFunnel.updatedAt) || Date.now(),
-      clearedAt: persistedFunnel.clearedAt
-    });
+    // Evita vazar agregados globais entre contas: usuarios autenticados
+    // partem zerados e recebem progresso apenas do proprio ownerUid.
+    if (uid === 'anonymous') {
+      const persistedFunnel = waService.getFunnelStats();
+      socket.emit('funnel-stats-update', {
+        totalSent: Number(persistedFunnel.totalSent) || 0,
+        totalDelivered: Number(persistedFunnel.totalDelivered) || 0,
+        totalRead: Number(persistedFunnel.totalRead) || 0,
+        totalReplied: Number(persistedFunnel.totalReplied) || 0,
+        updatedAt: Number(persistedFunnel.updatedAt) || Date.now(),
+        clearedAt: persistedFunnel.clearedAt
+      });
+    } else {
+      socket.emit('funnel-stats-update', {
+        totalSent: 0,
+        totalDelivered: 0,
+        totalRead: 0,
+        totalReplied: 0,
+        updatedAt: Date.now()
+      });
+    }
     socket.emit('warmup-chip-stats-update', filterByConnectionScope(uid, waService.getWarmupChipStats()));
     waService.hydrateCampaignGeoForSocket(socket);
 
