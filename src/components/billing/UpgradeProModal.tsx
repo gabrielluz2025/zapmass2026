@@ -176,6 +176,13 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           <strong>Minha assinatura</strong>. Sem letra miúda, sem fidelidade.
         </p>
       </div>
+      <p
+        className="text-[9px] text-center font-mono tabular-nums pt-1 select-all"
+        style={{ color: 'var(--text-3)' }}
+        title="Confirme se o deploy aplicou: deve coincidir com o commit do Git (Settings também mostra)."
+      >
+        build {import.meta.env.VITE_GIT_REF || 'dev'}
+      </p>
     </Modal>
   );
 };

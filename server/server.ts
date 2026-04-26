@@ -229,8 +229,24 @@ app.post('/webhook/evolution', (req, res) => {
 
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '../dist');
-  app.use(express.static(distPath) as any);
-  app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+  // index.html nunca com cache agressivo (evita apontar para /assets/index-HASH.js antigo).
+  // Ficheiros em /assets/* tem hash no nome: podem ser immutable.
+  app.use(
+    express.static(distPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.replace(/\\/g, '/').endsWith('/index.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        } else if (filePath.replace(/\\/g, '/').includes('/assets/')) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      }
+    }) as any
+  );
+  app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
 }
 
 // Emit real system metrics every 10s
