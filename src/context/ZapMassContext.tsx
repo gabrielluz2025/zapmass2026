@@ -924,13 +924,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       sock.on('connect', onConnect);
     });
 
-  const refreshSocketAuthToken = async () => {
+  const refreshSocketAuthToken = async (forceRefresh = false) => {
     const sock = socketRef.current;
     if (!sock) return;
     const u = auth.currentUser;
     if (u) {
       try {
-        const token = await u.getIdToken();
+        const token = await u.getIdToken(forceRefresh);
         (sock as Socket & { auth: { token?: string } }).auth = { token };
       } catch {
         (sock as Socket & { auth: { token?: string } }).auth = {};
@@ -1364,9 +1364,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!uid) throw new Error('Faça login para iniciar campanha.');
     const targetConnections = connectionIds || [sessionId];
     const socket = socketRef.current;
-
-    if (!socket?.connected) {
-      throw new Error('Servidor offline no momento. Reconecte e tente novamente.');
+    if (!socket) {
+      throw new Error('Socket nao pronto. Atualize a pagina.');
+    }
+    try {
+      // Token fresco + espera de reconexao (evita addDoc+timeout quando o socket caiu).
+      await refreshSocketAuthToken(true);
+      if (!socket.connected) {
+        socket.connect();
+      }
+      await waitForSocketConnected(20000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Falha ao conectar ao servidor.';
+      throw new Error(msg);
     }
 
     const cleanNumbers = Array.from(
