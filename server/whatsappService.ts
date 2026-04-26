@@ -1349,7 +1349,15 @@ const clearSessionLocks = (connectionId: string): boolean => {
         path.join(sessionRoot, 'SingletonSocket'),
         path.join(sessionRoot, 'Default', 'SingletonLock'),
         path.join(sessionRoot, 'Default', 'SingletonCookie'),
-        path.join(sessionRoot, 'Default', 'SingletonSocket')
+        path.join(sessionRoot, 'Default', 'SingletonSocket'),
+        path.join(sessionRoot, 'DevToolsActivePort'),
+        path.join(sessionRoot, 'Default', 'DevToolsActivePort')
+    ];
+    const lockNameMatchers = [
+        /^Singleton/i,
+        /^\.org\.chromium\.Chromium\./i,
+        /^LOCK$/i,
+        /^lockfile$/i
     ];
     let removedAny = false;
     for (const file of lockFiles) {
@@ -1364,6 +1372,25 @@ const clearSessionLocks = (connectionId: string): boolean => {
             console.log(`[SessionLock] Aviso ao remover ${path.basename(file)} de ${connectionId}: ${e?.message || e}`);
         }
     }
+    try {
+        const sweepDirs = [sessionRoot, path.join(sessionRoot, 'Default')];
+        for (const dir of sweepDirs) {
+            if (!fs.existsSync(dir)) continue;
+            const entries = fs.readdirSync(dir);
+            for (const name of entries) {
+                if (!lockNameMatchers.some((rx) => rx.test(name))) continue;
+                const candidate = path.join(dir, name);
+                try {
+                    fs.rmSync(candidate, { recursive: true, force: true });
+                    removedAny = true;
+                } catch (e: any) {
+                    console.log(`[SessionLock] Aviso ao remover ${name} de ${connectionId}: ${e?.message || e}`);
+                }
+            }
+        }
+    } catch {
+        // ignore
+    }
     if (removedAny) {
         console.log(`[SessionLock] 🧹 Locks removidos para sessao ${connectionId}`);
     }
@@ -1376,11 +1403,34 @@ const clearSessionLocks = (connectionId: string): boolean => {
 // referenciando a pasta de sessao especifica - sem tocar em outros Chromes do usuario.
 const killOrphanChromeForSession = (connectionId: string): Promise<void> => {
     return new Promise((resolve) => {
+        const sessionPath = path.join(authDir, `session-${connectionId}`);
+        if (process.platform === 'linux') {
+            const escaped = sessionPath.replace(/'/g, `'\\''`);
+            const shScript = `set +e; pids="$(ps -eo pid,args | awk '/(chrome|chromium)/ && index($0, "${escaped}") {print $1}')"; if [ -n "$pids" ]; then echo "$pids" | xargs -r kill -9; echo "killed:$pids"; fi; exit 0`;
+            execFile(
+                'sh',
+                ['-lc', shScript],
+                { timeout: 8000 },
+                (_err, stdout) => {
+                    if (stdout && stdout.includes('killed:')) {
+                        const killed = stdout
+                            .replace('killed:', ' ')
+                            .trim()
+                            .split(/\s+/)
+                            .filter(Boolean);
+                        if (killed.length > 0) {
+                            console.log(`[ChromeKill] ${killed.length} chromium orfao(s) encerrado(s) para sessao ${connectionId}`);
+                        }
+                    }
+                    resolve();
+                }
+            );
+            return;
+        }
         if (process.platform !== 'win32') {
             resolve();
             return;
         }
-        const sessionPath = path.join(authDir, `session-${connectionId}`);
         const safePath = sessionPath.replace(/'/g, "''");
         const psScript =
             `$ErrorActionPreference='SilentlyContinue'; ` +
