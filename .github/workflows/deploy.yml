@@ -9,6 +9,10 @@
 # Verifique firewall/hPanel/UFW: porta SSH acessivel da internet (Actions usa IPs dinamicos).
 # Confirme VPS_HOST = IPv4 publico; chave/privada e usuario corretos no secret.
 #
+# Se "o deploy passou" mas a UI nao muda: em Docker Swarm, rebuild com tag :latest nem sempre
+# recria tarefas. Este workflow corre `docker service update --force` em zapmass_api / wa-worker
+# apos o stack deploy. Forçar a mao na VPS: `docker service update --force zapmass_api`.
+#
 # GitHub Actions: ações JS (checkout, etc.) migram de Node 20 → 24. Ver:
 # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 
@@ -125,9 +129,22 @@ jobs:
                 --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
                 .
               docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
+              # A tag continua a ser :latest — o Swarm muitas vezes NAO recria tarefas; o UI antigo fica
+              # a servir ate forcar atualizacao (sintoma: "deploy passou e nada mudou no front").
+              for svc in zapmass_api zapmass_wa-worker; do
+                if docker service inspect "$svc" >/dev/null 2>&1; then
+                  echo "==> (swarm) forcar recriacao: $svc"
+                  docker service update --force --image zapmass:latest "$svc" || docker service update --force "$svc" || true
+                fi
+              done
             else
               echo "==> docker compose build + up (instancia principal)"
               docker compose up -d --build
+              # Garante contentor API com a imagem nova (sem reiniciar redis sem necessidade)
+              if docker compose ps --services 2>/dev/null | grep -q '^zapmass$'; then
+                echo "==> (compose) forcar recriacao do servico zapmass"
+                docker compose up -d --no-deps --build --force-recreate zapmass
+              fi
             fi
             if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml >/dev/null 2>&1; then
               echo "==> atualizar containers dos clientes para a imagem nova"
