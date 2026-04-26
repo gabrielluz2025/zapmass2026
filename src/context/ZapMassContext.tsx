@@ -266,27 +266,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     delete campaignProgressPersistRef.current[campaignId];
   };
 
-  // Mantem dashboard individual por usuario sem depender de agregados globais do servidor.
+  // Mantem `metrics` alinhado ao funil acumulado do servidor.
+  // Nao usamos mais `campaigns` para recalcular funil, pois isso apagava leitura/resposta
+  // e criava divergencia na home/relatorios quando havia historico persistido.
   useEffect(() => {
-    const totalSent = campaigns.reduce((sum, c) => sum + (Number(c.processedCount) || 0), 0);
-    const totalDelivered = campaigns.reduce((sum, c) => sum + (Number(c.successCount) || 0), 0);
-    const totalFailed = campaigns.reduce((sum, c) => sum + (Number(c.failedCount) || 0), 0);
-    const nextMetrics: DashboardMetrics = {
-      totalSent,
-      totalDelivered,
-      totalRead: 0,
-      totalReplied: 0
-    };
-    setMetrics(nextMetrics);
-    setFunnelStats({
-      totalSent,
-      totalDelivered,
-      totalRead: 0,
-      totalReplied: 0,
-      updatedAt: Date.now(),
-      clearedAt: totalSent === 0 && totalDelivered === 0 && totalFailed === 0 ? Date.now() : undefined
+    setMetrics({
+      totalSent: Number(funnelStats.totalSent) || 0,
+      totalDelivered: Number(funnelStats.totalDelivered) || 0,
+      totalRead: Number(funnelStats.totalRead) || 0,
+      totalReplied: Number(funnelStats.totalReplied) || 0
     });
-  }, [campaigns]);
+  }, [funnelStats]);
 
   // --- FIREBASE SYNC ---
   useEffect(() => {
