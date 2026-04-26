@@ -129,7 +129,8 @@ const belongsToUidCampaign = (
   const connIds = Array.isArray(raw.selectedConnectionIds)
     ? (raw.selectedConnectionIds as unknown[]).map((x) => String(x || '')).filter(Boolean)
     : [];
-  if (connIds.length === 0) return true;
+  // Sem owner e sem conexao vinculada => registro suspeito/contaminado. Bloqueia.
+  if (connIds.length === 0) return false;
 
   return connIds.some((id) => ownsConnectionForUid(uid, id));
 };
