@@ -419,10 +419,20 @@ const ensureTodayEntry = (stats: WarmupChipStats): WarmupDailyEntry => {
     return entry;
 };
 
+const getConnectedSocketsSafe = (): Socket[] => {
+    try {
+        const socketsMap = (io as any)?.sockets?.sockets;
+        if (!socketsMap || typeof socketsMap.values !== 'function') return [];
+        return Array.from(socketsMap.values()) as Socket[];
+    } catch {
+        return [];
+    }
+};
+
 const emitWarmupChipStats = () => {
     if (!io) return;
     const list = Array.from(warmupChipStats.values());
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of getConnectedSocketsSafe()) {
         const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
         socket.emit('warmup-chip-stats-update', filterByConnectionScope(uid, list));
     }
@@ -437,7 +447,7 @@ const ownerUidFromConnectionId = (connectionId?: string): string | null => {
 
 const emitConnectionsUpdate = () => {
     if (!io) return;
-    for (const socket of io.sockets.sockets.values()) {
+    for (const socket of getConnectedSocketsSafe()) {
         const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
         socket.emit('connections-update', filterByConnectionScope(uid, connectionsInfo));
     }
@@ -1766,14 +1776,14 @@ const emitConversationsUpdate = () => {
         console.log(`[emitConversations] Emitindo ${conversations.length} conversas...`);
         if (!io) return;
         const payload = conversations.map((c) => ({ ...c, connectionId: c.connectionId }));
-        for (const socket of io.sockets.sockets.values()) {
+        for (const socket of getConnectedSocketsSafe()) {
             const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
             socket.emit('conversations-update', filterByConnectionScope(uid, payload));
         }
         console.log(`[emitConversations] Emitiu com sucesso`);
     } catch (e: any) {
         console.error('[CRASH] Erro ao emitir conversations-update:', e?.message || e, e?.stack?.split('\n')[1] || '');
-        throw e;
+        // Em worker sem Socket.IO real, so registramos e seguimos.
     }
 };
 
