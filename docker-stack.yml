@@ -21,7 +21,7 @@ services:
       NODE_ENV: production
       PORT: "3001"
       REDIS_URL: redis://redis:6379
-      SESSION_PROCESS_MODE: api
+      SESSION_PROCESS_MODE: monolith
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
     env_file:
       - .env
@@ -31,7 +31,7 @@ services:
     deploy:
       replicas: 1
       update_config:
-        order: start-first
+        order: stop-first
         parallelism: 1
         delay: 10s
       restart_policy:
@@ -55,7 +55,7 @@ services:
       - zapmass-data:/app/data
       - ./secrets:/run/secrets:ro
     deploy:
-      replicas: ${WA_WORKER_REPLICAS:-2}
+      replicas: ${WA_WORKER_REPLICAS:-0}
       update_config:
         order: start-first
         parallelism: 1
