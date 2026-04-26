@@ -528,6 +528,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     const socket = socketRef.current;
+    const syncBackendConnected = () => {
+      setIsBackendConnected(!!socket.connected);
+    };
     if (auth.currentUser) {
       auth.currentUser.getIdToken().then((token) => {
         socket.auth = { token };
@@ -599,7 +602,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     });
 
-    socket.io.on('reconnect_attempt', (attempt) => {
+    const onReconnectAttempt = (attempt: number) => {
       if (!reconnectingToastShownRef.current && attempt >= 1) {
         reconnectingToastShownRef.current = true;
         toast('Tentando reconectar...', {
@@ -608,7 +611,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           style: { borderRadius: '10px', background: '#333', color: '#fff' }
         });
       }
-    });
+    };
+    socket.io.on('reconnect_attempt', onReconnectAttempt);
+    // Reconexao completa do manager (cobre casos em que o handler de `connect` nao dispara
+    // na ordem esperada apos retoken / reload).
+    const onManagerReconnect = () => {
+      syncBackendConnected();
+    };
+    socket.io.on('reconnect', onManagerReconnect);
+    // Estado inicial: se o socket ja estiver conectado (ou reconectar muito rapido), reflete no badge.
+    syncBackendConnected();
+    queueMicrotask(() => syncBackendConnected());
 
     socket.on('connections-update', (updatedConnections: WhatsAppConnection[]) => {
       const mine = (Array.isArray(updatedConnections) ? updatedConnections : []).filter((conn) => ownsConnectionId(conn.id));
@@ -883,6 +896,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         disconnectToastTimerRef.current = null;
       }
       clearInterval(pingInterval);
+      socket.io.off('reconnect_attempt', onReconnectAttempt);
+      socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
   }, []);
