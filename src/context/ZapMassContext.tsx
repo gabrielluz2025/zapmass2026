@@ -119,6 +119,21 @@ const allowLegacyMerge = (): boolean => {
   return false;
 };
 
+const belongsToUidCampaign = (
+  uid: string,
+  raw: Record<string, unknown>
+): boolean => {
+  const ownerUid = typeof raw.ownerUid === 'string' ? raw.ownerUid : '';
+  if (ownerUid) return ownerUid === uid;
+
+  const connIds = Array.isArray(raw.selectedConnectionIds)
+    ? (raw.selectedConnectionIds as unknown[]).map((x) => String(x || '')).filter(Boolean)
+    : [];
+  if (connIds.length === 0) return true;
+
+  return connIds.some((id) => ownsConnectionForUid(uid, id));
+};
+
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentView } = useAppView();
   const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
@@ -417,7 +432,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             query(collection(db, 'users', uid, 'campaigns'), orderBy('createdAt', 'desc')),
             (snapshot) => {
               if (currentUidRef.current !== uid) return;
-              b.userCampaigns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Campaign));
+              b.userCampaigns = snapshot.docs
+                .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Record<string, unknown> & Campaign))
+                .filter((row) => belongsToUidCampaign(uid, row))
+                .map((row) => row as Campaign);
               setCampaigns(mergeCampaigns(b.userCampaigns, b.legacyCampaigns));
             },
             (err) => console.warn('[Firestore] campaigns (usuario):', (err as Error)?.message || err)
@@ -1368,6 +1386,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         : [message.trim()].filter((s) => s.length > 0);
 
     const campaignRef = await addDoc(collection(db, 'users', uid, 'campaigns'), {
+      ownerUid: uid,
       name: campaignName || `Disparo ${new Date().toLocaleString()}`,
       message: stagesForDoc[0] || message,
       ...(stagesForDoc.length > 0 ? { messageStages: stagesForDoc } : {}),
