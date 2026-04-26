@@ -89,8 +89,14 @@ jobs:
             # Hash no JavaScript (Configuraçoes) — .git nao entra no contexto Docker
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
             echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
-            SWARM_ENABLED="${SWARM_ENABLED:-0}"
-            if [ "$SWARM_ENABLED" = "1" ]; then
+            # Em SSH não interativo, variáveis de shell/perfil podem não carregar.
+            # Auto-detecta Swarm manager para evitar cair em compose por engano.
+            SWARM_ENABLED="${SWARM_ENABLED:-auto}"
+            IS_SWARM_MANAGER="0"
+            if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
+              IS_SWARM_MANAGER="1"
+            fi
+            if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
               echo "==> deploy em Docker Swarm (stack: zapmass)"
               docker build -t zapmass:latest .
               docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
@@ -115,7 +121,7 @@ jobs:
             echo "==> prune imagens antigas"
             docker image prune -f
             echo "==> status"
-            if [ "$SWARM_ENABLED" = "1" ]; then
+            if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
               docker stack services zapmass
             else
               docker compose ps
@@ -145,8 +151,14 @@ jobs:
               sleep 6
             done
             echo "FALHA: API nao respondeu 200 apos 120s"
-            echo "==> status docker compose"
-            docker compose -f /opt/zapmass/docker-compose.yml ps || true
-            echo "==> ultimos logs"
-            docker compose -f /opt/zapmass/docker-compose.yml logs --tail=80 || true
+            if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
+              echo "==> status docker swarm"
+              docker service ps zapmass_api || true
+              docker service logs --since 5m --tail 120 zapmass_api || true
+            else
+              echo "==> status docker compose"
+              docker compose -f /opt/zapmass/docker-compose.yml ps || true
+              echo "==> ultimos logs"
+              docker compose -f /opt/zapmass/docker-compose.yml logs --tail=80 || true
+            fi
             exit 1
