@@ -473,8 +473,27 @@ async function createChannelAddonPreapproval(params: { uid: string; email: strin
  *
  * POST /api/billing/mercadopago/cancel-subscription
  *   Cancela o preapproval ativo do utilizador (so aplica a quem tem debito automatico).
+ *
+ * GET /api/billing/mercadopago/prices
+ *   Valores numericos usados no checkout (MERCADOPAGO_PRICE_*). Publico; alinha a UI ao cobrado.
  */
 export function registerBillingMercadoPagoRoutes(app: Express): void {
+  app.get('/api/billing/mercadopago/prices', (_req: Request, res: Response) => {
+    try {
+      const { monthly, annual } = getPrices();
+      return res.json({
+        ok: true,
+        monthly,
+        annual,
+        pixDiscountPct: PIX_DISCOUNT_PCT,
+        currency: 'BRL'
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
   app.post('/api/billing/mercadopago/start', async (req: Request, res: Response) => {
     try {
       const adminApp = getFirebaseAdmin();
