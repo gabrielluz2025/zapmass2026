@@ -1093,7 +1093,12 @@ export const init = (socketIo: SocketIOServer) => {
             if (connectionsInfo.length === 0) {
                 await loadConnectionsFromAuth();
             }
-            connectionsInfo.forEach(conn => initializeClient(conn.id, conn.name));
+            for (const conn of connectionsInfo) {
+                // Evita corrida no bootstrap ao abrir varios Chromium ao mesmo tempo.
+                // Isso reduz chance de falso positivo de profile lock em hosts com IO lento.
+                await initializeClient(conn.id, conn.name);
+                await new Promise((resolve) => setTimeout(resolve, 1200));
+            }
         });
 };
 
@@ -2456,12 +2461,15 @@ const initializeClient = async (id: string, name: string) => {
     let connectionTimeoutRef: NodeJS.Timeout | null = null;
 
     try {
+        const sessionPath = path.join(authDir, `session-${id}`);
         const client = new Client({
             authStrategy: new LocalAuth({ clientId: id, dataPath: authDir }),
             webVersionCache: {
                 type: 'local'
             },
             puppeteer: {
+                // Forca isolamento explicito por conexao para evitar colisoes de perfil.
+                userDataDir: sessionPath,
                 headless: process.env.HEADFUL_MODE !== 'true',
                 protocolTimeout: 180000,
                 args: [
@@ -2690,7 +2698,11 @@ const initializeClient = async (id: string, name: string) => {
         }
 
         const msg = String(err?.message || '');
-        const isBrowserLock = msg.includes('browser is already running') || msg.includes('SingletonLock');
+        const isBrowserLock =
+            msg.includes('browser is already running') ||
+            msg.includes('SingletonLock') ||
+            msg.includes('process_singleton_posix') ||
+            msg.includes('profile appears to be in use');
         // Sinais classicos de sessao corrompida apos SIGKILL do Chromium.
         // Se batermos nisso e tivermos um backup, restauramos e tentamos de novo.
         const isCorruptionSignal = /Protocol error|Execution context was destroyed|Target closed|Session closed|IndexedDB|Failed to read|ENOENT.*LOCK|Unexpected token/i.test(msg);
