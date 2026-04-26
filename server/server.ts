@@ -325,27 +325,18 @@ const registerSocketHandlers = () => {
     socket.emit('conversations-update', waService.getConversations().filter((c) => ownsConnectionId(c.connectionId)));
     socket.emit('warmup-update', getWarmupStateForUid());
     socket.emit('system-metrics', getSystemMetrics());
-    // Evita vazar agregados globais entre contas: usuarios autenticados
-    // partem zerados e recebem progresso apenas do proprio ownerUid.
-    if (uid === 'anonymous') {
-      const persistedFunnel = waService.getFunnelStats();
-      socket.emit('funnel-stats-update', {
-        totalSent: Number(persistedFunnel.totalSent) || 0,
-        totalDelivered: Number(persistedFunnel.totalDelivered) || 0,
-        totalRead: Number(persistedFunnel.totalRead) || 0,
-        totalReplied: Number(persistedFunnel.totalReplied) || 0,
-        updatedAt: Number(persistedFunnel.updatedAt) || Date.now(),
-        clearedAt: persistedFunnel.clearedAt
-      });
-    } else {
-      socket.emit('funnel-stats-update', {
-        totalSent: 0,
-        totalDelivered: 0,
-        totalRead: 0,
-        totalReplied: 0,
-        updatedAt: Date.now()
-      });
-    }
+    // Envia funil por usuario autenticado para manter dashboard consistente
+    // entre reconexoes/reloads sem vazar dados entre contas.
+    const persistedFunnel =
+      uid === 'anonymous' ? waService.getFunnelStats() : waService.getFunnelStatsForUid(uid);
+    socket.emit('funnel-stats-update', {
+      totalSent: Number(persistedFunnel.totalSent) || 0,
+      totalDelivered: Number(persistedFunnel.totalDelivered) || 0,
+      totalRead: Number(persistedFunnel.totalRead) || 0,
+      totalReplied: Number(persistedFunnel.totalReplied) || 0,
+      updatedAt: Number(persistedFunnel.updatedAt) || Date.now(),
+      clearedAt: persistedFunnel.clearedAt
+    });
     socket.emit('warmup-chip-stats-update', filterByConnectionScope(uid, waService.getWarmupChipStats()));
     waService.hydrateCampaignGeoForSocket(socket);
 
@@ -705,7 +696,7 @@ const registerSocketHandlers = () => {
 
     socket.on('clear-funnel-stats', () => {
       userLog('ui:clear-funnel-stats', { socketId: socket.id });
-      waService.clearFunnelStats();
+      waService.clearFunnelStats(uid);
     });
 
     socket.on('clear-warmup-chip-stats', (connectionId?: string) => {

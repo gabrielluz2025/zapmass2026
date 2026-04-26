@@ -651,16 +651,34 @@ interface PersistedFunnelStats {
     clearedAt?: number;
 }
 
+interface PersistedFunnelStatsFileV2 {
+    version: 2;
+    global: PersistedFunnelStats;
+    byOwner: Record<string, PersistedFunnelStats>;
+}
+
 const funnelStatsFile = path.join(dataDir, 'funnel_stats.json');
 const campaignGeoFile = path.join(dataDir, 'campaign_geography.json');
 
-let funnelStats: PersistedFunnelStats = {
+const makeEmptyFunnelStats = (): PersistedFunnelStats => ({
     totalSent: 0,
     totalDelivered: 0,
     totalRead: 0,
     totalReplied: 0,
     updatedAt: Date.now()
-};
+});
+
+const normalizeFunnelStats = (raw?: Partial<PersistedFunnelStats> | null): PersistedFunnelStats => ({
+    totalSent: Number(raw?.totalSent) || 0,
+    totalDelivered: Number(raw?.totalDelivered) || 0,
+    totalRead: Number(raw?.totalRead) || 0,
+    totalReplied: Number(raw?.totalReplied) || 0,
+    updatedAt: Number(raw?.updatedAt) || Date.now(),
+    clearedAt: raw?.clearedAt
+});
+
+let funnelStats: PersistedFunnelStats = makeEmptyFunnelStats();
+const funnelStatsByOwner = new Map<string, PersistedFunnelStats>();
 
 // Rastreia em memoria (rebuild a cada restart) o estado de ack ja contabilizado
 // por mensagem de campanha, evitando dupla contagem quando o WhatsApp dispara
@@ -679,7 +697,7 @@ let campaignGeoEmitPendingId: string | null = null;
 // Para cada conversa, lista de timestamps de disparos de campanha que ainda
 // nao receberam reply contabilizado. Quando chega um msg incoming 'them',
 // pega o disparo mais recente <= ts, marca como contabilizado e incrementa replied.
-interface PendingCampaignSend { ts: number; counted: boolean; campaignId?: string }
+interface PendingCampaignSend { ts: number; counted: boolean; campaignId?: string; ownerUid?: string }
 const pendingCampaignSendsByConv = new Map<string, PendingCampaignSend[]>();
 
 let funnelSaveTimer: NodeJS.Timeout | null = null;
@@ -687,8 +705,16 @@ const scheduleFunnelSave = () => {
     if (funnelSaveTimer) return;
     funnelSaveTimer = setTimeout(() => {
         funnelSaveTimer = null;
+        const byOwner: Record<string, PersistedFunnelStats> = {};
+        for (const [uid, stats] of funnelStatsByOwner.entries()) {
+            byOwner[uid] = { ...stats };
+        }
         fs.promises
-            .writeFile(funnelStatsFile, JSON.stringify(funnelStats, null, 2), 'utf-8')
+            .writeFile(
+                funnelStatsFile,
+                JSON.stringify({ version: 2, global: funnelStats, byOwner } satisfies PersistedFunnelStatsFileV2, null, 2),
+                'utf-8'
+            )
             .catch((err) => console.error('[FunnelStats] Falha ao persistir:', err?.message || err));
     }, 1500);
 };
@@ -701,15 +727,33 @@ const funnelStatsRecipientUid = (): string | undefined => {
     return undefined;
 };
 
-const emitFunnelStats = () => {
+const ownerFunnelStats = (ownerUid: string | undefined): PersistedFunnelStats | null => {
+    if (!ownerUid || ownerUid === 'anonymous') return null;
+    const existing = funnelStatsByOwner.get(ownerUid);
+    if (existing) return existing;
+    const seeded = makeEmptyFunnelStats();
+    funnelStatsByOwner.set(ownerUid, seeded);
+    return seeded;
+};
+
+const incrementOwnerFunnel = (
+    ownerUid: string | undefined,
+    delta: Partial<Pick<PersistedFunnelStats, 'totalSent' | 'totalDelivered' | 'totalRead' | 'totalReplied'>>
+) => {
+    const target = ownerFunnelStats(ownerUid);
+    if (!target) return;
+    target.totalSent += Number(delta.totalSent) || 0;
+    target.totalDelivered += Number(delta.totalDelivered) || 0;
+    target.totalRead += Number(delta.totalRead) || 0;
+    target.totalReplied += Number(delta.totalReplied) || 0;
+    target.updatedAt = Date.now();
+};
+
+const emitFunnelStats = (ownerUidHint?: string) => {
     if (!io) return;
-    const owner = funnelStatsRecipientUid();
+    const owner = ownerUidHint || funnelStatsRecipientUid();
     const payload = {
-        totalSent: funnelStats.totalSent,
-        totalDelivered: funnelStats.totalDelivered,
-        totalRead: funnelStats.totalRead,
-        totalReplied: funnelStats.totalReplied,
-        updatedAt: funnelStats.updatedAt
+        ...(owner ? (funnelStatsByOwner.get(owner) || makeEmptyFunnelStats()) : funnelStats)
     };
     if (owner) {
         io.to(`user:${owner}`).emit('funnel-stats-update', payload);
@@ -720,15 +764,19 @@ const loadFunnelStats = async () => {
     try {
         if (!fs.existsSync(funnelStatsFile)) return;
         const raw = await fs.promises.readFile(funnelStatsFile, 'utf-8');
-        const parsed = JSON.parse(raw) as Partial<PersistedFunnelStats>;
-        funnelStats = {
-            totalSent: Number(parsed.totalSent) || 0,
-            totalDelivered: Number(parsed.totalDelivered) || 0,
-            totalRead: Number(parsed.totalRead) || 0,
-            totalReplied: Number(parsed.totalReplied) || 0,
-            updatedAt: Number(parsed.updatedAt) || Date.now(),
-            clearedAt: parsed.clearedAt
-        };
+        const parsed = JSON.parse(raw) as Partial<PersistedFunnelStatsFileV2> & Partial<PersistedFunnelStats>;
+        funnelStatsByOwner.clear();
+        if (parsed && parsed.version === 2 && parsed.global) {
+            funnelStats = normalizeFunnelStats(parsed.global);
+            const owners = parsed.byOwner && typeof parsed.byOwner === 'object' ? parsed.byOwner : {};
+            Object.entries(owners).forEach(([uid, stats]) => {
+                if (!uid) return;
+                funnelStatsByOwner.set(uid, normalizeFunnelStats(stats));
+            });
+        } else {
+            // Compatibilidade com formato antigo (global simples).
+            funnelStats = normalizeFunnelStats(parsed);
+        }
         console.log('[FunnelStats] 📊 Carregado:', funnelStats);
     } catch (err: any) {
         console.error('[FunnelStats] Falha ao carregar arquivo:', err?.message || err);
@@ -823,22 +871,40 @@ const loadDeletedConversationIds = async () => {
 };
 
 export const getFunnelStats = (): PersistedFunnelStats => funnelStats;
+export const getFunnelStatsForUid = (uid: string): PersistedFunnelStats => {
+    if (!uid || uid === 'anonymous') return funnelStats;
+    return funnelStatsByOwner.get(uid) || makeEmptyFunnelStats();
+};
 
-export const clearFunnelStats = () => {
-    funnelStats = {
-        totalSent: 0,
-        totalDelivered: 0,
-        totalRead: 0,
-        totalReplied: 0,
-        updatedAt: Date.now(),
-        clearedAt: Date.now()
-    };
+export const clearFunnelStats = (ownerUid?: string) => {
+    const now = Date.now();
+    if (ownerUid && ownerUid !== 'anonymous') {
+        funnelStatsByOwner.set(ownerUid, { ...makeEmptyFunnelStats(), updatedAt: now, clearedAt: now });
+        // Remove rastros de ack/reply apenas das campanhas deste owner.
+        for (const [msgId, meta] of campaignMsgMeta.entries()) {
+            if (!meta?.campaignId) continue;
+            if (campaignGeoOwnerById.get(meta.campaignId) !== ownerUid) continue;
+            campaignMsgMeta.delete(msgId);
+            campaignAckLevel.delete(msgId);
+        }
+        for (const [key, list] of pendingCampaignSendsByConv.entries()) {
+            const filtered = list.filter((row) => row.ownerUid !== ownerUid);
+            if (filtered.length > 0) pendingCampaignSendsByConv.set(key, filtered);
+            else pendingCampaignSendsByConv.delete(key);
+        }
+        scheduleFunnelSave();
+        emitFunnelStats(ownerUid);
+        console.log(`[FunnelStats] 🧹 Contadores zerados pelo usuario ${ownerUid}`);
+        return;
+    }
+
+    funnelStats = { ...makeEmptyFunnelStats(), updatedAt: now, clearedAt: now };
     campaignAckLevel.clear();
     campaignMsgMeta.clear();
     pendingCampaignSendsByConv.clear();
     scheduleFunnelSave();
     emitFunnelStats();
-    console.log('[FunnelStats] 🧹 Contadores zerados pelo usuario');
+    console.log('[FunnelStats] 🧹 Contadores globais zerados');
 };
 
 // Chave normalizada por telefone para cruzar envio <-> resposta mesmo que o
@@ -879,7 +945,9 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
     // conversationId = "connectionId:JID" — indexa por JID normalizado e tambem por E.164
     // para bater com @lid / @c.us / @s.whatsapp.net na resposta.
     const [connId, chatPart] = conversationId.split(':');
-    const entry: PendingCampaignSend = { ts, counted: false, campaignId: cidForMeta };
+    const ownerUid = currentCampaign.ownerUid || (cidForMeta ? campaignGeoOwnerById.get(cidForMeta) : undefined) || undefined;
+    incrementOwnerFunnel(ownerUid, { totalSent: 1 });
+    const entry: PendingCampaignSend = { ts, counted: false, campaignId: cidForMeta, ownerUid };
     const pushKey = (key: string) => {
         if (!key || key.endsWith(':') || key === `${connId}:`) return;
         const list = pendingCampaignSendsByConv.get(key) || [];
@@ -892,7 +960,7 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
     pushKey(jidKey);
     if (phoneKey && phoneKey !== jidKey) pushKey(phoneKey);
     scheduleFunnelSave();
-    emitFunnelStats();
+    emitFunnelStats(ownerUid);
 };
 
 const ensureCampaignGeo = (campaignId: string): Record<string, CampaignGeoUf> => {
@@ -955,18 +1023,20 @@ const handleCampaignAck = (msgId: string, ack: number) => {
         funnelStats.totalDelivered++;
         campaignAckLevel.set(msgId, 1);
         changed = true;
+        incrementOwnerFunnel(meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined, { totalDelivered: 1 });
         if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'delivered');
     }
     if (ack >= 3 && (campaignAckLevel.get(msgId) || 0) < 2) {
         funnelStats.totalRead++;
         campaignAckLevel.set(msgId, 2);
         changed = true;
+        incrementOwnerFunnel(meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined, { totalRead: 1 });
         if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'read');
     }
     if (changed) {
         funnelStats.updatedAt = Date.now();
         scheduleFunnelSave();
-        emitFunnelStats();
+        emitFunnelStats(meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined);
     }
 };
 
@@ -995,10 +1065,11 @@ const handleIncomingForFunnel = (conversationId: string, incomingTs: number, pho
         funnelStats.totalReplied++;
         funnelStats.updatedAt = Date.now();
         const cid = candidate.campaignId;
+        incrementOwnerFunnel(candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined), { totalReplied: 1 });
         const uf = phoneDigitsToUf(toPhoneKey(chatPart || '')) || GEO_UNKNOWN_UF;
         if (cid) bumpCampaignGeo(cid, uf, 'replied');
         scheduleFunnelSave();
-        emitFunnelStats();
+        emitFunnelStats(candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined));
     }
 };
 
