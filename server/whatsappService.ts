@@ -2968,7 +2968,8 @@ export const startCampaign = async (
             validTokens?: string[];
             invalidReplyBody?: string;
         }>;
-    }
+    },
+    ownerUidHint?: string
 ) => {
     if (connectionIds.length === 0) return;
 
@@ -3028,7 +3029,7 @@ export const startCampaign = async (
         successCount: 0,
         failCount: 0,
         campaignId,
-        ownerUid: ownerUidFromConnectionId(connectionIds[0]),
+        ownerUid: ownerUidHint || ownerUidFromConnectionId(connectionIds[0]) || undefined,
         lastLoggedProcessed: 0,
         startTime: Date.now()
     };

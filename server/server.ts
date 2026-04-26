@@ -495,7 +495,7 @@ const registerSocketHandlers = () => {
           socket.emit('campaign-error', { error: 'Nenhuma mensagem definida para a campanha.', campaignId });
           return;
         }
-        await waService.startCampaign(numbers, stages, connectionIds, campaignId, recipients, replyFlow);
+        await waService.startCampaign(numbers, stages, connectionIds, campaignId, recipients, replyFlow, uid);
         callback?.({ ok: true });
       } catch (error: any) {
         const messageText = error?.message || 'Falha ao iniciar campanha.';
