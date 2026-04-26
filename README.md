@@ -198,7 +198,28 @@ npm run backup
 | `IMPROVEMENTS.md` | Melhorias 1-10 (Básicas + Importantes) |
 | `IMPLEMENTATION_SUMMARY.md` | Sumário executivo + guia testes |
 | `ADVANCED_FEATURES.md` | Melhorias 11-20 (Enterprise++) |
+| `RUNBOOK_PRODUCAO.md` | Runbook completo de operação em produção (Swarm) |
+| `RUNBOOK_OPERADOR.md` | Runbook enxuto para rotina diária |
+| `RUNBOOK_INCIDENTE.md` | Resposta a incidente + rollback detalhado |
+| `RUNBOOK_ISOLAMENTO.md` | Checklist de isolamento multi-tenant por usuário |
 | `README.md` | Este arquivo (visão geral) |
+
+---
+
+## 🚨 **Operação em Produção (Swarm)**
+
+Use estes guias para operar na VPS com segurança:
+
+- `RUNBOOK_OPERADOR.md`: deploy e checagem rápida com PASS/FAIL.
+- `RUNBOOK_PRODUCAO.md`: fluxo completo de deploy, validação e monitoramento.
+- `RUNBOOK_INCIDENTE.md`: triagem, diagnóstico limpo por container ativo e rollback.
+- `RUNBOOK_ISOLAMENTO.md`: prevenção de mistura entre usuários + teste A/B obrigatório.
+
+Recomendação:
+- rotina diária: `RUNBOOK_OPERADOR.md`
+- mudança de versão/deploy: `RUNBOOK_PRODUCAO.md`
+- degradação/erro crítico: `RUNBOOK_INCIDENTE.md`
+- validação de multi-tenant por release: `RUNBOOK_ISOLAMENTO.md`
 
 ---
 
