@@ -20,6 +20,7 @@ import {
   WhatsAppConnection,
   ConnectionStatus
 } from '../../types';
+import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { Button } from '../ui';
 import { Sparkline, fmtInt } from './CampaignVisuals';
 
@@ -51,15 +52,15 @@ export const CampaignCockpitHero: React.FC<CampaignCockpitHeroProps> = ({
     const running = campaigns.filter((c) => c.status === CampaignStatus.RUNNING);
     const paused = campaigns.filter((c) => c.status === CampaignStatus.PAUSED);
     const completed = campaigns.filter((c) => c.status === CampaignStatus.COMPLETED);
-    const totalProcessed = campaigns.reduce((a, c) => a + c.processedCount, 0);
+    const totalProcessed = campaigns.reduce((a, c) => a + getCampaignProgressMetrics(c).effectiveProcessed, 0);
     const totalSuccess = campaigns.reduce((a, c) => a + c.successCount, 0);
     const totalFailed = campaigns.reduce((a, c) => a + c.failedCount, 0);
     const successRate = totalProcessed > 0 ? Math.round((totalSuccess / totalProcessed) * 100) : 0;
 
     const runningTotal = running.reduce((a, c) => a + c.totalContacts, 0);
-    const runningProcessed = running.reduce((a, c) => a + c.processedCount, 0);
+    const runningProcessed = running.reduce((a, c) => a + getCampaignProgressMetrics(c).effectiveProcessed, 0);
     const runningProgress = runningTotal > 0 ? (runningProcessed / runningTotal) * 100 : 0;
-    const runningPending = Math.max(0, runningTotal - runningProcessed);
+    const runningPending = running.reduce((a, c) => a + getCampaignProgressMetrics(c).pending, 0);
 
     const onlineChips = connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length;
     const liveQueueAll = connections.reduce((acc, c) => acc + Math.max(0, Number(c.queueSize) || 0), 0);
@@ -79,8 +80,10 @@ export const CampaignCockpitHero: React.FC<CampaignCockpitHeroProps> = ({
       running
         .slice()
         .sort((a, b) => {
-          const pa = a.totalContacts > 0 ? a.processedCount / a.totalContacts : 0;
-          const pb = b.totalContacts > 0 ? b.processedCount / b.totalContacts : 0;
+          const pa =
+            a.totalContacts > 0 ? getCampaignProgressMetrics(a).effectiveProcessed / a.totalContacts : 0;
+          const pb =
+            b.totalContacts > 0 ? getCampaignProgressMetrics(b).effectiveProcessed / b.totalContacts : 0;
           if (pa !== pb) return pb - pa;
           return b.totalContacts - a.totalContacts;
         })[0] || null;
@@ -402,12 +405,9 @@ const FeaturedRunning: React.FC<{
   onTogglePause: (id: string) => void;
   sparkData: number[];
 }> = ({ campaign, runningCount, onOpenDetails, onTogglePause, sparkData }) => {
-  const progress =
-    campaign.totalContacts > 0 ? (campaign.processedCount / campaign.totalContacts) * 100 : 0;
-  const rate =
-    campaign.processedCount > 0
-      ? Math.round((campaign.successCount / campaign.processedCount) * 100)
-      : 0;
+  const m = getCampaignProgressMetrics(campaign);
+  const progress = m.progressPct;
+  const rate = m.successRatePct;
 
   return (
     <>
@@ -424,7 +424,7 @@ const FeaturedRunning: React.FC<{
           </h1>
           <div className="flex items-center gap-3 mt-1 text-[12px] font-semibold flex-wrap" style={{ color: 'var(--text-3)' }}>
             <span className="tabular-nums">
-              {fmtInt(campaign.processedCount)} de {fmtInt(campaign.totalContacts)}
+              {fmtInt(m.effectiveProcessed)} de {fmtInt(campaign.totalContacts)}
             </span>
             <span>·</span>
             <span className="tabular-nums">{campaign.selectedConnectionIds.length} chip{campaign.selectedConnectionIds.length === 1 ? '' : 's'}</span>

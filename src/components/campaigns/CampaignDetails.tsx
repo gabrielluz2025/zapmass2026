@@ -35,6 +35,7 @@ import {
   WhatsAppConnection
 } from '../../types';
 import { useZapMass } from '../../context/ZapMassContext';
+import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { PerformanceFunnel } from '../PerformanceFunnel';
 import { CampaignScoreCard } from './CampaignScoreCard';
@@ -302,12 +303,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return () => clearInterval(id);
   }, [isRunning]);
 
-  const progress =
-    campaign.totalContacts > 0 ? Math.round((campaign.processedCount / campaign.totalContacts) * 100) : 0;
-  const successRate =
-    campaign.processedCount > 0 ? Math.round((campaign.successCount / campaign.processedCount) * 100) : 0;
+  const m = useMemo(() => getCampaignProgressMetrics(campaign), [campaign]);
+  const progress = m.progressPct;
+  const successRate = m.successRatePct;
   const failureRate =
-    campaign.processedCount > 0 ? Math.round((campaign.failedCount / campaign.processedCount) * 100) : 0;
+    m.effectiveProcessed > 0 ? Math.round((campaign.failedCount / m.effectiveProcessed) * 100) : 0;
 
   const statusVariant: 'success' | 'warning' | 'info' | 'neutral' = isRunning
     ? 'success'
@@ -331,9 +331,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [campaign.createdAt]);
 
   const elapsedSec = startedAt ? Math.max(0, (now - startedAt.getTime()) / 1000) : 0;
-  const throughputPerMin =
-    elapsedSec > 0 ? +(campaign.processedCount / (elapsedSec / 60)).toFixed(1) : 0;
-  const remaining = Math.max(0, campaign.totalContacts - campaign.processedCount);
+  const throughputPerMin = elapsedSec > 0 ? +(m.effectiveProcessed / (elapsedSec / 60)).toFixed(1) : 0;
+  const remaining = m.pending;
   // Pendente "real-time": fila viva no backend (queueSize por chip selecionado).
   // Em cenários com retry/reconexão, esse valor tende a refletir melhor o que ainda falta sair.
   const pendingLive = useMemo(() => {
@@ -343,6 +342,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       .filter((conn) => selected.has(conn.id))
       .reduce((acc, conn) => acc + Math.max(0, Number(conn.queueSize) || 0), 0);
   }, [campaign.selectedConnectionIds, connections]);
+  const pendingKpi = isDone ? 0 : isRunning ? Math.max(remaining, pendingLive) : remaining;
   const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
   const startedFmt = formatDateTimeBR(campaign.createdAt);
 
@@ -850,7 +850,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     {progress}%
                   </span>
                   <span className="text-[11px] mt-0.5 tabular-nums" style={{ color: 'var(--text-3)' }}>
-                    {campaign.processedCount.toLocaleString('pt-BR')} /{' '}
+                    {m.effectiveProcessed.toLocaleString('pt-BR')} /{' '}
                     {campaign.totalContacts.toLocaleString('pt-BR')}
                   </span>
                   {isRunning && (
@@ -899,11 +899,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         />
         <KpiPill
           label="Pendentes"
-          value={pendingLive.toLocaleString('pt-BR')}
+          value={pendingKpi.toLocaleString('pt-BR')}
           helper={
             isRunning
               ? `fila ao vivo${etaSec > 0 ? ` · ETA ${formatDuration(etaSec)}` : ''}`
-              : pendingLive > 0
+              : pendingKpi > 0
               ? 'fila aguardando'
               : 'sem fila'
           }

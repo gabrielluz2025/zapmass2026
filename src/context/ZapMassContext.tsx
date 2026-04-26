@@ -800,26 +800,42 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     });
 
-    socket.on('campaign-complete', ({ successCount, failCount, campaignId }) => {
-      setCampaignStatus(prev => ({ ...prev, isRunning: false }));
-      if (campaignId) {
-        flushCampaignProgressToFirestore(campaignId, true);
-        const uid = currentUidRef.current;
-        setCampaigns(prev => prev.map(c => c.id === campaignId ? {
-          ...c,
-          status: CampaignStatus.COMPLETED,
-          successCount,
-          failedCount: failCount
-        } : c));
-        if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
-          status: CampaignStatus.COMPLETED,
-          successCount,
-          failedCount: failCount
-        }).catch(() => {});
-        clearCampaignProgressPersist(campaignId);
+    socket.on(
+      'campaign-complete',
+      (payload: {
+        successCount: number;
+        failCount: number;
+        campaignId?: string;
+        processed?: number;
+        total?: number;
+      }) => {
+        const { successCount, failCount, campaignId } = payload;
+        const processedCount =
+          typeof payload.processed === 'number' && !Number.isNaN(payload.processed)
+            ? payload.processed
+            : Math.max(0, (Number(successCount) || 0) + (Number(failCount) || 0));
+        setCampaignStatus(prev => ({ ...prev, isRunning: false }));
+        if (campaignId) {
+          flushCampaignProgressToFirestore(campaignId, true);
+          const uid = currentUidRef.current;
+          setCampaigns(prev => prev.map(c => c.id === campaignId ? {
+            ...c,
+            status: CampaignStatus.COMPLETED,
+            successCount,
+            failedCount: failCount,
+            processedCount
+          } : c));
+          if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+            status: CampaignStatus.COMPLETED,
+            successCount,
+            failedCount: failCount,
+            processedCount
+          }).catch(() => {});
+          clearCampaignProgressPersist(campaignId);
+        }
+        toast.success('Campanha finalizada!');
       }
-      toast.success('Campanha finalizada!');
-    });
+    );
 
     socket.on('campaign-error', ({ error }) => {
       toast.error(error || 'Falha ao iniciar campanha.');

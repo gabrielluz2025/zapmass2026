@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronRight, Pause, Play, Radio } from 'lucide-react';
 import { Campaign, CampaignStatus } from '../../types';
+import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { Badge } from '../ui';
 
 interface Props {
@@ -16,8 +17,7 @@ export const CampaignMissionStickyBar: React.FC<Props> = ({ campaigns, onOpenDet
   const first = active[0];
   const more = active.length - 1;
 
-  const progress =
-    first.totalContacts > 0 ? Math.round((first.processedCount / first.totalContacts) * 100) : 0;
+  const progress = getCampaignProgressMetrics(first).progressPct;
 
   return (
     <div

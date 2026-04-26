@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Campaign, CampaignStatus } from '../../types';
+import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { appendAudit } from '../../utils/campaignMissionStorage';
 import { Badge, Button, Card, EmptyState, Input, Modal, Tabs } from '../ui';
 import { Sparkline, fmtInt } from './CampaignVisuals';
@@ -55,16 +56,16 @@ function downloadCampaignsCsv(rows: Campaign[], filename: string) {
   const lines = [
     header.join(','),
     ...rows.map((c) => {
-      const rate = c.processedCount > 0 ? Math.round((c.successCount / c.processedCount) * 100) : 0;
+      const m = getCampaignProgressMetrics(c);
       return [
         c.id,
         c.name,
         c.status,
         c.totalContacts,
-        c.processedCount,
+        m.effectiveProcessed,
         c.successCount,
         c.failedCount,
-        `${rate}%`,
+        `${m.successRatePct}%`,
         c.createdAt,
         c.contactListName || ''
       ]
@@ -110,7 +111,7 @@ const buildSpark = (camp: Campaign, buckets = 10): number[] => {
 // ETA em segundos para uma campanha ativa
 const etaForCampaign = (camp: Campaign): number | null => {
   if (camp.status !== CampaignStatus.RUNNING) return null;
-  const pending = Math.max(0, camp.totalContacts - camp.processedCount);
+  const pending = getCampaignProgressMetrics(camp).pending;
   const delay = camp.delaySeconds ?? 30;
   const chips = Math.max(1, camp.selectedConnectionIds.length);
   return (pending * delay) / chips;
@@ -186,13 +187,15 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
     const sortFn = (a: Campaign, b: Campaign) => {
       if (sort === 'name') return a.name.localeCompare(b.name, 'pt-BR');
       if (sort === 'progress') {
-        const pa = a.totalContacts > 0 ? a.processedCount / a.totalContacts : 0;
-        const pb = b.totalContacts > 0 ? b.processedCount / b.totalContacts : 0;
+        const pa =
+          a.totalContacts > 0 ? getCampaignProgressMetrics(a).effectiveProcessed / a.totalContacts : 0;
+        const pb =
+          b.totalContacts > 0 ? getCampaignProgressMetrics(b).effectiveProcessed / b.totalContacts : 0;
         return pb - pa;
       }
       if (sort === 'success') {
-        const ra = a.processedCount > 0 ? a.successCount / a.processedCount : 0;
-        const rb = b.processedCount > 0 ? b.successCount / b.processedCount : 0;
+        const ra = getCampaignProgressMetrics(a).successRatePct;
+        const rb = getCampaignProgressMetrics(b).successRatePct;
         return rb - ra;
       }
       if (sort === 'volume') return b.totalContacts - a.totalContacts;
@@ -489,14 +492,9 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
               </thead>
               <tbody>
                 {filtered.map((camp) => {
-                  const progress =
-                    camp.totalContacts > 0
-                      ? Math.round((camp.processedCount / camp.totalContacts) * 100)
-                      : 0;
-                  const rate =
-                    camp.processedCount > 0
-                      ? Math.round((camp.successCount / camp.processedCount) * 100)
-                      : 0;
+                  const m = getCampaignProgressMetrics(camp);
+                  const progress = m.progressPct;
+                  const rate = m.successRatePct;
                   const isRunning = camp.status === CampaignStatus.RUNNING;
                   const isPaused = camp.status === CampaignStatus.PAUSED;
                   const isDone = camp.status === CampaignStatus.COMPLETED;
@@ -669,10 +667,9 @@ const CampaignCardExtended: React.FC<{
   onClone?: () => void;
   onDelete?: () => void;
 }> = ({ campaign, selected, selectionMode, onToggleSelect, onOpen, onTogglePause, onClone, onDelete }) => {
-  const progress =
-    campaign.totalContacts > 0 ? Math.round((campaign.processedCount / campaign.totalContacts) * 100) : 0;
-  const rate =
-    campaign.processedCount > 0 ? Math.round((campaign.successCount / campaign.processedCount) * 100) : 0;
+  const m = getCampaignProgressMetrics(campaign);
+  const progress = m.progressPct;
+  const rate = m.successRatePct;
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
@@ -687,7 +684,7 @@ const CampaignCardExtended: React.FC<{
     ? '#3b82f6'
     : '#94a3b8';
 
-  const pending = Math.max(0, campaign.totalContacts - campaign.processedCount);
+  const pending = m.pending;
 
   return (
     <div
@@ -822,7 +819,7 @@ const CampaignCardExtended: React.FC<{
         className="grid grid-cols-4 gap-1.5 mb-2.5 rounded-lg p-1.5"
         style={{ background: 'var(--surface-1)' }}
       >
-        <Metric label="Enviadas" value={fmtInt(campaign.successCount)} tone="#059669" />
+        <Metric label="Entregues" value={fmtInt(campaign.successCount)} tone="#059669" />
         <Metric label="Falhas" value={fmtInt(campaign.failedCount)} tone="#dc2626" />
         <Metric label="Pendentes" value={fmtInt(pending)} tone="#6b7280" />
         <Metric label="Sucesso" value={`${rate}%`} tone={rate >= 85 ? '#059669' : rate >= 60 ? '#d97706' : '#dc2626'} />
@@ -920,10 +917,9 @@ const CampaignCompactRow: React.FC<{
   onClone?: () => void;
   onDelete?: () => void;
 }> = ({ campaign, selected, selectionMode, onToggleSelect, onOpen, onTogglePause, onClone, onDelete }) => {
-  const progress =
-    campaign.totalContacts > 0 ? Math.round((campaign.processedCount / campaign.totalContacts) * 100) : 0;
-  const rate =
-    campaign.processedCount > 0 ? Math.round((campaign.successCount / campaign.processedCount) * 100) : 0;
+  const m = getCampaignProgressMetrics(campaign);
+  const progress = m.progressPct;
+  const rate = m.successRatePct;
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
@@ -967,7 +963,7 @@ const CampaignCompactRow: React.FC<{
           {campaign.name}
         </p>
         <p className="text-[10.5px] tabular-nums" style={{ color: 'var(--text-3)' }}>
-          {fmtInt(campaign.processedCount)}/{fmtInt(campaign.totalContacts)} · {rate}% sucesso
+          {fmtInt(m.effectiveProcessed)}/{fmtInt(campaign.totalContacts)} · {rate}% sucesso
         </p>
       </div>
       <div className="hidden sm:block opacity-75">

@@ -10,6 +10,7 @@ import {
   X
 } from 'lucide-react';
 import { Campaign, CampaignStatus, WhatsAppConnection, ConnectionStatus } from '../../types';
+import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 
 interface Insight {
   id: string;
@@ -73,7 +74,8 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
       if (c.status !== CampaignStatus.RUNNING) return;
       const created = new Date(c.createdAt).getTime();
       const ageMs = now - created;
-      const pct = c.totalContacts > 0 ? c.processedCount / c.totalContacts : 0;
+      const m = getCampaignProgressMetrics(c);
+      const pct = c.totalContacts > 0 ? m.effectiveProcessed / c.totalContacts : 0;
       if (ageMs > STALE_THRESHOLD_MS && pct < 0.2) {
         list.push({
           id: `stale-${c.id}`,
@@ -92,8 +94,9 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
 
     // 2) Taxa de falha alta em alguma campanha
     campaigns.forEach((c) => {
-      if (c.processedCount < 30) return;
-      const failRate = c.failedCount / Math.max(1, c.processedCount);
+      const m = getCampaignProgressMetrics(c);
+      if (m.effectiveProcessed < 30) return;
+      const failRate = c.failedCount / Math.max(1, m.effectiveProcessed);
       if (failRate > 0.3) {
         list.push({
           id: `failrate-${c.id}`,
@@ -102,7 +105,7 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
           title: 'Taxa de falha elevada',
           body: `"${c.name}" está com ${Math.round(
             failRate * 100
-          )}% de falhas (${c.failedCount} de ${c.processedCount}). Revise a lista de contatos e o estado dos chips.`,
+          )}% de falhas (${c.failedCount} de ${m.effectiveProcessed}). Revise a lista de contatos e o estado dos chips.`,
           action: { label: 'Inspecionar', onClick: () => onOpenDetails(c.id) }
         });
       }
@@ -124,16 +127,20 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
     }
 
     // 4) Top campanha em sucesso (apenas se houver mais de uma completada)
-    const completed = campaigns.filter(
-      (c) => c.status === CampaignStatus.COMPLETED && c.processedCount > 50
-    );
+    const completed = campaigns.filter((c) => {
+      if (c.status !== CampaignStatus.COMPLETED) return false;
+      return getCampaignProgressMetrics(c).effectiveProcessed > 50;
+    });
     if (completed.length >= 2) {
       const top = [...completed].sort((a, b) => {
-        const rA = a.successCount / Math.max(1, a.processedCount);
-        const rB = b.successCount / Math.max(1, b.processedCount);
+        const mA = getCampaignProgressMetrics(a);
+        const mB = getCampaignProgressMetrics(b);
+        const rA = a.successCount / Math.max(1, mA.effectiveProcessed);
+        const rB = b.successCount / Math.max(1, mB.effectiveProcessed);
         return rB - rA;
       })[0];
-      const topRate = Math.round((top.successCount / Math.max(1, top.processedCount)) * 100);
+      const mTop = getCampaignProgressMetrics(top);
+      const topRate = Math.round((top.successCount / Math.max(1, mTop.effectiveProcessed)) * 100);
       if (topRate >= 90) {
         list.push({
           id: `top-${top.id}`,

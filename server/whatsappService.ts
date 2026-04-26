@@ -3619,6 +3619,8 @@ const processQueue = async () => {
     emitToOwnerUid('campaign-complete', currentCampaign.ownerUid, { 
         successCount: currentCampaign.successCount, 
         failCount: currentCampaign.failCount,
+        processed: currentCampaign.processed,
+        total: currentCampaign.total,
         campaignId: currentCampaign.campaignId
     });
     

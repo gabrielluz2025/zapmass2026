@@ -15,6 +15,7 @@ import {
   Users
 } from 'lucide-react';
 import { Campaign, CampaignStatus, WhatsAppConnection, ConnectionStatus } from '../../types';
+import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { Badge, Button, Card, EmptyState } from '../ui';
 import { PulseChart, fmtInt } from './CampaignVisuals';
 
@@ -108,11 +109,13 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
       avg7d === 0 ? (todaySent > 0 ? 100 : 0) : Math.round(((todaySent - avg7d) / avg7d) * 100);
 
     // Top 3 por taxa de sucesso (min 30 processados)
-    const eligibles = campaigns.filter((c) => c.processedCount >= 30);
+    const eligibles = campaigns.filter((c) => getCampaignProgressMetrics(c).effectiveProcessed >= 30);
     const ranked = [...eligibles]
       .sort((a, b) => {
-        const ra = a.successCount / Math.max(1, a.processedCount);
-        const rb = b.successCount / Math.max(1, b.processedCount);
+        const ma = getCampaignProgressMetrics(a);
+        const mb = getCampaignProgressMetrics(b);
+        const ra = ma.effectiveProcessed > 0 ? a.successCount / ma.effectiveProcessed : 0;
+        const rb = mb.effectiveProcessed > 0 ? b.successCount / mb.effectiveProcessed : 0;
         return rb - ra;
       })
       .slice(0, 3);
@@ -263,10 +266,7 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
           ) : (
             <div className="space-y-2">
               {data.ranked.map((camp, i) => {
-                const rate =
-                  camp.processedCount > 0
-                    ? Math.round((camp.successCount / camp.processedCount) * 100)
-                    : 0;
+                const rate = getCampaignProgressMetrics(camp).successRatePct;
                 return (
                   <PodiumRow
                     key={camp.id}
@@ -341,8 +341,7 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {[...runningCampaigns, ...pausedCampaigns].slice(0, 4).map((camp) => {
-              const progress =
-                camp.totalContacts > 0 ? Math.round((camp.processedCount / camp.totalContacts) * 100) : 0;
+              const progress = getCampaignProgressMetrics(camp).progressPct;
               const isRunning = camp.status === CampaignStatus.RUNNING;
               return (
                 <button
@@ -523,8 +522,7 @@ const PodiumRow: React.FC<{
 
 // ─── Gantt Row ───
 const GanttRow: React.FC<{ campaign: Campaign; onClick: () => void }> = ({ campaign, onClick }) => {
-  const progress =
-    campaign.totalContacts > 0 ? Math.round((campaign.processedCount / campaign.totalContacts) * 100) : 0;
+  const progress = getCampaignProgressMetrics(campaign).progressPct;
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
