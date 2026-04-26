@@ -1455,6 +1455,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             recipients: cleanRecipients
           },
           (result?: { ok?: boolean; error?: string }) => {
+            if (result?.ok === true) {
+              finish({ ok: true });
+              return;
+            }
             if (result?.ok === false) {
               finish({ ok: false, error: result.error || 'Falha ao iniciar campanha.' });
             }
