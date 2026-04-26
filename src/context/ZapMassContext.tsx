@@ -114,12 +114,9 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
 const ZapMassContext = createContext<ZapMassContextWithSocket>(EMPTY_CONTEXT);
 const legacyIgnoreKey = (uid: string) => `zapmass.ignoreLegacyData:${uid}`;
 const allowLegacyMerge = (): boolean => {
-  try {
-    const v = (import.meta as { env?: { VITE_ENABLE_LEGACY_MERGE?: string } })?.env?.VITE_ENABLE_LEGACY_MERGE;
-    return v === '1' || v === 'true';
-  } catch {
-    return false;
-  }
+  // Segurança multi-tenant: desabilitado por padrão de forma rígida
+  // para impedir mistura entre contas.
+  return false;
 };
 
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -353,6 +350,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           onSnapshot(
             query(collection(db, 'users', uid, 'contacts'), orderBy('name')),
             (snapshot) => {
+              if (currentUidRef.current !== uid) return;
               b.userContacts = snapshot.docs.map((docSnap) =>
                 normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
               );
@@ -366,6 +364,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             onSnapshot(
               query(collection(db, 'contacts')),
               (snapshot) => {
+                if (currentUidRef.current !== uid) return;
                 if (!allowLegacyNow()) {
                   b.legacyContacts = [];
                   setContacts(mergeContacts(b.userContacts, []));
@@ -386,6 +385,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           onSnapshot(
             query(collection(db, 'users', uid, 'contact_lists'), orderBy('createdAt', 'desc')),
             (snapshot) => {
+              if (currentUidRef.current !== uid) return;
               b.userLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
               setContactLists(mergeContactLists(b.userLists, b.legacyLists));
             },
@@ -397,6 +397,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             onSnapshot(
               query(collection(db, 'contact_lists')),
               (snapshot) => {
+                if (currentUidRef.current !== uid) return;
                 if (!allowLegacyNow()) {
                   b.legacyLists = [];
                   setContactLists(mergeContactLists(b.userLists, []));
@@ -415,6 +416,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           onSnapshot(
             query(collection(db, 'users', uid, 'campaigns'), orderBy('createdAt', 'desc')),
             (snapshot) => {
+              if (currentUidRef.current !== uid) return;
               b.userCampaigns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Campaign));
               setCampaigns(mergeCampaigns(b.userCampaigns, b.legacyCampaigns));
             },
@@ -426,6 +428,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             onSnapshot(
               query(collection(db, 'campaigns')),
               (snapshot) => {
+                if (currentUidRef.current !== uid) return;
                 if (!allowLegacyNow()) {
                   b.legacyCampaigns = [];
                   setCampaigns(mergeCampaigns(b.userCampaigns, []));
@@ -442,7 +445,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
 
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      const prevUid = currentUidRef.current;
       currentUidRef.current = user?.uid ?? null;
+      if (prevUid !== currentUidRef.current) {
+        // Evita mostrar dados da conta anterior até o snapshot do novo usuário chegar.
+        setContacts([]);
+        setContactLists([]);
+        setCampaigns([]);
+      }
       // Garante que o Socket.io usa o mesmo UID que a UI — senão o servidor cria
       // conexoes "legado" (sem prefixo) e a contagem do teto fica defasada.
       const sock = socketRef.current;

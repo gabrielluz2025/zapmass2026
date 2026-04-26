@@ -484,7 +484,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const accountCreatedAt = userRec?.metadata?.creationTime ? new Date(userRec.metadata.creationTime).toISOString() : null;
       const lastSignInAt = userRec?.metadata?.lastSignInTime ? new Date(userRec.metadata.lastSignInTime).toISOString() : null;
 
-      const merged = await loadMergedUserInsightData(db, uid);
+      // Isolamento estrito por conta: insights admin usam apenas users/{uid}/...
+      const merged = await loadMergedUserInsightData(db, uid, { includeLegacyRoot: false });
       const { contacts, lists, campaigns, conns, rawMinActivityEpoch } = merged;
 
       const contactsValid = contacts.filter((c) => String(c.status || '').toUpperCase() !== 'INVALID').length;

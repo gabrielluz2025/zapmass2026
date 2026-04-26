@@ -63,6 +63,8 @@ const phonesMatchDigits = (a: string, b: string): boolean => {
   return false;
 };
 
+const normalizeDigits = (raw: string): string => (raw || '').replace(/\D/g, '');
+
 const classifyConversation = (conv: Conversation): ConversationOrigin => {
   const msgs = conv.messages || [];
   if (msgs.length === 0) return 'empty';
@@ -89,6 +91,13 @@ const QUICK_REPLIES = [
   { text: 'Perfeito! Vamos la!', emoji: '🚀' },
   { text: 'Pode me enviar mais detalhes?', emoji: '📝' }
 ];
+
+const CHAT_UPLOAD_LIMIT_MB = (() => {
+  const raw = Number(import.meta.env.VITE_CHAT_UPLOAD_LIMIT_MB ?? 64);
+  if (!Number.isFinite(raw)) return 64;
+  return Math.max(1, Math.min(256, Math.round(raw)));
+})();
+const CHAT_UPLOAD_LIMIT_BYTES = CHAT_UPLOAD_LIMIT_MB * 1024 * 1024;
 
 /** Agregados da conversa para a faixa de pipeline (saidas + respostas recebidas). */
 const getConversationPipelineAgg = (conv: Conversation | undefined) => {
@@ -260,6 +269,35 @@ export const ChatTab: React.FC = () => {
     [resolveProfilePic]
   );
 
+  // De/para de contatos do sistema por telefone:
+  // prioridade sempre para nome cadastrado no sistema.
+  const systemContactNameByDigits = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ct of contacts) {
+      const name = (ct.name || '').trim();
+      const digits = normalizeDigits(ct.phone || '');
+      if (!name || !digits) continue;
+      if (!map.has(digits)) map.set(digits, name);
+      if (digits.length >= 10) {
+        const tail10 = digits.slice(-10);
+        if (!map.has(tail10)) map.set(tail10, name);
+      }
+    }
+    return map;
+  }, [contacts]);
+
+  const getSystemNameForPhone = useCallback(
+    (phoneRaw: string): string | undefined => {
+      const digits = normalizeDigits(phoneRaw);
+      if (!digits) return undefined;
+      const byFull = systemContactNameByDigits.get(digits);
+      if (byFull) return byFull;
+      if (digits.length >= 10) return systemContactNameByDigits.get(digits.slice(-10));
+      return undefined;
+    },
+    [systemContactNameByDigits]
+  );
+
   const pipelineViewStorageKey = useMemo(
     () => `zapmass-pipeline-tab-view:v1:${user?.uid || 'anon'}`,
     [user?.uid]
@@ -346,7 +384,7 @@ export const ChatTab: React.FC = () => {
       const chosen = connectedList[0] || connections[0];
       // id segue o padrão do backend quando há canal; sem canal usamos id local.
       const draftId = chosen ? `${chosen.id}:${digits}@c.us` : `draft:${digits}`;
-      const displayName = contactName || `+${digits}`;
+      const displayName = getSystemNameForPhone(digits) || contactName || `+${digits}`;
       const draft: Conversation = {
         id: draftId,
         contactName: displayName,
@@ -399,6 +437,18 @@ export const ChatTab: React.FC = () => {
     return [...conversations, ...validDrafts];
   }, [conversations, draftConversations]);
 
+  // Prioriza nome do sistema para exibicao de conversa.
+  // Se nao houver cadastro interno, mantem nome vindo do celular/WhatsApp.
+  const effectiveConversations = useMemo(
+    () =>
+      mergedConversations.map((conv) => {
+        const preferredName = getSystemNameForPhone(conv.contactPhone || '');
+        if (!preferredName || preferredName === conv.contactName) return conv;
+        return { ...conv, contactName: preferredName };
+      }),
+    [mergedConversations, getSystemNameForPhone]
+  );
+
   // Limpa rascunhos cujos ids já existem entre as conversas reais.
   useEffect(() => {
     if (draftConversations.length === 0) return;
@@ -417,7 +467,7 @@ export const ChatTab: React.FC = () => {
     }
   }, [conversations, draftConversations]);
 
-  const selectedConversation = mergedConversations.find((c) => c.id === selectedChatId);
+  const selectedConversation = effectiveConversations.find((c) => c.id === selectedChatId);
   const selectedConnection = connections.find((c) => c.id === selectedConversation?.connectionId);
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selectedConversation), [selectedConversation]);
   // Verdadeiro quando a conversa selecionada ainda é apenas um rascunho local
@@ -439,15 +489,15 @@ export const ChatTab: React.FC = () => {
 
   const filteredByConnection =
     selectedConnectionId === 'ALL'
-      ? mergedConversations
-      : mergedConversations.filter((c) => c.connectionId === selectedConnectionId);
+      ? effectiveConversations
+      : effectiveConversations.filter((c) => c.connectionId === selectedConnectionId);
 
   // Classifica uma unica vez e reusa em filtros + contadores
   const originByConv = useMemo(() => {
     const map = new Map<string, ConversationOrigin>();
-    for (const c of mergedConversations) map.set(c.id, classifyConversation(c));
+    for (const c of effectiveConversations) map.set(c.id, classifyConversation(c));
     return map;
-  }, [mergedConversations]);
+  }, [effectiveConversations]);
 
   const filteredConversations = useMemo(() => {
     let list = filteredByConnection;
@@ -496,16 +546,16 @@ export const ChatTab: React.FC = () => {
 
   // Listas usadas no modal de auditoria
   const systemConvs = useMemo(
-    () => conversations.filter((c) => originByConv.get(c.id) === 'system'),
-    [conversations, originByConv]
+    () => effectiveConversations.filter((c) => originByConv.get(c.id) === 'system'),
+    [effectiveConversations, originByConv]
   );
   const emptyConvs = useMemo(
-    () => conversations.filter((c) => originByConv.get(c.id) === 'empty'),
-    [conversations, originByConv]
+    () => effectiveConversations.filter((c) => originByConv.get(c.id) === 'empty'),
+    [effectiveConversations, originByConv]
   );
   const phoneConvs = useMemo(
-    () => conversations.filter((c) => originByConv.get(c.id) === 'phone'),
-    [conversations, originByConv]
+    () => effectiveConversations.filter((c) => originByConv.get(c.id) === 'phone'),
+    [effectiveConversations, originByConv]
   );
 
   const auditList =
@@ -728,8 +778,8 @@ export const ChatTab: React.FC = () => {
       ? `${selectedDraftChannelId}:${(selectedConversation?.contactPhone || '').replace(/\D/g, '')}@c.us`
       : selectedChatId;
     if (!targetConversationId) return;
-    if (file.size > 16 * 1024 * 1024) {
-      toast.error('Arquivo muito grande. Limite de 16MB por envio.');
+    if (file.size > CHAT_UPLOAD_LIMIT_BYTES) {
+      toast.error(`Arquivo muito grande. Limite atual: ${CHAT_UPLOAD_LIMIT_MB}MB por envio.`);
       return;
     }
     setSendingMedia(true);

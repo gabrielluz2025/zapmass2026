@@ -1,7 +1,6 @@
 /**
- * Carrega e mescla dados `users/{uid}/...` com colecoes de raiz legadas (`/contacts`, etc.),
- * espelhando o app (ZapMassContext + mergeLegacyUserDocs) para o painel admin nao exibir zeros
- * quando os dados ainda estao so na raiz.
+ * Carrega dados do usuario em `users/{uid}/...`.
+ * Opcionalmente (somente para diagnostico/migracao) pode incluir colecoes legadas da raiz.
  */
 import type { Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import type { Contact, ContactList, Campaign } from '../src/types';
@@ -131,24 +130,41 @@ export type MergedInsightData = {
   rawMinActivityEpoch: number;
 };
 
-export async function loadMergedUserInsightData(db: Firestore, uid: string): Promise<MergedInsightData> {
+type LoadMergedInsightOpts = {
+  includeLegacyRoot?: boolean;
+};
+
+export async function loadMergedUserInsightData(
+  db: Firestore,
+  uid: string,
+  opts: LoadMergedInsightOpts = {}
+): Promise<MergedInsightData> {
+  const includeLegacyRoot = opts.includeLegacyRoot === true;
+  const emptyRoot = { empty: true, docs: [] as QueryDocumentSnapshot[] } as { empty: boolean; docs: QueryDocumentSnapshot[] };
+
   const [contactsUser, listsUser, campUser, connSnap, contactsRoot, listsRoot, campRoot] = await Promise.all([
     db.collection('users').doc(uid).collection('contacts').get(),
     db.collection('users').doc(uid).collection('contact_lists').get(),
     db.collection('users').doc(uid).collection('campaigns').get(),
     db.collection('users').doc(uid).collection('connections').get().catch(() => null),
-    db.collection('contacts').get().catch((e) => {
-      console.warn('[insightMerge] /contacts legado:', (e as Error)?.message || e);
-      return { empty: true, docs: [] as QueryDocumentSnapshot[] } as { empty: boolean; docs: QueryDocumentSnapshot[] };
-    }),
-    db.collection('contact_lists').get().catch((e) => {
-      console.warn('[insightMerge] /contact_lists legado:', (e as Error)?.message || e);
-      return { empty: true, docs: [] as QueryDocumentSnapshot[] } as { empty: boolean; docs: QueryDocumentSnapshot[] };
-    }),
-    db.collection('campaigns').get().catch((e) => {
-      console.warn('[insightMerge] /campaigns legado:', (e as Error)?.message || e);
-      return { empty: true, docs: [] as QueryDocumentSnapshot[] } as { empty: boolean; docs: QueryDocumentSnapshot[] };
-    })
+    includeLegacyRoot
+      ? db.collection('contacts').get().catch((e) => {
+          console.warn('[insightMerge] /contacts legado:', (e as Error)?.message || e);
+          return emptyRoot;
+        })
+      : Promise.resolve(emptyRoot),
+    includeLegacyRoot
+      ? db.collection('contact_lists').get().catch((e) => {
+          console.warn('[insightMerge] /contact_lists legado:', (e as Error)?.message || e);
+          return emptyRoot;
+        })
+      : Promise.resolve(emptyRoot),
+    includeLegacyRoot
+      ? db.collection('campaigns').get().catch((e) => {
+          console.warn('[insightMerge] /campaigns legado:', (e as Error)?.message || e);
+          return emptyRoot;
+        })
+      : Promise.resolve(emptyRoot)
   ]);
 
   const userC = contactsUser.docs.map((d) => mapContactDoc(d));

@@ -198,6 +198,53 @@ const normalizeBRPhone = (raw: string): string => {
   return d;
 };
 
+const pickPreferredValue = (current?: string, incoming?: string): string => {
+  const cur = (current || '').trim();
+  const inc = (incoming || '').trim();
+  if (!cur) return inc;
+  if (!inc) return cur;
+  return inc.length > cur.length ? inc : cur;
+};
+
+const mergeContactData = (
+  existing: Contact,
+  incoming: Partial<Contact>,
+  extraTags: string[] = []
+): Partial<Contact> => {
+  const normalizedIncomingPhone = normalizeBRPhone(incoming.phone || '');
+  const mergedTags = Array.from(
+    new Set([...(existing.tags || []), ...(incoming.tags || []), ...extraTags].map((t) => (t || '').trim()).filter(Boolean))
+  );
+
+  const mergedNotes = [existing.notes, incoming.notes]
+    .map((v) => (v || '').trim())
+    .filter(Boolean)
+    .filter((v, idx, arr) => arr.indexOf(v) === idx)
+    .join('\n');
+
+  const finalPhone = normalizedIncomingPhone || existing.phone || '';
+  const finalDigits = finalPhone.replace(/\D/g, '');
+
+  return {
+    name: pickPreferredValue(existing.name, incoming.name) || 'Sem Nome',
+    phone: finalPhone,
+    city: pickPreferredValue(existing.city, incoming.city),
+    state: pickPreferredValue(existing.state, incoming.state).toUpperCase().slice(0, 2),
+    street: pickPreferredValue(existing.street, incoming.street),
+    number: pickPreferredValue(existing.number, incoming.number),
+    neighborhood: pickPreferredValue(existing.neighborhood, incoming.neighborhood),
+    zipCode: pickPreferredValue(existing.zipCode, incoming.zipCode),
+    church: pickPreferredValue(existing.church, incoming.church),
+    role: pickPreferredValue(existing.role, incoming.role),
+    profession: pickPreferredValue(existing.profession, incoming.profession),
+    birthday: pickPreferredValue(existing.birthday, incoming.birthday),
+    email: pickPreferredValue(existing.email, incoming.email),
+    notes: mergedNotes,
+    tags: mergedTags.length > 0 ? mergedTags : existing.tags || [],
+    status: finalDigits.length >= 10 ? 'VALID' : 'INVALID'
+  };
+};
+
 // Tenta extrair um nome "razoavel" de um token: >= 2 palavras alfabeticas,
 // nao contem numeros. Se for so uma palavra, aceita se tiver >= 3 letras.
 const looksLikeName = (token: string): boolean => {
@@ -399,6 +446,16 @@ export const ContactsTab: React.FC = () => {
     const dup = new Set<string>();
     for (const k in cnt) if (cnt[k] > 1) dup.add(k);
     return dup;
+  }, [contacts]);
+
+  const contactByPhoneKey = useMemo(() => {
+    const map = new Map<string, Contact>();
+    for (const c of contacts) {
+      const k = normPhoneKey(c.phone);
+      if (!k) continue;
+      if (!map.has(k)) map.set(k, c);
+    }
+    return map;
   }, [contacts]);
 
   // NOVO LAYOUT: filtro smart único (sidebar) + drawer + modal de insights
@@ -1628,7 +1685,7 @@ export const ContactsTab: React.FC = () => {
     return {
       ...row,
       contact: normalizedContact,
-      include: !row.duplicate && problems.length === 0,
+      include: problems.length === 0,
       problems
     };
   };
@@ -1680,7 +1737,7 @@ export const ContactsTab: React.FC = () => {
         );
       }
     } else {
-      const contact: Contact = {
+      const incomingContact: Contact = {
         id: Date.now().toString(),
         name: newContact.name || 'Sem Nome',
         phone: cleanPhone,
@@ -1700,10 +1757,22 @@ export const ContactsTab: React.FC = () => {
         status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID',
         lastMsg: 'Nunca'
       };
-      const createdId = await addContact(contact);
-      if (createdId && newContactTargetMode !== 'none') {
+      const existingByPhone = contactByPhoneKey.get(normPhoneKey(cleanPhone));
+      let targetContactId = '';
+      if (existingByPhone) {
+        await updateContact(
+          existingByPhone.id,
+          mergeContactData(existingByPhone, incomingContact, ['Novo'])
+        );
+        targetContactId = existingByPhone.id;
+        toast.success('Contato já existia e foi unificado com os novos dados.');
+      } else {
+        const createdId = await addContact(incomingContact);
+        if (typeof createdId === 'string' && createdId) targetContactId = createdId;
+      }
+      if (targetContactId && newContactTargetMode !== 'none') {
         await attachContactsToList(
-          [createdId],
+          [targetContactId],
           newContactTargetMode,
           newContactTargetListId,
           newContactNewListName,
@@ -2830,7 +2899,7 @@ export const ContactsTab: React.FC = () => {
                 A importar:{' '}
                 <b>
                   {
-                    fileImportRowsView.filter(rv => rv.include && !rv.duplicate && rv.problems.length === 0).length
+                    fileImportRowsView.filter(rv => rv.include && rv.problems.length === 0).length
                   }
                 </b>{' '}
                 de {fileImportRowsView.length} linha(s).
@@ -2844,7 +2913,7 @@ export const ContactsTab: React.FC = () => {
                   size="sm"
                   type="button"
                   leftIcon={<Save className="w-4 h-4" />}
-                  disabled={fileImportRowsView.filter(rv => rv.include && !rv.duplicate && rv.problems.length === 0).length === 0}
+                  disabled={fileImportRowsView.filter(rv => rv.include && rv.problems.length === 0).length === 0}
                   onClick={async () => {
                     if (fileImportTargetMode === 'existing' && !fileImportTargetListId) {
                       toast.error('Escolha uma lista de destino.');
@@ -2854,43 +2923,55 @@ export const ContactsTab: React.FC = () => {
                       toast.error('Informe o nome da nova lista.');
                       return;
                     }
-                    const keysAdded = new Set(contacts.map(c => normPhoneKey(c.phone)).filter(Boolean));
-                    const createdIds: string[] = [];
+                    const localByKey = new Map<string, Contact>(contactByPhoneKey);
+                    const touchedIds = new Set<string>();
                     let added = 0;
-                    let skippedDup = 0;
+                    let merged = 0;
                     let skippedProb = 0;
                     for (const rv of fileImportRowsView) {
                       if (!rv.include) continue;
-                      if (rv.duplicate) {
-                        skippedDup++;
-                        continue;
-                      }
                       if (rv.problems.length > 0) {
                         skippedProb++;
                         continue;
                       }
                       const phone = normalizeBRPhone(rv.contact.phone);
                       const k = normPhoneKey(phone);
-                      if (!k || keysAdded.has(k)) {
-                        skippedDup++;
+                      if (!k) {
+                        skippedProb++;
                         continue;
                       }
-                      const createdId = await addContact({
+                      const incoming: Contact = {
                         ...rv.contact,
                         id: `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
                         name: rv.contact.name.trim() || 'Sem Nome',
                         phone,
-                        status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID'
-                      });
-                      if (typeof createdId === 'string' && createdId) createdIds.push(createdId);
-                      keysAdded.add(k);
-                      added++;
+                        status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
+                        tags: (rv.contact.tags || []).length > 0 ? rv.contact.tags : ['Importado']
+                      };
+                      const existing = localByKey.get(k);
+                      if (existing) {
+                        const mergedPayload = mergeContactData(existing, incoming, ['Importado']);
+                        await updateContact(existing.id, mergedPayload);
+                        const nextExisting: Contact = { ...existing, ...mergedPayload };
+                        localByKey.set(k, nextExisting);
+                        touchedIds.add(existing.id);
+                        merged++;
+                      } else {
+                        const createdId = await addContact(incoming);
+                        if (typeof createdId === 'string' && createdId) {
+                          const createdContact: Contact = { ...incoming, id: createdId };
+                          localByKey.set(k, createdContact);
+                          touchedIds.add(createdId);
+                          added++;
+                        }
+                      }
                     }
                     let attached = 0;
                     let listName = '';
-                    if (createdIds.length > 0 && fileImportTargetMode !== 'none') {
+                    const importIds = Array.from(touchedIds);
+                    if (importIds.length > 0 && fileImportTargetMode !== 'none') {
                       const result = await attachContactsToList(
-                        createdIds,
+                        importIds,
                         fileImportTargetMode,
                         fileImportTargetListId,
                         fileImportNewListName,
@@ -2900,8 +2981,8 @@ export const ContactsTab: React.FC = () => {
                       listName = result.listName || '';
                     }
                     toast.success(
-                      `${added} contato(s) importado(s).` +
-                        (skippedDup ? ` ${skippedDup} duplicado(s) ignorado(s).` : '') +
+                      `${added} contato(s) novo(s).` +
+                        (merged ? ` ${merged} contato(s) unificado(s).` : '') +
                         (skippedProb ? ` ${skippedProb} com problema nao importado(s).` : '') +
                         (attached > 0 ? ` ${attached} vinculado(s) em "${listName}".` : '')
                     );
@@ -3041,12 +3122,10 @@ export const ContactsTab: React.FC = () => {
                   <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center gap-3 text-[12px]">
                       <span className="font-bold text-slate-700 dark:text-slate-300">
-                        {
-                          smartImportRowsView.filter(rv => {
-                            const base = smartImportRows.find(b => b.id === rv.id);
-                            return base?.include && !rv.duplicate && (rv.problems?.length || 0) === 0;
-                          }).length
-                        }{' '}
+                        {smartImportRowsView.filter(rv => {
+                          const base = smartImportRows.find(b => b.id === rv.id);
+                          return base?.include && (rv.problems?.length || 0) === 0;
+                        }).length}{' '}
                         pronto(s) para importar
                       </span>
                       <span className="text-slate-400">de {smartImportRows.length}</span>
@@ -3117,7 +3196,7 @@ export const ContactsTab: React.FC = () => {
                                   <input
                                     type="checkbox"
                                     checked={include}
-                                    disabled={!!rv.duplicate || probLen > 0}
+                                    disabled={probLen > 0}
                                     onChange={e => updateRow({ include: e.target.checked })}
                                     className="w-4 h-4 accent-emerald-500"
                                   />
@@ -3126,7 +3205,7 @@ export const ContactsTab: React.FC = () => {
                                 <td className="px-2 py-1.5 max-w-[160px] text-[11px]">
                                   {rv.duplicate ? (
                                     <span className="text-rose-600 font-semibold">
-                                      Duplicado{rv.duplicateName ? ` (${rv.duplicateName})` : ''}
+                                      Já existe{rv.duplicateName ? ` (${rv.duplicateName})` : ''} — será unificado
                                     </span>
                                   ) : probLen ? (
                                     <span className="text-amber-700 dark:text-amber-300">{(rv.problems || []).join(' · ')}</span>
@@ -3242,7 +3321,7 @@ export const ContactsTab: React.FC = () => {
                   disabled={
                     smartImportRowsView.filter(rv => {
                       const base = smartImportRows.find(b => b.id === rv.id);
-                      return base?.include && !rv.duplicate && (rv.problems?.length || 0) === 0;
+                      return base?.include && (rv.problems?.length || 0) === 0;
                     }).length === 0
                   }
                   onClick={async () => {
@@ -3254,20 +3333,21 @@ export const ContactsTab: React.FC = () => {
                       toast.error('Informe o nome da nova lista.');
                       return;
                     }
-                    const keysAdded = new Set(contacts.map(c => normPhoneKey(c.phone)).filter(Boolean));
-                    const createdIds: string[] = [];
+                    const localByKey = new Map<string, Contact>(contactByPhoneKey);
+                    const touchedIds = new Set<string>();
                     let imported = 0;
                     let skipped = 0;
+                    let merged = 0;
                     for (const rv of smartImportRowsView) {
                       const base = smartImportRows.find(b => b.id === rv.id);
                       if (!base?.include) continue;
-                      if (rv.duplicate || (rv.problems?.length || 0) > 0) {
+                      if ((rv.problems?.length || 0) > 0) {
                         skipped++;
                         continue;
                       }
                       const phone = normalizeBRPhone(rv.phone);
                       const k = normPhoneKey(phone);
-                      if (!k || keysAdded.has(k)) {
+                      if (!k) {
                         skipped++;
                         continue;
                       }
@@ -3291,16 +3371,29 @@ export const ContactsTab: React.FC = () => {
                         status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
                         lastMsg: 'Nunca'
                       };
-                      const createdId = await addContact(c);
-                      if (typeof createdId === 'string' && createdId) createdIds.push(createdId);
-                      keysAdded.add(k);
-                      imported++;
+                      const existing = localByKey.get(k);
+                      if (existing) {
+                        const mergedPayload = mergeContactData(existing, c, ['Importação Rápida']);
+                        await updateContact(existing.id, mergedPayload);
+                        const nextExisting: Contact = { ...existing, ...mergedPayload };
+                        localByKey.set(k, nextExisting);
+                        touchedIds.add(existing.id);
+                        merged++;
+                      } else {
+                        const createdId = await addContact(c);
+                        if (typeof createdId === 'string' && createdId) {
+                          localByKey.set(k, { ...c, id: createdId });
+                          touchedIds.add(createdId);
+                          imported++;
+                        }
+                      }
                     }
                     let attached = 0;
                     let listName = '';
-                    if (createdIds.length > 0 && smartImportTargetMode !== 'none') {
+                    const importIds = Array.from(touchedIds);
+                    if (importIds.length > 0 && smartImportTargetMode !== 'none') {
                       const result = await attachContactsToList(
-                        createdIds,
+                        importIds,
                         smartImportTargetMode,
                         smartImportTargetListId,
                         smartImportNewListName,
@@ -3310,8 +3403,9 @@ export const ContactsTab: React.FC = () => {
                       listName = result.listName || '';
                     }
                     toast.success(
-                      `${imported} contato(s) importado(s).` +
-                      (skipped ? ` ${skipped} linha(s) ignorada(s) (duplicado ou com problema).` : '') +
+                      `${imported} contato(s) novo(s).` +
+                      (merged ? ` ${merged} contato(s) unificado(s).` : '') +
+                      (skipped ? ` ${skipped} linha(s) ignorada(s) (com problema).` : '') +
                       (attached > 0 ? ` ${attached} vinculado(s) em "${listName}".` : '')
                     );
                     setSmartImportOpen(false);
@@ -3327,7 +3421,7 @@ export const ContactsTab: React.FC = () => {
                   {
                     smartImportRowsView.filter(rv => {
                       const base = smartImportRows.find(b => b.id === rv.id);
-                      return base?.include && !rv.duplicate && (rv.problems?.length || 0) === 0;
+                      return base?.include && (rv.problems?.length || 0) === 0;
                     }).length
                   }{' '}
                   contato(s)
