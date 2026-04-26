@@ -523,9 +523,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       auth.currentUser.getIdToken().then((token) => {
         socket.auth = { token };
         if (!socket.connected) socket.connect();
-      }).catch(() => {});
-    } else {
-      socket.connect();
+      }).catch(() => {
+        setIsBackendConnected(false);
+      });
     }
 
     socket.on('connect', () => {
@@ -575,6 +575,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('connect_error', (err) => {
       setIsBackendConnected(false);
       console.error('❌ Erro na conexão Socket.IO:', err.message);
+      if (err?.message === 'unauthorized') {
+        const u = auth.currentUser;
+        if (u) {
+          u.getIdToken(true)
+            .then((token) => {
+              socket.auth = { token };
+              if (!socket.connected) socket.connect();
+            })
+            .catch(() => {
+              /* sem token valido, mantem desconectado */
+            });
+        }
+      }
     });
 
     socket.io.on('reconnect_attempt', (attempt) => {

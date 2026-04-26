@@ -268,6 +268,10 @@ const logEvent = (event: string, payload?: Record<string, unknown>) => {
 
 const registerSocketHandlers = () => {
   waService.init(io);
+  const allowAnonymousSocket = (() => {
+    const raw = String(process.env.ALLOW_ANONYMOUS_SOCKET || '').toLowerCase();
+    return raw === '1' || raw === 'true';
+  })();
 
   io.use(async (socket, next) => {
     try {
@@ -276,10 +280,15 @@ const registerSocketHandlers = () => {
       if (adminApp && token) {
         const decoded = await getAuth(adminApp).verifyIdToken(token);
         socket.data.uid = decoded.uid;
-      } else {
-        socket.data.uid = 'anonymous';
+        next();
+        return;
       }
-      next();
+      if (allowAnonymousSocket) {
+        socket.data.uid = 'anonymous';
+        next();
+        return;
+      }
+      next(new Error('unauthorized'));
     } catch (err) {
       next(new Error('unauthorized'));
     }
