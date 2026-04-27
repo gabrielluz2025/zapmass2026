@@ -58,6 +58,10 @@ jobs:
           cache: npm
 
       - name: Instalar e compilar
+        env:
+          # Evita download de browser no CI (o app usa Chromium do runtime Docker/VPS).
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+          PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
         run: |
           set -euo pipefail
           node -v
