@@ -11,7 +11,8 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+  npm ci
 
 # Variaveis VITE_* precisam existir na hora do build (Vite as "cozinha" no bundle).
 # Recebidas via build args no docker-compose.yml a partir do .env da VPS.
@@ -31,7 +32,6 @@ ENV VITE_ADMIN_EMAILS=$VITE_ADMIN_EMAILS \
 
 COPY . .
 RUN npm run build
-RUN npm prune --omit=dev
 
 # Runtime: mesmo base Debian que o build (menos surpresas com libs)
 FROM node:22-bookworm AS runner
@@ -68,10 +68,12 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+  npm ci --omit=dev \
+  && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/src/utils ./src/utils
-COPY --from=builder /app/node_modules ./node_modules
 # insightMerge e mergeLegacyUserDocs importam tipos (Contact, Campaign, etc.)
 COPY --from=builder /app/src/types.ts ./src/types.ts
 COPY --from=builder /app/VERSION ./VERSION
