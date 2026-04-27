@@ -1197,15 +1197,29 @@ export const DashboardTab: React.FC = () => {
             if (atPlanChannelLimit) {
               headline = 'Limite do plano atingido';
               subHead = `Você está usando ${planScopedCount} de ${maxPlanChannelSlots} canais contratados. Libere um canal ou adquira extras em Minha assinatura.`;
-            } else if (infraLevel === 'critical') {
+            } else if (isAdmin && infraLevel === 'critical') {
               headline = 'Servidor no limite (memória)';
               subHead = `Muitas sessões WhatsApp para a RAM desta máquina. Risco de travamentos.`;
-            } else if (infraLevel === 'warn') {
+            } else if (isAdmin && infraLevel === 'warn') {
               headline = 'Perto do teto de hardware';
               subHead = `Com ${systemMetrics?.ramTotalGb ?? '?'} GB, o ideal é até ~${cap.safe} sessões; acima de ${cap.critical} o sistema fica instável.`;
             } else if (planLevel === 'warn' && !isAdmin) {
               headline = 'Quase no limite do plano';
               subHead = `Faltam poucos canais para atingir seu teto (${maxPlanChannelSlots}). Considere o pacote de extras.`;
+            } else if (!isAdmin) {
+              headline = 'Canais e plano';
+              subHead = (
+                <>
+                  <p className="leading-relaxed">
+                    Seu plano define quantos canais pode usar. A caixa <strong>Contrato</strong> abaixo mostra os{' '}
+                    <em>seus</em> canais em relação ao que contratou.
+                  </p>
+                  <p className="mt-1.5 leading-relaxed">
+                    <strong className="font-semibold" style={{ color: 'var(--text-2)' }}>ZapMass Pro</strong>:{' '}
+                    {BASE_CHANNEL_SLOTS} canais no plano base; até {MAX_CHANNELS_TOTAL} com add-on pago.
+                  </p>
+                </>
+              );
             } else {
               headline = 'Plano e servidor alinhados';
               subHead = (
@@ -1227,8 +1241,11 @@ export const DashboardTab: React.FC = () => {
             }
 
             const headerIcon =
-              atPlanChannelLimit || infraLevel !== 'ok' ? (
-                <AlertTriangle className="w-4 h-4" style={{ color: atPlanChannelLimit ? '#f59e0b' : ramColor }} />
+              atPlanChannelLimit || (isAdmin && infraLevel !== 'ok') || (!isAdmin && planLevel === 'warn') ? (
+                <AlertTriangle
+                  className="w-4 h-4"
+                  style={{ color: atPlanChannelLimit || (!isAdmin && planLevel === 'warn') ? '#f59e0b' : ramColor }}
+                />
               ) : (
                 <ShieldCheck className="w-4 h-4" style={{ color: planColor }} />
               );
@@ -1268,7 +1285,9 @@ export const DashboardTab: React.FC = () => {
                       )}
                       <span style={{ color: 'var(--text-3)' }}>
                         {isBackendConnected
-                          ? 'Painel em sincronia com o servidor (métricas e avisos).'
+                          ? isAdmin
+                            ? 'Painel em sincronia com o servidor (métricas e avisos).'
+                            : 'Painel em sincronia com o servidor.'
                           : 'Reconectando… em poucos segundos os números voltam ao normal.'}
                       </span>
                     </div>
@@ -1286,7 +1305,9 @@ export const DashboardTab: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div
+                  className={`grid grid-cols-1 gap-3 ${isAdmin ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}
+                >
                   <div
                     className="rounded-xl p-3.5 space-y-3"
                     style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -1340,6 +1361,7 @@ export const DashboardTab: React.FC = () => {
                   )}
                   </div>
 
+                  {isAdmin && (
                   <div
                     className="rounded-xl p-3.5 space-y-2"
                     style={{
@@ -1402,9 +1424,10 @@ export const DashboardTab: React.FC = () => {
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
 
-                {infraLevel !== 'ok' && !atPlanChannelLimit && (
+                {isAdmin && infraLevel !== 'ok' && !atPlanChannelLimit && (
                   <div
                     className="p-2.5 rounded-lg text-[11.5px] leading-relaxed"
                     style={{
