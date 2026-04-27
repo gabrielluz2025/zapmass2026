@@ -46,6 +46,7 @@ services:
       # precisam de Firestore (trial, billing, admin) retornam 503.
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
     env_file:
       - path: .env
         required: false

@@ -44,6 +44,7 @@ services:
       # Opcional: scrape interno (rede Docker) sem token; localhost/público exigem Bearer se definido.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
     env_file:
       - .env
     volumes:
