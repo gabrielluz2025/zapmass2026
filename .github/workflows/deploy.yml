@@ -30,6 +30,19 @@ on:
       - prod
       - principal
       - "produção"
+    paths:
+      - "src/**"
+      - "server/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.*"
+      - "tsconfig*.json"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "docker-stack.yml"
+      - ".github/workflows/deploy.yml"
+      - ".env.example"
   schedule:
     # Roda a cada 30 min para aplicar deploy pendente na janela da madrugada.
     - cron: "*/30 * * * *"
