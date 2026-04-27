@@ -18,6 +18,7 @@ import { registerBillingInfinitePayRoutes } from './billingInfinitePay.js';
 import { registerBillingTrialRoutes } from './billingTrial.js';
 import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
 import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
+import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
@@ -140,6 +141,7 @@ registerBillingInfinitePayRoutes(app);
 registerBillingTrialRoutes(app);
 registerAdminAppConfigRoutes(app);
 registerAdminOpsRoutes(app);
+registerAdminConnectionsRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', (req, res) => {
@@ -222,6 +224,17 @@ if (process.env.NODE_ENV === 'production') {
     }) as any
   );
   app.get('*', (req, res) => {
+    // Se o ficheiro estatico nao existir, o catch-all nao deve servir index.html
+    // (o browser trataria HTML como JS/CSS → falha silenciosa / tela preta).
+    const p = req.path || '';
+    if (p.startsWith('/assets/')) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+    if (/\.(js|mjs|css|map|json|woff2?|ttf|eot|svg|png|jpe?g|gif|webp|ico|wasm)$/i.test(p)) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(distPath, 'index.html'));
   });

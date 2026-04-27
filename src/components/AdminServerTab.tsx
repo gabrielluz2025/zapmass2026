@@ -17,6 +17,7 @@ import { getMaxConnectionSlotsForUser, countAccountScopedConnections, BASE_CHANN
 import { getChannelCapacity } from '../utils/channelCapacityHeuristic';
 import { Card, CardHeader, Badge } from './ui';
 import { AdminOpsMonitor } from './AdminOpsMonitor';
+import { AdminConnectionsOverview } from './admin/AdminConnectionsOverview';
 import { DashMetric } from './dashboard/DashMetric';
 
 /**
@@ -322,6 +323,8 @@ export const AdminServerTab: React.FC = () => {
           <AdminOpsMonitor user={user} />
         </div>
       </Card>
+
+      <AdminConnectionsOverview user={user} />
     </div>
   );
 };
