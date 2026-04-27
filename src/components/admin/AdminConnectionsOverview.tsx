@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { Copy, Info, RefreshCw, Shield, Unplug, Users } from 'lucide-react';
+import { Copy, Info, Mail, RefreshCw, Shield, Unplug, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Card, CardHeader, Badge, Button } from '../ui';
 import { ConnectionStatus } from '../../types';
@@ -13,7 +13,10 @@ type Row = {
   lastActivity: string;
   phoneNumber: string | null;
   ownerUid: string | null;
+  /** Email (Firebase) quando a Admin API resolve o UID */
+  ownerEmail: string | null;
   canRevoke: boolean;
+  canRevokeReason: string | null;
 };
 
 const statusLabel = (s: string): string => {
@@ -103,7 +106,14 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
         setRows([]);
         return;
       }
-      setRows(Array.isArray(j.connections) ? j.connections : []);
+      const list = (Array.isArray(j.connections) ? j.connections : []) as Row[];
+      setRows(
+        list.map((x) => ({
+          ...x,
+          ownerEmail: x.ownerEmail ?? null,
+          canRevokeReason: x.canRevokeReason ?? null
+        }))
+      );
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Falha de rede');
       setRows([]);
@@ -182,6 +192,47 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
     }
   };
 
+  const revokeAllEligible = async () => {
+    if (!user || revokableCount === 0) return;
+    const ok = window.confirm(
+      `Interromper e remover do servidor ${revokableCount} ${
+        revokableCount === 1 ? 'canal' : 'canais'
+      } ` +
+        'que ainda puderem ser forçados (só pendentes de QR / sem nº, não contas caidas pós-WhatsApp)?'
+    );
+    if (!ok) return;
+    setActionId('__bulk__');
+    try {
+      const token = await user.getIdToken();
+      const r = await fetch('/api/admin/connections/revoke-pending-bulk', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const j = (await r.json()) as {
+        ok?: boolean;
+        removed?: number;
+        removedIds?: string[];
+        failures?: { id: string; error: string }[];
+      };
+      if (!r.ok) {
+        toast.error('Falha no lote. ' + (j as { error?: string }).error, { id: 'revoke-bulk' });
+        return;
+      }
+      const n = j.removed ?? 0;
+      const f = j.failures?.length ?? 0;
+      if (f > 0) {
+        toast.error(`${n} removido(s), ${f} com erro.`, { id: 'revoke-bulk' });
+      } else {
+        toast.success(n > 0 ? `${n} canal(is) interrompido(s).` : 'Nada a interromper (regras).', { id: 'revoke-bulk' });
+      }
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha de rede', { id: 'revoke-bulk' });
+    } finally {
+      setActionId(null);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -199,16 +250,29 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
           title="Conexões — visão global"
           subtitle="Estado das sessões WhatsApp no servidor, por conta. Use “Interromper” só para canais ainda a aguardar QR ou a ligar."
           actions={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              loading={loading}
-              onClick={load}
-              leftIcon={<RefreshCw className="w-3.5 h-3.5" aria-hidden />}
-            >
-              Atualizar
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                loading={actionId === '__bulk__'}
+                disabled={loading || revokableCount === 0 || (actionId !== null && actionId !== '__bulk__')}
+                onClick={() => void revokeAllEligible()}
+                leftIcon={<Unplug className="w-3.5 h-3.5" aria-hidden />}
+              >
+                Interromper todos ({revokableCount})
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                loading={loading}
+                onClick={load}
+                leftIcon={<RefreshCw className="w-3.5 h-3.5" aria-hidden />}
+              >
+                Atualizar
+              </Button>
+            </div>
           }
         />
       </div>
@@ -243,10 +307,11 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
           className="mx-4 mb-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed"
           style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}
         >
-          Sessões pendentes aparecem enquanto o utilizador não conclui o QR. “Interromper” cancela essa tentativa
-          no servidor. Contas já <strong className="text-[var(--text-2)]">Ligada</strong> ao WhatsApp não podem
-          ser forçadas por aqui. O identificador longo (UID) identifica a conta Firebase — pode repetir-se se um
-          utilizador tiver vários canais.
+          Cada <strong className="text-[var(--text-2)]">utilizador</strong> é a conta Firebase (e-mail
+          resolvido quando a API Admin tiver acesso). “Interromper” só aplica a canais ainda a aguardar QR ou
+          sem nº vinculado. Se o WhatsApp <strong>já chegou a ligar</strong> (nº guardado) ou a sessão caiu /
+          suspensa / está a <strong>reconectar</strong>, o botão fica bloqueado — o utilizador deve gerir
+          a partir da app. “Interromper todos” só afecta as linhas que ainda puderem ser forçadas.
         </div>
       )}
 
@@ -298,12 +363,22 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
                   style={{ background: 'var(--surface-1)', color: 'var(--text-2)' }}
                 >
                   <span className="font-medium" style={{ color: 'var(--text-1)' }}>
-                    {isLegacy ? 'Conta antiga' : 'Conta (Firebase UID)'}
+                    {isLegacy ? 'Conta antiga' : gRows[0]?.ownerEmail ? 'Conta' : 'Conta (Firebase)'}
                   </span>
+                  {gRows[0]?.ownerEmail ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-[12px] font-medium max-w-[min(100%,20rem)] truncate"
+                      style={{ color: 'var(--text-1)' }}
+                      title={gRows[0].ownerEmail}
+                    >
+                      <Mail className="w-3.5 h-3.5 shrink-0 text-indigo-400" aria-hidden />
+                      {gRows[0].ownerEmail}
+                    </span>
+                  ) : null}
                   {displayUid ? (
                     <>
                       <code className="text-[10px] font-mono max-w-[min(100%,18rem)] truncate" title={displayUid}>
-                        {shortUid(displayUid)}
+                        {gRows[0]?.ownerEmail ? `UID: ${shortUid(displayUid)}` : shortUid(displayUid)}
                       </code>
                       <button
                         type="button"
@@ -312,7 +387,7 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
                         onClick={() => copyUid(displayUid)}
                       >
                         <Copy className="w-3 h-3" aria-hidden />
-                        Copiar
+                        Copiar UID
                       </button>
                     </>
                   ) : (
@@ -323,12 +398,13 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
                   </Badge>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[600px] text-left text-[12px]">
+                  <table className="w-full min-w-[720px] text-left text-[12px]">
                     <thead>
                       <tr style={{ color: 'var(--text-3)' }}>
+                        <th className="py-2 px-3 font-semibold min-w-[130px]">Utilizador</th>
                         <th className="py-2 px-3 font-semibold">Canal</th>
                         <th className="py-2 pr-2 font-semibold w-[120px]">Estado</th>
-                        <th className="py-2 pr-2 font-semibold min-w-[160px]">Atividade / número</th>
+                        <th className="py-2 pr-2 font-semibold min-w-[150px]">Atividade / número</th>
                         <th className="py-2 px-3 font-semibold w-[150px] text-right">Ação</th>
                       </tr>
                     </thead>
@@ -337,6 +413,24 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
                         const { primary: channelPrimary } = formatChannelName(r.name, r.ownerUid);
                         return (
                           <tr key={r.id} className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                            <td className="py-2.5 px-3 align-top max-w-[11rem]">
+                              {r.ownerEmail ? (
+                                <div
+                                  className="text-[12px] font-medium leading-snug break-words"
+                                  style={{ color: 'var(--text-1)' }}
+                                  title={r.ownerEmail}
+                                >
+                                  {r.ownerEmail}
+                                </div>
+                              ) : null}
+                              <div
+                                className="text-[10px] font-mono mt-0.5 truncate"
+                                style={{ color: 'var(--text-3)' }}
+                                title={r.ownerUid || ''}
+                              >
+                                {r.ownerUid ? `UID ${shortUid(r.ownerUid)}` : 'sem UID'}
+                              </div>
+                            </td>
                             <td className="py-2.5 px-3 align-top">
                               <div className="font-medium leading-snug" style={{ color: 'var(--text-1)' }}>
                                 {channelPrimary}
@@ -366,7 +460,7 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
                                 </div>
                               )}
                             </td>
-                            <td className="py-2.5 px-3 text-right align-top">
+                            <td className="py-2.5 px-3 text-right align-top max-w-[11rem]">
                               {r.canRevoke ? (
                                 <Button
                                   type="button"
@@ -381,8 +475,12 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
                                   Interromper
                                 </Button>
                               ) : (
-                                <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                                  Ligada — não forçar
+                                <span
+                                  className="text-[9px] leading-tight text-right block"
+                                  style={{ color: 'var(--text-3)' }}
+                                  title={r.canRevokeReason || ''}
+                                >
+                                  {r.canRevokeReason || 'Indisponível'}
                                 </span>
                               )}
                             </td>
