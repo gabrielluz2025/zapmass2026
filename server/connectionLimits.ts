@@ -3,6 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import type { UserSubscriptionDoc } from './subscriptionFirestore.js';
 import { filterByConnectionScope } from '../src/utils/connectionScope.js';
+import { userHasFullAppAccess } from './subscriptionAccess.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
@@ -71,12 +72,9 @@ function hasChannelAddonPurchaseProof(sub: UserSubscriptionDoc | null | undefine
   return false;
 }
 
-/** Assinatura ou liberacao admin pode, em tese, usar extras; demais (ex.: `past_due`, `canceled`, `none`) nao. */
-function statusAllowsPaidExtras(sub: UserSubscriptionDoc | null | undefined): boolean {
-  if (!sub) return false;
-  if (sub.manualGrant === true) return true;
-  const st = sub.status;
-  return st === 'active' || st === 'trialing';
+/** Inclui trial ainda ativo; trial expirado = false. */
+function statusAllowsPaidExtras(sub: UserSubscriptionDoc | null | undefined, now: number = Date.now()): boolean {
+  return userHasFullAppAccess(sub, now);
 }
 
 function manualGrantedExtraSlots(sub: UserSubscriptionDoc | null | undefined): number {
@@ -112,7 +110,7 @@ export function getMaxConnectionSlots(
   // (ADMIN_EMAILS segue válido para rotas/painéis administrativos.)
   void options.serverAdmin;
   const included = paidIncludedChannels(sub);
-  if (included > 0 && statusAllowsPaidExtras(sub)) {
+  if (included > 0 && statusAllowsPaidExtras(sub, Date.now())) {
     const manualExtras = manualGrantedExtraSlots(sub);
     return Math.min(MAX_CONNECTIONS_TOTAL, included + manualExtras);
   }
@@ -120,7 +118,7 @@ export function getMaxConnectionSlots(
     0,
     Math.min(MAX_EXTRA_CHANNEL_SLOTS, Math.floor(Number(sub?.extraChannelSlots) || 0))
   );
-  const paidExtras = statusAllowsPaidExtras(sub) && hasChannelAddonPurchaseProof(sub) ? raw : 0;
+  const paidExtras = statusAllowsPaidExtras(sub, Date.now()) && hasChannelAddonPurchaseProof(sub) ? raw : 0;
   const manualExtras = manualGrantedExtraSlots(sub);
   const effective = Math.max(paidExtras, manualExtras);
   return Math.min(MAX_CONNECTIONS_TOTAL, BASE_CONNECTION_SLOTS + effective);

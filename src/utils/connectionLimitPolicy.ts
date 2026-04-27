@@ -19,10 +19,26 @@ function hasChannelAddonPurchaseProof(sub: UserSubscription | null): boolean {
   return false;
 }
 
+/** Alinhado a SubscriptionContext / servidor: trialing com trial expirado = false. */
 function statusAllowsPaidExtras(sub: UserSubscription | null): boolean {
   if (!sub) return false;
-  if (sub.manualGrant === true) return true;
-  return sub.status === 'active' || sub.status === 'trialing';
+  if (sub.blocked === true) return false;
+  const now = Date.now();
+  const manualEnd = toMs(sub.manualAccessEndsAt);
+  if (sub.manualGrant === true) {
+    if (manualEnd == null) return true;
+    return now < manualEnd;
+  }
+  const trialEnd = toMs(sub.trialEndsAt);
+  const accessEnd = toMs(sub.accessEndsAt);
+  if (sub.status === 'active') {
+    if (accessEnd == null) return true;
+    return now < accessEnd;
+  }
+  if (sub.status === 'trialing' && trialEnd != null) {
+    return now < trialEnd;
+  }
+  return false;
 }
 
 function toMs(v: unknown): number | null {

@@ -10,6 +10,10 @@ export interface UserSubscriptionDoc {
   status: SubscriptionStatus;
   provider: SubscriptionProvider;
   plan: SubscriptionPlan;
+  /** true = bloqueio administrativo; sem acesso. */
+  blocked?: boolean;
+  /** Liberação manual c/ fim; ver SubscriptionContext. */
+  manualAccessEndsAt?: Timestamp | null;
   mercadoPagoPreapprovalId?: string;
   mercadoPagoLastPaymentId?: string;
   infinitePayReference?: string;

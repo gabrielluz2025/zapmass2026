@@ -24,7 +24,7 @@ services:
         VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
         VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
         VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
-        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-}
+        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-true}
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         # Na VPS: `export VITE_GIT_REF=$(git rev-parse --short HEAD)` antes do up --build, ou o workflow de deploy define.
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
@@ -45,6 +45,7 @@ services:
       # Se o ficheiro nao existir, o servidor sobe na mesma mas rotas que
       # precisam de Firestore (trial, billing, admin) retornam 503.
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
+      SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
     env_file:
       - path: .env
         required: false
@@ -75,7 +76,7 @@ services:
         VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
         VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
         VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
-        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-}
+        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-true}
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
     command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]

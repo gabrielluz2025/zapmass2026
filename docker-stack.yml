@@ -9,7 +9,7 @@ services:
         VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
         VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
         VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
-        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-}
+        VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-true}
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
     ports:
@@ -43,6 +43,7 @@ services:
       MERCADOPAGO_CHANNEL_TIER_5_ANNUAL: ${MERCADOPAGO_CHANNEL_TIER_5_ANNUAL:-}
       # Opcional: scrape interno (rede Docker) sem token; localhost/público exigem Bearer se definido.
       METRICS_TOKEN: ${METRICS_TOKEN:-}
+      SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
     env_file:
       - .env
     volumes:

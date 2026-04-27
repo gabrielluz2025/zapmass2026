@@ -41,6 +41,7 @@ import {
 } from './sessionControlPlane.js';
 import { collectMetrics, metricsContentType, setConnectedSessionsGauge } from './observability.js';
 import { metricsAccessMiddleware } from './metricsAccess.js';
+import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 
 // --- REAL SYSTEM METRICS ---
 let _lastCpuInfo = os.cpus();
@@ -343,6 +344,18 @@ const registerSocketHandlers = () => {
     if (uid && uid !== 'anonymous') {
       socket.join(`user:${uid}`);
     }
+    const requireActiveSubscription = async (): Promise<boolean> => {
+      if (!subscriptionEnforceFromEnv()) return true;
+      if (!uid || uid === 'anonymous') return true;
+      if (await isUidTreatedAsServerAdmin(uid)) return true;
+      const sub = await readUserSubscriptionForLimits(uid);
+      if (userHasFullAppAccess(sub, Date.now())) return true;
+      socket.emit('subscription-required', {
+        message:
+          'Plano ativo ou teste valido e necessario. Abra Minha assinatura para assinar o ZapMass Pro e liberar o uso.'
+      });
+      return false;
+    };
     userLog('socket:connected', { socketId: socket.id });
 
     socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
@@ -373,6 +386,7 @@ const registerSocketHandlers = () => {
     socket.on('create-connection', ({ name }: { name?: string }) => {
       const queueKey = uid;
       enqueuePerKey(queueKey, async () => {
+        if (!(await requireActiveSubscription())) return;
         let maxAllowed = BASE_CONNECTION_SLOTS;
         if (uid && uid !== 'anonymous') {
           try {
@@ -424,21 +438,27 @@ const registerSocketHandlers = () => {
     });
 
     socket.on('reconnect-connection', ({ id }) => {
-      if (!ownsConnectionId(id)) {
-        denyCrossTenant('reconnect-connection', { id });
-        return;
-      }
-      userLog('ui:reconnect-connection', { id });
-      void submitReconnectConnection(id, uid);
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        if (!ownsConnectionId(id)) {
+          denyCrossTenant('reconnect-connection', { id });
+          return;
+        }
+        userLog('ui:reconnect-connection', { id });
+        await submitReconnectConnection(id, uid);
+      })();
     });
 
     socket.on('force-qr', ({ id }) => {
-      if (!ownsConnectionId(id)) {
-        denyCrossTenant('force-qr', { id });
-        return;
-      }
-      userLog('ui:force-qr', { id });
-      void submitForceQr(id, uid);
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        if (!ownsConnectionId(id)) {
+          denyCrossTenant('force-qr', { id });
+          return;
+        }
+        userLog('ui:force-qr', { id });
+        await submitForceQr(id, uid);
+      })();
     });
 
     // Start Campaign: Agora aceita connectionIds (array) para balanceamento
@@ -491,6 +511,10 @@ const registerSocketHandlers = () => {
         callback?.({ ok: false, error: 'Conexao invalida para esta conta.' });
         return;
       }
+      if (!(await requireActiveSubscription())) {
+        callback?.({ ok: false, error: 'Assine o Pro ou renove o periodo para disparar campanhas.' });
+        return;
+      }
       const connections = filterByConnectionScope(uid, waService.getConnections());
       const connectedIds = connections
         .filter((conn) => conn.status === 'CONNECTED')
@@ -531,6 +555,7 @@ const registerSocketHandlers = () => {
         denyCrossTenant('send-message', { conversationId });
         return;
       }
+      if (!(await requireActiveSubscription())) return;
       userLog('ui:send-message', { conversationId });
       try {
         await submitSendMessage(conversationId, text, uid);
@@ -564,6 +589,10 @@ const registerSocketHandlers = () => {
           callback?.({ ok: false, error: 'Conversa nao pertence a esta conta.' });
           return;
         }
+        if (!(await requireActiveSubscription())) {
+          callback?.({ ok: false, error: 'Plano ativo necessario para enviar midia.' });
+          return;
+        }
         try {
           await submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, uid);
           callback?.({ ok: true });
@@ -592,36 +621,48 @@ const registerSocketHandlers = () => {
     });
 
     socket.on('update-settings', (settings: { minDelay?: number; maxDelay?: number; dailyLimit?: number; sleepMode?: boolean; webhookUrl?: string; emailNotif?: boolean }) => {
-      userLog('ui:update-settings', settings as Record<string, unknown>);
-      waService.applySettings(settings);
-      socket.emit('settings-saved', { ok: true });
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        userLog('ui:update-settings', settings as Record<string, unknown>);
+        waService.applySettings(settings);
+        socket.emit('settings-saved', { ok: true });
+      })();
     });
 
     socket.on('pause-campaign', ({ campaignId }) => {
-      if (!waService.canControlCampaign(uid, campaignId)) {
-        denyCrossTenant('pause-campaign', { campaignId });
-        return;
-      }
-      userLog('ui:pause-campaign', { campaignId });
-      waService.pauseCampaign(campaignId);
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        if (!waService.canControlCampaign(uid, campaignId)) {
+          denyCrossTenant('pause-campaign', { campaignId });
+          return;
+        }
+        userLog('ui:pause-campaign', { campaignId });
+        waService.pauseCampaign(campaignId);
+      })();
     });
 
     socket.on('resume-campaign', ({ campaignId }) => {
-      if (!waService.canControlCampaign(uid, campaignId)) {
-        denyCrossTenant('resume-campaign', { campaignId });
-        return;
-      }
-      userLog('ui:resume-campaign', { campaignId });
-      waService.resumeCampaign(campaignId);
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        if (!waService.canControlCampaign(uid, campaignId)) {
+          denyCrossTenant('resume-campaign', { campaignId });
+          return;
+        }
+        userLog('ui:resume-campaign', { campaignId });
+        waService.resumeCampaign(campaignId);
+      })();
     });
 
     socket.on('mark-as-read', ({ conversationId }) => {
-      if (typeof conversationId === 'string' && !ownsConnectionId(conversationId.split(':')[0] || '')) {
-        denyCrossTenant('mark-as-read', { conversationId });
-        return;
-      }
-      userLog('ui:mark-as-read', { conversationId });
-      waService.markAsRead(conversationId);
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        if (typeof conversationId === 'string' && !ownsConnectionId(conversationId.split(':')[0] || '')) {
+          denyCrossTenant('mark-as-read', { conversationId });
+          return;
+        }
+        userLog('ui:mark-as-read', { conversationId });
+        waService.markAsRead(conversationId);
+      })();
     });
 
     socket.on('fetch-conversation-picture', async ({ conversationId }: { conversationId: string }) => {
@@ -640,6 +681,7 @@ const registerSocketHandlers = () => {
 
     socket.on('warmup-marked', async ({ numbers }) => {
       if (!numbers || !Array.isArray(numbers) || numbers.length === 0) return;
+      if (!(await requireActiveSubscription())) return;
       userLog('ui:warmup-marked', { count: numbers.length });
       await waService.markWarmupReady(numbers);
       socket.emit('warmup-update', getWarmupStateForUid());
@@ -647,6 +689,7 @@ const registerSocketHandlers = () => {
 
     socket.on('warmup-send', async ({ from, to, message }) => {
       if (!from || !to || !message) return;
+      if (!(await requireActiveSubscription())) return;
       if (!ownsConnectionId(from)) {
         denyCrossTenant('warmup-send', { from });
         return;
@@ -660,6 +703,7 @@ const registerSocketHandlers = () => {
     });
 
     socket.on('test-dispatch', async ({ fromConnectionId, toPhone, message }) => {
+      if (!(await requireActiveSubscription())) return;
       if (!ownsConnectionId(fromConnectionId)) {
         denyCrossTenant('test-dispatch', { fromConnectionId });
         return;
@@ -725,17 +769,23 @@ const registerSocketHandlers = () => {
     });
 
     socket.on('clear-funnel-stats', () => {
-      userLog('ui:clear-funnel-stats', { socketId: socket.id });
-      waService.clearFunnelStats(uid);
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        userLog('ui:clear-funnel-stats', { socketId: socket.id });
+        waService.clearFunnelStats(uid);
+      })();
     });
 
     socket.on('clear-warmup-chip-stats', (connectionId?: string) => {
-      if (connectionId && !ownsConnectionId(connectionId)) {
-        denyCrossTenant('clear-warmup-chip-stats', { connectionId });
-        return;
-      }
-      userLog('ui:clear-warmup-chip-stats', { socketId: socket.id, connectionId });
-      waService.clearWarmupChipStats(connectionId);
+      void (async () => {
+        if (!(await requireActiveSubscription())) return;
+        if (connectionId && !ownsConnectionId(connectionId)) {
+          denyCrossTenant('clear-warmup-chip-stats', { connectionId });
+          return;
+        }
+        userLog('ui:clear-warmup-chip-stats', { socketId: socket.id, connectionId });
+        waService.clearWarmupChipStats(connectionId);
+      })();
     });
 
     socket.on('disconnect', () => {

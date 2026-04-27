@@ -628,6 +628,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     });
 
+    socket.on('subscription-required', (p: { message?: string }) => {
+      const msg =
+        typeof p?.message === 'string' && p.message.trim()
+          ? p.message
+          : 'Plano ativo ou teste valido e necessario. Abra Minha assinatura.';
+      toast.error(msg, { duration: 9000, icon: '💳' });
+    });
+
     socket.on('connection-limit-reached', (p: { current?: number; max?: number; message?: string }) => {
       const maxN = Number(p?.max);
       if (Number.isFinite(maxN) && maxN < MAX_CHANNELS_TOTAL) {
