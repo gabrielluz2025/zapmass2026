@@ -31,6 +31,7 @@ ENV VITE_ADMIN_EMAILS=$VITE_ADMIN_EMAILS \
 
 COPY . .
 RUN npm run build
+RUN npm prune --omit=dev
 
 # Runtime: mesmo base Debian que o build (menos surpresas com libs)
 FROM node:22-bookworm AS runner
@@ -70,12 +71,10 @@ COPY package.json package-lock.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/src/utils ./src/utils
+COPY --from=builder /app/node_modules ./node_modules
 # insightMerge e mergeLegacyUserDocs importam tipos (Contact, Campaign, etc.)
 COPY --from=builder /app/src/types.ts ./src/types.ts
 COPY --from=builder /app/VERSION ./VERSION
-
-RUN npm ci --omit=dev \
-  && npm cache clean --force
 
 EXPOSE 3001
 
