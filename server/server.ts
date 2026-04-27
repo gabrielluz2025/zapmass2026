@@ -288,33 +288,40 @@ const logEvent = (event: string, payload?: Record<string, unknown>) => {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+const hasVisibleWaWorker = (): boolean => getWhatsappProcessWorkerCount() >= 1;
+
 /**
- * Com API+Redis, o Chromium so corre no `wa-worker`. Heartbeats vêm do Redis (atraso/arranque):
- * nao bloquear no primeiro 0; espera alguns ciclos antes de falhar.
+ * Dá tempo do stream Redis entregar eventos de heartbeat do `wa-worker` (arranque / rede).
  */
-const waitThenDenyIfRemoteSessionWorkerMissing = async (socket: {
-  emit: (ev: string, payload: Record<string, unknown>) => void;
-}): Promise<boolean> => {
-  if (!isSessionBusRemote()) return false;
-  if (getWhatsappProcessWorkerCount() >= 1) return false;
+const waitForWhatsappProcessWorkerHint = async (): Promise<void> => {
+  if (!isSessionBusRemote() || hasVisibleWaWorker()) return;
   const maxWaitMs = Number(process.env.SESSION_WORKER_WAIT_MS || 20000);
   const stepMs = 2000;
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     await sleep(stepMs);
-    if (getWhatsappProcessWorkerCount() >= 1) {
-      console.log('[create-connection] wa-worker com heartbeat (apos aguardar stream Redis).');
-      return false;
+    if (hasVisibleWaWorker()) {
+      console.log('[session] wa-worker com heartbeat (apos aguardar stream Redis).');
+      return;
     }
   }
-  console.warn(
-    '[session] Nenhum worker nao-API com heartbeat. Confirme: WA_WORKER_REPLICAS>=1 com ZAPMASS_API_SESSION_MODE=api, ou use modo monolith.'
-  );
-  socket.emit('session-worker-missing', {
-    message:
-      'Nenhum processo de sessao WhatsApp (wa-worker) com heartbeat. Com ZAPMASS_API_SESSION_MODE=api e Redis, a stack precisa de replicas do servico `wa-worker` (ex.: WA_WORKER_REPLICAS=1). Modo classico: comente/retire `ZAPMASS_API_SESSION_MODE` no .env (monolith = QR no proprio `api`).'
-  });
-  return true;
+};
+
+/**
+ * Com `SESSION_PROCESS_MODE=api` + Redis, o barramento manda o comando a outro processo. Se
+ * nao houver `wa-worker` a consumir o stream, o `submit` fica "no ar" e o QR nunca corre.
+ * Fallback: executar no processo desta instancia (contentor `api` tem Chromium no Dockerfile).
+ */
+const runSessionCommandOrLocal = async (opts: { submit: () => Promise<void>; local: () => Promise<void> }): Promise<void> => {
+  await waitForWhatsappProcessWorkerHint();
+  if (isSessionBusRemote() && !hasVisibleWaWorker()) {
+    console.warn(
+      '[session] Nenhum worker visivel; a executar localmente (fallback). Ajuste WA_WORKER_REPLICAS ou use monolith (sem ZAPMASS_API_SESSION_MODE) se nao quiser o Chromium no servico `api`.'
+    );
+    await opts.local();
+    return;
+  }
+  await opts.submit();
 };
 
 const registerSocketHandlers = () => {
@@ -437,13 +444,15 @@ const registerSocketHandlers = () => {
           });
           return;
         }
-        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:create-connection', { name });
-        await submitCreateConnection(
-          typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp',
-          uid,
-          uid && uid !== 'anonymous' ? uid : undefined
-        );
+        const connName = typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp';
+        const owner = uid && uid !== 'anonymous' ? uid : undefined;
+        await runSessionCommandOrLocal({
+          submit: () => submitCreateConnection(connName, uid, owner),
+          local: async () => {
+            await waService.createConnection(connName, owner);
+          }
+        });
         socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
       });
     });
@@ -454,9 +463,11 @@ const registerSocketHandlers = () => {
         return;
       }
       userLog('ui:delete-connection', { id });
-      if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
       try {
-        await submitDeleteConnection(id, uid);
+        await runSessionCommandOrLocal({
+          submit: () => submitDeleteConnection(id, uid),
+          local: () => waService.deleteConnection(id)
+        });
         socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
       } catch (e: any) {
         console.error('[delete-connection]', e);
@@ -471,9 +482,11 @@ const registerSocketHandlers = () => {
           denyCrossTenant('reconnect-connection', { id });
           return;
         }
-        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:reconnect-connection', { id });
-        await submitReconnectConnection(id, uid);
+        await runSessionCommandOrLocal({
+          submit: () => submitReconnectConnection(id, uid),
+          local: () => waService.reconnectConnection(id)
+        });
       })();
     });
 
@@ -484,9 +497,11 @@ const registerSocketHandlers = () => {
           denyCrossTenant('force-qr', { id });
           return;
         }
-        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:force-qr', { id });
-        await submitForceQr(id, uid);
+        await runSessionCommandOrLocal({
+          submit: () => submitForceQr(id, uid),
+          local: () => waService.forceQr(id)
+        });
       })();
     });
 
@@ -544,10 +559,6 @@ const registerSocketHandlers = () => {
         callback?.({ ok: false, error: 'Assine o Pro ou renove o periodo para disparar campanhas.' });
         return;
       }
-      if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) {
-        callback?.({ ok: false, error: 'Processo wa-worker indisponivel (modo API+Redis).' });
-        return;
-      }
       const connections = filterByConnectionScope(uid, waService.getConnections());
       const connectedIds = connections
         .filter((conn) => conn.status === 'CONNECTED')
@@ -589,10 +600,12 @@ const registerSocketHandlers = () => {
         return;
       }
       if (!(await requireActiveSubscription())) return;
-      if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
       userLog('ui:send-message', { conversationId });
       try {
-        await submitSendMessage(conversationId, text, uid);
+        await runSessionCommandOrLocal({
+          submit: () => submitSendMessage(conversationId, text, uid),
+          local: () => waService.sendMessage(conversationId, text)
+        });
         logEvent('wa:send-message', { conversationId });
       } catch (error: any) {
         logEvent('wa:send-message-error', { conversationId, error: error?.message || 'Erro desconhecido' });
@@ -627,12 +640,17 @@ const registerSocketHandlers = () => {
           callback?.({ ok: false, error: 'Plano ativo necessario para enviar midia.' });
           return;
         }
-        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) {
-          callback?.({ ok: false, error: 'Processo de sessao WhatsApp (wa-worker) indisponivel. Inicie o worker ou use modo monolith.' });
-          return;
-        }
         try {
-          await submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, uid);
+          await runSessionCommandOrLocal({
+            submit: () => submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, uid),
+            local: () =>
+              waService.sendMedia(conversationId, {
+                dataBase64,
+                mimeType,
+                fileName,
+                caption
+              })
+          });
           callback?.({ ok: true });
         } catch (error: any) {
           const message = error?.message || 'Falha ao enviar arquivo.';
