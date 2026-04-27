@@ -7,11 +7,11 @@ cd /opt/zapmass
 
 event="${GITHUB_EVENT_NAME:-push}"
 
-# Janela segura: só no cron
+# Janela segura: só no cron. Hora do relógio do host (muitas VPS = UTC; use TZ=... no systemd/cron se quiser fuso local).
 if [ "$event" = "schedule" ]; then
   HOUR="$(date +%H)"
   if [ "$HOUR" -ge 6 ]; then
-    echo "==> (cron) Fora da janela segura de deploy (agora: ${HOUR}h)."
+    echo "==> (cron) Fora da janela segura de deploy (agora: ${HOUR}h no relógio do host)."
     echo "==> (cron) Próximo ciclo do cron retoma."
     exit 0
   fi
@@ -22,17 +22,17 @@ VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
 export VITE_GIT_REF
 echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
 
-# Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_* e WA_WORKER_REPLICAS (interpolar docker-stack.yml)
+# Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_*, HOST_PORT, METRICS_TOKEN e WA_WORKER_REPLICAS (interpolar docker-stack.yml / healthcheck)
 if [ -f .env ]; then
   while IFS='=' read -r k v; do
     k="${k//$'\r'/}"
     v="${v//$'\r'/}"
     case "$k" in
-      VITE_*|MERCADOPAGO_*|ZAPMASS_*|WA_WORKER_REPLICAS)
+      VITE_*|MERCADOPAGO_*|ZAPMASS_*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS)
         export "$k=$v"
         ;;
     esac
-  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|WA_WORKER_REPLICAS)=' .env || true)
+  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS)=' .env || true)
   if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
     echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
   else
@@ -110,9 +110,10 @@ if [ -d /opt/zapmass/clientes ]; then
 fi
 
 # Healthcheck: até 5 min (com build grande a API demora a voltar 200)
-echo "==> aguardando API /api/health"
+HP="${HOST_PORT:-3001}"
+echo "==> aguardando API /api/health (porta publicada: ${HP})"
 for i in $(seq 1 50); do
-  code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || echo 000)
+  code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HP}/api/health" || echo 000)
   echo "tentativa $i: HTTP $code"
   if [ "$code" = "200" ]; then
     echo "OK: API saudável."

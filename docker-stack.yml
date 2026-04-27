@@ -41,6 +41,8 @@ services:
       MERCADOPAGO_CHANNEL_TIER_3_ANNUAL: ${MERCADOPAGO_CHANNEL_TIER_3_ANNUAL:-}
       MERCADOPAGO_CHANNEL_TIER_4_ANNUAL: ${MERCADOPAGO_CHANNEL_TIER_4_ANNUAL:-}
       MERCADOPAGO_CHANNEL_TIER_5_ANNUAL: ${MERCADOPAGO_CHANNEL_TIER_5_ANNUAL:-}
+      # Opcional: scrape interno (rede Docker) sem token; localhost/público exigem Bearer se definido.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
     env_file:
       - .env
     volumes:

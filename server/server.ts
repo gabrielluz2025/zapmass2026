@@ -40,6 +40,7 @@ import {
   submitSendMessage
 } from './sessionControlPlane.js';
 import { collectMetrics, metricsContentType, setConnectedSessionsGauge } from './observability.js';
+import { metricsAccessMiddleware } from './metricsAccess.js';
 
 // --- REAL SYSTEM METRICS ---
 let _lastCpuInfo = os.cpus();
@@ -182,11 +183,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/api/session-router/metrics', (_req, res) => {
+app.get('/api/session-router/metrics', metricsAccessMiddleware, (_req, res) => {
   res.json(getSessionRouterMetrics());
 });
 
-app.get('/metrics', async (_req, res) => {
+app.get('/metrics', metricsAccessMiddleware, async (_req, res) => {
   res.setHeader('Content-Type', metricsContentType());
   res.send(await collectMetrics());
 });
