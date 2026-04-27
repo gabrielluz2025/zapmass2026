@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
-import { Activity, Radio, RefreshCw, Server, Shield } from 'lucide-react';
+import { Activity, AlertTriangle, Cpu, HardDrive, Radio, RefreshCw, Server, Shield, Wifi } from 'lucide-react';
 import { Card, CardHeader, Badge, Button } from './ui';
 
 type AdminOpsSnapshot = {
@@ -75,20 +75,37 @@ function healthSummary(alerts: AdminOpsSnapshot['alerts']): { variant: 'success'
 }
 
 const Metric: React.FC<{ label: string; value: React.ReactNode; hint?: string }> = ({ label, value, hint }) => (
-  <div className="flex flex-col gap-0.5 min-w-0">
-    <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>
+  <div className="flex flex-col gap-0.5 min-w-0 rounded-lg px-2 py-1.5 -mx-0.5" style={{ background: 'var(--surface-2)' }}>
+    <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
       {label}
     </span>
-    <span className="text-sm font-semibold tabular-nums leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+    <span className="text-[15px] font-semibold tabular-nums leading-tight tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
       {value}
     </span>
     {hint && (
-      <span className="text-[10px] leading-tight" style={{ color: 'var(--text-3)' }}>
+      <span className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>
         {hint}
       </span>
     )}
   </div>
 );
+
+function formatLoadDisplay(load1: number, cpus: number): { main: string; sub: string } {
+  const main = load1 >= 100 ? load1.toFixed(0) : load1.toFixed(2);
+  const ref = Math.max(0.1, cpus);
+  const sub =
+    load1 > ref * 4
+      ? `Fila muito acima de ~${ref.toFixed(1)} (saudável p/ ${cpus} CPU(s))`
+      : `Saudável: load 1m preferencialmente abaixo de ~${(ref * 2).toFixed(0)} (${cpus} CPU(s))`;
+  return { main, sub };
+}
+
+function formatFirebaseLatency(ms: number | undefined): string {
+  if (ms == null) return '';
+  if (ms >= 10_000) return `${(ms / 1000).toFixed(1)} s`;
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${ms} ms`;
+}
 
 export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
   const [data, setData] = useState<AdminOpsSnapshot | null>(null);
@@ -141,7 +158,7 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
 
   return (
     <Card
-      className="mt-5 overflow-hidden animate-fade-in-up"
+      className="overflow-hidden shadow-sm animate-fade-in-up"
       style={{
         background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
         borderColor: 'var(--border-subtle)'
@@ -151,14 +168,14 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
         <CardHeader
           icon={
             <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
+              className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
               style={{ background: 'var(--semantic-info-tint)' }}
             >
               <Server className="w-[18px] h-[18px] text-indigo-500" aria-hidden />
             </div>
           }
           title="Operações & integrações"
-          subtitle="Métricas técnicas do processo e do host — só contas de administrador veem este bloco."
+          subtitle="Métricas técnicas do processo e do host — leitura em blocos, atualização automática a cada ~20s."
           actions={
             <div className="flex items-center gap-2 flex-wrap justify-end">
               <Badge variant="info" className="text-[10px]">
@@ -186,10 +203,10 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
         />
       </div>
 
-      <div className="px-4 pb-4 pt-0 space-y-4">
+      <div className="px-4 pb-5 pt-0 space-y-4">
         {err && (
           <div
-            className="rounded-xl px-3 py-2.5 text-[12px] border"
+            className="rounded-2xl px-4 py-3 text-[12px] border flex items-start gap-3"
             style={{
               background: 'var(--semantic-danger-bg)',
               borderColor: 'var(--semantic-danger-border)',
@@ -197,145 +214,184 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
             }}
             role="alert"
           >
-            {err}
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--semantic-danger-fg)' }} aria-hidden />
+            <span>{err}</span>
           </div>
         )}
 
         {data && health && (
           <div
-            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl px-3 py-2.5"
+            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl px-4 py-3"
             style={{
               background: 'var(--surface-1)',
-              border: '1px solid var(--border-subtle)'
+              border: '1px solid var(--border-subtle)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
             }}
           >
-            <div className="flex items-center gap-2 min-w-0">
-              <Badge dot variant={healthBadge}>
-                {health.title}
-              </Badge>
-              {health.detail && (
-                <span className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
-                  {health.detail}
-                </span>
-              )}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: healthBadge === 'danger' ? 'var(--semantic-danger-bg)' : healthBadge === 'warning' ? 'var(--semantic-warning-bg)' : 'var(--semantic-success-bg)' }}
+              >
+                <Activity className="w-4 h-4" style={{ color: healthBadge === 'danger' ? 'var(--danger)' : healthBadge === 'warning' ? 'var(--warning)' : 'var(--semantic-success-fg)' }} aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge dot variant={healthBadge}>
+                    {health.title}
+                  </Badge>
+                </div>
+                {health.detail && (
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                    {health.detail}
+                  </p>
+                )}
+              </div>
             </div>
-            <span className="text-[10px] sm:text-right shrink-0" style={{ color: 'var(--text-3)' }}>
-              Amostragem ~20s · histórico ~5 min/pto (24h)
+            <span className="text-[10px] sm:text-right shrink-0 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+              Atual. automática ~20s
+              <br />
+              <span className="opacity-80">histórico ~24h (amostra)</span>
             </span>
           </div>
         )}
 
         {data?.scopeNote && (
-          <p className="text-[11px] leading-relaxed pl-1 border-l-2" style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}>
+          <p
+            className="text-[11px] leading-relaxed rounded-xl px-3 py-2.5"
+            style={{ color: 'var(--text-2)', background: 'var(--surface-2)' }}
+          >
             {data.scopeNote}
           </p>
         )}
 
         {data && data.alerts.length > 0 && (
-          <ul className="space-y-2" role="list" aria-label="Alertas operacionais">
+          <div role="list" aria-label="Alertas operacionais" className="space-y-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+              Alertas
+            </p>
+            <ul className="space-y-2">
             {data.alerts.map((a, idx) => (
               <li
                 key={`${a.code}-${idx}`}
-                className="rounded-r-lg pl-3 py-2 text-[12px] leading-snug"
+                className="rounded-2xl pl-0 pr-3 py-3 text-[12px] leading-relaxed flex gap-3"
                 style={{
-                  borderLeftWidth: 3,
-                  borderLeftStyle: 'solid',
-                  borderLeftColor: a.level === 'critical' ? 'var(--danger)' : 'var(--warning)',
+                  border: `1px solid ${a.level === 'critical' ? 'rgba(220, 38, 38, 0.25)' : 'rgba(234, 179, 8, 0.25)'}`,
                   background: a.level === 'critical' ? 'var(--semantic-danger-bg)' : 'var(--semantic-warning-bg)',
                   color: 'var(--text-2)'
                 }}
               >
-                <span
-                  className="font-medium"
-                  style={{ color: a.level === 'critical' ? 'var(--semantic-danger-fg)' : 'var(--semantic-warning-fg)' }}
-                >
-                  {a.level === 'critical' ? 'Crítico' : 'Aviso'}
-                </span>
-                <span className="mx-1.5" style={{ color: 'var(--text-3)' }}>
-                  ·
-                </span>
+                {a.level === 'critical' ? (
+                  <AlertTriangle className="w-4 h-4 shrink-0 ml-3 mt-0.5" style={{ color: 'var(--semantic-danger-fg)' }} aria-hidden />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 shrink-0 ml-3 mt-0.5 opacity-70" style={{ color: 'var(--warning)' }} aria-hidden />
+                )}
+                <div className="min-w-0 flex-1">
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wide"
+                    style={{ color: a.level === 'critical' ? 'var(--semantic-danger-fg)' : 'var(--semantic-warning-fg)' }}
+                  >
+                    {a.level === 'critical' ? 'Crítico' : 'Aviso'}
+                  </span>
+                  <p className="mt-1" style={{ color: 'var(--text-2)' }}>
                 {a.message}
+                  </p>
+                </div>
               </li>
             ))}
-          </ul>
+            </ul>
+          </div>
         )}
 
         {data && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div
-              className="rounded-xl p-3.5 space-y-3"
+              className="rounded-2xl p-4 space-y-3"
               style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
             >
-              <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                <Activity className="w-4 h-4 text-indigo-500 shrink-0" aria-hidden />
-                Host
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                  <Cpu className="w-4 h-4 text-indigo-400 shrink-0" aria-hidden />
+                  Host
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <Metric label="CPU (instantâneo)" value={`${data.system.cpu}%`} />
                 <Metric
                   label="Load 1m"
-                  value={data.system.load1.toFixed(2)}
-                  hint={`${data.system.cpus} CPU(s) · 5m/15m: ${data.system.load5.toFixed(1)} / ${data.system.load15.toFixed(1)}`}
+                  value={formatLoadDisplay(data.system.load1, data.system.cpus).main}
+                  hint={formatLoadDisplay(data.system.load1, data.system.cpus).sub}
                 />
               </div>
+              <p className="text-[10px] leading-snug pt-0.5" style={{ color: 'var(--text-3)' }}>
+                5m / 15m: {data.system.load5.toFixed(1)} / {data.system.load15.toFixed(1)} · {data.system.cpus} CPU(s)
+              </p>
             </div>
             <div
-              className="rounded-xl p-3.5 space-y-3"
+              className="rounded-2xl p-4 space-y-3"
               style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                <Server className="w-4 h-4 text-violet-500 shrink-0" aria-hidden />
+                <HardDrive className="w-4 h-4 text-violet-400 shrink-0" aria-hidden />
                 Processo Node
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Metric label="RAM (vista processo)" value={`${data.system.ram}%`} />
+              <div className="grid grid-cols-2 gap-2">
+                <Metric label="RAM (processo)" value={`${data.system.ram}%`} />
                 <Metric
                   label="Heap / RSS"
                   value={`${data.system.processHeapMb} / ${data.system.processRssMb} MB`}
-                  hint={data.system.processUptimeSec > 0 ? `Uptime processo: ${Math.floor(data.system.processUptimeSec / 60)} min` : undefined}
+                  hint={data.system.processUptimeSec > 0 ? `Uptime: ${Math.floor(data.system.processUptimeSec / 60)} min` : undefined}
                 />
               </div>
             </div>
             <div
-              className="rounded-xl p-3.5 space-y-3"
+              className="rounded-2xl p-4 space-y-3"
               style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                <Radio className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden />
+                <Radio className="w-4 h-4 text-emerald-500/90 shrink-0" aria-hidden />
                 Integrações
               </div>
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>
-                    Firebase
-                  </span>
-                  {data.firebase.pingOk ? (
-                    <Badge variant="success" className="text-[10px]">
-                      OK{data.firebase.latencyMs != null ? ` ${data.firebase.latencyMs} ms` : ''}
-                    </Badge>
-                  ) : (
-                    <Badge variant="danger" className="text-[10px]">
-                      Falha
-                    </Badge>
-                  )}
+              <div className="space-y-2.5">
+                <div
+                  className="rounded-lg px-2 py-2 space-y-1"
+                  style={{ background: 'var(--surface-2)' }}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Wifi className="w-3.5 h-3.5 text-amber-500/80 shrink-0" aria-hidden />
+                    <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>
+                      Firebase
+                    </span>
+                    {data.firebase.pingOk ? (
+                      <Badge variant={data.firebase.latencyMs != null && data.firebase.latencyMs > 15_000 ? 'warning' : 'success'} className="text-[10px]">
+                        {data.firebase.latencyMs != null
+                          ? `OK · ${formatFirebaseLatency(data.firebase.latencyMs)}`
+                          : 'OK'}
+                      </Badge>
+                    ) : (
+                      <Badge variant="danger" className="text-[10px]">
+                        Falha
+                      </Badge>
+                    )}
+                  </div>
                   {data.firebase.projectId && (
-                    <span className="text-[10px] truncate max-w-full" style={{ color: 'var(--text-3)' }}>
+                    <span className="text-[10px] block truncate" style={{ color: 'var(--text-3)' }}>
                       {data.firebase.projectId}
                     </span>
                   )}
-                </div>
                 {data.firebase.error && (
-                  <p className="text-[10px] break-all" style={{ color: 'var(--semantic-danger-fg)' }}>
+                  <p className="text-[10px] break-words" style={{ color: 'var(--semantic-danger-fg)' }}>
                     {data.firebase.error}
                   </p>
                 )}
+                </div>
                 <Metric
-                  label="Sessões WA (esta API)"
+                  label="Sessões WA (API)"
                   value={String(data.whatsapp.connectedSessions)}
                   hint={`Conforto ~${data.whatsapp.capacityHint.safe} · instável &gt; ~${data.whatsapp.capacityHint.critical}`}
                 />
-                <p className="text-[10px] tabular-nums leading-snug pt-1" style={{ color: 'var(--text-3)' }}>
-                  Router: {data.sessionRouter.commandsCompleted} ok · {data.sessionRouter.commandsFailed} falhas · workers {data.sessionRouter.aliveWorkers}
+                <p className="text-[10px] tabular-nums leading-snug rounded-lg px-2 py-1.5" style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}>
+                  Router: {data.sessionRouter.commandsCompleted} ok · {data.sessionRouter.commandsFailed} falh. · workers {data.sessionRouter.aliveWorkers}
                 </p>
               </div>
             </div>
@@ -343,24 +399,25 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
         )}
 
         {data && data.history.length > 0 && (
-          <div>
-            <div className="flex items-baseline justify-between gap-2 mb-2">
-              <span className="text-[11px] font-medium" style={{ color: 'var(--text-2)' }}>
-                Uso de RAM (processo) — resumo 24h
+          <div
+            className="rounded-2xl p-4 space-y-3"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+          >
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                RAM do processo (24h)
               </span>
               <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                Máx. por hora (esq. → antigo)
+                Pico por hora · esq. mais antigo → direita recente
               </span>
             </div>
-            <div className="flex justify-between text-[9px] mb-1 px-0.5" style={{ color: 'var(--text-3)' }}>
+            <div className="flex justify-between text-[9px] mb-1 px-0.5 font-medium" style={{ color: 'var(--text-3)' }}>
               <span>−24h</span>
-              <span>−18h</span>
               <span>−12h</span>
-              <span>−6h</span>
-              <span>Agora</span>
+              <span className="text-[var(--text-2)]">Agora</span>
             </div>
             <div
-              className="flex items-end gap-px h-[72px] rounded-lg px-1 pt-1"
+              className="flex items-end gap-0.5 h-20 sm:h-[88px] rounded-xl px-1.5 py-1.5"
               style={{ background: 'var(--surface-2)' }}
               role="img"
               aria-label="Gráfico de percentagem de RAM do processo nas últimas 24 horas"
@@ -368,7 +425,7 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
               {bars.map((b, i) => (
                 <div
                   key={i}
-                  className="flex-1 min-w-0 rounded-t-[2px] transition-all"
+                  className="flex-1 min-w-0 rounded-t-md transition-all duration-500"
                   style={{
                     height: `${(b / maxBar) * 100}%`,
                     minHeight: b > 0 ? '3px' : '0',
@@ -378,14 +435,14 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
                 />
               ))}
             </div>
-            <div className="flex justify-end gap-3 mt-2 text-[9px]" style={{ color: 'var(--text-3)' }}>
-              <span className="inline-flex items-center gap-1">
+            <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-[9px]" style={{ color: 'var(--text-3)' }}>
+              <span className="inline-flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--ops-hist-low)' }} /> &lt;75%
               </span>
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--ops-hist-mid)' }} /> 75–90%
               </span>
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--ops-hist-high)' }} /> ≥90%
               </span>
             </div>

@@ -238,7 +238,7 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
   if (!user) return null;
 
   return (
-    <Card className="overflow-hidden mt-5">
+    <Card className="overflow-hidden shadow-sm" style={{ borderColor: 'var(--border-subtle)' }}>
       <div className="p-1">
         <CardHeader
           icon={

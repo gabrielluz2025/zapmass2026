@@ -97,15 +97,15 @@ export const AdminServerTab: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-10 max-w-[1800px] mx-auto w-full">
-      <div>
-        <h1 className="ui-title text-[20px]">Operações (servidor)</h1>
-        <p className="ui-subtitle text-[13px] mt-0.5">
+      <header className="rounded-2xl border px-4 py-3.5 sm:px-5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
+        <h1 className="ui-title text-[20px] sm:text-[22px] tracking-tight">Operações (servidor)</h1>
+        <p className="ui-subtitle text-[13px] mt-1 max-w-2xl leading-relaxed">
           Heurísticas de RAM, canais e integrações — visível só para administradores.
         </p>
-      </div>
+      </header>
 
       <Card
-        className="overflow-hidden"
+        className="overflow-hidden shadow-sm"
         style={{
           background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
           borderColor: 'var(--border-subtle)'
@@ -263,67 +263,90 @@ export const AdminServerTab: React.FC = () => {
             </div>
           )}
         </div>
+      </Card>
 
-        <div className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-          <div className="p-1 pt-3">
-            <CardHeader
-              icon={
+      <Card
+        className="overflow-hidden shadow-sm"
+        style={{
+          background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
+          borderColor: 'var(--border-subtle)'
+        }}
+      >
+        <div className="p-1">
+          <CardHeader
+            icon={
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{
+                  background: offlineConnections.length > 0 ? 'var(--semantic-danger-bg)' : 'var(--semantic-success-bg)'
+                }}
+              >
+                {offlineConnections.length === 0 ? (
+                  <CheckCircle2 className="h-[18px] w-[18px] text-emerald-500" aria-hidden />
+                ) : (
+                  <Smartphone className="h-[18px] w-[18px] text-red-500" aria-hidden />
+                )}
+              </div>
+            }
+            title="Canais offline"
+            subtitle={
+              offlineConnections.length === 0
+                ? 'Nenhum canal fora de linha de momento.'
+                : 'Reabra a sessão na aba Conexões se permanecer offline.'
+            }
+            actions={
+              <Badge variant={offlineConnections.length > 0 ? 'danger' : 'success'} className="tabular-nums text-[11px]">
+                {offlineConnections.length}
+              </Badge>
+            }
+          />
+        </div>
+        <div className="px-4 pb-4">
+          {offlineConnections.length === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center gap-2 py-7 rounded-xl text-center"
+              style={{ background: 'var(--surface-1)', border: '1px dashed var(--border-subtle)' }}
+            >
+              <div
+                className="w-11 h-11 rounded-2xl flex items-center justify-center"
+                style={{ background: 'rgba(16, 185, 129, 0.12)' }}
+              >
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" aria-hidden />
+              </div>
+              <p className="text-[12px] font-medium" style={{ color: 'var(--text-2)' }}>
+                Todos os canais têm sessão ativa
+              </p>
+              <p className="text-[11px] max-w-sm" style={{ color: 'var(--text-3)' }}>
+                Quando alguém ficar offline, o nome e o motivo surgem listados aqui.
+              </p>
+            </div>
+          ) : (
+            <div className="max-h-40 space-y-1.5 overflow-y-auto">
+              {offlineConnections.map((conn) => (
                 <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                  key={conn.id}
+                  className="flex items-center justify-between gap-2 rounded-xl pl-2.5 pr-2 py-2.5 text-[11.5px]"
                   style={{
-                    background: offlineConnections.length > 0 ? 'var(--semantic-danger-bg)' : 'var(--semantic-success-bg)'
+                    background: 'var(--surface-1)',
+                    border: '1px solid var(--border-subtle)',
+                    borderLeftWidth: 2,
+                    borderLeftColor: 'var(--semantic-danger-border)'
                   }}
                 >
-                  {offlineConnections.length === 0 ? (
-                    <CheckCircle2 className="h-[18px] w-[18px] text-emerald-500" aria-hidden />
-                  ) : (
-                    <Smartphone className="h-[18px] w-[18px] text-red-500" aria-hidden />
-                  )}
+                  <span className="truncate font-medium min-w-0" style={{ color: 'var(--text-1)' }}>
+                    {conn.name}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                    {conn.lastActivity || '—'}
+                  </span>
                 </div>
-              }
-              title="Canais offline"
-              subtitle={
-                offlineConnections.length === 0
-                  ? 'Todos os canais com sessão ativa no momento.'
-                  : 'Reabra a sessão na aba Conexões se permanecer offline.'
-              }
-              actions={
-                <Badge variant={offlineConnections.length > 0 ? 'danger' : 'success'} className="tabular-nums text-[11px]">
-                  {offlineConnections.length}
-                </Badge>
-              }
-            />
-          </div>
-          <div className="px-4 pb-4 max-h-40 space-y-1.5 overflow-y-auto">
-            {offlineConnections.length === 0
-              ? null
-              : offlineConnections.map((conn) => (
-                  <div
-                    key={conn.id}
-                    className="flex items-center justify-between gap-2 rounded-lg pl-2.5 pr-2 py-2 text-[11.5px]"
-                    style={{
-                      background: 'var(--surface-1)',
-                      border: '1px solid var(--border-subtle)',
-                      borderLeftWidth: 2,
-                      borderLeftColor: 'var(--semantic-danger-border)'
-                    }}
-                  >
-                    <span className="truncate font-medium min-w-0" style={{ color: 'var(--text-1)' }}>
-                      {conn.name}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                      {conn.lastActivity || '—'}
-                    </span>
-                  </div>
-                ))}
-          </div>
-        </div>
-
-        <div className="px-2 pb-2">
-          <AdminOpsMonitor user={user} />
+              ))}
+            </div>
+          )}
         </div>
       </Card>
 
+      <AdminOpsMonitor user={user} />
       <AdminConnectionsOverview user={user} />
     </div>
   );
