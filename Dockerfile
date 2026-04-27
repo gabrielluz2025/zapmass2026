@@ -7,6 +7,9 @@
 FROM node:22-bookworm AS builder
 WORKDIR /app
 
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -34,6 +37,7 @@ FROM node:22-bookworm AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
