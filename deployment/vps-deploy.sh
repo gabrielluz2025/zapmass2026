@@ -119,6 +119,11 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
       sleep 6
     fi
   done
+  # Só alterar ficheiros em deployment/swarm/*.yml no host não recria a tarefa: força reload das regras do Prometheus.
+  if docker service inspect zapmass_prometheus >/dev/null 2>&1; then
+    echo "==> (swarm) forçar recarregamento: zapmass_prometheus (alert_rules.yml / prometheus.yml no host)"
+    docker service update --force zapmass_prometheus >/dev/null 2>&1 || true
+  fi
 else
   echo "==> docker compose build + up"
   docker compose up -d --build
