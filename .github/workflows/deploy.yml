@@ -97,8 +97,8 @@ jobs:
                 exit 0
               fi
             fi
-            BRANCH="${{ github.ref_name }}"
-            echo "==> branch alvo: ${BRANCH}"
+            BRANCH="main"
+            echo "==> branch alvo (forçado): ${BRANCH}"
             cd /opt/zapmass
             echo "==> git pull (${BRANCH})"
             git fetch --all --prune
