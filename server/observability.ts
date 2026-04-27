@@ -36,14 +36,15 @@ const hostLoad5 = new client.Gauge({ name: 'zapmass_host_load5', help: 'Load ave
 const hostLoad15 = new client.Gauge({ name: 'zapmass_host_load15', help: 'Load average 15 minutos' });
 const hostCpuCores = new client.Gauge({ name: 'zapmass_host_cpu_cores', help: 'Numero de CPUs vistas pelo processo' });
 
-const processHeapBytes = new client.Gauge({
-  name: 'zapmass_process_heap_bytes',
-  help: 'Heap V8 (process.memoryUsage().heapUsed)'
+/** Nomes distintos das default metrics do prom-client (evita zapmass_process_* duplicado). */
+const opsHeapBytes = new client.Gauge({
+  name: 'zapmass_ops_heap_bytes',
+  help: 'Heap V8 actualizado pelo painel operacional (process.memoryUsage().heapUsed)'
 });
 
-const processRssBytes = new client.Gauge({
-  name: 'zapmass_process_rss_bytes',
-  help: 'RSS do processo Node'
+const opsResidentBytes = new client.Gauge({
+  name: 'zapmass_ops_resident_bytes',
+  help: 'RSS actualizado pelo painel operacional (process.memoryUsage().rss)'
 });
 
 const firebaseConfiguredGauge = new client.Gauge({
@@ -77,8 +78,8 @@ register.registerMetric(hostLoad1);
 register.registerMetric(hostLoad5);
 register.registerMetric(hostLoad15);
 register.registerMetric(hostCpuCores);
-register.registerMetric(processHeapBytes);
-register.registerMetric(processRssBytes);
+register.registerMetric(opsHeapBytes);
+register.registerMetric(opsResidentBytes);
 register.registerMetric(firebaseConfiguredGauge);
 register.registerMetric(firebasePingOkGauge);
 register.registerMetric(firebasePingMsGauge);
@@ -129,8 +130,8 @@ export function updateOpsResourceGauges(connectedSessions: number): void {
   hostCpuCores.set(os.cpus().length || 1);
 
   const mem = process.memoryUsage();
-  processHeapBytes.set(mem.heapUsed);
-  processRssBytes.set(mem.rss);
+  opsHeapBytes.set(mem.heapUsed);
+  opsResidentBytes.set(mem.rss);
 
   const cpus = os.cpus().length || 1;
   const heapMb = Math.round(mem.heapUsed / 1024 / 1024);

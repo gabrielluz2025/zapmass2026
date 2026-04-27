@@ -32,7 +32,7 @@ groups:
           description: "Sistema muito atrasado em relacao aos nucleos disponiveis."
 
       - alert: ZapMassNodeHeapHigh
-        expr: zapmass_process_heap_bytes > 2000000000
+        expr: zapmass_ops_heap_bytes > 2000000000
         for: 15m
         labels:
           severity: warning
