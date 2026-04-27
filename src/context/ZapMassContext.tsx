@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
@@ -29,6 +29,11 @@ import { ownsConnectionForUid } from '../utils/connectionScope';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import { mergeCampaigns, mergeContactLists, mergeContacts } from '../utils/mergeLegacyUserDocs';
+import {
+  getCampaignProgressMetrics,
+  healStuckRunningCampaignsList,
+  isRunningStatusButWorkComplete
+} from '../utils/campaignMetrics';
 
 const INITIAL_METRICS: DashboardMetrics = {
   totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0
@@ -265,6 +270,33 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     delete campaignProgressPersistRef.current[campaignId];
   };
 
+  /** Evita `updateDoc` duplicado ao corrigir o mesmo documento com fila ja concluida. */
+  const campaignFirestoreHealRef = useRef<Set<string>>(new Set());
+
+  const syncStuckCampaignsToFirestore = useCallback((raw: Campaign[], uid: string) => {
+    for (const c of raw) {
+      if (c.status !== CampaignStatus.RUNNING) continue;
+      if (!isRunningStatusButWorkComplete(c)) continue;
+      if (campaignFirestoreHealRef.current.has(c.id)) continue;
+      campaignFirestoreHealRef.current.add(c.id);
+      const m = getCampaignProgressMetrics(c);
+      void updateDoc(doc(db, 'users', uid, 'campaigns', c.id), {
+        status: CampaignStatus.COMPLETED,
+        processedCount: m.effectiveProcessed,
+        successCount: m.ok,
+        failedCount: m.fail
+      }).catch(() => {
+        campaignFirestoreHealRef.current.delete(c.id);
+      });
+    }
+  }, []);
+
+  /** `campaign-progress` / Firestore defasados: ninguem a correr, mas ainda isRunning; limpa a barra de estado. */
+  useEffect(() => {
+    if (campaigns.some((c) => c.status === CampaignStatus.RUNNING)) return;
+    setCampaignStatus((s) => (s.isRunning ? { ...s, isRunning: false } : s));
+  }, [campaigns]);
+
   // Mantem `metrics` alinhado ao funil acumulado do servidor.
   // Nao usamos mais `campaigns` para recalcular funil, pois isso apagava leitura/resposta
   // e criava divergencia na home/relatorios quando havia historico persistido.
@@ -426,7 +458,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Record<string, unknown> & Campaign))
                 .filter((row) => belongsToUidCampaign(uid, row))
                 .map((row) => row as Campaign);
-              setCampaigns(mergeCampaigns(b.userCampaigns, b.legacyCampaigns));
+              const mergedUserLegacy = mergeCampaigns(b.userCampaigns, b.legacyCampaigns);
+              syncStuckCampaignsToFirestore(mergedUserLegacy, uid);
+              setCampaigns(healStuckRunningCampaignsList(mergedUserLegacy));
             },
             (err) => console.warn('[Firestore] campaigns (usuario):', (err as Error)?.message || err)
           )
@@ -439,11 +473,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 if (currentUidRef.current !== uid) return;
                 if (!allowLegacyNow()) {
                   b.legacyCampaigns = [];
-                  setCampaigns(mergeCampaigns(b.userCampaigns, []));
+                  const m = mergeCampaigns(b.userCampaigns, []);
+                  syncStuckCampaignsToFirestore(m, uid);
+                  setCampaigns(healStuckRunningCampaignsList(m));
                   return;
                 }
                 b.legacyCampaigns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Campaign));
-                setCampaigns(mergeCampaigns(b.userCampaigns, b.legacyCampaigns));
+                const mergedL = mergeCampaigns(b.userCampaigns, b.legacyCampaigns);
+                syncStuckCampaignsToFirestore(mergedL, uid);
+                setCampaigns(healStuckRunningCampaignsList(mergedL));
               },
               (err) => console.warn('[Firestore] /campaigns (legado):', (err as Error)?.message || err)
             )
@@ -460,6 +498,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContacts([]);
         setContactLists([]);
         setCampaigns([]);
+        campaignFirestoreHealRef.current.clear();
       }
       // Garante que o Socket.io usa o mesmo UID que a UI — senão o servidor cria
       // conexoes "legado" (sem prefixo) e a contagem do teto fica defasada.
@@ -485,6 +524,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContacts([]);
         setContactLists([]);
         setCampaigns([]);
+        campaignFirestoreHealRef.current.clear();
         return;
       }
       bindUser(user.uid);
@@ -499,7 +539,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       unsubAuth();
       stopAll();
     };
-  }, [currentView, campaignStatus.isRunning]);
+  }, [currentView, campaignStatus.isRunning, syncStuckCampaignsToFirestore]);
 
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
@@ -744,9 +784,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (campaignId) {
         setCampaignGeo({ campaignId, byUf: {}, updatedAt: Date.now() });
         const uid = currentUidRef.current;
-        setCampaigns(prev => prev.map(c => c.id === campaignId ? {
-          ...c, status: CampaignStatus.RUNNING, processedCount: 0, successCount: 0, failedCount: 0
-        } : c));
+        setCampaigns((prev) => {
+          const next = prev.map((c) =>
+            c.id === campaignId
+              ? { ...c, status: CampaignStatus.RUNNING, processedCount: 0, successCount: 0, failedCount: 0 }
+              : c
+          );
+          if (uid) syncStuckCampaignsToFirestore(next, uid);
+          return healStuckRunningCampaignsList(next);
+        });
         if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
           status: CampaignStatus.RUNNING,
           processedCount: 0,
@@ -777,13 +823,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
       // Atualizar campaigns localmente para dados em tempo real na UI
       if (data.campaignId) {
-        setCampaigns(prev => prev.map(c => c.id === data.campaignId ? {
-          ...c,
-          processedCount: data.processed,
-          successCount: data.successCount,
-          failedCount: data.failCount,
-          status: CampaignStatus.RUNNING
-        } : c));
+        setCampaigns((prev) => {
+          const next = prev.map((c) =>
+            c.id === data.campaignId
+              ? {
+                  ...c,
+                  processedCount: data.processed,
+                  successCount: data.successCount,
+                  failedCount: data.failCount,
+                  status: CampaignStatus.RUNNING
+                }
+              : c
+          );
+          const u = currentUidRef.current;
+          if (u) syncStuckCampaignsToFirestore(next, u);
+          return healStuckRunningCampaignsList(next);
+        });
         queueCampaignProgressPersist(data.campaignId, {
           processedCount: data.processed,
           successCount: data.successCount,
@@ -810,13 +865,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (campaignId) {
           flushCampaignProgressToFirestore(campaignId, true);
           const uid = currentUidRef.current;
-          setCampaigns(prev => prev.map(c => c.id === campaignId ? {
-            ...c,
-            status: CampaignStatus.COMPLETED,
-            successCount,
-            failedCount: failCount,
-            processedCount
-          } : c));
+          setCampaigns((prev) => {
+            const next = prev.map((c) =>
+              c.id === campaignId
+                ? { ...c, status: CampaignStatus.COMPLETED, successCount, failedCount: failCount, processedCount }
+                : c
+            );
+            if (uid) syncStuckCampaignsToFirestore(next, uid);
+            return healStuckRunningCampaignsList(next);
+          });
           if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
             status: CampaignStatus.COMPLETED,
             successCount,
@@ -881,7 +938,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const uid = currentUidRef.current;
       if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), { status: CampaignStatus.PAUSED }).catch(() => {});
       clearCampaignProgressPersist(campaignId);
-      setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, status: CampaignStatus.PAUSED } : c));
+      setCampaigns((prev) => {
+        const next = prev.map((c) => (c.id === campaignId ? { ...c, status: CampaignStatus.PAUSED } : c));
+        const u = currentUidRef.current;
+        if (u) syncStuckCampaignsToFirestore(next, u);
+        return healStuckRunningCampaignsList(next);
+      });
       toast('Campanha pausada.', { icon: '⏸️' });
     });
 
@@ -890,7 +952,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const uid = currentUidRef.current;
       if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), { status: CampaignStatus.RUNNING }).catch(() => {});
       clearCampaignProgressPersist(campaignId);
-      setCampaigns(prev => prev.map(c => c.id === campaignId ? { ...c, status: CampaignStatus.RUNNING } : c));
+      setCampaigns((prev) => {
+        const next = prev.map((c) => (c.id === campaignId ? { ...c, status: CampaignStatus.RUNNING } : c));
+        const u = currentUidRef.current;
+        if (u) syncStuckCampaignsToFirestore(next, u);
+        return healStuckRunningCampaignsList(next);
+      });
       toast('Campanha retomada!', { icon: '▶️' });
     });
 
@@ -907,7 +974,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
-  }, []);
+  }, [syncStuckCampaignsToFirestore]);
 
   // --- ACTIONS ---
   const waitForSocketConnected = (timeoutMs: number) =>

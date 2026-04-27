@@ -33,6 +33,37 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
   };
 }
 
+/**
+ * O servidor conclui a fila e o evento `campaign-complete` ou a escrita no Firestore
+ * pode falhar; o documento fica `RUNNING` com contadores que já batem 100% da fila.
+ * A UI nesse caso deve tratar a campanha como concluída.
+ */
+export function isRunningStatusButWorkComplete(c: Campaign): boolean {
+  if (c.status !== CampaignStatus.RUNNING) return false;
+  const m = getCampaignProgressMetrics(c);
+  if (m.total <= 0) return false;
+  return m.pending === 0;
+}
+
+/**
+ * Ajusta em memória `RUNNING` → `COMPLETED` quando a fila já foi toda contabilizada.
+ */
+export function healStuckRunningCampaign(c: Campaign): Campaign {
+  if (!isRunningStatusButWorkComplete(c)) return c;
+  const m = getCampaignProgressMetrics(c);
+  return {
+    ...c,
+    status: CampaignStatus.COMPLETED,
+    processedCount: m.effectiveProcessed,
+    successCount: m.ok,
+    failedCount: m.fail
+  };
+}
+
+export function healStuckRunningCampaignsList(list: Campaign[]): Campaign[] {
+  return list.map(healStuckRunningCampaign);
+}
+
 export type CampaignProgressMetrics = ReturnType<typeof getCampaignProgressMetrics>;
 
 /**
