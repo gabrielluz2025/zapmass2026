@@ -154,6 +154,8 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
     return { total, vis, qr, conn };
   }, [rows.length, filtered]);
 
+  const revokableCount = useMemo(() => rows.filter((r) => r.canRevoke).length, [rows]);
+
   const copyUid = (uid: string) => {
     void navigator.clipboard.writeText(uid).then(
       () => toast.success('UID copiado'),
