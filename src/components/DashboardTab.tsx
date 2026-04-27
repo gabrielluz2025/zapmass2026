@@ -1293,7 +1293,9 @@ export const DashboardTab: React.FC = () => {
                   >
                   <div className="flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
                     <FileText className="h-3.5 w-3.5 shrink-0 text-emerald-500/90" aria-hidden />
-                    <p className="text-[10px] font-bold uppercase tracking-widest">Contrato — teto de canais</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest">
+                      {isAdmin ? 'Conta — canais existentes' : 'Contrato — teto de canais'}
+                    </p>
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
                     <div>
@@ -1302,7 +1304,10 @@ export const DashboardTab: React.FC = () => {
                       </span>
                       <span className="text-[14px] ml-1.5" style={{ color: 'var(--text-3)' }}>
                         {isAdmin ? (
-                          <span className="text-[12px]">canais · conta admin (sem teto padrão)</span>
+                          <span className="text-[12px]">
+                            total (não é o teto comercial) · admin pode ir até {maxPlanChannelSlots} no app; a RAM do
+                            servidor é o gargalo real
+                          </span>
                         ) : (
                           <>/ {maxPlanChannelSlots} permitidos</>
                         )}
