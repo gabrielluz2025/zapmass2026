@@ -10,7 +10,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { CampaignReplyFlow, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../types';
+import { CampaignReplyFlow, CampaignScheduleSlot, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../types';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import { useZapMass } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
@@ -24,7 +24,8 @@ import {
   CampaignMissionStickyBar,
   CampaignsList,
   CampaignsOverview,
-  NewCampaignWizard
+  NewCampaignWizard,
+  CampaignWeekScheduleView
 } from './campaigns';
 import { CampaignCockpitHero } from './campaigns/CampaignCockpitHero';
 import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
@@ -58,6 +59,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     contacts,
     socket,
     startCampaign,
+    scheduleCampaign,
     pauseCampaign,
     resumeCampaign,
     deleteCampaign,
@@ -163,6 +165,9 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const toggleCampaignStatus = (id: string) => {
     const campaign = campaigns.find((c) => c.id === id);
     if (!campaign) return;
+    if (campaign.status === CampaignStatus.SCHEDULED) {
+      return;
+    }
     if (campaign.status === CampaignStatus.RUNNING) {
       pauseCampaign(id);
       appendAudit({
@@ -208,6 +213,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     recipients: Array<{ phone: string; vars: Record<string, string> }>;
     contactListMeta: { id?: string; name?: string };
     delaySeconds: number;
+    launchMode?: 'now' | 'schedule';
+    schedule?: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean };
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -218,20 +225,37 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       throw new Error('Sem números');
     }
 
-    const id = await startCampaign(
-      payload.connectedIds[0],
-      payload.numbers,
-      payload.message,
-      payload.connectedIds,
-      payload.contactListMeta,
-      payload.name,
-      {
-        delaySeconds: payload.delaySeconds,
-        recipients: payload.recipients,
-        messageStages: payload.messageStages,
-        replyFlow: payload.replyFlow
-      }
-    );
+    const id =
+      payload.launchMode === 'schedule' && payload.schedule
+        ? await scheduleCampaign(
+            payload.connectedIds[0],
+            payload.numbers,
+            payload.message,
+            payload.connectedIds,
+            payload.contactListMeta,
+            payload.name,
+            payload.schedule,
+            {
+              delaySeconds: payload.delaySeconds,
+              recipients: payload.recipients,
+              messageStages: payload.messageStages,
+              replyFlow: payload.replyFlow
+            }
+          )
+        : await startCampaign(
+            payload.connectedIds[0],
+            payload.numbers,
+            payload.message,
+            payload.connectedIds,
+            payload.contactListMeta,
+            payload.name,
+            {
+              delaySeconds: payload.delaySeconds,
+              recipients: payload.recipients,
+              messageStages: payload.messageStages,
+              replyFlow: payload.replyFlow
+            }
+          );
     appendAudit({
       action: 'campaign_create',
       label: payload.name,
@@ -244,7 +268,9 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     if (isAbB) {
       toast.success('Laboratório A/B: as duas campanhas foram iniciadas. Compare os resultados na lista.');
     } else {
-      toast.success('Campanha iniciada com sucesso.');
+      if (payload.launchMode !== 'schedule') {
+        toast.success('Campanha iniciada com sucesso.');
+      }
     }
     setViewState('list');
     setSubTab('overview');
@@ -523,14 +549,17 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           )}
 
           {subTab === 'campaigns' && (
-            <CampaignsList
-              campaigns={campaigns}
-              onOpenDetails={openDetails}
-              onTogglePause={toggleCampaignStatus}
-              onDelete={handleDeleteCampaign}
-              onDeleteMany={handleDeleteManyCampaigns}
-              onClone={(c) => openWizardWithDraft(buildDraftFromCampaign(c))}
-            />
+            <div className="space-y-4">
+              <CampaignWeekScheduleView campaigns={campaigns} onOpenDetails={openDetails} />
+              <CampaignsList
+                campaigns={campaigns}
+                onOpenDetails={openDetails}
+                onTogglePause={toggleCampaignStatus}
+                onDelete={handleDeleteCampaign}
+                onDeleteMany={handleDeleteManyCampaigns}
+                onClone={(c) => openWizardWithDraft(buildDraftFromCampaign(c))}
+              />
+            </div>
           )}
         </div>
       )}

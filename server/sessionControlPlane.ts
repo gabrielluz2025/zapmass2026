@@ -75,7 +75,13 @@ export const startSessionControlPlane = async (): Promise<void> => {
   await bus.start();
   router.heartbeat(WORKER_ID);
 
-  if (PROCESS_MODE !== 'api') {
+  // Com Redis, o processo `api` apenas publica comandos; o `worker` executa.
+  // Sem Redis, o barramento é em memória: o mesmo processo tem de subscrever,
+  // senão create-connection / force-qr nunca correm (QR não aparece).
+  const runSessionCommandsInThisProcess =
+    PROCESS_MODE !== 'api' || !process.env.REDIS_URL?.trim();
+
+  if (runSessionCommandsInThisProcess) {
     commandUnsub = bus.onCommand(async (command) => {
       const targetWorker = router.assignWorker(command);
       if (targetWorker !== WORKER_ID && PROCESS_MODE === 'api') return;
@@ -109,7 +115,16 @@ export const startSessionControlPlane = async (): Promise<void> => {
     router.heartbeat(WORKER_ID);
     void publishWorkerEvent('worker-heartbeat', null);
   }, 10000);
+
+  // Garante que a API (ou outro leitor) ve `worker-*` cedo, nao so daqui a 10s.
+  void publishWorkerEvent('worker-heartbeat', null);
 };
+
+/** `SESSION_PROCESS_MODE=api` com Redis: comandos vao para o stream; o Chromium so no `wa-worker`. */
+export const isSessionBusRemote = (): boolean =>
+  (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(process.env.REDIS_URL?.trim());
+
+export const getWhatsappProcessWorkerCount = (): number => router.countWhatsappProcessWorkersExcludingApi();
 
 export const stopSessionControlPlane = async (): Promise<void> => {
   commandUnsub?.();

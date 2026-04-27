@@ -4,3 +4,4 @@ export { CampaignDetails } from './CampaignDetails';
 export { NewCampaignWizard } from './NewCampaignWizard';
 export { CampaignMissionControl } from './CampaignMissionControl';
 export { CampaignMissionStickyBar } from './CampaignMissionStickyBar';
+export { CampaignWeekScheduleView } from './CampaignWeekScheduleView';

@@ -23,6 +23,7 @@ export interface WhatsAppConnection {
   connectedSince?: number;
   healthScore?: number;
   signalStrength: 'STRONG' | 'MEDIUM' | 'WEAK';
+  ownerUid?: string;
 }
 
 export interface SystemMetrics {
@@ -45,10 +46,34 @@ export interface NavItem {
 
 export enum CampaignStatus {
   DRAFT = 'DRAFT',
+  /** Aguardando horário (próximo disparo em nextRunAt). */
+  SCHEDULED = 'SCHEDULED',
   RUNNING = 'RUNNING',
   PAUSED = 'PAUSED',
   COMPLETED = 'COMPLETED',
   FAILED = 'FAILED'
+}
+
+/** Um horário por dia da semana (0 = domingo … 6 = sábado, como Date#getDay). */
+export interface CampaignScheduleSlot {
+  dayOfWeek: number;
+  /** "HH:mm" 24h */
+  time: string;
+}
+
+export interface CampaignWeeklySchedule {
+  slots: CampaignScheduleSlot[];
+}
+
+/** Snapshot usado pelo servidor para disparo agendado (espelha o payload de start-campaign). */
+export interface CampaignScheduleStartSnapshot {
+  numbers: string[];
+  message: string;
+  messageStages: string[];
+  connectionIds: string[];
+  delaySeconds?: number;
+  recipients?: Array<{ phone: string; vars: Record<string, string> }>;
+  replyFlow?: CampaignReplyFlow;
 }
 
 export interface CampaignLog {
@@ -105,6 +130,17 @@ export interface Campaign {
   logs?: CampaignLog[];
   createdAt: string;
   delaySeconds?: number;
+  /** IANA, ex. America/Sao_Paulo — usado com weeklySchedule. */
+  scheduleTimeZone?: string;
+  /** Janelas semanais quando status é SCHEDULED. */
+  weeklySchedule?: CampaignWeeklySchedule;
+  /** Se true, após cada conclusão recalcula nextRunAt; se false, uma execução e depois COMPLETED. */
+  scheduleRepeatWeekly?: boolean;
+  /** Próximo disparo (ISO 8601 UTC). */
+  nextRunAt?: string;
+  lastRunAt?: string;
+  /** Preenchido em campanhas agendadas para o worker disparar sem depender do cliente. */
+  scheduleStartSnapshot?: CampaignScheduleStartSnapshot;
 }
 
 export interface DashboardMetrics {
@@ -336,6 +372,26 @@ export interface ZapMassContextType {
     connectionIds?: string[],
     contactListMeta?: { id?: string; name?: string },
     campaignName?: string,
+    options?: {
+      delaySeconds?: number;
+      recipients?: Array<{ phone: string; vars: Record<string, string> }>;
+      messageStages?: string[];
+      replyFlow?: CampaignReplyFlow;
+    }
+  ) => Promise<string>;
+  /** Grava campanha como agendada (sem socket); o servidor dispara no horário. */
+  scheduleCampaign: (
+    sessionId: string,
+    numbers: string[],
+    message: string,
+    connectionIds: string[] | undefined,
+    contactListMeta: { id?: string; name?: string } | undefined,
+    campaignName: string | undefined,
+    schedule: {
+      timeZone: string;
+      slots: CampaignScheduleSlot[];
+      repeatWeekly: boolean;
+    },
     options?: {
       delaySeconds?: number;
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;

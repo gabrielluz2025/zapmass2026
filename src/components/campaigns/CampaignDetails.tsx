@@ -296,6 +296,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
+  const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
 
   useEffect(() => {
     if (!isRunning) return;
@@ -309,6 +310,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     ? 'success'
     : isPaused
     ? 'warning'
+    : isScheduled
+    ? 'info'
     : isDone
     ? 'info'
     : 'neutral';
@@ -316,10 +319,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     ? 'var(--brand-500)'
     : isPaused
     ? '#f59e0b'
+    : isScheduled
+    ? '#6366f1'
     : isDone
     ? '#3b82f6'
     : 'var(--text-3)';
-  const accentHex = isRunning ? '#10b981' : isPaused ? '#f59e0b' : isDone ? '#3b82f6' : '#94a3b8';
+  const accentHex = isRunning
+    ? '#10b981'
+    : isPaused
+    ? '#f59e0b'
+    : isScheduled
+    ? '#6366f1'
+    : isDone
+    ? '#3b82f6'
+    : '#94a3b8';
 
   const startedAt = useMemo(() => {
     const d = new Date(campaign.createdAt);
@@ -613,7 +626,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const shareReport = () => {
     const lines = [
       `📊 Relatório: ${campaign.name}`,
-      `Status: ${isRunning ? 'Em execução' : isPaused ? 'Pausada' : isDone ? 'Concluída' : 'Pendente'}`,
+      `Status: ${
+        isRunning ? 'Em execução' : isPaused ? 'Pausada' : isScheduled ? 'Agendada' : isDone ? 'Concluída' : 'Pendente'
+      }`,
       `Total: ${campaign.totalContacts} contatos`,
       `Entregues: ${metrics.ok} (${successRate}%)`,
       `Respostas: ${performance.replied} (${performance.replyPct}%)`,
@@ -674,7 +689,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               Voltar
             </Button>
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              {!isDone && (
+              {!isDone && !isScheduled && (
                 <Button
                   variant={isRunning ? 'secondary' : 'primary'}
                   size="sm"
@@ -716,7 +731,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   Mission Report
                 </span>
                 <Badge variant={statusVariant} dot={isRunning}>
-                  {isRunning ? 'Em execução' : isPaused ? 'Pausada' : isDone ? 'Concluída' : 'Pendente'}
+                  {isRunning
+                    ? 'Em execução'
+                    : isPaused
+                    ? 'Pausada'
+                    : isScheduled
+                    ? 'Agendada'
+                    : isDone
+                    ? 'Concluída'
+                    : 'Pendente'}
                 </Badge>
               </div>
               <h1

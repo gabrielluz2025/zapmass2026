@@ -102,4 +102,20 @@ export class SessionRouter {
       aliveWorkers: this.workers.size
     };
   }
+
+  /**
+   * Heartbeats excluindo o processo de API (ids `api-*`), que nao executa o Chromium.
+   * Usado para sinalizar se existe `wa-worker` (tipicamente `worker-*` ou outro id sem prefixo `api-`).
+   */
+  countWhatsappProcessWorkersExcludingApi(): number {
+    this.cleanupExpiredLeases();
+    const now = Date.now();
+    let n = 0;
+    for (const [workerId, beat] of this.workers.entries()) {
+      if (now - beat.lastSeenAt > LEASE_MS) continue;
+      if (workerId.startsWith('api-')) continue;
+      n += 1;
+    }
+    return n;
+  }
 }

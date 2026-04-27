@@ -1,6 +1,7 @@
 import './bootstrapEnv.js';
 
 import * as waService from './whatsappService.js';
+import { createOwnerEmitRedisPublisher } from './redisOwnerEmitBridge.js';
 import { startSessionControlPlane, stopSessionControlPlane } from './sessionControlPlane.js';
 
 const WORKER_ID = process.env.WORKER_ID || `worker-${process.pid}`;
@@ -28,6 +29,15 @@ const shutdown = async (signal: string) => {
 const bootstrap = async () => {
   process.env.SESSION_PROCESS_MODE = process.env.SESSION_PROCESS_MODE || 'worker';
   waService.init(createNoopIo());
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (redisUrl) {
+    const pub = createOwnerEmitRedisPublisher(redisUrl);
+    waService.setOwnerEmitRedisBridge(pub);
+  } else {
+    console.warn(
+      '[wa-worker] REDIS_URL ausente — eventos Socket.IO (qr-code) nao chegam ao browser. Use Redis + API com subscritor ou modo monolith.'
+    );
+  }
   await startSessionControlPlane();
   console.log(`[wa-worker] ativo com id ${WORKER_ID}`);
 };

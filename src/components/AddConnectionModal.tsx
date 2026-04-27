@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, QrCode, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMass } from '../context/ZapMassContext';
+import { ConnectionStatus } from '../types';
 
 interface AddConnectionModalProps {
   isOpen: boolean;
@@ -9,8 +10,10 @@ interface AddConnectionModalProps {
   onSuccess: (name: string) => void;
 }
 
+const QR_LOAD_TIMEOUT_MS = 120_000;
+
 export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { socket } = useZapMass();
+  const { socket, connections, isBackendConnected } = useZapMass();
   const [step, setStep] = useState<'naming' | 'loading_qr' | 'scanning' | 'success'>('naming');
   const [connectionName, setConnectionName] = useState('');
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
@@ -19,6 +22,9 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   const pendingConnectionIdRef = useRef<string | null>(null);
   const stepRef = useRef(step);
   stepRef.current = step;
+  /** Ids de canais antes de clicar em "Gerar QR" — acha o canal novo se o evento socket falhar. */
+  const priorConnectionIdsRef = useRef<Set<string>>(new Set());
+  const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset state when modal opens
   useEffect(() => {
@@ -28,8 +34,58 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       setQrCodeData(null);
       setCurrentConnectionId(null);
       pendingConnectionIdRef.current = null;
+      priorConnectionIdsRef.current = new Set();
     }
   }, [isOpen]);
+
+  /** Se o evento `qr-code` nao chegar, o contexto ainda actualiza a lista com qrCode no canal novo. */
+  useEffect(() => {
+    if (step !== 'loading_qr') return;
+    const newChannel = connections.find(
+      (c) =>
+        !priorConnectionIdsRef.current.has(c.id) &&
+        c.status === ConnectionStatus.QR_READY &&
+        Boolean(c.qrCode?.length)
+    );
+    if (newChannel?.qrCode) {
+      setQrCodeData(newChannel.qrCode);
+      setCurrentConnectionId(newChannel.id);
+      pendingConnectionIdRef.current = newChannel.id;
+      setStep('scanning');
+      if (loadTimerRef.current) {
+        clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+      toast.success('QR code disponível! Escaneie com o celular.', { icon: '📷', duration: 3500 });
+    }
+  }, [connections, step]);
+
+  useEffect(() => {
+    if (step !== 'loading_qr' || !isOpen) {
+      if (loadTimerRef.current) {
+        clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+      return;
+    }
+    if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    loadTimerRef.current = setTimeout(() => {
+      loadTimerRef.current = null;
+      if (stepRef.current === 'loading_qr') {
+        toast.error(
+          'Ainda sem QR code. Verifique: servidor Node a correr, uma instância (evite API sem worker com Redis) e a pasta de dados fora de pastas muito lentas. Tente "Gerar QR" de novo ou reinicie o backend.',
+          { duration: 12_000 }
+        );
+        setStep('naming');
+      }
+    }, QR_LOAD_TIMEOUT_MS);
+    return () => {
+      if (loadTimerRef.current) {
+        clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+    };
+  }, [step, isOpen]);
 
   // Socket Listeners for Real-Time Events
   useEffect(() => {
@@ -41,6 +97,10 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         setCurrentConnectionId(data.connectionId);
         pendingConnectionIdRef.current = data.connectionId;
         setStep('scanning');
+        if (loadTimerRef.current) {
+          clearTimeout(loadTimerRef.current);
+          loadTimerRef.current = null;
+        }
         toast.success('QR Code Gerado! Escaneie agora.', {
             icon: '📷',
             duration: 4000
@@ -66,20 +126,74 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         }
     };
 
+    /** O contexto ja mostra toast; aqui so fechamos o passo "loading" do modal. */
+    const onSubscriptionRequired = () => {
+      if (loadTimerRef.current) {
+        clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+      if (stepRef.current === 'loading_qr') setStep('naming');
+    };
+
+    const onConnectionLimit = () => {
+      if (loadTimerRef.current) {
+        clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+      if (stepRef.current === 'loading_qr') setStep('naming');
+    };
+
+    const onSessionWorkerMissing = () => {
+      if (stepRef.current === 'loading_qr') {
+        if (loadTimerRef.current) {
+          clearTimeout(loadTimerRef.current);
+          loadTimerRef.current = null;
+        }
+        setStep('naming');
+      }
+    };
+
+    const onInitFailure = (data: { connectionId: string; message?: string }) => {
+      if (stepRef.current !== 'loading_qr') return;
+      if (priorConnectionIdsRef.current.has(data.connectionId)) return;
+      if (loadTimerRef.current) {
+        clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+      setStep('naming');
+      const det = (data.message || 'Erro desconhecido').trim().slice(0, 300);
+      toast.error(
+        `Não foi possível iniciar o motor do WhatsApp. ${det}`,
+        { duration: 10_000 }
+      );
+    };
+
     socket.on('qr-code', handleQrCode);
     socket.on('connection-ready', handleReady);
+    socket.on('subscription-required', onSubscriptionRequired);
+    socket.on('connection-limit-reached', onConnectionLimit);
+    socket.on('connection-init-failure', onInitFailure);
+    socket.on('session-worker-missing', onSessionWorkerMissing);
 
     return () => {
         socket.off('qr-code', handleQrCode);
         socket.off('connection-ready', handleReady);
+        socket.off('subscription-required', onSubscriptionRequired);
+        socket.off('connection-limit-reached', onConnectionLimit);
+        socket.off('connection-init-failure', onInitFailure);
+        socket.off('session-worker-missing', onSessionWorkerMissing);
     };
   }, [socket, currentConnectionId, onClose]);
 
   const handleCreate = () => {
       if (!connectionName.trim()) return;
+      if (!isBackendConnected) {
+        toast.error('Sem ligação ao servidor. Aguarde o indicador "Online" ou recarregue a página.');
+        return;
+      }
+      priorConnectionIdsRef.current = new Set(connections.map((c) => c.id));
       setStep('loading_qr');
-      // Envia evento para criar conexão real
-      onSuccess(connectionName); 
+      onSuccess(connectionName);
   };
 
   if (!isOpen) return null;
@@ -133,10 +247,23 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
           )}
 
           {step === 'loading_qr' && (
-            <div className="flex flex-col items-center text-center py-8">
+            <div className="flex flex-col items-center text-center py-8 max-w-sm">
               <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mb-4" />
               <h3 className="text-lg font-semibold text-gray-800">Iniciando motor do WhatsApp...</h3>
-              <p className="text-gray-500 text-sm mt-1">Isso pode levar alguns segundos.</p>
+              <p className="text-gray-500 text-sm mt-1">Abrindo o Chrome em segundo plano. Pode levar 30–90 s no primeiro arranque.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (loadTimerRef.current) {
+                    clearTimeout(loadTimerRef.current);
+                    loadTimerRef.current = null;
+                  }
+                  setStep('naming');
+                }}
+                className="mt-6 text-sm font-semibold text-emerald-700 hover:underline"
+              >
+                Cancelar e voltar
+              </button>
             </div>
           )}
 

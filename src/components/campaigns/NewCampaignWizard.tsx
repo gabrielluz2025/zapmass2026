@@ -18,12 +18,21 @@ import {
   Sparkles,
   Trash2,
   Users,
-  X
+  X,
+  Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { CampaignReplyFlow, Contact, ContactList, ConnectionStatus, WhatsAppConnection } from '../../types';
+import {
+  CampaignReplyFlow,
+  CampaignScheduleSlot,
+  Contact,
+  ContactList,
+  ConnectionStatus,
+  WhatsAppConnection
+} from '../../types';
 import type { CampaignWizardDraft } from '../../types/campaignMission';
 import { analyzeMessageRisk } from '../../utils/messageRiskScore';
+import { computeNextRunIso } from '../../utils/campaignSchedule';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 
 type CampaignFlowMode = 'sequential' | 'reply';
@@ -67,6 +76,8 @@ interface NewCampaignWizardProps {
     recipients: Array<{ phone: string; vars: Record<string, string> }>;
     contactListMeta: { id?: string; name?: string };
     delaySeconds: number;
+    launchMode?: 'now' | 'schedule';
+    schedule?: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean };
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -104,6 +115,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [abLabEnabled, setAbLabEnabled] = useState(false);
   const [abFirstBodyB, setAbFirstBodyB] = useState('');
   const [abPercentEach, setAbPercentEach] = useState(5);
+  const [launchMode, setLaunchMode] = useState<'now' | 'schedule'>('now');
+  const [repeatWeekly, setRepeatWeekly] = useState(true);
+  const [dayTimes, setDayTimes] = useState<string[]>(() => Array.from({ length: 7 }, () => ''));
+  const scheduleTimeZone = useMemo(
+    () => (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '') || 'America/Sao_Paulo',
+    []
+  );
   // Filtros por atributo do contato
   const [filterCities, setFilterCities] = useState<Set<string>>(new Set());
   const [filterChurches, setFilterChurches] = useState<Set<string>>(new Set());
@@ -475,7 +493,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const abLabOk =
     !abLabEnabled ||
     (campaignFlowMode === 'sequential' && abFirstBodyB.trim().length > 0 && messageStages.length >= 1);
-  const canSubmit = canGoFromAudience && canGoFromMessage && canGoFromChannels && !isSubmitting && abLabOk;
+  const scheduleSlots = useMemo((): CampaignScheduleSlot[] => {
+    const out: CampaignScheduleSlot[] = [];
+    dayTimes.forEach((raw, dow) => {
+      const t = (raw || '').trim();
+      if (!t) return;
+      out.push({ dayOfWeek: dow, time: t });
+    });
+    return out;
+  }, [dayTimes]);
+  const nextRunPreview = useMemo(() => {
+    if (launchMode !== 'schedule' || scheduleSlots.length === 0) return null;
+    return computeNextRunIso(scheduleSlots, scheduleTimeZone, Date.now());
+  }, [launchMode, scheduleSlots, scheduleTimeZone]);
+  const scheduleOk = launchMode === 'now' || abLabEnabled || scheduleSlots.length > 0;
+  const canSubmit = canGoFromAudience && canGoFromMessage && canGoFromChannels && !isSubmitting && abLabOk && scheduleOk;
+
+  useEffect(() => {
+    if (abLabEnabled) setLaunchMode('now');
+  }, [abLabEnabled]);
 
   const buildRecipients = (): Array<{ phone: string; vars: Record<string, string> }> => {
     const fromContact = (c: Contact) => ({
@@ -520,7 +556,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         : { id: undefined, name: 'Envio manual' };
 
     const runSingle = async () => {
-      await onSubmit({
+      const base = {
         name: name.trim(),
         message: stagesBodies[0] || '',
         messageStages: stagesBodies,
@@ -530,7 +566,20 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         recipients: buildRecipients(),
         contactListMeta,
         delaySeconds
-      });
+      };
+      if (launchMode === 'schedule' && !abLabEnabled) {
+        await onSubmit({
+          ...base,
+          launchMode: 'schedule' as const,
+          schedule: {
+            timeZone: scheduleTimeZone,
+            slots: scheduleSlots,
+            repeatWeekly
+          }
+        });
+      } else {
+        await onSubmit({ ...base, launchMode: 'now' as const });
+      }
     };
 
     if (abLabEnabled && campaignFlowMode === 'sequential' && stagesBodies.length >= 1) {
@@ -1397,6 +1446,113 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               <h3 className="ui-title text-[15px] mb-1">Revisao final</h3>
               <p className="ui-subtitle text-[12.5px] mb-4">Confira os dados antes de iniciar o disparo.</p>
 
+              <div
+                  className="mb-5 p-4 rounded-xl space-y-3"
+                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                    Quando enviar
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLaunchMode('now')}
+                      className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all"
+                      style={
+                        launchMode === 'now'
+                          ? { background: 'var(--brand-500)', color: '#fff' }
+                          : { background: 'var(--surface-0)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
+                      }
+                    >
+                      Iniciar agora
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLaunchMode('schedule')}
+                      disabled={abLabEnabled}
+                      className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all inline-flex items-center gap-1.5"
+                      style={
+                        launchMode === 'schedule'
+                          ? { background: '#6366f1', color: '#fff' }
+                          : {
+                              background: 'var(--surface-0)',
+                              color: abLabEnabled ? 'var(--text-3)' : 'var(--text-2)',
+                              border: '1px solid var(--border-subtle)',
+                              opacity: abLabEnabled ? 0.55 : 1
+                            }
+                      }
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      Agendar na semana
+                    </button>
+                  </div>
+                  {abLabEnabled && (
+                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                      Laboratório A/B só pode ser disparado imediatamente (duas campanhas em sequência).
+                    </p>
+                  )}
+                  {launchMode === 'schedule' && !abLabEnabled && (
+                    <div className="space-y-3 pt-1">
+                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                        Fuso: <strong style={{ color: 'var(--text-1)' }}>{scheduleTimeZone}</strong> — horários iguais aos do seu relógio local do navegador.
+                      </p>
+                      <label className="flex items-center gap-2 cursor-pointer text-[12px]">
+                        <input
+                          type="checkbox"
+                          checked={repeatWeekly}
+                          onChange={(e) => setRepeatWeekly(e.target.checked)}
+                        />
+                        Repetir toda semana (após cada conclusão, reagendar o próximo disparo)
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((label, dow) => (
+                          <div
+                            key={label}
+                            className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                            style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                          >
+                            <span className="text-[12px] font-semibold w-8" style={{ color: 'var(--text-2)' }}>
+                              {label}
+                            </span>
+                            <input
+                              type="time"
+                              value={dayTimes[dow] || ''}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setDayTimes((prev) => {
+                                  const n = [...prev];
+                                  n[dow] = v;
+                                  return n;
+                                });
+                              }}
+                              className="rounded-md text-[13px] px-2 py-1 tabular-nums"
+                              style={{
+                                background: 'var(--surface-1)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--text-1)'
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {nextRunPreview && (
+                        <p className="text-[12px]" style={{ color: 'var(--brand-700)' }}>
+                          Próximo disparo previsto:{' '}
+                          <strong>
+                            {new Date(nextRunPreview).toLocaleString('pt-BR', {
+                              weekday: 'long',
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </strong>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
               {campaignFlowMode === 'sequential' && (
                 <div
                   className="mb-5 p-4 rounded-xl space-y-3"
@@ -1480,6 +1636,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   value={`${messageStages.length} mensagem${messageStages.length !== 1 ? 'ns' : ''} por contato`}
                 />
                 <ReviewRow label="Estimativa" value={<span>{estimateLabel}</span>} />
+                {launchMode === 'schedule' && !abLabEnabled && (
+                  <ReviewRow
+                    label="Agendamento"
+                    value={
+                      scheduleSlots.length
+                        ? `${scheduleSlots.length} horário(s) — ${repeatWeekly ? 'repete semanalmente' : 'uma execução'}`
+                        : 'Defina dia(s) e hora(s)'
+                    }
+                  />
+                )}
               </div>
 
               <div
@@ -1540,7 +1706,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 loading={isSubmitting}
                 disabled={!canSubmit}
               >
-                {abLabEnabled ? 'Iniciar laboratório (2 campanhas)' : 'Iniciar disparo'}
+                {abLabEnabled
+                  ? 'Iniciar laboratório (2 campanhas)'
+                  : launchMode === 'schedule'
+                    ? 'Agendar campanha'
+                    : 'Iniciar disparo'}
               </Button>
             )}
           </div>

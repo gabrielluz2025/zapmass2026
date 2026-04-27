@@ -31,6 +31,8 @@ import {
 } from './connectionLimits.js';
 import {
   getSessionRouterMetrics,
+  getWhatsappProcessWorkerCount,
+  isSessionBusRemote,
   startSessionControlPlane,
   stopSessionControlPlane,
   submitCreateConnection,
@@ -50,6 +52,8 @@ import {
 import { metricsAccessMiddleware } from './metricsAccess.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 import { getSystemMetrics } from './systemMetricsShared.js';
+import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
+import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -282,6 +286,17 @@ const logEvent = (event: string, payload?: Record<string, unknown>) => {
   io.emit('system-log', { timestamp, event, payload });
 };
 
+/** Com API+Redis, o Chromium so corre no `wa-worker`. Sem heartbeat de worker, bloqueia e avisa o cliente. */
+const denyIfRemoteSessionWorkerMissing = (socket: { emit: (ev: string, payload: Record<string, unknown>) => void }): boolean => {
+  if (!isSessionBusRemote()) return false;
+  if (getWhatsappProcessWorkerCount() >= 1) return false;
+  socket.emit('session-worker-missing', {
+    message:
+      'Nenhum processo de sessao WhatsApp (wa-worker) com heartbeat. Com SESSION_PROCESS_MODE=api e REDIS, inicie o worker: npm run worker:dev. Em desenvolvimento, prefira remover essas variaveis do .env (modo classico: so o servidor) ou manter Redis e o worker em paralelo.'
+  });
+  return true;
+};
+
 const registerSocketHandlers = () => {
   waService.init(io);
   const allowAnonymousSocket = (() => {
@@ -402,6 +417,7 @@ const registerSocketHandlers = () => {
           });
           return;
         }
+        if (denyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:create-connection', { name });
         await submitCreateConnection(
           typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp',
@@ -418,6 +434,7 @@ const registerSocketHandlers = () => {
         return;
       }
       userLog('ui:delete-connection', { id });
+      if (denyIfRemoteSessionWorkerMissing(socket)) return;
       try {
         await submitDeleteConnection(id, uid);
         socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
@@ -434,6 +451,7 @@ const registerSocketHandlers = () => {
           denyCrossTenant('reconnect-connection', { id });
           return;
         }
+        if (denyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:reconnect-connection', { id });
         await submitReconnectConnection(id, uid);
       })();
@@ -446,6 +464,7 @@ const registerSocketHandlers = () => {
           denyCrossTenant('force-qr', { id });
           return;
         }
+        if (denyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:force-qr', { id });
         await submitForceQr(id, uid);
       })();
@@ -505,6 +524,10 @@ const registerSocketHandlers = () => {
         callback?.({ ok: false, error: 'Assine o Pro ou renove o periodo para disparar campanhas.' });
         return;
       }
+      if (denyIfRemoteSessionWorkerMissing(socket)) {
+        callback?.({ ok: false, error: 'Processo wa-worker indisponivel (modo API+Redis).' });
+        return;
+      }
       const connections = filterByConnectionScope(uid, waService.getConnections());
       const connectedIds = connections
         .filter((conn) => conn.status === 'CONNECTED')
@@ -546,6 +569,7 @@ const registerSocketHandlers = () => {
         return;
       }
       if (!(await requireActiveSubscription())) return;
+      if (denyIfRemoteSessionWorkerMissing(socket)) return;
       userLog('ui:send-message', { conversationId });
       try {
         await submitSendMessage(conversationId, text, uid);
@@ -581,6 +605,10 @@ const registerSocketHandlers = () => {
         }
         if (!(await requireActiveSubscription())) {
           callback?.({ ok: false, error: 'Plano ativo necessario para enviar midia.' });
+          return;
+        }
+        if (denyIfRemoteSessionWorkerMissing(socket)) {
+          callback?.({ ok: false, error: 'Processo de sessao WhatsApp (wa-worker) indisponivel. Inicie o worker ou use modo monolith.' });
           return;
         }
         try {
@@ -850,7 +878,20 @@ const bootstrap = async () => {
   }
 
   registerSocketHandlers();
+  startScheduledCampaignRunner();
   await startSessionControlPlane();
+  if (isSessionBusRemote()) {
+    const w = getWhatsappProcessWorkerCount();
+    console.log(
+      `[session] Modo API + Redis: WhatsApp (Chromium) roda so no \`wa-worker\`. Processos nao-API com heartbeat: ${w}.` +
+        (w < 1 ? ' Sem o worker, o QR nao e gerado. `npm run worker:dev` (com REDIS) ou comente api+redis no .env.' : '')
+    );
+  }
+
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (redisUrl && process.env.SESSION_PROCESS_MODE !== 'worker') {
+    startOwnerEmitRedisSubscriber(io, redisUrl);
+  }
 
   const backupOnStart = process.env.BACKUP_ON_START === 'true';
   const backupIntervalMinutes = Number(process.env.BACKUP_INTERVAL_MINUTES || 0);

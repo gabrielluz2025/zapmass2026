@@ -21,6 +21,8 @@ export interface WhatsAppConnection {
   connectedSince?: number;
   healthScore?: number;
   signalStrength: 'STRONG' | 'MEDIUM' | 'WEAK';
+  /** Dono (Firebase uid); usado se o id nao tiver prefixo `uid__`. */
+  ownerUid?: string;
 }
 
 export interface DashboardMetrics {

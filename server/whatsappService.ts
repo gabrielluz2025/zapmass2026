@@ -203,6 +203,14 @@ let connectionsInfo: WhatsAppConnection[] = [];
 const clients = new Map<string, WhatsAppClient>();
 let conversations: Conversation[] = [];
 let io: SocketIOServer;
+
+/** Worker publica no Redis; processo API com Socket.IO real emite para o browser. */
+type OwnerEmitFn = (uid: string, event: string, payload: Record<string, unknown>) => void;
+let ownerEmitRedisBridge: OwnerEmitFn | null = null;
+export const setOwnerEmitRedisBridge = (fn: OwnerEmitFn | null) => {
+    ownerEmitRedisBridge = fn;
+};
+
 const MAX_MESSAGES = 10000; // cap generoso para permitir historico completo quando carregado sob demanda
 const MAX_CONVERSATIONS = 200;
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -486,19 +494,43 @@ const emitConnectionsUpdate = () => {
     }
 };
 
+const resolveConnectionOwnerUid = (connectionId: string): string | null => {
+    const fromId = ownerUidFromConnectionId(connectionId);
+    if (fromId) return fromId;
+    const row = connectionsInfo.find((c) => c.id === connectionId);
+    const fromRow = row && typeof (row as { ownerUid?: string }).ownerUid === 'string' ? (row as { ownerUid: string }).ownerUid : '';
+    return fromRow || null;
+};
+
 const emitToConnectionOwner = (event: string, connectionId: string, payload: Record<string, unknown>) => {
-    if (!io) return;
     if (isLegacyConnectionId(connectionId)) {
-        // Isolamento estrito: eventos de conexao legada so para sockets anonimos.
+        const ouid = resolveConnectionOwnerUid(connectionId);
+        if (ouid) {
+            if (ownerEmitRedisBridge) {
+                ownerEmitRedisBridge(ouid, event, payload);
+                return;
+            }
+            if (io) io.to(`user:${ouid}`).emit(event, payload);
+            return;
+        }
+        if (!io) return;
         for (const socket of getConnectedSocketsSafe()) {
             const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
             if (!uid || uid === 'anonymous') socket.emit(event, payload);
         }
         return;
     }
-    const uid = ownerUidFromConnectionId(connectionId);
-    if (!uid) return;
-    io.to(`user:${uid}`).emit(event, payload);
+    const targetUid = resolveConnectionOwnerUid(connectionId);
+    if (!targetUid) {
+        console.warn(`[emitToConnectionOwner] sem dono para conexao ${connectionId} (${event})`);
+        return;
+    }
+    if (ownerEmitRedisBridge) {
+        ownerEmitRedisBridge(targetUid, event, payload);
+        return;
+    }
+    if (!io) return;
+    io.to(`user:${targetUid}`).emit(event, payload);
 };
 
 const emitToOwnerUid = (event: string, ownerUid: string | undefined, payload: Record<string, unknown>) => {
@@ -662,6 +694,9 @@ let currentCampaign = {
     lastLoggedProcessed: 0,
     startTime: 0
 };
+
+/** Fila global de disparo em massa: evita iniciar outra campanha enquanto uma está ativa. */
+export const isMassCampaignEngineIdle = (): boolean => !currentCampaign.isRunning;
 
 let metrics: DashboardMetrics = {
   totalSent: 0,
@@ -2380,7 +2415,8 @@ export const createConnection = async (name: string, ownerUid?: string) => {
         queueSize: 0,
         messagesSentToday: 0,
         signalStrength: 'STRONG',
-        batteryLevel: 0
+        batteryLevel: 0,
+        ...(ownerUid ? { ownerUid } : {})
     };
     connectionsInfo.push(newConn);
     persistConnections().catch(() => {});
@@ -2872,6 +2908,9 @@ const initializeClient = async (id: string, name: string) => {
         }
 
         const msg = String(err?.message || '');
+        const forUser = (msg || String(err) || 'erro desconhecido').replace(/\0/g, '');
+        const userMsg = forUser.length > 500 ? forUser.slice(0, 500) + '…' : forUser;
+        emitToConnectionOwner('connection-init-failure', id, { connectionId: id, message: userMsg });
         const isBrowserLock =
             msg.includes('browser is already running') ||
             msg.includes('SingletonLock') ||
@@ -3666,6 +3705,11 @@ const processQueue = async () => {
         total: currentCampaign.total,
         campaignId: currentCampaign.campaignId
     });
+    const finishedId = currentCampaign.campaignId;
+    const finishedOwner = currentCampaign.ownerUid;
+    void import('./campaignScheduleFollowup.js')
+        .then((m) => m.onMassCampaignCompleteForSchedule(finishedId, finishedOwner))
+        .catch(() => {});
     
     // Análise de auto-scaling
     const avgMessagesPerHour = (currentCampaign.total / ((Date.now() - (currentCampaign as any).startTime) / (1000 * 60 * 60))) || 0;

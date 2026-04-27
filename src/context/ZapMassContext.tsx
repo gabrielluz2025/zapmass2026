@@ -7,6 +7,7 @@ import {
   CampaignStatus,
   Campaign, 
   CampaignReplyFlow,
+  CampaignScheduleSlot,
   DashboardMetrics, 
   ZapMassContextType,
   BirthdayContact,
@@ -34,6 +35,7 @@ import {
   healStuckRunningCampaignsList,
   isRunningStatusButWorkComplete
 } from '../utils/campaignMetrics';
+import { computeNextRunIso } from '../utils/campaignSchedule';
 
 const INITIAL_METRICS: DashboardMetrics = {
   totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0
@@ -104,6 +106,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   deleteCampaign: async () => {},
   deleteCampaigns: async () => {},
   startCampaign: async () => '',
+  scheduleCampaign: async () => '',
   funnelStats: INITIAL_FUNNEL,
   clearFunnelStats: () => {},
   campaignGeo: INITIAL_CAMPAIGN_GEO,
@@ -688,6 +691,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast.error(msg);
     });
 
+    socket.on('session-worker-missing', (p: { message?: string }) => {
+      const msg =
+        typeof p?.message === 'string' && p.message.trim()
+          ? p.message
+          : 'Nenhum wa-worker (processo de sessao WhatsApp). Com modo API+Redis, inicie `npm run worker:dev` ou use modo classico (um processo) no .env.';
+      toast.error(msg, { duration: 14_000, icon: '🔧' });
+    });
+
     socket.on('metrics-update', (newMetrics: DashboardMetrics) => {
       setMetrics(newMetrics);
     });
@@ -866,20 +877,61 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           flushCampaignProgressToFirestore(campaignId, true);
           const uid = currentUidRef.current;
           setCampaigns((prev) => {
-            const next = prev.map((c) =>
-              c.id === campaignId
-                ? { ...c, status: CampaignStatus.COMPLETED, successCount, failedCount: failCount, processedCount }
-                : c
-            );
+            const cur = prev.find((c) => c.id === campaignId);
+            const slots = cur?.weeklySchedule?.slots;
+            const tz = cur?.scheduleTimeZone;
+            const shouldReschedule =
+              cur?.scheduleRepeatWeekly === true &&
+              Array.isArray(slots) &&
+              slots.length > 0 &&
+              typeof tz === 'string' &&
+              tz.length > 0;
+            const nextIso = shouldReschedule ? computeNextRunIso(slots, tz, Date.now() + 45_000) : null;
+
+            if (uid) {
+              if (shouldReschedule && nextIso) {
+                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                  status: CampaignStatus.SCHEDULED,
+                  nextRunAt: nextIso,
+                  lastRunAt: new Date().toISOString(),
+                  processedCount: 0,
+                  successCount: 0,
+                  failedCount: 0
+                }).catch(() => {});
+              } else {
+                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                  status: CampaignStatus.COMPLETED,
+                  successCount,
+                  failedCount: failCount,
+                  processedCount
+                }).catch(() => {});
+              }
+            }
+
+            const next = prev.map((c) => {
+              if (c.id !== campaignId) return c;
+              if (shouldReschedule && nextIso) {
+                return {
+                  ...c,
+                  status: CampaignStatus.SCHEDULED,
+                  nextRunAt: nextIso,
+                  lastRunAt: new Date().toISOString(),
+                  processedCount: 0,
+                  successCount: 0,
+                  failedCount: 0
+                };
+              }
+              return {
+                ...c,
+                status: CampaignStatus.COMPLETED,
+                successCount,
+                failedCount: failCount,
+                processedCount
+              };
+            });
             if (uid) syncStuckCampaignsToFirestore(next, uid);
             return healStuckRunningCampaignsList(next);
           });
-          if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
-            status: CampaignStatus.COMPLETED,
-            successCount,
-            failedCount: failCount,
-            processedCount
-          }).catch(() => {});
           clearCampaignProgressPersist(campaignId);
         }
         toast.success('Campanha finalizada!');
@@ -1572,6 +1624,88 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
+  const scheduleCampaign = async (
+    sessionId: string,
+    numbers: string[],
+    message: string,
+    connectionIds: string[] | undefined,
+    contactListMeta: { id?: string; name?: string } | undefined,
+    campaignName: string | undefined,
+    schedule: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean },
+    options?: {
+      delaySeconds?: number;
+      recipients?: Array<{ phone: string; vars: Record<string, string> }>;
+      messageStages?: string[];
+      replyFlow?: CampaignReplyFlow;
+    }
+  ) => {
+    const uid = currentUidRef.current;
+    if (!uid) throw new Error('Faça login para agendar campanha.');
+    const targetConnections = connectionIds || [sessionId];
+    if (schedule.slots.length === 0) {
+      throw new Error('Selecione ao menos um dia e horário.');
+    }
+    const cleanNumbers = Array.from(
+      new Set(
+        numbers
+          .map((number) => number.replace(/\D/g, ''))
+          .filter((number) => number.length >= 10)
+      )
+    );
+    if (cleanNumbers.length === 0) {
+      throw new Error('Nenhum número válido para o disparo.');
+    }
+    const stagesForDoc =
+      options?.messageStages && options.messageStages.length > 0
+        ? options.messageStages.map((s) => String(s || '').trim()).filter((s) => s.length > 0)
+        : [message.trim()].filter((s) => s.length > 0);
+    if (stagesForDoc.length === 0) {
+      throw new Error('Defina a mensagem da campanha.');
+    }
+    const nextRun = computeNextRunIso(schedule.slots, schedule.timeZone, Date.now());
+    if (!nextRun) {
+      throw new Error('Não foi possível calcular o próximo horário. Verifique os horários e o fuso.');
+    }
+    const cleanRecipients = options?.recipients
+      ? options.recipients
+          .map((r) => ({ phone: r.phone.replace(/\D/g, ''), vars: r.vars || {} }))
+          .filter((r) => r.phone.length >= 10)
+      : undefined;
+
+    const campaignRef = await addDoc(collection(db, 'users', uid, 'campaigns'), {
+      ownerUid: uid,
+      name: campaignName || `Agendada — ${new Date().toLocaleString('pt-BR')}`,
+      message: stagesForDoc[0] || message,
+      ...(stagesForDoc.length > 0 ? { messageStages: stagesForDoc } : {}),
+      ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
+      totalContacts: cleanNumbers.length,
+      processedCount: 0,
+      successCount: 0,
+      failedCount: 0,
+      status: CampaignStatus.SCHEDULED,
+      selectedConnectionIds: targetConnections,
+      contactListId: contactListMeta?.id || '',
+      contactListName: contactListMeta?.name || '',
+      delaySeconds: options?.delaySeconds,
+      createdAt: new Date().toISOString(),
+      scheduleTimeZone: schedule.timeZone,
+      weeklySchedule: { slots: schedule.slots },
+      scheduleRepeatWeekly: schedule.repeatWeekly,
+      nextRunAt: nextRun,
+      scheduleStartSnapshot: {
+        numbers: cleanNumbers,
+        message: stagesForDoc[0] || message,
+        messageStages: stagesForDoc,
+        connectionIds: targetConnections,
+        delaySeconds: options?.delaySeconds,
+        ...(cleanRecipients && cleanRecipients.length > 0 ? { recipients: cleanRecipients } : {}),
+        ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {})
+      }
+    });
+    toast.success('Campanha agendada. O disparo ocorre no horário escolhido (servidor online).');
+    return campaignRef.id;
+  };
+
   return (
     <ZapMassContext.Provider value={{
       socket: socketRef.current,
@@ -1612,6 +1746,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       deleteCampaign,
       deleteCampaigns,
       startCampaign,
+      scheduleCampaign,
       funnelStats,
       clearFunnelStats,
       campaignGeo,

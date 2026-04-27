@@ -32,7 +32,7 @@ interface CampaignsListProps {
   onClone?: (campaign: Campaign) => void;
 }
 
-type StatusFilter = 'ALL' | 'RUNNING' | 'PAUSED' | 'COMPLETED';
+type StatusFilter = 'ALL' | 'SCHEDULED' | 'RUNNING' | 'PAUSED' | 'COMPLETED';
 type ViewMode = 'cards' | 'compact' | 'table';
 type SortKey = 'recent' | 'name' | 'progress' | 'success' | 'volume';
 
@@ -270,6 +270,10 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
             items={[
               { id: 'ALL', label: `Todas (${campaigns.length})` },
               {
+                id: 'SCHEDULED',
+                label: `Agendadas (${campaigns.filter((c) => c.status === CampaignStatus.SCHEDULED).length})`
+              },
+              {
                 id: 'RUNNING',
                 label: `Ativas (${campaigns.filter((c) => c.status === CampaignStatus.RUNNING).length})`
               },
@@ -498,6 +502,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                   const isRunning = camp.status === CampaignStatus.RUNNING;
                   const isPaused = camp.status === CampaignStatus.PAUSED;
                   const isDone = camp.status === CampaignStatus.COMPLETED;
+                  const isScheduled = camp.status === CampaignStatus.SCHEDULED;
                   const eta = etaForCampaign(camp);
                   return (
                     <tr
@@ -516,10 +521,20 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                       </td>
                       <td className="px-3 py-2.5">
                         <Badge
-                          variant={isRunning ? 'success' : isPaused ? 'warning' : isDone ? 'info' : 'neutral'}
+                          variant={
+                            isRunning ? 'success' : isPaused ? 'warning' : isScheduled ? 'info' : isDone ? 'info' : 'neutral'
+                          }
                           dot={isRunning}
                         >
-                          {isRunning ? 'Ativa' : isPaused ? 'Pausada' : isDone ? 'Concluída' : 'Pendente'}
+                          {isRunning
+                            ? 'Ativa'
+                            : isPaused
+                            ? 'Pausada'
+                            : isScheduled
+                            ? 'Agendada'
+                            : isDone
+                            ? 'Concluída'
+                            : 'Pendente'}
                         </Badge>
                       </td>
                       <td className="px-3 py-2.5 text-right">
@@ -563,7 +578,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         <div className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          {!isDone && (
+                          {!isDone && !isScheduled && (
                             <button
                               type="button"
                               onClick={() => onTogglePause(camp.id)}
@@ -673,6 +688,7 @@ const CampaignCardExtended: React.FC<{
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
+  const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
   const spark = useMemo(() => buildSpark(campaign), [campaign]);
   const eta = etaForCampaign(campaign);
 
@@ -680,6 +696,8 @@ const CampaignCardExtended: React.FC<{
     ? 'var(--brand-500)'
     : isPaused
     ? '#f59e0b'
+    : isScheduled
+    ? '#6366f1'
     : isDone
     ? '#3b82f6'
     : '#94a3b8';
@@ -738,10 +756,18 @@ const CampaignCardExtended: React.FC<{
             style={{ color: 'var(--text-3)' }}
           >
             <Badge
-              variant={isRunning ? 'success' : isPaused ? 'warning' : isDone ? 'info' : 'neutral'}
+              variant={isRunning ? 'success' : isPaused ? 'warning' : isScheduled ? 'info' : isDone ? 'info' : 'neutral'}
               dot={isRunning}
             >
-              {isRunning ? 'Executando' : isPaused ? 'Pausada' : isDone ? 'Concluída' : 'Pendente'}
+              {isRunning
+                ? 'Executando'
+                : isPaused
+                ? 'Pausada'
+                : isScheduled
+                ? 'Agendada'
+                : isDone
+                ? 'Concluída'
+                : 'Pendente'}
             </Badge>
             <span className="flex items-center gap-1">
               <Smartphone className="w-3 h-3" />
@@ -765,7 +791,7 @@ const CampaignCardExtended: React.FC<{
               e.preventDefault();
             }}
           >
-            {!isDone && (
+            {!isDone && !isScheduled && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -923,10 +949,13 @@ const CampaignCompactRow: React.FC<{
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
+  const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
   const accent = isRunning
     ? 'var(--brand-500)'
     : isPaused
     ? '#f59e0b'
+    : isScheduled
+    ? '#6366f1'
     : isDone
     ? '#3b82f6'
     : '#94a3b8';
@@ -982,7 +1011,7 @@ const CampaignCompactRow: React.FC<{
       </div>
       {!selectionMode && (
         <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-          {!isDone && (
+          {!isDone && !isScheduled && (
             <button
               type="button"
               onClick={onTogglePause}
