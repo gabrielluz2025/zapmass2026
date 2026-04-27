@@ -97,10 +97,26 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
     .
   docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
+  # Swarm: duas "service update" em sequência podem falhar com "update out of sequence" — retentar e espaçar.
+  swarm_update_retry() {
+    local svc=$1
+    local a
+    for a in 1 2 3 4 5 6; do
+      if docker service update --force --image zapmass:latest "$svc" 2>/dev/null; then
+        echo "==> (swarm) $svc actualizado (tentativa $a)."
+        return 0
+      fi
+      echo "==> (swarm) $svc falhou (tentativa $a/6; ex.: conflito de versao). Aguardar 12s…"
+      sleep 12
+    done
+    echo "==> AVISO: $svc nao actualizado apos 6 tentativas. Tente: docker service update --force --image zapmass:latest $svc" >&2
+    return 1
+  }
   for svc in zapmass_api zapmass_wa-worker; do
     if docker service inspect "$svc" >/dev/null 2>&1; then
       echo "==> (swarm) forçar recriação: $svc"
-      docker service update --force --image zapmass:latest "$svc" || docker service update --force "$svc" || true
+      swarm_update_retry "$svc" || true
+      sleep 6
     fi
   done
 else
