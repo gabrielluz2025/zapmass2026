@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  CHANNEL_TIER_PRICES_ANNUAL,
+  CHANNEL_TIER_PRICES_MONTHLY,
+  type ChannelTier
+} from '../constants/channelTierPricing';
 import type { AppConfigGlobal } from '../types/appConfig';
 import {
   computeAnnualSavingsPercent,
-  FALLBACK_MARKETING_LABEL_ANNUAL,
-  FALLBACK_MARKETING_LABEL_MONTHLY,
   formatEquivalentPerMonth,
   formatMarketingBRL,
   formatPixSublabel,
   formatPriceAnnualLabel,
   formatPriceMonthlyLabel,
   type ServerBillingPrices,
-  parseMarketingPriceBRL,
   roundMoneyBRL,
   fetchServerBillingPrices
 } from '../utils/marketingPrices';
@@ -18,12 +20,13 @@ import {
 const DEFAULT_PIX = 0.05;
 
 /**
- * Garante que os valores exibidos coincidam com o checkout (MERCADOPAGO_PRICE_* no servidor)
- * via GET /api/billing/mercadopago/prices. Cai no texto de marketing (Firestore/VITE) se a API falhar.
+ * Garante que os valores exibidos coincidam com o checkout (`channelTiers` no servidor)
+ * via GET /api/billing/mercadopago/prices. Cai em constantes locais ou texto de marketing se a API falhar.
  */
 export function useProBillingPrices(
   isOpen: boolean,
-  config: AppConfigGlobal
+  _config: AppConfigGlobal,
+  channelTier: ChannelTier = 2
 ): {
   priceMonthlyLabel: string;
   priceAnnualLabel: string;
@@ -46,42 +49,49 @@ export function useProBillingPrices(
     };
   }, [isOpen]);
 
-  const configMonthly = config.marketingPriceMonthly.trim() || FALLBACK_MARKETING_LABEL_MONTHLY;
-  const configAnnual = config.marketingPriceAnnual.trim() || FALLBACK_MARKETING_LABEL_ANNUAL;
-
   return useMemo(() => {
     const pixDisc = server?.pixDiscountPct ?? DEFAULT_PIX;
-    const mNum = server != null ? server.monthly : parseMarketingPriceBRL(configMonthly);
-    const aNum = server != null ? server.annual : parseMarketingPriceBRL(configAnnual);
+    const row = server?.channelTiers?.[String(channelTier)];
+
+    const mNum =
+      row != null
+        ? row.monthly
+        : server != null && server.channelTiers == null
+          ? server.monthly
+          : CHANNEL_TIER_PRICES_MONTHLY[channelTier];
+    const aNum =
+      row != null
+        ? row.annual
+        : server != null && server.channelTiers == null
+          ? server.annual
+          : CHANNEL_TIER_PRICES_ANNUAL[channelTier];
 
     const priceMonthlyLabel =
-      server != null
-        ? server.displayMonthly ?? formatPriceMonthlyLabel(server.monthly)
-        : configMonthly;
+      row != null
+        ? row.displayMonthly ?? formatPriceMonthlyLabel(row.monthly)
+        : server != null && server.channelTiers == null
+          ? server.displayMonthly ?? formatPriceMonthlyLabel(server.monthly)
+          : formatPriceMonthlyLabel(CHANNEL_TIER_PRICES_MONTHLY[channelTier]);
+
     const priceAnnualLabel =
-      server != null
-        ? server.displayAnnual ?? formatPriceAnnualLabel(server.annual)
-        : configAnnual;
+      row != null
+        ? row.displayAnnual ?? formatPriceAnnualLabel(row.annual)
+        : server != null && server.channelTiers == null
+          ? server.displayAnnual ?? formatPriceAnnualLabel(server.annual)
+          : formatPriceAnnualLabel(CHANNEL_TIER_PRICES_ANNUAL[channelTier]);
 
-    const pixMonthlySub =
-      mNum != null
-        ? formatPixSublabel(
-            formatMarketingBRL(roundMoneyBRL(mNum * (1 - pixDisc))),
-            pixDisc
-          )
-        : null;
-    const pixAnnualSub =
-      aNum != null
-        ? formatPixSublabel(
-            formatMarketingBRL(roundMoneyBRL(aNum * (1 - pixDisc))),
-            pixDisc
-          )
-        : null;
+    const pixMonthlySub = formatPixSublabel(
+      formatMarketingBRL(roundMoneyBRL(mNum * (1 - pixDisc))),
+      pixDisc
+    );
+    const pixAnnualSub = formatPixSublabel(
+      formatMarketingBRL(roundMoneyBRL(aNum * (1 - pixDisc))),
+      pixDisc
+    );
 
-    const sav =
-      mNum != null && aNum != null ? computeAnnualSavingsPercent(mNum, aNum) : null;
+    const sav = computeAnnualSavingsPercent(mNum, aNum);
     const annualSavingsBadge = sav != null ? `Economize ~${sav}%` : null;
-    const annualEquivalencyHint = aNum != null ? formatEquivalentPerMonth(aNum) : '';
+    const annualEquivalencyHint = formatEquivalentPerMonth(aNum);
 
     return {
       priceMonthlyLabel,
@@ -92,5 +102,5 @@ export function useProBillingPrices(
       annualEquivalencyHint,
       fromServer: server != null
     };
-  }, [configAnnual, configMonthly, server]);
+  }, [channelTier, server]);
 }

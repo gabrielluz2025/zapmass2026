@@ -4,6 +4,7 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { mergeUserSubscription } from './subscriptionFirestore.js';
 import { channelAddonUnitPriceBrl } from './connectionLimits.js';
+import { getMercadoPagoAccessToken, requireMercadoPagoAccessToken } from './mercadoPagoAccess.js';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
@@ -51,7 +52,19 @@ function getPrices(): { monthly: number; annual: number } {
 }
 
 function getBackUrl(): string {
-  return (process.env.MERCADOPAGO_BACK_URL || 'http://localhost:8000').trim().replace(/\/+$/, '');
+  const raw = (process.env.MERCADOPAGO_BACK_URL || '').trim();
+  const fallback = 'http://localhost:8000';
+  const candidate = raw || fallback;
+  try {
+    const u = new URL(candidate);
+    if (!u.protocol.startsWith('http')) throw new Error('invalid protocol');
+    return candidate.replace(/\/+$/, '');
+  } catch {
+    console.warn(
+      `[billing] MERCADOPAGO_BACK_URL inválido (${JSON.stringify(raw)}). Usando fallback ${fallback}.`
+    );
+    return fallback;
+  }
 }
 
 function parseChannelTier(v: unknown): ChannelTier | null {
@@ -101,6 +114,8 @@ interface CreateParams {
   email: string;
   plan: Plan;
   method: Method;
+  /** Quando definido, o valor cobrado segue o plano por canais (tier 1–5). */
+  channels?: ChannelTier;
 }
 
 /**
@@ -109,8 +124,20 @@ interface CreateParams {
  * - Cartao: checkout com Pix, cartao, debito e carteira MP. Ate 12x no anual.
  */
 async function createPreference(params: CreateParams): Promise<{ id: string; init_point: string }> {
-  const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
-  if (!access) throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado no servidor.');
+  const access = requireMercadoPagoAccessToken();
+
+  if (params.channels != null) {
+    if (params.method !== 'pix' && params.method !== 'card') {
+      throw new Error('Checkout por canais aceita apenas method pix ou card.');
+    }
+    return createChannelTierPreference({
+      uid: params.uid,
+      email: params.email,
+      channels: params.channels,
+      method: params.method,
+      plan: params.plan
+    });
+  }
 
   const { monthly, annual } = getPrices();
   const basePrice = params.plan === 'monthly' ? monthly : annual;
@@ -203,21 +230,31 @@ async function createPreference(params: CreateParams): Promise<{ id: string; ini
  * automaticamente em cada renovacao.
  */
 async function createPreapproval(params: CreateParams): Promise<{ id: string; init_point: string }> {
-  const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
-  if (!access) throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado no servidor.');
+  const access = requireMercadoPagoAccessToken();
 
-  const { monthly, annual } = getPrices();
-  const basePrice = params.plan === 'monthly' ? monthly : annual;
+  const basePrice =
+    params.channels != null
+      ? params.plan === 'monthly'
+        ? channelTierMonthlyPrice(params.channels)
+        : channelTierAnnualPrice(params.channels)
+      : (() => {
+          const { monthly, annual } = getPrices();
+          return params.plan === 'monthly' ? monthly : annual;
+        })();
 
   const backUrl = getBackUrl();
   const planLabel = params.plan === 'monthly' ? 'Mensal' : 'Anual';
+  const channelSuffix = params.channels != null ? ` - ${params.channels} canal(is)` : '';
 
   const frequency = params.plan === 'monthly' ? 1 : 12;
   const frequency_type: 'months' = 'months';
 
   const body = {
-    reason: `ZapMass Pro - ${planLabel} (debito automatico)`,
-    external_reference: `${params.uid}:${params.plan}`,
+    reason: `ZapMass Pro - ${planLabel}${channelSuffix} (debito automatico)`,
+    external_reference:
+      params.channels != null
+        ? `${params.uid}:tier:${params.channels}:${params.plan}`
+        : `${params.uid}:${params.plan}`,
     payer_email: params.email,
     back_url: backUrl,
     status: 'pending',
@@ -236,7 +273,7 @@ async function createPreapproval(params: CreateParams): Promise<{ id: string; in
     headers: {
       Authorization: `Bearer ${access}`,
       'Content-Type': 'application/json',
-      'X-Idempotency-Key': `${params.uid}-${params.plan}-recurring-${Date.now()}`
+      'X-Idempotency-Key': `${params.uid}-${params.plan}-recurring-${params.channels ?? 'flat'}-${Date.now()}`
     },
     body: JSON.stringify(body)
   });
@@ -264,8 +301,7 @@ async function createChannelTierPreference(params: {
   description?: string;
   amountOverride?: number;
 }): Promise<{ id: string; init_point: string }> {
-  const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
-  if (!access) throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado no servidor.');
+  const access = requireMercadoPagoAccessToken();
   const backUrl = getBackUrl();
   const notificationUrl = `${backUrl}/api/webhooks/mercadopago`;
   const baseByPlan = params.plan === 'annual' ? channelTierAnnualPrice(params.channels) : channelTierMonthlyPrice(params.channels);
@@ -350,8 +386,7 @@ type ChannelAddonMethod = 'pix' | 'card' | 'recurring';
 async function createChannelAddonPreference(
   params: { uid: string; email: string; extraSlots: 1 | 2 | 3; method: 'pix' | 'card' }
 ): Promise<{ id: string; init_point: string }> {
-  const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
-  if (!access) throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado no servidor.');
+  const access = requireMercadoPagoAccessToken();
 
   const unit = channelAddonUnitPriceBrl();
   const total = roundMoney(unit * params.extraSlots);
@@ -428,8 +463,7 @@ async function createChannelAddonPreapproval(params: { uid: string; email: strin
   id: string;
   init_point: string;
 }> {
-  const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
-  if (!access) throw new Error('MERCADOPAGO_ACCESS_TOKEN nao configurado no servidor.');
+  const access = requireMercadoPagoAccessToken();
 
   const unit = channelAddonUnitPriceBrl();
   const total = roundMoney(unit * params.extraSlots);
@@ -474,21 +508,42 @@ async function createChannelAddonPreapproval(params: { uid: string; email: strin
  * Rotas de cobrança Mercado Pago.
  *
  * POST /api/billing/mercadopago/start
- *   Body: { plan: 'monthly'|'annual', method: 'pix'|'card'|'recurring' }
+ *   Body: { plan, method, channels?: 1..5 } — se `channels` vier, o valor segue o plano por canais (também no recurring).
  *   Devolve `init_point` para redirecionar o navegador.
  *
  * POST /api/billing/mercadopago/cancel-subscription
  *   Cancela o preapproval ativo do utilizador (so aplica a quem tem debito automatico).
  *
  * GET /api/billing/mercadopago/prices
- *   Valores numericos usados no checkout (MERCADOPAGO_PRICE_*). Publico; alinha a UI ao cobrado.
+ *   Matriz `channelTiers` (1–5) + `monthly`/`annual` no tier base (2). Publico; alinha a UI ao cobrado.
  */
 export function registerBillingMercadoPagoRoutes(app: Express): void {
   app.get('/api/billing/mercadopago/prices', (_req: Request, res: Response) => {
     try {
-      const { monthly, annual } = getPrices();
+      const channelTiers: Record<
+        string,
+        { monthly: number; annual: number; displayMonthly: string; displayAnnual: string }
+      > = {};
+      const tiers: ChannelTier[] = [1, 2, 3, 4, 5];
+      for (const n of tiers) {
+        const m = channelTierMonthlyPrice(n);
+        const a = channelTierAnnualPrice(n);
+        channelTiers[String(n)] = {
+          monthly: m,
+          annual: a,
+          displayMonthly: formatPriceLabelBrl(m, 'monthly'),
+          displayAnnual: formatPriceLabelBrl(a, 'annual')
+        };
+      }
+      const baseTier: ChannelTier = 2;
+      const monthly = channelTierMonthlyPrice(baseTier);
+      const annual = channelTierAnnualPrice(baseTier);
       return res.json({
         ok: true,
+        pricingModel: 'channel_tiers',
+        defaultChannelTier: baseTier,
+        channelTiers,
+        /** Base Pro (2 canais) — compatível com clientes que só leem monthly/annual. */
         monthly,
         annual,
         pixDiscountPct: PIX_DISCOUNT_PCT,
@@ -541,10 +596,19 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       const method: Method =
         methodRaw === 'pix' ? 'pix' : methodRaw === 'recurring' ? 'recurring' : 'card';
 
+      const channels = parseChannelTier(req.body?.channels);
+      const tierArg = channels != null ? { channels } : {};
+
       const result =
         method === 'recurring'
-          ? await createPreapproval({ uid, email, plan, method })
-          : await createPreference({ uid, email, plan, method });
+          ? await createPreapproval({ uid, email, plan, method, ...tierArg })
+          : await createPreference({
+              uid,
+              email,
+              plan,
+              method: method as 'pix' | 'card',
+              ...tierArg
+            });
 
       return res.json({
         ok: true,
@@ -682,7 +746,7 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         return res.status(401).json({ ok: false, error: 'Token invalido.' });
       }
 
-      const access = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
+      const access = getMercadoPagoAccessToken();
       if (!access) return res.status(503).json({ ok: false, error: 'MERCADOPAGO_ACCESS_TOKEN ausente.' });
 
       const db = getFirestore(adminApp);

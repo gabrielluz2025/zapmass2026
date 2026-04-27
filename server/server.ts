@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import { PROJECT_ROOT } from './bootstrapEnv.js';
+import { isMercadoPagoAccessTokenConfigured } from './mercadoPagoAccess.js';
 
 import express from 'express';
 import { createServer } from 'http';
@@ -171,7 +172,13 @@ registerAdminAppConfigRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', serverTime: new Date(), version: getAppVersion() });
+  const mpOk = isMercadoPagoAccessTokenConfigured();
+  res.json({
+    status: 'ok',
+    serverTime: new Date(),
+    version: getAppVersion(),
+    mercadopagoConfigured: mpOk
+  });
 });
 
 app.get('/api/session-router/metrics', (_req, res) => {
@@ -771,6 +778,14 @@ const startServer = async (port: number): Promise<boolean> => {
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Servidor rodando na porta ${port}`);
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
+    const mpOkListen = isMercadoPagoAccessTokenConfigured();
+    if (mpOkListen) {
+      console.log(`💳 Mercado Pago: token OK (configurado)`);
+    } else {
+      console.warn(
+        `[billing] MERCADOPAGO_ACCESS_TOKEN ausente — checkout MP falhará. Use .env na raiz, env no stack/compose, ou ficheiro em /run/secrets/mercadopago_access_token (volume ./secrets).`
+      );
+    }
   });
 
   httpServer.once('error', (err: NodeJS.ErrnoException) => {

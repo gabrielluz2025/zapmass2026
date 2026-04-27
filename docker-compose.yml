@@ -36,6 +36,9 @@ services:
       PORT: "3001"
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       SESSION_PROCESS_MODE: ${SESSION_PROCESS_MODE:-monolith}
+      # Repasse explícito (Compose lê o .env ao lado deste ficheiro para interpolar ${…}).
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      MERCADOPAGO_BACK_URL: ${MERCADOPAGO_BACK_URL:-}
       # Credenciais Firebase Admin (service account). Coloca o JSON em
       # /opt/zapmass/secrets/firebase-admin.json no host (chmod 600).
       # Se o ficheiro nao existir, o servidor sobe na mesma mas rotas que

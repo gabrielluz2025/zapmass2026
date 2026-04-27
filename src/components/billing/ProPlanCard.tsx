@@ -112,7 +112,7 @@ export const ProPlanCard: React.FC<ProPlanCardProps> = ({
           loading={loadingPix}
           disabled={busy}
           onClick={onPix}
-          topLabel="Pagar com Pix"
+          topLabel={featured ? 'Assinar com Pix' : 'Pagar com Pix'}
           subLabel={pixSubLabel || '5% de desconto no Pix (sobre o valor do plano)'}
         />
         <PayLine
@@ -120,7 +120,7 @@ export const ProPlanCard: React.FC<ProPlanCardProps> = ({
           loading={loadingCard}
           disabled={busy}
           onClick={onCard}
-          topLabel="Outras formas"
+          topLabel={featured ? 'Assinar no cartão' : 'Outras formas'}
           subLabel={cardInfo}
         />
         {showRecurring && onRecurring && (

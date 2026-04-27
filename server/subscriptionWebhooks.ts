@@ -8,6 +8,7 @@ import {
 } from './subscriptionFirestore.js';
 import { sendPaymentConfirmationEmail } from './emailService.js';
 import { issueInvoice, isNfeEnabled } from './nfeService.js';
+import { getMercadoPagoAccessToken } from './mercadoPagoAccess.js';
 
 const MP_API = 'https://api.mercadopago.com';
 
@@ -59,7 +60,7 @@ function parseExternalReference(ref: string | undefined | null): ParsedMpRef {
 }
 
 async function mpGetJson(path: string): Promise<Record<string, unknown> | null> {
-  const token = process.env.MERCADOPAGO_ACCESS_TOKEN?.trim();
+  const token = getMercadoPagoAccessToken();
   if (!token) {
     console.warn('[MP Webhook] MERCADOPAGO_ACCESS_TOKEN nao configurado.');
     return null;
@@ -305,17 +306,25 @@ async function handleMercadoPagoPreapproval(preapprovalId: string): Promise<void
     return;
   }
 
-  if (parsed.kind !== 'plan') {
+  if (parsed.kind !== 'plan' && parsed.kind !== 'tier_plan') {
     return;
   }
 
-  const { plan } = parsed;
+  const plan = parsed.plan;
+  const includedChannels =
+    parsed.kind === 'tier_plan' ? Math.max(1, Math.min(5, parsed.channels)) : null;
   if (status === 'authorized') {
     const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
     await extendPaidSubscription(uid, billingPlan, {
       provider: 'mercadopago',
       plan: billingPlan,
-      mercadoPagoPreapprovalId: preapprovalId
+      mercadoPagoPreapprovalId: preapprovalId,
+      ...(includedChannels != null
+        ? {
+            includedChannels,
+            extraChannelSlots: Math.max(0, includedChannels - 1)
+          }
+        : {})
     });
     console.log('[MP Webhook] Preapproval autorizado - ativo', uid);
     // Email avulso "debito auto ativado". NFS-e nao e emitida aqui - espera o payment event.

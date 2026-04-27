@@ -1,3 +1,10 @@
+export type ChannelTierPriceRow = {
+  monthly: number;
+  annual: number;
+  displayMonthly?: string;
+  displayAnnual?: string;
+};
+
 /** Preços reais de cobrança (Mercado Pago) expostos pelo backend — fonte de verdade para a UI. */
 export type ServerBillingPrices = {
   monthly: number;
@@ -7,6 +14,10 @@ export type ServerBillingPrices = {
   /** Mesma formatação que o Node usa, para a UI bater 100% com o checkout. */
   displayMonthly?: string;
   displayAnnual?: string;
+  pricingModel?: 'flat' | 'channel_tiers';
+  defaultChannelTier?: number;
+  /** Chaves "1" … "5" — preço mensal/anual por tier. */
+  channelTiers?: Record<string, ChannelTierPriceRow>;
 };
 
 /** Fallback se Firestore (appConfig) e API falharem — alinhe VITE_MARKETING_* no build. */
@@ -73,6 +84,31 @@ export function formatPixSublabel(
   return `${pixTotalFormatted} com ${pct}% de desconto no Pix`;
 }
 
+function parseChannelTiers(raw: unknown): Record<string, ChannelTierPriceRow> | undefined {
+  if (raw == null || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  const out: Record<string, ChannelTierPriceRow> = {};
+  for (const k of ['1', '2', '3', '4', '5']) {
+    const row = o[k];
+    if (row == null || typeof row !== 'object') return undefined;
+    const r = row as Record<string, unknown>;
+    const monthly = Number(r.monthly);
+    const annual = Number(r.annual);
+    if (!Number.isFinite(monthly) || !Number.isFinite(annual) || monthly <= 0 || annual <= 0) {
+      return undefined;
+    }
+    const dm = typeof r.displayMonthly === 'string' ? r.displayMonthly.trim() : undefined;
+    const da = typeof r.displayAnnual === 'string' ? r.displayAnnual.trim() : undefined;
+    out[k] = {
+      monthly,
+      annual,
+      ...(dm ? { displayMonthly: dm } : {}),
+      ...(da ? { displayAnnual: da } : {})
+    };
+  }
+  return out;
+}
+
 export async function fetchServerBillingPrices(): Promise<ServerBillingPrices | null> {
   try {
     const res = await fetch('/api/billing/mercadopago/prices', { method: 'GET' });
@@ -92,6 +128,20 @@ export async function fetchServerBillingPrices(): Promise<ServerBillingPrices | 
     }
     const displayMonthly = typeof data.displayMonthly === 'string' ? data.displayMonthly.trim() : undefined;
     const displayAnnual = typeof data.displayAnnual === 'string' ? data.displayAnnual.trim() : undefined;
+    const channelTiers = parseChannelTiers(data.channelTiers);
+    const pricingModel =
+      data.pricingModel === 'channel_tiers' || data.pricingModel === 'flat'
+        ? data.pricingModel
+        : channelTiers
+          ? 'channel_tiers'
+          : undefined;
+    const defaultChannelTier = Number(data.defaultChannelTier);
+    const defaultTierOk =
+      Number.isFinite(defaultChannelTier) &&
+      defaultChannelTier >= 1 &&
+      defaultChannelTier <= 5
+        ? defaultChannelTier
+        : undefined;
 
     return {
       monthly,
@@ -99,7 +149,10 @@ export async function fetchServerBillingPrices(): Promise<ServerBillingPrices | 
       pixDiscountPct,
       currency: 'BRL',
       ...(displayMonthly ? { displayMonthly } : {}),
-      ...(displayAnnual ? { displayAnnual } : {})
+      ...(displayAnnual ? { displayAnnual } : {}),
+      ...(channelTiers ? { channelTiers } : {}),
+      ...(pricingModel ? { pricingModel } : {}),
+      ...(defaultTierOk != null ? { defaultChannelTier: defaultTierOk } : {})
     };
   } catch {
     return null;

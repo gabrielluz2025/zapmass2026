@@ -99,33 +99,6 @@ export const MySubscriptionTab: React.FC = () => {
     return () => cancelAnimationFrame(t);
   }, [loading]);
 
-  const startPayment = async (plan: Plan, method: Method) => {
-    if (!user) return;
-    setBusy(method);
-    try {
-      const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ plan, method })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Erro ao abrir o checkout.');
-        return;
-      }
-      if (data.init_point) {
-        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
-        toast.success('Abrimos o Mercado Pago numa nova aba. O acesso é estendido após confirmação.');
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro de rede.');
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const cancelRecurring = async () => {
     if (!user) return;
     if (!window.confirm('Cancelar o débito automático? Seu acesso continua até a data de expiração atual.')) return;
@@ -206,6 +179,35 @@ export const MySubscriptionTab: React.FC = () => {
       )
     )
   ) as ChannelTier;
+
+  /** Migração mensal → anual (Pix) com o mesmo número de canais contratado. */
+  const migrateToAnnualPix = async () => {
+    if (!user) return;
+    setBusy('pix');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/billing/mercadopago/channel-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ plan: 'annual', method: 'pix', channels: contractedChannels })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        toast.error(typeof data?.error === 'string' ? data.error : 'Erro ao abrir o checkout.');
+        return;
+      }
+      if (data.init_point) {
+        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        toast.success('Abrimos o Mercado Pago numa nova aba. O acesso é estendido após confirmação.');
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro de rede.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const selectedTierPrice = tierPrice(upgradeTarget, tierPlanMode);
   const contractedTierPrice = tierPrice(contractedChannels, tierPlanMode);
   const monthlyDiff = Math.max(0, selectedTierPrice - contractedTierPrice);
@@ -289,7 +291,7 @@ export const MySubscriptionTab: React.FC = () => {
         <div className="flex flex-wrap gap-2">
           {subscription?.plan !== 'annual' && (
             <Action
-              onClick={() => startPayment('annual', 'pix')}
+              onClick={() => void migrateToAnnualPix()}
               loading={busy === 'pix'}
               disabled={!!busy}
               icon={<TrendingUp className="w-4 h-4" />}

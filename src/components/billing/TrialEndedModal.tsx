@@ -3,8 +3,11 @@ import { Check, Clock3, ShieldCheck, Sparkles, XCircle, Zap, X } from 'lucide-re
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
+import type { ChannelTier } from '../../constants/channelTierPricing';
+import { BASE_CHANNEL_SLOTS } from '../../utils/connectionLimitPolicy';
 import { useProBillingPrices } from '../../hooks/useProBillingPrices';
 import { Modal } from '../ui';
+import { ProChannelTierSelect } from './ProChannelTierSelect';
 import { ProPlanCard, type ProLoadingKey } from './ProPlanCard';
 
 interface TrialEndedModalProps {
@@ -16,18 +19,21 @@ type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
 
 const BENEFITS: string[] = [
-  'Disparos em massa sem limite de 1h',
-  'Vários chips WhatsApp no mesmo painel',
-  'Campanhas com agendamento e pausa',
+  'Disparos em massa sem bloqueio por limite de 1h',
+  'Múltiplos canais WhatsApp no mesmo painel',
+  'Campanhas com agendamento, pausa e retomada',
   'Importação de contatos e listas',
-  'Relatórios de entrega e respostas',
-  'Central de chat multi-chip'
+  'Relatórios de entrega e respostas em tempo real',
+  'Central de chat multicanal'
 ];
 
 export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClose }) => {
   const { user } = useAuth();
   const { config } = useAppConfig();
   const [loading, setLoading] = useState<ProLoadingKey>('idle');
+  const [channels, setChannels] = useState<ChannelTier>(
+    Math.min(5, Math.max(1, BASE_CHANNEL_SLOTS)) as ChannelTier
+  );
   const {
     priceMonthlyLabel,
     priceAnnualLabel,
@@ -36,17 +42,25 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
     annualSavingsBadge,
     annualEquivalencyHint,
     fromServer
-  } = useProBillingPrices(isOpen, config);
+  } = useProBillingPrices(isOpen, config, channels);
 
   const startPayment = async (plan: Plan, method: Method) => {
     if (!user) return;
     setLoading(`${plan}-${method}` as ProLoadingKey);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/start', {
+      const url =
+        method === 'recurring'
+          ? '/api/billing/mercadopago/start'
+          : '/api/billing/mercadopago/channel-plan';
+      const body =
+        method === 'recurring'
+          ? { plan, method, channels }
+          : { plan, method: method === 'pix' ? 'pix' : 'card', channels };
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ plan, method })
+        body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
@@ -103,9 +117,9 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
           Seu teste grátis acabou
         </h2>
         <p className="text-[12px] leading-snug max-w-md mx-auto" style={{ color: 'var(--text-2)' }}>
-          Continue navegando, mas as ações ficam bloqueadas.{' '}
+          Você ainda pode navegar, mas as ações ficam bloqueadas.{' '}
           <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-            Libere o Pro com Pix, cartão ou débito automático.
+            Escolha a quantidade de canais e libere o Pro com Pix, cartão ou débito automático.
           </span>
         </p>
       </div>
@@ -135,18 +149,45 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
 
       {fromServer && (
         <p className="text-[10px] text-center mb-2" style={{ color: 'var(--text-3)' }}>
-          Valores = cobrança no Mercado Pago (evita divergência com o texto de marketing).
+          Valores sincronizados com a cobrança do Mercado Pago.
         </p>
       )}
+
+      <ProChannelTierSelect
+        value={channels}
+        onChange={setChannels}
+        disabled={busy}
+        id="trial-ended-channels"
+      />
 
       <div className="grid sm:grid-cols-2 gap-2.5 mb-3">
         <ProPlanCard
           frame="trial"
+          featured
+          label="Anual"
+          price={priceAnnualLabel}
+          sublabel={`Comece com ${channels} canal${channels > 1 ? 'is' : ''} · Acesso por 12 meses`}
+          sublabelExtra={
+            annualEquivalencyHint
+              ? `Equivale a ${annualEquivalencyHint} • melhor previsibilidade de custo no ano`
+              : 'Melhor previsibilidade de custo no ano'
+          }
+          badge={annualSavingsBadge || 'Melhor custo-benefício'}
+          pixSubLabel={pixAnnualSub}
+          cardInfo="Mais econômico no longo prazo · Cartão até 12x, Pix e débito"
+          loading={loading}
+          busy={busy}
+          onPix={() => startPayment('annual', 'pix')}
+          onCard={() => startPayment('annual', 'card')}
+          plan="annual"
+        />
+        <ProPlanCard
+          frame="trial"
           label="Mensal"
           price={priceMonthlyLabel}
-          sublabel="Acesso por 30 dias"
+          sublabel={`Comece com ${channels} canal${channels > 1 ? 'is' : ''} · Acesso por 30 dias`}
           pixSubLabel={pixMonthlySub}
-          cardInfo="Cartão, Pix, débito · 1x"
+          cardInfo="Ideal para começar · Cartão, Pix e débito"
           showRecurring
           loading={loading}
           busy={busy}
@@ -154,22 +195,6 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
           onCard={() => startPayment('monthly', 'card')}
           onRecurring={() => startPayment('monthly', 'recurring')}
           plan="monthly"
-        />
-        <ProPlanCard
-          frame="trial"
-          featured
-          label="Anual"
-          price={priceAnnualLabel}
-          sublabel="Acesso por 12 meses"
-          sublabelExtra={annualEquivalencyHint ? `Equivale a ${annualEquivalencyHint}` : undefined}
-          badge={annualSavingsBadge || undefined}
-          pixSubLabel={pixAnnualSub}
-          cardInfo="Cartão até 12x, Pix, débito"
-          loading={loading}
-          busy={busy}
-          onPix={() => startPayment('annual', 'pix')}
-          onCard={() => startPayment('annual', 'card')}
-          plan="annual"
         />
       </div>
 

@@ -1,3 +1,5 @@
+import './bootstrapEnv.js';
+
 import * as waService from './whatsappService.js';
 import { startSessionControlPlane, stopSessionControlPlane } from './sessionControlPlane.js';
 

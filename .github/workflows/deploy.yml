@@ -103,17 +103,24 @@ jobs:
             # Hash no JavaScript (Configuraçoes) — .git nao entra no contexto Docker
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
             echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
-            # Carrega apenas VITE_* do .env de forma segura (sem source),
-            # evitando falha por sintaxe inválida em outras linhas do arquivo.
+            # Exporta VITE_* e MERCADOPAGO_* do .env (sem `source` no ficheiro inteiro).
+            # No Docker Swarm, `docker stack deploy` não aplica `env_file` como o Compose; as chaves
+            # MERCADOPAGO_* devem estar no ambiente do shell aqui para interpolar docker-stack.yml.
             if [ -f .env ]; then
               while IFS='=' read -r k v; do
+                k="${k//$'\r'/}"
+                v="${v//$'\r'/}"
                 case "$k" in
-                  VITE_*)
-                    v="${v%$'\r'}"
+                  VITE_*|MERCADOPAGO_*)
                     export "$k=$v"
                     ;;
                 esac
-              done < <(grep -E '^[[:space:]]*VITE_[A-Z0-9_]*=' .env || true)
+              done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*)=' .env || true)
+              if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
+                echo "==> MERCADOPAGO_ACCESS_TOKEN presente no ambiente do deploy (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
+              else
+                echo "==> AVISO: MERCADOPAGO_ACCESS_TOKEN ainda vazio após importar .env — verifique a linha no .env, BOM UTF-8 ou CRLF na chave"
+              fi
             fi
             # Em SSH não interativo, variáveis de shell/perfil podem não carregar.
             # Auto-detecta Swarm manager para evitar cair em compose por engano.

@@ -3,8 +3,11 @@ import { Check, Crown, X, Sparkles, ShieldCheck, XCircle, Zap } from 'lucide-rea
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
+import type { ChannelTier } from '../../constants/channelTierPricing';
+import { BASE_CHANNEL_SLOTS } from '../../utils/connectionLimitPolicy';
 import { useProBillingPrices } from '../../hooks/useProBillingPrices';
 import { Modal } from '../ui';
+import { ProChannelTierSelect } from './ProChannelTierSelect';
 import { ProPlanCard, type ProLoadingKey } from './ProPlanCard';
 
 interface UpgradeProModalProps {
@@ -16,17 +19,20 @@ type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
 
 const BENEFITS: string[] = [
-  'Vários chips WhatsApp no mesmo painel',
+  'Múltiplos canais WhatsApp no mesmo painel',
   'Importação de contatos, listas e etiquetas',
   'Central de chat com contexto de disparo',
   'Campanhas com limite diário e atraso inteligente',
-  'Relatórios de entrega, leitura e respostas'
+  'Relatórios de entrega, leitura e respostas em tempo real'
 ];
 
 export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClose }) => {
   const { user } = useAuth();
   const { config } = useAppConfig();
   const [loading, setLoading] = useState<ProLoadingKey>('idle');
+  const [channels, setChannels] = useState<ChannelTier>(
+    Math.min(5, Math.max(1, BASE_CHANNEL_SLOTS)) as ChannelTier
+  );
   const {
     priceMonthlyLabel,
     priceAnnualLabel,
@@ -35,17 +41,25 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
     annualSavingsBadge,
     annualEquivalencyHint,
     fromServer
-  } = useProBillingPrices(isOpen, config);
+  } = useProBillingPrices(isOpen, config, channels);
 
   const startPayment = async (plan: Plan, method: Method) => {
     if (!user) return;
     setLoading(`${plan}-${method}` as ProLoadingKey);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/start', {
+      const url =
+        method === 'recurring'
+          ? '/api/billing/mercadopago/start'
+          : '/api/billing/mercadopago/channel-plan';
+      const body =
+        method === 'recurring'
+          ? { plan, method, channels }
+          : { plan, method: method === 'pix' ? 'pix' : 'card', channels };
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ plan, method })
+        body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
@@ -89,7 +103,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           ZapMass Pro
         </h2>
         <p className="text-[12px] leading-snug max-w-md mx-auto" style={{ color: 'var(--text-2)' }}>
-          Pix (5% off), cartão à vista/parcelado ou débito automático — você escolhe.
+          Selecione a quantidade de canais e a forma de pagamento ideal para começar.
         </p>
       </div>
 
@@ -112,17 +126,43 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
 
       {fromServer && (
         <p className="text-[10px] text-center mb-2 leading-snug" style={{ color: 'var(--text-3)' }}>
-          Valores exibidos = cobrança no Mercado Pago (servidor). Se o painel admin tiver texto antigo, ignore-o.
+          Valores sincronizados com a cobrança do Mercado Pago para evitar divergências.
         </p>
       )}
 
+      <ProChannelTierSelect
+        value={channels}
+        onChange={setChannels}
+        disabled={busy}
+        id="upgrade-pro-channels"
+      />
+
       <div className="grid sm:grid-cols-2 gap-2.5 mb-3">
+        <ProPlanCard
+          featured
+          label="Anual"
+          price={priceAnnualLabel}
+          sublabel={`Comece com ${channels} canal${channels > 1 ? 'is' : ''} · Acesso por 12 meses`}
+          sublabelExtra={
+            annualEquivalencyHint
+              ? `Equivale a ${annualEquivalencyHint} • melhor previsibilidade de custo no ano`
+              : 'Melhor previsibilidade de custo no ano'
+          }
+          badge={annualSavingsBadge || 'Melhor custo-benefício'}
+          pixSubLabel={pixAnnualSub}
+          cardInfo="Mais econômico no longo prazo · Cartão até 12x, Pix e débito"
+          loading={loading}
+          busy={busy}
+          onPix={() => startPayment('annual', 'pix')}
+          onCard={() => startPayment('annual', 'card')}
+          plan="annual"
+        />
         <ProPlanCard
           label="Mensal"
           price={priceMonthlyLabel}
-          sublabel="Acesso por 30 dias"
+          sublabel={`Comece com ${channels} canal${channels > 1 ? 'is' : ''} · Acesso por 30 dias`}
           pixSubLabel={pixMonthlySub}
-          cardInfo="Cartão, Pix, débito · 1x"
+          cardInfo="Ideal para começar · Cartão, Pix e débito"
           showRecurring
           loading={loading}
           busy={busy}
@@ -130,21 +170,6 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
           onCard={() => startPayment('monthly', 'card')}
           onRecurring={() => startPayment('monthly', 'recurring')}
           plan="monthly"
-        />
-        <ProPlanCard
-          featured
-          label="Anual"
-          price={priceAnnualLabel}
-          sublabel="Acesso por 12 meses"
-          sublabelExtra={annualEquivalencyHint ? `Equivale a ${annualEquivalencyHint}` : undefined}
-          badge={annualSavingsBadge || undefined}
-          pixSubLabel={pixAnnualSub}
-          cardInfo="Cartão até 12x, Pix, débito"
-          loading={loading}
-          busy={busy}
-          onPix={() => startPayment('annual', 'pix')}
-          onCard={() => startPayment('annual', 'card')}
-          plan="annual"
         />
       </div>
 
@@ -172,7 +197,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
       >
         <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
         <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
-          Débito automático renova todo mês no seu cartão — pode cancelar a qualquer momento em{' '}
+          No débito automático, a renovação ocorre mensalmente no cartão. Você pode cancelar a qualquer momento em{' '}
           <strong>Minha assinatura</strong>. Sem letra miúda, sem fidelidade.
         </p>
       </div>
