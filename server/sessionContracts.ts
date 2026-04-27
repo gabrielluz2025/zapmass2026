@@ -3,7 +3,8 @@ export type SessionCommandType =
   | 'reconnect-connection'
   | 'force-qr'
   | 'send-message'
-  | 'send-media';
+  | 'send-media'
+  | 'delete-connection';
 
 export interface SessionCommandBase {
   commandId: string;
@@ -49,12 +50,18 @@ export interface SendMediaCommand extends SessionCommandBase {
   };
 }
 
+export interface DeleteConnectionCommand extends SessionCommandBase {
+  type: 'delete-connection';
+  connectionId: string;
+}
+
 export type SessionCommand =
   | CreateConnectionCommand
   | ReconnectConnectionCommand
   | ForceQrCommand
   | SendMessageCommand
-  | SendMediaCommand;
+  | SendMediaCommand
+  | DeleteConnectionCommand;
 
 export type SessionEventType =
   | 'worker-heartbeat'

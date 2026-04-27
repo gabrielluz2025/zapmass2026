@@ -21,9 +21,9 @@ services:
       NODE_ENV: production
       PORT: "3001"
       REDIS_URL: redis://redis:6379
-      # monolith = API + WhatsApp no mesmo processo (estado actual do código).
-      # NÃO ative `api` aqui sem refatorar whatsappService — ver docs/scaling-whatsapp-swarm.md
-      SESSION_PROCESS_MODE: monolith
+      # monolith (default) = API + WhatsApp no mesmo processo.
+      # api = API sem Chromium; requer WA_WORKER_REPLICAS>=1, Redis, e ZAPMASS_API_SESSION_MODE=api no .env da VPS.
+      SESSION_PROCESS_MODE: ${ZAPMASS_API_SESSION_MODE:-monolith}
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       # Swarm: `env_file` não injeta como no `docker compose up`. O deploy SSH exporta MERCADOPAGO_* do .env
       # e o Compose substitui ${...} no deploy. Sem isto: "MERCADOPAGO_ACCESS_TOKEN nao configurado".
@@ -73,8 +73,7 @@ services:
       - zapmass-data:/app/data
       - ./secrets:/run/secrets:ro
     deploy:
-      # Com SESSION_PROCESS_MODE=monolith na API, mantenha 0 (evita dois processos no mesmo volume).
-      # Quando existir split api+worker completo, suba para 1+.
+      # Com API em monolith: 0. Com ZAPMASS_API_SESSION_MODE=api: use 1 ou mais (Chromium no worker).
       replicas: ${WA_WORKER_REPLICAS:-0}
       update_config:
         order: start-first

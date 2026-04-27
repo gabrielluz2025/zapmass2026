@@ -175,6 +175,7 @@ const checkPuppeteerHealth = async (connectionId: string): Promise<boolean> => {
 let puppeteerMonitorInterval: NodeJS.Timeout | null = null;
 
 const startPuppeteerMonitor = () => {
+    if (process.env.SESSION_PROCESS_MODE === 'api') return;
     if (puppeteerMonitorInterval) return;
     
     puppeteerMonitorInterval = setInterval(async () => {
@@ -283,10 +284,13 @@ const loadConnections = async () => {
     try {
         const raw = await fs.promises.readFile(connectionsFile, 'utf8');
         const parsed = JSON.parse(raw) as WhatsAppConnection[];
-        connectionsInfo = parsed.map(conn => ({
+        const headlessApi = process.env.SESSION_PROCESS_MODE === 'api';
+        connectionsInfo = parsed.map((conn) => ({
             ...conn,
-            status: ConnectionStatus.CONNECTING,
-            lastActivity: 'Restaurando sessao...',
+            status: headlessApi ? (conn.status ?? ConnectionStatus.CONNECTING) : ConnectionStatus.CONNECTING,
+            lastActivity: headlessApi
+                ? (conn.lastActivity ?? 'Sincronizando estado…')
+                : 'Restaurando sessao...',
             queueSize: conn.queueSize || 0,
             messagesSentToday: conn.messagesSentToday || 0,
             signalStrength: conn.signalStrength || 'STRONG'
@@ -294,6 +298,35 @@ const loadConnections = async () => {
     } catch (error) {
         connectionsInfo = [];
     }
+};
+
+/** No modo API headless, o worker grava connections.json; aqui só reflectimos o ficheiro. */
+let connectionsFileSyncTimer: NodeJS.Timeout | null = null;
+const startConnectionsFileSyncFromWorker = () => {
+    if (connectionsFileSyncTimer) return;
+    console.log('[whatsapp] Sync connections.json (4s) — estado real no worker');
+    connectionsFileSyncTimer = setInterval(async () => {
+        try {
+            const raw = await fs.promises.readFile(connectionsFile, 'utf8');
+            const parsed = JSON.parse(raw) as WhatsAppConnection[];
+            const next = parsed.map((conn) => ({
+                ...conn,
+                status: conn.status ?? ConnectionStatus.CONNECTING,
+                lastActivity: conn.lastActivity ?? '—',
+                queueSize: conn.queueSize || 0,
+                messagesSentToday: conn.messagesSentToday || 0,
+                signalStrength: conn.signalStrength || 'STRONG'
+            }));
+            const prevIds = JSON.stringify(connectionsInfo.map((c) => ({ id: c.id, status: c.status })));
+            const nextIds = JSON.stringify(next.map((c) => ({ id: c.id, status: c.status })));
+            connectionsInfo = next;
+            if (prevIds !== nextIds) {
+                emitConnectionsUpdate();
+            }
+        } catch {
+            /* ignorar */
+        }
+    }, 4000);
 };
 
 interface QueueItem {
@@ -1157,11 +1190,17 @@ export const shutdownAll = async (reason: string = 'SIGTERM'): Promise<void> => 
 // --- INITIALIZATION ---
 export const init = (socketIo: SocketIOServer) => {
     io = socketIo;
-    console.log('WhatsApp Service Initialized with IO');
-    
-    // Iniciar monitor de Puppeteer
-    startPuppeteerMonitor();
-    
+    const headlessApi = process.env.SESSION_PROCESS_MODE === 'api';
+    console.log(
+        headlessApi
+            ? 'WhatsApp Service: modo API headless (Chromium só no worker)'
+            : 'WhatsApp Service Initialized with IO'
+    );
+
+    if (!headlessApi) {
+        startPuppeteerMonitor();
+    }
+
     ensureDataDir()
         .then(() => loadConnections())
         .then(() => loadQueue())
@@ -1173,6 +1212,10 @@ export const init = (socketIo: SocketIOServer) => {
         .then(async () => {
             if (connectionsInfo.length === 0) {
                 await loadConnectionsFromAuth();
+            }
+            if (headlessApi) {
+                startConnectionsFileSyncFromWorker();
+                return;
             }
             for (const conn of connectionsInfo) {
                 // Evita corrida no bootstrap ao abrir varios Chromium ao mesmo tempo.

@@ -22,17 +22,17 @@ VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
 export VITE_GIT_REF
 echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
 
-# Repassa VITE_* e MERCADOPAGO_* do .env para o shell (interpolar docker-stack.yml)
+# Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_* e WA_WORKER_REPLICAS (interpolar docker-stack.yml)
 if [ -f .env ]; then
   while IFS='=' read -r k v; do
     k="${k//$'\r'/}"
     v="${v//$'\r'/}"
     case "$k" in
-      VITE_*|MERCADOPAGO_*)
+      VITE_*|MERCADOPAGO_*|ZAPMASS_*|WA_WORKER_REPLICAS)
         export "$k=$v"
         ;;
     esac
-  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*)=' .env || true)
+  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|WA_WORKER_REPLICAS)=' .env || true)
   if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
     echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
   else

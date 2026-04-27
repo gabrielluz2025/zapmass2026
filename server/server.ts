@@ -33,6 +33,7 @@ import {
   startSessionControlPlane,
   stopSessionControlPlane,
   submitCreateConnection,
+  submitDeleteConnection,
   submitForceQr,
   submitReconnectConnection,
   submitSendMedia,
@@ -406,14 +407,19 @@ const registerSocketHandlers = () => {
       });
     });
 
-    socket.on('delete-connection', ({ id }) => {
+    socket.on('delete-connection', async ({ id }) => {
       if (!ownsConnectionId(id)) {
         denyCrossTenant('delete-connection', { id });
         return;
       }
       userLog('ui:delete-connection', { id });
-      waService.deleteConnection(id);
-      socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
+      try {
+        await submitDeleteConnection(id, uid);
+        socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
+      } catch (e: any) {
+        console.error('[delete-connection]', e);
+        socket.emit('send-message-error', { error: e?.message || 'Falha ao remover canal' });
+      }
     });
 
     socket.on('reconnect-connection', ({ id }) => {

@@ -13,27 +13,30 @@
 - `WORKER_ID` (opcional; default usa PID)
 - `SESSION_WORKER_LEASE_MS` (lease de roteamento)
 
-## Estado atual do codigo (importante para operacao)
+## Split API + worker (fase 1)
 
-O `sessionControlPlane` ja entende `api` (so publica comandos no Redis) e `worker` (executa comandos),
-mas o `server/server.ts` importa `whatsappService` e chama `waService.init(io)` **sempre**: isso carrega
-sessoes e Chromium no processo da API. O `waWorker` usa `waService.init` com um Socket.IO “noop”.
+Defina no `.env` da VPS (exportado pelo deploy para o `docker stack deploy`):
 
-Por isso, em **producao Swarm** o `docker-stack.yml` mantem:
+- `ZAPMASS_API_SESSION_MODE=api`
+- `WA_WORKER_REPLICAS=1` (ou mais; com cuidado no mesmo volume)
 
-- `api` com `SESSION_PROCESS_MODE=monolith` (API + WhatsApp no mesmo contentor), e
-- `wa-worker` com `WA_WORKER_REPLICAS` **0** por defeito.
+O `docker-stack.yml` passa `SESSION_PROCESS_MODE=${ZAPMASS_API_SESSION_MODE:-monolith}` ao serviço `api`.
+Com `api`, o `whatsappService.init()` **não** chama `initializeClient` (sem Chromium no contentor da API)
+e sincroniza a lista de canais a partir de `data/connections.json` (escrito pelo worker). **Redis é obrigatório**
+para o barramento de comandos entre processos.
 
-Subir `wa-worker` com replicas maiores que zero **enquanto a API continua em monolith** faria dois processos
-tentarem usar o mesmo volume de sessao — **nao faca isso**.
+Comandos já roteados pelo bus (create, reconnect, QR, send, media, **delete**) executam no `wa-worker`.
 
-Para um split real (API leve + N workers com Chromium), e preciso refatorar o fluxo de estado
-(ou deixar de inicializar browsers no `server.ts` quando `SESSION_PROCESS_MODE=api`). Ate la,
-a melhor alivio de carga numa VPS e: mais CPU/RAM, swap no host, e **nao** correr `docker build`
-no mesmo host em horario de pico; opcionalmente build da imagem na CI e `pull` na VPS.
+**Limitações conhecidas** em `api` + worker: conversas em memória, campanhas, aquecimento e outras rotas que ainda
+chamam `waService` direto no `server.ts` podem não refletir o worker — para produção “completa”, use **monolith**
+até uma fase 2 (sincronização de estado ou mais comandos).
 
-A imagem Docker inclui `tini` como PID 1 para melhor reaping de processos defuntos do Chromium
-e encaminhamento de sinais no shutdown.
+**Nunca** use `ZAPMASS_API_SESSION_MODE=api` com `WA_WORKER_REPLICAS=0` (API sem quem execute sessão).
+
+Com **monolith** (`ZAPMASS_API_SESSION_MODE` omitido ou `monolith`), mantenha `WA_WORKER_REPLICAS=0` para não haver
+dois processos a abrir o mesmo volume de sessão.
+
+A imagem Docker inclui `tini` como PID 1 para melhor reaping de processos defuntos do Chromium.
 
 ## Operacao em Swarm
 1. Inicializar swarm: `docker swarm init` (apenas uma vez no manager).

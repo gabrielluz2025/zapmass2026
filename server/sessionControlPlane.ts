@@ -29,6 +29,10 @@ const executeLocally = async (command: SessionCommand): Promise<void> => {
     await waService.createConnection(command.payload.name, command.payload.ownerUid);
     return;
   }
+  if (command.type === 'delete-connection') {
+    await waService.deleteConnection(command.connectionId);
+    return;
+  }
   if (command.type === 'reconnect-connection') {
     await waService.reconnectConnection(command.connectionId);
     return;
@@ -118,6 +122,19 @@ export const stopSessionControlPlane = async (): Promise<void> => {
 };
 
 export const getSessionRouterMetrics = () => router.getMetricsSnapshot();
+
+export const submitDeleteConnection = async (connectionId: string, requestedByUid: string) => {
+  const command: SessionCommand = {
+    commandId: nextId('cmd'),
+    requestedAt: Date.now(),
+    requestedByUid,
+    type: 'delete-connection',
+    connectionId
+  };
+  router.recordCommandPublished();
+  markSessionCommandPublished(command.type);
+  await bus.publishCommand(command);
+};
 
 export const submitCreateConnection = async (name: string, requestedByUid: string, ownerUid?: string) => {
   const command: SessionCommand = {
