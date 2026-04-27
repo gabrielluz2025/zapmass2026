@@ -90,6 +90,29 @@ jobs:
     # Build + deploy no host pode passar de 20 min em horários de pico.
     timeout-minutes: 60
     steps:
+      - name: Pré-teste de conectividade SSH (runner -> VPS)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          echo "==> teste TCP ${VPS_HOST}:${VPS_PORT}"
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            if nc -zvw5 "${VPS_HOST}" "${VPS_PORT}"; then
+              echo "OK: porta SSH acessivel na tentativa ${i}."
+              ok=1
+              break
+            fi
+            echo "tentativa ${i} falhou; aguardando 5s..."
+            sleep 5
+          done
+          if [ "${ok}" != "1" ]; then
+            echo "FALHA: runner nao alcançou ${VPS_HOST}:${VPS_PORT} apos 6 tentativas."
+            echo "Dica: validar firewall/restricao de IP no provedor (GitHub usa IPs dinamicos)."
+            exit 1
+          fi
+
       - name: Deploy por SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
