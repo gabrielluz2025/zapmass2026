@@ -91,6 +91,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Pré-teste de conectividade SSH (runner -> VPS)
+        continue-on-error: true
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
@@ -108,12 +109,163 @@ jobs:
             sleep 5
           done
           if [ "${ok}" != "1" ]; then
-            echo "FALHA: runner nao alcançou ${VPS_HOST}:${VPS_PORT} apos 6 tentativas."
-            echo "Dica: validar firewall/restricao de IP no provedor (GitHub usa IPs dinamicos)."
-            exit 1
+            echo "::warning::Runner nao alcançou ${VPS_HOST}:${VPS_PORT} apos 6 tentativas."
+            echo "::warning::Seguindo para tentativa real de SSH (pode ser oscilacao temporaria de rota)."
           fi
 
-      - name: Deploy por SSH
+      - name: Deploy por SSH (tentativa 1)
+        id: deploy_try_1
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          # timeout = ligacao TCP/SSH; i/o timeout na porta = ver comentario no topo do ficheiro
+          timeout: 3m
+          # Build + rollout + healthcheck podem passar de 45m em horários de pico/rede lenta.
+          command_timeout: 60m
+          script: |
+            set -euo pipefail
+            # Janela segura (hora local da VPS) aplicada SOMENTE no cron.
+            # Push/Run workflow: aplicar deploy imediatamente (cada push ja e uma decisao explicita de subir).
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              HOUR="$(date +%H)"
+              if [ "$HOUR" -ge 6 ]; then
+                echo "==> (cron) Fora da janela segura de deploy (agora: ${HOUR}h)."
+                echo "==> (cron) Deploy adiado automaticamente; o proximo ciclo do cron retoma."
+                exit 0
+              fi
+            fi
+            BRANCH="main"
+            echo "==> branch alvo (forçado): ${BRANCH}"
+            cd /opt/zapmass
+            echo "==> git pull (${BRANCH})"
+            git fetch --all --prune
+            git checkout "${BRANCH}" 2>/dev/null || git checkout -b "${BRANCH}" "origin/${BRANCH}"
+            git reset --hard "origin/${BRANCH}"
+            # Hash no JavaScript (Configuraçoes) — .git nao entra no contexto Docker
+            export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
+            echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
+            # Exporta VITE_* e MERCADOPAGO_* do .env (sem `source` no ficheiro inteiro).
+            # No Docker Swarm, `docker stack deploy` não aplica `env_file` como o Compose; as chaves
+            # MERCADOPAGO_* devem estar no ambiente do shell aqui para interpolar docker-stack.yml.
+            if [ -f .env ]; then
+              while IFS='=' read -r k v; do
+                k="${k//$'\r'/}"
+                v="${v//$'\r'/}"
+                case "$k" in
+                  VITE_*|MERCADOPAGO_*)
+                    export "$k=$v"
+                    ;;
+                esac
+              done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*)=' .env || true)
+              if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
+                echo "==> MERCADOPAGO_ACCESS_TOKEN presente no ambiente do deploy (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
+              else
+                echo "==> AVISO: MERCADOPAGO_ACCESS_TOKEN ainda vazio após importar .env — verifique a linha no .env, BOM UTF-8 ou CRLF na chave"
+              fi
+            fi
+            # Em SSH não interativo, variáveis de shell/perfil podem não carregar.
+            # Auto-detecta Swarm manager para evitar cair em compose por engano.
+            SWARM_ENABLED="${SWARM_ENABLED:-auto}"
+            IS_SWARM_MANAGER="0"
+            if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
+              IS_SWARM_MANAGER="1"
+            fi
+            if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
+              echo "==> deploy em Docker Swarm (stack: zapmass)"
+              docker build -t zapmass:latest \
+                --build-arg VITE_ADMIN_EMAILS="${VITE_ADMIN_EMAILS:-}" \
+                --build-arg VITE_MARKETING_PRICE_MONTHLY="${VITE_MARKETING_PRICE_MONTHLY:-}" \
+                --build-arg VITE_MARKETING_PRICE_ANNUAL="${VITE_MARKETING_PRICE_ANNUAL:-}" \
+                --build-arg VITE_ENFORCE_SUBSCRIPTION="${VITE_ENFORCE_SUBSCRIPTION:-}" \
+                --build-arg VITE_CREATOR_STUDIO="${VITE_CREATOR_STUDIO:-}" \
+                --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
+                .
+              docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
+              # A tag continua a ser :latest — o Swarm muitas vezes NAO recria tarefas; o UI antigo fica
+              # a servir ate forcar atualizacao (sintoma: "deploy passou e nada mudou no front").
+              for svc in zapmass_api zapmass_wa-worker; do
+                if docker service inspect "$svc" >/dev/null 2>&1; then
+                  echo "==> (swarm) forcar recriacao: $svc"
+                  docker service update --force --image zapmass:latest "$svc" || docker service update --force "$svc" || true
+                fi
+              done
+            else
+              echo "==> docker compose build + up (instancia principal)"
+              docker compose up -d --build
+              # Garante contentor API com a imagem nova (sem reiniciar redis sem necessidade)
+              if docker compose ps --services 2>/dev/null | grep -q '^zapmass$'; then
+                echo "==> (compose) forcar recriacao do servico zapmass"
+                docker compose up -d --no-deps --build --force-recreate zapmass
+              fi
+            fi
+            if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml >/dev/null 2>&1; then
+              echo "==> atualizar containers dos clientes para a imagem nova"
+              for dir in /opt/zapmass/clientes/*/; do
+                slug="$(basename "$dir")"
+                case "$slug" in
+                  *removido*) continue ;;
+                esac
+                [ -f "${dir}docker-compose.yml" ] || continue
+                echo "    - cliente: ${slug}"
+                (cd "$dir" && docker compose up -d)
+              done
+            else
+              echo "==> sem clientes provisionados (so a instancia principal)"
+            fi
+            # Evita destruir cache de build em todo deploy (isso alonga muito o tempo total).
+            # Para limpeza manual, rode na VPS quando quiser:
+            #   docker image prune -f
+            # Ou defina PRUNE_AFTER_DEPLOY=1 no ambiente e execute o workflow.
+            if [ "${PRUNE_AFTER_DEPLOY:-0}" = "1" ]; then
+              echo "==> prune imagens antigas (PRUNE_AFTER_DEPLOY=1)"
+              docker image prune -f || true
+            else
+              echo "==> prune desativado para preservar cache de build"
+            fi
+            echo "==> status"
+            if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
+              docker stack services zapmass
+            else
+              docker compose ps
+            fi
+            if [ -d /opt/zapmass/clientes ]; then
+              docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+            fi
+            echo "==> aguardando API ficar saudavel"
+            # Ambiente com muitos canais pode levar mais tempo para ficar estavel apos restart.
+            # 100 * 6s = 600s (10 min) de janela de estabilizacao.
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || echo 000)
+              echo "tentativa $i: HTTP $code"
+              if [ "$code" = "200" ]; then
+                echo "OK: API saudavel."
+                exit 0
+              fi
+              sleep 6
+            done
+            echo "FALHA: API nao respondeu 200 apos 600s"
+            if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
+              echo "==> status docker swarm"
+              docker service ps zapmass_api || true
+              docker service logs --since 10m --tail 200 zapmass_api || true
+            else
+              echo "==> status docker compose"
+              docker compose -f /opt/zapmass/docker-compose.yml ps || true
+              echo "==> ultimos logs"
+              docker compose -f /opt/zapmass/docker-compose.yml logs --tail=120 || true
+            fi
+            exit 1
+
+      - name: Aguardar antes de nova tentativa SSH
+        if: steps.deploy_try_1.outcome == 'failure'
+        run: sleep 20
+
+      - name: Deploy por SSH (tentativa 2)
+        if: steps.deploy_try_1.outcome == 'failure'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
