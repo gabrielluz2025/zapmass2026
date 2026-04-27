@@ -18,7 +18,8 @@ const ALLOWED_VIEWS = new Set([
   'settings',
   'subscription',
   'admin',
-  'creator-studio'
+  'creator-studio',
+  'admin-ops'
 ]);
 
 function readInitialView(): string {

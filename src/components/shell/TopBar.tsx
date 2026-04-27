@@ -24,6 +24,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   subscription: { title: 'Minha assinatura', subtitle: 'Plano, pagamento e renovação' },
   settings: { title: 'Configurações', subtitle: 'Ajustes do sistema' },
   admin: { title: 'Painel do criador', subtitle: 'Configuração remota do produto' },
+  'admin-ops': { title: 'Operações (servidor)', subtitle: 'Canais, RAM, fila e integrações' },
   'creator-studio': { title: 'Estúdio do criador', subtitle: 'Ferramentas internas e diagnóstico' }
 };
 

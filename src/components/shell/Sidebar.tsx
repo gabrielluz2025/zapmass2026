@@ -17,7 +17,8 @@ import {
   Sun,
   LogOut,
   Code2,
-  Crown
+  Crown,
+  Server
 } from 'lucide-react';
 import { useZapMass } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -90,6 +91,13 @@ const CREATOR_STUDIO_ITEM: NavItemDef = {
   description: 'Ferramentas internas e API'
 };
 
+const ADMIN_OPS_ITEM: NavItemDef = {
+  id: 'admin-ops',
+  label: 'Servidor & alertas',
+  icon: Server,
+  description: 'RAM, fila e integrações'
+};
+
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onChangeView,
@@ -106,9 +114,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const email = user?.email ?? null;
     let groups = navGroups;
     if (isAdminUserEmail(email)) {
-      groups = navGroups.map((g) =>
-        g.label === 'Sistema' ? { ...g, items: [...g.items, ADMIN_NAV_ITEM] } : g
-      );
+      groups = navGroups.map((g) => {
+        if (g.label === 'Sistema') return { ...g, items: [...g.items, ADMIN_NAV_ITEM] };
+        if (g.label === 'Operações') return { ...g, items: [...g.items, ADMIN_OPS_ITEM] };
+        return g;
+      });
     }
     if (canAccessCreatorStudio(email)) {
       return [

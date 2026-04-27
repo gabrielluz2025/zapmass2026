@@ -5,6 +5,7 @@ import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
 import { CampaignsTab } from './components/CampaignsTab';
 import { DashboardTab } from './components/DashboardTab';
+import { AdminServerTab } from './components/AdminServerTab';
 import { ContactsTab } from './components/ContactsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { SettingsTab } from './components/SettingsTab';
@@ -201,6 +202,11 @@ const MainLayout: React.FC = () => {
           return <ConnectionsTab />;
         }
         return <AdminPanel />;
+      case 'admin-ops':
+        if (!isAdminUserEmail(user?.email ?? null)) {
+          return <ConnectionsTab />;
+        }
+        return <AdminServerTab />;
       case 'creator-studio':
         if (!canAccessCreatorStudio(user?.email ?? null)) {
           return <ConnectionsTab />;
