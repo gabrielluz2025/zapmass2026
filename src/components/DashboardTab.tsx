@@ -1363,6 +1363,17 @@ export const DashboardTab: React.FC = () => {
                         'Aguardando leitura de RAM do servidor...'
                       )}
                     </p>
+                    <p
+                      className="text-[10.5px] leading-snug rounded-md px-2 py-1.5"
+                      style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
+                    >
+                      <strong style={{ color: 'var(--text-2)' }}>O que isto mede:</strong> a RAM e o “~N sessões” são
+                      do <strong>servidor</strong> que corre o ZapMass (uma heurística, não a regra de negócio do plano).
+                      O contador de sessões é <strong>desta conta</strong>. Em muitos servidores partilhados, a
+                      carga <em>real</em> soma <strong>todas</strong> as contas — aí a referência de ~{cap.safe} aplica
+                      à máquina toda, não a um cliente isolado. Serve para o operador dimensionar memória, não
+                      substitui o teto de canais comercial.
+                    </p>
                     <div className="flex items-baseline justify-between gap-2 text-[12px]">
                       <span className="min-w-0" style={{ color: 'var(--text-3)' }}>
                         Sessões / referência:{' '}
