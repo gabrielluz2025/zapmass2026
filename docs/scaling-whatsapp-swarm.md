@@ -13,6 +13,28 @@
 - `WORKER_ID` (opcional; default usa PID)
 - `SESSION_WORKER_LEASE_MS` (lease de roteamento)
 
+## Estado atual do codigo (importante para operacao)
+
+O `sessionControlPlane` ja entende `api` (so publica comandos no Redis) e `worker` (executa comandos),
+mas o `server/server.ts` importa `whatsappService` e chama `waService.init(io)` **sempre**: isso carrega
+sessoes e Chromium no processo da API. O `waWorker` usa `waService.init` com um Socket.IO “noop”.
+
+Por isso, em **producao Swarm** o `docker-stack.yml` mantem:
+
+- `api` com `SESSION_PROCESS_MODE=monolith` (API + WhatsApp no mesmo contentor), e
+- `wa-worker` com `WA_WORKER_REPLICAS` **0** por defeito.
+
+Subir `wa-worker` com replicas maiores que zero **enquanto a API continua em monolith** faria dois processos
+tentarem usar o mesmo volume de sessao — **nao faca isso**.
+
+Para um split real (API leve + N workers com Chromium), e preciso refatorar o fluxo de estado
+(ou deixar de inicializar browsers no `server.ts` quando `SESSION_PROCESS_MODE=api`). Ate la,
+a melhor alivio de carga numa VPS e: mais CPU/RAM, swap no host, e **nao** correr `docker build`
+no mesmo host em horario de pico; opcionalmente build da imagem na CI e `pull` na VPS.
+
+A imagem Docker inclui `tini` como PID 1 para melhor reaping de processos defuntos do Chromium
+e encaminhamento de sinais no shutdown.
+
 ## Operacao em Swarm
 1. Inicializar swarm: `docker swarm init` (apenas uma vez no manager).
 2. Build local da imagem: `docker build -t zapmass:latest .`.

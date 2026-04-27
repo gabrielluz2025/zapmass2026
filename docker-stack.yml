@@ -21,6 +21,8 @@ services:
       NODE_ENV: production
       PORT: "3001"
       REDIS_URL: redis://redis:6379
+      # monolith = API + WhatsApp no mesmo processo (estado actual do código).
+      # NÃO ative `api` aqui sem refatorar whatsappService — ver docs/scaling-whatsapp-swarm.md
       SESSION_PROCESS_MODE: monolith
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       # Swarm: `env_file` não injeta como no `docker compose up`. O deploy SSH exporta MERCADOPAGO_* do .env
@@ -71,6 +73,8 @@ services:
       - zapmass-data:/app/data
       - ./secrets:/run/secrets:ro
     deploy:
+      # Com SESSION_PROCESS_MODE=monolith na API, mantenha 0 (evita dois processos no mesmo volume).
+      # Quando existir split api+worker completo, suba para 1+.
       replicas: ${WA_WORKER_REPLICAS:-0}
       update_config:
         order: start-first

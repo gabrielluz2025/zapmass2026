@@ -44,6 +44,7 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
+    tini \
     chromium \
     ca-certificates \
     curl \
@@ -83,4 +84,6 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=15s --start-period=180s --retries=5 \
   CMD curl -fsS http://127.0.0.1:3001/api/health || exit 1
 
+# tini como PID 1: repasse de sinais ao grupo de processos e mais reaping de filhos (Chromium).
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
 CMD ["./node_modules/.bin/tsx", "server/server.ts"]
