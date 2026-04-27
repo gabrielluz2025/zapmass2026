@@ -41,7 +41,7 @@ on:
       - "Dockerfile"
       - "docker-compose.yml"
       - "docker-stack.yml"
-      - "deployment/vps-deploy.sh"
+      - "deployment/**"
       - ".github/workflows/deploy.yml"
       - ".env.example"
   schedule:
