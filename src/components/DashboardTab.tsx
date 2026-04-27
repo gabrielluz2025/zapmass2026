@@ -24,7 +24,8 @@ import {
   Plus,
   Server,
   Wifi,
-  WifiOff
+  WifiOff,
+  AlertTriangle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
