@@ -73,7 +73,8 @@ jobs:
     needs: build
     if: success()
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Build + deploy no host pode passar de 20 min em horários de pico.
+    timeout-minutes: 60
     steps:
       - name: Deploy por SSH
         uses: appleboy/ssh-action@v1.0.3
