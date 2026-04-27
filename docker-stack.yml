@@ -100,6 +100,7 @@ services:
     image: prom/prometheus:v2.54.1
     volumes:
       - ./deployment/swarm/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deployment/swarm/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
     ports:
       - target: 9090
         published: ${PROMETHEUS_PORT:-9090}

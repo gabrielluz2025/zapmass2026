@@ -46,6 +46,7 @@ import {
 } from '../utils/connectionLimitPolicy';
 import { Card, Button, Badge, Modal, Textarea, Select } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
+import { AdminOpsMonitor } from './AdminOpsMonitor';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
   id: string;
@@ -1509,6 +1510,8 @@ export const DashboardTab: React.FC = () => {
               )}
             </div>
           </div>
+
+          {isAdmin && <AdminOpsMonitor user={user} />}
         </Card>
       </div>
 

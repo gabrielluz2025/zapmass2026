@@ -4,7 +4,6 @@ import { isMercadoPagoAccessTokenConfigured } from './mercadoPagoAccess.js';
 import express from 'express';
 import { createServer } from 'http';
 import net from 'net';
-import os from 'os';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
@@ -18,6 +17,7 @@ import { registerBillingMercadoPagoRoutes } from './billingMercadoPago.js';
 import { registerBillingInfinitePayRoutes } from './billingInfinitePay.js';
 import { registerBillingTrialRoutes } from './billingTrial.js';
 import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
+import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
@@ -39,49 +39,16 @@ import {
   submitSendMedia,
   submitSendMessage
 } from './sessionControlPlane.js';
-import { collectMetrics, metricsContentType, setConnectedSessionsGauge } from './observability.js';
+import {
+  collectMetrics,
+  metricsContentType,
+  refreshFirebaseProbeForMetrics,
+  setConnectedSessionsGauge,
+  updateOpsResourceGauges
+} from './observability.js';
 import { metricsAccessMiddleware } from './metricsAccess.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
-
-// --- REAL SYSTEM METRICS ---
-let _lastCpuInfo = os.cpus();
-
-const getCpuUsage = (): number => {
-  const current = os.cpus();
-  let idle = 0, total = 0;
-  for (let i = 0; i < current.length; i++) {
-    const prev = _lastCpuInfo[i];
-    const times = current[i].times;
-    for (const t of Object.keys(times) as (keyof typeof times)[]) {
-      const diff = times[t] - (prev?.times[t] ?? 0);
-      total += diff;
-      if (t === 'idle') idle += diff;
-    }
-  }
-  _lastCpuInfo = current;
-  return total > 0 ? Math.max(0, Math.min(100, Math.round(100 - (100 * idle / total)))) : 0;
-};
-
-const getSystemMetrics = () => {
-  const totalMem = os.totalmem();
-  const freeMem  = os.freemem();
-  const usedMem  = totalMem - freeMem;
-  const ram      = Math.round((usedMem / totalMem) * 100);
-  const secs     = Math.floor(process.uptime());
-  const h        = Math.floor(secs / 3600);
-  const m        = Math.floor((secs % 3600) / 60);
-  const uptime   = h > 0 ? `${h}h ${m}m` : `${m}m`;
-  const toGb = (bytes: number) => Math.round((bytes / (1024 ** 3)) * 10) / 10;
-  return {
-    cpu: getCpuUsage(),
-    ram,
-    uptime,
-    ramTotalGb: toGb(totalMem),
-    ramFreeGb: toGb(freeMem),
-    ramUsedGb: toGb(usedMem),
-    platform: process.platform
-  };
-};
+import { getSystemMetrics } from './systemMetricsShared.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -172,6 +139,7 @@ registerBillingMercadoPagoRoutes(app);
 registerBillingInfinitePayRoutes(app);
 registerBillingTrialRoutes(app);
 registerAdminAppConfigRoutes(app);
+registerAdminOpsRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', (req, res) => {
@@ -259,12 +227,21 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Emit real system metrics every 10s
-setInterval(() => {
+// Métricas para UI + Prometheus (processo / contentor)
+const emitSystemAndPromMetrics = () => {
   if (io) io.emit('system-metrics', getSystemMetrics());
   const connected = waService.getConnections().filter((conn) => conn.status === 'CONNECTED').length;
   setConnectedSessionsGauge(connected);
-}, 10000);
+  updateOpsResourceGauges(connected);
+};
+emitSystemAndPromMetrics();
+setInterval(emitSystemAndPromMetrics, 10000);
+
+/** Ping Firebase Auth para gauges / alertas Prometheus (~60s; evita martelar a API Google). */
+void refreshFirebaseProbeForMetrics();
+setInterval(() => {
+  void refreshFirebaseProbeForMetrics();
+}, 60_000);
 
 /**
  * Cada clique dispara `create-connection`; com `await` na leitura do Firestore, varias

@@ -1,0 +1,61 @@
+# Regras de exemplo — afinar `for:` e limites no teu ambiente.
+# Métricas expostas em GET /metrics (processo da API, não a VPS inteira, quando corre em Docker).
+
+groups:
+  - name: zapmass_ops
+    rules:
+      - alert: ZapMassContainerMemoryHigh
+        expr: zapmass_host_memory_used_ratio > 0.92
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Uso de memoria do contentor/ambiente do processo > 92%"
+          description: "Ratio RAM usada (os) no processo em que corre a API. Valores altos aproximam OOM/swap."
+
+      - alert: ZapMassLoadHigh
+        expr: zapmass_host_load1 > 2 * zapmass_host_cpu_cores
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Load 1m elevado vs CPUs visiveis"
+          description: "Load1 acima de 2x o numero de nucleos — fila de trabalho a pressionar a maquina."
+
+      - alert: ZapMassLoadCritical
+        expr: zapmass_host_load1 > 4 * zapmass_host_cpu_cores
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Load 1m critico vs CPUs"
+          description: "Sistema muito atrasado em relacao aos nucleos disponiveis."
+
+      - alert: ZapMassNodeHeapHigh
+        expr: zapmass_process_heap_bytes > 2000000000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Heap V8 do Node acima de ~2 GB"
+          description: "Investigar vazamento ou carga anormal no processo da API."
+
+      - alert: ZapMassFirebaseAuthDown
+        expr: zapmass_firebase_admin_configured == 1 and zapmass_firebase_admin_ping_ok == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ping ao Firebase Admin Auth falha"
+          description: "Verifique credenciais, quotas Google e conectividade a partir do contentor da API."
+
+  - name: zapmass_session
+    rules:
+      - alert: ZapMassSessionCommandErrors
+        expr: rate(zapmass_session_command_results_total{status="error"}[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Taxa de falhas no processamento de comandos de sessao"
+          description: "Investigar logs da API e workers WA."

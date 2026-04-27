@@ -1,0 +1,94 @@
+{
+  "title": "ZapMass — operacional (Prometheus)",
+  "uid": "zapmass-ops",
+  "tags": ["zapmass"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "RAM (ratio do ambiente do processo)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.85 },
+              { "color": "red", "value": 0.92 }
+            ]
+          }
+        }
+      },
+      "targets": [{ "refId": "A", "expr": "zapmass_host_memory_used_ratio", "legendFormat": "usado" }]
+    },
+    {
+      "id": 2,
+      "title": "Load average / nucleos",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "refId": "A", "expr": "zapmass_host_load1", "legendFormat": "load1" },
+        { "refId": "B", "expr": "zapmass_host_cpu_cores", "legendFormat": "cpus" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Sessoes WA conectadas",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "refId": "A", "expr": "zapmass_connected_sessions", "legendFormat": "conectadas" }]
+    },
+    {
+      "id": 4,
+      "title": "Firebase Admin — ping OK (1=sim)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 } },
+      "targets": [{ "refId": "A", "expr": "zapmass_firebase_admin_ping_ok", "legendFormat": "ok" }]
+    },
+    {
+      "id": 5,
+      "title": "Latencia ping Firebase (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "refId": "A", "expr": "zapmass_firebase_admin_ping_ms", "legendFormat": "ms" }]
+    },
+    {
+      "id": 6,
+      "title": "Alertas operacionais (contagem)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "refId": "A", "expr": "zapmass_ops_alert_count{level=\"critical\"}", "legendFormat": "critico" },
+        { "refId": "B", "expr": "zapmass_ops_alert_count{level=\"warn\"}", "legendFormat": "aviso" }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1,
+        "hide": 0,
+        "label": "Prometheus"
+      }
+    ]
+  }
+}
