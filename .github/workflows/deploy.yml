@@ -84,7 +84,8 @@ jobs:
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
           # timeout = ligacao TCP/SSH; i/o timeout na porta = ver comentario no topo do ficheiro
           timeout: 3m
-          command_timeout: 20m
+          # Build do Docker na VPS pode passar de 20m em horários de pico/rede lenta.
+          command_timeout: 45m
           script: |
             set -euo pipefail
             # Janela segura (hora local da VPS) aplicada SOMENTE no cron.
