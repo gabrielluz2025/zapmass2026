@@ -44,7 +44,7 @@ import {
   BASE_CHANNEL_SLOTS,
   MAX_CHANNELS_TOTAL
 } from '../utils/connectionLimitPolicy';
-import { Card, Button, Badge, Modal, Textarea, Select } from './ui';
+import { Card, CardHeader, Button, Badge, Modal, Textarea, Select } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { AdminOpsMonitor } from './AdminOpsMonitor';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
@@ -237,6 +237,23 @@ const QuickAction: React.FC<{
       {hint}
     </p>
   </button>
+);
+
+/** Rótulo + valor alinhado ao painel de operações (canais / RAM). */
+const DashMetric: React.FC<{ label: string; value: React.ReactNode; hint?: string }> = ({ label, value, hint }) => (
+  <div className="flex flex-col gap-0.5 min-w-0">
+    <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>
+      {label}
+    </span>
+    <div className="text-sm font-semibold tabular-nums leading-tight" style={{ color: 'var(--text-1)' }}>
+      {value}
+    </div>
+    {hint && (
+      <span className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>
+        {hint}
+      </span>
+    )}
+  </div>
 );
 
 export const DashboardTab: React.FC = () => {
@@ -1169,7 +1186,13 @@ export const DashboardTab: React.FC = () => {
           </div>
         </Card>
 
-        <Card>
+        <Card
+          className="overflow-hidden"
+          style={{
+            background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
+            borderColor: 'var(--border-subtle)'
+          }}
+        >
           {(() => {
             const cap = getChannelCapacity(systemMetrics?.ramTotalGb);
             const totalConns = connections.length;
@@ -1177,18 +1200,15 @@ export const DashboardTab: React.FC = () => {
               cap.safe > 0 ? Math.min(100, Math.round((totalConns / cap.safe) * 100)) : 0;
             const infraLevel: 'ok' | 'warn' | 'critical' =
               totalConns >= cap.critical ? 'critical' : totalConns > cap.safe ? 'warn' : 'ok';
-            const ramColor =
-              infraLevel === 'critical' ? '#ef4444' : infraLevel === 'warn' ? '#f59e0b' : '#64748b';
+            const ramBarFill =
+              infraLevel === 'critical' ? 'var(--danger)' : infraLevel === 'warn' ? 'var(--warning)' : 'var(--semantic-muted-fg)';
 
             const planLevel: 'ok' | 'warn' | 'full' =
               atPlanChannelLimit ? 'full' : !isAdmin && planUsagePct >= 80 ? 'warn' : 'ok';
-            const planColor = planLevel === 'full' ? '#f59e0b' : planLevel === 'warn' ? '#fbbf24' : '#10b981';
+            const planColor =
+              planLevel === 'full' || planLevel === 'warn' ? 'var(--warning)' : 'var(--success)';
             const planBg =
-              planLevel === 'full'
-                ? 'rgba(245,158,11,0.10)'
-                : planLevel === 'warn'
-                ? 'rgba(251,191,36,0.10)'
-                : 'rgba(16,185,129,0.10)';
+              planLevel === 'full' || planLevel === 'warn' ? 'var(--semantic-warning-bg)' : 'var(--semantic-success-bg)';
 
             let headline = 'Tudo em ordem';
             let subHead: ReactNode =
@@ -1244,208 +1264,241 @@ export const DashboardTab: React.FC = () => {
             const headerIcon =
               atPlanChannelLimit || (isAdmin && infraLevel !== 'ok') || (!isAdmin && planLevel === 'warn') ? (
                 <AlertTriangle
-                  className="w-4 h-4"
-                  style={{ color: atPlanChannelLimit || (!isAdmin && planLevel === 'warn') ? '#f59e0b' : ramColor }}
+                  className="w-[18px] h-[18px]"
+                  style={{
+                    color:
+                      atPlanChannelLimit || (!isAdmin && planLevel === 'warn')
+                        ? 'var(--warning)'
+                        : infraLevel === 'critical'
+                          ? 'var(--danger)'
+                          : 'var(--warning)'
+                  }}
                 />
               ) : (
-                <ShieldCheck className="w-4 h-4" style={{ color: planColor }} />
+                <ShieldCheck className="w-[18px] h-[18px]" style={{ color: 'var(--semantic-success-fg)' }} />
               );
-            const headerBg = atPlanChannelLimit ? 'rgba(245,158,11,0.12)' : planBg;
+            const headerBg = atPlanChannelLimit ? 'var(--semantic-warning-bg)' : planBg;
+
+            const statusBadge: { variant: 'success' | 'warning' | 'danger' | 'neutral'; label: string } = (() => {
+              if (atPlanChannelLimit) return { variant: 'warning', label: 'Limite comercial' };
+              if (isAdmin && infraLevel === 'critical') return { variant: 'danger', label: 'RAM crítica' };
+              if (isAdmin && infraLevel === 'warn') return { variant: 'warning', label: 'RAM em aviso' };
+              if (!isAdmin && planLevel === 'warn') return { variant: 'warning', label: 'Plano quase cheio' };
+              if (systemMetrics?.ramTotalGb == null) return { variant: 'neutral', label: 'A sincronizar' };
+              return { variant: 'success', label: 'Situação ok' };
+            })();
 
             return (
-              <div className="mb-2 space-y-4">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: headerBg }}>
-                    {headerIcon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="ui-title text-[15px] leading-snug">{headline}</h3>
-                    <div
-                      className="ui-subtitle mt-0.5 text-[12px] leading-relaxed space-y-0"
-                      style={{ color: 'var(--text-3)' }}
-                    >
-                      {typeof subHead === 'string' ? <p className="leading-relaxed">{subHead}</p> : subHead}
-                    </div>
-                    <div
-                      className="mt-2.5 flex items-start gap-2 rounded-lg px-2.5 py-2 text-[10.5px] font-medium leading-snug"
-                      style={{
-                        background: isBackendConnected
-                          ? 'rgba(16, 185, 129, 0.08)'
-                          : 'rgba(245, 158, 11, 0.12)',
-                        border: `1px solid ${
-                          isBackendConnected ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.28)'
-                        }`
-                      }}
-                      role="status"
-                      aria-live="polite"
-                    >
-                      {isBackendConnected ? (
-                        <Wifi className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
-                      ) : (
-                        <WifiOff className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
-                      )}
-                      <span style={{ color: 'var(--text-3)' }}>
-                        {isBackendConnected
-                          ? isAdmin
-                            ? 'Painel em sincronia com o servidor (métricas e avisos).'
-                            : 'Painel em sincronia com o servidor.'
-                          : 'Reconectando… em poucos segundos os números voltam ao normal.'}
-                      </span>
-                    </div>
-                    {atPlanChannelLimit && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="primary"
-                        className="mt-2"
-                        onClick={() => setCurrentView('subscription')}
+              <div className="space-y-0">
+                <div className="p-1">
+                  <CardHeader
+                    icon={
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ background: headerBg }}
                       >
-                        Ver minha assinatura / canais extras
-                      </Button>
-                    )}
-                  </div>
+                        {headerIcon}
+                      </div>
+                    }
+                    title={headline}
+                    subtitle={typeof subHead === 'string' ? subHead : undefined}
+                    actions={
+                      <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                        <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+                        <Badge
+                          variant="neutral"
+                          className="text-[10px] hidden sm:inline-flex"
+                          dot={isBackendConnected}
+                        >
+                          {isBackendConnected ? 'Online' : 'Reconectando'}
+                        </Badge>
+                      </div>
+                    }
+                  />
                 </div>
 
+                {typeof subHead !== 'string' && (
+                  <div className="px-4 pb-1 text-[12px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    {subHead}
+                  </div>
+                )}
+
                 <div
-                  className={`grid grid-cols-1 gap-3 ${isAdmin ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}
+                  className="mx-4 mb-3 flex items-center gap-2 rounded-xl px-3 py-2 text-[11px] leading-snug"
+                  style={{
+                    background: isBackendConnected ? 'var(--surface-1)' : 'rgba(245, 158, 11, 0.08)',
+                    border: `1px solid ${isBackendConnected ? 'var(--border-subtle)' : 'rgba(245, 158, 11, 0.2)'}`
+                  }}
+                  role="status"
+                  aria-live="polite"
                 >
+                  {isBackendConnected ? (
+                    <Wifi className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
+                  ) : (
+                    <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+                  )}
+                  <span style={{ color: 'var(--text-3)' }}>
+                    {isBackendConnected
+                      ? isAdmin
+                        ? 'Dados e avisos sincronizados com o backend.'
+                        : 'Painel sincronizado com o servidor.'
+                      : 'Reconectando — os números voltam em instantes.'}
+                  </span>
+                </div>
+
+                {atPlanChannelLimit && (
+                  <div className="px-4 pb-2">
+                    <Button type="button" size="sm" variant="primary" onClick={() => setCurrentView('subscription')}>
+                      Ver minha assinatura / canais extras
+                    </Button>
+                  </div>
+                )}
+
+                <div className={`px-4 grid grid-cols-1 gap-3 pb-4 ${isAdmin ? 'lg:grid-cols-2' : 'lg:grid-cols-1'}`}>
                   <div
                     className="rounded-xl p-3.5 space-y-3"
                     style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
                   >
-                  <div className="flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-emerald-500/90" aria-hidden />
-                    <p className="text-[10px] font-bold uppercase tracking-widest">
-                      {isAdmin ? 'Conta — canais existentes' : 'Contrato — teto de canais'}
-                    </p>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <div>
-                      <span className="text-[28px] font-extrabold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-                        {planScopedCount}
+                    <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
+                      <FileText className="h-4 w-4 shrink-0 text-emerald-500/90" aria-hidden />
+                      <span className="text-[11px] font-semibold">
+                        {isAdmin ? 'Canais nesta conta' : 'Plano e canais'}
                       </span>
-                      <span className="text-[14px] ml-1.5" style={{ color: 'var(--text-3)' }}>
-                        {isAdmin ? (
-                          <span className="text-[12px]">
-                            total (não é o teto comercial) · admin pode ir até {maxPlanChannelSlots} no app; a RAM do
-                            servidor é o gargalo real
+                    </div>
+                    <div
+                      className={`grid gap-3 sm:gap-4 ${isAdmin ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}
+                    >
+                      <DashMetric
+                        label="Canais em uso"
+                        value={
+                          <span>
+                            {planScopedCount}
+                            {!isAdmin && (
+                              <span className="text-[13px] font-medium" style={{ color: 'var(--text-3)' }}>
+                                {' '}
+                                / {maxPlanChannelSlots}
+                              </span>
+                            )}
                           </span>
-                        ) : (
-                          <>/ {maxPlanChannelSlots} permitidos</>
-                        )}
-                      </span>
+                        }
+                        hint={
+                          isAdmin
+                            ? `Teto de criação no app: ${maxPlanChannelSlots}; o gargalo operacional costuma ser a RAM.`
+                            : `Pro: ${BASE_CHANNEL_SLOTS} base; até ${MAX_CHANNELS_TOTAL} com extras.`
+                        }
+                      />
+                      {!isAdmin && (
+                        <DashMetric
+                          label="Uso do plano"
+                          value={`${planUsagePct}%`}
+                          hint="Percentual dos canais contratados em uso"
+                        />
+                      )}
                     </div>
                     {!isAdmin && (
-                      <span className="text-[12px] font-bold tabular-nums shrink-0" style={{ color: planColor }}>
-                        {planUsagePct}%
-                      </span>
+                      <>
+                        <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${planUsagePct}%`,
+                              background: `linear-gradient(90deg, var(--success), ${planColor})`
+                            }}
+                          />
+                        </div>
+                        <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                          Inclui <strong style={{ color: 'var(--text-2)' }}>{BASE_CHANNEL_SLOTS}</strong> no plano
+                          {typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
+                            ? ` + ${subscription.extraChannelSlots} extra(s) contratado(s).`
+                            : '. Extras: +R$ 100/mês por canal (até 5 no total).'}
+                        </p>
+                      </>
                     )}
-                  </div>
-                  {!isAdmin && (
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          width: `${planUsagePct}%`,
-                          background: `linear-gradient(90deg, #10b981, ${planColor})`
-                        }}
-                      />
-                    </div>
-                  )}
-                  {!isAdmin && (
-                    <p className="text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                      Inclui <strong style={{ color: 'var(--text-2)' }}>{BASE_CHANNEL_SLOTS}</strong> no plano
-                      {typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
-                        ? ` + ${subscription.extraChannelSlots} extra(s) contratado(s).`
-                        : '. Extras: +R$ 100/mês por canal (até 5 no total).'}
-                    </p>
-                  )}
                   </div>
 
                   {isAdmin && (
-                  <div
-                    className="rounded-xl p-3.5 space-y-2"
-                    style={{
-                      background: 'rgba(100, 116, 139, 0.06)',
-                      border: '1px dashed var(--border-subtle)'
-                    }}
-                  >
-                    <div className="flex items-center gap-2" style={{ color: 'var(--text-3)' }}>
-                      <Gauge className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                      <p className="text-[10px] font-bold uppercase tracking-widest">Referência (RAM + sessões)</p>
-                    </div>
-                    <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                      {systemMetrics?.ramTotalGb != null ? (
-                        <>
-                          Com ~{systemMetrics.ramTotalGb} GB, costuma ser confortável até{' '}
-                          <strong style={{ color: 'var(--text-2)' }}>~{cap.safe} sessões</strong>; acima de{' '}
-                          <strong style={{ color: 'var(--text-2)' }}>{cap.critical}</strong> o risco de
-                          instabilidade sobe (Chromium + WhatsApp Web).
-                        </>
-                      ) : (
-                        'Aguardando leitura de RAM do servidor...'
-                      )}
-                    </p>
-                    <p
-                      className="text-[10.5px] leading-snug rounded-md px-2 py-1.5"
-                      style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
+                    <div
+                      className="rounded-xl p-3.5 space-y-3"
+                      style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
                     >
-                      <strong style={{ color: 'var(--text-2)' }}>O que isto mede:</strong> a RAM e o “~N sessões” são
-                      do <strong>servidor</strong> que corre o ZapMass (uma heurística, não a regra de negócio do plano).
-                      O contador de sessões é <strong>desta conta</strong>. Em muitos servidores partilhados, a
-                      carga <em>real</em> soma <strong>todas</strong> as contas — aí a referência de ~{cap.safe} aplica
-                      à máquina toda, não a um cliente isolado. Serve para o operador dimensionar memória, não
-                      substitui o teto de canais comercial.
-                    </p>
-                    <div className="flex items-baseline justify-between gap-2 text-[12px]">
-                      <span className="min-w-0" style={{ color: 'var(--text-3)' }}>
-                        Sessões / referência:{' '}
-                        <strong className="tabular-nums" style={{ color: 'var(--text-1)' }}>
-                          {totalConns}
-                        </strong>
-                        <span className="text-[11px]"> / ~{cap.safe}</span>
-                      </span>
-                      <span className="shrink-0 font-bold tabular-nums" style={{ color: ramColor }}>
-                        {ramLoadPct}%
-                      </span>
-                    </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${ramLoadPct}%`, background: ramColor }}
-                      />
-                    </div>
-                    {systemMetrics?.ramUsedGb != null && systemMetrics?.ramTotalGb != null && (
-                      <div className="flex items-center gap-2 text-[11.5px] pt-1" style={{ color: 'var(--text-3)' }}>
-                        <MemoryStick className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                        <span>
-                          RAM: <strong style={{ color: 'var(--text-2)' }}>{systemMetrics.ramUsedGb} GB</strong> de{' '}
-                          {systemMetrics.ramTotalGb} GB ({systemMetrics.ram}%)
-                        </span>
+                      <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
+                        <Gauge className="h-4 w-4 shrink-0 text-indigo-500/90" aria-hidden />
+                        <span className="text-[11px] font-semibold">Referência: RAM e sessões</span>
                       </div>
-                    )}
-                  </div>
+                      <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                        {systemMetrics?.ramTotalGb != null ? (
+                          <>
+                            Com ~{systemMetrics.ramTotalGb} GB, conforto até <strong style={{ color: 'var(--text-2)' }}>~{cap.safe} sessões</strong>; risco
+                            relevante acima de <strong style={{ color: 'var(--text-2)' }}>{cap.critical}</strong> (Chromium + WA Web).
+                          </>
+                        ) : (
+                          'Aguardando leitura de RAM do servidor…'
+                        )}
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <DashMetric
+                          label="Sessões / referência conforto"
+                          value={
+                            <span>
+                              {totalConns} / ~{cap.safe}
+                            </span>
+                          }
+                          hint={`Carga relativa: ${ramLoadPct}%`}
+                        />
+                        {systemMetrics?.ramUsedGb != null && systemMetrics?.ramTotalGb != null ? (
+                          <DashMetric
+                            label="RAM do host (os)"
+                            value={`${systemMetrics.ramUsedGb} / ${systemMetrics.ramTotalGb} GB`}
+                            hint={`${systemMetrics.ram}% do sistema`}
+                          />
+                        ) : (
+                          <DashMetric label="RAM do host" value="—" hint="A aguardar métricas" />
+                        )}
+                      </div>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{ width: `${ramLoadPct}%`, background: ramBarFill }}
+                        />
+                      </div>
+                      <details className="group rounded-lg text-[10px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                        <summary className="cursor-pointer list-none font-medium text-[10.5px] py-0.5 marker:content-[''] [&::-webkit-details-marker]:hidden flex items-center gap-1" style={{ color: 'var(--text-2)' }}>
+                          <span className="text-indigo-500/80 group-open:rotate-90 transition-transform inline-block">▸</span>
+                          O que isto mede (operador)
+                        </summary>
+                        <p className="mt-1.5 pl-3 border-l-2" style={{ borderColor: 'var(--border-subtle)' }}>
+                          O contador de sessões é <strong>desta conta</strong>. A RAM e o “~N sessões” referem-se ao
+                          <strong> servidor</strong> (heurística, não a regra comercial do plano). Em hospedagem partilhada, a
+                          carga <em>real</em> soma <strong>todas</strong> as contas — a referência ~{cap.safe} aplica-se à
+                          máquina inteira. Serve para dimensionar memória; não substitui o teto de canais.
+                        </p>
+                      </details>
+                    </div>
                   )}
                 </div>
 
                 {isAdmin && infraLevel !== 'ok' && !atPlanChannelLimit && (
                   <div
-                    className="p-2.5 rounded-lg text-[11.5px] leading-relaxed"
+                    className="mx-4 mb-4 pl-3 py-2.5 rounded-r-lg text-[12px] leading-snug"
                     style={{
-                      background: 'rgba(245,158,11,0.10)',
-                      border: '1px solid rgba(245,158,11,0.25)',
+                      borderLeftWidth: 3,
+                      borderLeftStyle: 'solid',
+                      borderLeftColor: infraLevel === 'critical' ? 'var(--danger)' : 'var(--warning)',
+                      background:
+                        infraLevel === 'critical' ? 'var(--semantic-danger-bg)' : 'var(--semantic-warning-bg)',
                       color: 'var(--text-2)'
                     }}
                   >
                     {infraLevel === 'critical' ? (
                       <>
-                        <strong style={{ color: '#ef4444' }}>Atenção (hardware):</strong> número de canais acima do
-                        crítico ({cap.critical}) para esta RAM. Reduza sessões ou use um servidor com mais memória.
+                        <strong style={{ color: 'var(--semantic-danger-fg)' }}>Hardware</strong> — canais acima do
+                        crítico ({cap.critical}) para esta RAM. Reduza sessões ou aumente memória.
                       </>
                     ) : (
                       <>
-                        <strong style={{ color: '#f59e0b' }}>Aviso (hardware):</strong> acima de ~{cap.safe} sessões
-                        com {systemMetrics?.ramTotalGb ?? '?'} GB a estabilidade pode cair. Monitore travamentos.
+                        <strong style={{ color: 'var(--semantic-warning-fg)' }}>Hardware</strong> — acima de ~
+                        {cap.safe} sessões com {systemMetrics?.ramTotalGb ?? '?'} GB a estabilidade pode cair. Monitore
+                        travamentos.
                       </>
                     )}
                   </div>
@@ -1454,60 +1507,59 @@ export const DashboardTab: React.FC = () => {
             );
           })()}
 
-          <div
-            className="mt-1 border-t pt-4"
-            style={{ borderColor: 'var(--border-subtle)' }}
-          >
-            <div
-              className="mb-3 flex items-center justify-between gap-3 rounded-xl px-3 py-2.5"
-              style={{
-                background: offlineConnections.length > 0 ? 'rgba(239, 68, 68, 0.06)' : 'var(--surface-1)',
-                border: `1px solid ${
-                  offlineConnections.length > 0 ? 'rgba(239, 68, 68, 0.2)' : 'var(--border-subtle)'
-                }`
-              }}
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                {offlineConnections.length === 0 ? (
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-                ) : (
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" aria-hidden />
-                )}
-                <div className="min-w-0">
-                  <p className="text-[12.5px] font-semibold leading-tight" style={{ color: 'var(--text-2)' }}>
-                    Canais offline
-                  </p>
-                  <p className="mt-0.5 text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                    {offlineConnections.length === 0
-                      ? 'Nenhum canal desconectado agora.'
-                      : 'Reabra o WhatsApp Web na aba Canais.'}
-                  </p>
-                </div>
-              </div>
-              <span
-                className="shrink-0 text-[22px] font-extrabold tabular-nums leading-none"
-                style={{ color: offlineConnections.length > 0 ? '#ef4444' : 'var(--text-3)' }}
-              >
-                {offlineConnections.length}
-              </span>
-            </div>
-            <div className="max-h-40 space-y-1.5 overflow-y-auto">
-              {offlineConnections.length === 0 ? null : (
-                offlineConnections.map((conn) => (
+          <div className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div className="p-1 pt-3">
+              <CardHeader
+                icon={
                   <div
-                    key={conn.id}
-                    className="flex items-center justify-between rounded-lg p-2 text-[11.5px]"
-                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                    className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                    style={{
+                      background:
+                        offlineConnections.length > 0 ? 'var(--semantic-danger-bg)' : 'var(--semantic-success-bg)'
+                    }}
                   >
-                    <span className="truncate font-medium" style={{ color: 'var(--text-1)' }}>
-                      {conn.name}
-                    </span>
-                    <span className="shrink-0 tabular-nums" style={{ color: 'var(--text-3)' }}>
-                      {conn.lastActivity || '—'}
-                    </span>
+                    {offlineConnections.length === 0 ? (
+                      <CheckCircle2 className="h-[18px] w-[18px] text-emerald-500" aria-hidden />
+                    ) : (
+                      <Smartphone className="h-[18px] w-[18px] text-red-500" aria-hidden />
+                    )}
                   </div>
-                ))
-              )}
+                }
+                title="Canais offline"
+                subtitle={
+                  offlineConnections.length === 0
+                    ? 'Todos os canais com sessão ativa no momento.'
+                    : 'Reabra a sessão na aba Canais se permanecer offline.'
+                }
+                actions={
+                  <Badge variant={offlineConnections.length > 0 ? 'danger' : 'success'} className="tabular-nums text-[11px]">
+                    {offlineConnections.length}
+                  </Badge>
+                }
+              />
+            </div>
+            <div className="px-4 pb-4 max-h-40 space-y-1.5 overflow-y-auto">
+              {offlineConnections.length === 0
+                ? null
+                : offlineConnections.map((conn) => (
+                    <div
+                      key={conn.id}
+                      className="flex items-center justify-between gap-2 rounded-lg pl-2.5 pr-2 py-2 text-[11.5px]"
+                      style={{
+                        background: 'var(--surface-1)',
+                        border: '1px solid var(--border-subtle)',
+                        borderLeftWidth: 2,
+                        borderLeftColor: 'var(--semantic-danger-border)'
+                      }}
+                    >
+                      <span className="truncate font-medium min-w-0" style={{ color: 'var(--text-1)' }}>
+                        {conn.name}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                        {conn.lastActivity || '—'}
+                      </span>
+                    </div>
+                  ))}
             </div>
           </div>
 
