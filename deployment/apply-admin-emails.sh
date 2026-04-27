@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Garante ADMIN_EMAILS e VITE_ADMIN_EMAILS no .env (idempotente).
-# Na VPS, apos git pull:  cd /opt/zapmass && sudo bash deployment/apply-admin-emails.sh
+# Se `git pull` disser "not on a branch":  bash deployment/ensure-git-main.sh
+# Depois: cd /opt/zapmass && git pull && sudo bash deployment/apply-admin-emails.sh
 # Opcional: ADMIN_EMAIL=outro@dominio.com bash deployment/apply-admin-emails.sh
 set -euo pipefail
 ROOT="${ROOT:-/opt/zapmass}"
