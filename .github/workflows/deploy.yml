@@ -178,8 +178,16 @@ jobs:
             else
               echo "==> sem clientes provisionados (so a instancia principal)"
             fi
-            echo "==> prune imagens antigas"
-            docker image prune -f
+            # Evita destruir cache de build em todo deploy (isso alonga muito o tempo total).
+            # Para limpeza manual, rode na VPS quando quiser:
+            #   docker image prune -f
+            # Ou defina PRUNE_AFTER_DEPLOY=1 no ambiente e execute o workflow.
+            if [ "${PRUNE_AFTER_DEPLOY:-0}" = "1" ]; then
+              echo "==> prune imagens antigas (PRUNE_AFTER_DEPLOY=1)"
+              docker image prune -f || true
+            else
+              echo "==> prune desativado para preservar cache de build"
+            fi
             echo "==> status"
             if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
               docker stack services zapmass
