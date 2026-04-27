@@ -13,7 +13,7 @@ interface LoginCardProps {
 
 export const LoginCard: React.FC<LoginCardProps> = ({
   title = 'Entre na sua conta',
-  subtitle = 'Acesse o painel de disparos, conexões e campanhas em 1 clique com sua conta Google.',
+  subtitle = 'Acesse sua operação com 1 clique no Google e comece seu teste sem complicação.',
   showTrialOption = false
 }) => {
   const { signInWithGoogle } = useAuth();
@@ -124,7 +124,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               ) : (
                 <>
                   <GoogleLogo />
-                  Já sou cliente — entrar direto
+                  Já sou cliente — acessar painel
                 </>
               )}
             </button>
@@ -170,7 +170,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         <div className="space-y-2">
           <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Nunca guardamos sua senha — login é pelo Google" />
           <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
-          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Cancela quando quiser — sem fidelidade" />
+          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Sem fidelidade: você decide quando continuar" />
         </div>
       </div>
     </div>

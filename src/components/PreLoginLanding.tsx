@@ -34,7 +34,7 @@ export const PreLoginLanding: React.FC = () => {
     `Experimente ${formatTrialHoursLabel(config.trialHours)} grátis`;
   const trialBody =
     config.landingTrialBody.trim() ||
-    `Acesso completo ao sistema durante ${formatTrialDurationPhrase(config.trialHours)}. Sem cartão, sem compromisso. Depois você continua dentro do app, mas os envios ficam bloqueados até você assinar o Pro (mensal ou anual).`;
+    `Você usa todos os recursos durante ${formatTrialDurationPhrase(config.trialHours)}, sem cartão e sem cobrança automática. Ao final do teste, você escolhe o plano ideal para continuar com os envios liberados.`;
 
   const priceMonthly = config.marketingPriceMonthly.trim() || DEFAULT_PRICE_MONTHLY;
   const priceAnnual = config.marketingPriceAnnual.trim() || DEFAULT_PRICE_ANNUAL;
@@ -154,21 +154,20 @@ export const PreLoginLanding: React.FC = () => {
               color: 'var(--brand-600)'
             }}
           >
-            <Sparkles className="w-3 h-3" />
-            Disparos com inteligência
+              <Sparkles className="w-3 h-3" />
+            Operação profissional
           </div>
 
           <h2
             className="text-4xl sm:text-5xl font-black leading-[1.02] tracking-tight max-w-xl"
             style={{ color: 'var(--text-1)' }}
           >
-            Escale seu WhatsApp sem{' '}
-            <span className="text-gradient-brand">perder o ritmo</span> nem tomar ban.
+            Estruture seu WhatsApp para{' '}
+            <span className="text-gradient-brand">vender com consistência</span> e segurança operacional.
           </h2>
 
           <p className="text-[15.5px] leading-relaxed max-w-lg" style={{ color: 'var(--text-2)' }}>
-            Conecte vários chips, dispare campanhas com cadência inteligente, responda conversas
-            num painel só e acompanhe tudo em relatórios em tempo real. Sem planilha, sem bagunça.
+            Centralize canais, campanhas, atendimento e métricas em um único painel. Do primeiro envio ao acompanhamento diário, tudo fica organizado para você escalar sem improviso.
           </p>
 
           {/* Stats row — social proof */}
@@ -180,41 +179,41 @@ export const PreLoginLanding: React.FC = () => {
               boxShadow: 'var(--shadow-xs)'
             }}
           >
-            <StatMini value="1 a 5" label="Planos por canais" />
+            <StatMini value="1 a 5" label="Canais por plano" />
             <StatSep />
-            <StatMini value="Pix -5%" label="Desconto no checkout" />
+            <StatMini value="Pix -5%" label="Desconto imediato" />
             <StatSep />
-            <StatMini value="24/7" label="Operação em nuvem" />
+            <StatMini value="24/7" label="Operação na nuvem" />
           </div>
 
           {/* Highlights */}
           <div className="flex flex-wrap gap-2 pt-1">
             <Chip icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Login Google seguro" />
             <Chip icon={<CheckCircle2 className="w-3.5 h-3.5" />} label="Dados isolados por conta" />
-            <Chip icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste grátis imediato" />
+            <Chip icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste grátis com ativação imediata" />
           </div>
 
           {/* Features grid */}
           <ul className="grid sm:grid-cols-2 gap-3 pt-3">
             <Pitch
               icon={<Send className="w-4 h-4" />}
-              title="Campanhas inteligentes"
-              text="Limites por chip, atrasos aleatórios e pausa automática para imitar ritmo humano."
+              title="Campanhas com proteção de ritmo"
+              text="Limites por canal, atrasos inteligentes e pausas automáticas para reduzir risco operacional."
             />
             <Pitch
               icon={<Users className="w-4 h-4" />}
-              title="Base de contatos"
-              text="Importação em CSV, listas, etiquetas e histórico para segmentar com precisão."
+              title="Base de clientes organizada"
+              text="Importe CSV, use listas e etiquetas e mantenha o histórico pronto para segmentações precisas."
             />
             <Pitch
               icon={<MessageCircle className="w-4 h-4" />}
-              title="Central de chat"
-              text="Responda todas as conversas num painel só, com contexto da campanha original."
+              title="Atendimento centralizado"
+              text="Responda conversas em um só lugar, com contexto de origem para acelerar o fechamento."
             />
             <Pitch
               icon={<BarChart3 className="w-4 h-4" />}
-              title="Relatórios ao vivo"
-              text="Entrega, leitura, resposta e falhas em tempo real — por campanha e por chip."
+              title="Indicadores em tempo real"
+              text="Acompanhe entrega, leitura, resposta e falhas por campanha e por canal."
             />
           </ul>
 
@@ -345,17 +344,17 @@ export const PreLoginLanding: React.FC = () => {
             <StepCard
               n={1}
               title="Conecte seu chip"
-              text="Escaneie o QR Code do WhatsApp Web. Pronto, o chip já aparece na frota."
+              text="Escaneie o QR Code e habilite seu primeiro canal em segundos."
             />
             <StepCard
               n={2}
-              title="Importe sua lista"
-              text="Cole contatos, suba CSV ou crie listas manualmente. Suporta tags e segmentação."
+              title="Cadastre seus contatos"
+              text="Importe CSV, crie listas e etiquete sua base para iniciar campanhas com segmentação."
             />
             <StepCard
               n={3}
-              title="Crie a campanha"
-              text="Escreva a mensagem, escolha chips e lance. Ritmo, pausas e relatórios são automáticos."
+              title="Lance a campanha"
+              text="Monte a mensagem, escolha os canais e acompanhe os resultados automaticamente."
             />
           </div>
         </section>
@@ -370,34 +369,34 @@ export const PreLoginLanding: React.FC = () => {
               Perguntas frequentes
             </h3>
             <p className="text-[14px]" style={{ color: 'var(--text-2)' }}>
-              Se ficar qualquer dúvida, responde na hora no chat de suporte.
+              Tudo o que você precisa para começar sem dúvidas.
             </p>
           </div>
 
           <div className="max-w-3xl mx-auto space-y-2">
             <FaqItem
-              q="Meu chip pode ser banido?"
-              a="O WhatsApp pode banir qualquer número que faça disparo em massa — isso é responsabilidade de quem envia, não do sistema. O ZapMass ajuda respeitando ritmo humano (atrasos aleatórios, limite diário por chip, pausa automática), mas ninguém pode garantir 100%. Use chips dedicados, aqueça antes e respeite limites."
+              q="Como o ZapMass reduz risco de bloqueio?"
+              a="Aplicamos limites por canal, pausas automáticas e cadência inteligente. Isso reduz risco operacional, mas não existe garantia de zero bloqueio — boas práticas de envio continuam essenciais."
             />
             <FaqItem
-              q="Quantos chips posso conectar?"
-              a="Depende do plano de canais escolhido no checkout: de 1 a 5 canais por conta. Você pode fazer upgrade quando quiser."
+              q="Com quantos canais posso começar?"
+              a="Você escolhe no checkout entre 1 e 5 canais no plano mensal ou anual. Se precisar crescer depois, pode fazer upgrade com ajuste pró-rata."
             />
             <FaqItem
-              q="Como cancelo a assinatura?"
-              a="Em 1 clique na aba 'Minha assinatura'. O acesso continua ativo até o fim do período que você já pagou. Zero burocracia, sem tempo de fidelidade."
+              q="Como funciona cancelamento e renovação?"
+              a="Você gerencia tudo em 'Minha assinatura'. Pode cancelar quando quiser; o acesso segue ativo até o fim do período já pago."
             />
             <FaqItem
-              q="Consigo testar antes de pagar?"
-              a={`Sim. O teste grátis de ${formatTrialHoursLabel(config.trialHours)} libera acesso completo ao sistema. Nenhum cartão é pedido, nenhuma cobrança é feita depois automaticamente — se não assinar, o acesso de envio simplesmente encerra.`}
+              q="Preciso pagar para testar?"
+              a={`Não. O teste grátis de ${formatTrialHoursLabel(config.trialHours)} libera o sistema completo sem cartão. Se você não contratar depois, apenas os envios ficam bloqueados.`}
             />
             <FaqItem
-              q="Os dados dos meus clientes ficam seguros?"
-              a="Cada conta tem dados totalmente isolados no banco. Suas conversas e listas não saem do seu workspace. Login pelo Google (nunca guardamos sua senha) e comunicação com o servidor por HTTPS."
+              q="Meus dados e os dados dos clientes ficam seguros?"
+              a="Sim. Cada conta opera com dados isolados, autenticação por Google e comunicação segura por HTTPS. Você mantém controle sobre sua operação e sua base."
             />
             <FaqItem
-              q="Preciso deixar computador ligado?"
-              a="Não. O servidor ZapMass roda 24/7 na nuvem. Você pode fechar o navegador — os disparos continuam normalmente."
+              q="Preciso deixar computador ligado para disparar?"
+              a="Não. A operação roda em nuvem 24/7. Você pode fechar o navegador e continuar acompanhando depois."
             />
           </div>
         </section>
