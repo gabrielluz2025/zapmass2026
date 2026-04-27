@@ -501,6 +501,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContacts([]);
         setContactLists([]);
         setCampaigns([]);
+        setConnections([]);
         campaignFirestoreHealRef.current.clear();
       }
       // Garante que o Socket.io usa o mesmo UID que a UI — senão o servidor cria
@@ -527,6 +528,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContacts([]);
         setContactLists([]);
         setCampaigns([]);
+        setConnections([]);
         campaignFirestoreHealRef.current.clear();
         return;
       }
@@ -549,8 +551,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     // LÓGICA DE CONEXÃO DINÂMICA
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const BACKEND_URL = isLocalhost ? "http://localhost:3001" : undefined;
+    /** Evita corrida Firebase vs ref: o primeiro connections-update vinha antes do ref estar alinhado e esvaziava a lista (modo estrito uid__). */
+    const getOwnerUidForConnectionScope = (): string =>
+      auth.currentUser?.uid ?? currentUidRef.current ?? 'anonymous';
     const ownsConnectionId = (connectionId: string) =>
-      ownsConnectionForUid(currentUidRef.current ?? 'anonymous', connectionId);
+      ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId);
 
     console.log(`Iniciando conexão Socket.IO com: ${BACKEND_URL || 'origem relativa'}`);
 
