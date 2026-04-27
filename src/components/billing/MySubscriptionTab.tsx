@@ -125,6 +125,7 @@ export const MySubscriptionTab: React.FC = () => {
 
   const startChannelTierPlan = async (method: 'pix' | 'card', channels: ChannelTier, plan: Plan) => {
     if (!user) return;
+    const checkoutTab = window.open('', '_blank', 'noopener,noreferrer');
     setTierBusy(method);
     try {
       const idToken = await user.getIdToken();
@@ -135,11 +136,16 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
+        checkoutTab?.close();
         toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível abrir o checkout do plano por canais.');
         return;
       }
       if (data.init_point) {
-        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        if (checkoutTab) {
+          checkoutTab.location.href = String(data.init_point);
+        } else {
+          window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        }
         const charged = Number(data?.charged_brl);
         const isUpgrade = data?.is_upgrade_prorata === true;
         const priceText = Number.isFinite(charged) ? ` Valor: ${brl(charged)}.` : '';
@@ -148,8 +154,9 @@ export const MySubscriptionTab: React.FC = () => {
             ? `Upgrade pró-rata (${plan === 'annual' ? 'anual' : 'mensal'}) aberto para ${channels} canal(is).${priceText}`
             : `Checkout ${plan === 'annual' ? 'anual' : 'mensal'} aberto para ${channels} canal(is).${priceText}`
         );
-      }
+      } else checkoutTab?.close();
     } catch (e) {
+      checkoutTab?.close();
       console.error(e);
       toast.error('Erro de rede.');
     } finally {
@@ -183,6 +190,7 @@ export const MySubscriptionTab: React.FC = () => {
   /** Migração mensal → anual (Pix) com o mesmo número de canais contratado. */
   const migrateToAnnualPix = async () => {
     if (!user) return;
+    const checkoutTab = window.open('', '_blank', 'noopener,noreferrer');
     setBusy('pix');
     try {
       const idToken = await user.getIdToken();
@@ -193,14 +201,20 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
+        checkoutTab?.close();
         toast.error(typeof data?.error === 'string' ? data.error : 'Erro ao abrir o checkout.');
         return;
       }
       if (data.init_point) {
-        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        if (checkoutTab) {
+          checkoutTab.location.href = String(data.init_point);
+        } else {
+          window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        }
         toast.success('Abrimos o Mercado Pago numa nova aba. O acesso é estendido após confirmação.');
-      }
+      } else checkoutTab?.close();
     } catch (e) {
+      checkoutTab?.close();
       console.error(e);
       toast.error('Erro de rede.');
     } finally {

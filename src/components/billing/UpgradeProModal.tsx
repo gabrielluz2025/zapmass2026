@@ -45,6 +45,7 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
 
   const startPayment = async (plan: Plan, method: Method) => {
     if (!user) return;
+    const checkoutTab = window.open('', '_blank', 'noopener,noreferrer');
     setLoading(`${plan}-${method}` as ProLoadingKey);
     try {
       const idToken = await user.getIdToken();
@@ -63,19 +64,28 @@ export const UpgradeProModal: React.FC<UpgradeProModalProps> = ({ isOpen, onClos
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
+        checkoutTab?.close();
         toast.error(typeof data?.error === 'string' ? data.error : 'Checkout Mercado Pago indisponível.');
         return;
       }
       if (data.init_point) {
-        window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        if (checkoutTab) {
+          checkoutTab.location.href = String(data.init_point);
+        } else {
+          window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
+        }
         const msg =
           method === 'recurring'
             ? 'Conclua a autorização do débito automático. Seu acesso libera após a aprovação.'
             : 'Conclua o pagamento na aba do Mercado Pago. Seu acesso libera após a confirmação.';
         toast.success(msg);
         onClose();
-      } else toast.error('Resposta sem link de checkout.');
+      } else {
+        checkoutTab?.close();
+        toast.error('Resposta sem link de checkout.');
+      }
     } catch (e) {
+      checkoutTab?.close();
       console.error(e);
       toast.error('Erro de rede.');
     } finally {
