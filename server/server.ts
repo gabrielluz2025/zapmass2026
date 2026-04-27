@@ -286,13 +286,33 @@ const logEvent = (event: string, payload?: Record<string, unknown>) => {
   io.emit('system-log', { timestamp, event, payload });
 };
 
-/** Com API+Redis, o Chromium so corre no `wa-worker`. Sem heartbeat de worker, bloqueia e avisa o cliente. */
-const denyIfRemoteSessionWorkerMissing = (socket: { emit: (ev: string, payload: Record<string, unknown>) => void }): boolean => {
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Com API+Redis, o Chromium so corre no `wa-worker`. Heartbeats vêm do Redis (atraso/arranque):
+ * nao bloquear no primeiro 0; espera alguns ciclos antes de falhar.
+ */
+const waitThenDenyIfRemoteSessionWorkerMissing = async (socket: {
+  emit: (ev: string, payload: Record<string, unknown>) => void;
+}): Promise<boolean> => {
   if (!isSessionBusRemote()) return false;
   if (getWhatsappProcessWorkerCount() >= 1) return false;
+  const maxWaitMs = Number(process.env.SESSION_WORKER_WAIT_MS || 20000);
+  const stepMs = 2000;
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await sleep(stepMs);
+    if (getWhatsappProcessWorkerCount() >= 1) {
+      console.log('[create-connection] wa-worker com heartbeat (apos aguardar stream Redis).');
+      return false;
+    }
+  }
+  console.warn(
+    '[session] Nenhum worker nao-API com heartbeat. Confirme: WA_WORKER_REPLICAS>=1 com ZAPMASS_API_SESSION_MODE=api, ou use modo monolith.'
+  );
   socket.emit('session-worker-missing', {
     message:
-      'Nenhum processo de sessao WhatsApp (wa-worker) com heartbeat. Com SESSION_PROCESS_MODE=api e REDIS, inicie o worker: npm run worker:dev. Em desenvolvimento, prefira remover essas variaveis do .env (modo classico: so o servidor) ou manter Redis e o worker em paralelo.'
+      'Nenhum processo de sessao WhatsApp (wa-worker) com heartbeat. Com ZAPMASS_API_SESSION_MODE=api e Redis, a stack precisa de replicas do servico `wa-worker` (ex.: WA_WORKER_REPLICAS=1). Modo classico: comente/retire `ZAPMASS_API_SESSION_MODE` no .env (monolith = QR no proprio `api`).'
   });
   return true;
 };
@@ -417,7 +437,7 @@ const registerSocketHandlers = () => {
           });
           return;
         }
-        if (denyIfRemoteSessionWorkerMissing(socket)) return;
+        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:create-connection', { name });
         await submitCreateConnection(
           typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp',
@@ -434,7 +454,7 @@ const registerSocketHandlers = () => {
         return;
       }
       userLog('ui:delete-connection', { id });
-      if (denyIfRemoteSessionWorkerMissing(socket)) return;
+      if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
       try {
         await submitDeleteConnection(id, uid);
         socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
@@ -451,7 +471,7 @@ const registerSocketHandlers = () => {
           denyCrossTenant('reconnect-connection', { id });
           return;
         }
-        if (denyIfRemoteSessionWorkerMissing(socket)) return;
+        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:reconnect-connection', { id });
         await submitReconnectConnection(id, uid);
       })();
@@ -464,7 +484,7 @@ const registerSocketHandlers = () => {
           denyCrossTenant('force-qr', { id });
           return;
         }
-        if (denyIfRemoteSessionWorkerMissing(socket)) return;
+        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
         userLog('ui:force-qr', { id });
         await submitForceQr(id, uid);
       })();
@@ -524,7 +544,7 @@ const registerSocketHandlers = () => {
         callback?.({ ok: false, error: 'Assine o Pro ou renove o periodo para disparar campanhas.' });
         return;
       }
-      if (denyIfRemoteSessionWorkerMissing(socket)) {
+      if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) {
         callback?.({ ok: false, error: 'Processo wa-worker indisponivel (modo API+Redis).' });
         return;
       }
@@ -569,7 +589,7 @@ const registerSocketHandlers = () => {
         return;
       }
       if (!(await requireActiveSubscription())) return;
-      if (denyIfRemoteSessionWorkerMissing(socket)) return;
+      if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) return;
       userLog('ui:send-message', { conversationId });
       try {
         await submitSendMessage(conversationId, text, uid);
@@ -607,7 +627,7 @@ const registerSocketHandlers = () => {
           callback?.({ ok: false, error: 'Plano ativo necessario para enviar midia.' });
           return;
         }
-        if (denyIfRemoteSessionWorkerMissing(socket)) {
+        if (await waitThenDenyIfRemoteSessionWorkerMissing(socket)) {
           callback?.({ ok: false, error: 'Processo de sessao WhatsApp (wa-worker) indisponivel. Inicie o worker ou use modo monolith.' });
           return;
         }
