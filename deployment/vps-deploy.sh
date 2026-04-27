@@ -22,22 +22,57 @@ VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
 export VITE_GIT_REF
 echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
 
-# Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_*, HOST_PORT, METRICS_TOKEN e WA_WORKER_REPLICAS (interpolar docker-stack.yml / healthcheck)
+# Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_*, HOST_PORT, METRICS_TOKEN, worker, swap/BuildKit (ver .env.example)
 if [ -f .env ]; then
   while IFS='=' read -r k v; do
     k="${k//$'\r'/}"
     v="${v//$'\r'/}"
     case "$k" in
-      VITE_*|MERCADOPAGO_*|ZAPMASS_*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS)
+      VITE_*|MERCADOPAGO_*|ZAPMASS_*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB)
         export "$k=$v"
         ;;
     esac
-  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS)=' .env || true)
+  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB)=' .env || true)
   if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
     echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
   else
     echo "==> AVISO: MERCADOPAGO_ACCESS_TOKEN vazio após .env"
   fi
+fi
+
+# Converte RAM em pico: swap idempotente (4 GiB) se total < alvo; desligar: ENSURE_SWAP_ON_DEPLOY=0
+ensure_swap_on_vps() {
+  if [ "${ENSURE_SWAP_ON_DEPLOY:-1}" = "0" ]; then
+    return 0
+  fi
+  if [ ! -f deployment/ensure-swap.sh ]; then
+    return 0
+  fi
+  if [ ! -r /proc/meminfo ]; then
+    return 0
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    env SWAP_SIZE_MB="${SWAP_SIZE_MB:-4096}" bash deployment/ensure-swap.sh || echo "==> AVISO: ensure-swap.sh falhou (disco? espaço?)."
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo env SWAP_SIZE_MB="${SWAP_SIZE_MB:-4096}" bash deployment/ensure-swap.sh || echo "==> AVISO: ensure-swap.sh falhou (configure sudo sem senha p/ o utilizador de deploy, ou crie swap manualmente)."
+  else
+    echo "==> AVISO: ensure-swap.sh requer root/sudo; defina swap manualmente em VPS de ~4 GiB."
+  fi
+}
+ensure_swap_on_vps
+
+# Menos paralelismo no build = picos de RAM menores (útil com ~8 GiB + Chromium)
+if [ -z "${BUILDKIT_MAX_PARALLELISM:-}" ] && [ -r /proc/meminfo ]; then
+  _mem_mb="$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)"
+  if [ "${_mem_mb}" -le 8192 ]; then
+    export BUILDKIT_MAX_PARALLELISM=1
+  elif [ "${_mem_mb}" -le 16384 ]; then
+    export BUILDKIT_MAX_PARALLELISM=2
+  fi
+  unset _mem_mb
+fi
+if [ -n "${BUILDKIT_MAX_PARALLELISM:-}" ]; then
+  echo "==> BUILDKIT_MAX_PARALLELISM=${BUILDKIT_MAX_PARALLELISM} (podes definir no .env)"
 fi
 
 # Build otimizado: cache de camadas e npm no host; evita re-download pesado
