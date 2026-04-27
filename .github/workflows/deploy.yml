@@ -37,7 +37,8 @@ on:
 
 concurrency:
   group: deploy-${{ github.ref_name }}
-  cancel-in-progress: false
+  # Evita fila longa de runs "pendente": o mais novo cancela o anterior da mesma branch.
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -201,7 +202,9 @@ jobs:
           script: |
             set -e
             echo "==> aguardando API ficar saudavel"
-            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            # Ambiente com muitos canais pode levar mais tempo para ficar estavel apos restart.
+            # 50 * 6s = 300s (5 min) de janela de estabilizacao.
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50; do
               code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3001/api/health || echo 000)
               echo "tentativa $i: HTTP $code"
               if [ "$code" = "200" ]; then
@@ -210,7 +213,7 @@ jobs:
               fi
               sleep 6
             done
-            echo "FALHA: API nao respondeu 200 apos 120s"
+            echo "FALHA: API nao respondeu 200 apos 300s"
             if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
               echo "==> status docker swarm"
               docker service ps zapmass_api || true
