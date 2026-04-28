@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Download, Smartphone, Copy, Check } from 'lucide-react';
 
 interface QRCodeModalProps {
@@ -39,7 +39,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
       <div className="bg-slate-900/95 backdrop-blur-2xl border border-slate-700/50 rounded-3xl p-8 max-w-lg w-full shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">

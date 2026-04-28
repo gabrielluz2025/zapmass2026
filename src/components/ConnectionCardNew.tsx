@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Trash2, Smartphone, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw } from 'lucide-react';
+import { QRCodeModal } from './QRCodeModal';
 import { WhatsAppConnection, ConnectionStatus } from '../types';
 
 const formatUptime = (connectedSince?: number): string => {
@@ -36,6 +37,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   const isAuthenticating = connection.status === ConnectionStatus.CONNECTING && !isQrReady && connection.lastActivity?.includes('Autenticado');
 
   const [qrSeconds, setQrSeconds] = useState(60);
+  const [qrZoomOpen, setQrZoomOpen] = useState(false);
   useEffect(() => {
     if (!isQrReady || !connection.qrCode) return;
     setQrSeconds(60);
@@ -53,6 +55,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   const healthScore = connection.healthScore ?? 100;
 
   return (
+    <>
     <div className="relative group rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-2xl"
       style={{
         background: 'var(--surface)',
@@ -116,12 +119,21 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
           </div>
         ) : isQrReady && connection.qrCode ? (
           <div className="mb-4 flex flex-col items-center gap-3">
-            <div className="bg-white p-3 rounded-2xl shadow-xl ring-1 ring-slate-100">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setQrZoomOpen(true);
+              }}
+              className="bg-white p-3 rounded-2xl shadow-xl ring-1 ring-slate-100 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              aria-label="Ampliar QR Code"
+              title="Clique para ampliar"
+            >
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(connection.qrCode)}`}
-                alt="QR" className="w-44 h-44"
+                alt="" className="w-44 h-44 pointer-events-none"
               />
-            </div>
+            </button>
             <div className="flex items-center justify-between w-full">
               <span className="text-[10px] font-bold text-slate-400">Escaneie com o WhatsApp</span>
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: 'var(--surface-2)' }}>
@@ -252,5 +264,12 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
         </div>
       </div>
     </div>
+    <QRCodeModal
+      isOpen={qrZoomOpen}
+      onClose={() => setQrZoomOpen(false)}
+      qrCode={connection.qrCode}
+      connectionName={connection.name}
+    />
+    </>
   );
 };

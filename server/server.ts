@@ -23,9 +23,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import {
-  BASE_CONNECTION_SLOTS,
-  countUserScopedConnections,
-  getMaxConnectionSlots,
+  evaluateMayCreateWaConnection,
   readUserSubscriptionForLimits,
   isUidTreatedAsServerAdmin
 } from './connectionLimits.js';
@@ -418,30 +416,20 @@ const registerSocketHandlers = () => {
     socket.on('create-connection', ({ name }: { name?: string }) => {
       const queueKey = uid;
       enqueuePerKey(queueKey, async () => {
-        if (!(await requireActiveSubscription())) return;
-        let maxAllowed = BASE_CONNECTION_SLOTS;
-        if (uid && uid !== 'anonymous') {
-          try {
-            const [sub, isServAdmin] = await Promise.all([
-              readUserSubscriptionForLimits(uid),
-              isUidTreatedAsServerAdmin(uid)
-            ]);
-            maxAllowed = getMaxConnectionSlots(sub, { serverAdmin: isServAdmin });
-          } catch (e) {
-            console.error('[create-connection] leitura assinatura; aplica teto base', e);
-            maxAllowed = BASE_CONNECTION_SLOTS;
+        const decision = await evaluateMayCreateWaConnection(uid, waService.getConnections());
+        if (decision.ok === false) {
+          if (decision.reason === 'subscription-required') {
+            socket.emit('subscription-required', {
+              message:
+                'Plano ativo ou teste valido e necessario. Abra Minha assinatura para assinar o ZapMass Pro e liberar o uso.'
+            });
+          } else {
+            socket.emit('connection-limit-reached', {
+              current: decision.current,
+              max: decision.max,
+              message: decision.message
+            });
           }
-        }
-        const count = countUserScopedConnections(waService.getConnections(), uid);
-        if (count >= maxAllowed) {
-          socket.emit('connection-limit-reached', {
-            current: count,
-            max: maxAllowed,
-            message:
-              maxAllowed <= BASE_CONNECTION_SLOTS
-                ? `Limite de ${maxAllowed} canal(is) do plano atual. Ajuste o plano em Minha assinatura para liberar mais canais (ate 5).`
-                : `Voce atingiu o maximo de ${maxAllowed} canal(is) do plano contratado. Em Minha assinatura, selecione um plano com mais canais (ate 5).`
-          });
           return;
         }
         userLog('ui:create-connection', { name });

@@ -1,4 +1,5 @@
 import * as waService from './whatsappService.js';
+import { evaluateMayCreateWaConnection } from './connectionLimits.js';
 import { SessionCommandBus } from './sessionCommandBus.js';
 import { SessionRouter } from './sessionRouter.js';
 import type { SessionCommand, SessionEvent } from './sessionContracts.js';
@@ -26,6 +27,15 @@ const extractConnectionId = (command: SessionCommand): string | undefined => {
 
 const executeLocally = async (command: SessionCommand): Promise<void> => {
   if (command.type === 'create-connection') {
+    const uid = command.requestedByUid;
+    const decision = await evaluateMayCreateWaConnection(uid, waService.getConnections());
+    if (decision.ok === false) {
+      throw new Error(
+        decision.reason === 'subscription-required'
+          ? `[policy] subscription-required (uid=${uid})`
+          : `[policy] connection-limit-reached ${decision.current}/${decision.max} (uid=${uid})`
+      );
+    }
     await waService.createConnection(command.payload.name, command.payload.ownerUid);
     return;
   }

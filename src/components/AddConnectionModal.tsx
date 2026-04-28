@@ -3,6 +3,7 @@ import { X, QrCode, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMass } from '../context/ZapMassContext';
 import { ConnectionStatus } from '../types';
+import { QRCodeModal } from './QRCodeModal';
 
 interface AddConnectionModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   /** Ids de canais antes de clicar em "Gerar QR" — acha o canal novo se o evento socket falhar. */
   const priorConnectionIdsRef = useRef<Set<string>>(new Set());
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [qrZoomOpen, setQrZoomOpen] = useState(false);
 
   // Reset state when modal opens
   useEffect(() => {
@@ -35,6 +37,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       setCurrentConnectionId(null);
       pendingConnectionIdRef.current = null;
       priorConnectionIdsRef.current = new Set();
+      setQrZoomOpen(false);
     }
   }, [isOpen]);
 
@@ -87,60 +90,72 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     };
   }, [step, isOpen]);
 
-  // Socket Listeners for Real-Time Events
+  // Só ouve QR/ready enquanto o modal está aberto — evita toast "QR gerado" com modal fechado ou no passo "naming".
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !isOpen) return;
 
-    const handleQrCode = (data: { connectionId: string, qrCode: string }) => {
-        console.log('QR Code Recebido Real:', data);
-        setQrCodeData(data.qrCode);
-        setCurrentConnectionId(data.connectionId);
-        pendingConnectionIdRef.current = data.connectionId;
-        setStep('scanning');
-        if (loadTimerRef.current) {
-          clearTimeout(loadTimerRef.current);
-          loadTimerRef.current = null;
-        }
-        toast.success('QR Code Gerado! Escaneie agora.', {
-            icon: '📷',
-            duration: 4000
-        });
+    const handleQrCode = (data: { connectionId: string; qrCode: string }) => {
+      const stepNow = stepRef.current;
+      if (stepNow !== 'loading_qr' && stepNow !== 'scanning') return;
+      /** QR de canal já existente (ex.: reconnect) quando o usuário espera apenas um canal NOVO após "Gerar QR". */
+      if (stepNow === 'loading_qr' && priorConnectionIdsRef.current.has(data.connectionId)) return;
+
+      console.log('QR Code Recebido Real:', data);
+      setQrCodeData(data.qrCode);
+      setCurrentConnectionId(data.connectionId);
+      pendingConnectionIdRef.current = data.connectionId;
+      setStep('scanning');
+      if (loadTimerRef.current) {
+        clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+      toast.success('QR Code Gerado! Escaneie agora.', {
+        icon: '📷',
+        duration: 4000
+      });
     };
 
     const handleReady = (data: { connectionId: string }) => {
-        const pending = pendingConnectionIdRef.current;
-        const s = stepRef.current;
-        if (
-            data.connectionId === currentConnectionId ||
-            data.connectionId === pending ||
-            s === 'scanning' ||
-            s === 'loading_qr'
-        ) {
-            setStep('success');
-            toast.success('Dispositivo Sincronizado!', {
-               icon: '🚀'
-            });
-            setTimeout(() => {
-                onClose();
-            }, 2000);
-        }
+      const pending = pendingConnectionIdRef.current;
+      const s = stepRef.current;
+      if (s !== 'scanning' && s !== 'loading_qr') return;
+      if (!pending || data.connectionId !== pending) return;
+      setStep('success');
+      toast.success('Dispositivo Sincronizado!', {
+        icon: '🚀'
+      });
+      setTimeout(() => {
+        onClose();
+      }, 2000);
     };
 
-    /** O contexto ja mostra toast; aqui so fechamos o passo "loading" do modal. */
+    /** Assinatura/limite reprovados pelo servidor — volta ao form e limpa QR (inclui se já estiver em scanning). */
     const onSubscriptionRequired = () => {
+      const s = stepRef.current;
       if (loadTimerRef.current) {
         clearTimeout(loadTimerRef.current);
         loadTimerRef.current = null;
       }
-      if (stepRef.current === 'loading_qr') setStep('naming');
+      if (s !== 'loading_qr' && s !== 'scanning') return;
+      setStep('naming');
+      setQrCodeData(null);
+      setCurrentConnectionId(null);
+      pendingConnectionIdRef.current = null;
+      setQrZoomOpen(false);
     };
 
     const onConnectionLimit = () => {
+      const s = stepRef.current;
       if (loadTimerRef.current) {
         clearTimeout(loadTimerRef.current);
         loadTimerRef.current = null;
       }
-      if (stepRef.current === 'loading_qr') setStep('naming');
+      if (s !== 'loading_qr' && s !== 'scanning') return;
+      setStep('naming');
+      setQrCodeData(null);
+      setCurrentConnectionId(null);
+      pendingConnectionIdRef.current = null;
+      setQrZoomOpen(false);
     };
 
     const onSessionWorkerMissing = () => {
@@ -183,7 +198,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         socket.off('connection-init-failure', onInitFailure);
         socket.off('session-worker-missing', onSessionWorkerMissing);
     };
-  }, [socket, currentConnectionId, onClose]);
+  }, [socket, isOpen, onClose]);
 
   const handleCreate = () => {
       if (!connectionName.trim()) return;
@@ -199,6 +214,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   if (!isOpen) return null;
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm transition-opacity p-4">
       <div className="ui-card w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
         
@@ -272,13 +288,21 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
               <div className="bg-white p-4 rounded-xl border-2 border-emerald-100 shadow-inner mb-4 relative group">
                 {/* Efeito de Pulse ao redor do QR Code */}
                 <div className="relative">
-                    <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCodeData)}`} 
-                      alt="QR Code" 
-                      className="w-52 h-52 object-contain relative z-10"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setQrZoomOpen(true)}
+                      className="relative z-10 cursor-pointer rounded-lg transition-transform hover:scale-[1.02] active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                      aria-label="Ampliar QR Code"
+                      title="Clique para ampliar"
+                    >
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCodeData)}`} 
+                        alt="" 
+                        className="w-52 h-52 object-contain pointer-events-none"
+                      />
+                    </button>
                     {/* Ring Pulse Animation */}
-                    <div className="absolute -inset-4 border-2 border-emerald-400/50 rounded-xl animate-pulse z-0"></div>
+                    <div className="absolute -inset-4 border-2 border-emerald-400/50 rounded-xl animate-pulse z-0 pointer-events-none"></div>
                 </div>
               </div>
               
@@ -314,5 +338,12 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         </div>
       </div>
     </div>
+    <QRCodeModal
+      isOpen={qrZoomOpen && Boolean(qrCodeData)}
+      onClose={() => setQrZoomOpen(false)}
+      qrCode={qrCodeData ?? ''}
+      connectionName={connectionName.trim() || 'Nova conexão'}
+    />
+    </>
   );
 };

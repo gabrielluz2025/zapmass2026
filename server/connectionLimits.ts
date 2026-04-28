@@ -3,7 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import type { UserSubscriptionDoc } from './subscriptionFirestore.js';
 import { filterByConnectionScope } from '../src/utils/connectionScope.js';
-import { userHasFullAppAccess } from './subscriptionAccess.js';
+import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
@@ -132,6 +132,68 @@ export function getMaxConnectionSlots(
 export function countUserScopedConnections(connections: Array<{ id: string }>, uid: string | null | undefined): number {
   const scope = !uid || uid === 'anonymous' ? 'anonymous' : uid;
   return filterByConnectionScope(scope, connections).length;
+}
+
+/** Resultado de `evaluateMayCreateWaConnection` — alinhado ao handler `socket` create-connection antes do enqueue. */
+export type MayCreateWaConnectionResult =
+  | { ok: true }
+  | { ok: false; reason: 'subscription-required' }
+  | {
+      ok: false;
+      reason: 'connection-limit-reached';
+      current: number;
+      max: number;
+      message: string;
+    };
+
+/**
+ * Regra única para API + worker Redis: mesmo pedido só cria Canal se subscrição/limites baterem aqui na hora de executar.
+ * Evita fila/processar comandos quando o cliente já recebeu `connection-limit-reached`.
+ */
+export async function evaluateMayCreateWaConnection(
+  uid: string,
+  connections: Array<{ id: string }>
+): Promise<MayCreateWaConnectionResult> {
+  const uidStr = String(uid || 'anonymous');
+
+  if (subscriptionEnforceFromEnv()) {
+    if (uidStr && uidStr !== 'anonymous') {
+      if (!(await isUidTreatedAsServerAdmin(uidStr))) {
+        const sub = await readUserSubscriptionForLimits(uidStr);
+        if (!userHasFullAppAccess(sub, Date.now())) {
+          return { ok: false, reason: 'subscription-required' };
+        }
+      }
+    }
+  }
+
+  let maxAllowed = BASE_CONNECTION_SLOTS;
+  if (uidStr && uidStr !== 'anonymous') {
+    try {
+      const [sub, isServAdmin] = await Promise.all([
+        readUserSubscriptionForLimits(uidStr),
+        isUidTreatedAsServerAdmin(uidStr)
+      ]);
+      maxAllowed = getMaxConnectionSlots(sub, { serverAdmin: isServAdmin });
+    } catch (e) {
+      console.error('[create-connection] leitura assinatura; aplica teto base', e);
+      maxAllowed = BASE_CONNECTION_SLOTS;
+    }
+  }
+  const count = countUserScopedConnections(connections, uidStr);
+  if (count >= maxAllowed) {
+    return {
+      ok: false,
+      reason: 'connection-limit-reached',
+      current: count,
+      max: maxAllowed,
+      message:
+        maxAllowed <= BASE_CONNECTION_SLOTS
+          ? `Limite de ${maxAllowed} canal(is) do plano atual. Ajuste o plano em Minha assinatura para liberar mais canais (ate 5).`
+          : `Voce atingiu o maximo de ${maxAllowed} canal(is) do plano contratado. Em Minha assinatura, selecione um plano com mais canais (ate 5).`
+    };
+  }
+  return { ok: true };
 }
 
 export function channelAddonUnitPriceBrl(): number {
