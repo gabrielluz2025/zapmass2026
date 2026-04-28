@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Users, Flame, Sparkles, Snowflake, Clock, Cake, Moon, AlertCircle,
-  MapPinOff, Copy, List as ListIcon, Plus, MoreHorizontal, LucideIcon, Search, X
+  MapPinOff, Copy, List as ListIcon, Plus, MoreHorizontal, LucideIcon, Search, X, Trash2
 } from 'lucide-react';
 import type { ContactList } from '../../../types';
 
@@ -41,6 +41,8 @@ interface Props {
   lists: ContactList[];
   onCreateList: (name: string) => void;
   onManageList: (listId: string) => void;
+  /** Apaga a lista na base (não remove contatos do CRM). */
+  onDeleteList: (listId: string, listName: string) => void;
   query: string;
   onQueryChange: (q: string) => void;
 }
@@ -61,6 +63,7 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
   lists,
   onCreateList,
   onManageList,
+  onDeleteList,
   query,
   onQueryChange
 }) => {
@@ -199,11 +202,23 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
                   </span>
                 </button>
                 <button
+                  type="button"
                   onClick={(e) => { e.stopPropagation(); onManageList(list.id); }}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition ml-1"
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition ml-0.5"
                   title="Gerir lista"
                 >
                   <MoreHorizontal className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteList(list.id, list.name);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-600 transition"
+                  title="Apagar lista"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             );

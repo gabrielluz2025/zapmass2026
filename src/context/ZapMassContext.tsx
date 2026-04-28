@@ -1314,8 +1314,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteContactList = async (id: string) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para remover lista.');
-    await deleteDoc(doc(db, 'users', uid, 'contact_lists', id)).catch(() => {});
-    await deleteDoc(doc(db, 'contact_lists', id)).catch(() => {});
+    const refUser = doc(db, 'users', uid, 'contact_lists', id);
+    const refRoot = doc(db, 'contact_lists', id);
+    const [snapUser, snapRoot] = await Promise.all([getDoc(refUser), getDoc(refRoot)]);
+    const errors: string[] = [];
+    if (snapUser.exists()) {
+      try {
+        await deleteDoc(refUser);
+      } catch (e: unknown) {
+        errors.push(`users/${uid}/contact_lists/${id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (snapRoot.exists()) {
+      try {
+        await deleteDoc(refRoot);
+      } catch (e: unknown) {
+        errors.push(`contact_lists/${id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (!snapUser.exists() && !snapRoot.exists()) {
+      throw new Error('Lista não encontrada (Firestore).');
+    }
+    if (errors.length > 0) {
+      throw new Error(errors.join(' · '));
+    }
   };
 
   const updateContactList = async (id: string, updates: Partial<ContactList>) => {

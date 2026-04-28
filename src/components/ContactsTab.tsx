@@ -1,5 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket } from 'lucide-react';
+import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
@@ -14,6 +14,7 @@ import { ContactsBulkBar } from './contacts/workspace/ContactsBulkBar';
 import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
 import { ContactsInsightsModal } from './contacts/workspace/ContactsInsightsModal';
 import { parseVcfText, type ParsedVcfEntry } from '../utils/parseVcf';
+import { contactsToVcfString } from '../utils/exportContactsVcf';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -172,6 +173,26 @@ const mergeContactsIntoListIds = (existing: string[], candidateIds: string[], al
     }
   }
   return next;
+};
+
+/** Telefones normalizados + include inicial (só linhas novas; «já na base» pode marcar depois). */
+const enrichSmartImportParsedForInclude = (rows: SmartRow[], existingContacts: Contact[]): SmartRow[] => {
+  const existingKeys = new Set(existingContacts.map((c) => normPhoneKey(c.phone)).filter(Boolean));
+  const seenPhoneInFile = new Set<string>();
+  return rows.map((r) => {
+    const phone = normalizeBRPhone(r.phone || '');
+    const problems: string[] = [];
+    if (!(r.name || '').trim()) problems.push('Nome ausente');
+    const d = phone.replace(/\D/g, '');
+    if (!d) problems.push('Telefone ausente');
+    else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
+    const k = normPhoneKey(phone);
+    const duplicateAgainstBase = !!(k && existingKeys.has(k));
+    const duplicateRepeatedInFile = !!(k && seenPhoneInFile.has(k));
+    if (k) seenPhoneInFile.add(k);
+    const include = problems.length === 0 && !duplicateAgainstBase && !duplicateRepeatedInFile;
+    return { ...r, phone, include };
+  });
 };
 
 const mkSmartRow = (partial: Partial<SmartRow> = {}): SmartRow => ({
@@ -946,7 +967,9 @@ export const ContactsTab: React.FC = () => {
         if (k) seenPhoneInFile.add(k);
 
         if (problems.length > 0 || duplicate) nProb++;
-        const include = !duplicate && problems.length === 0;
+        /** Novos só: já na base pode marcar para unificar dados e vincular à lista. */
+        const include =
+          problems.length === 0 && !duplicateRepeatedInFile && !duplicateAgainstBase;
         preview.push({
           id: `fip_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
           lineNumber: i + 1,
@@ -1000,7 +1023,8 @@ export const ContactsTab: React.FC = () => {
         if (k) seenPhoneInFile.add(k);
 
         if (problems.length > 0 || duplicate) nProb++;
-        const include = !duplicate && problems.length === 0;
+        const include =
+          problems.length === 0 && !duplicateRepeatedInFile && !duplicateAgainstBase;
         preview.push({
           id: `fip_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
           lineNumber: i + 1,
@@ -1377,14 +1401,14 @@ export const ContactsTab: React.FC = () => {
 
   const smartImportRowsView = useMemo(() => {
     if (smartImportRows.length === 0) return [];
-    const existingKeys = new Set(contacts.map(c => normPhoneKey(c.phone)).filter(Boolean));
+    const existingKeys = new Set(contacts.map((c) => normPhoneKey(c.phone)).filter(Boolean));
     const nameByKey = new Map<string, string>();
-    contacts.forEach(c => {
+    contacts.forEach((c) => {
       const k = normPhoneKey(c.phone);
       if (k) nameByKey.set(k, c.name);
     });
-    const seen = new Set<string>();
-    return smartImportRows.map(r => {
+    const seenPhoneInFile = new Set<string>();
+    return smartImportRows.map((r) => {
       const phone = normalizeBRPhone(r.phone);
       const problems: string[] = [];
       if (!r.name.trim()) problems.push('Nome ausente');
@@ -1392,10 +1416,20 @@ export const ContactsTab: React.FC = () => {
       if (!d) problems.push('Telefone ausente');
       else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
       const k = normPhoneKey(phone);
-      const duplicate = !!(k && (existingKeys.has(k) || seen.has(k)));
-      const duplicateName = k && existingKeys.has(k) ? nameByKey.get(k) : undefined;
-      if (k && !duplicate) seen.add(k);
-      return { ...r, phone, problems, duplicate, duplicateName };
+      const duplicateAgainstBase = !!(k && existingKeys.has(k));
+      const duplicateRepeatedInFile = !!(k && seenPhoneInFile.has(k));
+      if (k) seenPhoneInFile.add(k);
+      const duplicate = duplicateAgainstBase || duplicateRepeatedInFile;
+      const duplicateName = duplicateAgainstBase && k ? nameByKey.get(k) : undefined;
+      return {
+        ...r,
+        phone,
+        problems,
+        duplicate,
+        duplicateAgainstBase,
+        duplicateRepeatedInFile,
+        duplicateName
+      };
     });
   }, [smartImportRows, contacts]);
 
@@ -1548,12 +1582,15 @@ export const ContactsTab: React.FC = () => {
   };
 
   const handleDeleteList = async (id: string, name: string) => {
-    if (!window.confirm(`Remover a lista "${name}"?`)) return;
+    if (!window.confirm(`Remover a lista "${name}"? Os contatos permanecem na base.`)) return;
     try {
       await deleteContactList(id);
       toast.success('Lista removida com sucesso.');
-    } catch {
-      toast.error('Não foi possível remover a lista.');
+      setActiveFilter((prev) => (prev === `list:${id}` ? 'all' : prev));
+      setListManageId((prev) => (prev === id ? null : prev));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao remover.';
+      toast.error(msg);
     }
   };
 
@@ -1921,6 +1958,53 @@ export const ContactsTab: React.FC = () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [contacts, managedListForView, listAddSearch]);
 
+  const handleExportManagedListAs = useCallback(
+    (fmt: 'xlsx' | 'vcf') => {
+      const list = managedListForView;
+      if (!list?.contactIds?.length) {
+        toast.error('Lista vazia.');
+        return;
+      }
+      const withPhone = contacts.filter(
+        (c) => listHasContact(list.contactIds || [], c) && (c.phone || '').replace(/\D/g, '').length >= 10
+      );
+      if (withPhone.length === 0) {
+        toast.error('Nenhum contato válido com telefone nesta lista.');
+        return;
+      }
+      const slug = list.name.replace(/[^\wÀ-ỹ\s\-]/gi, '').trim().replace(/\s+/g, '_').slice(0, 48) || 'lista';
+      const day = new Date().toISOString().slice(0, 10);
+      if (fmt === 'xlsx') {
+        const header = TEMPLATE_COLUMNS.map((c) => c.label);
+        const rows = withPhone.map((c) =>
+          TEMPLATE_COLUMNS.map((col) => {
+            if (col.key === 'tags') return (c.tags || []).join(';');
+            if (col.key === 'status') return c.status;
+            const v = (c as Record<string, unknown>)[col.key];
+            return v == null ? '' : String(v);
+          })
+        );
+        const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+        ws['!cols'] = TEMPLATE_COLUMNS.map((c) => ({ wch: c.width }));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Lista');
+        XLSX.writeFile(wb, `lista_${slug}_${day}.xlsx`);
+        toast.success(`${withPhone.length} contato(s) exportado(s) (XLSX).`);
+        return;
+      }
+      const vcf = contactsToVcfString(withPhone);
+      const blob = new Blob(['\ufeff', vcf], { type: 'text/vcard;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lista_${slug}_${day}.vcf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${withPhone.length} contato(s) exportado(s) (vCard).`);
+    },
+    [managedListForView, contacts]
+  );
+
   const allAddPoolSelected =
     manageListAddPool.length > 0 && manageListAddPool.every((c) => listAddSelectedIds.includes(c.id));
 
@@ -2190,11 +2274,11 @@ export const ContactsTab: React.FC = () => {
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">{managedListForView.name}</h2>
                 <p className="text-xs text-slate-500 mt-1">
                   {(managedListForView.contactIds?.length || 0).toLocaleString()} contato
-                  {(managedListForView.contactIds?.length || 0) !== 1 ? 's' : ''} na lista
+                  {(managedListForView.contactIds?.length || 0) !== 1 ? 's' : ''} na lista — o mesmo contato pode estar em várias listas sem duplicar na base.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 self-start">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 self-start">
               <button
                 type="button"
                 onClick={() => handleCreateCampaignWithList(managedListForView)}
@@ -2204,6 +2288,26 @@ export const ContactsTab: React.FC = () => {
                 <Rocket className="w-3.5 h-3.5" />
                 Criar campanha
               </button>
+              <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => handleExportManagedListAs('xlsx')}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-700 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700"
+                  title="Planilha com os mesmos campos do modelo (mensagens / mail merge)"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-600" />
+                  XLSX
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportManagedListAs('vcf')}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/30 text-slate-700 dark:text-slate-200"
+                  title="vCard para agenda do telefone (mais pessoal)"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-sky-600" />
+                  vCard
+                </button>
+              </div>
             <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-900/50">
               <button
                 type="button"
@@ -2362,6 +2466,7 @@ export const ContactsTab: React.FC = () => {
           lists={contactLists}
           onCreateList={(name) => void handleCreateListQuick(name)}
           onManageList={handleManageList}
+          onDeleteList={(id, name) => void handleDeleteList(id, name)}
           query={searchTerm}
           onQueryChange={setSearchTerm}
         />
@@ -2901,7 +3006,7 @@ export const ContactsTab: React.FC = () => {
                 </div>
               )}
               <p className="text-[11px] text-slate-500">
-                Duplicado na base = telefone já cadastrado. Repetido no arquivo = mesmo número em mais de uma linha deste ficheiro. Linhas com problema não entram até corrigir.
+                Duplicado na base = telefone já no CRM (pode marcar a linha para unificar dados e vincular à lista, sem criar outro contato). Repetido no arquivo = segunda linha com o mesmo número neste ficheiro — não importa. Linhas com problema precisam correção.
               </p>
               <div className="flex items-center justify-end">
                 <Button variant="ghost" size="sm" type="button" onClick={autoFixFileImportRows}>
@@ -2942,8 +3047,12 @@ export const ContactsTab: React.FC = () => {
                             <input
                               type="checkbox"
                               checked={rv.include}
-                              disabled={rv.duplicate || rv.problems.length > 0}
-                              onChange={e => setFileImportRows(prev => prev.map(x => (x.id === rv.id ? { ...x, include: e.target.checked } : x)))}
+                              disabled={rv.problems.length > 0 || rv.duplicateRepeatedInFile}
+                              onChange={(e) =>
+                                setFileImportRows((prev) =>
+                                  prev.map((x) => (x.id === rv.id ? { ...x, include: e.target.checked } : x))
+                                )
+                              }
                               className="w-4 h-4 accent-emerald-500"
                             />
                           </td>
@@ -3243,8 +3352,8 @@ export const ContactsTab: React.FC = () => {
                         }
                         const parsed = parseSmartText(smartImportRaw);
                         setSmartImportPreviewFilter('all');
-                        setSmartImportRows(parsed.map(p => ({ ...p, include: true })));
-                        if (parsed.length === 0) toast.error('NÃ£o consegui identificar contatos no texto.');
+                        setSmartImportRows(enrichSmartImportParsedForInclude(parsed, contacts));
+                        if (parsed.length === 0) toast.error('Não consegui identificar contatos no texto.');
                         else toast.success(`${parsed.length} linha(s) analisada(s). Revise duplicados e avisos antes de importar.`);
                       }}
                     >
@@ -3304,7 +3413,25 @@ export const ContactsTab: React.FC = () => {
                       >
                         Correção automática (todos)
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setSmartImportRows(rows => rows.map(r => ({ ...r, include: true })))}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setSmartImportRows((prev) =>
+                            prev.map((r) => {
+                              const view = smartImportRowsView.find((v) => v.id === r.id);
+                              if (
+                                !view ||
+                                (view.problems?.length || 0) > 0 ||
+                                view.duplicateRepeatedInFile
+                              ) {
+                                return r;
+                              }
+                              return { ...r, include: true };
+                            })
+                          )
+                        }
+                      >
                         Marcar todos
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => setSmartImportRows(rows => rows.map(r => ({ ...r, include: false })))}>
@@ -3346,24 +3473,33 @@ export const ContactsTab: React.FC = () => {
                               setSmartImportRows(prev => prev.map(pr => (pr.id === rv.id ? { ...pr, ...patch } : pr)));
                             };
                             const probLen = rv.problems?.length || 0;
-                            const rowClass = `${!include ? 'opacity-40' : ''} ${rv.duplicate ? 'bg-rose-50/40 dark:bg-rose-950/15' : probLen ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`;
+                            const dupBase = !!rv.duplicateAgainstBase;
+                            const dupFile = !!rv.duplicateRepeatedInFile;
+                            const rowClass = `${!include ? 'opacity-40' : ''} ${dupBase || dupFile ? 'bg-rose-50/40 dark:bg-rose-950/15' : probLen ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`;
                             return (
                               <tr key={rv.id} className={rowClass}>
                                 <td className="px-2 py-1.5">
                                   <input
                                     type="checkbox"
                                     checked={include}
-                                    disabled={probLen > 0}
-                                    onChange={e => updateRow({ include: e.target.checked })}
+                                    disabled={probLen > 0 || !!dupFile}
+                                    onChange={(e) => updateRow({ include: e.target.checked })}
                                     className="w-4 h-4 accent-emerald-500"
                                   />
                                 </td>
                                 <td className="px-2 py-1.5 text-slate-400 tabular-nums">{idx + 1}</td>
                                 <td className="px-2 py-1.5 max-w-[160px] text-[11px]">
-                                  {rv.duplicate ? (
-                                    <span className="text-rose-600 font-semibold">
-                                      Já existe{rv.duplicateName ? ` (${rv.duplicateName})` : ''} — será unificado
-                                    </span>
+                                  {dupBase || dupFile ? (
+                                    <div className="flex flex-col gap-0.5">
+                                      {dupBase && (
+                                        <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                                          Na base{rv.duplicateName ? ` · ${rv.duplicateName}` : ''} — marque para unificar
+                                        </span>
+                                      )}
+                                      {dupFile && (
+                                        <span className="text-amber-700 dark:text-amber-300 font-semibold">Repetido no texto</span>
+                                      )}
+                                    </div>
                                   ) : probLen ? (
                                     <span className="text-amber-700 dark:text-amber-300">{(rv.problems || []).join(' · ')}</span>
                                   ) : (
@@ -3415,7 +3551,7 @@ export const ContactsTab: React.FC = () => {
 
             <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
               <p className="text-[11.5px] text-slate-500">
-                Os campos em amarelo estão incompletos (nome ou telefone inválidos). Você pode editar cada célula antes de importar.
+                Os campos em amarelo estão incompletos (nome ou telefone inválidos). Duplicado na base = pode marcar a linha para unificar dados e vincular à lista, sem criar outro contato. Repetido no texto = mesma linha duas vezes no trecho colado — não importa a 2.ª ocorrência.
               </p>
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-white dark:bg-slate-900">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
