@@ -1956,6 +1956,9 @@ export const ContactsTab: React.FC = () => {
   const openImportXLSX = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+  const openImportVcf = useCallback(() => {
+    vcfInputRef.current?.click();
+  }, []);
 
   // Converte os smartSegments existentes para o formato do painel (mapeia 'red' → 'rose').
   const segmentsForPanel = useMemo(() => smartSegments.map((s) => ({
