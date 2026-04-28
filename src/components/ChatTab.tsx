@@ -264,11 +264,6 @@ export const ChatTab: React.FC = () => {
     [contacts]
   );
 
-  const getConvAvatar = useCallback(
-    (conv: Conversation) => getAvatar(conv.contactName, resolveProfilePic(conv)),
-    [resolveProfilePic]
-  );
-
   // De/para de contatos do sistema por telefone:
   // prioridade sempre para nome cadastrado no sistema.
   const systemContactNameByDigits = useMemo(() => {
@@ -449,6 +444,43 @@ export const ChatTab: React.FC = () => {
     [mergedConversations, getSystemNameForPhone]
   );
 
+  /** Pushname/original antes do override pela agenda (lista efetiva). */
+  const waPushNameByConvId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of mergedConversations) {
+      const nm = (c.contactName || '').trim();
+      if (nm) m.set(c.id, nm);
+    }
+    return m;
+  }, [mergedConversations]);
+
+  /** Título forte = sistema; subtítulo menor = nome WhatsApp quando for diferente. */
+  const getConversationDisplay = useCallback(
+    (conv: Conversation): { primary: string; whatsappSubtitle?: string } => {
+      const waName = (waPushNameByConvId.get(conv.id) || '').trim();
+      const systemName = getSystemNameForPhone(conv.contactPhone || '')?.trim();
+      const digits = normalizeDigits(conv.contactPhone || '');
+      const phoneLabel = digits ? `+${digits}` : '';
+      const primary = systemName || waName || phoneLabel || 'Contato';
+
+      const same = (a: string, b: string) =>
+        a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ');
+      let whatsappSubtitle: string | undefined;
+      if (systemName && waName && !same(systemName, waName)) whatsappSubtitle = waName;
+
+      return { primary, whatsappSubtitle };
+    },
+    [waPushNameByConvId, getSystemNameForPhone]
+  );
+
+  const getConvAvatar = useCallback(
+    (conv: Conversation) => {
+      const { primary } = getConversationDisplay(conv);
+      return getAvatar(primary, resolveProfilePic(conv));
+    },
+    [getConversationDisplay, resolveProfilePic]
+  );
+
   // Limpa rascunhos cujos ids já existem entre as conversas reais.
   useEffect(() => {
     if (draftConversations.length === 0) return;
@@ -470,6 +502,10 @@ export const ChatTab: React.FC = () => {
   const selectedConversation = effectiveConversations.find((c) => c.id === selectedChatId);
   const selectedConnection = connections.find((c) => c.id === selectedConversation?.connectionId);
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selectedConversation), [selectedConversation]);
+  const selectedDisplay = useMemo(
+    () => (selectedConversation ? getConversationDisplay(selectedConversation) : null),
+    [selectedConversation, getConversationDisplay]
+  );
   // Verdadeiro quando a conversa selecionada ainda é apenas um rascunho local
   // (usuário clicou em "abrir chat" para um contato que não tem histórico).
   const isSelectedDraft = useMemo(
@@ -506,12 +542,18 @@ export const ChatTab: React.FC = () => {
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');
     if (chatFilter === 'empty') list = list.filter((c) => originByConv.get(c.id) === 'empty');
     if (chatFilter === 'pinned') list = list.filter((c) => crm.get(c.id).pinned);
+    const q = searchTerm.toLowerCase().trim();
     return list
-      .filter(
-        (c) =>
-          c.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          c.contactPhone.includes(searchTerm)
-      )
+      .filter((c) => {
+        if (!q) return true;
+        const { primary, whatsappSubtitle } = getConversationDisplay(c);
+        return (
+          primary.toLowerCase().includes(q) ||
+          !!whatsappSubtitle?.toLowerCase().includes(q) ||
+          c.contactName.toLowerCase().includes(q) ||
+          (c.contactPhone || '').includes(searchTerm)
+        );
+      })
       .sort((a, b) => {
         // Fixados sempre no topo
         const pa = crm.get(a.id).pinned ? 1 : 0;
@@ -519,7 +561,7 @@ export const ChatTab: React.FC = () => {
         if (pa !== pb) return pb - pa;
         return (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0);
       });
-  }, [filteredByConnection, chatFilter, searchTerm, originByConv, crm]);
+  }, [filteredByConnection, chatFilter, searchTerm, originByConv, crm, getConversationDisplay]);
 
   // Traz foto do WhatsApp para a lista (inclui conversas de disparo, onde antes nao pedia — sem foto de API).
   // Com agenda: `resolveProfilePic` ja usa a foto do contato; aqui so complementa via servidor.
@@ -1128,8 +1170,8 @@ export const ChatTab: React.FC = () => {
             ]}
           />
           {pipelineView === 'quadro' && (
-            <p className="text-[10px] leading-relaxed rounded-md px-2 py-1.5" style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}>
-              Quadro Kanban · arraste contatos entre colunas · dados da coluna guardados neste navegador
+            <p className="text-[10px] leading-snug rounded-md px-2.5 py-1 border" style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)', background: 'color-mix(in srgb, var(--surface-2) 92%, transparent)' }}>
+              Arraste entre colunas · etapas só neste navegador
             </p>
           )}
         </div>
@@ -1146,6 +1188,7 @@ export const ChatTab: React.FC = () => {
               selectedChatId={selectedChatId}
               onSelectChat={selectChat}
               getConvAvatar={getConvAvatar}
+              formatConversationTitles={getConversationDisplay}
               connectionName={(id) => connections.find((c) => c.id === id)?.name}
             />
           ) : (
@@ -1161,6 +1204,7 @@ export const ChatTab: React.FC = () => {
             const crmStatus = crmData.status ? STATUS_META[crmData.status] : null;
             const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
             const hasNotes = !!(crmData.notes && crmData.notes.trim());
+            const { primary: convPrimary, whatsappSubtitle: convWaSub } = getConversationDisplay(conv);
             return (
               <button
                 key={conv.id}
@@ -1200,8 +1244,11 @@ export const ChatTab: React.FC = () => {
                 <div className="relative flex-shrink-0">
                   <img
                     src={getConvAvatar(conv)}
+                    loading="lazy"
+                    decoding="async"
                     className="w-12 h-12 rounded-2xl object-cover"
                     alt=""
+                    referrerPolicy="no-referrer"
                     style={{
                       border: '2px solid color-mix(in srgb, var(--surface-0) 50%, var(--border-subtle))',
                       boxShadow: '0 4px 14px -4px rgba(0,0,0,0.25)',
@@ -1255,6 +1302,11 @@ export const ChatTab: React.FC = () => {
                       {conv.lastMessageTime}
                     </span>
                   </div>
+                  {convWaSub && (
+                    <p className="text-[10px] truncate -mt-0.5 mb-0.5" style={{ color: 'var(--text-3)', opacity: 0.92 }}>
+                      {convWaSub}
+                    </p>
+                  )}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 min-w-0 flex-1">
                       {lastIcon}
@@ -1419,10 +1471,11 @@ export const ChatTab: React.FC = () => {
         {selectedConversation ? (
           <>
             <div
-              className="flex items-center gap-3 px-4 py-3.5 flex-shrink-0"
+              className="flex items-center gap-3 px-4 py-3 flex-shrink-0 shadow-sm"
               style={{
-                background: 'linear-gradient(180deg, var(--surface-0) 0%, color-mix(in srgb, var(--surface-1) 50%, var(--surface-0)) 100%)',
-                borderBottom: '1px solid var(--border-subtle)'
+                background: 'linear-gradient(175deg, var(--surface-0) 0%, color-mix(in srgb, var(--surface-1) 55%, var(--surface-0)) 100%)',
+                borderBottom: '1px solid var(--border-subtle)',
+                boxShadow: '0 6px 18px -12px rgba(0,0,0,0.45)'
               }}
             >
               <button
@@ -1440,6 +1493,9 @@ export const ChatTab: React.FC = () => {
                 <div className="relative flex-shrink-0">
                   <img
                     src={getConvAvatar(selectedConversation)}
+                    loading="eager"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
                     className="w-11 h-11 rounded-2xl object-cover"
                     alt=""
                     style={
@@ -1465,9 +1521,9 @@ export const ChatTab: React.FC = () => {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="text-[14px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                      {selectedConversation.contactName}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="text-[15px] font-semibold truncate tracking-tight leading-tight" style={{ color: 'var(--text-1)' }}>
+                      {selectedDisplay?.primary ?? selectedConversation.contactName}
                     </h3>
                     {(() => {
                       const s = crm.get(selectedConversation.id).status;
@@ -1484,9 +1540,14 @@ export const ChatTab: React.FC = () => {
                       );
                     })()}
                   </div>
-                  <p className="text-[11.5px] truncate" style={{ color: 'var(--text-3)' }}>
+                  {selectedDisplay?.whatsappSubtitle && (
+                    <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-3)', opacity: 0.92 }}>
+                      {selectedDisplay.whatsappSubtitle}
+                    </p>
+                  )}
+                  <p className="text-[11.5px] truncate mt-0.5" style={{ color: 'var(--text-3)' }}>
                     {selectedConversation.contactPhone}
-                    {selectedConnection && <span> - {selectedConnection.name}</span>}
+                    {selectedConnection && <span> · {selectedConnection.name}</span>}
                   </p>
                 </div>
               </button>
@@ -1648,7 +1709,7 @@ export const ChatTab: React.FC = () => {
                   >
                     <MessageCircle className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
                     <span>
-                      Nova conversa com <strong>{selectedConversation?.contactName}</strong>. Envie a primeira mensagem abaixo — ela será criada no WhatsApp ao enviar.
+                      Nova conversa com <strong>{selectedDisplay?.primary ?? selectedConversation?.contactName}</strong>. Envie a primeira mensagem abaixo — ela será criada no WhatsApp ao enviar.
                     </span>
                   </div>
                 </div>
@@ -2149,6 +2210,7 @@ export const ChatTab: React.FC = () => {
                 const selected = auditSelection.has(c.id);
                 const conn = connections.find((x) => x.id === c.connectionId);
                 const lastMsg = c.messages[c.messages.length - 1];
+                const auditTitles = getConversationDisplay(c);
                 return (
                   <div
                     key={c.id}
@@ -2173,7 +2235,7 @@ export const ChatTab: React.FC = () => {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                        {c.contactName}
+                        {auditTitles.primary}
                       </div>
                       <div className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
                         {c.contactPhone}

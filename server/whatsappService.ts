@@ -2004,8 +2004,22 @@ const upsertConversation = (next: Conversation) => {
 const emitConversationsUpdate = () => {
     try {
         console.log(`[emitConversations] Emitindo ${conversations.length} conversas...`);
-        if (!io) return;
         const payload = conversations.map((c) => ({ ...c, connectionId: c.connectionId }));
+
+        /** No wa-worker o `io` e noop: sem sockets; o bridge Redis entrega aos browsers ligados aa API. */
+        if (ownerEmitRedisBridge) {
+            const uidSet = new Set<string>();
+            for (const c of conversations) {
+                const uid = ownerUidFromConnectionId(c.connectionId);
+                if (uid) uidSet.add(uid);
+            }
+            for (const uid of uidSet) {
+                const filtered = filterByConnectionScope(uid, payload);
+                ownerEmitRedisBridge(uid, 'conversations-update', filtered as unknown as Record<string, unknown>);
+            }
+        }
+
+        if (!io) return;
         for (const socket of getConnectedSocketsSafe()) {
             const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
             socket.emit('conversations-update', filterByConnectionScope(uid, payload));

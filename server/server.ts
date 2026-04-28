@@ -41,6 +41,11 @@ import {
   submitSendMessage
 } from './sessionControlPlane.js';
 import {
+  fetchConversationPictureViaRedis,
+  loadChatHistoryViaRedis,
+  loadMessageMediaViaRedis
+} from './waWorkerRedisRpc.js';
+import {
   collectMetrics,
   metricsContentType,
   refreshFirebaseProbeForMetrics,
@@ -716,7 +721,12 @@ const registerSocketHandlers = () => {
         return;
       }
       try {
-        const pic = await waService.fetchConversationPicture(conversationId);
+        const redisUrl = process.env.REDIS_URL?.trim();
+        const useWorkerRpc =
+          (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(redisUrl);
+        const pic = useWorkerRpc
+          ? await fetchConversationPictureViaRedis(redisUrl!, conversationId)
+          : await waService.fetchConversationPicture(conversationId);
         socket.emit('conversation-picture', { conversationId, profilePicUrl: pic });
       } catch (e: any) {
         console.error('[fetch-conversation-picture] erro:', e?.message || e);
@@ -776,7 +786,12 @@ const registerSocketHandlers = () => {
         return;
       }
       userLog('ui:load-chat-history', { conversationId, limit, includeMedia });
-      const resp = await waService.loadChatHistory(conversationId, limit ?? 500, !includeMedia);
+      const redisUrl = process.env.REDIS_URL?.trim();
+      const useWorkerRpc =
+        (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(redisUrl);
+      const resp = useWorkerRpc
+        ? await loadChatHistoryViaRedis(redisUrl!, conversationId, limit ?? 500, !includeMedia)
+        : await waService.loadChatHistory(conversationId, limit ?? 500, !includeMedia);
       callback?.(resp);
     });
 
@@ -793,7 +808,12 @@ const registerSocketHandlers = () => {
         callback?.({ ok: false, error: 'Conversa nao pertence a esta conta.' });
         return;
       }
-      const resp = await waService.loadMessageMedia(conversationId, messageId);
+      const redisUrl = process.env.REDIS_URL?.trim();
+      const useWorkerRpc =
+        (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(redisUrl);
+      const resp = useWorkerRpc
+        ? await loadMessageMediaViaRedis(redisUrl!, conversationId, messageId)
+        : await waService.loadMessageMedia(conversationId, messageId);
       callback?.(resp);
     });
 

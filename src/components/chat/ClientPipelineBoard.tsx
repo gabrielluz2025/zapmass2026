@@ -21,6 +21,10 @@ interface ClientPipelineBoardProps {
   onSelectChat: (id: string) => void;
   getConvAvatar: (conv: Conversation) => string;
   connectionName?: (connectionId: string) => string | undefined;
+  /** Nome do sistema em destaque; linha menor = nome WhatsApp quando diferente. */
+  formatConversationTitles?: (
+    conv: Conversation
+  ) => { primary: string; whatsappSubtitle?: string };
 }
 
 export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
@@ -29,7 +33,8 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
   selectedChatId,
   onSelectChat,
   getConvAvatar,
-  connectionName
+  connectionName,
+  formatConversationTitles
 }) => {
   const [state, setState] = useState<ClientPipelineBoardPersisted>(() => defaultPipelineState());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -235,6 +240,9 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
                 {list.map((conv) => {
                   const active = selectedChatId === conv.id;
                   const conn = connectionName?.(conv.connectionId);
+                  const titles = formatConversationTitles?.(conv);
+                  const primary = titles?.primary ?? conv.contactName;
+                  const waSub = titles?.whatsappSubtitle;
                   return (
                     <button
                       key={conv.id}
@@ -260,10 +268,15 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
                           alt=""
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                            {conv.contactName}
+                          <p className="text-[12.5px] font-semibold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                            {primary}
                           </p>
-                          <p className="text-[10px] truncate" style={{ color: 'var(--text-3)' }}>
+                          {waSub && (
+                            <p className="text-[10px] truncate opacity-90" style={{ color: 'var(--text-3)' }} title="Nome no WhatsApp">
+                              {waSub}
+                            </p>
+                          )}
+                          <p className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-3)' }}>
                             {conn ? `${conn} · ` : ''}
                             {conv.contactPhone}
                           </p>
