@@ -12,7 +12,9 @@ data
 **/.wwebjs_cache
 tokens
 legacy
+# Markdown de doc (exceto o tutorial embutido no bundle Vite — sem isto some após Docker build na VPS).
 *.md
+!docs/TUTORIAL-USUARIO-ZAPMASS.md
 npm-debug.log*
 .DS_Store
 deployment/*.service
