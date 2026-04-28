@@ -101,18 +101,19 @@ jobs:
           set -euo pipefail
           echo "==> teste TCP ${VPS_HOST}:${VPS_PORT}"
           ok=0
-          for i in 1 2 3 4 5 6; do
+          for i in $(seq 1 12); do
             if nc -zvw5 "${VPS_HOST}" "${VPS_PORT}"; then
               echo "OK: porta SSH acessivel na tentativa ${i}."
               ok=1
               break
             fi
-            echo "tentativa ${i} falhou; aguardando 5s..."
-            sleep 5
+            echo "tentativa ${i}/12 falhou; aguardando 8s..."
+            sleep 8
           done
           if [ "${ok}" != "1" ]; then
-            echo "::warning::Runner nao alcançou ${VPS_HOST}:${VPS_PORT} apos 6 tentativas."
-            echo "::warning::Seguindo para tentativa real de SSH (pode ser oscilacao temporaria de rota)."
+            echo "::warning::Runner nao alcancou ${VPS_HOST}:${VPS_PORT} apos 12 tentativas (~96s)."
+            echo "::warning::Isso prevê o erro 'dial tcp ... connection timed out' no SSH. Corrija firewall/host antes de continuar."
+            echo "::warning::Seguindo para tentativa real de SSH (pode funcionar em rota diferente)."
           fi
 
       - name: Deploy por SSH (tentativa 1)
@@ -124,7 +125,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 5m
+          timeout: 10m
           command_timeout: 140m
           script: |
             set -euo pipefail
@@ -163,7 +164,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 5m
+          timeout: 10m
           command_timeout: 140m
           script: |
             set -euo pipefail
@@ -197,11 +198,13 @@ jobs:
             echo ""
             echo "| Sintoma | O que fazer |"
             echo "|---------|--------------|"
-            echo "| \`dial tcp ... connection timed out\` | Firewall (Hostinger/VPS): permitir **TCP porta 22** (ou a porta do SSH) para **internet** — os IPs da GitHub Actions **mudam**; não bloquear só ao teu IP |"
+            echo "| \`dial tcp ... connection timed out\` | **TCP não chega** à VPS antes do SSH/chave — não é problema de commit. Firewall (painel Hostinger/hPanel): regra permitindo **SSH (TCP)** de **qualquer IP** (0.0.0.0/0) — restringir só ao teu IP **bloqueia** os runners do GitHub. Na VPS: \`sudo ufw allow 22/tcp\` (ou a porta do \`sshd\`); rever fail2ban. |"
+            echo "| \`connect: connection timed out\` (mensagem igual) | Mesmo tratamento que o erro acima. Testar de fora: \`nc -zv IP 22\` ou \`Test-NetConnection IP -Port 22\` (Windows). |"
             echo "| Porta SSH não é 22 | Secret \`VPS_SSH_PORT\` no repositório com a porta certa |"
             echo "| \`VPS_HOST\` | IPv4 **público** da VPS, sem espaços |"
+            echo "| SSH funciona do teu PC mas falha no GitHub | Confirma que o firewall **não** limita SSH ao teu IP fixo; os runners usam IPs variáveis. |"
             echo ""
             echo "No run, abre também o passo **Validar build (Vite)** — se estiver verde, o código compilou; falhou só o **SSH + Docker**."
             echo ""
-            echo "Depois de corrigir rede/firewall: **Actions → Re-run failed jobs**."
+            echo "Depois de corrigir rede/firewall: **Actions → Re-run failed jobs** (ou um novo push)."
           } >> "$GITHUB_STEP_SUMMARY"
