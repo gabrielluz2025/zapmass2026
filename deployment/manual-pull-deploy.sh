@@ -5,6 +5,9 @@
 #
 # Isto alinha `main` com `origin/main` e corre o mesmo fluxo que deployment/vps-deploy.sh
 # (Docker / Swarm + healthcheck).
+#
+# Opcional — modo API + wa-worker com Chromium só no worker (ver .env.example):
+#   bash deployment/enable-split-api-worker.sh && bash deployment/manual-pull-deploy.sh
 set -euo pipefail
 ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
