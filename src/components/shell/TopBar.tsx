@@ -23,6 +23,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   warmup: { title: 'Aquecimento', subtitle: 'Warmup dos números' },
   subscription: { title: 'Minha assinatura', subtitle: 'Plano, pagamento e renovação' },
   settings: { title: 'Configurações', subtitle: 'Ajustes do sistema' },
+  team: { title: 'Funcionários', subtitle: 'Convites, código de equipa e acesso partilhado' },
   help: { title: 'Como usar o ZapMass', subtitle: 'Tutorial para iniciantes — menus, abas e dicas' },
   admin: { title: 'Painel do criador', subtitle: 'Configuração remota do produto' },
   'admin-ops': { title: 'Operações (servidor)', subtitle: 'Canais, RAM, fila e integrações' },

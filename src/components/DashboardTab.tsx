@@ -26,7 +26,8 @@ import {
   Wifi,
   WifiOff,
   AlertTriangle,
-  BookOpen
+  BookOpen,
+  UserPlus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
@@ -754,6 +755,44 @@ export const DashboardTab: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Convites de equipa — visível desde o Painel */}
+      <button
+        type="button"
+        onClick={() => setCurrentView('team')}
+        className="group w-full text-left rounded-2xl border px-4 py-4 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+        style={{
+          borderColor: 'rgba(16,185,129,0.35)',
+          background:
+            'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(59,130,246,0.05))'
+        }}
+      >
+        <div
+          className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            color: '#fff',
+            boxShadow: '0 8px 24px -8px rgba(16,185,129,0.55)'
+          }}
+        >
+          <UserPlus className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[14px] sm:text-[15px] font-bold" style={{ color: 'var(--text-1)' }}>
+            Adicionar funcionário ou sócio à conta
+          </p>
+          <p className="text-[12px] sm:text-[12.5px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+            Gera um código, envia por WhatsApp e a pessoa entra com o Google próprio — mesmos números e campanhas.
+          </p>
+        </div>
+        <span
+          className="inline-flex items-center justify-center gap-1 px-4 py-2 rounded-xl text-[12.5px] font-bold whitespace-nowrap self-start sm:self-center"
+          style={{ background: '#10b981', color: '#fff' }}
+        >
+          Funcionários
+          <ArrowRight className="w-4 h-4 opacity-90 group-hover:translate-x-0.5 transition-transform" />
+        </span>
+      </button>
 
       {/* ========== QUICK ACTIONS: atalhos grandes coloridos ========== */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

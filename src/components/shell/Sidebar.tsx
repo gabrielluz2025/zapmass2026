@@ -19,7 +19,8 @@ import {
   Code2,
   Crown,
   Server,
-  BookOpen
+  BookOpen,
+  UserPlus
 } from 'lucide-react';
 import { useZapMass } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -53,6 +54,12 @@ const navGroups: NavGroup[] = [
     label: 'Principal',
     items: [
       { id: 'dashboard', label: 'Painel', icon: LayoutDashboard, description: 'Visão geral' },
+      {
+        id: 'team',
+        label: 'Funcionários',
+        icon: UserPlus,
+        description: 'Convidar quem opera com você'
+      },
       { id: 'connections', label: 'Conexões', icon: Radio, description: 'Frota WhatsApp' },
       { id: 'chat', label: 'Pipeline', icon: Workflow, description: 'Envio até resposta' }
     ]

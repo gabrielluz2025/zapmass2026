@@ -29,6 +29,7 @@ import { SubscriptionProvider, useSubscription } from './context/SubscriptionCon
 import { AdminPanel } from './components/admin/AdminPanel';
 import { CreatorStudio } from './components/creator/CreatorStudio';
 import { TutorialPage } from './components/help/TutorialPage';
+import { WorkspaceTeamPage } from './pages/WorkspaceTeamPage';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
 import { isAdminUserEmail } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
@@ -199,6 +200,8 @@ const MainLayout: React.FC = () => {
         return <ReportsTab />;
       case 'settings':
         return <SettingsTab />;
+      case 'team':
+        return <WorkspaceTeamPage />;
       case 'help':
         return <TutorialPage />;
       case 'subscription':
