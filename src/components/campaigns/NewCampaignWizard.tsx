@@ -28,6 +28,7 @@ import {
   Contact,
   ContactList,
   ConnectionStatus,
+  Conversation,
   WhatsAppConnection
 } from '../../types';
 import type { CampaignWizardDraft } from '../../types/campaignMission';
@@ -38,6 +39,11 @@ import {
   formatTodayYmdInZone,
   localDateTimeToUtcIso
 } from '../../utils/campaignSchedule';
+import {
+  computeContactTemperatures,
+  CONTACT_TEMP_LABEL,
+  type ContactTemperature
+} from '../../utils/contactTemperature';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 
 type CampaignFlowMode = 'sequential' | 'reply';
@@ -70,6 +76,8 @@ interface NewCampaignWizardProps {
   connections: WhatsAppConnection[];
   contactLists: ContactList[];
   contacts: Contact[];
+  /** Conversas globais (socket) — usadas só para calcular temperatura quente/morno/frio. */
+  conversations: Conversation[];
   onCancel: () => void;
   onSubmit: (payload: {
     name: string;
@@ -89,6 +97,8 @@ interface NewCampaignWizardProps {
       onceLocalDate?: string;
       onceLocalTime?: string;
     };
+    /** Peso por chip (somente uso real no servidor no modo sequencial; 1 = igual em todos). */
+    channelWeights?: Record<string, number>;
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -106,6 +116,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   connections,
   contactLists,
   contacts,
+  conversations,
   onCancel,
   onSubmit,
   initialDraft,
@@ -120,6 +131,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('reply');
   const [selectedListId, setSelectedListId] = useState('');
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
+  /** Distribuição de carga entre chips (somente modo sequencial, 2+ conectados). */
+  const [channelWeightMode, setChannelWeightMode] = useState<'equal' | 'custom'>('equal');
+  const [channelWeightsById, setChannelWeightsById] = useState<Record<string, number>>({});
   const [delaySeconds, setDelaySeconds] = useState(45);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** Laboratório A/B: duas campanhas com 1ª mensagem diferente (apenas sequencial). */
@@ -142,15 +156,36 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [filterRoles, setFilterRoles] = useState<Set<string>>(new Set());
   const [filterProfessions, setFilterProfessions] = useState<Set<string>>(new Set());
   const [filterDDDs, setFilterDDDs] = useState<Set<string>>(new Set());
+  /** Vazio = todas; caso contrário filtra por temperatura CRM (lista e modo filtro). */
+  const [filterTemps, setFilterTemps] = useState<Set<ContactTemperature>>(new Set());
   const [filterSearch, setFilterSearch] = useState('');
   // Escolha individual: quando nao vazio, sobrescreve a selecao automatica dos filtros
   const [selectedContactPhones, setSelectedContactPhones] = useState<Set<string>>(new Set());
   const [manualSelection, setManualSelection] = useState(false);
   const msgRef = useRef<HTMLTextAreaElement>(null);
 
+  useEffect(() => {
+    setChannelWeightsById((prev) => {
+      const next = { ...prev };
+      for (const id of selectedConnectionIds) {
+        const v = next[id];
+        if (v == null || !Number.isFinite(Number(v)) || Number(v) < 1) next[id] = 1;
+      }
+      for (const k of Object.keys(next)) {
+        if (!selectedConnectionIds.includes(k)) delete next[k];
+      }
+      return next;
+    });
+  }, [selectedConnectionIds]);
+
   const onlineConnections = useMemo(
     () => connections.filter((conn) => conn.status === ConnectionStatus.CONNECTED),
     [connections]
+  );
+
+  const contactTemps = useMemo(
+    () => computeContactTemperatures(contacts, conversations || []),
+    [contacts, conversations]
   );
 
   const selectedList = useMemo(
@@ -180,9 +215,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     return out;
   }, [contacts, selectedList]);
 
+  const selectedListContactsForSend = useMemo(() => {
+    if (filterTemps.size === 0) return selectedListContacts;
+    return selectedListContacts.filter((c) =>
+      filterTemps.has((contactTemps[c.id]?.temp ?? 'new') as ContactTemperature)
+    );
+  }, [selectedListContacts, filterTemps, contactTemps]);
+
   const selectedListNumbers = useMemo(
-    () => selectedListContacts.map((c) => c.phone),
-    [selectedListContacts]
+    () => selectedListContactsForSend.map((c) => c.phone),
+    [selectedListContactsForSend]
   );
 
   const invalidSelectedListCount = selectedList
@@ -282,11 +324,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       if (filterRoles.size > 0 && !filterRoles.has(normalize(c.role))) continue;
       if (filterProfessions.size > 0 && !filterProfessions.has(normalize(c.profession))) continue;
       if (filterDDDs.size > 0 && !filterDDDs.has(extractDDD(phone))) continue;
+      if (filterTemps.size > 0) {
+        const tp = (contactTemps[c.id]?.temp ?? 'new') as ContactTemperature;
+        if (!filterTemps.has(tp)) continue;
+      }
       seen.add(phone);
       out.push({ ...c, phone });
     }
     return out;
-  }, [sendMode, contacts, filterCities, filterChurches, filterRoles, filterProfessions, filterDDDs]);
+  }, [
+    sendMode,
+    contacts,
+    filterCities,
+    filterChurches,
+    filterRoles,
+    filterProfessions,
+    filterDDDs,
+    filterTemps,
+    contactTemps
+  ]);
 
   // Lista visivel no picker (elegiveis + busca textual)
   const visibleContacts = useMemo<Contact[]>(() => {
@@ -322,6 +378,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setFilterRoles(new Set());
     setFilterProfessions(new Set());
     setFilterDDDs(new Set());
+    setFilterTemps(new Set());
     setFilterSearch('');
     setSelectedContactPhones(new Set());
     setManualSelection(false);
@@ -334,6 +391,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     if (filterRoles.size > 0) parts.push(`${filterRoles.size} cargo${filterRoles.size > 1 ? 's' : ''}`);
     if (filterProfessions.size > 0) parts.push(`${filterProfessions.size} profissao${filterProfessions.size > 1 ? 'es' : ''}`);
     if (filterDDDs.size > 0) parts.push(`${filterDDDs.size} DDD${filterDDDs.size > 1 ? 's' : ''}`);
+    if (filterTemps.size > 0) {
+      const labels = [...filterTemps].map((k) => CONTACT_TEMP_LABEL[k]).join(', ');
+      parts.push(`temp: ${labels}`);
+    }
     if (manualSelection) parts.push(`${selectedContactPhones.size} individual${selectedContactPhones.size === 1 ? '' : 'is'}`);
     return parts.length > 0 ? `Filtro: ${parts.join(' + ')}` : 'Filtro personalizado';
   };
@@ -376,6 +437,48 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     manualSelection &&
     visibleContacts.some((c) => selectedContactPhones.has(c.phone));
 
+  const renderTemperatureFilter = () => (
+    <div
+      className="mt-4 rounded-xl p-3 space-y-2"
+      style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+    >
+      <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+        Temperatura do CRM (opcional)
+      </p>
+      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+        Vazio = todos. Marque uma ou mais faixas para limitar o disparo conforme engajamento nas conversas (quente /
+        morno / frio / sem histórico).
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {(['hot', 'warm', 'cold', 'new'] as const).map((key) => {
+          const on = filterTemps.has(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setFilterTemps((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
+                  return next;
+                });
+              }}
+              className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors"
+              style={{
+                borderColor: on ? 'rgba(16,185,129,0.45)' : 'var(--border-subtle)',
+                background: on ? 'var(--brand-50)' : 'var(--surface-0)',
+                color: 'var(--text-1)'
+              }}
+            >
+              {CONTACT_TEMP_LABEL[key]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   const getConnectedSelectedIds = () => {
     const connectedIdSet = new Set(onlineConnections.map((conn) => conn.id));
     return selectedConnectionIds.filter((id) => connectedIdSet.has(id));
@@ -409,9 +512,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setFilterRoles(new Set(initialDraft.filterRoles));
     setFilterProfessions(new Set(initialDraft.filterProfessions));
     setFilterDDDs(new Set(initialDraft.filterDDDs));
+    setFilterTemps(new Set(initialDraft.filterTemps ?? []));
     setFilterSearch(initialDraft.filterSearch);
     setSelectedContactPhones(new Set(initialDraft.selectedContactPhones));
     setManualSelection(initialDraft.manualSelection);
+    setChannelWeightMode(initialDraft.channelWeightMode ?? 'equal');
+    setChannelWeightsById(
+      initialDraft.channelWeights && Object.keys(initialDraft.channelWeights).length > 0
+        ? { ...initialDraft.channelWeights }
+        : {}
+    );
     setAbLabEnabled(false);
     setAbFirstBodyB('');
     setActiveStageIdx(0);
@@ -569,9 +679,26 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         email: c.email || ''
       }
     });
-    if (sendMode === 'list') return selectedListContacts.map(fromContact);
+    if (sendMode === 'list') return selectedListContactsForSend.map(fromContact);
     if (sendMode === 'filter') return filteredContacts.map(fromContact);
     return numbers.map((phone) => ({ phone, vars: { telefone: phone } }));
+  };
+
+  const buildChannelWeightsPayload = (): Record<string, number> | undefined => {
+    const ids = getConnectedSelectedIds();
+    if (ids.length <= 1) return undefined;
+    if (channelWeightMode === 'equal') {
+      const o: Record<string, number> = {};
+      ids.forEach((id) => {
+        o[id] = 1;
+      });
+      return o;
+    }
+    const o: Record<string, number> = {};
+    ids.forEach((id) => {
+      o[id] = Math.max(1, Math.min(100, Math.round(Number(channelWeightsById[id]) || 1)));
+    });
+    return o;
   };
 
   const handleSubmit = async () => {
@@ -606,7 +733,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         numbers,
         recipients: buildRecipients(),
         contactListMeta,
-        delaySeconds
+        delaySeconds,
+        ...(campaignFlowMode === 'sequential' ? { channelWeights: buildChannelWeightsPayload() } : {})
       };
       if (launchMode === 'schedule' && !abLabEnabled) {
         await onSubmit({
@@ -650,6 +778,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       const recB = recAll.filter((r) => setB.has(r.phone.replace(/\D/g, '')));
       setIsSubmitting(true);
       try {
+        const cw = buildChannelWeightsPayload();
         await onSubmit({
           name: `${name.trim()} — Var A`,
           message: stagesBodies[0] || '',
@@ -659,7 +788,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           numbers: numsA,
           recipients: recA.length ? recA : numsA.map((phone) => ({ phone, vars: { telefone: phone } })),
           contactListMeta,
-          delaySeconds
+          delaySeconds,
+          ...(cw ? { channelWeights: cw } : {})
         });
         await onSubmit({
           name: `${name.trim()} — Var B`,
@@ -670,7 +800,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           numbers: numsB,
           recipients: recB.length ? recB : numsB.map((phone) => ({ phone, vars: { telefone: phone } })),
           contactListMeta,
-          delaySeconds
+          delaySeconds,
+          ...(cw ? { channelWeights: cw } : {})
         });
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
@@ -865,6 +996,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 </div>
               )}
 
+              {sendMode === 'list' && selectedList && renderTemperatureFilter()}
+
               {sendMode === 'manual' && (
                 <div>
                   <Textarea
@@ -912,12 +1045,21 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         </span>
                       </p>
                     </div>
-                    {(filterCities.size + filterChurches.size + filterRoles.size + filterProfessions.size + filterDDDs.size + (manualSelection ? 1 : 0)) > 0 && (
+                    {(filterCities.size +
+                      filterChurches.size +
+                      filterRoles.size +
+                      filterProfessions.size +
+                      filterDDDs.size +
+                      filterTemps.size +
+                      (manualSelection ? 1 : 0)) >
+                      0 && (
                       <Button variant="ghost" size="sm" leftIcon={<X className="w-3.5 h-3.5" />} onClick={clearAllFilters}>
                         Limpar tudo
                       </Button>
                     )}
                   </div>
+
+                  {renderTemperatureFilter()}
 
                   {/* Busca global dentro dos filtros */}
                   <div className="relative">
@@ -1378,6 +1520,19 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <Badge variant="neutral">{connectedIds.length} selecionado{connectedIds.length !== 1 ? 's' : ''}</Badge>
                 </div>
 
+                <p
+                  className="text-[11px] mb-3 rounded-lg px-3 py-2"
+                  style={{
+                    background: 'var(--surface-1)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-2)'
+                  }}
+                >
+                  Vários chips selecionados: o ZapMass distribui os envios em rodízio entre eles. Se algum ficar offline
+                  ou degradado durante a rodada, apenas os disponíveis entram nas próximas entregas; se todos falharem ao
+                  iniciar, ajuste os canais e tente de novo ou retome quando houver pelo menos um pronto.
+                </p>
+
                 {connections.length === 0 ? (
                   <p className="text-[12.5px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
                     Nenhum chip cadastrado.
@@ -1452,6 +1607,72 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   </div>
                 )}
               </Card>
+
+              {campaignFlowMode === 'sequential' && getConnectedSelectedIds().length > 1 && onlineConnections.length > 0 && (
+                <Card>
+                  <div className="mb-3">
+                    <h3 className="ui-title text-[15px]">Carga por canal</h3>
+                    <p className="ui-subtitle text-[12.5px]">
+                      Defina a proporção entre os chips selecionados (somente envio sequencial). Ex.: pesos 3 e 1 ≈ 75% e
+                      25% dos destinos ao longo da fila.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {(['equal', 'custom'] as const).map((m) => {
+                      const sel = channelWeightMode === m;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setChannelWeightMode(m)}
+                          className="text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors"
+                          style={{
+                            borderColor: sel ? 'rgba(16,185,129,0.45)' : 'var(--border-subtle)',
+                            background: sel ? 'var(--brand-50)' : 'var(--surface-1)',
+                            color: 'var(--text-1)'
+                          }}
+                        >
+                          {m === 'equal' ? 'Igual entre todos' : 'Pesos livres'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {channelWeightMode === 'custom' && (
+                    <div className="space-y-2">
+                      {onlineConnections
+                        .filter((c) => selectedConnectionIds.includes(c.id))
+                        .map((conn) => (
+                          <div key={conn.id} className="flex items-center gap-3 flex-wrap">
+                            <span className="text-[12.5px] font-medium min-w-[120px] truncate" style={{ color: 'var(--text-1)' }}>
+                              {conn.name}
+                            </span>
+                            <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-3)' }}>
+                              Peso
+                              <input
+                                type="number"
+                                min={1}
+                                max={100}
+                                className="w-16 rounded-lg border px-2 py-1 text-[13px]"
+                                style={{
+                                  borderColor: 'var(--border)',
+                                  background: 'var(--surface-0)',
+                                  color: 'var(--text-1)'
+                                }}
+                                value={channelWeightsById[conn.id] ?? 1}
+                                onChange={(e) =>
+                                  setChannelWeightsById((prev) => ({
+                                    ...prev,
+                                    [conn.id]: Number(e.target.value) || 1
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </Card>
+              )}
 
               <Card>
                 <div className="flex items-center justify-between mb-3">

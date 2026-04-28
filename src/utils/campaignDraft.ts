@@ -31,6 +31,8 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
     selectedListId: c.contactListId || '',
     manualNumbers: '',
     selectedConnectionIds: [...(c.selectedConnectionIds || [])],
+    channelWeightMode: 'equal',
+    channelWeights: { ...(c.channelWeights || {}) },
     delaySeconds: c.delaySeconds ?? 45,
     campaignFlowMode: c.replyFlow?.enabled ? 'reply' : 'sequential',
     messageStages: stages,
@@ -39,6 +41,7 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
     filterRoles: [],
     filterProfessions: [],
     filterDDDs: [],
+    filterTemps: [],
     filterSearch: '',
     selectedContactPhones: [],
     manualSelection: false
@@ -52,6 +55,8 @@ export function templateToWizardDraft(t: SavedCampaignTemplate): CampaignWizardD
     selectedListId: '',
     manualNumbers: '',
     selectedConnectionIds: [],
+    channelWeightMode: 'equal',
+    channelWeights: {},
     delaySeconds: t.delaySeconds,
     campaignFlowMode: t.campaignFlowMode,
     messageStages: t.stages.map((s) => ({
@@ -66,6 +71,7 @@ export function templateToWizardDraft(t: SavedCampaignTemplate): CampaignWizardD
     filterRoles: [],
     filterProfessions: [],
     filterDDDs: [],
+    filterTemps: [],
     filterSearch: '',
     selectedContactPhones: [],
     manualSelection: false

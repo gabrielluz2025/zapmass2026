@@ -124,7 +124,9 @@ export interface Campaign {
   successCount: number;
   failedCount: number;
   status: CampaignStatus;
-  selectedConnectionIds: string[]; 
+  selectedConnectionIds: string[];
+  /** Peso relativo por chip (1 = base) para distribuir envios; opcional. */
+  channelWeights?: Record<string, number>;
   contactListId?: string; 
   contactListName?: string; 
   logs?: CampaignLog[];
@@ -385,6 +387,7 @@ export interface ZapMassContextType {
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
+      channelWeights?: Record<string, number>;
     }
   ) => Promise<string>;
   /** Grava campanha como agendada (sem socket); o servidor dispara no horário. */
@@ -407,6 +410,7 @@ export interface ZapMassContextType {
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
+      channelWeights?: Record<string, number>;
     }
   ) => Promise<string>;
   funnelStats: FunnelStats;

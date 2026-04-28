@@ -57,6 +57,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     campaigns,
     contactLists,
     contacts,
+    conversations,
     socket,
     startCampaign,
     scheduleCampaign,
@@ -221,6 +222,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       onceLocalDate?: string;
       onceLocalTime?: string;
     };
+    channelWeights?: Record<string, number>;
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -245,7 +247,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
               delaySeconds: payload.delaySeconds,
               recipients: payload.recipients,
               messageStages: payload.messageStages,
-              replyFlow: payload.replyFlow
+              replyFlow: payload.replyFlow,
+              channelWeights: payload.channelWeights
             }
           )
         : await startCampaign(
@@ -259,7 +262,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
               delaySeconds: payload.delaySeconds,
               recipients: payload.recipients,
               messageStages: payload.messageStages,
-              replyFlow: payload.replyFlow
+              replyFlow: payload.replyFlow,
+              channelWeights: payload.channelWeights
             }
           );
     appendAudit({
@@ -375,6 +379,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           connections={connections}
           contactLists={contactLists}
           contacts={contacts}
+          conversations={conversations}
           initialDraft={wizardDraft}
           onDraftConsumed={() => setWizardDraft(null)}
           onCancel={() => {

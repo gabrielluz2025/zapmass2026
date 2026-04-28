@@ -7,8 +7,6 @@ import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
 import { Modal, Textarea } from '../ui';
 
-const MAX_LEN = 3000;
-
 interface ImprovementSuggestionButtonProps {
   /** Tela atual (para contextualizar feedback no painel administrativo). */
   currentView?: string;
@@ -29,12 +27,8 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (trimmed.length < 8) {
-      toast.error('Escreva um pouco mais (pelo menos uma frase).');
-      return;
-    }
-    if (trimmed.length > MAX_LEN) {
-      toast.error(`Use no máximo ${MAX_LEN} caracteres.`);
+    if (trimmed.length < 1) {
+      toast.error('Escreva a sua sugestão.');
       return;
     }
     setSending(true);
@@ -48,8 +42,17 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
       toast.success('Obrigado! A sua sugestão foi enviada.');
       setText('');
       setOpen(false);
-    } catch {
-      toast.error('Não foi possível enviar. Verifique a ligação e tente de novo.');
+    } catch (e) {
+      console.error('[Suggestion]', e);
+      const msg =
+        e && typeof e === 'object' && 'message' in e && typeof (e as Error).message === 'string'
+          ? (e as Error).message
+          : '';
+      toast.error(
+        msg.length > 0
+          ? `Não foi possível enviar (${msg}). Tente novamente.`
+          : 'Não foi possível enviar. Verifique a ligação, regras do Firebase e tente de novo.'
+      );
     } finally {
       setSending(false);
     }
@@ -100,7 +103,6 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
             onChange={(e) => setText(e.target.value)}
             placeholder="Ex.: gostaria de poder filtrar campanhas por data, ou exportar o relatório em PDF…"
             style={{ minHeight: '140px' }}
-            maxLength={MAX_LEN}
             disabled={sending}
           />
           <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>

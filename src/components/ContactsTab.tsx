@@ -6,7 +6,7 @@ import { useZapMass } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
-import { Badge, Button, Card, EmptyState, SectionHeader, StatCard } from './ui';
+import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
 import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
 import { ContactsSidebar, type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
 import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual';
@@ -24,6 +24,12 @@ import {
   parseFollowUpMs,
   parseImportFollowUpAt
 } from '../utils/followUp';
+import {
+  computeContactTemperatures,
+  CONTACT_TEMP_LABEL,
+  type ContactTemperature,
+  type TempStats
+} from '../utils/contactTemperature';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -104,58 +110,14 @@ type SmartRow = {
   problems?: string[];
 };
 
-// --- TEMPERATURA DO CONTATO ---
-// Calcula o nivel de engajamento com base no historico de campanhas no
-// `conversations` global (status de entrega/leitura + respostas).
-type Temperature = 'hot' | 'warm' | 'cold' | 'new';
-
-interface TempStats {
-  sent: number;
-  delivered: number;
-  read: number;
-  replied: number;
-  lastSentTs: number;
-  lastReplyTs: number;
-  lastReadTs: number;
-  temp: Temperature;
-  score: number;
-}
-
-const TEMP_LABEL: Record<Temperature, string> = {
-  hot: 'Quente',
-  warm: 'Morno',
-  cold: 'Frio',
-  new: 'Sem hist.'
-};
+// --- TEMPERATURA DO CONTATO (cálculo em `utils/contactTemperature`) ---
+type Temperature = ContactTemperature;
+const TEMP_LABEL = CONTACT_TEMP_LABEL;
 const TEMP_ACCENT: Record<Temperature, { bg: string; fg: string; border: string }> = {
   hot: { bg: 'bg-red-50 dark:bg-red-950/30', fg: 'text-red-700 dark:text-red-300', border: 'border-red-200 dark:border-red-900/40' },
   warm: { bg: 'bg-amber-50 dark:bg-amber-950/30', fg: 'text-amber-700 dark:text-amber-300', border: 'border-amber-200 dark:border-amber-900/40' },
   cold: { bg: 'bg-sky-50 dark:bg-sky-950/30', fg: 'text-sky-700 dark:text-sky-300', border: 'border-sky-200 dark:border-sky-900/40' },
   new: { bg: 'bg-slate-100 dark:bg-slate-800', fg: 'text-slate-500 dark:text-slate-400', border: 'border-slate-200 dark:border-slate-700' }
-};
-
-const classifyTemperature = (stats: Omit<TempStats, 'temp' | 'score'>): { temp: Temperature; score: number } => {
-  const now = Date.now();
-  const DAY = 86400000;
-  const daysSinceReply = stats.lastReplyTs ? (now - stats.lastReplyTs) / DAY : Infinity;
-  const daysSinceRead = stats.lastReadTs ? (now - stats.lastReadTs) / DAY : Infinity;
-  const daysSinceSent = stats.lastSentTs ? (now - stats.lastSentTs) / DAY : Infinity;
-
-  if (stats.sent === 0) return { temp: 'new', score: 0 };
-
-  // Score ponderado: resposta vale muito mais que leitura.
-  // Recencia tambem conta.
-  const recencyBonus = daysSinceReply < 30 ? 30 : daysSinceReply < 90 ? 15 : 0;
-  const readBonus = daysSinceRead < 30 ? 10 : daysSinceRead < 90 ? 5 : 0;
-  const score = Math.round(
-    stats.replied * 25 + stats.read * 4 + stats.delivered * 1.5 + recencyBonus + readBonus
-  );
-
-  // Classificacao
-  if (daysSinceReply <= 30 || stats.replied >= 2) return { temp: 'hot', score };
-  if (daysSinceReply <= 90 || daysSinceRead <= 30 || stats.read >= 3) return { temp: 'warm', score };
-  if (daysSinceSent <= 180) return { temp: 'cold', score };
-  return { temp: 'cold', score };
 };
 
 /** Lista contem o contato pelo id canonico ou por id legado em aliasContactIds. */
@@ -464,6 +426,8 @@ const emptyCampaignDraft = (): CampaignWizardDraft => {
     selectedListId: '',
     manualNumbers: '',
     selectedConnectionIds: [],
+    channelWeightMode: 'equal',
+    channelWeights: {},
     delaySeconds: 45,
     campaignFlowMode: 'sequential',
     messageStages: [
@@ -480,6 +444,7 @@ const emptyCampaignDraft = (): CampaignWizardDraft => {
     filterRoles: [],
     filterProfessions: [],
     filterDDDs: [],
+    filterTemps: [],
     filterSearch: '',
     selectedContactPhones: [],
     manualSelection: false
@@ -556,6 +521,11 @@ export const ContactsTab: React.FC = () => {
   const [listAddSearch, setListAddSearch] = useState('');
   const [listAddSelectedIds, setListAddSelectedIds] = useState<string[]>([]);
   const [addToListSelectId, setAddToListSelectId] = useState('');
+  /** Escolha de lista via modal (substitui `window.prompt` ao adicionar contato(s) a uma lista). */
+  const [pickListPayload, setPickListPayload] = useState<
+    null | { mode: 'single'; contact: Contact } | { mode: 'bulk' }
+  >(null);
+  const [pickListTargetId, setPickListTargetId] = useState('');
   const [quickListName, setQuickListName] = useState('');
   // Smart Import: colar do Excel/Word e interpretar livremente
   const [smartImportOpen, setSmartImportOpen] = useState(false);
@@ -1115,84 +1085,11 @@ export const ContactsTab: React.FC = () => {
     return { validCount, topTags, recentContacts };
   }, [contacts]);
 
-  // Indice de temperatura: Map<contactId, TempStats>.
-  // Usa TODAS as mensagens enviadas por voce (nao so campanhas com fromCampaign), para refletir
-  // envio / entregue / lido / respondido como no WhatsApp. Chats @lid usam contactPhone.
-  const contactTemps = useMemo(() => {
-    const byPhone: Record<string, TempStats> = {};
-    const stripDigits = (p: string) => (p || '').replace(/\D/g, '');
-    const convPrimaryDigits = (conv: { id: string; contactPhone?: string }) => {
-      const jid = conv.id || '';
-      const [, suffix = ''] = jid.split('@');
-      const [user = ''] = jid.split('@');
-      if (suffix === 'lid') return stripDigits(conv.contactPhone || '');
-      if (/^\d+$/.test(user)) return user;
-      return stripDigits(conv.contactPhone || '') || user.replace(/\D/g, '');
-    };
-
-    const accum = (phone: string) => {
-      if (!byPhone[phone]) {
-        byPhone[phone] = {
-          sent: 0, delivered: 0, read: 0, replied: 0,
-          lastSentTs: 0, lastReplyTs: 0, lastReadTs: 0,
-          temp: 'new', score: 0
-        };
-      }
-      return byPhone[phone];
-    };
-
-    // Limite por conversa: históricos enormes (milhares de mensagens) não precisam ser
-    // varridos na íntegra só para estimar temperatura — evita picos de CPU na aba Contatos.
-    const MAX_MESSAGES_SCAN_PER_CONV = 500;
-
-    // Performance: duas passadas sem sort.
-    // 1ª passada: acumula envios/leituras/entregas e pega maxOutTs por conversa.
-    // 2ª passada: conta respostas (mensagens dela com ts > maxOutTs da conversa).
-    // Isso troca O(N log N) por 2×O(N) — em bases com muitas mensagens, é ordens de grandeza mais rápido.
-    for (const conv of deferredConversations) {
-      const phoneKey = normPhoneKey(convPrimaryDigits(conv));
-      if (!phoneKey || phoneKey.length < 12) continue;
-      const s = accum(phoneKey);
-      const all = conv.messages || [];
-      const msgs = all.length > MAX_MESSAGES_SCAN_PER_CONV ? all.slice(all.length - MAX_MESSAGES_SCAN_PER_CONV) : all;
-      let maxOutTs = 0;
-      for (let i = 0; i < msgs.length; i++) {
-        const m = msgs[i];
-        const ts = (m as any).timestampMs || (m.timestamp ? Date.parse(m.timestamp) : 0) || 0;
-        if (m.sender === 'me') {
-          s.sent++;
-          if (ts > s.lastSentTs) s.lastSentTs = ts;
-          if (ts > maxOutTs) maxOutTs = ts;
-          const st = (m as any).status;
-          if (st === 'delivered' || st === 'read') s.delivered++;
-          if (st === 'read') {
-            s.read++;
-            if (ts > s.lastReadTs) s.lastReadTs = ts;
-          }
-        }
-      }
-      if (maxOutTs > 0) {
-        for (let i = 0; i < msgs.length; i++) {
-          const m = msgs[i];
-          if (m.sender !== 'them') continue;
-          const ts = (m as any).timestampMs || (m.timestamp ? Date.parse(m.timestamp) : 0) || 0;
-          if (ts > maxOutTs) {
-            s.replied++;
-            if (ts > s.lastReplyTs) s.lastReplyTs = ts;
-          }
-        }
-      }
-    }
-
-    const result: Record<string, TempStats> = {};
-    for (const c of contacts) {
-      const p = normPhoneKey(c.phone);
-      const base = byPhone[p] || { sent: 0, delivered: 0, read: 0, replied: 0, lastSentTs: 0, lastReplyTs: 0, lastReadTs: 0 } as Omit<TempStats, 'temp' | 'score'>;
-      const cls = classifyTemperature(base);
-      result[c.id] = { ...base, temp: cls.temp, score: cls.score };
-    }
-    return result;
-  }, [deferredConversations, contacts]);
+  // Indice de temperatura: Map<contactId, TempStats> (mesma regra que campanhas — `computeContactTemperatures`).
+  const contactTemps = useMemo(
+    () => computeContactTemperatures(contacts, deferredConversations),
+    [contacts, deferredConversations]
+  );
 
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
@@ -2263,43 +2160,65 @@ export const ContactsTab: React.FC = () => {
     });
   }, [listFilteredContacts]);
 
-  const handleBulkAddToList = useCallback(async () => {
-    if (contactLists.length === 0) {
-      toast.error('Crie uma lista primeiro na sidebar.');
-      return;
-    }
-    const names = contactLists.map((l, i) => `${i + 1}. ${l.name}`).join('\n');
-    const resp = window.prompt(`Em qual lista adicionar ${selectedIds.length} contato(s)?\n\n${names}\n\nDigite o número:`);
-    const idx = resp ? parseInt(resp, 10) - 1 : -1;
-    const target = contactLists[idx];
-    if (!target) { toast.error('Lista inválida.'); return; }
-    const merged = Array.from(new Set([...(target.contactIds || []), ...selectedIds]));
-    try {
-      await updateContactList(target.id, { contactIds: merged });
-      toast.success(`${selectedIds.length} contato(s) adicionado(s) a "${target.name}".`);
-    } catch {
-      toast.error('Não foi possível atualizar a lista.');
-    }
-  }, [selectedIds, contactLists, updateContactList]);
+  const openPickListModal = useCallback(
+    (payload: { mode: 'single'; contact: Contact } | { mode: 'bulk' }) => {
+      if (contactLists.length === 0) {
+        toast.error('Crie uma lista primeiro na sidebar.');
+        return;
+      }
+      setPickListTargetId((prev) => {
+        const keep = prev && contactLists.some((l) => l.id === prev);
+        return keep ? prev : contactLists[0].id;
+      });
+      setPickListPayload(payload);
+    },
+    [contactLists]
+  );
 
-  const handleAddSingleToList = useCallback(async (c: Contact) => {
-    if (contactLists.length === 0) { toast.error('Crie uma lista primeiro.'); return; }
-    const names = contactLists.map((l, i) => `${i + 1}. ${l.name}`).join('\n');
-    const resp = window.prompt(`Em qual lista adicionar ${c.name}?\n\n${names}\n\nDigite o número:`);
-    const idx = resp ? parseInt(resp, 10) - 1 : -1;
-    const target = contactLists[idx];
-    if (!target) { toast.error('Lista inválida.'); return; }
-    if ((target.contactIds || []).includes(c.id)) {
-      toast('Contato já está nessa lista.', { icon: 'ℹ️' });
+  const handleBulkAddToList = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    openPickListModal({ mode: 'bulk' });
+  }, [openPickListModal, selectedIds.length]);
+
+  const handleAddSingleToList = useCallback(
+    (c: Contact) => openPickListModal({ mode: 'single', contact: c }),
+    [openPickListModal]
+  );
+
+  const confirmPickList = useCallback(async () => {
+    if (!pickListPayload || !pickListTargetId) return;
+    const target = contactLists.find((l) => l.id === pickListTargetId);
+    if (!target) {
+      toast.error('Lista inválida.');
       return;
     }
     try {
-      await updateContactList(target.id, { contactIds: [...(target.contactIds || []), c.id] });
-      toast.success(`${c.name} adicionado a "${target.name}".`);
+      if (pickListPayload.mode === 'single') {
+        const c = pickListPayload.contact;
+        if (listHasContact(target.contactIds || [], c)) {
+          toast('Este contato já está nessa lista.', { icon: 'ℹ️' });
+          setPickListPayload(null);
+          return;
+        }
+        const nextIds = mergeContactsIntoListIds(target.contactIds || [], [c.id], contacts);
+        await updateContactList(target.id, { contactIds: nextIds });
+        toast.success(`${c.name || 'Contato'} adicionado a "${target.name}".`);
+      } else {
+        const before = new Set(target.contactIds || []);
+        const merged = mergeContactsIntoListIds(target.contactIds || [], selectedIds, contacts);
+        const addedCount = merged.filter((id) => !before.has(id)).length;
+        await updateContactList(target.id, { contactIds: merged });
+        if (addedCount === 0) {
+          toast('Nenhum contato novo (já estavam na lista ou telefone inválido).', { icon: 'ℹ️' });
+        } else {
+          toast.success(`${addedCount} contato(s) adicionado(s) a "${target.name}".`);
+        }
+      }
+      setPickListPayload(null);
     } catch {
       toast.error('Não foi possível atualizar a lista.');
     }
-  }, [contactLists, updateContactList]);
+  }, [pickListPayload, pickListTargetId, contactLists, contacts, updateContactList, selectedIds]);
 
   const handleDeleteFromDrawer = useCallback(async (c: Contact) => {
     if (!window.confirm(`Remover ${c.name || 'este contato'}?`)) return;
@@ -2622,6 +2541,50 @@ export const ContactsTab: React.FC = () => {
       />
 
       {/* Modal de Insights (lazy — só carrega ao abrir) */}
+      <Modal
+        isOpen={pickListPayload !== null}
+        onClose={() => setPickListPayload(null)}
+        title={
+          pickListPayload?.mode === 'bulk'
+            ? `Adicionar ${selectedIds.length} contato(s) à lista`
+            : 'Adicionar à lista'
+        }
+        subtitle="Escolha a lista de destino."
+        icon={<ListPlus className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 w-full">
+            <Button variant="ghost" type="button" onClick={() => setPickListPayload(null)}>
+              Cancelar
+            </Button>
+            <Button variant="primary" type="button" onClick={() => void confirmPickList()}>
+              Adicionar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-2">
+          <label className="block text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+            Lista de contatos
+          </label>
+          <select
+            className="w-full rounded-lg border px-3 py-2.5 text-[13px]"
+            style={{
+              borderColor: 'var(--border)',
+              background: 'var(--surface-1)',
+              color: 'var(--text-1)'
+            }}
+            value={pickListTargetId}
+            onChange={(e) => setPickListTargetId(e.target.value)}
+          >
+            {contactLists.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name} ({l.contactIds?.length ?? l.count ?? 0})
+              </option>
+            ))}
+          </select>
+        </div>
+      </Modal>
+
       <ContactsInsightsModal
         open={insightsOpen}
         onClose={closeInsights}

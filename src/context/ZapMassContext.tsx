@@ -1550,6 +1550,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
+      channelWeights?: Record<string, number>;
     }
   ) => {
     const uid = currentUidRef.current;
@@ -1603,6 +1604,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactListId: contactListMeta?.id || '',
       contactListName: contactListMeta?.name || '',
       delaySeconds: options?.delaySeconds,
+      ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
+        ? { channelWeights: options.channelWeights }
+        : {}),
       createdAt: new Date().toISOString()
     });
 
@@ -1654,7 +1658,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             connectionIds: targetConnections,
             campaignId: campaignRef.id,
             delaySeconds: options?.delaySeconds,
-            recipients: cleanRecipients
+            recipients: cleanRecipients,
+            channelWeights: options?.channelWeights
           },
           (result?: { ok?: boolean; error?: string }) => {
             if (result?.ok === true) {
@@ -1704,6 +1709,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
+      channelWeights?: Record<string, number>;
     }
   ) => {
     const uid = currentUidRef.current;
@@ -1793,7 +1799,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         connectionIds: targetConnections,
         delaySeconds: options?.delaySeconds,
         ...(cleanRecipients && cleanRecipients.length > 0 ? { recipients: cleanRecipients } : {}),
-        ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {})
+        ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
+        ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
+          ? { channelWeights: options.channelWeights }
+          : {})
       }
     });
     toast.success('Campanha agendada. O disparo ocorre no horário escolhido (servidor online).');

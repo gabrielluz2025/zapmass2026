@@ -105,6 +105,7 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
         delaySeconds?: number;
         recipients?: Array<{ phone: string; vars: Record<string, string> }>;
         replyFlow?: { enabled?: boolean; steps?: unknown[] };
+        channelWeights?: Record<string, number>;
       }
     | undefined;
 
@@ -162,6 +163,11 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     waService.applySettings({ minDelay: delaySeconds, maxDelay: delaySeconds });
   }
 
+  const scheduledWeights =
+    snap?.channelWeights && typeof snap.channelWeights === 'object' && snap.channelWeights !== null
+      ? (snap.channelWeights as Record<string, number>)
+      : undefined;
+
   try {
     const started = await waService.startCampaign(
       numbers,
@@ -170,7 +176,8 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
       cid,
       snap?.recipients,
       snap?.replyFlow,
-      ownerUid
+      ownerUid,
+      scheduledWeights
     );
     if (!started) {
       console.warn('[ScheduledCampaign] startCampaign não iniciou (canais indisponíveis ou fila vazia). Reagendando.');

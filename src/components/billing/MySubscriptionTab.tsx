@@ -69,7 +69,31 @@ export const MySubscriptionTab: React.FC = () => {
     () => firestoreTimeToMs(subscription?.trialEndsAt),
     [subscription?.trialEndsAt]
   );
-  const daysLeft = daysUntil(accessEndsMs);
+  const manualAccessEndsMs = useMemo(
+    () => firestoreTimeToMs(subscription?.manualAccessEndsAt),
+    [subscription?.manualAccessEndsAt]
+  );
+  /** Data efetiva de fim do acesso (trial, plano ou liberação manual), alinhada ao SubscriptionContext. */
+  const effectiveExpiryMs = useMemo(() => {
+    if (!subscription) return null;
+    if (subscription.blocked === true) return null;
+    if (subscription.manualGrant === true) return manualAccessEndsMs;
+    if (subscription.status === 'trialing') return trialEndsMs ?? accessEndsMs;
+    return accessEndsMs;
+  }, [subscription, manualAccessEndsMs, trialEndsMs, accessEndsMs]);
+
+  const daysLeft = useMemo(() => {
+    if (!subscription) return null;
+    if (subscription.manualGrant === true && manualAccessEndsMs == null) return null;
+    return daysUntil(effectiveExpiryMs);
+  }, [subscription, manualAccessEndsMs, effectiveExpiryMs]);
+
+  const expiryInfoLabel =
+    subscription?.manualGrant === true && manualAccessEndsMs == null ? 'Acesso' : 'Expira em';
+  const expiryInfoValue =
+    subscription?.manualGrant === true && manualAccessEndsMs == null
+      ? 'Manual (sem data)'
+      : formatDate(effectiveExpiryMs);
   const isRecurring = Boolean(subscription?.mercadoPagoPreapprovalId && subscription.status === 'active');
   const [upgradeTarget, setUpgradeTarget] = useState<ChannelTier>(2);
   const [tierBusy, setTierBusy] = useState<null | 'pix' | 'card'>(null);
@@ -279,7 +303,7 @@ export const MySubscriptionTab: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[12px]">
-            <Info icon={<CalendarDays className="w-3.5 h-3.5" />} label="Expira em" value={formatDate(accessEndsMs)} />
+            <Info icon={<CalendarDays className="w-3.5 h-3.5" />} label={expiryInfoLabel} value={expiryInfoValue} />
             <Info icon={<Crown className="w-3.5 h-3.5" />} label="Plano" value={planLabel} />
             <Info icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Via" value={providerLabel} />
           </div>
@@ -558,10 +582,13 @@ function getStatusLabel(
     return { text: 'Sem plano ativo', sub: 'Assine para desbloquear o Pro', color: 'var(--text-2)' };
   }
   if (status === 'trialing') {
-    const trialDays = trialMs != null ? Math.ceil((trialMs - Date.now()) / (1000 * 60 * 60)) : null;
+    const trialDays = trialMs != null ? Math.ceil((trialMs - Date.now()) / (1000 * 60 * 60 * 24)) : null;
     return {
       text: 'Teste grátis ativo',
-      sub: trialDays != null ? `Termina em ~${Math.max(0, trialDays)}h` : 'Teste em andamento',
+      sub:
+        trialDays != null
+          ? `Expira em ${Math.max(0, trialDays)} dia${trialDays === 1 ? '' : 's'}`
+          : 'Teste em andamento',
       color: '#3b82f6'
     };
   }

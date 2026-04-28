@@ -357,7 +357,9 @@ const startConnectionsFileSyncFromWorker = () => {
 interface QueueItem {
     to: string;
     message: string;
-    connectionId: string; 
+    connectionId: string;
+    /** Outros chips que participam da mesma campanha (failover quando o principal falha). */
+    alternateChannelIds?: string[];
     status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
     attempts?: number;
     totalAttempts?: number; // Tentativas totais (incluindo após restarts)
@@ -3179,6 +3181,27 @@ const handleReplyFlowIncoming = (connectionId: string, phoneDigits: string, body
     });
 };
 
+/** Rodízio ponderado (pesos relativos); índices consecutivos percorrem um ciclo de soma(weights). */
+function pickWeightedChannel(
+    activeIds: string[],
+    weightsInput: Record<string, number> | undefined,
+    index: number
+): string {
+    if (activeIds.length === 0) return '';
+    if (activeIds.length === 1) return activeIds[0];
+    const ws = activeIds.map((id) =>
+        Math.max(1, Math.min(999, Math.round(Number(weightsInput?.[id] ?? 1) || 1)))
+    );
+    const sum = ws.reduce((a, b) => a + b, 0);
+    if (!Number.isFinite(sum) || sum <= 0) return activeIds[index % activeIds.length];
+    let r = Math.max(0, index) % sum;
+    for (let i = 0; i < activeIds.length; i++) {
+        if (r < ws[i]) return activeIds[i];
+        r -= ws[i];
+    }
+    return activeIds[activeIds.length - 1];
+}
+
 export const startCampaign = async (
     numbers: string[],
     messageTemplates: string[],
@@ -3194,7 +3217,8 @@ export const startCampaign = async (
             invalidReplyBody?: string;
         }>;
     },
-    ownerUidHint?: string
+    ownerUidHint?: string,
+    channelWeights?: Record<string, number>
 ): Promise<boolean> => {
     if (connectionIds.length === 0) return false;
 
@@ -3213,39 +3237,59 @@ export const startCampaign = async (
 
     const stageCount = useReplyFlow ? sanitizedReplySteps.length : templates.length;
 
-    console.log(`Iniciando campanha para ${numbers.length} contatos usando ${connectionIds.length} conexões.`);
-    
-    // PING DE SAÚDE: Verificar todos os canais antes de iniciar
+    console.log(
+        `Iniciando campanha para ${numbers.length} contatos (até ${connectionIds.length} conexão(ões) solicitada(s)).`
+    );
+
+    // PING DE SAÚDE: canais offline/banidos ficam de fora; o disparo continua com os que respondem.
     console.log('[Campaign] 🏥 Verificando saúde dos canais...');
+    const activeConnectionIds: string[] = [];
     for (const connId of connectionIds) {
-        const isReady = await pingChannel(connId);
+        let isReady = await pingChannel(connId);
         if (!isReady) {
             console.warn(`[Campaign] ⚠️ Canal ${connId} não está pronto. Tentando restart...`);
             emitCampaignLog('WARN', 'Canal não está pronto, executando restart', {
                 connectionId: connId
             });
-            
-            // Tentar restart
-            await reconnectConnection(connId).catch(err => {
+
+            await reconnectConnection(connId).catch((err) => {
                 console.error('[Campaign] Falha no restart:', err);
             });
-            
-            // Aguardar 10s para reconexão
-            await new Promise(r => setTimeout(r, 10000));
-            
-            // Verificar novamente
-            const isReadyNow = await pingChannel(connId);
-            if (!isReadyNow) {
-                console.error(`[Campaign] ❌ Canal ${connId} continua indisponível após restart`);
-                emitToConnectionOwner('campaign-error', connId, {
-                    error: `Canal indisponível: ${connId}`,
-                    campaignId
-                });
-                return false;
-            }
+
+            await new Promise((r) => setTimeout(r, 10000));
+
+            isReady = await pingChannel(connId);
+        }
+        if (isReady) {
+            activeConnectionIds.push(connId);
+        } else {
+            console.error(`[Campaign] ❌ Canal ${connId} ficará de fora desta campanha (indisponível após restart).`);
+            emitCampaignLog('WARN', `Canal excluído do disparo (indisponível): ${connId}`, {
+                connectionId: connId,
+                campaignId
+            });
+            emitToConnectionOwner('campaign-error', connId, {
+                error: `Canal indisponível — excluído deste lote: ${connId}`,
+                campaignId
+            });
         }
     }
-    console.log('[Campaign] ✅ Todos os canais verificados e prontos!');
+    if (activeConnectionIds.length === 0) {
+        console.error('[Campaign] ❌ Nenhum canal disponível para iniciar a campanha.');
+        emitCampaignLog('ERROR', 'Nenhum canal respondeu após verificação.', {
+            campaignId,
+            requestedConnectionIds: connectionIds
+        });
+        return false;
+    }
+    if (activeConnectionIds.length < connectionIds.length) {
+        emitCampaignLog(
+            'INFO',
+            `Usando ${activeConnectionIds.length} de ${connectionIds.length} canais (demais indisponíveis).`,
+            { campaignId }
+        );
+    }
+    console.log(`[Campaign] ✅ ${activeConnectionIds.length} canal(is) ativo(s) para o rodízio desta campanha.`);
 
     currentCampaign = {
         isRunning: true,
@@ -3254,7 +3298,7 @@ export const startCampaign = async (
         successCount: 0,
         failCount: 0,
         campaignId,
-        ownerUid: ownerUidHint || ownerUidFromConnectionId(connectionIds[0]) || undefined,
+        ownerUid: ownerUidHint || ownerUidFromConnectionId(activeConnectionIds[0]) || undefined,
         lastLoggedProcessed: 0,
         startTime: Date.now()
     };
@@ -3266,7 +3310,7 @@ export const startCampaign = async (
     }
 
     // Ativar heartbeat agressivo (10s) durante campanha
-    for (const connId of connectionIds) {
+    for (const connId of activeConnectionIds) {
         startHealthCheck(connId, true); // aggressive = true
     }
 
@@ -3281,13 +3325,13 @@ export const startCampaign = async (
     emitCampaignLog('INFO', 'Campanha iniciada', {
         total: currentCampaign.total,
         campaignId: currentCampaign.campaignId,
-        connections: connectionIds.length,
+        connections: activeConnectionIds.length,
         stages: stageCount,
         replyFlow: useReplyFlow
     });
 
     // Intelligent Load Balancing (baseado em health score)
-    const channelScores = connectionIds.map(id => {
+    const channelScores = activeConnectionIds.map((id) => {
         const conn = connectionsInfo.find(c => c.id === id);
         const metrics = channelQualityMetrics.get(id);
         return {
@@ -3300,8 +3344,19 @@ export const startCampaign = async (
 
     const recipientVars = buildRecipientVarsMap(recipients);
 
+    const useWeights =
+        !useReplyFlow &&
+        channelWeights &&
+        typeof channelWeights === 'object' &&
+        Object.keys(channelWeights).length > 0;
+
+    const outboundPool = useReplyFlow ? undefined : [...activeConnectionIds];
+
     numbers.forEach((num, index) => {
-        const assignedConnectionId = advancedFeatures.selectBestChannel(channelScores) || connectionIds[index % connectionIds.length];
+        const assignedConnectionId = useWeights
+            ? pickWeightedChannel(activeConnectionIds, channelWeights, index)
+            : advancedFeatures.selectBestChannel(channelScores) ||
+              activeConnectionIds[index % activeConnectionIds.length];
 
         const cleanPhone = normalizePhoneKey(num);
         const vars = recipientVars.get(cleanPhone) || {};
@@ -3313,6 +3368,7 @@ export const startCampaign = async (
                 to: num,
                 message: personalizedMessage,
                 connectionId: assignedConnectionId,
+                alternateChannelIds: outboundPool,
                 status: 'PENDING',
                 queueCampaignId: campaignId,
                 replyFlowOpen: campaignId
@@ -3328,6 +3384,7 @@ export const startCampaign = async (
                     to: num,
                     message: personalizedMessage,
                     connectionId: assignedConnectionId,
+                    alternateChannelIds: outboundPool,
                     status: 'PENDING',
                     queueCampaignId: campaignId
                 });
@@ -3390,6 +3447,39 @@ const processQueue = async () => {
             continue;
         }
 
+        let readyForSend = await isClientReallyReady(item.connectionId);
+
+        /* Multi-chip campanhas: falha rápida com troca de canal antes dos retries pesados. */
+        if (
+            !readyForSend &&
+            item.alternateChannelIds &&
+            item.alternateChannelIds.length > 1 &&
+            item.queueCampaignId
+        ) {
+            const pool = item.alternateChannelIds;
+            const cur = item.connectionId;
+            const ix = Math.max(0, pool.indexOf(cur));
+            for (let step = 1; step < pool.length; step++) {
+                const altId = pool[(ix + step) % pool.length];
+                if (altId === cur) continue;
+                // eslint-disable-next-line no-await-in-loop
+                if (await isClientReallyReady(altId)) {
+                    emitCampaignLog('WARN', 'Canal indisponivel — alternando para outro chip da campanha', {
+                        de: cur,
+                        para: altId,
+                        campaignId: item.queueCampaignId
+                    });
+                    item.connectionId = altId;
+                    readyForSend = true;
+                    break;
+                }
+            }
+        }
+
+        if (!readyForSend) {
+            readyForSend = await isClientReallyReady(item.connectionId);
+        }
+
         const connInfo = connectionsInfo.find(c => c.id === item.connectionId);
         if (connInfo) connInfo.queueSize = Math.max(0, (connInfo.queueSize || 1) - 1);
         emitConnectionsUpdate();
@@ -3397,7 +3487,7 @@ const processQueue = async () => {
         const client = clients.get(item.connectionId);
         
         // VERIFICAÇÃO DUPLA: valida se cliente está REALMENTE pronto
-        const isReady = await isClientReallyReady(item.connectionId);
+        const isReady = readyForSend;
         
         if (!isReady) {
             item.attempts = (item.attempts || 0) + 1;
@@ -3696,6 +3786,45 @@ const processQueue = async () => {
                     connectionId: item.connectionId
                 });
                 // Não bloquear: cai no fluxo normal de retry abaixo
+            }
+
+            // Outro chip da mesma rodada antes de backoff no mesmo numero
+            let failOverDone = false;
+            if (
+                item.alternateChannelIds &&
+                item.alternateChannelIds.length > 1 &&
+                item.queueCampaignId
+            ) {
+                const pool = item.alternateChannelIds;
+                const fromId = item.connectionId;
+                const start = Math.max(0, pool.indexOf(fromId));
+                for (let step = 1; step < pool.length; step++) {
+                    const altId = pool[(start + step) % pool.length];
+                    if (altId === fromId) continue;
+                    try {
+                        // eslint-disable-next-line no-await-in-loop
+                        const okAlt = await isClientReallyReady(altId);
+                        if (okAlt) {
+                            emitCampaignLog('WARN', 'Falha no envio — tentando pelo proximo canal da campanha', {
+                                to: item.to,
+                                de: fromId,
+                                para: altId,
+                                campaignId: item.queueCampaignId
+                            });
+                            item.connectionId = altId;
+                            item.attempts = 0;
+                            messageQueue.unshift(item);
+                            failOverDone = true;
+                            break;
+                        }
+                    } catch {
+                        /* próximo canal */
+                    }
+                }
+            }
+
+            if (failOverDone) {
+                continue;
             }
 
             // Para outros erros, incrementa attempts normalmente

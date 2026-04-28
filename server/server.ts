@@ -525,7 +525,8 @@ const registerSocketHandlers = () => {
           connectionIds,
           campaignId,
           delaySeconds,
-          recipients
+          recipients,
+          channelWeights
         }: {
           numbers?: string[];
           message?: string;
@@ -543,6 +544,7 @@ const registerSocketHandlers = () => {
           campaignId?: string;
           delaySeconds?: number;
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
+          channelWeights?: Record<string, number>;
         },
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
@@ -607,7 +609,16 @@ const registerSocketHandlers = () => {
           notifyCampaignSocketError(uid, err, campaignId);
           return;
         }
-        const ok = await waService.startCampaign(numbers, stages, connectionIds, campaignId, recipients, replyFlow, uid);
+        const ok = await waService.startCampaign(
+          numbers,
+          stages,
+          connectionIds,
+          campaignId,
+          recipients,
+          replyFlow,
+          uid,
+          channelWeights
+        );
         if (!ok) {
           const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
           callback?.({ ok: false, error: errMsg });

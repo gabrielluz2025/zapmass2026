@@ -1,4 +1,5 @@
 import type { CampaignReplyFlow } from '../types';
+import type { ContactTemperature } from '../utils/contactTemperature';
 
 /** Rascunho para reabrir o assistente (clone / template). */
 export interface CampaignWizardDraft {
@@ -7,6 +8,9 @@ export interface CampaignWizardDraft {
   selectedListId: string;
   manualNumbers: string;
   selectedConnectionIds: string[];
+  /** Igual = peso 1 em cada chip selecionado; custom = pesos livres. */
+  channelWeightMode: 'equal' | 'custom';
+  channelWeights: Record<string, number>;
   delaySeconds: number;
   campaignFlowMode: 'sequential' | 'reply';
   messageStages: Array<{
@@ -21,6 +25,8 @@ export interface CampaignWizardDraft {
   filterRoles: string[];
   filterProfessions: string[];
   filterDDDs: string[];
+  /** Vazio = todas as temperaturas; caso contrário filtra quente/morno/frio/sem hist. */
+  filterTemps: ContactTemperature[];
   filterSearch: string;
   selectedContactPhones: string[];
   manualSelection: boolean;
