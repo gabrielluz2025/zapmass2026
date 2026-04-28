@@ -40,6 +40,13 @@ service cloud.firestore {
       }
     }
 
+    // Sugestões de melhoria (botão «Sugestão» na barra superior)
+    match /users/{uid}/suggestions/{docId} {
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow update, delete: if false;
+    }
+
     // --- Regras Legadas / ZapFlow ---
     // Proteção por ID de usuário e App ID
     match /artifacts/{appId}/users/{userId}/{document=**} {

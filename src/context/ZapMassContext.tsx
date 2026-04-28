@@ -35,7 +35,7 @@ import {
   healStuckRunningCampaignsList,
   isRunningStatusButWorkComplete
 } from '../utils/campaignMetrics';
-import { computeNextRunIso } from '../utils/campaignSchedule';
+import { computeNextRunIso, localDateTimeToUtcIso } from '../utils/campaignSchedule';
 
 const INITIAL_METRICS: DashboardMetrics = {
   totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0
@@ -947,6 +947,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast.error(error || 'Falha ao iniciar campanha.');
     });
 
+    socket.on(
+      'scheduled-campaign-notice',
+      (p: { message?: string; campaignId?: string; kind?: string }) => {
+        const message =
+          typeof p?.message === 'string' && p.message.trim().length > 0
+            ? p.message.trim()
+            : 'O agendamento não pôde iniciar; nova tentativa será feita em breve.';
+        toast.error(message);
+        setSystemLogs((prev) =>
+          [
+            {
+              timestamp: new Date().toISOString(),
+              event: `scheduled:${p?.kind || 'notice'}`,
+              payload: {
+                message,
+                campaignId: typeof p?.campaignId === 'string' ? p.campaignId : ''
+              }
+            },
+            ...prev
+          ].slice(0, 200)
+        );
+      }
+    );
+
     socket.on('send-message-error', ({ error }) => {
       toast.error(error || 'Falha ao enviar mensagem.');
     });
@@ -1658,7 +1682,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     connectionIds: string[] | undefined,
     contactListMeta: { id?: string; name?: string } | undefined,
     campaignName: string | undefined,
-    schedule: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean },
+    schedule: {
+      timeZone: string;
+      slots: CampaignScheduleSlot[];
+      repeatWeekly: boolean;
+      onceLocalDate?: string;
+      onceLocalTime?: string;
+    },
     options?: {
       delaySeconds?: number;
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
@@ -1669,7 +1699,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para agendar campanha.');
     const targetConnections = connectionIds || [sessionId];
-    if (schedule.slots.length === 0) {
+    const oneShotCal =
+      !schedule.repeatWeekly &&
+      typeof schedule.onceLocalDate === 'string' &&
+      schedule.onceLocalDate.trim().length > 0 &&
+      typeof schedule.onceLocalTime === 'string' &&
+      schedule.onceLocalTime.trim().length > 0;
+    if (!oneShotCal && schedule.slots.length === 0) {
       throw new Error('Selecione ao menos um dia e horário.');
     }
     const cleanNumbers = Array.from(
@@ -1689,9 +1725,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (stagesForDoc.length === 0) {
       throw new Error('Defina a mensagem da campanha.');
     }
-    const nextRun = computeNextRunIso(schedule.slots, schedule.timeZone, Date.now());
-    if (!nextRun) {
-      throw new Error('Não foi possível calcular o próximo horário. Verifique os horários e o fuso.');
+    let nextRun: string | null = null;
+    if (oneShotCal) {
+      nextRun = localDateTimeToUtcIso(
+        schedule.onceLocalDate!.trim(),
+        schedule.onceLocalTime!.trim(),
+        schedule.timeZone
+      );
+      if (!nextRun) {
+        throw new Error('Data ou horário inválidos.');
+      }
+      if (Date.parse(nextRun) <= Date.now()) {
+        throw new Error('Escolha uma data e horário no futuro (pelo próximo minuto ou depois).');
+      }
+    } else {
+      nextRun = computeNextRunIso(schedule.slots, schedule.timeZone, Date.now());
+      if (!nextRun) {
+        throw new Error('Não foi possível calcular o próximo horário. Verifique os horários e o fuso.');
+      }
     }
     const cleanRecipients = options?.recipients
       ? options.recipients
@@ -1718,6 +1769,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       scheduleTimeZone: schedule.timeZone,
       weeklySchedule: { slots: schedule.slots },
       scheduleRepeatWeekly: schedule.repeatWeekly,
+      ...(oneShotCal && schedule.onceLocalDate && schedule.onceLocalTime
+        ? {
+            scheduleOnceLocalDate: schedule.onceLocalDate.trim(),
+            scheduleOnceLocalTime: schedule.onceLocalTime.trim()
+          }
+        : {}),
       nextRunAt: nextRun,
       scheduleStartSnapshot: {
         numbers: cleanNumbers,

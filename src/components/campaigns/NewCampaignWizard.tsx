@@ -32,7 +32,12 @@ import {
 } from '../../types';
 import type { CampaignWizardDraft } from '../../types/campaignMission';
 import { analyzeMessageRisk } from '../../utils/messageRiskScore';
-import { computeNextRunIso } from '../../utils/campaignSchedule';
+import {
+  computeNextRunIso,
+  dayOfWeekForCalendarDateInZone,
+  formatTodayYmdInZone,
+  localDateTimeToUtcIso
+} from '../../utils/campaignSchedule';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 
 type CampaignFlowMode = 'sequential' | 'reply';
@@ -77,7 +82,13 @@ interface NewCampaignWizardProps {
     contactListMeta: { id?: string; name?: string };
     delaySeconds: number;
     launchMode?: 'now' | 'schedule';
-    schedule?: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean };
+    schedule?: {
+      timeZone: string;
+      slots: CampaignScheduleSlot[];
+      repeatWeekly: boolean;
+      onceLocalDate?: string;
+      onceLocalTime?: string;
+    };
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -117,11 +128,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [abPercentEach, setAbPercentEach] = useState(5);
   const [launchMode, setLaunchMode] = useState<'now' | 'schedule'>('now');
   const [repeatWeekly, setRepeatWeekly] = useState(true);
+  const [onceScheduleDate, setOnceScheduleDate] = useState('');
+  const [onceScheduleTime, setOnceScheduleTime] = useState('');
   const [dayTimes, setDayTimes] = useState<string[]>(() => Array.from({ length: 7 }, () => ''));
   const scheduleTimeZone = useMemo(
     () => (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '') || 'America/Sao_Paulo',
     []
   );
+  const scheduleDateMin = useMemo(() => formatTodayYmdInZone(scheduleTimeZone), [scheduleTimeZone]);
   // Filtros por atributo do contato
   const [filterCities, setFilterCities] = useState<Set<string>>(new Set());
   const [filterChurches, setFilterChurches] = useState<Set<string>>(new Set());
@@ -494,24 +508,51 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     !abLabEnabled ||
     (campaignFlowMode === 'sequential' && abFirstBodyB.trim().length > 0 && messageStages.length >= 1);
   const scheduleSlots = useMemo((): CampaignScheduleSlot[] => {
+    if (!repeatWeekly) {
+      const ymd = onceScheduleDate.trim();
+      const rawT = onceScheduleTime.trim();
+      if (!ymd || !rawT) return [];
+      const t = rawT.length >= 5 ? rawT.slice(0, 5) : rawT;
+      const dow = dayOfWeekForCalendarDateInZone(ymd, scheduleTimeZone);
+      return [{ dayOfWeek: dow, time: t }];
+    }
     const out: CampaignScheduleSlot[] = [];
     dayTimes.forEach((raw, dow) => {
       const t = (raw || '').trim();
       if (!t) return;
-      out.push({ dayOfWeek: dow, time: t });
+      out.push({ dayOfWeek: dow, time: t.length >= 5 ? t.slice(0, 5) : t });
     });
     return out;
-  }, [dayTimes]);
+  }, [repeatWeekly, onceScheduleDate, onceScheduleTime, scheduleTimeZone, dayTimes]);
   const nextRunPreview = useMemo(() => {
-    if (launchMode !== 'schedule' || scheduleSlots.length === 0) return null;
+    if (launchMode !== 'schedule') return null;
+    if (!repeatWeekly && onceScheduleDate.trim() && onceScheduleTime.trim()) {
+      const t = onceScheduleTime.trim().slice(0, 5);
+      return localDateTimeToUtcIso(onceScheduleDate.trim(), t, scheduleTimeZone);
+    }
+    if (scheduleSlots.length === 0) return null;
     return computeNextRunIso(scheduleSlots, scheduleTimeZone, Date.now());
-  }, [launchMode, scheduleSlots, scheduleTimeZone]);
+  }, [
+    launchMode,
+    repeatWeekly,
+    onceScheduleDate,
+    onceScheduleTime,
+    scheduleSlots,
+    scheduleTimeZone
+  ]);
   const scheduleOk = launchMode === 'now' || abLabEnabled || scheduleSlots.length > 0;
   const canSubmit = canGoFromAudience && canGoFromMessage && canGoFromChannels && !isSubmitting && abLabOk && scheduleOk;
 
   useEffect(() => {
     if (abLabEnabled) setLaunchMode('now');
   }, [abLabEnabled]);
+
+  /** Disparo único: garante uma data inicial no dia corrente (fuso do assistente). */
+  useEffect(() => {
+    if (launchMode === 'schedule' && !repeatWeekly && !onceScheduleDate) {
+      setOnceScheduleDate(formatTodayYmdInZone(scheduleTimeZone));
+    }
+  }, [launchMode, repeatWeekly, onceScheduleDate, scheduleTimeZone]);
 
   const buildRecipients = (): Array<{ phone: string; vars: Record<string, string> }> => {
     const fromContact = (c: Contact) => ({
@@ -574,7 +615,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           schedule: {
             timeZone: scheduleTimeZone,
             slots: scheduleSlots,
-            repeatWeekly
+            repeatWeekly,
+            ...(repeatWeekly
+              ? {}
+              : {
+                  onceLocalDate: onceScheduleDate.trim(),
+                  onceLocalTime: onceScheduleTime.trim().slice(0, 5)
+                })
           }
         });
       } else {
@@ -1500,41 +1547,96 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         <input
                           type="checkbox"
                           checked={repeatWeekly}
-                          onChange={(e) => setRepeatWeekly(e.target.checked)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setRepeatWeekly(checked);
+                            if (!checked && !onceScheduleDate) {
+                              setOnceScheduleDate(formatTodayYmdInZone(scheduleTimeZone));
+                            }
+                          }}
                         />
-                        Repetir toda semana (após cada conclusão, reagendar o próximo disparo)
+                        Repetir toda semana (após cada conclusão, reagenda o próximo disparo igual à grade)
                       </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((label, dow) => (
-                          <div
-                            key={label}
-                            className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
-                            style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-                          >
-                            <span className="text-[12px] font-semibold w-8" style={{ color: 'var(--text-2)' }}>
-                              {label}
-                            </span>
-                            <input
-                              type="time"
-                              value={dayTimes[dow] || ''}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setDayTimes((prev) => {
-                                  const n = [...prev];
-                                  n[dow] = v;
-                                  return n;
-                                });
-                              }}
-                              className="rounded-md text-[13px] px-2 py-1 tabular-nums"
-                              style={{
-                                background: 'var(--surface-1)',
-                                border: '1px solid var(--border-subtle)',
-                                color: 'var(--text-1)'
-                              }}
-                            />
+                      {!repeatWeekly ? (
+                        <div
+                          className="rounded-xl p-3 space-y-2"
+                          style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                        >
+                          <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                            Data e hora do disparo
+                          </p>
+                          <div className="flex flex-wrap items-end gap-2">
+                            <div className="flex flex-col gap-0.5 min-w-[140px]">
+                              <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                                Dia
+                              </span>
+                              <input
+                                type="date"
+                                min={scheduleDateMin}
+                                value={onceScheduleDate}
+                                onChange={(e) => setOnceScheduleDate(e.target.value)}
+                                className="rounded-md text-[13px] px-2 py-1.5 tabular-nums w-full max-w-[200px]"
+                                style={{
+                                  background: 'var(--surface-1)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-1)'
+                                }}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-0.5 min-w-[120px]">
+                              <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                                Hora
+                              </span>
+                              <input
+                                type="time"
+                                value={onceScheduleTime}
+                                onChange={(e) => setOnceScheduleTime(e.target.value)}
+                                className="rounded-md text-[13px] px-2 py-1.5 tabular-nums"
+                                style={{
+                                  background: 'var(--surface-1)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-1)'
+                                }}
+                              />
+                            </div>
                           </div>
-                        ))}
-                      </div>
+                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                            Um disparo só, na data exata escolhida (fuso acima — mesmo do navegador).
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((label, dow) => (
+                            <div
+                              key={label}
+                              className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                              style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                            >
+                              <span className="text-[12px] font-semibold w-8" style={{ color: 'var(--text-2)' }}>
+                                {label}
+                              </span>
+                              <input
+                                type="time"
+                                value={dayTimes[dow] || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setDayTimes((prev) => {
+                                    const n = [...prev];
+                                    n[dow] = v;
+                                    return n;
+                                  });
+                                }}
+                                className="rounded-md text-[13px] px-2 py-1 tabular-nums"
+                                style={{
+                                  background: 'var(--surface-1)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-1)'
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {nextRunPreview && (
                         <p className="text-[12px]" style={{ color: 'var(--brand-700)' }}>
                           Próximo disparo previsto:{' '}
@@ -1641,8 +1743,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     label="Agendamento"
                     value={
                       scheduleSlots.length
-                        ? `${scheduleSlots.length} horário(s) — ${repeatWeekly ? 'repete semanalmente' : 'uma execução'}`
-                        : 'Defina dia(s) e hora(s)'
+                        ? repeatWeekly
+                          ? `${scheduleSlots.length} horário(s) na grade — repetir toda semana`
+                          : `Disparo em ${onceScheduleDate || '—'} às ${(onceScheduleTime || '').slice(0, 5) || '—'} (uma vez)`
+                        : repeatWeekly
+                        ? 'Defina ao menos um dia da semana e hora'
+                        : 'Escolha a data e a hora do disparo'
                     }
                   />
                 )}

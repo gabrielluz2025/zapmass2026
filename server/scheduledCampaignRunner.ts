@@ -2,6 +2,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import * as waService from './whatsappService.js';
+import { emitScheduledCampaignUserNotice } from './whatsappService.js';
 import { readUserSubscriptionForLimits, isUidTreatedAsServerAdmin } from './connectionLimits.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
@@ -29,7 +30,7 @@ export function startScheduledCampaignRunner(): void {
   const tick = () => {
     void runDueScheduledCampaigns();
   };
-  setInterval(tick, 60_000);
+  setInterval(tick, 30_000);
   tick();
 }
 
@@ -75,6 +76,10 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     path?.ownerUid || (typeof data.ownerUid === 'string' ? data.ownerUid : '');
   if (!ownerUid) return;
 
+  const campaignIdEarly = path?.campaignId || ref.id;
+  const campaignName =
+    typeof data.name === 'string' && data.name.trim().length > 0 ? data.name.trim() : 'Campanha agendada';
+
   if (!(await canUserDispatch(ownerUid))) {
     try {
       await ref.update({
@@ -83,6 +88,11 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     } catch {
       /* ignore */
     }
+    emitScheduledCampaignUserNotice(ownerUid, {
+      kind: 'subscription',
+      campaignId: campaignIdEarly,
+      message: `[Agendado] "${campaignName}" adiado: assinatura ou acesso Pro inativo. Nova tentativa em ~6 h. Conecte-se e verifique a assinatura.`
+    });
     return;
   }
 
@@ -120,6 +130,11 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     } catch {
       /* ignore */
     }
+    emitScheduledCampaignUserNotice(ownerUid, {
+      kind: 'no_chip',
+      campaignId: campaignIdEarly,
+      message: `[Agendado] "${campaignName}": nenhum dos chips selecionados está conectado. Nova tentativa em ~10 min. Abra o WhatsApp no servidor ou reconecte o chip.`
+    });
     return;
   }
 
@@ -148,19 +163,7 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
   }
 
   try {
-    await ref.update({
-      status: 'RUNNING',
-      processedCount: 0,
-      successCount: 0,
-      failedCount: 0
-    });
-  } catch (e) {
-    console.warn('[ScheduledCampaign] não marcou RUNNING:', (e as Error)?.message || e);
-    return;
-  }
-
-  try {
-    await waService.startCampaign(
+    const started = await waService.startCampaign(
       numbers,
       stages,
       connectionIds,
@@ -169,6 +172,23 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
       snap?.replyFlow,
       ownerUid
     );
+    if (!started) {
+      console.warn('[ScheduledCampaign] startCampaign não iniciou (canais indisponíveis ou fila vazia). Reagendando.');
+      try {
+        await ref.update({
+          status: 'SCHEDULED',
+          nextRunAt: new Date(Date.now() + RETRY_DELAY_MS).toISOString()
+        });
+      } catch {
+        /* ignore */
+      }
+      emitScheduledCampaignUserNotice(ownerUid, {
+        kind: 'retry',
+        campaignId: cid,
+        message: `[Agendado] "${campaignName}": o WhatsApp não iniciou o envio (chip indisponível ou instável). Nova tentativa em ~5 min.`
+      });
+      return;
+    }
   } catch (e) {
     console.error('[ScheduledCampaign] falha ao iniciar:', (e as Error)?.message || e);
     try {
@@ -179,5 +199,22 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     } catch {
       /* ignore */
     }
+    emitScheduledCampaignUserNotice(ownerUid, {
+      kind: 'retry',
+      campaignId: cid,
+      message: `[Agendado] "${campaignName}": erro ao iniciar (${(e as Error)?.message || 'desconhecido'}). Reagendado para ~5 min.`
+    });
+    return;
+  }
+
+  try {
+    await ref.update({
+      status: 'RUNNING',
+      processedCount: 0,
+      successCount: 0,
+      failedCount: 0
+    });
+  } catch (e) {
+    console.warn('[ScheduledCampaign] não marcou RUNNING após fila iniciada:', (e as Error)?.message || e);
   }
 }

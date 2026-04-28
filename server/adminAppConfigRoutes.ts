@@ -540,4 +540,49 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       return res.status(500).json({ ok: false, error: msg });
     }
   });
+
+  /** Sugestões de melhoria (botão Sugestão) em users/{uid}/suggestions */
+  app.get('/api/admin/product-suggestions', async (req: Request, res: Response) => {
+    try {
+      const auth = await assertAdminFromBearer(req, res);
+      if (!auth) return;
+
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      }
+
+      const limit = Math.min(200, Math.max(10, Number.parseInt(String(req.query.limit || ''), 10) || 100));
+      const db = getFirestore(adminApp);
+
+      const snap = await db.collectionGroup('suggestions').orderBy('createdAt', 'desc').limit(limit).get();
+
+      const items = snap.docs.map((d) => {
+        const uid = (d.ref.parent.parent as { id?: string } | undefined)?.id || '';
+        const raw = d.data();
+        const text = typeof raw?.text === 'string' ? raw.text : '';
+        const userEmail = typeof raw?.userEmail === 'string' ? raw.userEmail : '';
+        const screen = typeof raw?.screen === 'string' ? raw.screen : '';
+        return {
+          id: d.id,
+          uid,
+          text,
+          userEmail,
+          screen,
+          createdAt: tsToIso(raw?.createdAt)
+        };
+      });
+
+      console.log('[api/admin/product-suggestions]', auth.email, 'count=', items.length);
+      return res.json({ ok: true, items });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[api/admin/product-suggestions]', msg);
+      const hint =
+        /index/i.test(msg) || /indexes/i.test(msg)
+          ? ' Crie/deploy o índice: firestore.indexes.json — collection group «suggestions» por createdAt descendente.'
+          : '';
+      return res.status(500).json({ ok: false, error: msg + hint });
+    }
+  });
 }

@@ -554,6 +554,22 @@ const emitToOwnerUid = (event: string, ownerUid: string | undefined, payload: Re
     io.to(`user:${ownerUid}`).emit(event, payload);
 };
 
+/** Aviso ao utilizador (socket) quando o runner de campanhas agendadas adia ou falha ao iniciar. */
+export function emitScheduledCampaignUserNotice(
+    ownerUid: string | undefined,
+    payload: {
+        message: string;
+        campaignId?: string;
+        kind?: 'retry' | 'no_chip' | 'subscription';
+    }
+): void {
+    emitToOwnerUid('scheduled-campaign-notice', ownerUid, {
+        message: payload.message,
+        campaignId: payload.campaignId ?? '',
+        kind: payload.kind ?? 'retry'
+    });
+}
+
 export const getWarmupChipStats = (): WarmupChipStats[] => Array.from(warmupChipStats.values());
 
 const recordWarmupSent = (fromId: string, toPhone: string) => {
@@ -3164,8 +3180,8 @@ export const startCampaign = async (
         }>;
     },
     ownerUidHint?: string
-) => {
-    if (connectionIds.length === 0) return;
+): Promise<boolean> => {
+    if (connectionIds.length === 0) return false;
 
     const sanitizedReplySteps =
         Boolean(replyFlow?.enabled && campaignId && Array.isArray(replyFlow?.steps) && (replyFlow?.steps?.length || 0) >= 2)
@@ -3174,7 +3190,7 @@ export const startCampaign = async (
     const useReplyFlow = sanitizedReplySteps.length >= 2;
 
     const templates = messageTemplates.map((t) => String(t || '').trim()).filter((t) => t.length > 0);
-    if (!useReplyFlow && templates.length === 0) return;
+    if (!useReplyFlow && templates.length === 0) return false;
 
     if (useReplyFlow && campaignId) {
         replyFlowDefs.set(campaignId, { steps: sanitizedReplySteps });
@@ -3210,7 +3226,7 @@ export const startCampaign = async (
                     error: `Canal indisponível: ${connId}`,
                     campaignId
                 });
-                return;
+                return false;
             }
         }
     }
@@ -3308,6 +3324,7 @@ export const startCampaign = async (
     emitConnectionsUpdate();
     await persistQueue(); // Salvar fila no disco
     processQueue();
+    return true;
 };
 
 const processQueue = async () => {

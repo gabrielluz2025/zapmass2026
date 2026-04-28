@@ -577,7 +577,15 @@ const registerSocketHandlers = () => {
           socket.emit('campaign-error', { error: 'Nenhuma mensagem definida para a campanha.', campaignId });
           return;
         }
-        await waService.startCampaign(numbers, stages, connectionIds, campaignId, recipients, replyFlow, uid);
+        const ok = await waService.startCampaign(numbers, stages, connectionIds, campaignId, recipients, replyFlow, uid);
+        if (!ok) {
+          callback?.({ ok: false, error: 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.' });
+          socket.emit('campaign-error', {
+            error: 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.',
+            campaignId
+          });
+          return;
+        }
         callback?.({ ok: true });
       } catch (error: any) {
         const messageText = error?.message || 'Falha ao iniciar campanha.';

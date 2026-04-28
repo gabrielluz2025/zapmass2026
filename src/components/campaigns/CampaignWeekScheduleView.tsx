@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
-import { CalendarClock } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Campaign } from '../../types';
 import { CampaignStatus } from '../../types';
-import { formatScheduleSlotLine } from '../../utils/campaignSchedule';
+import { formatScheduleSlotLine, ymdInZoneFromUtcInstant } from '../../utils/campaignSchedule';
 import { Card } from '../ui';
 
 const DAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const;
@@ -22,7 +22,7 @@ function addDays(base: Date, n: number): Date {
   return x;
 }
 
-function fmtShort(iso: string): string {
+function fmtShort(iso: string, timeZone?: string): string {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
@@ -31,7 +31,8 @@ function fmtShort(iso: string): string {
       day: '2-digit',
       month: 'short',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      ...(timeZone ? { timeZone } : {})
     });
   } catch {
     return iso;
@@ -50,6 +51,8 @@ export const CampaignWeekScheduleView: React.FC<CampaignWeekScheduleViewProps> =
   campaigns,
   onOpenDetails
 }) => {
+  const [weekOffset, setWeekOffset] = useState(0);
+
   const scheduled = useMemo(
     () =>
       campaigns.filter(
@@ -65,28 +68,46 @@ export const CampaignWeekScheduleView: React.FC<CampaignWeekScheduleViewProps> =
   const { weekStart, days } = useMemo(() => {
     const today = new Date();
     const start = startOfWeekMonday(today);
+    const shifted = addDays(start, weekOffset * 7);
     const list: Date[] = [];
-    for (let i = 0; i < 7; i++) list.push(addDays(start, i));
-    return { weekStart: start, days: list };
-  }, []);
+    for (let i = 0; i < 7; i++) list.push(addDays(shifted, i));
+    return { weekStart: shifted, days: list };
+  }, [weekOffset]);
 
-  const itemsByWeekday = useMemo(() => {
-    const map = new Map<number, { campaign: Campaign; label: string }[]>();
-    for (let i = 0; i < 7; i++) map.set(i, []);
+  /** Uma entrada por campanha/slot/coluna da grade atual (dia de calendário ou dia da semana recorrente). */
+  const itemsPerColumn = useMemo(() => {
+    const cols: { campaign: Campaign; label: string }[][] = days.map(() => []);
+    const cellYmds = days.map(
+      (d) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(
+          2,
+          '0'
+        )}`
+    );
+
     for (const c of scheduled) {
+      const tz = c.scheduleTimeZone || 'America/Sao_Paulo';
+      const once = c.scheduleRepeatWeekly === false && c.nextRunAt;
+      if (once) {
+        const runDay = ymdInZoneFromUtcInstant(c.nextRunAt, tz);
+        if (!runDay) continue;
+        cellYmds.forEach((ymd, idx) => {
+          if (ymd !== runDay) return;
+          cols[idx].push({ campaign: c, label: fmtShort(c.nextRunAt!, tz) });
+        });
+        continue;
+      }
       const slots = c.weeklySchedule?.slots || [];
       for (const s of slots) {
-        const dow = Math.min(6, Math.max(0, s.dayOfWeek));
-        const arr = map.get(dow) || [];
-        arr.push({
-          campaign: c,
-          label: formatScheduleSlotLine(s)
+        const dowSlot = Math.min(6, Math.max(0, s.dayOfWeek));
+        days.forEach((dCell, idx) => {
+          if (dCell.getDay() !== dowSlot) return;
+          cols[idx].push({ campaign: c, label: formatScheduleSlotLine(s) });
         });
-        map.set(dow, arr);
       }
     }
-    return map;
-  }, [scheduled]);
+    return cols;
+  }, [scheduled, days]);
 
   if (scheduled.length === 0) {
     return null;
@@ -101,19 +122,62 @@ export const CampaignWeekScheduleView: React.FC<CampaignWeekScheduleViewProps> =
         >
           <CalendarClock className="w-4 h-4 text-indigo-500" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h3 className="ui-title text-[15px]">Programação da semana</h3>
           <p className="ui-subtitle text-[12px]">
             Semana de {weekStart.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })} — campanhas
-            agendadas por dia
+            agendadas por dia · use as setas para outras semanas
           </p>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setWeekOffset((o) => o - 1)}
+            className="p-2 rounded-lg transition-colors hover:opacity-90"
+            style={{
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--surface-1)',
+              color: 'var(--text-2)'
+            }}
+            title="Semana anterior"
+            aria-label="Semana anterior"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setWeekOffset(0)}
+            className="px-2 py-1.5 rounded-lg text-[11px] font-semibold tabular-nums"
+            style={{
+              border: '1px solid var(--border-subtle)',
+              background: weekOffset === 0 ? 'var(--surface-1)' : 'var(--surface-0)',
+              color: 'var(--text-2)'
+            }}
+            title="Voltar à semana atual"
+          >
+            Hoje
+          </button>
+          <button
+            type="button"
+            onClick={() => setWeekOffset((o) => o + 1)}
+            className="p-2 rounded-lg transition-colors hover:opacity-90"
+            style={{
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--surface-1)',
+              color: 'var(--text-2)'
+            }}
+            title="Próxima semana"
+            aria-label="Próxima semana"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
         {days.map((d, idx) => {
           const dow = d.getDay();
-          const entries = itemsByWeekday.get(dow) || [];
+          const entries = itemsPerColumn[idx] || [];
           const isToday = new Date().toDateString() === d.toDateString();
           return (
             <div
@@ -167,6 +231,9 @@ export const CampaignWeekScheduleView: React.FC<CampaignWeekScheduleViewProps> =
         <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
           Próximos disparos
         </p>
+        <p className="text-[10px] leading-snug mb-1" style={{ color: 'var(--text-3)' }}>
+          Ordenado pelo horário (pode incluir datas fora da grade acima).
+        </p>
         {scheduled
           .slice()
           .sort((a, b) => (a.nextRunAt || '').localeCompare(b.nextRunAt || ''))
@@ -183,7 +250,7 @@ export const CampaignWeekScheduleView: React.FC<CampaignWeekScheduleViewProps> =
                 {c.name}
               </span>
               <span className="flex-shrink-0 tabular-nums text-[11px]" style={{ color: 'var(--text-3)' }}>
-                {c.nextRunAt ? fmtShort(c.nextRunAt) : '—'}
+                {c.nextRunAt ? fmtShort(c.nextRunAt, c.scheduleTimeZone || undefined) : '—'}
               </span>
             </button>
           ))}

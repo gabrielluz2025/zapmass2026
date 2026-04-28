@@ -214,7 +214,13 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     contactListMeta: { id?: string; name?: string };
     delaySeconds: number;
     launchMode?: 'now' | 'schedule';
-    schedule?: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean };
+    schedule?: {
+      timeZone: string;
+      slots: CampaignScheduleSlot[];
+      repeatWeekly: boolean;
+      onceLocalDate?: string;
+      onceLocalTime?: string;
+    };
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');

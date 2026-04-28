@@ -8,7 +8,16 @@ import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
 import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState } from '../ui';
 
-type AdminTab = 'config' | 'access';
+type AdminTab = 'config' | 'access' | 'suggestions';
+
+type ProductSuggestion = {
+  id: string;
+  uid: string;
+  text: string;
+  userEmail: string;
+  screen: string;
+  createdAt: string | null;
+};
 type AccessUser = {
   uid: string;
   email: string;
@@ -161,6 +170,8 @@ export const AdminPanel: React.FC = () => {
   const [auditRows, setAuditRows] = useState<AccessAudit[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insights, setInsights] = useState<AccessUserInsights | null>(null);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [productSuggestions, setProductSuggestions] = useState<ProductSuggestion[]>([]);
 
   useEffect(() => {
     setMarketingPriceMonthly(config.marketingPriceMonthly);
@@ -239,6 +250,32 @@ export const AdminPanel: React.FC = () => {
     if (tab !== 'access') return;
     void loadAccessUsers(search);
     void loadAudit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const loadProductSuggestions = async () => {
+    if (!user) return;
+    setSuggestionsLoading(true);
+    try {
+      const h = await authHeaders();
+      const res = await fetch('/api/admin/product-suggestions?limit=120', {
+        headers: { Authorization: h.Authorization || '' }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar sugestões.');
+      }
+      setProductSuggestions(Array.isArray(data.items) ? data.items : []);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao carregar sugestões.');
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab !== 'suggestions') return;
+    void loadProductSuggestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -512,7 +549,8 @@ export const AdminPanel: React.FC = () => {
                 </h2>
                 <p className="text-sm mt-2 max-w-2xl leading-relaxed" style={{ color: 'var(--text-3)' }}>
                   Ajuste preços, duração do teste e textos exibidos aos clientes; na aba <strong className="text-[var(--text-2)]">Acesso</strong> você
-                  libera planos, bloqueia abusos e acompanha métricas. Dados vivem no Firestore (
+                  libera planos e bloqueia abusos; na aba <strong className="text-[var(--text-2)]">Sugestões</strong> vê feedback dos utilizadores.
+                  Dados em Firestore (
                   <code className="text-xs px-1 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80" style={{ color: 'var(--text-2)' }}>
                     appConfig/global
                   </code>
@@ -544,6 +582,18 @@ export const AdminPanel: React.FC = () => {
               >
                 <Users className="w-3.5 h-3.5" />
                 Acesso
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('suggestions')}
+                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
+                  tab === 'suggestions'
+                    ? 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <Lightbulb className="w-3.5 h-3.5" />
+                Sugestões
               </button>
             </div>
           </div>
@@ -1216,6 +1266,83 @@ export const AdminPanel: React.FC = () => {
               </div>
             </aside>
           </div>
+        </div>
+      )}
+
+      {tab === 'suggestions' && (
+        <div className="space-y-6">
+          <SectionHeader
+            title="Sugestões dos utilizadores"
+            description="Envios feitos pelo botão «Sugestão» na barra superior. No Firestore: cada conta em «users», subcoleção «suggestions»."
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              type="button"
+              disabled={suggestionsLoading}
+              leftIcon={suggestionsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              onClick={() => void loadProductSuggestions()}
+            >
+              Atualizar lista
+            </Button>
+            <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+              Mostrando as {productSuggestions.length} mais recentes (até 120 pedidas à API).
+            </span>
+          </div>
+
+          {suggestionsLoading && productSuggestions.length === 0 ? (
+            <Card>
+              <div className="flex items-center gap-3 py-10 justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+              </div>
+            </Card>
+          ) : productSuggestions.length === 0 ? (
+            <EmptyState
+              title="Ainda sem sugestões"
+              description="Quando utilizadores enviarem texto pelo botão de sugestões, aparecem aqui."
+            />
+          ) : (
+            <div className="space-y-3">
+              {productSuggestions.map((row) => (
+                <Card key={`${row.uid}-${row.id}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <Badge variant="warning">{toPtDateTime(row.createdAt)}</Badge>
+                        {row.screen ? (
+                          <Badge variant="neutral">{row.screen}</Badge>
+                        ) : null}
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
+                        {row.text || '—'}
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] pt-3 border-t"
+                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}
+                  >
+                    <span>
+                      <strong style={{ color: 'var(--text-2)' }}>E-mail:</strong> {row.userEmail || '—'}
+                    </span>
+                    <span className="inline-flex items-center gap-1 font-mono">
+                      <strong style={{ color: 'var(--text-2)' }}>UID:</strong> {row.uid || '—'}
+                      {row.uid ? (
+                        <button
+                          type="button"
+                          className="p-0.5 rounded hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
+                          title="Copiar UID"
+                          onClick={() => void copyToClipboard(row.uid, 'UID copiado.')}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      ) : null}
+                    </span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

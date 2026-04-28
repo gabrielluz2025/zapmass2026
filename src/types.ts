@@ -136,6 +136,10 @@ export interface Campaign {
   weeklySchedule?: CampaignWeeklySchedule;
   /** Se true, após cada conclusão recalcula nextRunAt; se false, uma execução e depois COMPLETED. */
   scheduleRepeatWeekly?: boolean;
+  /** Quando definido com scheduleRepeatWeekly false: data do calendário (YYYY-MM-DD) no fuso scheduleTimeZone. */
+  scheduleOnceLocalDate?: string;
+  /** Horário HH:mm no mesmo dia (um disparo pontual coordenado com scheduleOnceLocalDate). */
+  scheduleOnceLocalTime?: string;
   /** Próximo disparo (ISO 8601 UTC). */
   nextRunAt?: string;
   lastRunAt?: string;
@@ -391,6 +395,8 @@ export interface ZapMassContextType {
       timeZone: string;
       slots: CampaignScheduleSlot[];
       repeatWeekly: boolean;
+      onceLocalDate?: string;
+      onceLocalTime?: string;
     },
     options?: {
       delaySeconds?: number;

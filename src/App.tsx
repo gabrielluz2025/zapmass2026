@@ -18,6 +18,7 @@ import { TrialAutoStart } from './components/billing/TrialAutoStart';
 import { TrialEndedModal } from './components/billing/TrialEndedModal';
 import { UpgradeProModal } from './components/billing/UpgradeProModal';
 import { ProHeaderPromo } from './components/shell/ProHeaderPromo';
+import { ImprovementSuggestionButton } from './components/shell/ImprovementSuggestionButton';
 import { firestoreTimeToMs } from './utils/firestoreTime';
 import { ZapMassProvider, useZapMass } from './context/ZapMassContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -230,6 +231,7 @@ const MainLayout: React.FC = () => {
           mobileUpgradeFab={canOpenUpgradeModal}
           headerCenter={headerCenter}
           headerUpgradeNearLatency={headerUpgradeNearLatency}
+          topBarActions={<ImprovementSuggestionButton currentView={currentView} />}
         >
           {renderContent()}
         </AppShell>
