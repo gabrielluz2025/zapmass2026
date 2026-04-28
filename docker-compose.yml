@@ -81,6 +81,9 @@ services:
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
     command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
+    init: true
+    shm_size: "2gb"
+    stop_grace_period: 60s
     environment:
       NODE_ENV: production
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}

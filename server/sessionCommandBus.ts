@@ -12,6 +12,10 @@ const EVENT_STREAM = process.env.SESSION_EVENT_STREAM || 'zapmass:session:events
 const REDIS_URL = process.env.REDIS_URL || '';
 const BLOCK_MS = Number(process.env.SESSION_BUS_BLOCK_MS || 3000);
 
+/** Cursor inicial Redis Streams para XREAD. `$` = só entradas novas após o subscribe (evita reexecutar delete/create antigos ao reiniciar o worker). Override: SESSION_COMMAND_CURSOR=0-0 para replay deliberado (debug/migração). */
+const defaultCommandCursor = REDIS_URL.trim() ? '$' : '0-0';
+const defaultEventCursor = REDIS_URL.trim() ? '$' : '0-0';
+
 let redisFactoryPromise: Promise<((url: string) => RedisLike) | null> | null = null;
 const busEmitter = new EventEmitter();
 
@@ -35,8 +39,9 @@ export class SessionCommandBus {
   private publisher: RedisLike | null = null;
   private commandReader: RedisLike | null = null;
   private eventReader: RedisLike | null = null;
-  private commandCursor = '0-0';
-  private eventCursor = '0-0';
+  private commandCursor =
+    process.env.SESSION_COMMAND_CURSOR?.trim() || defaultCommandCursor;
+  private eventCursor = process.env.SESSION_EVENT_CURSOR?.trim() || defaultEventCursor;
 
   async start(): Promise<void> {
     if (!this.isRedisEnabled) return;
@@ -45,6 +50,9 @@ export class SessionCommandBus {
       console.warn('[session-bus] ioredis nao disponivel. Usando barramento local em memoria.');
       return;
     }
+    console.log(
+      `[session-bus] Redis streams: comandos desde ${this.commandCursor} (${COMMAND_STREAM}), eventos desde ${this.eventCursor} (${EVENT_STREAM})`
+    );
     this.publisher = factory(REDIS_URL);
     this.commandReader = factory(REDIS_URL);
     this.eventReader = factory(REDIS_URL);

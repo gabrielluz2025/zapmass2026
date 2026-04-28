@@ -68,6 +68,10 @@ services:
   wa-worker:
     image: zapmass:latest
     command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
+    # Chromium no worker usa /dev/shm; default 64MB causa crashes com varias sessoes.
+    shm_size: "2gb"
+    # shutdownAll espera ate ~15s por cliente + backup; mais folga que o default Swarm (~10s) evita SIGKILL a meio.
+    stop_grace_period: 60s
     environment:
       NODE_ENV: production
       REDIS_URL: redis://redis:6379
@@ -80,11 +84,15 @@ services:
       # Com API em monolith: 0. Com ZAPMASS_API_SESSION_MODE=api: use 1 ou mais (Chromium no worker).
       replicas: ${WA_WORKER_REPLICAS:-0}
       update_config:
-        order: start-first
+        # Evita dois contentores ao mesmo tempo a usar o mesmo volume de sessoes (locks/corrupção).
+        order: stop-first
         parallelism: 1
-        delay: 10s
+        delay: 15s
       restart_policy:
         condition: any
+      resources:
+        reservations:
+          cpus: "0.25"
 
   redis:
     image: redis:7-alpine
