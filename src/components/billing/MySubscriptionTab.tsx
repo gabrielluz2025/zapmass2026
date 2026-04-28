@@ -10,10 +10,12 @@ import {
   Repeat,
   ShieldCheck,
   TrendingUp,
+  Users,
   XCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { useSubscription } from '../../context/SubscriptionContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
@@ -56,6 +58,7 @@ function daysUntil(ms: number | null): number | null {
  */
 export const MySubscriptionTab: React.FC = () => {
   const { user } = useAuth();
+  const { isTeamMember, ownerUid } = useWorkspace();
   const { subscription, loading } = useSubscription();
   const { config } = useAppConfig();
   const [busy, setBusy] = useState<Method | 'cancel' | null>(null);
@@ -192,6 +195,37 @@ export const MySubscriptionTab: React.FC = () => {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--text-3)' }} />
+      </div>
+    );
+  }
+
+  if (isTeamMember) {
+    const short = typeof ownerUid === 'string' && ownerUid.length > 10 ? `${ownerUid.slice(0, 8)}…` : ownerUid || '—';
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
+        <div className="flex items-start gap-3 rounded-2xl p-5" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center brand-soft shrink-0">
+            <Users className="w-6 h-6" style={{ color: 'var(--brand-600)' }} />
+          </div>
+          <div>
+            <h1 className="text-[17px] font-extrabold" style={{ color: 'var(--text-1)' }}>
+              Membro de equipa
+            </h1>
+            <p className="text-[13px] mt-2 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+              Esta sessão usa o <strong>plano e os dados da conta principal</strong> da organização. Pagamentos,
+              Mercado Pago ou alteração de canais ficam{' '}
+              <strong>a cargo do utilizador gestor</strong>{' '}
+              <span className="font-mono text-[12px]">({short})</span>. Aqui apenas consulta o estado do plano ligado ao
+              workspace — não iniciamos cobrança com o seu utilizador para evitar erro de cobrança.
+            </p>
+          </div>
+        </div>
+        {subscription && (
+          <div className="rounded-xl px-4 py-3 text-[12px]" style={{ background: 'var(--surface-1)', color: 'var(--text-2)' }}>
+            <strong style={{ color: 'var(--text-1)' }}>Situação do plano (read-only): </strong>
+            {(subscription.status as string) || '—'} · plano {(subscription.plan as string) || '—'}
+          </div>
+        )}
       </div>
     );
   }

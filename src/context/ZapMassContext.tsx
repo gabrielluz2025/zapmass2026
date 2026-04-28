@@ -26,6 +26,7 @@ import { collection, onSnapshot, addDoc, deleteDoc, doc, getDoc, getDocs, query,
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { useAppView } from './AppViewContext';
+import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
@@ -146,6 +147,7 @@ const belongsToUidCampaign = (
 
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentView } = useAppView();
+  const { effectiveWorkspaceUid, loading: workspaceLoading } = useWorkspace();
   const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>(INITIAL_METRICS);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -203,6 +205,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasConnectedOnceRef = useRef(false);
   const currentUidRef = useRef<string | null>(auth.currentUser?.uid ?? null);
+  const prevAuthUserRef = useRef<string | null>(auth.currentUser?.uid ?? null);
+  const bindUserRef = useRef<(uid: string) => void>(() => {});
   /** Mescla Firestore legado (coleções na raiz) com `users/{uid}/...`. */
   const fbMergeRef = useRef({
     userContacts: [] as Contact[],
@@ -503,11 +507,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     };
 
+    bindUserRef.current = bindUser;
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
-      const prevUid = currentUidRef.current;
-      currentUidRef.current = user?.uid ?? null;
-      if (prevUid !== currentUidRef.current) {
-        // Evita mostrar dados da conta anterior até o snapshot do novo usuário chegar.
+      const newAuthUid = user?.uid ?? null;
+      if (prevAuthUserRef.current !== newAuthUid) {
+        prevAuthUserRef.current = newAuthUid;
         setContacts([]);
         setContactLists([]);
         setCampaigns([]);
@@ -542,19 +547,45 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         campaignFirestoreHealRef.current.clear();
         return;
       }
-      bindUser(user.uid);
+      if (workspaceLoading) {
+        return;
+      }
+      const dataUid = effectiveWorkspaceUid ?? user.uid;
+      currentUidRef.current = dataUid;
+      bindUser(dataUid);
     });
 
     const uidNow = auth.currentUser?.uid;
-    if (uidNow) {
-      bindUser(uidNow);
+    if (uidNow && !workspaceLoading) {
+      bindUser(effectiveWorkspaceUid ?? uidNow);
     }
 
     return () => {
       unsubAuth();
       stopAll();
     };
-  }, [currentView, campaignStatus.isRunning, syncStuckCampaignsToFirestore]);
+  }, [
+    currentView,
+    campaignStatus.isRunning,
+    syncStuckCampaignsToFirestore,
+    effectiveWorkspaceUid,
+    workspaceLoading
+  ]);
+
+  useEffect(() => {
+    const u = auth.currentUser;
+    if (!u?.uid || workspaceLoading) return;
+    const dataUid = effectiveWorkspaceUid ?? u.uid;
+    if (currentUidRef.current !== dataUid) {
+      setContacts([]);
+      setContactLists([]);
+      setCampaigns([]);
+      setConnections([]);
+      campaignFirestoreHealRef.current.clear();
+    }
+    currentUidRef.current = dataUid;
+    bindUserRef.current(dataUid);
+  }, [effectiveWorkspaceUid, workspaceLoading, currentView, campaignStatus.isRunning]);
 
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
@@ -563,7 +594,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const BACKEND_URL = isLocalhost ? "http://localhost:3001" : undefined;
     /** Evita corrida Firebase vs ref: o primeiro connections-update vinha antes do ref estar alinhado e esvaziava a lista (modo estrito uid__). */
     const getOwnerUidForConnectionScope = (): string =>
-      auth.currentUser?.uid ?? currentUidRef.current ?? 'anonymous';
+      currentUidRef.current ?? auth.currentUser?.uid ?? 'anonymous';
     const ownsConnectionId = (connectionId: string) =>
       ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId);
 

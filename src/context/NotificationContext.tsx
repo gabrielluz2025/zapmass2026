@@ -21,6 +21,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from './AuthContext';
+import { useWorkspace } from './WorkspaceContext';
 
 export type AppNotificationKind = 'info' | 'success' | 'warning' | 'error';
 
@@ -90,17 +91,21 @@ function rowFromDoc(d: QueryDocumentSnapshot): AppNotificationRow | null {
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { effectiveWorkspaceUid, loading: wsLoading } = useWorkspace();
   const [notifications, setNotifications] = useState<AppNotificationRow[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const dataUid = user?.uid ? effectiveWorkspaceUid ?? user.uid : null;
+
   useEffect(() => {
-    if (!user?.uid) {
+    if (!user?.uid || !dataUid || wsLoading) {
       setNotifications([]);
+      if (!wsLoading) setLoading(false);
       return;
     }
     setLoading(true);
     const q = query(
-      collection(db, 'users', user.uid, 'notifications'),
+      collection(db, 'users', dataUid, 'notifications'),
       orderBy('createdAt', 'desc'),
       limit(80)
     );
@@ -119,47 +124,47 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       }
     );
     return () => unsub();
-  }, [user?.uid]);
+  }, [user?.uid, dataUid, wsLoading]);
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
   const markAsRead = useCallback(
     async (id: string) => {
-      if (!user?.uid) return;
+      if (!dataUid) return;
       try {
-        await updateDoc(doc(db, 'users', user.uid, 'notifications', id), { read: true });
+        await updateDoc(doc(db, 'users', dataUid, 'notifications', id), { read: true });
       } catch {
         /* ignore */
       }
     },
-    [user?.uid]
+    [dataUid]
   );
 
   const markAllAsRead = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!dataUid) return;
     const unread = notifications.filter((n) => !n.read);
     if (!unread.length) return;
     try {
       const batch = writeBatch(db);
       unread.forEach((n) => {
-        batch.update(doc(db, 'users', user.uid, 'notifications', n.id), { read: true });
+        batch.update(doc(db, 'users', dataUid, 'notifications', n.id), { read: true });
       });
       await batch.commit();
     } catch {
       /* ignore */
     }
-  }, [user?.uid, notifications]);
+  }, [dataUid, notifications]);
 
   const remove = useCallback(
     async (id: string) => {
-      if (!user?.uid) return;
+      if (!dataUid) return;
       try {
-        await deleteDoc(doc(db, 'users', user.uid, 'notifications', id));
+        await deleteDoc(doc(db, 'users', dataUid, 'notifications', id));
       } catch {
         /* ignore */
       }
     },
-    [user?.uid]
+    [dataUid]
   );
 
   const value = useMemo(

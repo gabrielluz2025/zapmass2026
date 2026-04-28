@@ -15,6 +15,7 @@ import {
   Sparkles,
   Sun,
   User as UserIcon,
+  Users,
   Webhook,
   Zap
 } from 'lucide-react';
@@ -36,6 +37,7 @@ import {
 } from '../utils/whatsappRiskStorage';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, Input, SectionHeader } from './ui';
+import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
 
 const SETTINGS_KEY = 'zapmass_settings';
 
@@ -57,7 +59,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   emailNotif: true
 };
 
-type Section = 'disparo' | 'aparencia' | 'notificacoes' | 'conta' | 'legal';
+type Section = 'disparo' | 'aparencia' | 'notificacoes' | 'equipa' | 'conta' | 'legal';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: React.ReactNode; description: string }> = [
   {
@@ -77,6 +79,12 @@ const SECTIONS: Array<{ id: Section; label: string; icon: React.ReactNode; descr
     label: 'Notificações',
     icon: <Bell className="w-4 h-4" />,
     description: 'E-mail de alerta e integrações via webhook.'
+  },
+  {
+    id: 'equipa',
+    label: 'Equipa',
+    icon: <Users className="w-4 h-4" />,
+    description: 'Convidar funcionários ao mesmo workspace (dados partilhados).'
   },
   {
     id: 'conta',
@@ -539,6 +547,12 @@ export const SettingsTab: React.FC = () => {
               </div>
             </label>
           </Card>
+        </div>
+      )}
+
+      {section === 'equipa' && (
+        <div className="space-y-4">
+          <WorkspaceTeamSection />
         </div>
       )}
 

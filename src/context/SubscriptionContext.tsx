@@ -3,6 +3,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { firestoreTimeToMs } from '../utils/firestoreTime';
 import { useAuth } from './AuthContext';
+import { useWorkspace } from './WorkspaceContext';
 import { useAppConfig } from './AppConfigContext';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
 import { isAdminUserEmail } from '../utils/adminAccess';
@@ -40,11 +41,14 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
 
 export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { effectiveWorkspaceUid, loading: workspaceLoading } = useWorkspace();
   const { config } = useAppConfig();
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
 
   const enforce = import.meta.env.VITE_ENFORCE_SUBSCRIPTION === 'true';
+
+  const subscriptionUid = user?.uid ? effectiveWorkspaceUid ?? user.uid : null;
 
   useEffect(() => {
     if (!user) {
@@ -52,7 +56,12 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       setLoading(false);
       return;
     }
-    const ref = doc(db, 'userSubscriptions', user.uid);
+    if (workspaceLoading) {
+      setLoading(true);
+      return;
+    }
+    const subUid = effectiveWorkspaceUid ?? user.uid;
+    const ref = doc(db, 'userSubscriptions', subUid);
     const unsub = onSnapshot(
       ref,
       (snap) => {
@@ -69,7 +78,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       }
     );
     return () => unsub();
-  }, [user]);
+  }, [user, effectiveWorkspaceUid, workspaceLoading]);
 
   const hasFullAccess = useMemo(() => {
     if (!enforce) return true;

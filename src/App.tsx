@@ -32,6 +32,7 @@ import { TutorialPage } from './components/help/TutorialPage';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
 import { isAdminUserEmail } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
+import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
@@ -252,7 +253,11 @@ const MainLayout: React.FC = () => {
 };
 
 const GateOrApp: React.FC = () => {
+  const { loading: workspaceLoading } = useWorkspace();
   const { loading, enforce, needsOnboardingGate } = useSubscription();
+  if (workspaceLoading) {
+    return <SessionSpinner label="Carregando workspace..." />;
+  }
   if (loading) {
     return <SessionSpinner label="Carregando assinatura..." />;
   }
@@ -280,10 +285,12 @@ const AuthGate: React.FC = () => {
   if (!user) return <PreLoginLanding />;
 
   return (
-    <SubscriptionProvider>
-      <TrialAutoStart />
-      <GateOrApp />
-    </SubscriptionProvider>
+    <WorkspaceProvider>
+      <SubscriptionProvider>
+        <TrialAutoStart />
+        <GateOrApp />
+      </SubscriptionProvider>
+    </WorkspaceProvider>
   );
 };
 

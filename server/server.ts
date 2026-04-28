@@ -58,6 +58,7 @@ import { getSystemMetrics } from './systemMetricsShared.js';
 import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
 import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
+import { registerWorkspaceRoutes } from './workspaceRoutes.js';
 
 function notifyCampaignSocketError(
   uid: string,
@@ -164,6 +165,7 @@ registerBillingTrialRoutes(app);
 registerAdminAppConfigRoutes(app);
 registerAdminOpsRoutes(app);
 registerAdminConnectionsRoutes(app);
+registerWorkspaceRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', (req, res) => {
@@ -356,7 +358,21 @@ const registerSocketHandlers = () => {
       const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
       if (adminApp && token) {
         const decoded = await getAuth(adminApp).verifyIdToken(token);
-        socket.data.uid = decoded.uid;
+        const authUid = decoded.uid;
+        socket.data.authUid = authUid;
+        let tenantUid = authUid;
+        try {
+          const lk = await adminApp.firestore().collection('userWorkspaceLinks').doc(authUid).get();
+          if (lk.exists) {
+            const ou = lk.data()?.ownerUid;
+            if (typeof ou === 'string' && ou.trim().length > 0) {
+              tenantUid = ou.trim();
+            }
+          }
+        } catch (e) {
+          console.warn('[socket] userWorkspaceLinks:', (e as Error)?.message || e);
+        }
+        socket.data.uid = tenantUid;
         next();
         return;
       }
@@ -374,6 +390,7 @@ const registerSocketHandlers = () => {
   // --- SOCKET.IO EVENTS ---
   io.on('connection', (socket) => {
     const uid = String(socket.data.uid || 'anonymous');
+    const authOp = String((socket.data as { authUid?: string }).authUid || uid);
     let lastUiLogKey = '';
     let lastUiLogAt = 0;
     const ownsConnectionId = (connectionId: string) => ownsConnectionForUid(uid, connectionId);
@@ -397,7 +414,7 @@ const registerSocketHandlers = () => {
     const requireActiveSubscription = async (): Promise<boolean> => {
       if (!subscriptionEnforceFromEnv()) return true;
       if (!uid || uid === 'anonymous') return true;
-      if (await isUidTreatedAsServerAdmin(uid)) return true;
+      if (await isUidTreatedAsServerAdmin(authOp)) return true;
       const sub = await readUserSubscriptionForLimits(uid);
       if (userHasFullAppAccess(sub, Date.now())) return true;
       socket.emit('subscription-required', {
@@ -456,7 +473,7 @@ const registerSocketHandlers = () => {
         const connName = typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp';
         const owner = uid && uid !== 'anonymous' ? uid : undefined;
         await runSessionCommandOrLocal({
-          submit: () => submitCreateConnection(connName, uid, owner),
+          submit: () => submitCreateConnection(connName, authOp, owner),
           local: async () => {
             await waService.createConnection(connName, owner);
           }
@@ -473,7 +490,7 @@ const registerSocketHandlers = () => {
       userLog('ui:delete-connection', { id });
       try {
         await runSessionCommandOrLocal({
-          submit: () => submitDeleteConnection(id, uid),
+          submit: () => submitDeleteConnection(id, authOp),
           local: () => waService.deleteConnection(id)
         });
         socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
@@ -492,7 +509,7 @@ const registerSocketHandlers = () => {
         }
         userLog('ui:reconnect-connection', { id });
         await runSessionCommandOrLocal({
-          submit: () => submitReconnectConnection(id, uid),
+          submit: () => submitReconnectConnection(id, authOp),
           local: () => waService.reconnectConnection(id)
         });
       })();
@@ -507,7 +524,7 @@ const registerSocketHandlers = () => {
         }
         userLog('ui:force-qr', { id });
         await runSessionCommandOrLocal({
-          submit: () => submitForceQr(id, uid),
+          submit: () => submitForceQr(id, authOp),
           local: () => waService.forceQr(id)
         });
       })();
@@ -618,7 +635,7 @@ const registerSocketHandlers = () => {
           replyFlow,
           uid,
           channelWeights
-        );
+        ); // uid = tenant (dono/conta partilhada)
         if (!ok) {
           const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
           callback?.({ ok: false, error: errMsg });
@@ -648,7 +665,7 @@ const registerSocketHandlers = () => {
       userLog('ui:send-message', { conversationId });
       try {
         await runSessionCommandOrLocal({
-          submit: () => submitSendMessage(conversationId, text, uid),
+          submit: () => submitSendMessage(conversationId, text, authOp),
           local: () => waService.sendMessage(conversationId, text)
         });
         logEvent('wa:send-message', { conversationId });
@@ -687,7 +704,7 @@ const registerSocketHandlers = () => {
         }
         try {
           await runSessionCommandOrLocal({
-            submit: () => submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, uid),
+            submit: () => submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, authOp),
             local: () =>
               waService.sendMedia(conversationId, {
                 dataBase64,

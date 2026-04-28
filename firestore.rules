@@ -1,6 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Membro da equipa (userWorkspaceLinks): acesso aos dados do dono (mesmo uid em users/{dono}/...)
+    function workspaceLinkOwnerUid() {
+      return get(/databases/$(database)/documents/userWorkspaceLinks/$(request.auth.uid)).data.ownerUid;
+    }
+    function isTeamMemberOf(targetUserPathUid) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/userWorkspaceLinks/$(request.auth.uid))
+        && workspaceLinkOwnerUid() == targetUserPathUid;
+    }
+    function canAccessUserSubtree(targetUserPathUid) {
+      return request.auth != null && (request.auth.uid == targetUserPathUid || isTeamMemberOf(targetUserPathUid));
+    }
     
     // --- Regras do Sistema ZapMass ---
     // Permite leitura e escrita livre para funcionamento sem login
@@ -25,32 +38,36 @@ service cloud.firestore {
 
     // Plano B: isolamento por usuário (cada cliente só enxerga seus próprios dados)
     match /users/{uid}/contacts/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if canAccessUserSubtree(uid);
     }
 
     match /users/{uid}/contact_lists/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if canAccessUserSubtree(uid);
     }
 
     match /users/{uid}/campaigns/{campaignId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-      // Logs de campanha (addDoc em .../campaigns/{id}/logs) — sem isto: "Missing or insufficient permissions"
+      allow read, write: if canAccessUserSubtree(uid);
       match /logs/{logId} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, write: if canAccessUserSubtree(uid);
       }
     }
 
-    // Sugestões de melhoria (botão «Sugestão» na barra superior)
     match /users/{uid}/suggestions/{docId} {
       allow create: if request.auth != null && request.auth.uid == uid;
       allow read: if request.auth != null && request.auth.uid == uid;
       allow update, delete: if false;
     }
 
-    // Centro de notificações (escrita só pelo servidor via Admin SDK; leitura e marcar lida pelo cliente)
     match /users/{uid}/notifications/{docId} {
-      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
+      allow read, update, delete: if canAccessUserSubtree(uid);
       allow create: if false;
+    }
+
+    /** Vinculo funcionario ↔ dono (leitura propria ou do dono). Escrita via Firebase Admin apenas. */
+    match /userWorkspaceLinks/{staffUid} {
+      allow read: if request.auth != null &&
+        (request.auth.uid == staffUid || resource.data.ownerUid == request.auth.uid);
+      allow write: if false;
     }
 
     // --- Regras Legadas / ZapFlow ---
@@ -65,7 +82,7 @@ service cloud.firestore {
 
     // Assinatura (lido pelo app; escrita apenas via Firebase Admin nos webhooks do servidor)
     match /userSubscriptions/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && (request.auth.uid == uid || isTeamMemberOf(uid));
       allow write: if false;
     }
 

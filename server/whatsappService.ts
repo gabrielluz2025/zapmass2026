@@ -705,13 +705,48 @@ const maybeResolveUserJidForSend = async (client: WhatsAppClient, chatId: string
     return resolveBestUserJidForSend(client, raw);
 };
 
+/**
+ * getNumberId() às vezes devolve null por instabilidade do WhatsApp Web, não porque o número seja inválido.
+ * Várias rodadas curtas reduzem falso positivo de "numero não registrado".
+ */
+const resolveNumberIdsWithRetries = async (
+    client: WhatsAppClient,
+    variants: string[],
+    rounds = 3,
+    pauseMs = 900
+): Promise<string | null> => {
+    for (let round = 0; round < rounds; round++) {
+        for (const variant of variants) {
+            try {
+                const resolvedId = await client.getNumberId(variant);
+                if (resolvedId?._serialized) {
+                    return resolvedId._serialized;
+                }
+            } catch {
+                /* próxima variante / rodada */
+            }
+        }
+        if (round < rounds - 1) {
+            await new Promise((r) => setTimeout(r, pauseMs));
+        }
+    }
+    return null;
+};
+
 const formatSendError = (rawMessage?: string) => {
     const msg = rawMessage || 'Falha ao enviar mensagem';
+    const lower = msg.toLowerCase();
     if (msg.includes('No LID for user')) {
         return 'WhatsApp ainda nao associou este contato (LID). Abra o chat com o numero no WhatsApp Web/celular e tente de novo, ou confira o 9º digito.';
     }
-    if (msg.includes('not registered') || msg.includes('Number not found')) {
-        return 'Numero nao registrado no WhatsApp';
+    if (
+        msg.includes('not registered') ||
+        msg.includes('Number not found') ||
+        lower.includes('not a whatsapp') ||
+        lower.includes('is not on whatsapp') ||
+        lower.includes('no whatsapp account')
+    ) {
+        return 'Número sem WhatsApp ou não encontrado. Confira DDD, 9º dígito (celular BR) e se o contato usa WhatsApp.';
     }
     if (msg.includes('Invalid') || msg.includes('invalid')) {
         return 'Numero invalido';
@@ -3571,34 +3606,23 @@ const processQueue = async () => {
                 variants.push(`55${ddd}9${rest}`);
             }
 
-            // Resolve o chatId correto: usa cache, senão consulta getNumberId nas variantes
+            // Resolve o chatId: cache → getNumberId (com retries) → fallback @{número}@c.us (envio ainda pode resolver LID/JID).
             let targetChatId: string | null = null;
             const cachedId = getCachedNumberId(formattedNum);
             if (cachedId) {
                 targetChatId = cachedId;
                 console.log(`[ContactCache] ✅ Hit para ${formattedNum} → ${cachedId}`);
             } else {
-                for (const variant of variants) {
-                    const resolvedId = await activeClient.getNumberId(variant).catch(() => null);
-                    if (resolvedId?._serialized) {
-                        targetChatId = resolvedId._serialized;
-                        setCachedNumberId(formattedNum, targetChatId);
-                        console.log(`[ContactCache] ✅ Número válido: ${variant} → ${targetChatId}`);
-                        break;
-                    }
+                targetChatId = await resolveNumberIdsWithRetries(activeClient, variants, 3, 900);
+                if (targetChatId) {
+                    setCachedNumberId(formattedNum, targetChatId);
+                    console.log(`[ContactCache] ✅ Número resolvido após retries → ${targetChatId}`);
                 }
                 if (!targetChatId) {
-                    // Nenhuma variante foi reconhecida — marca como número inválido e segue
-                    emitCampaignLog('ERROR', 'Numero nao registrado no WhatsApp', {
-                        to: formattedNum,
-                        connectionId: item.connectionId,
-                        variantsTested: variants
-                    });
-                    currentCampaign.failCount++;
-                    currentCampaign.processed++;
-                    updateChannelMetrics(item.connectionId, false);
-                    handleCampaignProgress();
-                    continue;
+                    targetChatId = `${formattedNum}@c.us`;
+                    console.warn(
+                        `[Queue] getNumberId sem resultado (${variants.join(', ')}) → tentativa de envio direto ${targetChatId}`
+                    );
                 }
             }
 
