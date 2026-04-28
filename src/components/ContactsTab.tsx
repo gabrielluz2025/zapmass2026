@@ -13,6 +13,7 @@ import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual'
 import { ContactsBulkBar } from './contacts/workspace/ContactsBulkBar';
 import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
 import { ContactsInsightsModal } from './contacts/workspace/ContactsInsightsModal';
+import { parseVcfText, type ParsedVcfEntry } from '../utils/parseVcf';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -56,6 +57,10 @@ type FileImportRow = {
 
 type FileImportRowView = FileImportRow & {
   duplicate: boolean;
+  /** Número já existe na base (CRM). */
+  duplicateAgainstBase: boolean;
+  /** Mesmo telefone apareceu numa linha anterior deste ficheiro (2ª cópia em diante). */
+  duplicateRepeatedInFile: boolean;
   duplicateName?: string;
   problems: string[];
 };
@@ -486,6 +491,7 @@ export const ContactsTab: React.FC = () => {
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editingListName, setEditingListName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const vcfInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showCreateList, setShowCreateList] = useState(false);
   const [newListName, setNewListName] = useState('');
@@ -858,6 +864,32 @@ export const ContactsTab: React.FC = () => {
     };
   };
 
+  const vcfParsedToContact = (entry: ParsedVcfEntry, i: number): Contact => {
+    const digits = (entry.phoneDigits || '').replace(/\D/g, '');
+    const zp = (entry.zipCode || '').replace(/\D/g, '').slice(0, 8);
+    const zipCode = zp.length > 5 ? `${zp.slice(0, 5)}-${zp.slice(5)}` : zp;
+    return {
+      id: `import_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+      name: entry.name.trim(),
+      phone: digits,
+      city: entry.city || '',
+      state: (entry.state || '').toUpperCase().slice(0, 2),
+      street: entry.street || '',
+      number: '',
+      neighborhood: entry.neighborhood || '',
+      zipCode,
+      church: entry.church || '',
+      role: '',
+      profession: entry.profession || '',
+      birthday: entry.birthday || '',
+      email: entry.email || '',
+      notes: entry.notes || '',
+      tags: ['Importado', 'vCard'],
+      status: digits.length >= 10 ? 'VALID' : 'INVALID',
+      lastMsg: 'Nunca'
+    };
+  };
+
   const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -895,7 +927,7 @@ export const ContactsTab: React.FC = () => {
       }
 
       const existingKeys = new Set(contacts.map(c => normPhoneKey(c.phone)).filter(Boolean));
-      const seenBatch = new Set<string>();
+      const seenPhoneInFile = new Set<string>();
       const preview: FileImportRow[] = [];
       let nProb = 0;
 
@@ -908,8 +940,10 @@ export const ContactsTab: React.FC = () => {
         else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
 
         const k = normPhoneKey(contact.phone);
-        const duplicate = !!(k && (existingKeys.has(k) || seenBatch.has(k)));
-        if (k && !duplicate) seenBatch.add(k);
+        const duplicateAgainstBase = !!(k && existingKeys.has(k));
+        const duplicateRepeatedInFile = !!(k && seenPhoneInFile.has(k));
+        const duplicate = duplicateAgainstBase || duplicateRepeatedInFile;
+        if (k) seenPhoneInFile.add(k);
 
         if (problems.length > 0 || duplicate) nProb++;
         const include = !duplicate && problems.length === 0;
@@ -932,6 +966,62 @@ export const ContactsTab: React.FC = () => {
     } catch (err: any) {
       console.error('[ImportContacts]', err);
       toast.error('Falha ao ler o arquivo. Confira o formato e tente novamente.');
+    }
+  };
+
+  const handleImportVcf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    try {
+      const text = await file.text();
+      const entries = parseVcfText(text);
+      if (entries.length === 0) {
+        toast.error('Nenhum vCard (BEGIN:VCARD) encontrado no ficheiro.');
+        return;
+      }
+      const existingKeys = new Set(contacts.map((c) => normPhoneKey(c.phone)).filter(Boolean));
+      const seenPhoneInFile = new Set<string>();
+      const preview: FileImportRow[] = [];
+      let nProb = 0;
+
+      entries.forEach((entry, i) => {
+        const contact = vcfParsedToContact(entry, i);
+        const problems: string[] = [];
+        if (!contact.name.trim()) problems.push('Nome ausente');
+        const d = contact.phone.replace(/\D/g, '');
+        if (!d) problems.push('Telefone ausente');
+        else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
+
+        const k = normPhoneKey(contact.phone);
+        const duplicateAgainstBase = !!(k && existingKeys.has(k));
+        const duplicateRepeatedInFile = !!(k && seenPhoneInFile.has(k));
+        const duplicate = duplicateAgainstBase || duplicateRepeatedInFile;
+        if (k) seenPhoneInFile.add(k);
+
+        if (problems.length > 0 || duplicate) nProb++;
+        const include = !duplicate && problems.length === 0;
+        preview.push({
+          id: `fip_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+          lineNumber: i + 1,
+          include,
+          contact
+        });
+      });
+
+      setFileImportRows(preview);
+      setFileImportLabel(file.name);
+      setFileImportFilter('all');
+      setFileImportTargetMode('none');
+      setFileImportTargetListId('');
+      setFileImportNewListName('');
+      setFileImportOpen(true);
+      toast.success(
+        `${preview.length} contato(s) no vCard. ${nProb > 0 ? `${nProb} com aviso — revise antes de importar.` : 'Pronto para importar.'}`
+      );
+    } catch (err: unknown) {
+      console.error('[ImportVcf]', err);
+      toast.error('Falha ao ler o ficheiro .vcf. Confira o formato e tente novamente.');
     }
   };
 
@@ -1239,7 +1329,8 @@ export const ContactsTab: React.FC = () => {
       const k = normPhoneKey(c.phone);
       if (k) nameByKey.set(k, c.name);
     });
-    const seen = new Set<string>();
+    /** Telefones já vistos em linhas anteriores **deste** ficheiro (incl. 1.ª ocorrência). */
+    const seenPhoneInFile = new Set<string>();
     return fileImportRows.map(r => {
       const problems: string[] = [];
       if (!r.contact.name.trim()) problems.push('Nome ausente');
@@ -1247,12 +1338,29 @@ export const ContactsTab: React.FC = () => {
       if (!d) problems.push('Telefone ausente');
       else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
       const k = normPhoneKey(r.contact.phone);
-      const duplicate = !!(k && (existingKeys.has(k) || seen.has(k)));
-      const duplicateName = k && existingKeys.has(k) ? nameByKey.get(k) : undefined;
-      if (k && !duplicate) seen.add(k);
-      return { ...r, problems, duplicate, duplicateName };
+      const duplicateAgainstBase = !!(k && existingKeys.has(k));
+      const duplicateRepeatedInFile = !!(k && seenPhoneInFile.has(k));
+      const duplicate = duplicateAgainstBase || duplicateRepeatedInFile;
+      const duplicateName = k && duplicateAgainstBase ? nameByKey.get(k) : undefined;
+      if (k) seenPhoneInFile.add(k);
+      return { ...r, problems, duplicate, duplicateAgainstBase, duplicateRepeatedInFile, duplicateName };
     });
   }, [fileImportRows, contacts]);
+
+  /** Resumo da triagem: base vs repetição no arquivo vs novos. */
+  const fileImportTriageSummary = useMemo(() => {
+    const v = fileImportRowsView;
+    const total = v.length;
+    const againstBase = v.filter((r) => r.duplicateAgainstBase).length;
+    const repeatedInFile = v.filter((r) => r.duplicateRepeatedInFile).length;
+    /** 2ª+ vez no ficheiro e o número ainda não estava na base. */
+    const repeatedOnlyInFile = v.filter((r) => r.duplicateRepeatedInFile && !r.duplicateAgainstBase).length;
+    /** Primeira vez no ficheiro e número novo na base — prontos para importar como novos (se sem outros problemas). */
+    const newInFileReady = v.filter(
+      (r) => !r.duplicateAgainstBase && !r.duplicateRepeatedInFile && r.problems.length === 0
+    ).length;
+    return { total, againstBase, repeatedInFile, repeatedOnlyInFile, newInFileReady };
+  }, [fileImportRowsView]);
 
   const contactListMembership = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -2030,12 +2138,20 @@ export const ContactsTab: React.FC = () => {
               className="hidden"
               onChange={handleImportCSV}
             />
+            <input
+              ref={vcfInputRef}
+              type="file"
+              accept=".vcf,.vcard,text/vcard,text/x-vcard,text/directory"
+              className="hidden"
+              onChange={handleImportVcf}
+            />
 
       {!listManageId && (
         <ContactsHeaderBar
           stats={headerStats}
           onNewContact={openNewContactModal}
           onImportXLSX={openImportXLSX}
+          onImportVcf={openImportVcf}
           onSmartImport={openSmartImport}
           onDownloadTemplate={handleDownloadTemplate}
           onExport={handleExport}
@@ -2709,7 +2825,7 @@ export const ContactsTab: React.FC = () => {
         </div>
       )}
 
-      {/* Revisao de importacao por arquivo (XLSX/CSV): filtros, problemas, duplicados */}
+      {/* Revisao de importacao por arquivo (XLSX/CSV ou vCard): filtros, problemas, duplicados */}
       {fileImportOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-6 animate-fadeIn" onClick={() => setFileImportOpen(false)}>
           <div
@@ -2752,8 +2868,37 @@ export const ContactsTab: React.FC = () => {
                   </button>
                 ))}
               </div>
+              {fileImportTriageSummary.total > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-2.5 bg-white/80 dark:bg-slate-900/40">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase text-slate-500">No arquivo</p>
+                    <p className="text-lg font-bold tabular-nums text-slate-900 dark:text-white">{fileImportTriageSummary.total}</p>
+                    <p className="text-[10px] text-slate-500">linhas</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase text-rose-600">Já na base</p>
+                    <p className="text-lg font-bold tabular-nums text-rose-700 dark:text-rose-400">{fileImportTriageSummary.againstBase}</p>
+                    <p className="text-[10px] text-slate-500">número no CRM</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase text-amber-700">Repetido no arquivo</p>
+                    <p className="text-lg font-bold tabular-nums text-amber-700 dark:text-amber-300">{fileImportTriageSummary.repeatedInFile}</p>
+                    <p className="text-[10px] text-slate-500">2ª cópia em diante</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase text-violet-700">Só no arquivo</p>
+                    <p className="text-lg font-bold tabular-nums text-violet-700 dark:text-violet-300">{fileImportTriageSummary.repeatedOnlyInFile}</p>
+                    <p className="text-[10px] text-slate-500">repetido no arquivo (não no CRM)</p>
+                  </div>
+                  <div className="min-w-0 col-span-2 sm:col-span-1">
+                    <p className="text-[10px] font-bold uppercase text-emerald-700">Novos no arquivo</p>
+                    <p className="text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{fileImportTriageSummary.newInFileReady}</p>
+                    <p className="text-[10px] text-slate-500">primeira vez no arquivo e número novo no CRM</p>
+                  </div>
+                </div>
+              )}
               <p className="text-[11px] text-slate-500">
-                Duplicados = mesmo telefone ja cadastrado ou repetido no arquivo. Linhas com problema nao sao importadas ate voce corrigir e marcar o checkbox.
+                Duplicado na base = telefone já cadastrado. Repetido no arquivo = mesmo número em mais de uma linha deste ficheiro. Linhas com problema não entram até corrigir.
               </p>
               <div className="flex items-center justify-end">
                 <Button variant="ghost" size="sm" type="button" onClick={autoFixFileImportRows}>
@@ -2800,11 +2945,20 @@ export const ContactsTab: React.FC = () => {
                             />
                           </td>
                           <td className="px-2 py-1.5 text-slate-400 tabular-nums">{rv.lineNumber}</td>
-                          <td className="px-2 py-1.5 max-w-[200px]">
+                          <td className="px-2 py-1.5 max-w-[220px]">
                             {rv.duplicate ? (
-                              <span className="text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
-                                Duplicado{rv.duplicateName ? ` (${rv.duplicateName})` : ''}
-                              </span>
+                              <div className="flex flex-col gap-0.5">
+                                {rv.duplicateAgainstBase && (
+                                  <span className="text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+                                    Na base{rv.duplicateName ? ` · ${rv.duplicateName}` : ''}
+                                  </span>
+                                )}
+                                {rv.duplicateRepeatedInFile && (
+                                  <span className="text-amber-700 dark:text-amber-300 font-semibold text-[11px]">
+                                    Repetido no arquivo
+                                  </span>
+                                )}
+                              </div>
                             ) : rv.problems.length ? (
                               <span className="text-amber-700 dark:text-amber-300 text-[11px]">{rv.problems.join(' · ')}</span>
                             ) : (

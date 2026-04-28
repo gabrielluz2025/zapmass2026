@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, UserPlus, Upload, Download, BarChart3, FileSpreadsheet, Wand2, ChevronDown } from 'lucide-react';
+import { Users, UserPlus, Upload, Download, BarChart3, FileSpreadsheet, Wand2, ChevronDown, Smartphone } from 'lucide-react';
 
 interface HeaderStats {
   total: number;
@@ -13,6 +13,7 @@ interface Props {
   stats: HeaderStats;
   onNewContact: () => void;
   onImportXLSX: () => void;
+  onImportVcf: () => void;
   onSmartImport: () => void;
   onDownloadTemplate: () => void;
   onExport: () => void;
@@ -29,6 +30,7 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
   stats,
   onNewContact,
   onImportXLSX,
+  onImportVcf,
   onSmartImport,
   onDownloadTemplate,
   onExport,
@@ -102,6 +104,12 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
                 title="Importar XLSX / CSV"
                 subtitle="Planilha com as colunas do template"
                 onClick={() => { setImportOpen(false); onImportXLSX(); }}
+              />
+              <MenuItem
+                icon={<Smartphone className="w-4 h-4 text-teal-500" />}
+                title="Importar vCard (.vcf)"
+                subtitle="Exportado do celular (Contactos ou Android)"
+                onClick={() => { setImportOpen(false); onImportVcf(); }}
               />
               <MenuItem
                 icon={<Wand2 className="w-4 h-4 text-violet-500" />}
