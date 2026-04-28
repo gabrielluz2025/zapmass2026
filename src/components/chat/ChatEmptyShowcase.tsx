@@ -38,14 +38,14 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
   crmStats
 }) => {
   const features = [
-    { icon: <StickyNote className="w-4 h-4" />, label: 'Anotações privadas', hint: 'Histórico por cliente', color: '#10b981' },
-    { icon: <Tag className="w-4 h-4" />, label: 'Tags coloridas', hint: 'VIP, lead, quente, etc', color: '#8b5cf6' },
-    { icon: <Bell className="w-4 h-4" />, label: 'Lembretes', hint: '1h, 1 dia ou 1 semana', color: '#f59e0b' },
-    { icon: <LayoutGrid className="w-4 h-4" />, label: 'Quadro Kanban', hint: 'Arraste cards no pipeline', color: '#3b82f6' },
-    { icon: <ImageIcon className="w-4 h-4" />, label: 'Galeria de mídias', hint: 'Fotos, vídeos e docs', color: '#06b6d4' },
-    { icon: <Pin className="w-4 h-4" />, label: 'Fixar contato', hint: 'Favoritos no topo', color: '#ec4899' },
-    { icon: <Search className="w-4 h-4" />, label: 'Busca no chat', hint: 'Encontre qualquer palavra', color: '#6366f1' },
-    { icon: <ShieldCheck className="w-4 h-4" />, label: 'Auditoria', hint: 'Remover conversas fantasmas', color: '#84cc16' }
+    { icon: <StickyNote className="w-4 h-4 stroke-[2]" />, label: 'Anotações privadas', hint: 'Histórico por cliente' },
+    { icon: <Tag className="w-4 h-4 stroke-[2]" />, label: 'Tags coloridas', hint: 'VIP, lead, urgente…' },
+    { icon: <Bell className="w-4 h-4 stroke-[2]" />, label: 'Lembretes', hint: 'Follow-up automatizado' },
+    { icon: <LayoutGrid className="w-4 h-4 stroke-[2]" />, label: 'Quadro Kanban', hint: 'Arraste entre etapas' },
+    { icon: <ImageIcon className="w-4 h-4 stroke-[2]" />, label: 'Galeria de mídias', hint: 'Ficheiros ligados ao contacto' },
+    { icon: <Pin className="w-4 h-4 stroke-[2]" />, label: 'Fixar contacto', hint: 'Prioridade na lista' },
+    { icon: <Search className="w-4 h-4 stroke-[2]" />, label: 'Busca no chat', hint: 'Texto por conversa' },
+    { icon: <ShieldCheck className="w-4 h-4 stroke-[2]" />, label: 'Auditoria', hint: 'Limpar conversas inválidas' }
   ];
 
   const crmCount =
@@ -56,89 +56,71 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
     crmStats.resolvidos;
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center relative overflow-hidden px-6 py-8">
-      {/* Orbs animados */}
+    <div className="flex-1 flex flex-col items-center justify-center relative overflow-hidden px-5 py-10">
+      {/* Fundo discreto */}
       <div
-        className="absolute -top-24 -left-24 w-72 h-72 rounded-full blur-3xl opacity-40 animate-pulse"
-        style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.45), transparent 70%)' }}
-        aria-hidden
-      />
-      <div
-        className="absolute -bottom-32 -right-24 w-80 h-80 rounded-full blur-3xl opacity-30 animate-pulse"
+        className="pointer-events-none absolute inset-0 opacity-[0.35]"
         style={{
-          background: 'radial-gradient(circle, rgba(59,130,246,0.4), transparent 70%)',
-          animationDelay: '1s'
+          background:
+            'radial-gradient(ellipse 80% 50% at 50% -20%, color-mix(in srgb, var(--brand-500) 22%, transparent), transparent)'
         }}
         aria-hidden
       />
 
-      <div className="relative max-w-lg w-full">
-        {/* Icone hero */}
-        <div className="relative inline-block mb-5">
+      <div className="relative w-full max-w-[440px] text-center flex flex-col items-center">
+        {/* Hero */}
+        <div className="mb-6 flex flex-col items-center">
           <div
-            className="absolute inset-0 rounded-3xl blur-xl opacity-60"
-            style={{ background: 'linear-gradient(135deg, #10b981, #3b82f6)' }}
-            aria-hidden
-          />
-          <div
-            className="relative w-24 h-24 rounded-3xl flex items-center justify-center mx-auto"
+            className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
             style={{
-              background: 'linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #3b82f6 100%)',
-              boxShadow: '0 20px 60px -20px rgba(16,185,129,0.5)'
+              background: 'color-mix(in srgb, var(--brand-500) 14%, var(--surface-1))',
+              border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)',
+              boxShadow: '0 12px 40px -16px color-mix(in srgb, var(--brand-500) 45%, transparent)'
             }}
           >
-            <Workflow className="w-11 h-11 text-white" />
+            <Workflow className="w-8 h-8" strokeWidth={1.75} style={{ color: 'var(--brand-500)' }} />
           </div>
           <span
-            className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full text-[9px] font-black tracking-widest uppercase"
+            className="mb-3 inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide"
             style={{
-              background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
-              color: '#fff',
-              boxShadow: '0 4px 12px rgba(239,68,68,0.4)'
+              background: 'var(--surface-2)',
+              color: 'var(--text-3)',
+              border: '1px solid var(--border-subtle)'
             }}
           >
-            CRM
+            CRM ZapMass
           </span>
+
+          <h1 className="text-[22px] font-bold tracking-tight leading-snug mb-2" style={{ color: 'var(--text-1)' }}>
+            Pipeline conversacional
+          </h1>
+          <p className="text-[13px] leading-relaxed max-w-sm mx-auto" style={{ color: 'var(--text-2)' }}>
+            Centralize mensagens, notas e etapas de venda por contato — em um só lugar.
+          </p>
+          <p className="mt-2 text-[12px] leading-snug max-w-sm" style={{ color: 'var(--text-3)' }}>
+            À esquerda, escolha uma conversa para abrir a conversa completa.
+          </p>
         </div>
 
-        <h1
-          className="text-[26px] font-black mb-2 tracking-tight"
-          style={{
-            background: 'linear-gradient(135deg, var(--text-1), var(--brand-600))',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text'
-          }}
-        >
-          Pipeline conversacional
-        </h1>
-        <p className="text-[13.5px] leading-relaxed mb-5 max-w-md mx-auto" style={{ color: 'var(--text-2)' }}>
-          Converse, anote, classifique e acompanhe cada cliente como um gerente de vendas.
-          <span className="block mt-1" style={{ color: 'var(--text-3)' }}>
-            Selecione uma conversa à esquerda para abrir a ficha completa.
-          </span>
-        </p>
-
-        {/* KPIs ao vivo */}
+        {/* KPIs — mesmo tom, menos “arco-íris” */}
         <div
-          className="grid grid-cols-4 gap-2 mb-5 p-3 rounded-2xl"
-          style={{
-            background: 'var(--surface-0)',
-            border: '1px solid var(--border-subtle)',
-            boxShadow: 'var(--shadow-sm)'
-          }}
+          className="mb-8 w-full grid grid-cols-4 gap-px overflow-hidden rounded-xl"
+          style={{ background: 'var(--border-subtle)' }}
         >
           {[
-            { label: 'Conversas', value: totalConversations, color: 'var(--brand-600)' },
-            { label: 'Não lidas', value: totalUnread, color: '#f59e0b' },
-            { label: 'Canais', value: totalChannels, color: '#3b82f6' },
-            { label: 'No CRM', value: crmCount, color: '#8b5cf6' }
+            { label: 'Conversas', value: totalConversations },
+            { label: 'Não lidas', value: totalUnread },
+            { label: 'Canais', value: totalChannels },
+            { label: 'No CRM', value: crmCount }
           ].map((s) => (
-            <div key={s.label}>
-              <div className="text-[22px] font-black tabular-nums" style={{ color: s.color }}>
+            <div key={s.label} className="px-3 py-3" style={{ background: 'var(--surface-1)' }}>
+              <div
+                className="text-xl font-semibold tabular-nums leading-none"
+                style={{ color: 'var(--text-1)' }}
+              >
                 {s.value.toLocaleString('pt-BR')}
               </div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider mt-0.5" style={{ color: 'var(--text-3)' }}>
+              <div className="text-[10px] font-medium mt-2 uppercase tracking-wider leading-tight" style={{ color: 'var(--text-3)' }}>
                 {s.label}
               </div>
             </div>
@@ -147,91 +129,96 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
 
         {/* Funil de status CRM */}
         {crmCount > 0 && (
-          <div className="mb-5 flex items-center gap-1.5 flex-wrap justify-center">
+          <div className="mb-6 flex flex-wrap items-center justify-center gap-1.5">
             {crmStats.leads > 0 && (
               <span
-                className="text-[11px] font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1"
-                style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.3)' }}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
-                ✨ {crmStats.leads} lead{crmStats.leads === 1 ? '' : 's'}
+                {crmStats.leads} lead{crmStats.leads === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.clientes > 0 && (
               <span
-                className="text-[11px] font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1"
-                style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
-                💚 {crmStats.clientes} cliente{crmStats.clientes === 1 ? '' : 's'}
+                {crmStats.clientes} cliente{crmStats.clientes === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.pendentes > 0 && (
               <span
-                className="text-[11px] font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1"
-                style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
-                ⏳ {crmStats.pendentes} pendente{crmStats.pendentes === 1 ? '' : 's'}
+                {crmStats.pendentes} pendente{crmStats.pendentes === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.resolvidos > 0 && (
               <span
-                className="text-[11px] font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1"
-                style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
-                ✅ {crmStats.resolvidos}
+                {crmStats.resolvidos} resolvido{crmStats.resolvidos === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.comReminder > 0 && (
               <span
-                className="text-[11px] font-bold px-2.5 py-1 rounded-full inline-flex items-center gap-1"
-                style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
+                style={{
+                  background: 'color-mix(in srgb, var(--brand-500) 8%, var(--surface-2))',
+                  color: 'var(--text-2)',
+                  border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)'
+                }}
               >
-                <Bell className="w-3 h-3" />
+                <Bell className="w-3 h-3 shrink-0" style={{ color: 'var(--brand-500)' }} />
                 {crmStats.comReminder} lembrete{crmStats.comReminder === 1 ? '' : 's'}
               </span>
             )}
           </div>
         )}
 
-        {/* Features */}
-        <p className="text-[10.5px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-3)' }}>
-          <Zap className="w-3 h-3 inline -mt-0.5 mr-1" />
-          Tudo isso aqui dentro
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {features.map((f) => (
-            <div
-              key={f.label}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all hover:-translate-y-0.5"
-              style={{
-                background: 'var(--surface-0)',
-                border: '1px solid var(--border-subtle)',
-                boxShadow: 'var(--shadow-sm)'
-              }}
-            >
+        {/* Recursos — grelha alinhada, ícone único */}
+        <div className="w-full text-left">
+          <p className="text-[11px] font-semibold mb-3 flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
+            <Zap className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-500)' }} />
+            Funcionalidades
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {features.map((f) => (
               <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: `${f.color}1f`, color: f.color }}
+                key={f.label}
+                className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors"
+                style={{
+                  background: 'var(--surface-1)',
+                  border: '1px solid var(--border-subtle)'
+                }}
               >
-                {f.icon}
+                <div
+                  className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
+                  style={{
+                    background: 'color-mix(in srgb, var(--brand-500) 10%, transparent)',
+                    color: 'var(--brand-500)'
+                  }}
+                >
+                  {f.icon}
+                </div>
+                <div className="min-w-0 space-y-0.5 pt-0.5">
+                  <p className="text-[12px] font-semibold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                    {f.label}
+                  </p>
+                  <p className="text-[10.5px] leading-snug line-clamp-2" style={{ color: 'var(--text-3)' }}>
+                    {f.hint}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-[12px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
-                  {f.label}
-                </p>
-                <p className="text-[10.5px] truncate" style={{ color: 'var(--text-3)' }}>
-                  {f.hint}
-                </p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center justify-center gap-2 mt-5">
-          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--brand-500)' }} />
-          <p className="text-[10.5px] font-medium" style={{ color: 'var(--text-3)' }}>
-            Criptografia fim-a-fim • dados CRM salvos localmente no seu navegador
-          </p>
-        </div>
+        <p className="mt-6 max-w-sm text-[11px] leading-relaxed mx-auto border-t pt-5" style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)' }}>
+          Metadados de CRM ficam neste navegador. Para envio WhatsApp continuam aplicáveis as políticas da Meta e do seu plano ZapMass.
+        </p>
       </div>
     </div>
   );

@@ -952,35 +952,51 @@ export const ChatTab: React.FC = () => {
         style={{ background: 'var(--surface-0)', borderRight: '1px solid var(--border-subtle)' }}
       >
         <div
-          className="flex items-center justify-between px-4 py-3.5 flex-shrink-0"
+          className="flex items-start justify-between gap-3 px-4 py-3 flex-shrink-0"
           style={{
             borderBottom: '1px solid var(--border-subtle)',
-            background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand-500) 8%, var(--surface-0)) 0%, var(--surface-0) 100%)'
+            background: 'var(--surface-0)'
           }}
         >
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
             <div
-              className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
+              className="h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-xl"
               style={{
-                background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 22%, transparent), color-mix(in srgb, var(--brand-600) 12%, var(--surface-1)))',
-                border: '1px solid color-mix(in srgb, var(--brand-500) 30%, transparent)',
-                boxShadow: '0 8px 20px -8px color-mix(in srgb, var(--brand-500) 45%, transparent)'
+                background: 'color-mix(in srgb, var(--brand-500) 14%, var(--surface-1))',
+                border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)',
+                boxShadow: '0 12px 32px -18px color-mix(in srgb, var(--brand-500) 40%, transparent)'
               }}
+              aria-hidden
             >
-              <Workflow className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+              <Workflow className="w-[18px] h-[18px]" strokeWidth={1.75} style={{ color: 'var(--brand-500)' }} />
             </div>
-            <div className="min-w-0">
-              <h2 className="ui-title text-[15px] leading-tight" style={{ color: 'var(--text-1)' }}>
+            <div className="min-w-0 pt-0.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] mb-1 leading-none" style={{ color: 'var(--text-3)' }}>
+                CRM ZapMass
+              </p>
+              <h2 className="text-[15px] font-bold tracking-tight leading-tight mb-1" style={{ color: 'var(--text-1)' }}>
                 Pipeline
               </h2>
-              <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-                <Smartphone className="w-3 h-3 inline -mt-0.5 mr-0.5" />
-                {totalPhone} do celular
+              <p className="text-[11px] leading-snug flex flex-wrap items-center gap-x-1 gap-y-1" style={{ color: 'var(--text-3)' }}>
+                <Smartphone className="w-3 h-3 flex-shrink-0 opacity-85" aria-hidden />
+                <span>
+                  <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{totalPhone}</span> no celular
+                </span>
                 {totalSystem > 0 && (
-                  <span style={{ color: 'var(--warning, #f59e0b)' }}> • {totalSystem} do sistema</span>
+                  <>
+                    <span aria-hidden style={{ color: 'var(--text-3)', opacity: 0.55 }}>&middot;</span>
+                    <span style={{ color: 'var(--warning, #f59e0b)' }}>
+                      <span style={{ fontWeight: 600 }}>{totalSystem}</span> sistema
+                    </span>
+                  </>
                 )}
                 {totalEmpty > 0 && (
-                  <span style={{ color: 'var(--text-3)' }}> • {totalEmpty} vazias</span>
+                  <>
+                    <span aria-hidden style={{ color: 'var(--text-3)', opacity: 0.55 }}>&middot;</span>
+                    <span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{totalEmpty}</span> vazias
+                    </span>
+                  </>
                 )}
               </p>
             </div>
@@ -992,11 +1008,15 @@ export const ChatTab: React.FC = () => {
               setAuditSelection(new Set());
               setShowAudit(true);
             }}
-            className="flex-shrink-0 p-2 rounded-lg transition-colors"
-            style={{ background: 'var(--surface-1)', color: 'var(--text-2)' }}
+            className="flex-shrink-0 p-2 rounded-lg transition-colors hover:opacity-95 active:opacity-90"
+            style={{
+              background: 'var(--surface-1)',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-3)'
+            }}
             title="Auditar origem das conversas"
           >
-            <ShieldCheck className="w-4 h-4" />
+            <ShieldCheck className="w-[17px] h-[17px]" strokeWidth={1.75} />
           </button>
         </div>
 
@@ -1025,7 +1045,10 @@ export const ChatTab: React.FC = () => {
           </div>
         )}
 
-        <div className="px-3 py-3 space-y-2.5 flex-shrink-0">
+        <div
+          className="px-3 pb-3 pt-2 space-y-2.5 flex-shrink-0"
+          style={{ borderBottom: pipelineView === 'quadro' ? '1px solid var(--border-subtle)' : undefined }}
+        >
           <Input
             leftIcon={<Search className="w-4 h-4" />}
             rightIcon={
@@ -1105,8 +1128,8 @@ export const ChatTab: React.FC = () => {
             ]}
           />
           {pipelineView === 'quadro' && (
-            <p className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>
-              Use &quot;Adicionar coluna&quot; no topo do quadro (ou o bloco tracejado à direita) para criar quantas colunas quiser. Arraste os cartoes entre elas. Dados salvos neste navegador.
+            <p className="text-[10px] leading-relaxed rounded-md px-2 py-1.5" style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}>
+              Quadro Kanban · arraste contatos entre colunas · dados da coluna guardados neste navegador
             </p>
           )}
         </div>

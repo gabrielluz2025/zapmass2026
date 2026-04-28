@@ -162,16 +162,18 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
     <>
       <div className="flex h-full min-h-0 flex-col">
         <div
-          className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 px-2 py-2"
+          className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 px-3 py-2.5"
           style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-0)' }}
         >
-          <span className="text-[11px] font-medium" style={{ color: 'var(--text-3)' }}>
-            {state.columns.length} coluna{state.columns.length === 1 ? '' : 's'} — adicione quantas precisar
+          <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+            <strong style={{ color: 'var(--text-2)', fontWeight: 600 }}>{state.columns.length}</strong>
+            {' '}
+            etapa{state.columns.length === 1 ? '' : 's'} no funil
           </span>
           <Button
             type="button"
             size="sm"
-            variant="secondary"
+            variant="primary"
             leftIcon={<Plus className="w-3.5 h-3.5" />}
             onClick={() => {
               setNewColName('');
@@ -187,30 +189,31 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
           return (
             <div
               key={col.id}
-              className="flex w-[min(100%,240px)] flex-shrink-0 flex-col rounded-xl min-h-0"
+              className="flex w-[min(100%,260px)] flex-shrink-0 flex-col rounded-lg min-h-0"
               style={{
                 background: 'var(--surface-1)',
-                border: '1px solid var(--border-subtle)'
+                border: '1px solid var(--border-subtle)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
               }}
               onDragOver={onDragOverCol}
               onDrop={(e) => onDropCol(e, col.id)}
             >
               <div
-                className="flex items-start justify-between gap-1 px-2.5 py-2 border-b flex-shrink-0"
-                style={{ borderColor: 'var(--border-subtle)' }}
+                className="flex items-start justify-between gap-2 px-3 py-2.5 border-b flex-shrink-0"
+                style={{ borderColor: 'var(--border-subtle)', background: 'color-mix(in srgb, var(--surface-2) 85%, transparent)' }}
               >
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="text-[12px] font-semibold truncate tracking-tight" style={{ color: 'var(--text-1)' }}>
                     {col.name}
                   </p>
-                  <p className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
-                    {list.length} cliente{list.length === 1 ? '' : 's'}
+                  <p className="text-[10px] mt-0.5 tabular-nums uppercase tracking-wide font-medium" style={{ color: 'var(--text-3)' }}>
+                    {list.length} contato{list.length === 1 ? '' : 's'}
                   </p>
                 </div>
                 <div className="flex items-center gap-0.5 flex-shrink-0">
                   <button
                     type="button"
-                    className="p-1 rounded-md transition-colors"
+                    className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-0)]"
                     style={{ color: 'var(--text-3)' }}
                     title="Renomear coluna"
                     onClick={() => setRenameOpen({ id: col.id, name: col.name })}
@@ -219,7 +222,7 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
                   </button>
                   <button
                     type="button"
-                    className="p-1 rounded-md transition-colors"
+                    className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-0)]"
                     style={{ color: 'var(--text-3)' }}
                     title="Remover coluna"
                     onClick={() => setDeleteAsk(col)}
@@ -278,8 +281,8 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
                   );
                 })}
                 {list.length === 0 && (
-                  <p className="text-[11px] text-center py-6 px-1" style={{ color: 'var(--text-3)' }}>
-                    Arraste clientes para aqui ou receba novas conversas.
+                  <p className="text-[10.5px] text-center leading-snug py-8 px-2 rounded-md mx-1" style={{ color: 'var(--text-3)', border: '1px dashed var(--border-subtle)' }}>
+                    Arraste um contato aqui ou aguarde mensagens neste canal.
                   </p>
                 )}
               </div>
@@ -292,11 +295,15 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
             setNewColName('');
             setAddOpen(true);
           }}
-          className="flex w-[min(100%,88px)] flex-shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed transition-colors self-stretch min-h-[140px] hover:opacity-90"
-          style={{ borderColor: 'var(--brand-500)', color: 'var(--brand-600)', background: 'rgba(16,185,129,0.06)' }}
+          className="flex w-[min(100%,96px)] flex-shrink-0 flex-col items-center justify-center gap-2 rounded-lg border border-dashed transition-colors self-stretch min-h-[140px]"
+          style={{
+            borderColor: 'color-mix(in srgb, var(--brand-500) 45%, transparent)',
+            color: 'var(--brand-600)',
+            background: 'color-mix(in srgb, var(--brand-500) 5%, var(--surface-0))'
+          }}
         >
-          <Plus className="w-5 h-5" />
-          <span className="text-[10px] font-semibold px-1.5 text-center leading-tight">Outra coluna</span>
+          <Plus className="w-5 h-5 opacity-90" />
+          <span className="text-[10px] font-semibold px-1 text-center leading-tight">Nova etapa</span>
         </button>
         </div>
       </div>

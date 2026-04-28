@@ -109,6 +109,22 @@ const clearCacheForConnection = (connectionId: string) => {
     }
 };
 
+/** Remove pasta Chromium + backup — necessário ao apagar canal (senão reinício recria entrada vinda de sessão em disco). */
+const removeSessionDir = async (connectionId: string) => {
+    const sessionPath = path.join(authDir, `session-${connectionId}`);
+    const backupPath = path.join(authDir, `session-${connectionId}.backup`);
+    try {
+        await fs.promises.rm(sessionPath, { recursive: true, force: true });
+    } catch {
+        /* ignore */
+    }
+    try {
+        await fs.promises.rm(backupPath, { force: true });
+    } catch {
+        /* ignore */
+    }
+};
+
 // --- VERIFICAÇÃO DUPLA DE CONEXÃO ---
 const isClientReallyReady = async (connectionId: string): Promise<boolean> => {
     const client = clients.get(connectionId);
@@ -3783,18 +3799,32 @@ const handleCampaignProgress = () => {
 export const deleteConnection = async (id: string) => {
     console.log(`[deleteConnection] Removendo canal ${id}...`);
     stopHealthCheck(id);
+    const rs = reconnectState.get(id);
+    if (rs?.timeout) clearTimeout(rs.timeout);
+    reconnectState.delete(id);
     const client = clients.get(id);
     if (client) {
-        try { await client.logout(); await client.destroy(); } catch (e) {}
+        try {
+            await client.logout();
+        } catch {
+            /* ignore */
+        }
+        try {
+            await client.destroy();
+        } catch {
+            /* ignore */
+        }
         clients.delete(id);
     }
-    connectionsInfo = connectionsInfo.filter(c => c.id !== id);
-    conversations = conversations.filter(conv => conv.connectionId !== id);
+    clearCacheForConnection(id);
+    await removeSessionDir(id);
+    connectionsInfo = connectionsInfo.filter((c) => c.id !== id);
+    conversations = conversations.filter((conv) => conv.connectionId !== id);
     channelQualityMetrics.delete(id);
     emitConnectionsUpdate();
     emitConversationsUpdate();
     persistConnections().catch(() => {});
-    console.log(`[deleteConnection] Canal ${id} removido. Total: ${connectionsInfo.length}`);
+    console.log(`[deleteConnection] Canal ${id} removido (sessão em disco apagada). Total: ${connectionsInfo.length}`);
 };
 
 export const sendMessage = async (conversationId: string, text: string) => {
@@ -4186,15 +4216,6 @@ const scheduleReconnect = (id: string, name: string, reason: string) => {
 
     reconnectState.set(id, { attempts: nextAttempts, timeout: state.timeout });
     console.log(`[Reconnect] ${name} (${id}) em ${delay}ms. Motivo: ${reason}`);
-};
-
-const removeSessionDir = async (connectionId: string) => {
-    const sessionPath = path.join(authDir, `session-${connectionId}`);
-    try {
-        await fs.promises.rm(sessionPath, { recursive: true, force: true });
-    } catch (error) {
-        // ignore
-    }
 };
 
 export const reconnectConnection = async (id: string) => {
