@@ -19,9 +19,9 @@ export const WorkspaceTeamPage: React.FC = () => {
         <h1 className="text-[22px] sm:text-[26px] font-extrabold tracking-tight" style={{ color: 'var(--text-1)' }}>
           Funcionários na sua conta
         </h1>
-        <p className="text-[13.5px] mt-2 leading-relaxed max-w-xl" style={{ color: 'var(--text-2)' }}>
-          Quem você convida entra com <strong>Google próprio</strong>, mas vê <strong>os mesmos contatos, campanhas e WhatsApp</strong>{' '}
-          que a conta principal. Ideal para quem ajuda na operação.
+        <p className="text-[13px] mt-2 leading-relaxed max-w-xl" style={{ color: 'var(--text-2)' }}>
+          Escolha <strong>sou o responsável</strong> para convites ou usuário/senha, ou{' '}
+          <strong>recebi um código</strong> para ativar o convite. O plano é sempre o da conta principal.
         </p>
       </header>
       <WorkspaceTeamSection variant="standalone" />

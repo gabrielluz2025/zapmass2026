@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { KeyRound, Loader2, ShieldOff, UserPlus } from 'lucide-react';
+import { KeyRound, Loader2, ShieldOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAuth } from 'firebase/auth';
 import { Badge, Button, Input } from '../ui';
@@ -31,10 +31,15 @@ type StaffRow = {
   revoked: boolean;
 };
 
+type Props = {
+  /** Quando true, sem margem superior (usa-se dentro de aba). */
+  noTopMargin?: boolean;
+};
+
 /**
- * Gestão de funcionários que entram por nome de usuário + senha (API servidor + Firebase Auth).
+ * Gestão de funcionários que entram por nome de usuário + senha.
  */
-export const StaffPasswordAccountsPanel: React.FC = () => {
+export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin }) => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<StaffRow[]>([]);
   const [max, setMax] = useState(STAFF_PASSWORD_ACCOUNTS_FALLBACK_MAX);
@@ -77,7 +82,7 @@ export const StaffPasswordAccountsPanel: React.FC = () => {
           password
         })
       });
-      toast.success('Acesso criado. Informe ao funcionário: e-mail do Google que você usa no ZapMass, usuário e senha.');
+      toast.success('Criado. Passe ao funcionário: seu e-mail (Google), usuário e senha.');
       setLoginName('');
       setPassword('');
       setDisplayName('');
@@ -91,7 +96,7 @@ export const StaffPasswordAccountsPanel: React.FC = () => {
 
   const revoke = async (staffAuthUid: string) => {
     if (!staffAuthUid) return;
-    if (!confirm('Revogar este acesso? Essa pessoa não poderá mais entrar por usuário/senha.')) return;
+    if (!confirm('Revogar este acesso?')) return;
     setBusy(true);
     try {
       await apiFetch(`/api/workspace/staff-password-users/${encodeURIComponent(staffAuthUid)}`, {
@@ -106,80 +111,89 @@ export const StaffPasswordAccountsPanel: React.FC = () => {
     }
   };
 
+  const shell = noTopMargin ? '' : 'mt-8';
+
   return (
     <div
-      className="rounded-2xl p-5 sm:p-6 border mt-8 space-y-4"
+      className={`rounded-2xl p-5 sm:p-6 border space-y-5 ${shell}`}
       style={{
-        borderColor: 'rgba(59,130,246,0.3)',
-        background: 'linear-gradient(180deg, rgba(59,130,246,0.06), transparent)'
+        borderColor: 'var(--border)',
+        background: 'var(--surface-0)',
+        boxShadow: 'var(--shadow-xs, 0 1px 2px rgba(0,0,0,0.05))'
       }}
     >
-      <div className="flex items-start gap-3">
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: 'linear-gradient(135deg, #0369a1, #075985)', color: '#fff' }}
-        >
-          <KeyRound className="w-5 h-5" />
-        </div>
-        <div>
-          <p className="text-[13px] font-extrabold" style={{ color: 'var(--text-1)' }}>
-            Acesso por usuário e senha
-          </p>
-          <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-            Até <strong>{max}</strong> funcionários com login próprio (nome de usuário + senha). Na tela inicial, eles escolhem
-            «Funcionário» e usam o <strong>seu e-mail de responsável (Google)</strong> + usuário + senha.
-          </p>
-        </div>
+      <div>
+        <h3 className="text-[15px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+          Usuário e senha
+        </h3>
+        <p className="text-[12px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+          Até <strong>{max}</strong> pessoas. Na entrada do site, elas escolhem «Funcionário» e usam o seu e-mail (gestor) +
+          usuário + senha.
+        </p>
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--text-3)' }}>
+        <div className="flex items-center gap-2 text-[13px] py-2" style={{ color: 'var(--text-3)' }}>
           <Loader2 className="w-4 h-4 animate-spin" /> A carregar…
         </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="info">
+            <Badge variant="neutral" className="tabular-nums">
               {activeCount} / {max} ativos
             </Badge>
             {activeCount >= max && (
               <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                Limite atingido — revogue um acesso para criar outro.
+                Limite cheio — revogue um para criar outro.
               </span>
             )}
           </div>
 
           <div
-            className="rounded-xl p-4 space-y-3 border"
-            style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}
+            className="rounded-xl p-4 space-y-3"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
           >
-            <p className="text-[12px] font-bold" style={{ color: 'var(--text-2)' }}>
-              <UserPlus className="w-3.5 h-3.5 inline mr-1" />
-              Novo funcionário
+            <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+              Novo acesso
             </p>
-            <div className="grid sm:grid-cols-3 gap-2">
-              <Input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Nome para identificar (ex.: Maria)"
-                disabled={busy || activeCount >= max}
-                className="text-[13px]"
-              />
-              <Input
-                value={loginName}
-                onChange={(e) => setLoginName(e.target.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                placeholder="Usuário (só a-z, 0-9, _)"
-                disabled={busy || activeCount >= max}
-                className="text-[13px] font-mono"
-              />
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Senha (mín. 8)"
-                disabled={busy || activeCount >= max}
-                className="text-[13px]"
-              />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label className="text-[10px] font-medium block mb-1" style={{ color: 'var(--text-3)' }}>
+                  Nome (só para você)
+                </label>
+                <Input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Ex.: Maria"
+                  disabled={busy || activeCount >= max}
+                  className="text-[13px] w-full"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium block mb-1" style={{ color: 'var(--text-3)' }}>
+                  Usuário
+                </label>
+                <Input
+                  value={loginName}
+                  onChange={(e) => setLoginName(e.target.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  placeholder="maria_silva"
+                  disabled={busy || activeCount >= max}
+                  className="text-[13px] font-mono w-full"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium block mb-1" style={{ color: 'var(--text-3)' }}>
+                  Senha
+                </label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mínimo 8 caracteres"
+                  disabled={busy || activeCount >= max}
+                  className="text-[13px] w-full"
+                />
+              </div>
             </div>
             <Button
               type="button"
@@ -188,49 +202,42 @@ export const StaffPasswordAccountsPanel: React.FC = () => {
               disabled={busy || activeCount >= max || !auth.currentUser}
               leftIcon={busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5" />}
               onClick={() => void handleCreate()}
+              className="w-full sm:w-auto"
             >
-              Cadastrar acesso
+              Criar acesso
             </Button>
           </div>
 
           {rows.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                Cadastrados
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                Lista
               </p>
-              <ul className="space-y-2">
+              <ul className="space-y-1.5">
                 {rows.map((r) => (
                   <li
                     key={`${r.staffAuthUid}-${r.loginSlug}`}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 border text-[12px]"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-[13px]"
                     style={{
-                      borderColor: 'var(--border-subtle)',
-                      background: r.revoked ? 'var(--surface-1)' : 'var(--surface-0)',
-                      opacity: r.revoked ? 0.75 : 1
+                      background: 'var(--surface-1)',
+                      border: '1px solid var(--border-subtle)'
                     }}
                   >
-                    <div>
-                      <span className="font-bold" style={{ color: 'var(--text-1)' }}>
+                    <div className="min-w-0">
+                      <span className="font-semibold truncate inline-block max-w-[200px]" style={{ color: 'var(--text-1)' }}>
                         {r.displayName || r.loginSlug}
                       </span>
-                      <span className="font-mono ml-2" style={{ color: 'var(--text-2)' }}>
+                      <span className="font-mono text-[12px] ml-2" style={{ color: 'var(--text-2)' }}>
                         @{r.loginSlug}
                       </span>
                       {r.revoked && (
-                        <Badge variant="neutral" className="ml-2">
-                          Revogado
-                        </Badge>
+                        <span className="text-[11px] ml-2 opacity-75" style={{ color: 'var(--text-3)' }}>
+                          (revogado)
+                        </span>
                       )}
                     </div>
                     {!r.revoked && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        disabled={busy}
-                        leftIcon={<ShieldOff className="w-3.5 h-3.5" />}
-                        onClick={() => void revoke(r.staffAuthUid)}
-                      >
+                      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void revoke(r.staffAuthUid)}>
                         Revogar
                       </Button>
                     )}
