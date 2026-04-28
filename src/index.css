@@ -601,3 +601,117 @@ html[data-mode='dark'] ::-webkit-scrollbar-thumb { background: rgba(30,41,59,0.8
   pointer-events: none;
   z-index: 0;
 }
+
+/* ─── Tutorial (markdown) ─────────────────── */
+.zap-tutorial-prose {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--text-1);
+}
+.zap-tutorial-prose > h1:first-of-type {
+  margin-top: 0;
+}
+.zap-tutorial-prose h1 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin: 1.75rem 0 0.75rem;
+  letter-spacing: -0.02em;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.5rem;
+}
+.zap-tutorial-prose h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.5rem;
+  color: var(--text-1);
+}
+.zap-tutorial-prose h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 1.1rem 0 0.4rem;
+  color: var(--text-2);
+}
+.zap-tutorial-prose p {
+  margin: 0.55rem 0;
+  color: var(--text-2);
+}
+.zap-tutorial-prose a {
+  color: var(--brand-600);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.zap-tutorial-prose strong {
+  color: var(--text-1);
+  font-weight: 700;
+}
+.zap-tutorial-prose ul,
+.zap-tutorial-prose ol {
+  margin: 0.5rem 0 0.65rem;
+  padding-left: 1.35rem;
+  color: var(--text-2);
+}
+.zap-tutorial-prose li {
+  margin: 0.25rem 0;
+}
+.zap-tutorial-prose hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1.25rem 0;
+}
+.zap-tutorial-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin: 0.75rem 0 1rem;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+}
+.zap-tutorial-prose thead {
+  background: var(--surface-1);
+}
+.zap-tutorial-prose th,
+.zap-tutorial-prose td {
+  border: 1px solid var(--border-subtle);
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+.zap-tutorial-prose th {
+  font-weight: 700;
+  color: var(--text-1);
+}
+.zap-tutorial-prose code {
+  font-size: 0.88em;
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+}
+.zap-tutorial-prose pre {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  overflow-x: auto;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+}
+.zap-tutorial-prose pre code {
+  border: none;
+  padding: 0;
+  background: none;
+}
+.zap-tutorial-prose blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0 0.5rem 1rem;
+  border-left: 3px solid var(--brand-500);
+  color: var(--text-2);
+  font-style: italic;
+  background: color-mix(in srgb, var(--surface-1) 80%, transparent);
+  border-radius: 0 8px 8px 0;
+}

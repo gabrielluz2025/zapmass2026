@@ -25,7 +25,8 @@ import {
   Server,
   Wifi,
   WifiOff,
-  AlertTriangle
+  AlertTriangle,
+  BookOpen
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
@@ -698,6 +699,20 @@ export const DashboardTab: React.FC = () => {
             >
               <Smartphone className="w-4 h-4 shrink-0" style={{ color: '#10b981' }} />
               <span>Conectar canal</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('help')}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 sm:px-4 py-3 rounded-2xl text-[13px] font-semibold transition-all duration-300 hover:-translate-y-0.5"
+              style={{
+                background: 'rgba(59,130,246,0.08)',
+                color: 'var(--text-1)',
+                border: '1px solid rgba(59,130,246,0.25)'
+              }}
+              title="Abrir o guia passo a passo"
+            >
+              <BookOpen className="w-4 h-4 shrink-0" style={{ color: '#3b82f6' }} />
+              <span>Como usar</span>
             </button>
           </div>
         </div>

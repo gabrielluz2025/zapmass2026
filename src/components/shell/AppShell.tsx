@@ -58,8 +58,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   }, [collapsed]);
 
   const sidebarOffset = collapsed ? 'lg:ml-[72px]' : 'lg:ml-[260px]';
-  /** Em modo leitura a area principal fica inativa, exceto na aba de assinatura (upgrade). */
-  const readOnlyBlockMain = readOnly && currentView !== 'subscription';
+  /** Em modo leitura a area principal fica inativa, exceto assinatura (upgrade) e tutorial de ajuda. */
+  const readOnlyBlockMain = readOnly && currentView !== 'subscription' && currentView !== 'help';
 
   return (
     <div className="min-h-screen flex" style={{ backgroundColor: 'var(--bg)' }}>

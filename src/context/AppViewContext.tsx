@@ -17,6 +17,7 @@ const ALLOWED_VIEWS = new Set([
   'reports',
   'settings',
   'subscription',
+  'help',
   'admin',
   'creator-studio',
   'admin-ops'

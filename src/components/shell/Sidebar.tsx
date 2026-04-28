@@ -18,7 +18,8 @@ import {
   LogOut,
   Code2,
   Crown,
-  Server
+  Server,
+  BookOpen
 } from 'lucide-react';
 import { useZapMass } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -71,6 +72,7 @@ const navGroups: NavGroup[] = [
   {
     label: 'Sistema',
     items: [
+      { id: 'help', label: 'Como usar', icon: BookOpen, description: 'Tutorial passo a passo' },
       { id: 'subscription', label: 'Minha assinatura', icon: Crown, description: 'Plano, renovação e cartão' },
       { id: 'settings', label: 'Configurações', icon: Settings, description: 'Ajustes gerais' }
     ]

@@ -32,6 +32,7 @@ on:
       - "produção"
     paths:
       - "src/**"
+      - "docs/**"
       - "server/**"
       - "public/**"
       - "package.json"
@@ -49,10 +50,13 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
+# IMPORTANTE: NÃO usar cancel-in-progress:true aqui.
+# Este workflow também corre em schedule (*/30 min). Um novo run (cron ou segundo push)
+# cancelava o deploy SSH em curso após ~30 min — o job ficava "Cancelado" mesmo com VPS OK.
+# Com false: o run seguinte espera na fila até o deploy atual terminar (sem corridas à VPS).
 concurrency:
-  group: deploy-${{ github.ref_name }}
-  # Evita fila longa de runs "pendente": o mais novo cancela o anterior da mesma branch.
-  cancel-in-progress: true
+  group: deploy-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -119,13 +123,13 @@ jobs:
       - name: Deploy por SSH (tentativa 1)
         id: deploy_try_1
         continue-on-error: true
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 10m
+          timeout: 15m
           command_timeout: 140m
           script: |
             set -euo pipefail
@@ -158,13 +162,13 @@ jobs:
       - name: Deploy por SSH (tentativa 2)
         id: deploy_try_2
         if: steps.deploy_try_1.outcome == 'failure'
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 10m
+          timeout: 15m
           command_timeout: 140m
           script: |
             set -euo pipefail

@@ -28,6 +28,7 @@ import { AppConfigProvider } from './context/AppConfigContext';
 import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { CreatorStudio } from './components/creator/CreatorStudio';
+import { TutorialPage } from './components/help/TutorialPage';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
 import { isAdminUserEmail } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
@@ -163,13 +164,12 @@ const MainLayout: React.FC = () => {
   const effectiveReadOnly = studioUnlocked ? false : readOnlyMode;
   const effectiveReadOnlyBanner = studioUnlocked ? undefined : readOnlyMode ? readOnlyMessage : undefined;
 
-  // Quando o acesso expira, trava a navegação na aba de upgrade/assinatura.
+  // Quando o acesso expira, trava a navegação na aba de upgrade/assinatura (exceto tutorial de ajuda).
   useEffect(() => {
     if (!enforce) return;
     if (!readOnlyMode) return;
-    if (currentView !== 'subscription') {
-      setCurrentView('subscription');
-    }
+    if (currentView === 'subscription' || currentView === 'help') return;
+    setCurrentView('subscription');
   }, [enforce, readOnlyMode, currentView, setCurrentView]);
 
   // Aba Conexões (ou servidor) pede a secção "Canais extras" em Minha assinatura.
@@ -198,6 +198,8 @@ const MainLayout: React.FC = () => {
         return <ReportsTab />;
       case 'settings':
         return <SettingsTab />;
+      case 'help':
+        return <TutorialPage />;
       case 'subscription':
         return <MySubscriptionTab />;
       case 'admin':
