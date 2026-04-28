@@ -155,6 +155,7 @@ jobs:
         run: sleep 20
 
       - name: Deploy por SSH (tentativa 2)
+        id: deploy_try_2
         if: steps.deploy_try_1.outcome == 'failure'
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -183,3 +184,24 @@ jobs:
             git checkout -f "${GHA_SHA}"
             chmod +x deployment/vps-deploy.sh
             exec bash deployment/vps-deploy.sh
+
+      # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).
+      # Isto adiciona texto legível no separador "Summary" da execução.
+      - name: Resumo — se o deploy SSH falhou (o git / push costuma estar certo)
+        if: failure()
+        run: |
+          {
+            echo "## Falha no deploy (ligação à VPS)"
+            echo ""
+            echo "O **repositório e o push para o GitHub estão OK** — o problema é **entre o servidor da GitHub e a tua VPS** (rede/firewall/porta)."
+            echo ""
+            echo "| Sintoma | O que fazer |"
+            echo "|---------|--------------|"
+            echo "| \`dial tcp ... connection timed out\` | Firewall (Hostinger/VPS): permitir **TCP porta 22** (ou a porta do SSH) para **internet** — os IPs da GitHub Actions **mudam**; não bloquear só ao teu IP |"
+            echo "| Porta SSH não é 22 | Secret \`VPS_SSH_PORT\` no repositório com a porta certa |"
+            echo "| \`VPS_HOST\` | IPv4 **público** da VPS, sem espaços |"
+            echo ""
+            echo "No run, abre também o passo **Validar build (Vite)** — se estiver verde, o código compilou; falhou só o **SSH + Docker**."
+            echo ""
+            echo "Depois de corrigir rede/firewall: **Actions → Re-run failed jobs**."
+          } >> "$GITHUB_STEP_SUMMARY"
