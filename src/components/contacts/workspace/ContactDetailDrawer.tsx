@@ -2,8 +2,9 @@ import React, { useEffect } from 'react';
 import {
   X, Phone, Mail, MapPin, Church, Briefcase, Cake, Tag, Edit3, Trash2,
   MessageCircle, Rocket, Copy, Flame, Snowflake, Clock, User as UserIcon,
-  Sparkles, ListPlus
+  Sparkles, ListPlus, CalendarClock
 } from 'lucide-react';
+import { formatFollowUpLabel, parseFollowUpMs, localStartOfTodayMs } from '../../../utils/followUp';
 import type { Contact } from '../../../types';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
@@ -212,6 +213,31 @@ export const ContactDetailDrawer: React.FC<Props> = ({
                   </span>
                 ))}
               </div>
+            </Section>
+          )}
+
+          {(parseFollowUpMs(contact.followUpAt) != null || (contact.followUpNote || '').trim()) && (
+            <Section title="Retorno">
+              {parseFollowUpMs(contact.followUpAt) != null && (
+                <div
+                  className={`flex items-start gap-2 px-2.5 py-2 rounded-lg border ${
+                    (parseFollowUpMs(contact.followUpAt) ?? 0) < localStartOfTodayMs()
+                      ? 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/50'
+                      : 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40'
+                  }`}
+                >
+                  <CalendarClock className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      {(parseFollowUpMs(contact.followUpAt) ?? 0) < localStartOfTodayMs() ? 'Atrasado para' : 'Agendado para'}{' '}
+                      {formatFollowUpLabel(contact.followUpAt)}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {(contact.followUpNote || '').trim() && (
+                <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap px-1">{contact.followUpNote}</p>
+              )}
             </Section>
           )}
 

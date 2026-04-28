@@ -274,6 +274,10 @@ export interface Contact {
   tags: string[];
   status: 'VALID' | 'INVALID';
   lastMsg?: string;
+  /** Data/hora (ISO UTC) agendada para retorno/contato de seguimento. */
+  followUpAt?: string;
+  /** Nota opcional ligada ao retorno (ex.: contexto para a ligação). */
+  followUpNote?: string;
 }
 
 // --- CHAT TYPES ---

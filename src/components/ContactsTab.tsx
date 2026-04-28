@@ -15,6 +15,15 @@ import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
 import { ContactsInsightsModal } from './contacts/workspace/ContactsInsightsModal';
 import { parseVcfText, type ParsedVcfEntry } from '../utils/parseVcf';
 import { contactsToVcfString } from '../utils/exportContactsVcf';
+import { extractZapMassFollowFromVcfNotes } from '../utils/vcfZapMassFollowUp';
+import {
+  datetimeLocalToUtcIso,
+  isoToDatetimeLocal,
+  localStartOfTodayMs,
+  matchesRetornoFilter,
+  parseFollowUpMs,
+  parseImportFollowUpAt
+} from '../utils/followUp';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -36,6 +45,8 @@ const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: s
   { key: 'role', label: 'Cargo (Igreja)', width: 20 },
   { key: 'profession', label: 'Cargo Profissional', width: 22 },
   { key: 'tags', label: 'Tags (separadas por ;)', width: 22 },
+  { key: 'followUpAt', label: 'Data retorno', width: 22 },
+  { key: 'followUpNote', label: 'Nota retorno', width: 24 },
   { key: 'status', label: 'Status', width: 10 }
 ];
 
@@ -85,6 +96,9 @@ type SmartRow = {
   profession: string;
   birthday: string;
   notes: string;
+  /** ISO UTC quando a colagem inclui “data retorno”; vazio se não veio. */
+  followUpAt: string;
+  followUpNote: string;
   duplicate?: boolean;
   duplicateName?: string;
   problems?: string[];
@@ -212,6 +226,8 @@ const mkSmartRow = (partial: Partial<SmartRow> = {}): SmartRow => ({
   profession: '',
   birthday: '',
   notes: '',
+  followUpAt: '',
+  followUpNote: '',
   ...partial
 });
 
@@ -266,6 +282,8 @@ const mergeContactData = (
     birthday: pickPreferredValue(existing.birthday, incoming.birthday),
     email: pickPreferredValue(existing.email, incoming.email),
     notes: mergedNotes,
+    followUpAt: incoming.followUpAt ?? existing.followUpAt,
+    followUpNote: pickPreferredValue(existing.followUpNote, incoming.followUpNote),
     tags: mergedTags.length > 0 ? mergedTags : existing.tags || [],
     status: finalDigits.length >= 10 ? 'VALID' : 'INVALID'
   };
@@ -314,7 +332,11 @@ const parseSmartText = (text: string): SmartRow[] => {
   // Cabecalho?
   const firstCols = split(lines[0]);
   const hdrTokens = firstCols.map(c => c.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
-  const looksLikeHeader = hdrTokens.some(t => ['nome','telefone','email','cidade','cep','rua','bairro','igreja','cargo','profissao','estado','uf'].includes(t));
+  const looksLikeHeader = hdrTokens.some((t) => {
+    const c = t.replace(/[^a-z0-9]/g, '');
+    return ['nome', 'telefone', 'email', 'cidade', 'cep', 'rua', 'bairro', 'igreja', 'cargo', 'profissao', 'estado', 'uf', 'dataretorno', 'notaretorno', 'retorno'].includes(c)
+      || ['nome','telefone','email','cidade','cep','rua','bairro','igreja','cargo','profissao','estado','uf'].includes(t);
+  });
 
   const rows: SmartRow[] = [];
   const HEADER_KEY: Record<string, keyof SmartRow> = {
@@ -331,7 +353,11 @@ const parseSmartText = (text: string): SmartRow[] => {
     cargo: 'role', 'cargo(igreja)': 'role',
     cargoprofissional: 'profession', profissao: 'profession',
     aniversario: 'birthday', nascimento: 'birthday', datadenascimento: 'birthday',
-    obs: 'notes', observacoes: 'notes', notes: 'notes'
+    obs: 'notes', observacoes: 'notes', notes: 'notes',
+    dataretorno: 'followUpAt', datadoretorno: 'followUpAt', retornoiso: 'followUpAt',
+    followupat: 'followUpAt', followup: 'followUpAt', retorno: 'followUpAt',
+    horaretorno: 'followUpAt', lembrete: 'followUpNote', notaretorno: 'followUpNote',
+    notadoretorno: 'followUpNote', followupnote: 'followUpNote'
   };
 
   if (looksLikeHeader && firstCols.length >= 2) {
@@ -359,6 +385,11 @@ const parseSmartText = (text: string): SmartRow[] => {
             const yyyy = m[3].length === 2 ? `19${m[3]}` : m[3];
             r.birthday = `${yyyy}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
           } else r.birthday = v;
+        } else if (k === 'followUpAt') {
+          const iso = parseImportFollowUpAt(v);
+          if (iso) r.followUpAt = iso;
+        } else if (k === 'followUpNote') {
+          r.followUpNote = v.slice(0, 500);
         } else (r as any)[k] = v;
       });
       rows.push(r);
@@ -506,8 +537,10 @@ export const ContactsTab: React.FC = () => {
   const [filterTemp, setFilterTemp] = useState<'ALL' | Temperature>('ALL');
   const [newContact, setNewContact] = useState<Partial<Contact>>({
     name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '',
-    church: '', role: '', profession: '', birthday: '', email: '', notes: ''
+    church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: ''
   });
+  /** Data/hora local do retorno (campo `datetime-local`); convertido para ISO na gravação. */
+  const [followUpDatetimeLocal, setFollowUpDatetimeLocal] = useState('');
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editingListName, setEditingListName] = useState('');
@@ -808,7 +841,10 @@ export const ContactsTab: React.FC = () => {
     cargoigreja: 'role', cargo: 'role', role: 'role', posicionamento: 'role',
     cargoprofissional: 'profession', profissao: 'profession', profession: 'profession',
     tags: 'tags', tag: 'tags', etiquetas: 'tags',
-    observacoes: 'notes', obs: 'notes', notes: 'notes'
+    observacoes: 'notes', obs: 'notes', notes: 'notes',
+    dataretorno: 'followUpAt', datadoretorno: 'followUpAt', retornoiso: 'followUpAt',
+    followupat: 'followUpAt', followup: 'followUpAt', horaretorno: 'followUpAt',
+    notaretorno: 'followUpNote', notadoretorno: 'followUpNote', followupnote: 'followUpNote'
   };
 
   // Considera colisao de "numero" (telefone vs numero da casa):
@@ -836,8 +872,17 @@ export const ContactsTab: React.FC = () => {
     headerIndex.forEach((key, idx) => {
       if (!key) return;
       const raw = row[idx];
+      if (key === 'followUpAt') {
+        const iso = parseImportFollowUpAt(raw);
+        if (iso) data.followUpAt = iso;
+        return;
+      }
       const v = raw == null ? '' : String(raw).trim();
       if (!v) return;
+      if (key === 'followUpNote') {
+        data.followUpNote = v.slice(0, 500);
+        return;
+      }
       if (key === 'phone') {
         data.phone = v.replace(/\D/g, '');
       } else if (key === 'tags') {
@@ -879,6 +924,8 @@ export const ContactsTab: React.FC = () => {
       birthday: data.birthday || '',
       email: data.email || '',
       notes: data.notes || '',
+      ...(data.followUpAt ? { followUpAt: data.followUpAt } : {}),
+      ...(data.followUpNote ? { followUpNote: data.followUpNote } : {}),
       tags: data.tags && data.tags.length ? data.tags : ['Importado'],
       status: digits.length >= 10 ? 'VALID' : 'INVALID',
       lastMsg: 'Nunca'
@@ -889,6 +936,7 @@ export const ContactsTab: React.FC = () => {
     const digits = (entry.phoneDigits || '').replace(/\D/g, '');
     const zp = (entry.zipCode || '').replace(/\D/g, '').slice(0, 8);
     const zipCode = zp.length > 5 ? `${zp.slice(0, 5)}-${zp.slice(5)}` : zp;
+    const zm = extractZapMassFollowFromVcfNotes(entry.notes || '');
     return {
       id: `import_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
       name: entry.name.trim(),
@@ -904,7 +952,9 @@ export const ContactsTab: React.FC = () => {
       profession: entry.profession || '',
       birthday: entry.birthday || '',
       email: entry.email || '',
-      notes: entry.notes || '',
+      notes: zm.cleanedNotes,
+      ...(zm.followUpAt ? { followUpAt: zm.followUpAt } : {}),
+      ...(zm.followUpNote ? { followUpNote: zm.followUpNote } : {}),
       tags: ['Importado', 'vCard'],
       status: digits.length >= 10 ? 'VALID' : 'INVALID',
       lastMsg: 'Nunca'
@@ -1487,6 +1537,15 @@ export const ContactsTab: React.FC = () => {
       case 'invalid': return c.status !== 'VALID';
       case 'no_address': return !c.street || !c.city || !c.zipCode;
       case 'duplicates': return phoneDupKeys.has(normPhoneKey(c.phone));
+      case 'retorno_todos': {
+        return parseFollowUpMs(c.followUpAt) != null;
+      }
+      case 'retorno_atrasados':
+      case 'retorno_hoje':
+      case 'retorno_semana': {
+        const ms = parseFollowUpMs(c.followUpAt);
+        return ms != null && matchesRetornoFilter(ms, filter);
+      }
       case 'dormant': {
         if (!t || t.sent === 0) return false;
         const DAY = 86400000;
@@ -1532,7 +1591,8 @@ export const ContactsTab: React.FC = () => {
         (c.zipCode?.toLowerCase().includes(q) ?? false) ||
         (c.church?.toLowerCase().includes(q) ?? false) ||
         (c.role?.toLowerCase().includes(q) ?? false) ||
-        (c.profession?.toLowerCase().includes(q) ?? false);
+        (c.profession?.toLowerCase().includes(q) ?? false) ||
+        (c.followUpNote?.toLowerCase().includes(q) ?? false);
       const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
       const matchesTag = !filterTag || c.tags.some((t) => t.toLowerCase() === filterTag.toLowerCase());
       const matchesTemp = filterTemp === 'ALL' || contactTemps[c.id]?.temp === filterTemp;
@@ -1553,7 +1613,19 @@ export const ContactsTab: React.FC = () => {
     getSmartSegmentMatches
   ]);
 
-  const listFilteredContacts = filteredContacts;
+  const listFilteredContacts = useMemo(() => {
+    const isRetorno =
+      activeFilter === 'retorno_todos' ||
+      activeFilter === 'retorno_atrasados' ||
+      activeFilter === 'retorno_hoje' ||
+      activeFilter === 'retorno_semana';
+    if (!isRetorno) return filteredContacts;
+    return [...filteredContacts].sort((a, b) => {
+      const ta = parseFollowUpMs(a.followUpAt) ?? Infinity;
+      const tb = parseFollowUpMs(b.followUpAt) ?? Infinity;
+      return ta - tb;
+    });
+  }, [filteredContacts, activeFilter]);
 
   // Pagination Logic
   const totalPages = Math.ceil(listFilteredContacts.length / ITEMS_PER_PAGE);
@@ -1596,6 +1668,7 @@ export const ContactsTab: React.FC = () => {
 
   const beginEditContact = (contact: Contact) => {
     setEditingContactId(contact.id);
+    setFollowUpDatetimeLocal(isoToDatetimeLocal(contact.followUpAt));
     setNewContact({
       name: contact.name,
       phone: contact.phone,
@@ -1610,7 +1683,8 @@ export const ContactsTab: React.FC = () => {
       profession: contact.profession || '',
       birthday: contact.birthday || '',
       email: contact.email || '',
-      notes: contact.notes || ''
+      notes: contact.notes || '',
+      followUpNote: contact.followUpNote || ''
     });
     setNewContactTargetMode('none');
     setNewContactTargetListId('');
@@ -1741,8 +1815,8 @@ export const ContactsTab: React.FC = () => {
   const handleDownloadTemplate = () => {
     const headers = TEMPLATE_COLUMNS.map(c => c.label);
     const exampleRows = [
-      ['Maria Silva', '5511999998888', '1990-03-15', 'maria@exemplo.com', 'Av. Paulista', '1578', 'Bela Vista', 'Sao Paulo', 'SP', '01310-200', 'Batista Lagoinha', 'Lider de Celula', 'Dentista', 'VIP;Novos', ''],
-      ['Joao Santos', '5521988887777', '', 'joao@exemplo.com', 'Rua das Flores', '42', 'Copacabana', 'Rio de Janeiro', 'RJ', '22010-000', '', 'Membro', 'Professor', '', '']
+      ['Maria Silva', '5511999998888', '1990-03-15', 'maria@exemplo.com', 'Av. Paulista', '1578', 'Bela Vista', 'Sao Paulo', 'SP', '01310-200', 'Batista Lagoinha', 'Lider de Celula', 'Dentista', 'VIP;Novos', '2026-05-15T18:00:00.000Z', 'Ligar para confirmar reuniao', ''],
+      ['Joao Santos', '5521988887777', '', 'joao@exemplo.com', 'Rua das Flores', '42', 'Copacabana', 'Rio de Janeiro', 'RJ', '22010-000', '', 'Membro', 'Professor', '', '', '', '']
     ];
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...exampleRows]);
@@ -1764,7 +1838,9 @@ export const ContactsTab: React.FC = () => {
       ['5. CEP: com ou sem hifen (00000-000 ou 00000000).'],
       ['6. UF: sigla de 2 letras (SP, RJ, MG...).'],
       ['7. Tags: separadas por ponto e virgula (Ex: VIP;Novos;Cliente).'],
-      ['8. Campos vazios sao permitidos, basta deixar a celula em branco.']
+      ['8. Data retorno (opcional): ISO 8601 (ex.: 2026-05-15T18:00:00.000Z), numero de data do Excel, ou texto dd/mm/aaaa com hora opcional.'],
+      ['9. Nota retorno: texto curto; opcional.'],
+      ['10. Campos vazios sao permitidos, basta deixar a celula em branco.']
     ];
     const wsNotes = XLSX.utils.aoa_to_sheet(notes);
     wsNotes['!cols'] = [{ wch: 80 }];
@@ -1854,6 +1930,9 @@ export const ContactsTab: React.FC = () => {
       return;
     }
 
+    const followUpIso = datetimeLocalToUtcIso(followUpDatetimeLocal);
+    const followNote = (newContact.followUpNote || '').trim().slice(0, 500);
+
     if (editingContactId) {
       await updateContact(editingContactId, {
         name: newContact.name || 'Sem Nome',
@@ -1870,7 +1949,9 @@ export const ContactsTab: React.FC = () => {
         birthday: newContact.birthday || '',
         email: newContact.email || '',
         notes: newContact.notes || '',
-        status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID'
+        status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID',
+        followUpAt: followUpIso ?? '',
+        followUpNote: followNote || ''
       });
       if (newContactTargetMode !== 'none') {
         await attachContactsToList(
@@ -1898,6 +1979,8 @@ export const ContactsTab: React.FC = () => {
         birthday: newContact.birthday,
         email: newContact.email,
         notes: newContact.notes,
+        ...(followUpIso ? { followUpAt: followUpIso } : {}),
+        ...(followNote ? { followUpNote: followNote } : {}),
         tags: ['Novo'],
         status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID',
         lastMsg: 'Nunca'
@@ -1931,7 +2014,8 @@ export const ContactsTab: React.FC = () => {
     setNewContactTargetMode('none');
     setNewContactTargetListId('');
     setNewContactNewListName('');
-    setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
+    setFollowUpDatetimeLocal('');
+    setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' });
   };
 
   const managedListForView = useMemo(
@@ -2023,7 +2107,8 @@ export const ContactsTab: React.FC = () => {
 
   const openNewContactModal = useCallback(() => {
                 setEditingContactId(null);
-                setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '' });
+                setFollowUpDatetimeLocal('');
+                setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' });
                 setNewContactTargetMode('none');
                 setNewContactTargetListId('');
                 setNewContactNewListName('');
@@ -2119,7 +2204,20 @@ export const ContactsTab: React.FC = () => {
     dormant: smartStats.dormant,
     invalid: smartStats.invalid,
     no_address: contacts.filter((c) => !c.street || !c.city || !c.zipCode).length,
-    duplicates: smartStats.duplicates
+    duplicates: smartStats.duplicates,
+    retorno_todos: contacts.reduce((n, c) => n + (parseFollowUpMs(c.followUpAt) != null ? 1 : 0), 0),
+    retorno_atrasados: contacts.reduce((n, c) => {
+      const ms = parseFollowUpMs(c.followUpAt);
+      return n + (ms != null && ms < localStartOfTodayMs() ? 1 : 0);
+    }, 0),
+    retorno_hoje: contacts.reduce((n, c) => {
+      const ms = parseFollowUpMs(c.followUpAt);
+      return n + (ms != null && matchesRetornoFilter(ms, 'retorno_hoje') ? 1 : 0);
+    }, 0),
+    retorno_semana: contacts.reduce((n, c) => {
+      const ms = parseFollowUpMs(c.followUpAt);
+      return n + (ms != null && matchesRetornoFilter(ms, 'retorno_semana') ? 1 : 0);
+    }, 0)
   }), [contacts, smartStats]);
 
   /** Stats enxutas para o HeaderBar (sem sparklines, sem grids pesados). */
@@ -2157,13 +2255,13 @@ export const ContactsTab: React.FC = () => {
 
   const handleToggleSelectAllVisible = useCallback(() => {
     setSelectedIds((prev) => {
-      const visible = filteredContacts.map((c) => c.id);
+      const visible = listFilteredContacts.map((c) => c.id);
       const allSelected = visible.length > 0 && visible.every((id) => prev.includes(id));
       if (allSelected) return prev.filter((id) => !visible.includes(id));
       const union = new Set([...prev, ...visible]);
       return Array.from(union);
     });
-  }, [filteredContacts]);
+  }, [listFilteredContacts]);
 
   const handleBulkAddToList = useCallback(async () => {
     if (contactLists.length === 0) {
@@ -2472,7 +2570,7 @@ export const ContactsTab: React.FC = () => {
         />
         <div className="flex flex-col gap-3 min-w-0">
           <ContactsTableVirtual
-            rows={filteredContacts}
+            rows={listFilteredContacts}
             contactTemps={contactTemps}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelectOne}
@@ -2490,7 +2588,9 @@ export const ContactsTab: React.FC = () => {
                 ? <>Nenhum contato casa com "<b>{searchTerm}</b>".</>
                 : activeFilter === 'all'
                   ? 'Sua base está vazia. Importe ou crie um contato.'
-                  : 'Ajuste o filtro na lateral ou tente outra busca.'
+                  : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
+                    ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
+                    : 'Ajuste o filtro na lateral ou tente outra busca.'
             }
           />
           </div>
@@ -2554,7 +2654,7 @@ export const ContactsTab: React.FC = () => {
                       {editingContactId ? 'Atualize os dados e salve as alteraÃ§Ãµes.' : 'Preencha os dados abaixo para cadastrar manualmente.'}
                     </p>
                  </div>
-                 <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
+                 <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
                     <X className="w-5 h-5" />
                  </button>
               </div>
@@ -2860,6 +2960,37 @@ export const ContactsTab: React.FC = () => {
                          rows={3}
                        />
                     </div>
+
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-4 space-y-3">
+                      <h4 className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+                        <Clock className="w-3.5 h-3.5" /> Retorno (lembrete)
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Data e hora em que pretende contactar de novo. Aparece nos filtros &quot;Retornos&quot; na lateral.
+                      </p>
+                      <div>
+                        <label htmlFor="followUpDatetime" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Data e hora</label>
+                        <input
+                          id="followUpDatetime"
+                          type="datetime-local"
+                          value={followUpDatetimeLocal}
+                          onChange={(e) => setFollowUpDatetimeLocal(e.target.value)}
+                          className="ui-input max-w-[min(100%,20rem)]"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="followUpNote" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nota do retorno (opcional)</label>
+                        <input
+                          id="followUpNote"
+                          type="text"
+                          value={newContact.followUpNote || ''}
+                          onChange={(e) => setNewContact({ ...newContact, followUpNote: e.target.value.slice(0, 500) })}
+                          className="ui-input"
+                          placeholder="Ex.: combinar segunda visita, assunto da ligação..."
+                          maxLength={500}
+                        />
+                      </div>
+                    </div>
                  </div>
 
                  <div className="border-t border-slate-100 dark:border-slate-800"></div>
@@ -2917,7 +3048,7 @@ export const ContactsTab: React.FC = () => {
               {/* Modal Footer */}
               <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 rounded-b-2xl flex justify-between items-center gap-4">
                  <button 
-                    onClick={() => { setIsModalOpen(false); setEditingContactId(null); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); }}
+                    onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); }}
                     className="px-6 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                  >
                     Cancelar
@@ -3660,6 +3791,8 @@ export const ContactsTab: React.FC = () => {
                         birthday: rv.birthday || '',
                         email: rv.email || '',
                         notes: rv.notes || '',
+                        ...(rv.followUpAt ? { followUpAt: rv.followUpAt } : {}),
+                        ...(rv.followUpNote.trim() ? { followUpNote: rv.followUpNote.trim().slice(0, 500) } : {}),
                         tags: ['ImportaÃ§Ã£o RÃ¡pida'],
                         status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
                         lastMsg: 'Nunca'

@@ -6,6 +6,7 @@ import {
   ListPlus, Users
 } from 'lucide-react';
 import type { Contact } from '../../../types';
+import { formatFollowUpLabel, localStartOfTodayMs, parseFollowUpMs } from '../../../utils/followUp';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -45,7 +46,8 @@ const tempMeta: Record<Temperature, { icon: React.ReactNode; color: string; labe
   new: { icon: <Clock className="w-3 h-3" />, color: 'text-slate-400', label: 'Sem hist.' }
 };
 
-const ROW_HEIGHT = 56;
+/** Altura suficiente para nome + tags + linha opcional de retorno. */
+const ROW_HEIGHT = 72;
 
 const formatPhone = (raw: string): string => {
   const d = (raw || '').replace(/\D/g, '');
@@ -207,6 +209,8 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
   };
 
   const cityState = [contact.city, contact.state].filter(Boolean).join(' · ') || '—';
+  const followMs = parseFollowUpMs(contact.followUpAt);
+  const followOverdue = followMs != null && followMs < localStartOfTodayMs();
 
   return (
     <div
@@ -254,6 +258,15 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
           {Array.isArray(contact.tags) && contact.tags.length > 0 && (
             <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
               {contact.tags.slice(0, 2).join(' · ')}{contact.tags.length > 2 ? ` +${contact.tags.length - 2}` : ''}
+            </div>
+          )}
+          {followMs != null && (
+            <div
+              className={`text-[10px] truncate flex items-center gap-1 mt-0.5 ${followOverdue ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`}
+              title={(contact.followUpNote || '').trim() || undefined}
+            >
+              <Clock className="w-3 h-3 shrink-0 opacity-70" />
+              Retorno {formatFollowUpLabel(contact.followUpAt)}
             </div>
           )}
         </div>

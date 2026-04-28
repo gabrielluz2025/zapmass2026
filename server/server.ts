@@ -57,6 +57,21 @@ import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscription
 import { getSystemMetrics } from './systemMetricsShared.js';
 import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
 import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
+import { persistUserNotification } from './userNotificationsFirestore.js';
+
+function notifyCampaignSocketError(
+  uid: string,
+  error: string,
+  campaignId?: string
+): void {
+  void persistUserNotification(uid, {
+    title: 'Campanha não iniciou',
+    body: error,
+    kind: 'error',
+    category: 'campaign',
+    campaignId
+  }).catch(() => {});
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -532,14 +547,18 @@ const registerSocketHandlers = () => {
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
       if (!connectionIds || connectionIds.length === 0) {
-          callback?.({ ok: false, error: 'Nenhuma conexao selecionada.' });
-          socket.emit('campaign-error', { error: 'Nenhuma conexao selecionada.' });
+          const err = 'Nenhuma conexao selecionada.';
+          callback?.({ ok: false, error: err });
+          socket.emit('campaign-error', { error: err });
+          notifyCampaignSocketError(uid, err, campaignId);
           return;
       }
       if (!numbers || numbers.length === 0) {
         userLog('campaign:error', { campaignId, reason: 'Nenhum numero informado' });
-        callback?.({ ok: false, error: 'Nenhum numero informado para disparo.' });
-        socket.emit('campaign-error', { error: 'Nenhum número informado para disparo.' });
+        const err = 'Nenhum número informado para disparo.';
+        callback?.({ ok: false, error: err });
+        socket.emit('campaign-error', { error: err });
+        notifyCampaignSocketError(uid, err, campaignId);
         return;
       }
 
@@ -549,7 +568,14 @@ const registerSocketHandlers = () => {
         return;
       }
       if (!(await requireActiveSubscription())) {
-        callback?.({ ok: false, error: 'Assine o Pro ou renove o periodo para disparar campanhas.' });
+        const err = 'Assine o Pro ou renove o periodo para disparar campanhas.';
+        callback?.({ ok: false, error: err });
+        void persistUserNotification(uid, {
+          title: 'Assinatura necessária',
+          body: err,
+          kind: 'warning',
+          category: 'billing'
+        }).catch(() => {});
         return;
       }
       const connections = filterByConnectionScope(uid, waService.getConnections());
@@ -559,8 +585,10 @@ const registerSocketHandlers = () => {
       const hasConnected = connectionIds.some((id: string) => connectedIds.includes(id));
       if (!hasConnected) {
         userLog('campaign:error', { campaignId, reason: 'Nenhum canal conectado', connectionIds });
-        callback?.({ ok: false, error: 'Nenhum canal conectado disponível para disparo.' });
-        socket.emit('campaign-error', { error: 'Nenhum canal conectado disponível para disparo.' });
+        const err = 'Nenhum canal conectado disponível para disparo.';
+        callback?.({ ok: false, error: err });
+        socket.emit('campaign-error', { error: err });
+        notifyCampaignSocketError(uid, err, campaignId);
         return;
       }
       if (typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0) {
@@ -573,17 +601,21 @@ const registerSocketHandlers = () => {
             ? messageStages.map((s) => String(s ?? '').trim()).filter((s) => s.length > 0)
             : [String(message ?? '').trim()].filter((s) => s.length > 0);
         if (stages.length === 0) {
-          callback?.({ ok: false, error: 'Nenhuma mensagem definida para a campanha.' });
-          socket.emit('campaign-error', { error: 'Nenhuma mensagem definida para a campanha.', campaignId });
+          const err = 'Nenhuma mensagem definida para a campanha.';
+          callback?.({ ok: false, error: err });
+          socket.emit('campaign-error', { error: err, campaignId });
+          notifyCampaignSocketError(uid, err, campaignId);
           return;
         }
         const ok = await waService.startCampaign(numbers, stages, connectionIds, campaignId, recipients, replyFlow, uid);
         if (!ok) {
-          callback?.({ ok: false, error: 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.' });
+          const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
+          callback?.({ ok: false, error: errMsg });
           socket.emit('campaign-error', {
-            error: 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.',
+            error: errMsg,
             campaignId
           });
+          notifyCampaignSocketError(uid, errMsg, campaignId);
           return;
         }
         callback?.({ ok: true });
@@ -592,6 +624,7 @@ const registerSocketHandlers = () => {
         userLog('campaign:error', { campaignId, reason: messageText, connectionIds });
         callback?.({ ok: false, error: messageText });
         socket.emit('campaign-error', { error: messageText, campaignId });
+        notifyCampaignSocketError(uid, messageText, campaignId);
       }
     });
 

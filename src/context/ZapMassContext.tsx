@@ -36,6 +36,7 @@ import {
   isRunningStatusButWorkComplete
 } from '../utils/campaignMetrics';
 import { computeNextRunIso, localDateTimeToUtcIso } from '../utils/campaignSchedule';
+import { parseFirestoreDateToIso } from '../utils/followUp';
 
 const INITIAL_METRICS: DashboardMetrics = {
   totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0
@@ -327,6 +328,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         '';
       const email = raw.email || raw.e_mail || '';
       const notes = raw.notes || raw.observacoes || raw.obs || '';
+      const followUpAt =
+        parseFirestoreDateToIso(raw.followUpAt) ||
+        parseFirestoreDateToIso(raw.follow_up_at) ||
+        parseFirestoreDateToIso(raw.retornoEm);
+      const followUpRaw = raw.followUpNote ?? raw.follow_up_note ?? raw.retornoNota;
+      const followUpNote =
+        typeof followUpRaw === 'string' && followUpRaw.trim() ? followUpRaw.trim().slice(0, 500) : undefined;
       return {
         id,
         name: raw.name || raw.nome || 'Sem Nome',
@@ -345,7 +353,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         notes,
         tags: Array.isArray(raw.tags) ? raw.tags : [],
         status: raw.status || 'VALID',
-        lastMsg: raw.lastMsg || raw.ultimaMsg
+        lastMsg: raw.lastMsg || raw.ultimaMsg,
+        ...(followUpAt ? { followUpAt } : {}),
+        ...(followUpNote ? { followUpNote } : {})
       };
     };
 

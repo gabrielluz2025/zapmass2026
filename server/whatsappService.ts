@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import * as advancedFeatures from './advancedFeatures.js';
 import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/connectionScope.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
+import { persistUserNotification } from './userNotificationsFirestore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -568,6 +569,20 @@ export function emitScheduledCampaignUserNotice(
         campaignId: payload.campaignId ?? '',
         kind: payload.kind ?? 'retry'
     });
+    const k = payload.kind ?? 'retry';
+    const title =
+        k === 'subscription'
+            ? 'Assinatura e agendamento'
+            : k === 'no_chip'
+              ? 'Nenhum chip conectado'
+              : 'Agendamento reprogramado';
+    void persistUserNotification(String(ownerUid || ''), {
+        title,
+        body: payload.message,
+        kind: k === 'subscription' ? 'error' : 'warning',
+        category: 'schedule',
+        campaignId: payload.campaignId
+    }).catch(() => {});
 }
 
 export const getWarmupChipStats = (): WarmupChipStats[] => Array.from(warmupChipStats.values());
@@ -3256,6 +3271,13 @@ export const startCampaign = async (
     }
 
     emitToOwnerUid('campaign-started', currentCampaign.ownerUid, { total: currentCampaign.total, campaignId });
+    void persistUserNotification(String(currentCampaign.ownerUid || ''), {
+        title: 'Campanha iniciada',
+        body: `A processar até ${currentCampaign.total} envios.`,
+        kind: 'info',
+        category: 'campaign',
+        campaignId
+    }).catch(() => {});
     emitCampaignLog('INFO', 'Campanha iniciada', {
         total: currentCampaign.total,
         campaignId: currentCampaign.campaignId,
@@ -3752,6 +3774,17 @@ const processQueue = async () => {
         total: currentCampaign.total,
         campaignId: currentCampaign.campaignId
     });
+    const okN = currentCampaign.successCount || 0;
+    const failN = currentCampaign.failCount || 0;
+    const proc = currentCampaign.processed || 0;
+    const tot = currentCampaign.total || 0;
+    void persistUserNotification(String(currentCampaign.ownerUid || ''), {
+        title: 'Campanha concluída',
+        body: `Processados ${proc} de ${tot}. Sucesso: ${okN} · Falhas: ${failN}.`,
+        kind: okN > 0 ? 'success' : failN > 0 ? 'warning' : 'info',
+        category: 'campaign',
+        campaignId: currentCampaign.campaignId
+    }).catch(() => {});
     const finishedId = currentCampaign.campaignId;
     const finishedOwner = currentCampaign.ownerUid;
     void import('./campaignScheduleFollowup.js')
@@ -4314,6 +4347,13 @@ export const pauseCampaign = (campaignId: string) => {
     console.log(`[Campaign] ⏸️ Pausada: ${campaignId}`);
     if (currentCampaign.campaignId === campaignId) {
         emitToOwnerUid('campaign-paused', currentCampaign.ownerUid, { campaignId });
+        void persistUserNotification(String(currentCampaign.ownerUid || ''), {
+            title: 'Campanha pausada',
+            body: `A campanha foi colocada em pausa.`,
+            kind: 'info',
+            category: 'campaign',
+            campaignId
+        }).catch(() => {});
     }
 };
 
@@ -4322,6 +4362,13 @@ export const resumeCampaign = (campaignId: string) => {
     console.log(`[Campaign] ▶️ Retomada: ${campaignId}`);
     if (currentCampaign.campaignId === campaignId) {
         emitToOwnerUid('campaign-resumed', currentCampaign.ownerUid, { campaignId });
+        void persistUserNotification(String(currentCampaign.ownerUid || ''), {
+            title: 'Campanha retomada',
+            body: `O envio da campanha foi retomado.`,
+            kind: 'info',
+            category: 'campaign',
+            campaignId
+        }).catch(() => {});
     }
 };
 

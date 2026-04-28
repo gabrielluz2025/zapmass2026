@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Users, Flame, Sparkles, Snowflake, Clock, Cake, Moon, AlertCircle,
-  MapPinOff, Copy, List as ListIcon, Plus, MoreHorizontal, LucideIcon, Search, X, Trash2
+  MapPinOff, Copy, List as ListIcon, Plus, MoreHorizontal, LucideIcon, Search, X, Trash2, CalendarClock
 } from 'lucide-react';
 import type { ContactList } from '../../../types';
 
@@ -18,6 +18,10 @@ export type SmartFilterId =
   | 'invalid'
   | 'no_address'
   | 'duplicates'
+  | 'retorno_todos'
+  | 'retorno_atrasados'
+  | 'retorno_hoje'
+  | 'retorno_semana'
   | `list:${string}`;
 
 export interface SidebarCounts {
@@ -32,6 +36,10 @@ export interface SidebarCounts {
   invalid: number;
   no_address: number;
   duplicates: number;
+  retorno_todos: number;
+  retorno_atrasados: number;
+  retorno_hoje: number;
+  retorno_semana: number;
 }
 
 interface Props {
@@ -87,6 +95,40 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
     { id: 'duplicates', label: 'Duplicados', icon: Copy, tone: 'rose', count: counts.duplicates }
   ];
 
+  const groupRetornos: FilterItem[] = [
+    {
+      id: 'retorno_todos',
+      label: 'Todos com retorno',
+      icon: CalendarClock,
+      tone: 'emerald',
+      count: counts.retorno_todos,
+      hint: 'Contatos com data de retorno agendada'
+    },
+    {
+      id: 'retorno_atrasados',
+      label: 'Atrasados',
+      icon: AlertCircle,
+      tone: 'rose',
+      count: counts.retorno_atrasados,
+      hint: 'Retorno antes de hoje'
+    },
+    {
+      id: 'retorno_hoje',
+      label: 'Hoje',
+      icon: Clock,
+      tone: 'amber',
+      count: counts.retorno_hoje
+    },
+    {
+      id: 'retorno_semana',
+      label: 'Próximos 7 dias',
+      icon: CalendarClock,
+      tone: 'violet',
+      count: counts.retorno_semana,
+      hint: 'De hoje até +6 dias'
+    }
+  ];
+
   const handleCreate = () => {
     const name = newListName.trim();
     if (!name) return;
@@ -132,6 +174,17 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
 
         <Group title="Atenção">
           {groupAttention.map((item) => (
+            <FilterButton
+              key={item.id}
+              item={item}
+              active={active === item.id}
+              onClick={() => onChange(item.id)}
+            />
+          ))}
+        </Group>
+
+        <Group title="Retornos">
+          {groupRetornos.map((item) => (
             <FilterButton
               key={item.id}
               item={item}

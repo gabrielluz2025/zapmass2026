@@ -1,4 +1,5 @@
 import type { Contact } from '../types';
+import { zapMassFollowLinesForVcf } from './vcfZapMassFollowUp';
 
 function escapeVcfValue(val: string): string {
   return String(val || '')
@@ -23,7 +24,13 @@ function contactToVcardBlock(c: Contact): string {
     .filter(Boolean)
     .join(', ');
   const meta = [addrBits, (c.church || '').trim() ? `Igreja: ${(c.church || '').trim()}` : '', (c.role || '').trim(), (c.profession || '').trim()].filter(Boolean).join('\n');
-  const noteBody = meta ? `${meta}${(c.notes || '').trim() ? `\n${(c.notes || '').trim()}` : ''}` : (c.notes || '').trim();
+  const zm = zapMassFollowLinesForVcf(c);
+  const notePieces = [
+    meta,
+    (c.notes || '').trim(),
+    ...zm
+  ].filter(Boolean);
+  const noteBody = notePieces.join('\n');
   if (noteBody) lines.push(`NOTE:${escapeVcfValue(noteBody)}`);
 
   const bday = (c.birthday || '').trim();
