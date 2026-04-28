@@ -204,6 +204,15 @@ jobs:
             echo "| \`VPS_HOST\` | IPv4 **público** da VPS, sem espaços |"
             echo "| SSH funciona do teu PC mas falha no GitHub | Confirma que o firewall **não** limita SSH ao teu IP fixo; os runners usam IPs variáveis. |"
             echo ""
+            echo "### Deploy manual até o runner conseguir ligar à VPS"
+            echo "Abre SSH **do teu computador ou terminal do painel** (tem de chegar à VPS mesmo que o GitHub não chegue)."
+            echo '```bash'
+            echo "cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
+            echo '```'
+            echo "O script usa ensure-git-main (main = origin/main) e deployment/vps-deploy.sh, como esta pipeline."
+            echo ""
+            echo "Alternativa estável ao longo prazo: [GitHub runner self-hosted](https://docs.github.com/en/actions/hosting-your-own-runners/about-self-hosted-runners) **na VPS** — o runner liga para fora aos servidores da GitHub, sem precisares de porta SSH entrada para Actions."
+            echo ""
             echo "No run, abre também o passo **Validar build (Vite)** — se estiver verde, o código compilou; falhou só o **SSH + Docker**."
             echo ""
             echo "Depois de corrigir rede/firewall: **Actions → Re-run failed jobs** (ou um novo push)."
