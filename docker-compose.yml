@@ -45,6 +45,9 @@ services:
       # Se o ficheiro nao existir, o servidor sobe na mesma mas rotas que
       # precisam de Firestore (trial, billing, admin) retornam 503.
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
+      # Login funcionários (usuário/senha); ver .env.example
+      FIREBASE_WEB_API_KEY: ${FIREBASE_WEB_API_KEY:-}
+      MAX_STAFF_PASSWORD_ACCOUNTS: ${MAX_STAFF_PASSWORD_ACCOUNTS:-}
       SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
     env_file:

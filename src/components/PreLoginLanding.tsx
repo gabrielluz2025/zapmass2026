@@ -4,6 +4,7 @@ import {
   BarChart3,
   CheckCircle2,
   ChevronDown,
+  KeyRound,
   MessageCircle,
   Rocket,
   Send,
@@ -188,7 +189,10 @@ export const PreLoginLanding: React.FC = () => {
 
           {/* Highlights */}
           <div className="flex flex-wrap gap-2 pt-1">
-            <Chip icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Login Google seguro" />
+            <Chip
+              icon={<KeyRound className="w-3.5 h-3.5" />}
+              label="Gestor pelo Google ou equipe com usuário e senha"
+            />
             <Chip icon={<CheckCircle2 className="w-3.5 h-3.5" />} label="Dados isolados por conta" />
             <Chip icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste grátis com ativação imediata" />
           </div>
@@ -259,7 +263,9 @@ export const PreLoginLanding: React.FC = () => {
           <LandingWhatsAppRiskNotice />
           <LoginCard
             showTrialOption
-            subtitle={`Entre com Google em 1 clique. No primeiro acesso, o teste grátis de ${formatTrialHoursLabel(config.trialHours)} é ativado automaticamente.`}
+            subtitle={`Responsável: entre com Google — no primeiro acesso pode ativar automaticamente o teste de ${formatTrialHoursLabel(
+              config.trialHours
+            )}. Funcionários: escolham «Funcionário» quando o gestor tiver criado usuário e senha em Funcionários.`}
           />
           <p className="text-[11px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
             Ao entrar, você concorda com o uso do ZapMass conforme as políticas do produto. O WhatsApp é operado pela
@@ -392,7 +398,7 @@ export const PreLoginLanding: React.FC = () => {
             />
             <FaqItem
               q="Meus dados e os dados dos clientes ficam seguros?"
-              a="Sim. Cada conta opera com dados isolados, autenticação por Google e comunicação segura por HTTPS. Você mantém controle sobre sua operação e sua base."
+              a="Sim. Cada conta opera com dados isolados (por gestor/responsável), autenticação segura pelo Google para o proprietário ou com usuário e senha criados dentro do ZapMass para a equipe, sempre sobre HTTPS. Você mantém controle sobre sua operação e sua base."
             />
             <FaqItem
               q="Preciso deixar computador ligado para disparar?"

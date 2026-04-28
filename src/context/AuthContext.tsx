@@ -5,6 +5,7 @@ import {
   signInWithRedirect,
   getRedirectResult,
   signOut as firebaseSignOut,
+  signInWithCustomToken,
   User
 } from 'firebase/auth';
 import toast from 'react-hot-toast';
@@ -14,6 +15,8 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
+  /** Login de funcionário (token emitido pelo servidor após validar e-mail do gestor + usuário + senha). */
+  signInWithStaffCustomToken: (customToken: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -21,6 +24,7 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
   signInWithGoogle: async () => {},
+  signInWithStaffCustomToken: async () => {},
   signOut: async () => {}
 });
 
@@ -44,6 +48,9 @@ const mapAuthErrorMessage = (err: any): string => {
     case 'auth/operation-not-supported-in-this-environment':
     case 'auth/web-storage-unsupported':
       return 'Seu navegador nao suporta este login. Ative cookies e tente novamente.';
+    case 'auth/invalid-custom-token':
+    case 'auth/custom-token-mismatch':
+      return 'Token de acesso inválido ou expirado. Tente entrar de novo.';
     default:
       return err?.message || 'Falha ao entrar com Google.';
   }
@@ -107,6 +114,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const signInWithStaffCustomToken = async (customToken: string) => {
+    const t = typeof customToken === 'string' ? customToken.trim() : '';
+    if (!t) {
+      toast.error('Token de sessão em falta.');
+      return;
+    }
+    try {
+      await signInWithCustomToken(auth, t);
+      toast.success('Acesso de funcionário ativado.');
+    } catch (err: unknown) {
+      console.error('[AuthContext] signInWithStaffCustomToken:', err);
+      toast.error(mapAuthErrorMessage(err));
+      throw err;
+    }
+  };
+
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
@@ -118,7 +141,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signInWithStaffCustomToken, signOut }}>
       {children}
     </AuthContext.Provider>
   );

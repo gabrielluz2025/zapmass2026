@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Loader2, Lock, ShieldCheck, Sparkles, Zap } from 'lucide-react';
+import { Loader2, Lock, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
@@ -16,9 +17,15 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   subtitle = 'Acesse sua operação com 1 clique no Google e comece seu teste sem complicação.',
   showTrialOption = false
 }) => {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, signInWithStaffCustomToken } = useAuth();
   const { config } = useAppConfig();
-  const [loading, setLoading] = useState<'idle' | 'login' | 'trial'>('idle');
+  const [entryMode, setEntryMode] = useState<'admin' | 'staff'>('admin');
+  const [loading, setLoading] = useState<'idle' | 'login' | 'trial' | 'staff'>('idle');
+
+  const [managerEmail, setManagerEmail] = useState('');
+  const [staffLoginName, setStaffLoginName] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+
   const trialBtn = `Entrar com Google e iniciar teste grátis (${formatTrialHoursLabel(config.trialHours)})`;
 
   const runLogin = async (mode: 'trial' | 'customer') => {
@@ -32,7 +39,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     } else {
       try {
         sessionStorage.removeItem('zapmass.startTrialAfterLogin');
-        // Entrada "Já sou cliente": se não tiver assinatura ativa, tenta iniciar teste automaticamente.
         sessionStorage.setItem('zapmass.tryTrialIfNeededAfterLogin', '1');
       } catch {
         /* ignore */
@@ -46,6 +52,54 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     }
   };
 
+  const runStaffLogin = async () => {
+    const me = managerEmail.trim().toLowerCase();
+    const slug = staffLoginName.trim();
+    if (!me.includes('@')) {
+      toast.error('Informe o e-mail principal (do responsável pelo ZapMass).');
+      return;
+    }
+    if (slug.length < 3) {
+      toast.error('Nome de usuário deve ter pelo menos 3 caracteres (letras minúsculas, números ou _).');
+      return;
+    }
+    if (staffPassword.length < 8) {
+      toast.error('Senha com pelo menos 8 caracteres.');
+      return;
+    }
+    try {
+      sessionStorage.removeItem('zapmass.startTrialAfterLogin');
+      sessionStorage.removeItem('zapmass.tryTrialIfNeededAfterLogin');
+    } catch {
+      /* ignore */
+    }
+    setLoading('staff');
+    try {
+      const r = await fetch('/api/workspace/staff/sign-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          managerEmail: me,
+          loginName: slug,
+          password: staffPassword
+        })
+      });
+      const data = (await r.json()) as { ok?: boolean; error?: string; customToken?: string };
+      if (!data?.ok || typeof data.customToken !== 'string') {
+        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível entrar.');
+        return;
+      }
+      await signInWithStaffCustomToken(data.customToken);
+      setStaffPassword('');
+    } catch {
+      toast.error('Erro de rede. Tente de novo.');
+    } finally {
+      setLoading('idle');
+    }
+  };
+
+  const busy = loading !== 'idle';
+
   return (
     <div
       className="landing-card-glow rounded-2xl p-6 sm:p-7 relative w-full"
@@ -56,7 +110,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
       }}
     >
       <div className="relative z-[1]">
-        {/* Badge topo */}
         <div
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border mb-3"
           style={{
@@ -73,17 +126,150 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         <h2 className="text-[22px] font-extrabold leading-tight mb-1.5" style={{ color: 'var(--text-1)' }}>
           {title}
         </h2>
-        <p className="text-[13px] leading-relaxed mb-6" style={{ color: 'var(--text-3)' }}>
+        <p className="text-[13px] leading-relaxed mb-5" style={{ color: 'var(--text-3)' }}>
           {subtitle}
         </p>
 
-        {/* CTA principal unificado */}
-        {showTrialOption ? (
+        {/* Quem entra: gestor (Google) ou funcionário (usuário + senha criados pelo gestor) */}
+        <div
+          className="flex rounded-xl p-1 mb-5 gap-1"
+          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+          role="tablist"
+          aria-label="Tipo de acesso"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={entryMode === 'admin'}
+            onClick={() => setEntryMode('admin')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-[12.5px] font-bold transition-colors ${
+              entryMode === 'admin' ? 'shadow-sm' : 'opacity-85'
+            }`}
+            style={{
+              background: entryMode === 'admin' ? 'var(--surface-0)' : 'transparent',
+              color: 'var(--text-1)',
+              border: entryMode === 'admin' ? '1px solid var(--border-subtle)' : '1px solid transparent'
+            }}
+          >
+            <Zap className="w-4 h-4 text-emerald-600" />
+            Responsável
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={entryMode === 'staff'}
+            onClick={() => setEntryMode('staff')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-[12.5px] font-bold transition-colors ${
+              entryMode === 'staff' ? 'shadow-sm' : 'opacity-85'
+            }`}
+            style={{
+              background: entryMode === 'staff' ? 'var(--surface-0)' : 'transparent',
+              color: 'var(--text-1)',
+              border: entryMode === 'staff' ? '1px solid var(--border-subtle)' : '1px solid transparent'
+            }}
+          >
+            <Users className="w-4 h-4 text-sky-600" />
+            Funcionário
+          </button>
+        </div>
+
+        {entryMode === 'staff' ? (
+          <div className="space-y-3 mb-2">
+            <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
+              O responsável cria o seu usuário e senha na área{' '}
+              <strong>Funcionários</strong> do painel. Use o <strong>e-mail dele (Google)</strong> e o usuário que criou para
+              você.
+            </p>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                E-mail do responsável (gestor)
+              </label>
+              <input
+                type="email"
+                autoComplete="username"
+                value={managerEmail}
+                onChange={(e) => setManagerEmail(e.target.value)}
+                disabled={busy}
+                placeholder="nome@empresa.com"
+                className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px]"
+                style={{
+                  background: 'var(--surface-1)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-1)'
+                }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                Seu nome de usuário
+              </label>
+              <input
+                type="text"
+                autoComplete="nickname"
+                value={staffLoginName}
+                onChange={(e) => setStaffLoginName(e.target.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                disabled={busy}
+                placeholder="ex.: maria_silva"
+                className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px] font-mono"
+                style={{
+                  background: 'var(--surface-1)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-1)'
+                }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                Senha
+              </label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={staffPassword}
+                onChange={(e) => setStaffPassword(e.target.value)}
+                disabled={busy}
+                placeholder="••••••••"
+                className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px]"
+                style={{
+                  background: 'var(--surface-1)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-1)'
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void runStaffLogin()}
+              disabled={busy}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:brightness-110 disabled:opacity-60"
+              style={{
+                background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                boxShadow: '0 12px 28px rgba(2,132,199,0.3)'
+              }}
+            >
+              {loading === 'staff' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Entrando…
+                </>
+              ) : (
+                <>
+                  <Users className="w-4 h-4" />
+                  Entrar como funcionário
+                </>
+              )}
+            </button>
+            <p className="text-[11px] leading-snug pt-1" style={{ color: 'var(--text-3)' }}>
+              Este acesso usa a assinatura da conta do gestor. Teste grátis só é ativado quando o responsável entra com
+              Google pela primeira vez.
+            </p>
+          </div>
+        ) : showTrialOption ? (
           <>
             <button
               type="button"
               onClick={() => runLogin('trial')}
-              disabled={loading !== 'idle'}
+              disabled={busy}
               className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
               style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 55%, #047857 100%)',
@@ -108,7 +294,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             <button
               type="button"
               onClick={() => runLogin('customer')}
-              disabled={loading !== 'idle'}
+              disabled={busy}
               className="w-full mt-2.5 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-[12.5px] font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               style={{
                 background: 'var(--surface-1)',
@@ -133,7 +319,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           <button
             type="button"
             onClick={() => runLogin('customer')}
-            disabled={loading !== 'idle'}
+            disabled={busy}
             className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
             style={{
               background: '#fff',
@@ -159,18 +345,32 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         {/* Divider */}
         <div className="flex items-center gap-3 my-5">
           <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+          <span
+            className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-widest"
+            style={{ color: 'var(--text-3)' }}
+          >
             <Lock className="w-3 h-3" />
             Entrada segura
           </span>
           <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
         </div>
 
-        {/* Trust features */}
         <div className="space-y-2">
-          <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Nunca guardamos sua senha — login é pelo Google" />
-          <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
-          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Sem fidelidade: você decide quando continuar" />
+          {entryMode === 'admin' ? (
+            <>
+              <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Responsável: login com Google (OAuth) — sem senha nosso" />
+              <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
+            </>
+          ) : (
+            <>
+              <Feature
+                icon={<Lock className="w-3.5 h-3.5" />}
+                label="Senha de funcionário validada no servidor (Firebase Auth) e ligada à conta do gestor."
+              />
+              <Feature icon={<Users className="w-3.5 h-3.5" />} label="Limite de 10 funcionários com senha — o gestor gere e revoga no painel." />
+            </>
+          )}
+          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Sem fidelidade na experiência: você decide quando continuar" />
         </div>
       </div>
     </div>
@@ -178,10 +378,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 };
 
 const Feature: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
-  <div
-    className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg"
-    style={{ background: 'var(--surface-1)' }}
-  >
+  <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg" style={{ background: 'var(--surface-1)' }}>
     <div
       className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
       style={{

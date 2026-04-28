@@ -28,6 +28,17 @@ Se aparecer um aviso dizendo que precisa **assinatura** ou renovar o plano, voc�
 - **Sino**: notificações do sistema (campanha concluída, avisos importantes).
 - **Lâmpada “Sugestão”**: abre um campo para enviar ideias de melhoria à equipe — não é obrigatório usar.
 
+### 2.4 Tela de entrada: responsável ou funcionário
+
+Antes de usar o painel, a **página inicial de login** permite escolher como entrar:
+
+| Modo | Para quem | O que usar |
+|------|-----------|------------|
+| **Responsável** | Dono da conta (quem paga o plano ou ativa o teste) | Botão **Entrar com Google** com a **conta Google principal** do ZapMass. É nesse login que o **teste grátis** (quando existir) costuma ser ligado no primeiro acesso. |
+| **Funcionário** | Quem só opera a mesma base e os mesmos chips sob o plano do gestor | Separador **Funcionário**: preencha o **e-mail do responsável** (o mesmo que ele usa no Google no ZapMass), o **nome de usuário** e a **senha** que ele cadastrou para você no menu **Funcionários** (ou em **Configurações** → secção de equipa). |
+
+Quem entra como funcionário **usa a assinatura e os dados do responsável** — não cria outra “conta” de pagamento. O gestor pode também convidar por **código** (fluxo com Google do convidado); o acesso por **usuário e senha** é outra opção paralela, com **limite máximo** de pessoas definido no servidor (valor padrão 10; quem mantém a infraestrutura pode ajustar pela variável `MAX_STAFF_PASSWORD_ACCOUNTS` no ambiente da API).
+
 ---
 
 ## 3. Menu lateral — grupos e o que cada ícone faz
@@ -37,6 +48,7 @@ Os nomes podem variar levemente, mas a ideia é esta:
 | Grupo        | Onde ir            | Em poucas palavras |
 |-------------|---------------------|--------------------|
 | **Principal** | Painel             | Resumo do dia, atalhos e lembretes (ex.: aniversários). |
+|               | Funcionários       | Gestor: **criar acessos com usuário/senha**, ver lista, **revogar**; convites por código quando existir. Funcionário: ver instruções conforme o cadastro. |
 |               | Conexões           | Cadastrar e gerir os **chips** WhatsApp (QR Code, online/offline). |
 |               | Pipeline           | Ver conversas e **enviar até a resposta** num fluxo organizado. |
 | **Disparos**  | Campanhas          | Criar disparos em massa, pausar, agenda, relatórios rápidos da área. |
@@ -214,7 +226,7 @@ Mostrar, na prática, **onde clicar** e **qual ordem seguir** no primeiro dia de
 
 | Min | O que mostrar na tela |
 |-----|------------------------|
-| 0:00–0:30 | Abertura: logo ZapMass, login, bolinha verde “servidor OK”. |
+| 0:00–0:30 | Abertura: logo ZapMass; mostrar **Responsável** (Google) vs **Funcionário** (e-mail do gestor + usuário + senha); bolinha verde “servidor OK”. |
 | 0:30–2:00 | **Conexões**: adicionar ou reconectar um chip (QR), mostrar online. |
 | 2:00–4:00 | **Contatos**: importar 3–5 contatos de teste ou colar; criar uma **lista** e pôr contatos nela. |
 | 4:00–7:00 | **Campanhas → Nova campanha**: público = lista; mensagem simples; escolher chip; intervalo; revisar; **não** precisa ser milhares de números — use poucos para demo. |

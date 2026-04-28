@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { getAuth } from 'firebase/auth';
 import { Badge, Button, Card, CardHeader, Input } from '../ui';
+import { StaffPasswordAccountsPanel } from './StaffPasswordAccountsPanel';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { auth } from '../../services/firebase';
 
@@ -371,6 +372,8 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
                   </div>
                 </div>
               </details>
+
+              {isOwnerPerspective && <StaffPasswordAccountsPanel />}
             </>
           )}
 

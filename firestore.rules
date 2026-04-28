@@ -52,6 +52,11 @@ service cloud.firestore {
       }
     }
 
+    /** Credenciais de funcionários (nome de usuário + senha) — só servidor (Firebase Admin SDK). */
+    match /users/{uid}/staffPasswordUsers/{docId} {
+      allow read, write: if false;
+    }
+
     match /users/{uid}/suggestions/{docId} {
       allow create: if request.auth != null && request.auth.uid == uid;
       allow read: if request.auth != null && request.auth.uid == uid;

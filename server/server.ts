@@ -59,6 +59,7 @@ import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
 import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 import { registerWorkspaceRoutes } from './workspaceRoutes.js';
+import { registerWorkspaceStaffPasswordRoutes } from './workspaceStaffPasswordRoutes.js';
 
 function notifyCampaignSocketError(
   uid: string,
@@ -166,6 +167,7 @@ registerAdminAppConfigRoutes(app);
 registerAdminOpsRoutes(app);
 registerAdminConnectionsRoutes(app);
 registerWorkspaceRoutes(app);
+registerWorkspaceStaffPasswordRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', (req, res) => {
