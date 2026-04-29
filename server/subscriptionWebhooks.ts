@@ -9,55 +9,9 @@ import {
 import { sendPaymentConfirmationEmail } from './emailService.js';
 import { issueInvoice, isNfeEnabled } from './nfeService.js';
 import { getMercadoPagoAccessToken } from './mercadoPagoAccess.js';
+import { parseExternalReference } from './mpExternalReference.js';
 
 const MP_API = 'https://api.mercadopago.com';
-
-type ParsedMpRef =
-  | { kind: 'plan'; uid: string; plan: SubscriptionPlan }
-  | { kind: 'tier_plan'; uid: string; plan: SubscriptionPlan; channels: number }
-  | { kind: 'tier_upgrade'; uid: string; fromChannels: number; toChannels: number; plan: SubscriptionPlan }
-  | { kind: 'chaddon_once'; uid: string; extraSlots: number }
-  | { kind: 'chaddon_recur'; uid: string; extraSlots: number }
-  | { kind: 'none' };
-
-/**
- * `uid:monthly|annual` (plano legado), `uid:tier:3:monthly` (plano por canais),
- * ou `uid:chaddon_once:1` / `uid:chaddon_recur:2` (canais extras legados).
- */
-function parseExternalReference(ref: string | undefined | null): ParsedMpRef {
-  if (!ref || typeof ref !== 'string') return { kind: 'none' };
-  const parts = ref.split(':').map((s) => s.trim());
-  const uid = parts[0] || '';
-  if (!uid) return { kind: 'none' };
-  const mid = (parts[1] || '').toLowerCase();
-  if (mid === 'chaddon_once' || mid === 'chaddon-once') {
-    const n = Math.min(3, Math.max(1, parseInt(parts[2] || '0', 10) || 0));
-    if (n >= 1 && n <= 3) return { kind: 'chaddon_once', uid, extraSlots: n };
-  }
-  if (mid === 'chaddon_recur' || mid === 'chaddon-recur') {
-    const n = Math.min(3, Math.max(1, parseInt(parts[2] || '0', 10) || 0));
-    if (n >= 1 && n <= 3) return { kind: 'chaddon_recur', uid, extraSlots: n };
-  }
-  if (mid === 'tier') {
-    const channels = Math.max(1, Math.min(5, parseInt(parts[2] || '0', 10) || 0));
-    const rawPlan = (parts[3] || 'monthly').toLowerCase();
-    const plan: SubscriptionPlan =
-      rawPlan === 'annual' || rawPlan === 'anual' ? 'annual' : rawPlan === 'monthly' || rawPlan === 'mensal' ? 'monthly' : null;
-    if (channels >= 1 && channels <= 5 && plan) return { kind: 'tier_plan', uid, plan, channels };
-  }
-  if (mid === 'tier_upgrade') {
-    const from = Math.max(1, Math.min(5, parseInt(parts[2] || '0', 10) || 0));
-    const to = Math.max(1, Math.min(5, parseInt(parts[3] || '0', 10) || 0));
-    const rawPlan = (parts[4] || 'monthly').toLowerCase();
-    const plan: SubscriptionPlan =
-      rawPlan === 'annual' || rawPlan === 'anual' ? 'annual' : rawPlan === 'monthly' || rawPlan === 'mensal' ? 'monthly' : null;
-    if (from >= 1 && to >= 1 && plan) return { kind: 'tier_upgrade', uid, fromChannels: from, toChannels: to, plan };
-  }
-  const p = mid;
-  const plan: SubscriptionPlan =
-    p === 'monthly' || p === 'mensal' ? 'monthly' : p === 'annual' || p === 'anual' ? 'annual' : null;
-  return { kind: 'plan', uid, plan };
-}
 
 async function mpGetJson(path: string): Promise<Record<string, unknown> | null> {
   const token = getMercadoPagoAccessToken();
@@ -413,7 +367,12 @@ export function registerSubscriptionWebhooks(app: Express): void {
         body.order_nsu ||
         body.orderNsu) as string | undefined;
       const status = String(body.status || body.payment_status || '').toLowerCase();
-      const { uid, plan } = parseExternalReference(ext);
+      const parsedRef = parseExternalReference(ext);
+      const uid = parsedRef.kind === 'none' ? '' : parsedRef.uid;
+      const plan: SubscriptionPlan =
+        parsedRef.kind === 'plan' || parsedRef.kind === 'tier_plan' || parsedRef.kind === 'tier_upgrade'
+          ? parsedRef.plan
+          : null;
 
       const paidAmount = typeof body.paid_amount === 'number' ? body.paid_amount : Number(body.paid_amount);
       const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);

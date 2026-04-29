@@ -39,6 +39,7 @@ on:
       - "package-lock.json"
       - "vite.config.*"
       - "tsconfig*.json"
+      - "vitest.config.ts"
       - "Dockerfile"
       - "docker-compose.yml"
       - "docker-stack.yml"
@@ -85,6 +86,8 @@ jobs:
           set -euo pipefail
           node -v
           npm ci
+          npm run typecheck
+          npm run test
           npm run build
 
   deploy:

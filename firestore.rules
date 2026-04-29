@@ -15,28 +15,28 @@ service cloud.firestore {
       return request.auth != null && (request.auth.uid == targetUserPathUid || isTeamMemberOf(targetUserPathUid));
     }
     
-    // --- Regras do Sistema ZapMass ---
-    // Permite leitura e escrita livre para funcionamento sem login
-    // IMPORTANTE: Em produção com dados reais, implemente Firebase Auth.
-    
-    // Coleções legadas (antes de users/{uid}/...). Leitura para o app mesclar na UI;
-    // delete permite limpar duplicata após migração; create/update desligados (novos dados em users/{uid}).
+    // --- ZapMass: Firebase Auth obrigatório para dados de cliente ---
+    // Convites de workspace: só Firebase Admin (API servidor). Cliente nunca acede directamente.
+    match /workspace_invites/{code} {
+      allow read, write: if false;
+    }
+
+    // Coleções legadas na raiz (pré users/{uid}/...). FECHADAS em produção multi-tenant:
+    // evita que qualquer utilizador autenticado leia documentos de outras contas.
+    // Migração/limpeza: usar Firebase Admin SDK (ignora estas regras) ou consola.
     match /contacts/{docId} {
-      allow read, delete: if request.auth != null;
-      allow create, update: if false;
+      allow read, write: if false;
     }
 
     match /contact_lists/{docId} {
-      allow read, delete: if request.auth != null;
-      allow create, update: if false;
+      allow read, write: if false;
     }
 
     match /campaigns/{docId} {
-      allow read, delete: if request.auth != null;
-      allow create, update: if false;
+      allow read, write: if false;
     }
 
-    // Plano B: isolamento por usuário (cada cliente só enxerga seus próprios dados)
+    // Dados por utilizador (cada cliente só os seus, ou equipa com userWorkspaceLinks)
     match /users/{uid}/contacts/{docId} {
       allow read, write: if canAccessUserSubtree(uid);
     }
@@ -76,7 +76,6 @@ service cloud.firestore {
     }
 
     // --- Regras Legadas / ZapFlow ---
-    // Proteção por ID de usuário e App ID
     match /artifacts/{appId}/users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
@@ -85,13 +84,11 @@ service cloud.firestore {
        allow read: if request.auth != null;
     }
 
-    // Assinatura (lido pelo app; escrita apenas via Firebase Admin nos webhooks do servidor)
     match /userSubscriptions/{uid} {
       allow read: if request.auth != null && (request.auth.uid == uid || isTeamMemberOf(uid));
       allow write: if false;
     }
 
-    // Config publica do produto (precos de marketing, textos do teste). Escrita apenas via Admin SDK (API servidor).
     match /appConfig/{docId} {
       allow read: if docId == 'global';
       allow write: if false;

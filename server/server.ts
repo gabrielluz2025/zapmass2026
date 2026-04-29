@@ -61,6 +61,8 @@ import { persistUserNotification } from './userNotificationsFirestore.js';
 import { registerWorkspaceRoutes } from './workspaceRoutes.js';
 import { registerWorkspaceStaffPasswordRoutes } from './workspaceStaffPasswordRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
+import { structuredLog } from './structuredLog.js';
+import { redisPing } from './redisPing.js';
 
 function notifyCampaignSocketError(
   uid: string,
@@ -182,6 +184,31 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+/** Redis + router de sessão (útil com API + wa-worker). Não expõe segredos. */
+app.get('/api/health/deep', async (_req, res) => {
+  const redisUrl = process.env.REDIS_URL?.trim();
+  let redis: { configured: boolean; ok?: boolean; pingMs?: number; error?: string } = {
+    configured: Boolean(redisUrl)
+  };
+  if (redisUrl) {
+    const ping = await redisPing(redisUrl);
+    redis = { configured: true, ok: ping.ok, pingMs: ping.pingMs, error: ping.error };
+  }
+  const sessionRouter = getSessionRouterMetrics();
+  const whatsappWorkers = getWhatsappProcessWorkerCount();
+  res.json({
+    status: 'ok',
+    version: getAppVersion(),
+    sessionProcessMode: process.env.SESSION_PROCESS_MODE || 'monolith',
+    sessionBusRemote: isSessionBusRemote(),
+    redis,
+    sessionRouter: {
+      ...sessionRouter,
+      whatsappProcessWorkers: whatsappWorkers
+    }
+  });
+});
+
 app.get('/api/session-router/metrics', metricsAccessMiddleware, (_req, res) => {
   res.json(getSessionRouterMetrics());
 });
@@ -219,18 +246,18 @@ app.post('/api/backup', async (req, res) => {
   }
 });
 
-// Webhook para receber eventos da Evolution API
+// ZapMass usa whatsapp-web.js. Endpoint mantido para compatibilidade (reverse proxies antigos).
+// Não processa eventos Evolution — ver `handleWebhook` em whatsappService (no-op).
 app.post('/webhook/evolution', (req, res) => {
   try {
-    const event = req.body;
-    console.log('[Webhook] Evento recebido:', event.event, event.instance);
-    
-    // Processar evento via evolutionService
-    waService.handleWebhook(event);
-    
-    res.status(200).json({ received: true });
+    const ev = (req.body || {}) as { event?: string; instance?: string };
+    structuredLog('info', 'webhook.evolution_ignored', {
+      event: ev.event,
+      instance: ev.instance
+    });
+    res.status(200).json({ received: true, handled: false, reason: 'evolution-not-integrated' });
   } catch (error) {
-    console.error('[Webhook] Erro ao processar:', error);
+    console.error('[webhook/evolution]', error);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
@@ -402,7 +429,24 @@ const registerSocketHandlers = () => {
       logEvent(event, { uid, ...(payload || {}) });
     const denyCrossTenant = (action: string, payload?: Record<string, unknown>) => {
       userLog('security:cross-tenant-blocked', { action, ...(payload || {}) });
+      structuredLog('warn', 'security.cross_tenant_blocked', {
+        action,
+        tenantUid: uid,
+        authUid: authOp,
+        socketId: socket.id,
+        ...(payload || {})
+      });
       socket.emit('security-warning', { action, error: 'Operacao bloqueada por isolamento de conta.' });
+    };
+    const reportSocketAsyncError = (op: string, err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      structuredLog('error', 'socket.async_handler_failed', {
+        op,
+        tenantUid: uid,
+        socketId: socket.id,
+        message
+      });
+      socket.emit('socket-operation-error', { op, error: message });
     };
     const emptyMetrics = { totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0 };
     const getWarmupStateForUid = () => {
@@ -506,31 +550,39 @@ const registerSocketHandlers = () => {
 
     socket.on('reconnect-connection', ({ id }) => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        if (!ownsConnectionId(id)) {
-          denyCrossTenant('reconnect-connection', { id });
-          return;
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (!ownsConnectionId(id)) {
+            denyCrossTenant('reconnect-connection', { id });
+            return;
+          }
+          userLog('ui:reconnect-connection', { id });
+          await runSessionCommandOrLocal({
+            submit: () => submitReconnectConnection(id, authOp),
+            local: () => waService.reconnectConnection(id)
+          });
+        } catch (e) {
+          reportSocketAsyncError('reconnect-connection', e);
         }
-        userLog('ui:reconnect-connection', { id });
-        await runSessionCommandOrLocal({
-          submit: () => submitReconnectConnection(id, authOp),
-          local: () => waService.reconnectConnection(id)
-        });
       })();
     });
 
     socket.on('force-qr', ({ id }) => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        if (!ownsConnectionId(id)) {
-          denyCrossTenant('force-qr', { id });
-          return;
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (!ownsConnectionId(id)) {
+            denyCrossTenant('force-qr', { id });
+            return;
+          }
+          userLog('ui:force-qr', { id });
+          await runSessionCommandOrLocal({
+            submit: () => submitForceQr(id, authOp),
+            local: () => waService.forceQr(id)
+          });
+        } catch (e) {
+          reportSocketAsyncError('force-qr', e);
         }
-        userLog('ui:force-qr', { id });
-        await runSessionCommandOrLocal({
-          submit: () => submitForceQr(id, authOp),
-          local: () => waService.forceQr(id)
-        });
       })();
     });
 
@@ -744,46 +796,62 @@ const registerSocketHandlers = () => {
 
     socket.on('update-settings', (settings: { minDelay?: number; maxDelay?: number; dailyLimit?: number; sleepMode?: boolean; webhookUrl?: string; emailNotif?: boolean }) => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        userLog('ui:update-settings', settings as Record<string, unknown>);
-        waService.applySettings(settings);
-        socket.emit('settings-saved', { ok: true });
+        try {
+          if (!(await requireActiveSubscription())) return;
+          userLog('ui:update-settings', settings as Record<string, unknown>);
+          waService.applySettings(settings);
+          socket.emit('settings-saved', { ok: true });
+        } catch (e) {
+          reportSocketAsyncError('update-settings', e);
+        }
       })();
     });
 
     socket.on('pause-campaign', ({ campaignId }) => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        if (!waService.canControlCampaign(uid, campaignId)) {
-          denyCrossTenant('pause-campaign', { campaignId });
-          return;
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (!waService.canControlCampaign(uid, campaignId)) {
+            denyCrossTenant('pause-campaign', { campaignId });
+            return;
+          }
+          userLog('ui:pause-campaign', { campaignId });
+          waService.pauseCampaign(campaignId);
+        } catch (e) {
+          reportSocketAsyncError('pause-campaign', e);
         }
-        userLog('ui:pause-campaign', { campaignId });
-        waService.pauseCampaign(campaignId);
       })();
     });
 
     socket.on('resume-campaign', ({ campaignId }) => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        if (!waService.canControlCampaign(uid, campaignId)) {
-          denyCrossTenant('resume-campaign', { campaignId });
-          return;
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (!waService.canControlCampaign(uid, campaignId)) {
+            denyCrossTenant('resume-campaign', { campaignId });
+            return;
+          }
+          userLog('ui:resume-campaign', { campaignId });
+          waService.resumeCampaign(campaignId);
+        } catch (e) {
+          reportSocketAsyncError('resume-campaign', e);
         }
-        userLog('ui:resume-campaign', { campaignId });
-        waService.resumeCampaign(campaignId);
       })();
     });
 
     socket.on('mark-as-read', ({ conversationId }) => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        if (typeof conversationId === 'string' && !ownsConnectionId(conversationId.split(':')[0] || '')) {
-          denyCrossTenant('mark-as-read', { conversationId });
-          return;
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (typeof conversationId === 'string' && !ownsConnectionId(conversationId.split(':')[0] || '')) {
+            denyCrossTenant('mark-as-read', { conversationId });
+            return;
+          }
+          userLog('ui:mark-as-read', { conversationId });
+          waService.markAsRead(conversationId);
+        } catch (e) {
+          reportSocketAsyncError('mark-as-read', e);
         }
-        userLog('ui:mark-as-read', { conversationId });
-        waService.markAsRead(conversationId);
       })();
     });
 
@@ -907,21 +975,29 @@ const registerSocketHandlers = () => {
 
     socket.on('clear-funnel-stats', () => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        userLog('ui:clear-funnel-stats', { socketId: socket.id });
-        waService.clearFunnelStats(uid);
+        try {
+          if (!(await requireActiveSubscription())) return;
+          userLog('ui:clear-funnel-stats', { socketId: socket.id });
+          waService.clearFunnelStats(uid);
+        } catch (e) {
+          reportSocketAsyncError('clear-funnel-stats', e);
+        }
       })();
     });
 
     socket.on('clear-warmup-chip-stats', (connectionId?: string) => {
       void (async () => {
-        if (!(await requireActiveSubscription())) return;
-        if (connectionId && !ownsConnectionId(connectionId)) {
-          denyCrossTenant('clear-warmup-chip-stats', { connectionId });
-          return;
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (connectionId && !ownsConnectionId(connectionId)) {
+            denyCrossTenant('clear-warmup-chip-stats', { connectionId });
+            return;
+          }
+          userLog('ui:clear-warmup-chip-stats', { socketId: socket.id, connectionId });
+          waService.clearWarmupChipStats(connectionId);
+        } catch (e) {
+          reportSocketAsyncError('clear-warmup-chip-stats', e);
         }
-        userLog('ui:clear-warmup-chip-stats', { socketId: socket.id, connectionId });
-        waService.clearWarmupChipStats(connectionId);
       })();
     });
 

@@ -11,9 +11,15 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { staffSignInLimiter } from './httpRateLimit.js';
 
-/** Mesma chave pública do projeto (cliente Firebase). Pode sobrescrever com FIREBASE_WEB_API_KEY no servidor. */
-const FALLBACK_FIREBASE_WEB_API_KEY = 'AIzaSyAa-a8MMECStZgKxxELeLSJT7JpJOKMJZw';
+/**
+ * Apenas desenvolvimento: nunca usar em produção multi-tenant.
+ * Em produção é obrigatório FIREBASE_WEB_API_KEY (ou VITE_FIREBASE_API_KEY no .env do servidor).
+ */
+const FALLBACK_FIREBASE_WEB_API_KEY_DEV = 'AIzaSyAa-a8MMECStZgKxxELeLSJT7JpJOKMJZw';
+
+export const FIREBASE_WEB_API_KEY_MISSING = 'FIREBASE_WEB_API_KEY_MISSING';
 
 /** Limite efectivo por instalação — override com MAX_STAFF_PASSWORD_ACCOUNTS no .env da API (1 a 50; default 10). */
 export function getMaxStaffPasswordAccounts(): number {
@@ -23,12 +29,23 @@ export function getMaxStaffPasswordAccounts(): number {
   return Math.max(1, Math.min(50, Math.floor(n)));
 }
 
+export function resolveFirebaseWebApiKey():
+  | { ok: true; key: string }
+  | { ok: false; code: typeof FIREBASE_WEB_API_KEY_MISSING } {
+  const fromEnv =
+    process.env.FIREBASE_WEB_API_KEY?.trim() || process.env.VITE_FIREBASE_API_KEY?.trim();
+  if (fromEnv) return { ok: true, key: fromEnv };
+  if (process.env.NODE_ENV === 'production') {
+    return { ok: false, code: FIREBASE_WEB_API_KEY_MISSING };
+  }
+  return { ok: true, key: FALLBACK_FIREBASE_WEB_API_KEY_DEV };
+}
+
+/** @deprecated Prefer resolveFirebaseWebApiKey em código novo */
 export function getFirebaseWebApiKey(): string {
-  return (
-    process.env.FIREBASE_WEB_API_KEY?.trim() ||
-    process.env.VITE_FIREBASE_API_KEY?.trim() ||
-    FALLBACK_FIREBASE_WEB_API_KEY
-  );
+  const r = resolveFirebaseWebApiKey();
+  if (!r.ok) throw new Error(FIREBASE_WEB_API_KEY_MISSING);
+  return r.key;
 }
 
 /** Slug estável como id do documento: [a-z0-9_] 3–28 caracteres. */
@@ -66,7 +83,11 @@ async function assertOwnerBearer(adminApp: ReturnType<typeof getFirebaseAdmin>, 
 }
 
 async function identityToolkitSignInWithPassword(email: string, password: string): Promise<{ localId: string }> {
-  const key = getFirebaseWebApiKey();
+  const keyRes = resolveFirebaseWebApiKey();
+  if (!keyRes.ok) {
+    throw new Error(FIREBASE_WEB_API_KEY_MISSING);
+  }
+  const key = keyRes.key;
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(key)}`,
     {
@@ -109,7 +130,7 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
    * Login de funcionário (público). Devolve customToken para signInWithCustomToken no cliente.
    * Body: { managerEmail, loginName, password }
    */
-  app.post('/api/workspace/staff/sign-in', async (req: Request, res: Response) => {
+  app.post('/api/workspace/staff/sign-in', staffSignInLimiter, async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
       return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
@@ -135,6 +156,12 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
         const r = await identityToolkitSignInWithPassword(email, password);
         localId = r.localId;
       } catch (ie: unknown) {
+        if (ie instanceof Error && ie.message === FIREBASE_WEB_API_KEY_MISSING) {
+          return res.status(503).json({
+            ok: false,
+            error: 'Servidor sem FIREBASE_WEB_API_KEY. Configure no .env da API para login de funcionários.'
+          });
+        }
         const c = ie instanceof Error ? ie.message : 'AUTH_FAILED';
         const pt: Record<string, string> = {
           EMAIL_AUTH: 'Gestor não encontrado ou usuário não cadastrado.',

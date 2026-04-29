@@ -1016,6 +1016,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast.error(error || 'Falha ao enviar mensagem.');
     });
 
+    socket.on('socket-operation-error', (p: { op?: string; error?: string }) => {
+      const msg = p?.error || 'Operação falhou. Tente de novo.';
+      toast.error(msg);
+    });
+
     socket.on('campaign-log', (log: { timestamp: string; level: string; message: string; payload?: Record<string, unknown> }) => {
       setSystemLogs(prev => [
         {

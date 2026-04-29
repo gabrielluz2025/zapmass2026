@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { workspaceInviteLimiter } from './httpRateLimit.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -17,7 +18,7 @@ export function registerWorkspaceRoutes(app: Express): void {
    * Gera código de convite (dono da conta). Requer Firebase ID token.
    * Resposta: { ok: true, code: string, expiresAt: string (ISO) }
    */
-  app.post('/api/workspace/create-invite', async (req: Request, res: Response) => {
+  app.post('/api/workspace/create-invite', workspaceInviteLimiter, async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
       return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
@@ -54,7 +55,7 @@ export function registerWorkspaceRoutes(app: Express): void {
   /**
    * Associa utilizador ao workspace do convite (funcionário). Requer Bearer (conta google do funcionário).
    */
-  app.post('/api/workspace/redeem', async (req: Request, res: Response) => {
+  app.post('/api/workspace/redeem', workspaceInviteLimiter, async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
       return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });

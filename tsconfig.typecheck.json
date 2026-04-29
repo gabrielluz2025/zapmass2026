@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["server/**/*.ts", "src/utils/connectionScope.ts"],
+  "exclude": [
+      "legacy",
+      "node_modules",
+      "dist",
+      "server/**/*.test.ts",
+      "src/**/*.test.ts",
+      "scripts",
+      "server/campaignController.ts"
+  ]
+}
