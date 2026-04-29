@@ -146,6 +146,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   });
   const [quickTestPhone, setQuickTestPhone] = useState('');
   const [quickTestBusy, setQuickTestBusy] = useState(false);
+  const [quickTestSentOk, setQuickTestSentOk] = useState(false);
   const { socket } = useZapMass();
   /** Laboratório A/B: duas campanhas com 1ª mensagem diferente (apenas sequencial). */
   const [abLabEnabled, setAbLabEnabled] = useState(false);
@@ -684,6 +685,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   }, [step, launchMode]);
 
   useEffect(() => {
+    if (step !== 4) setQuickTestSentOk(false);
+  }, [step]);
+
+  useEffect(() => {
     if (abLabEnabled) setLaunchMode('now');
   }, [abLabEnabled]);
 
@@ -756,6 +761,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       setQuickTestBusy(false);
       if (result?.success) {
         toast.success(result.message || 'Teste enviado com sucesso.');
+        setQuickTestSentOk(true);
       } else {
         toast.error(result?.error || 'Falha ao enviar teste.');
       }
@@ -1882,6 +1888,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 {numbers.length >= 25 && (
                   <p className="text-[11px] font-medium" style={{ color: '#6366f1' }}>
                     Lista com {numbers.length} contactos: enviar um teste primeiro reduz risco de erro em massa.
+                  </p>
+                )}
+                {quickTestSentOk && (
+                  <p
+                    className="text-[11px] font-semibold flex items-center gap-1.5"
+                    style={{ color: '#10b981' }}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    Teste enviado nesta sessão — pode seguir para o disparo com mais confiança.
                   </p>
                 )}
               </div>

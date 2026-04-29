@@ -38,6 +38,7 @@ import {
 } from '../../types';
 import { useZapMass } from '../../context/ZapMassContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
+import * as XLSX from 'xlsx';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { PerformanceFunnel } from '../PerformanceFunnel';
 import { CampaignScoreCard } from './CampaignScoreCard';
@@ -628,6 +629,42 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     toast.success(`Ficheiro gerado (${filteredReport.length} linhas) — UTF-8 para Excel.`);
   };
 
+  const exportReportXlsx = () => {
+    if (filteredReport.length === 0) {
+      toast.error('Nenhum registro para exportar.');
+      return;
+    }
+    const header = [
+      'Nome',
+      'Telefone',
+      'Status',
+      'Enviado em',
+      'Respondido em',
+      'Resposta',
+      'Erro',
+      'Mensagem enviada',
+      'Canal'
+    ];
+    const rows = filteredReport.map((r) => [
+      r.contactName,
+      r.phone,
+      STATUS_META[r.status].label,
+      r.sentTime,
+      r.replyTime || '',
+      r.replyText || '',
+      r.errorMessage || '',
+      r.sentMessage || '',
+      channelLabelForExport(r.connectionId)
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Relatorio');
+    const safe =
+      campaign.name.replace(/\W+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'campanha';
+    XLSX.writeFile(wb, `relatorio-${safe}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast.success(`Planilha XLSX com ${filteredReport.length} linhas.`);
+  };
+
   const exportReportJson = () => {
     if (filteredReport.length === 0) {
       toast.error('Nenhum registro para exportar.');
@@ -818,6 +855,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 title="Arquivo CSV com UTF-8 (abre no Excel). Inclui mensagem e canal."
               >
                 CSV / Excel
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<FileSpreadsheet className="w-4 h-4" />}
+                onClick={exportReportXlsx}
+                title="Planilha .xlsx (Excel / LibreOffice)"
+              >
+                XLSX
               </Button>
               <Button
                 variant="secondary"
@@ -1253,6 +1299,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 title="CSV UTF-8 para Excel"
               >
                 CSV / Excel
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<FileSpreadsheet className="w-3.5 h-3.5" />}
+                onClick={exportReportXlsx}
+                title="XLSX"
+              >
+                XLSX
               </Button>
               <Button
                 variant="secondary"
