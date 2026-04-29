@@ -6,6 +6,7 @@ import { useAppConfig } from '../../context/AppConfigContext';
 import type { ChannelTier } from '../../constants/channelTierPricing';
 import { BASE_CHANNEL_SLOTS } from '../../utils/connectionLimitPolicy';
 import { useProBillingPrices } from '../../hooks/useProBillingPrices';
+import { redirectToMercadoPagoCheckout } from '../../utils/mercadopagoCheckout';
 import { Modal } from '../ui';
 import { ProChannelTierSelect } from './ProChannelTierSelect';
 import { ProPlanCard, type ProLoadingKey } from './ProPlanCard';
@@ -46,7 +47,6 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
 
   const startPayment = async (plan: Plan, method: Method) => {
     if (!user) return;
-    const checkoutTab = window.open('', '_blank', 'noopener,noreferrer');
     setLoading(`${plan}-${method}` as ProLoadingKey);
     try {
       const idToken = await user.getIdToken();
@@ -65,28 +65,16 @@ export const TrialEndedModal: React.FC<TrialEndedModalProps> = ({ isOpen, onClos
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        checkoutTab?.close();
         toast.error(typeof data?.error === 'string' ? data.error : 'Checkout Mercado Pago indisponível.');
         return;
       }
       if (data.init_point) {
-        if (checkoutTab) {
-          checkoutTab.location.href = String(data.init_point);
-        } else {
-          window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
-        }
-        const msg =
-          method === 'recurring'
-            ? 'Conclua a autorização do débito automático. Seu acesso libera após a aprovação.'
-            : 'Conclua o pagamento na aba do Mercado Pago. Seu acesso libera após a confirmação.';
-        toast.success(msg);
         onClose();
-      } else {
-        checkoutTab?.close();
-        toast.error('Resposta sem link de checkout.');
+        redirectToMercadoPagoCheckout(String(data.init_point));
+        return;
       }
+      toast.error('Resposta sem link de checkout.');
     } catch (e) {
-      checkoutTab?.close();
       console.error(e);
       toast.error('Erro de rede.');
     } finally {

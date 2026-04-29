@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowDownCircle,
   CalendarDays,
   Check,
+  ChevronRight,
   Crown,
   FileText,
   Loader2,
@@ -22,6 +24,7 @@ import { firestoreTimeToMs } from '../../utils/firestoreTime';
 import { UpgradeProModal } from './UpgradeProModal';
 import { readAndClearChannelExtrasScrollFlag } from '../../utils/openChannelExtraFlow';
 import { FALLBACK_MARKETING_LABEL_ANNUAL, FALLBACK_MARKETING_LABEL_MONTHLY, fetchServerBillingPrices } from '../../utils/marketingPrices';
+import { redirectToMercadoPagoCheckout } from '../../utils/mercadopagoCheckout';
 import {
   CHANNEL_TIER_PRICES_ANNUAL,
   CHANNEL_TIER_PRICES_MONTHLY,
@@ -81,9 +84,13 @@ function resolveProviderLabel(sub: UserSubscription | null | undefined): string 
 
 function resolvePlanCycleLabel(sub: UserSubscription | null | undefined): string {
   if (!sub) return '—';
-  if (sub.plan === 'annual') return 'Anual';
-  if (sub.plan === 'monthly') return 'Mensal';
-  if (sub.status === 'trialing') return 'Pro — período de teste';
+  const tier =
+    typeof sub.includedChannels === 'number' && sub.includedChannels > 0
+      ? `${sub.includedChannels} canal(is)`
+      : null;
+  if (sub.plan === 'annual') return tier ? `Anual · ${tier}` : 'Anual';
+  if (sub.plan === 'monthly') return tier ? `Mensal · ${tier}` : 'Mensal';
+  if (sub.status === 'trialing') return tier ? `Pro — teste gratuito · ${tier}` : 'Pro — período de teste';
   if (sub.manualGrant === true && !sub.plan) return 'Gestão manual';
   if (sub.status === 'active' || sub.status === 'past_due') {
     const n = typeof sub.includedChannels === 'number' ? sub.includedChannels : null;
@@ -144,6 +151,24 @@ export const MySubscriptionTab: React.FC = () => {
   const isRecurring = Boolean(
     subscription?.mercadoPagoPreapprovalId && effectiveStatus === 'active'
   );
+
+  /** Nível de canais contratado (1–5): alinha a seleção de checkout ao plano atual. */
+  const contractedChannels = useMemo(
+    (): ChannelTier =>
+      Math.max(
+        1,
+        Math.min(
+          5,
+          Math.floor(
+            Number(subscription?.includedChannels) ||
+              (2 + Math.max(0, Math.floor(Number(subscription?.extraChannelSlots) || 0)))
+          )
+        )
+      ) as ChannelTier,
+    [subscription?.includedChannels, subscription?.extraChannelSlots]
+  );
+
+  const contractedChannelsBumpRef = useRef<number | null>(null);
   const [upgradeTarget, setUpgradeTarget] = useState<ChannelTier>(2);
   const [tierBusy, setTierBusy] = useState<null | 'pix' | 'card'>(null);
   const [tierPlanMode, setTierPlanMode] = useState<Plan>('monthly');
@@ -172,6 +197,20 @@ export const MySubscriptionTab: React.FC = () => {
     return () => cancelAnimationFrame(t);
   }, [loading]);
 
+  /**
+   * A seleção padrão era 2; se o plano já cobre mais canais, isDowngradeSelection desativava o checkout sem aviso óbvio.
+   * Sobe o alvo quando a assinatura carrega ou quando os canais contratados aumentam (ex.: trial → pago).
+   */
+  useEffect(() => {
+    if (loading) return;
+    const cc = contractedChannels;
+    const prev = contractedChannelsBumpRef.current;
+    contractedChannelsBumpRef.current = cc;
+    if (prev === null || cc > prev) {
+      setUpgradeTarget((t) => Math.max(t, cc));
+    }
+  }, [loading, contractedChannels]);
+
   const cancelRecurring = async () => {
     if (!user) return;
     if (!window.confirm('Cancelar o débito automático? Seu acesso continua até a data de expiração atual.')) return;
@@ -198,7 +237,6 @@ export const MySubscriptionTab: React.FC = () => {
 
   const startChannelTierPlan = async (method: 'pix' | 'card', channels: ChannelTier, plan: Plan) => {
     if (!user) return;
-    const checkoutTab = window.open('', '_blank', 'noopener,noreferrer');
     setTierBusy(method);
     try {
       const idToken = await user.getIdToken();
@@ -209,27 +247,15 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        checkoutTab?.close();
         toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível abrir o checkout do plano por canais.');
         return;
       }
       if (data.init_point) {
-        if (checkoutTab) {
-          checkoutTab.location.href = String(data.init_point);
-        } else {
-          window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
-        }
-        const charged = Number(data?.charged_brl);
-        const isUpgrade = data?.is_upgrade_prorata === true;
-        const priceText = Number.isFinite(charged) ? ` Valor: ${brl(charged)}.` : '';
-        toast.success(
-          isUpgrade
-            ? `Upgrade pró-rata (${plan === 'annual' ? 'anual' : 'mensal'}) aberto para ${channels} canal(is).${priceText}`
-            : `Checkout ${plan === 'annual' ? 'anual' : 'mensal'} aberto para ${channels} canal(is).${priceText}`
-        );
-      } else checkoutTab?.close();
+        redirectToMercadoPagoCheckout(String(data.init_point));
+        return;
+      }
+      toast.error('Resposta do servidor sem link de checkout.');
     } catch (e) {
-      checkoutTab?.close();
       console.error(e);
       toast.error('Erro de rede.');
     } finally {
@@ -288,20 +314,10 @@ export const MySubscriptionTab: React.FC = () => {
     (config.marketingPriceMonthly.trim() || FALLBACK_MARKETING_LABEL_MONTHLY);
   const priceAnnual =
     serverProLabels?.annual || (config.marketingPriceAnnual.trim() || FALLBACK_MARKETING_LABEL_ANNUAL);
-  const contractedChannels = Math.max(
-    1,
-    Math.min(
-      5,
-      Math.floor(
-        Number(subscription?.includedChannels) || (2 + Math.max(0, Math.floor(Number(subscription?.extraChannelSlots) || 0)))
-      )
-    )
-  ) as ChannelTier;
 
   /** Migração mensal → anual (Pix) com o mesmo número de canais contratado. */
   const migrateToAnnualPix = async () => {
     if (!user) return;
-    const checkoutTab = window.open('', '_blank', 'noopener,noreferrer');
     setBusy('pix');
     try {
       const idToken = await user.getIdToken();
@@ -312,20 +328,15 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        checkoutTab?.close();
         toast.error(typeof data?.error === 'string' ? data.error : 'Erro ao abrir o checkout.');
         return;
       }
       if (data.init_point) {
-        if (checkoutTab) {
-          checkoutTab.location.href = String(data.init_point);
-        } else {
-          window.open(String(data.init_point), '_blank', 'noopener,noreferrer');
-        }
-        toast.success('Abrimos o Mercado Pago numa nova aba. O acesso é estendido após confirmação.');
-      } else checkoutTab?.close();
+        redirectToMercadoPagoCheckout(String(data.init_point));
+        return;
+      }
+      toast.error('Resposta do servidor sem link de checkout.');
     } catch (e) {
-      checkoutTab?.close();
       console.error(e);
       toast.error('Erro de rede.');
     } finally {
@@ -341,6 +352,28 @@ export const MySubscriptionTab: React.FC = () => {
   const statusLabel = getStatusLabel(effectiveStatus, daysLeft, trialEndsMs);
   const providerLabel = resolveProviderLabel(subscription);
   const planLabel = resolvePlanCycleLabel(subscription);
+
+  const planSnapshotLine = useMemo(() => {
+    if (!subscription) return '—';
+    if (subscription.status === 'trialing') {
+      return `Pro em teste · ${contractedChannels} canal(is) incluído(s) neste período`;
+    }
+    if (subscription.status === 'active' || subscription.status === 'past_due') {
+      const cycle =
+        subscription.plan === 'annual' ? 'Ciclo anual' : subscription.plan === 'monthly' ? 'Ciclo mensal' : 'Ciclo pago';
+      return `${cycle} · ${contractedChannels} canal(is) contratado(s)`;
+    }
+    return planLabel;
+  }, [subscription, contractedChannels, planLabel]);
+
+  const isDowngradeSelection = upgradeTarget < contractedChannels;
+
+  const goToTierSection = (tier: ChannelTier) => {
+    setUpgradeTarget(tier);
+    requestAnimationFrame(() => {
+      document.getElementById('canais-extras-whatsapp')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
@@ -387,6 +420,76 @@ export const MySubscriptionTab: React.FC = () => {
             <Info icon={<CalendarDays className="w-3.5 h-3.5" />} label={expiryInfoLabel} value={expiryInfoValue} />
             <Info icon={<Crown className="w-3.5 h-3.5" />} label="Plano" value={planLabel} />
             <Info icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Via" value={providerLabel} />
+          </div>
+        </div>
+
+        <div
+          className="rounded-xl px-4 py-4 mb-4"
+          style={{
+            background:
+              'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 9%, var(--surface-1)), var(--surface-1))',
+            border: '1px solid var(--border-subtle)'
+          }}
+        >
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-3)' }}>
+            O seu plano agora
+          </p>
+          <p className="text-[15px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
+            {planSnapshotLine}
+          </p>
+          <p className="text-[11.5px] mt-2 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+            A <strong>linha de crescimento</strong> abaixo mostra quantos canais WhatsApp o seu contrato cobre. Suba de nível
+            na seção «Planos por quantidade» (upgrade com pró-rata no mesmo ciclo). Para{' '}
+            <strong>reduzir canais</strong> a meio do período é necessário falar com o suporte — o pagamento automático só
+            trata upgrades; antes de renovar você pode escolher um pacote menor.
+          </p>
+          <div className="mt-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>
+              Limite de canais no contrato
+            </p>
+            <div className="flex flex-wrap items-center gap-y-2 gap-x-1">
+              {([1, 2, 3, 4, 5] as const).map((step, idx) => (
+                <React.Fragment key={step}>
+                  {idx > 0 ? (
+                    <ChevronRight
+                      className="w-3.5 h-3.5 shrink-0 opacity-35 mx-0.5"
+                      style={{ color: 'var(--text-3)' }}
+                      aria-hidden
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => goToTierSection(step)}
+                    className="min-w-[2.25rem] h-9 px-2 rounded-lg text-[12px] font-extrabold transition-all"
+                    style={{
+                      background:
+                        step === contractedChannels
+                          ? 'linear-gradient(135deg, var(--brand-500), var(--brand-600))'
+                          : step < contractedChannels
+                            ? 'var(--surface-2)'
+                            : 'var(--surface-1)',
+                      color: step === contractedChannels ? '#fff' : 'var(--text-2)',
+                      border:
+                        step === contractedChannels
+                          ? '1px solid color-mix(in srgb, var(--brand-500) 50%, transparent)'
+                          : '1px solid var(--border-subtle)',
+                      boxShadow:
+                        step === contractedChannels
+                          ? '0 4px 12px color-mix(in srgb, var(--brand-500) 35%, transparent)'
+                          : undefined
+                    }}
+                    title={`${step} canal(is) — clique para ver preços (secção abaixo)`}
+                  >
+                    {step}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+            <p className="text-[10px] mt-2" style={{ color: 'var(--text-3)' }}>
+              O destaque em laranja é o seu nível atual (
+              <strong style={{ color: 'var(--text-2)' }}>{contractedChannels}</strong> canal
+              {contractedChannels === 1 ? '' : 'is'}). À direita: caminho de upgrade.
+            </p>
           </div>
         </div>
 
@@ -437,6 +540,54 @@ export const MySubscriptionTab: React.FC = () => {
               hint="Acesso mantido até a expiração"
             />
           )}
+        </div>
+
+        <div
+          className="rounded-xl px-4 py-4 mt-1"
+          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+        >
+          <p
+            className="text-[11px] font-bold uppercase tracking-wide mb-2 flex items-center gap-2"
+            style={{ color: 'var(--text-3)' }}
+          >
+            <ArrowDownCircle className="w-3.5 h-3.5" aria-hidden />
+            Cancelar renovação, pagamento ou plano menor
+          </p>
+          <ul className="space-y-2.5 text-[12px]" style={{ color: 'var(--text-2)' }}>
+            <li className="flex gap-2">
+              <span className="text-emerald-600 font-bold shrink-0">•</span>
+              <span>
+                <strong style={{ color: 'var(--text-1)' }}>Assinatura com cartão recorrente:</strong> use «Cancelar débito
+                automático». O ZapMass permanece ativo até{' '}
+                <strong style={{ color: 'var(--text-1)' }}>{expiryInfoValue}</strong> (sem nova cobrança depois disso).
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-amber-600 font-bold shrink-0">•</span>
+              <span>
+                <strong style={{ color: 'var(--text-1)' }}>Pix ou pagamento avulso:</strong> não há renovação automática.
+                Para prolongar, paga de novo antes de <strong style={{ color: 'var(--text-1)' }}>{expiryInfoValue}</strong>.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-sky-600 font-bold shrink-0">•</span>
+              <span>
+                <strong style={{ color: 'var(--text-1)' }}>Período de teste:</strong> não cobramos nem renovamos sozinhos.
+                Quando o teste termina, o acesso Pro deixa de estar ativo até você contratar.
+              </span>
+            </li>
+            <li className="flex gap-2 items-start">
+              <span className="font-bold shrink-0" style={{ color: 'var(--text-3)' }}>
+                ↓
+              </span>
+              <span>
+                <strong style={{ color: 'var(--text-1)' }}>Menos canais (downgrade):</strong> o checkout aqui só faz{' '}
+                <em>upgrade</em> com pró-rata. Para reduzir canais no meio do ciclo, contacte o{' '}
+                <strong>suporte ZapMass</strong>. No fim do período pode voltar a esta página e escolher 1–5 canais de
+                novo.
+              </span>
+            </li>
+          </ul>
         </div>
       </section>
 
@@ -537,21 +688,49 @@ export const MySubscriptionTab: React.FC = () => {
           })}
         </div>
         <div
+          id="downgrade-info"
+          className="rounded-lg px-3.5 py-3 mb-3 text-[11.5px] flex gap-2 items-start"
+          style={{
+            background: 'rgba(245,158,11,0.08)',
+            border: '1px solid rgba(245,158,11,0.35)',
+            color: 'var(--text-2)'
+          }}
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" aria-hidden />
+          <span>
+            <strong style={{ color: 'var(--text-1)' }}>Reduzir o número de canais:</strong> não use o checkout abaixo
+            para passar de <strong>{contractedChannels}</strong> para um valor menor no meio do ciclo — o sistema só
+            calcula upgrade com pró-rata. Para downgrade, fale com o suporte ou aguarde o fim do período e contrate de
+            novo o pacote desejado.
+          </span>
+        </div>
+        <div
           className="rounded-lg px-3.5 py-3 mb-4"
           style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
         >
           <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            Upgrade simulado ({tierPlanMode === 'annual' ? 'anual' : 'mensal'}): {contractedChannels} → {upgradeTarget} canal{upgradeTarget > 1 ? 'is' : ''}
+            {isDowngradeSelection
+              ? `Seleção: ${contractedChannels} → ${upgradeTarget} canal(is) (downgrade não disponível aqui)`
+              : `Upgrade simulado (${tierPlanMode === 'annual' ? 'anual' : 'mensal'}): ${contractedChannels} → ${upgradeTarget} canal${
+                  upgradeTarget > 1 ? 'is' : ''
+                }`}
           </p>
-          <p className="text-[11.5px]" style={{ color: 'var(--text-2)' }}>
-            Diferença mensal: <strong>{brl(monthlyDiff)}</strong>. Exemplo pró-rata (50% do ciclo restante):{' '}
-            <strong>{brl(prorataHalf)}</strong>.
-          </p>
+          {!isDowngradeSelection ? (
+            <p className="text-[11.5px]" style={{ color: 'var(--text-2)' }}>
+              Diferença mensal: <strong>{brl(monthlyDiff)}</strong>. Exemplo pró-rata (50% do ciclo restante):{' '}
+              <strong>{brl(prorataHalf)}</strong>.
+            </p>
+          ) : (
+            <p className="text-[11.5px] mt-1" style={{ color: 'var(--text-3)' }}>
+              Volte a escolher um nível igual ou superior a <strong>{contractedChannels}</strong> para abrir o Mercado
+              Pago.
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             <Action
               onClick={() => void startChannelTierPlan('pix', upgradeTarget, tierPlanMode)}
               loading={tierBusy === 'pix'}
-              disabled={!!tierBusy}
+              disabled={!!tierBusy || isDowngradeSelection}
               icon={<TrendingUp className="w-4 h-4" />}
               label={`Contratar ${upgradeTarget} canal(is) ${tierPlanMode === 'annual' ? 'anual' : 'mensal'} (Pix -5%)`}
               hint="Novo modelo de plano por quantidade de canais"
@@ -559,7 +738,7 @@ export const MySubscriptionTab: React.FC = () => {
             <Action
               onClick={() => void startChannelTierPlan('card', upgradeTarget, tierPlanMode)}
               loading={tierBusy === 'card'}
-              disabled={!!tierBusy}
+              disabled={!!tierBusy || isDowngradeSelection}
               icon={<Crown className="w-4 h-4" />}
               label={`Contratar ${upgradeTarget} canal(is) ${tierPlanMode === 'annual' ? 'anual' : 'mensal'} (cartão)`}
               hint="Checkout Mercado Pago"
@@ -670,6 +849,13 @@ function getStatusLabel(
     return { text: 'Sem plano ativo', sub: 'Assine para desbloquear o Pro', color: 'var(--text-2)' };
   }
   if (status === 'trialing') {
+    if (daysLeft != null && daysLeft >= 0) {
+      return {
+        text: 'Teste grátis ativo',
+        sub: `Expira em ${daysLeft} dia${daysLeft === 1 ? '' : 's'}`,
+        color: '#3b82f6'
+      };
+    }
     const trialDays = trialMs != null ? Math.ceil((trialMs - Date.now()) / (1000 * 60 * 60 * 24)) : null;
     return {
       text: 'Teste grátis ativo',

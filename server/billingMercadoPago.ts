@@ -37,6 +37,14 @@ function roundMoney(v: number): number {
   return Math.round(v * 100) / 100;
 }
 
+/** Checkout Pro: credenciais de teste só preenchem `sandbox_init_point`; produção usa `init_point`. */
+function pickMercadoPagoCheckoutUrl(data: Record<string, unknown>): string {
+  const prod = typeof data.init_point === 'string' ? data.init_point.trim() : '';
+  if (prod) return prod;
+  const sand = typeof data.sandbox_init_point === 'string' ? data.sandbox_init_point.trim() : '';
+  return sand;
+}
+
 /** Alinhado ao Vite (Intl pt-BR) — devolve o mesmo texto que a UI com GET /prices. */
 function formatPriceLabelBrl(amount: number, kind: 'monthly' | 'annual'): string {
   const s = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
@@ -216,8 +224,12 @@ async function createPreference(params: CreateParams): Promise<{ id: string; ini
     throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
   }
   const id = String(data.id || '');
-  const init_point = String(data.init_point || '');
-  if (!init_point) throw new Error('Resposta do MP sem init_point. Verifique a conta e o modo (sandbox/producao).');
+  const init_point = pickMercadoPagoCheckoutUrl(data);
+  if (!init_point) {
+    throw new Error(
+      'Resposta do MP sem URL de checkout (init_point / sandbox_init_point). Confira credenciais e modo sandbox/producao.'
+    );
+  }
   return { id, init_point };
 }
 
@@ -285,8 +297,10 @@ async function createPreapproval(params: CreateParams): Promise<{ id: string; in
   }
 
   const id = String(data.id || '');
-  const init_point = String(data.init_point || '');
-  if (!init_point) throw new Error('Resposta do MP sem init_point para preapproval.');
+  const init_point = pickMercadoPagoCheckoutUrl(data);
+  if (!init_point) {
+    throw new Error('Resposta do MP sem URL de checkout para preapproval (init_point / sandbox_init_point).');
+  }
   return { id, init_point };
 }
 
@@ -373,8 +387,12 @@ async function createChannelTierPreference(params: {
     throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
   }
   const id = String(data.id || '');
-  const init_point = String(data.init_point || '');
-  if (!init_point) throw new Error('Resposta do MP sem init_point (plano por canais).');
+  const init_point = pickMercadoPagoCheckoutUrl(data);
+  if (!init_point) {
+    throw new Error(
+      'Resposta do MP sem URL de checkout (plano por canais — init_point / sandbox_init_point).'
+    );
+  }
   return { id, init_point };
 }
 
@@ -499,8 +517,10 @@ async function createChannelAddonPreapproval(params: { uid: string; email: strin
     throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
   }
   const id = String(data.id || '');
-  const init_point = String(data.init_point || '');
-  if (!init_point) throw new Error('Resposta do MP sem init_point (preapproval canais).');
+  const init_point = pickMercadoPagoCheckoutUrl(data);
+  if (!init_point) {
+    throw new Error('Resposta do MP sem URL de checkout para preapproval de extras (init_point / sandbox_init_point).');
+  }
   return { id, init_point };
 }
 
