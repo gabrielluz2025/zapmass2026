@@ -9,7 +9,8 @@ import {
   Pin,
   Search,
   Zap,
-  ShieldCheck
+  ShieldCheck,
+  ArrowRight
 } from 'lucide-react';
 
 interface Props {
@@ -28,8 +29,7 @@ interface Props {
 }
 
 /**
- * Empty state do painel de chat — mostra o que o "CRM conversacional" faz
- * quando nenhuma conversa esta selecionada.
+ * Empty state do painel de chat — “showcase” quando nenhuma conversa está selecionada.
  */
 export const ChatEmptyShowcase: React.FC<Props> = ({
   totalConversations,
@@ -55,156 +55,228 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
     crmStats.pendentes +
     crmStats.resolvidos;
 
+  const kpiItems = [
+    {
+      label: 'Conversas',
+      value: totalConversations,
+      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #f59e0b 20%, transparent), transparent 55%)'
+    },
+    {
+      label: 'Não lidas',
+      value: totalUnread,
+      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #8b5cf6 18%, transparent), transparent 55%)'
+    },
+    {
+      label: 'Canais',
+      value: totalChannels,
+      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #0ea5e9 18%, transparent), transparent 55%)'
+    },
+    {
+      label: 'No CRM',
+      value: crmCount,
+      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #10b981 16%, transparent), transparent 55%)'
+    }
+  ];
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center relative overflow-hidden px-5 py-10">
-      {/* Fundo discreto */}
+    <div className="flex-1 flex flex-col items-stretch justify-center relative overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-8 sm:py-10 min-h-0">
+      {/* Fundo atmosférico */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.35]"
+        className="pointer-events-none absolute inset-0 opacity-100"
         style={{
           background:
-            'radial-gradient(ellipse 80% 50% at 50% -20%, color-mix(in srgb, var(--brand-500) 22%, transparent), transparent)'
+            'radial-gradient(ellipse 85% 55% at 15% 10%, color-mix(in srgb, var(--brand-500) 14%, transparent), transparent 52%), radial-gradient(ellipse 70% 50% at 90% 80%, color-mix(in srgb, #8b5cf6 10%, transparent), transparent 50%), var(--surface-0)'
         }}
         aria-hidden
       />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[color-mix(in_srgb,var(--brand-500)_35%,transparent)] to-transparent" aria-hidden />
 
-      <div className="relative w-full max-w-[440px] text-center flex flex-col items-center">
-        {/* Hero */}
-        <div className="mb-6 flex flex-col items-center">
-          <div
-            className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
-            style={{
-              background: 'color-mix(in srgb, var(--brand-500) 14%, var(--surface-1))',
-              border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)',
-              boxShadow: '0 12px 40px -16px color-mix(in srgb, var(--brand-500) 45%, transparent)'
-            }}
-          >
-            <Workflow className="w-8 h-8" strokeWidth={1.75} style={{ color: 'var(--brand-500)' }} />
-          </div>
-          <span
-            className="mb-3 inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide"
-            style={{
-              background: 'var(--surface-2)',
-              color: 'var(--text-3)',
-              border: '1px solid var(--border-subtle)'
-            }}
-          >
-            CRM ZapMass
-          </span>
-
-          <h1 className="text-[22px] font-bold tracking-tight leading-snug mb-2" style={{ color: 'var(--text-1)' }}>
-            Pipeline conversacional
-          </h1>
-          <p className="text-[13px] leading-relaxed max-w-sm mx-auto" style={{ color: 'var(--text-2)' }}>
-            Centralize mensagens, notas e etapas de venda por contato — em um só lugar.
-          </p>
-          <p className="mt-2 text-[12px] leading-snug max-w-sm" style={{ color: 'var(--text-3)' }}>
-            À esquerda, escolha uma conversa para abrir a conversa completa.
-          </p>
-        </div>
-
-        {/* KPIs — mesmo tom, menos “arco-íris” */}
-        <div
-          className="mb-8 w-full grid grid-cols-4 gap-px overflow-hidden rounded-xl"
-          style={{ background: 'var(--border-subtle)' }}
-        >
-          {[
-            { label: 'Conversas', value: totalConversations },
-            { label: 'Não lidas', value: totalUnread },
-            { label: 'Canais', value: totalChannels },
-            { label: 'No CRM', value: crmCount }
-          ].map((s) => (
-            <div key={s.label} className="px-3 py-3" style={{ background: 'var(--surface-1)' }}>
+      <div className="relative w-full max-w-[920px] mx-auto flex flex-col">
+        {/* Hero + CTA visual */}
+        <div className="mb-8 sm:mb-10 grid lg:grid-cols-[1fr_minmax(220px,280px)] gap-8 lg:gap-10 items-center">
+          <div>
+            <div className="flex flex-wrap items-center gap-3 mb-5">
               <div
-                className="text-xl font-semibold tabular-nums leading-none"
-                style={{ color: 'var(--text-1)' }}
+                className="flex h-14 w-14 items-center justify-center rounded-2xl shrink-0"
+                style={{
+                  background: 'linear-gradient(145deg, color-mix(in srgb, var(--brand-500) 22%, var(--surface-1)), var(--surface-1))',
+                  border: '1px solid color-mix(in srgb, var(--brand-500) 40%, transparent)',
+                  boxShadow: '0 20px 50px -24px color-mix(in srgb, var(--brand-500) 55%, transparent)'
+                }}
               >
-                {s.value.toLocaleString('pt-BR')}
+                <Workflow className="w-7 h-7" strokeWidth={1.65} style={{ color: 'var(--brand-500)' }} />
               </div>
-              <div className="text-[10px] font-medium mt-2 uppercase tracking-wider leading-tight" style={{ color: 'var(--text-3)' }}>
-                {s.label}
-              </div>
+              <span
+                className="inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em]"
+                style={{
+                  background: 'color-mix(in srgb, var(--brand-500) 12%, var(--surface-1))',
+                  color: 'var(--brand-600)',
+                  border: '1px solid color-mix(in srgb, var(--brand-500) 28%, transparent)'
+                }}
+              >
+                CRM ZapMass
+              </span>
             </div>
-          ))}
+
+            <h1 className="text-[clamp(1.35rem,3.5vw,1.85rem)] font-extrabold tracking-tight leading-tight mb-3" style={{ color: 'var(--text-1)' }}>
+              Pipeline conversacional
+            </h1>
+            <p className="text-[14px] sm:text-[15px] leading-relaxed max-w-xl mb-4" style={{ color: 'var(--text-2)' }}>
+              Centralize mensagens, notas internas e etapas de venda por contacto — num painel pensado para equipas que
+              vivem no WhatsApp.
+            </p>
+            <div
+              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-[12px] max-w-xl"
+              style={{
+                background: 'var(--surface-1)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-2)'
+              }}
+            >
+              <ArrowRight className="w-4 h-4 shrink-0 text-amber-500" aria-hidden />
+              <span>
+                <strong style={{ color: 'var(--text-1)' }}>À esquerda</strong>, escolha uma conversa ou arraste cartões no
+                modo <strong style={{ color: 'var(--text-1)' }}>Quadro</strong>.
+              </span>
+            </div>
+          </div>
+
+          {/* Cartão de resumo — “cockpit” */}
+          <div
+            className="rounded-2xl p-5 lg:p-6 relative overflow-hidden"
+            style={{
+              background:
+                'linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 94%, var(--surface-2)) 0%, var(--surface-1) 100%)',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: '0 24px 60px -28px rgba(0,0,0,0.35), inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent)'
+            }}
+          >
+            <span
+              className="pointer-events-none absolute -right-8 -top-8 w-40 h-40 rounded-full opacity-50"
+              style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-500) 25%, transparent), transparent 70%)' }}
+              aria-hidden
+            />
+            <p className="text-[11px] font-bold uppercase tracking-wider mb-4 relative" style={{ color: 'var(--text-3)' }}>
+              Resumo ao vivo
+            </p>
+            <div className="grid grid-cols-2 gap-3 relative">
+              {kpiItems.map((s) => (
+                <div
+                  key={s.label}
+                  className="rounded-xl px-3.5 py-3 relative overflow-hidden"
+                  style={{
+                    background: `linear-gradient(155deg, var(--surface-0), var(--surface-0))`,
+                    border: '1px solid var(--border-subtle)'
+                  }}
+                >
+                  <div
+                    className="pointer-events-none absolute inset-0 opacity-90"
+                    style={{ background: s.wash }}
+                    aria-hidden
+                  />
+                  <div className="relative z-[1]">
+                    <div className="text-[22px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                      {s.value.toLocaleString('pt-BR')}
+                    </div>
+                    <div className="text-[10px] font-semibold mt-2 uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                      {s.label}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Funil de status CRM */}
+        {/* Chips CRM quando há dados */}
         {crmCount > 0 && (
-          <div className="mb-6 flex flex-wrap items-center justify-center gap-1.5">
+          <div className="mb-8 flex flex-wrap items-center gap-2">
             {crmStats.leads > 0 && (
               <span
-                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
                 {crmStats.leads} lead{crmStats.leads === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.clientes > 0 && (
               <span
-                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
                 {crmStats.clientes} cliente{crmStats.clientes === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.pendentes > 0 && (
               <span
-                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
                 {crmStats.pendentes} pendente{crmStats.pendentes === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.resolvidos > 0 && (
               <span
-                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
+                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
               >
                 {crmStats.resolvidos} resolvido{crmStats.resolvidos === 1 ? '' : 's'}
               </span>
             )}
             {crmStats.comReminder > 0 && (
               <span
-                className="text-[11px] font-medium px-2.5 py-1 rounded-md inline-flex items-center gap-1"
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
                 style={{
-                  background: 'color-mix(in srgb, var(--brand-500) 8%, var(--surface-2))',
+                  background: 'color-mix(in srgb, var(--brand-500) 10%, var(--surface-1))',
                   color: 'var(--text-2)',
-                  border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)'
+                  border: '1px solid color-mix(in srgb, var(--brand-500) 32%, transparent)'
                 }}
               >
-                <Bell className="w-3 h-3 shrink-0" style={{ color: 'var(--brand-500)' }} />
+                <Bell className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-500)' }} />
                 {crmStats.comReminder} lembrete{crmStats.comReminder === 1 ? '' : 's'}
               </span>
             )}
           </div>
         )}
 
-        {/* Recursos — grelha alinhada, ícone único */}
-        <div className="w-full text-left">
-          <p className="text-[11px] font-semibold mb-3 flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
-            <Zap className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-500)' }} />
-            Funcionalidades
+        {/* Funcionalidades — grelha bento */}
+        <div className="w-full">
+          <p className="text-[12px] font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
+            <span
+              className="h-8 w-8 rounded-lg flex items-center justify-center"
+              style={{
+                background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 18%, transparent), transparent)',
+                border: '1px solid color-mix(in srgb, var(--brand-500) 25%, transparent)'
+              }}
+            >
+              <Zap className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
+            </span>
+            O que consegue fazer aqui
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {features.map((f) => (
               <div
                 key={f.label}
-                className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors"
+                className="flex items-start gap-3 rounded-xl px-3.5 py-3.5 transition-all duration-200 hover:brightness-[1.03]"
                 style={{
-                  background: 'var(--surface-1)',
-                  border: '1px solid var(--border-subtle)'
+                  background:
+                    'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 96%, var(--surface-2)) 100%)',
+                  border: '1px solid var(--border-subtle)',
+                  boxShadow: '0 10px 28px -18px rgba(0,0,0,0.28), inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent)'
                 }}
               >
                 <div
-                  className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
+                  className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
                   style={{
-                    background: 'color-mix(in srgb, var(--brand-500) 10%, transparent)',
-                    color: 'var(--brand-500)'
+                    background: 'color-mix(in srgb, var(--brand-500) 12%, var(--surface-0))',
+                    color: 'var(--brand-500)',
+                    border: '1px solid color-mix(in srgb, var(--brand-500) 22%, transparent)'
                   }}
                 >
                   {f.icon}
                 </div>
-                <div className="min-w-0 space-y-0.5 pt-0.5">
-                  <p className="text-[12px] font-semibold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                <div className="min-w-0 space-y-1 pt-0.5">
+                  <p className="text-[12.5px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
                     {f.label}
                   </p>
                   <p className="text-[10.5px] leading-snug line-clamp-2" style={{ color: 'var(--text-3)' }}>
@@ -216,8 +288,12 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
           </div>
         </div>
 
-        <p className="mt-6 max-w-sm text-[11px] leading-relaxed mx-auto border-t pt-5" style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)' }}>
-          Metadados de CRM ficam neste navegador. Para envio WhatsApp continuam aplicáveis as políticas da Meta e do seu plano ZapMass.
+        <p
+          className="mt-10 max-w-2xl text-[11px] leading-relaxed border-t pt-6"
+          style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)' }}
+        >
+          Metadados de CRM ficam neste navegador. Para envio WhatsApp continuam aplicáveis as políticas da Meta e do seu
+          plano ZapMass.
         </p>
       </div>
     </div>

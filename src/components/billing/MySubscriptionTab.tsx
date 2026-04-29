@@ -27,6 +27,7 @@ import {
   CHANNEL_TIER_PRICES_MONTHLY,
   brl
 } from '../../constants/channelTierPricing';
+import type { UserSubscription } from '../../types';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
@@ -50,6 +51,47 @@ function formatDate(ms: number | null): string {
 function daysUntil(ms: number | null): number | null {
   if (ms == null) return null;
   return Math.ceil((ms - Date.now()) / (1000 * 60 * 60 * 24));
+}
+
+/** Corrige docs antigos sem `status` ou com `none` quando ainda há período válido. */
+function computeEffectiveSubscriptionStatus(sub: UserSubscription | null | undefined): string {
+  if (!sub) return 'none';
+  if (sub.blocked === true) return 'blocked';
+  const s = sub.status;
+  if (s === 'active' || s === 'trialing' || s === 'past_due' || s === 'canceled') return s;
+  const trialEnd = firestoreTimeToMs(sub.trialEndsAt);
+  if (trialEnd != null && trialEnd > Date.now()) return 'trialing';
+  const manualEnd = firestoreTimeToMs(sub.manualAccessEndsAt);
+  if (sub.manualGrant === true && (manualEnd == null || manualEnd > Date.now())) return 'active';
+  if (s && s !== 'none') return s;
+  return 'none';
+}
+
+function resolveProviderLabel(sub: UserSubscription | null | undefined): string {
+  if (!sub) return '—';
+  if (sub.mercadoPagoPreapprovalId || sub.mercadoPagoLastPaymentId) return 'Mercado Pago';
+  if (sub.mercadoPagoChannelAddonPreapprovalId || sub.mercadoPagoChannelAddonOneTimePaymentId) return 'Mercado Pago';
+  if (sub.infinitePayReference) return 'Infinite Pay';
+  if (sub.provider === 'mercadopago') return 'Mercado Pago';
+  if (sub.provider === 'infinitepay') return 'Infinite Pay';
+  if (sub.manualGrant === true) return 'Liberação manual';
+  if (sub.status === 'trialing' || sub.provider === 'none') return '— (teste / sem gateway)';
+  return '—';
+}
+
+function resolvePlanCycleLabel(sub: UserSubscription | null | undefined): string {
+  if (!sub) return '—';
+  if (sub.plan === 'annual') return 'Anual';
+  if (sub.plan === 'monthly') return 'Mensal';
+  if (sub.status === 'trialing') return 'Pro — período de teste';
+  if (sub.manualGrant === true && !sub.plan) return 'Gestão manual';
+  if (sub.status === 'active' || sub.status === 'past_due') {
+    const n = typeof sub.includedChannels === 'number' ? sub.includedChannels : null;
+    if (n != null && n > 0) return `${n} canal(is) ZapMass Pro`;
+    return 'ZapMass Pro';
+  }
+  if (sub.manualGrant === true) return 'ZapMass Pro';
+  return '—';
 }
 
 /**
@@ -91,13 +133,17 @@ export const MySubscriptionTab: React.FC = () => {
     return daysUntil(effectiveExpiryMs);
   }, [subscription, manualAccessEndsMs, effectiveExpiryMs]);
 
+  const effectiveStatus = useMemo(() => computeEffectiveSubscriptionStatus(subscription), [subscription]);
+
   const expiryInfoLabel =
     subscription?.manualGrant === true && manualAccessEndsMs == null ? 'Acesso' : 'Expira em';
   const expiryInfoValue =
     subscription?.manualGrant === true && manualAccessEndsMs == null
       ? 'Manual (sem data)'
       : formatDate(effectiveExpiryMs);
-  const isRecurring = Boolean(subscription?.mercadoPagoPreapprovalId && subscription.status === 'active');
+  const isRecurring = Boolean(
+    subscription?.mercadoPagoPreapprovalId && effectiveStatus === 'active'
+  );
   const [upgradeTarget, setUpgradeTarget] = useState<ChannelTier>(2);
   const [tierBusy, setTierBusy] = useState<null | 'pix' | 'card'>(null);
   const [tierPlanMode, setTierPlanMode] = useState<Plan>('monthly');
@@ -221,9 +267,16 @@ export const MySubscriptionTab: React.FC = () => {
           </div>
         </div>
         {subscription && (
-          <div className="rounded-xl px-4 py-3 text-[12px]" style={{ background: 'var(--surface-1)', color: 'var(--text-2)' }}>
-            <strong style={{ color: 'var(--text-1)' }}>Situação do plano (read-only): </strong>
-            {(subscription.status as string) || '—'} · plano {(subscription.plan as string) || '—'}
+          <div className="rounded-xl px-4 py-3 text-[12px] space-y-1" style={{ background: 'var(--surface-1)', color: 'var(--text-2)' }}>
+            <p>
+              <strong style={{ color: 'var(--text-1)' }}>Situação: </strong>
+              {computeEffectiveSubscriptionStatus(subscription)}
+            </p>
+            <p>
+              <strong style={{ color: 'var(--text-1)' }}>Plano: </strong>
+              {resolvePlanCycleLabel(subscription)} · <strong style={{ color: 'var(--text-1)' }}>Via: </strong>
+              {resolveProviderLabel(subscription)}
+            </p>
           </div>
         )}
       </div>
@@ -285,15 +338,9 @@ export const MySubscriptionTab: React.FC = () => {
   const monthlyDiff = Math.max(0, selectedTierPrice - contractedTierPrice);
   const prorataHalf = monthlyDiff / 2;
 
-  const statusLabel = getStatusLabel(subscription?.status, daysLeft, trialEndsMs);
-  const providerLabel =
-    subscription?.provider === 'mercadopago'
-      ? 'Mercado Pago'
-      : subscription?.provider === 'infinitepay'
-        ? 'Infinite Pay'
-        : '—';
-  const planLabel =
-    subscription?.plan === 'annual' ? 'Anual' : subscription?.plan === 'monthly' ? 'Mensal' : '—';
+  const statusLabel = getStatusLabel(effectiveStatus, daysLeft, trialEndsMs);
+  const providerLabel = resolveProviderLabel(subscription);
+  const planLabel = resolvePlanCycleLabel(subscription);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
@@ -612,6 +659,13 @@ function getStatusLabel(
   daysLeft: number | null,
   trialMs: number | null
 ): StatusLabel {
+  if (status === 'blocked') {
+    return {
+      text: 'Conta bloqueada',
+      sub: 'Entre em contacto com o suporte para rever o acesso.',
+      color: '#ef4444'
+    };
+  }
   if (!status || status === 'none') {
     return { text: 'Sem plano ativo', sub: 'Assine para desbloquear o Pro', color: 'var(--text-2)' };
   }

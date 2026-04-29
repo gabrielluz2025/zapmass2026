@@ -10,12 +10,25 @@ import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState } 
 
 type AdminTab = 'config' | 'access' | 'suggestions';
 
+function suggestionCategoryPt(code: string | undefined): string {
+  const m: Record<string, string> = {
+    usability: 'Telas / usabilidade',
+    campaigns: 'Campanhas',
+    reports: 'Relatórios',
+    integrations: 'Integrações',
+    other: 'Outro'
+  };
+  if (!code) return '';
+  return m[code] || code;
+}
+
 type ProductSuggestion = {
   id: string;
   uid: string;
   text: string;
   userEmail: string;
   screen: string;
+  category?: string;
   createdAt: string | null;
 };
 type AccessUser = {
@@ -1309,6 +1322,9 @@ export const AdminPanel: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         <Badge variant="warning">{toPtDateTime(row.createdAt)}</Badge>
+                        {row.category ? (
+                          <Badge variant="info">{suggestionCategoryPt(row.category)}</Badge>
+                        ) : null}
                         {row.screen ? (
                           <Badge variant="neutral">{row.screen}</Badge>
                         ) : null}

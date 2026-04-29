@@ -15,10 +15,10 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { ConnectionStatus } from '../types';
 import { getMaxConnectionSlotsForUser, countAccountScopedConnections, BASE_CHANNEL_SLOTS, MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { getChannelCapacity } from '../utils/channelCapacityHeuristic';
-import { Card, CardHeader, Badge } from './ui';
+import { Card, CardHeader, Badge, RingGauge } from './ui';
+import { DashMetric } from './dashboard/DashMetric';
 import { AdminOpsMonitor } from './AdminOpsMonitor';
 import { AdminConnectionsOverview } from './admin/AdminConnectionsOverview';
-import { DashMetric } from './dashboard/DashMetric';
 
 /**
  * Aba exclusiva de administrador: heurística RAM/sessões, canais offline, monitor de ops.
@@ -197,24 +197,35 @@ export const AdminServerTab: React.FC = () => {
                   'Aguardando leitura de RAM do servidor…'
                 )}
               </p>
-              <div className="grid grid-cols-2 gap-3">
-                <DashMetric
-                  label="Sessões / referência conforto"
-                  value={
-                    <span>
-                      {totalConns} / ~{cap.safe}
-                    </span>
-                  }
-                  hint={`Carga relativa: ${ramLoadPct}%`}
+              <div className="flex flex-wrap justify-center gap-6 sm:gap-8 pt-2 pb-1">
+                <RingGauge
+                  percent={ramLoadPct}
+                  label="Sessões × conforto"
+                  primary={`${totalConns}/${cap.safe}`}
+                  secondary={`Carga relativa ${ramLoadPct}%`}
+                  size={90}
+                  stroke={5}
                 />
-                {systemMetrics?.ramUsedGb != null && systemMetrics?.ramTotalGb != null ? (
-                  <DashMetric
-                    label="RAM do host (os)"
-                    value={`${systemMetrics.ramUsedGb} / ${systemMetrics.ramTotalGb} GB`}
-                    hint={`${systemMetrics.ram}% do sistema`}
+                {systemMetrics?.ramTotalGb != null && systemMetrics?.ram != null ? (
+                  <RingGauge
+                    percent={Math.min(100, Math.max(0, systemMetrics.ram))}
+                    label="RAM do host"
+                    primary={`${Math.round(systemMetrics.ram)}%`}
+                    secondary={
+                      systemMetrics.ramUsedGb != null
+                        ? `${systemMetrics.ramUsedGb >= 10 ? Math.round(systemMetrics.ramUsedGb) : systemMetrics.ramUsedGb.toFixed(1)} / ${systemMetrics.ramTotalGb} GB`
+                        : `${systemMetrics.ramTotalGb} GB total`
+                    }
+                    size={90}
+                    stroke={5}
                   />
                 ) : (
-                  <DashMetric label="RAM do host" value="—" hint="A aguardar métricas" />
+                  <div
+                    className="flex flex-col items-center justify-center min-h-[108px] text-[11px] px-3 text-center rounded-xl py-4 max-w-[11rem]"
+                    style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}
+                  >
+                    RAM do host sem leitura ainda — aparece assim que o socket sincronizar.
+                  </div>
                 )}
               </div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>

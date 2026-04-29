@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react';
+import { GripVertical, Inbox, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
 import type { Conversation } from '../../types';
 import type { ClientPipelineBoardPersisted, PipelineColumnDef } from '../../utils/clientPipelineBoardStorage';
 import {
@@ -14,6 +14,22 @@ const DND_TYPE = 'application/x-zapmass-conversation';
 
 const newColumnId = () => `col_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
+/** Faixa de cor no topo de cada coluna (ciclo). */
+const COLUMN_ACCENTS = [
+  'linear-gradient(90deg, #f59e0b, #ea580c)',
+  'linear-gradient(90deg, #8b5cf6, #6366f1)',
+  'linear-gradient(90deg, #0ea5e9, #06b6d4)',
+  'linear-gradient(90deg, #10b981, #059669)',
+  'linear-gradient(90deg, #ec4899, #f43f5e)',
+  'linear-gradient(90deg, #eab308, #ca8a04)'
+];
+
+function truncateText(s: string, max: number): string {
+  const t = (s || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
 interface ClientPipelineBoardProps {
   userUid: string | null | undefined;
   conversations: Conversation[];
@@ -21,7 +37,6 @@ interface ClientPipelineBoardProps {
   onSelectChat: (id: string) => void;
   getConvAvatar: (conv: Conversation) => string;
   connectionName?: (connectionId: string) => string | undefined;
-  /** Nome do sistema em destaque; linha menor = nome WhatsApp quando diferente. */
   formatConversationTitles?: (
     conv: Conversation
   ) => { primary: string; whatsappSubtitle?: string };
@@ -43,6 +58,7 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
   const [newColName, setNewColName] = useState('');
   const [deleteAsk, setDeleteAsk] = useState<PipelineColumnDef | null>(null);
   const newColInputRef = useRef<HTMLInputElement>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
   useEffect(() => {
     setState(loadClientPipeline(userUid));
@@ -76,6 +92,11 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
     }
     return map;
   }, [conversations, state.columns, state.cardColumn, firstColId]);
+
+  const totalInBoard = useMemo(
+    () => Array.from(convsByColumn.values()).reduce((n, list) => n + list.length, 0),
+    [convsByColumn]
+  );
 
   const moveCard = (conversationId: string, columnId: string) => {
     setState((prev) => {
@@ -151,13 +172,21 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  const onDragOverCol = (e: React.DragEvent) => {
+  const onDragOverCol = (e: React.DragEvent, columnId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    setDragOverColumn(columnId);
+  };
+
+  const onDragLeaveCol = (e: React.DragEvent) => {
+    const related = e.relatedTarget as Node | null;
+    if (related && e.currentTarget.contains(related)) return;
+    setDragOverColumn(null);
   };
 
   const onDropCol = (e: React.DragEvent, columnId: string) => {
     e.preventDefault();
+    setDragOverColumn(null);
     const id = e.dataTransfer.getData(DND_TYPE) || e.dataTransfer.getData('text/plain');
     if (!id) return;
     moveCard(id, columnId);
@@ -166,15 +195,42 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
+        {/* Barra de contexto do funil */}
         <div
-          className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 px-3 py-2.5"
-          style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-0)' }}
+          className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 px-3 sm:px-4 py-3"
+          style={{
+            borderBottom: '1px solid var(--border-subtle)',
+            background:
+              'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 35%, var(--surface-0)) 0%, var(--surface-0) 100%)'
+          }}
         >
-          <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-            <strong style={{ color: 'var(--text-2)', fontWeight: 600 }}>{state.columns.length}</strong>
-            {' '}
-            etapa{state.columns.length === 1 ? '' : 's'} no funil
-          </span>
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span
+              className="inline-flex items-center gap-2 rounded-full pl-2 pr-3 py-1.5 text-[11px] font-semibold"
+              style={{
+                background: 'color-mix(in srgb, var(--brand-500) 12%, var(--surface-1))',
+                border: '1px solid color-mix(in srgb, var(--brand-500) 28%, transparent)',
+                color: 'var(--text-2)'
+              }}
+            >
+              <Layers className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-500)' }} aria-hidden />
+              <span className="tabular-nums">{state.columns.length}</span>
+              <span className="font-medium opacity-90">etapa{state.columns.length === 1 ? '' : 's'}</span>
+            </span>
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px]"
+              style={{
+                background: 'var(--surface-1)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-3)'
+              }}
+            >
+              <span className="font-semibold tabular-nums" style={{ color: 'var(--text-1)' }}>
+                {totalInBoard}
+              </span>
+              contacto{totalInBoard === 1 ? '' : 's'} no quadro
+            </span>
+          </div>
           <Button
             type="button"
             size="sm"
@@ -184,140 +240,214 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
               setNewColName('');
               setAddOpen(true);
             }}
+            style={{
+              background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
+              boxShadow: '0 8px 20px -6px rgba(245, 158, 11, 0.45)'
+            }}
           >
-            Adicionar coluna
+            Nova etapa
           </Button>
         </div>
-        <div className="flex min-h-0 flex-1 gap-2 overflow-x-auto overflow-y-hidden px-2 pb-2 pt-2">
-        {state.columns.map((col) => {
-          const list = convsByColumn.get(col.id) || [];
-          return (
-            <div
-              key={col.id}
-              className="flex w-[min(100%,260px)] flex-shrink-0 flex-col rounded-lg min-h-0"
-              style={{
-                background: 'var(--surface-1)',
-                border: '1px solid var(--border-subtle)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-              }}
-              onDragOver={onDragOverCol}
-              onDrop={(e) => onDropCol(e, col.id)}
-            >
-              <div
-                className="flex items-start justify-between gap-2 px-3 py-2.5 border-b flex-shrink-0"
-                style={{ borderColor: 'var(--border-subtle)', background: 'color-mix(in srgb, var(--surface-2) 85%, transparent)' }}
-              >
-                <div className="min-w-0 flex-1 text-left">
-                  <p className="text-[12px] font-semibold truncate tracking-tight" style={{ color: 'var(--text-1)' }}>
-                    {col.name}
-                  </p>
-                  <p className="text-[10px] mt-0.5 tabular-nums uppercase tracking-wide font-medium" style={{ color: 'var(--text-3)' }}>
-                    {list.length} contato{list.length === 1 ? '' : 's'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-0.5 flex-shrink-0">
-                  <button
-                    type="button"
-                    className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-0)]"
-                    style={{ color: 'var(--text-3)' }}
-                    title="Renomear coluna"
-                    onClick={() => setRenameOpen({ id: col.id, name: col.name })}
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-0)]"
-                    style={{ color: 'var(--text-3)' }}
-                    title="Remover coluna"
-                    onClick={() => setDeleteAsk(col)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto space-y-2 p-2 min-h-0">
-                {list.map((conv) => {
-                  const active = selectedChatId === conv.id;
-                  const conn = connectionName?.(conv.connectionId);
-                  const titles = formatConversationTitles?.(conv);
-                  const primary = titles?.primary ?? conv.contactName;
-                  const waSub = titles?.whatsappSubtitle;
-                  return (
-                    <button
-                      key={conv.id}
-                      type="button"
-                      draggable
-                      onDragStart={(e) => onDragStart(e, conv.id)}
-                      onClick={() => onSelectChat(conv.id)}
-                      className="w-full text-left rounded-lg px-2 py-2 transition-colors border group"
-                      style={{
-                        background: active ? 'var(--surface-2)' : 'var(--surface-0)',
-                        borderColor: active ? 'var(--brand-500)' : 'var(--border-subtle)'
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <GripVertical
-                          className="w-3.5 h-3.5 flex-shrink-0 opacity-40 group-hover:opacity-70 cursor-grab active:cursor-grabbing"
-                          style={{ color: 'var(--text-3)' }}
-                          aria-hidden
-                        />
-                        <img
-                          src={getConvAvatar(conv)}
-                          className="w-9 h-9 rounded-full object-cover flex-shrink-0"
-                          alt=""
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[12.5px] font-semibold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
-                            {primary}
-                          </p>
-                          {waSub && (
-                            <p className="text-[10px] truncate opacity-90" style={{ color: 'var(--text-3)' }} title="Nome no WhatsApp">
-                              {waSub}
-                            </p>
-                          )}
-                          <p className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-3)' }}>
-                            {conn ? `${conn} · ` : ''}
-                            {conv.contactPhone}
-                          </p>
-                          {conv.unreadCount > 0 && (
-                            <span
-                              className="inline-block mt-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full"
-                              style={{ background: 'var(--brand-600)', color: '#fff' }}
-                            >
-                              {conv.unreadCount} nova{conv.unreadCount === 1 ? '' : 's'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-                {list.length === 0 && (
-                  <p className="text-[10.5px] text-center leading-snug py-8 px-2 rounded-md mx-1" style={{ color: 'var(--text-3)', border: '1px dashed var(--border-subtle)' }}>
-                    Arraste um contato aqui ou aguarde mensagens neste canal.
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() => {
-            setNewColName('');
-            setAddOpen(true);
-          }}
-          className="flex w-[min(100%,96px)] flex-shrink-0 flex-col items-center justify-center gap-2 rounded-lg border border-dashed transition-colors self-stretch min-h-[140px]"
+
+        {/* Área de colunas — “mesa” com profundidade */}
+        <div
+          className="relative flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden px-3 sm:px-4 pb-3 pt-3"
           style={{
-            borderColor: 'color-mix(in srgb, var(--brand-500) 45%, transparent)',
-            color: 'var(--brand-600)',
-            background: 'color-mix(in srgb, var(--brand-500) 5%, var(--surface-0))'
+            background:
+              'radial-gradient(ellipse 120% 80% at 50% 0%, color-mix(in srgb, var(--brand-500) 7%, transparent) 0%, transparent 52%), linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 28%, var(--surface-0)) 0%, var(--surface-0) 100%)'
           }}
         >
-          <Plus className="w-5 h-5 opacity-90" />
-          <span className="text-[10px] font-semibold px-1 text-center leading-tight">Nova etapa</span>
-        </button>
+          {state.columns.map((col, colIdx) => {
+            const list = convsByColumn.get(col.id) || [];
+            const accent = COLUMN_ACCENTS[colIdx % COLUMN_ACCENTS.length];
+            const isDrop = dragOverColumn === col.id;
+            return (
+              <div
+                key={col.id}
+                className="flex w-[min(100%,280px)] flex-shrink-0 flex-col rounded-2xl min-h-0 transition-[box-shadow,border-color,transform] duration-200"
+                style={{
+                  background:
+                    'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 92%, var(--surface-2)) 0%, var(--surface-1) 100%)',
+                  border: `1px solid ${isDrop ? 'color-mix(in srgb, var(--brand-500) 55%, transparent)' : 'var(--border-subtle)'}`,
+                  boxShadow: isDrop
+                    ? '0 0 0 2px color-mix(in srgb, var(--brand-500) 35%, transparent), 0 12px 40px -12px rgba(0,0,0,0.35)'
+                    : '0 8px 30px -12px rgba(0,0,0,0.2), inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent)'
+                }}
+                onDragOver={(e) => onDragOverCol(e, col.id)}
+                onDragLeave={onDragLeaveCol}
+                onDrop={(e) => onDropCol(e, col.id)}
+              >
+                <div className="h-[3px] w-full flex-shrink-0 rounded-t-[13px] overflow-hidden" style={{ background: accent }} aria-hidden />
+                <div
+                  className="flex items-start justify-between gap-2 px-3 pt-3 pb-2 flex-shrink-0"
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                >
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-[13px] font-bold truncate tracking-tight" style={{ color: 'var(--text-1)' }}>
+                      {col.name}
+                    </p>
+                    <span
+                      className="inline-flex mt-1.5 tabular-nums text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                      style={{
+                        background: 'var(--surface-2)',
+                        color: 'var(--text-3)',
+                        border: '1px solid var(--border-subtle)'
+                      }}
+                    >
+                      {list.length} · contacto{list.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <button
+                      type="button"
+                      className="p-2 rounded-lg transition-colors hover:brightness-110"
+                      style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}
+                      title="Renomear coluna"
+                      onClick={() => setRenameOpen({ id: col.id, name: col.name })}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="p-2 rounded-lg transition-colors hover:brightness-110"
+                      style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}
+                      title="Remover coluna"
+                      onClick={() => setDeleteAsk(col)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-2.5 p-2.5 min-h-0">
+                  {list.map((conv) => {
+                    const active = selectedChatId === conv.id;
+                    const conn = connectionName?.(conv.connectionId);
+                    const titles = formatConversationTitles?.(conv);
+                    const primary = titles?.primary ?? conv.contactName;
+                    const waSub = titles?.whatsappSubtitle;
+                    const preview =
+                      conv.lastMessage && conv.lastMessage !== '[Mídia]'
+                        ? truncateText(conv.lastMessage, 72)
+                        : conv.lastMessageTime
+                          ? conv.lastMessageTime
+                          : '';
+                    return (
+                      <button
+                        key={conv.id}
+                        type="button"
+                        draggable
+                        onDragStart={(e) => onDragStart(e, conv.id)}
+                        onDragEnd={() => setDragOverColumn(null)}
+                        onClick={() => onSelectChat(conv.id)}
+                        className="w-full text-left rounded-xl px-2.5 py-2.5 transition-all duration-200 border group"
+                        style={{
+                          background: active
+                            ? 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 14%, var(--surface-0)) 0%, var(--surface-0) 100%)'
+                            : 'var(--surface-0)',
+                          borderColor: active
+                            ? 'color-mix(in srgb, var(--brand-500) 45%, transparent)'
+                            : 'var(--border-subtle)',
+                          boxShadow: active
+                            ? '0 6px 20px -8px color-mix(in srgb, var(--brand-500) 25%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent)'
+                            : '0 4px 14px -10px rgba(0,0,0,0.25), inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent)'
+                        }}
+                      >
+                        <div className="flex items-start gap-2">
+                          <GripVertical
+                            className="w-3.5 h-3.5 flex-shrink-0 mt-2 opacity-35 group-hover:opacity-70 cursor-grab active:cursor-grabbing"
+                            style={{ color: 'var(--text-3)' }}
+                            aria-hidden
+                          />
+                          <img
+                            src={getConvAvatar(conv)}
+                            className="w-10 h-10 rounded-xl object-cover flex-shrink-0 ring-1 ring-black/5"
+                            alt=""
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[12.5px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                              {primary}
+                            </p>
+                            {waSub && (
+                              <p className="text-[10px] truncate opacity-90 mt-0.5" style={{ color: 'var(--text-3)' }} title="Nome no WhatsApp">
+                                {waSub}
+                              </p>
+                            )}
+                            {preview && (
+                              <p className="text-[10px] leading-snug mt-1 line-clamp-2" style={{ color: 'var(--text-3)' }}>
+                                {preview}
+                              </p>
+                            )}
+                            <p className="text-[9.5px] truncate mt-1 font-medium" style={{ color: 'var(--text-3)', opacity: 0.85 }}>
+                              {conn ? `${conn} · ` : ''}
+                              {conv.contactPhone}
+                            </p>
+                            {conv.unreadCount > 0 && (
+                              <span
+                                className="inline-block mt-1 text-[9.5px] font-bold px-2 py-0.5 rounded-full"
+                                style={{
+                                  background: 'linear-gradient(135deg, var(--brand-500), var(--brand-600))',
+                                  color: '#fff',
+                                  boxShadow: '0 2px 8px -2px color-mix(in srgb, var(--brand-500) 50%, transparent)'
+                                }}
+                              >
+                                {conv.unreadCount} nova{conv.unreadCount === 1 ? '' : 's'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {list.length === 0 && (
+                    <div
+                      className="flex flex-col items-center justify-center text-center py-10 px-3 rounded-xl mx-0.5"
+                      style={{
+                        border: '2px dashed color-mix(in srgb, var(--border-subtle) 85%, var(--brand-500))',
+                        background: 'color-mix(in srgb, var(--surface-0) 70%, transparent)'
+                      }}
+                    >
+                      <Inbox className="w-8 h-8 mb-2 opacity-40" style={{ color: 'var(--text-3)' }} aria-hidden />
+                      <p className="text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                        Nada nesta etapa
+                      </p>
+                      <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                        Arraste um contacto da lista ou aguarde novas mensagens neste canal.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => {
+              setNewColName('');
+              setAddOpen(true);
+            }}
+            className="flex w-[min(100%,104px)] flex-shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed transition-all duration-200 self-stretch min-h-[180px] hover:scale-[1.01] active:scale-[0.99]"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--brand-500) 40%, transparent)',
+              color: 'var(--brand-600)',
+              background:
+                'linear-gradient(180deg, color-mix(in srgb, var(--brand-500) 8%, var(--surface-0)) 0%, var(--surface-1) 100%)',
+              boxShadow: 'inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent)'
+            }}
+          >
+            <span
+              className="flex h-11 w-11 items-center justify-center rounded-xl"
+              style={{
+                background: 'color-mix(in srgb, var(--brand-500) 16%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)'
+              }}
+            >
+              <Plus className="w-5 h-5" style={{ color: 'var(--brand-500)' }} />
+            </span>
+            <span className="text-[10px] font-bold px-1.5 text-center leading-tight" style={{ color: 'var(--text-2)' }}>
+              Nova etapa
+            </span>
+          </button>
         </div>
       </div>
 

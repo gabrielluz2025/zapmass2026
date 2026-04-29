@@ -342,6 +342,23 @@ export const WarmupTab: React.FC = () => {
         }
       />
 
+      <div
+        className="flex gap-3 rounded-xl px-4 py-3 text-[12px] leading-relaxed items-start border"
+        style={{
+          borderColor: 'rgba(249,115,22,0.35)',
+          background: 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(234,88,12,0.06))',
+          color: 'var(--text-2)'
+        }}
+        role="status"
+      >
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#ea580c' }} aria-hidden />
+        <div>
+          <strong style={{ color: 'var(--text-1)' }}>Precisa do 2º canal em diante.</strong>{' '}
+          O aquecimento só faz efeito quando há <strong>pelo menos dois números</strong> ligados — as conversas cruzadas
+          acontecem <em>entre</em> canais. Com um único canal o botão &quot;Iniciar aquecimento&quot; fica bloqueado.
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="Canais ativos"

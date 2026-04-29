@@ -563,12 +563,14 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         const text = typeof raw?.text === 'string' ? raw.text : '';
         const userEmail = typeof raw?.userEmail === 'string' ? raw.userEmail : '';
         const screen = typeof raw?.screen === 'string' ? raw.screen : '';
+        const category = typeof raw?.category === 'string' ? raw.category : '';
         return {
           id: d.id,
           uid,
           text,
           userEmail,
           screen,
+          category,
           createdAt: tsToIso(raw?.createdAt)
         };
       });

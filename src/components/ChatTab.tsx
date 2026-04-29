@@ -984,23 +984,38 @@ export const ChatTab: React.FC = () => {
       style={{
         border: '1px solid var(--border-subtle)',
         boxShadow: '0 20px 50px -24px color-mix(in srgb, var(--brand-500) 18%, transparent), var(--shadow-md)',
-        background: 'linear-gradient(165deg, color-mix(in srgb, var(--surface-0) 90%, #0f172a) 0%, var(--surface-0) 100%)'
+        background:
+          'linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 55%, var(--surface-0)) 0%, var(--surface-0) 45%, color-mix(in srgb, var(--surface-0) 88%, #020617) 100%)'
       }}
     >
       <div
         className={`${showMobileChat ? 'hidden md:flex' : 'flex'} w-full flex-col flex-shrink-0 ${
-          pipelineView === 'quadro' ? 'md:flex-1 md:min-w-0 md:max-w-[min(960px,64vw)]' : 'md:w-[380px]'
+          pipelineView === 'quadro' ? 'md:flex-1 md:min-w-0 md:max-w-[min(1100px,72vw)]' : 'md:w-[380px]'
         }`}
-        style={{ background: 'var(--surface-0)', borderRight: '1px solid var(--border-subtle)' }}
+        style={{
+          background:
+            pipelineView === 'quadro'
+              ? 'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 50%, var(--surface-0)) 0%, var(--surface-0) 100%)'
+              : 'var(--surface-0)',
+          borderRight: '1px solid var(--border-subtle)'
+        }}
       >
         <div
-          className="flex items-start justify-between gap-3 px-4 py-3 flex-shrink-0"
+          className="flex items-start justify-between gap-3 px-4 py-3.5 flex-shrink-0 relative overflow-hidden"
           style={{
             borderBottom: '1px solid var(--border-subtle)',
-            background: 'var(--surface-0)'
+            background:
+              'linear-gradient(135deg, color-mix(in srgb, var(--surface-1) 22%, var(--surface-0)) 0%, var(--surface-0) 100%)'
           }}
         >
-          <div className="flex items-start gap-3 min-w-0 flex-1">
+          <span
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-px opacity-80"
+            style={{
+              background: 'linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand-500) 35%, transparent), transparent)'
+            }}
+            aria-hidden
+          />
+          <div className="flex items-start gap-3 min-w-0 flex-1 relative z-[1]">
             <div
               className="h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-xl"
               style={{
@@ -1050,7 +1065,7 @@ export const ChatTab: React.FC = () => {
               setAuditSelection(new Set());
               setShowAudit(true);
             }}
-            className="flex-shrink-0 p-2 rounded-lg transition-colors hover:opacity-95 active:opacity-90"
+            className="flex-shrink-0 p-2 rounded-lg transition-colors hover:opacity-95 active:opacity-90 relative z-[1]"
             style={{
               background: 'var(--surface-1)',
               border: '1px solid var(--border-subtle)',
@@ -1088,8 +1103,13 @@ export const ChatTab: React.FC = () => {
         )}
 
         <div
-          className="px-3 pb-3 pt-2 space-y-2.5 flex-shrink-0"
-          style={{ borderBottom: pipelineView === 'quadro' ? '1px solid var(--border-subtle)' : undefined }}
+          className="mx-2 sm:mx-3 mb-2 mt-1 rounded-xl p-3 space-y-2.5 flex-shrink-0"
+          style={{
+            background:
+              'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 88%, var(--surface-2)) 0%, var(--surface-1) 100%)',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: 'inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent), 0 8px 24px -20px rgba(0,0,0,0.25)'
+          }}
         >
           <Input
             leftIcon={<Search className="w-4 h-4" />}
@@ -1170,9 +1190,20 @@ export const ChatTab: React.FC = () => {
             ]}
           />
           {pipelineView === 'quadro' && (
-            <p className="text-[10px] leading-snug rounded-md px-2.5 py-1 border" style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)', background: 'color-mix(in srgb, var(--surface-2) 92%, transparent)' }}>
-              Arraste entre colunas · etapas só neste navegador
-            </p>
+            <div
+              className="flex items-start gap-2 rounded-lg px-2.5 py-2 text-[10px] leading-snug"
+              style={{
+                background: 'color-mix(in srgb, var(--brand-500) 9%, var(--surface-0))',
+                border: '1px solid color-mix(in srgb, var(--brand-500) 28%, transparent)',
+                color: 'var(--text-2)'
+              }}
+            >
+              <LayoutGrid className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: 'var(--brand-500)' }} aria-hidden />
+              <span>
+                <strong style={{ color: 'var(--text-1)' }}>Arraste cartões</strong> entre colunas. As etapas são guardadas
+                só neste navegador.
+              </span>
+            </div>
           )}
         </div>
 

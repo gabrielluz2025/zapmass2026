@@ -9,3 +9,4 @@ export { StatCard } from './StatCard';
 export { EmptyState } from './EmptyState';
 export { SectionHeader } from './SectionHeader';
 export { Skeleton } from './Skeleton';
+export { RingGauge } from './RingGauge';

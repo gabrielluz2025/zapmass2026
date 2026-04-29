@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { Activity, AlertTriangle, Cpu, HardDrive, Radio, RefreshCw, Server, Shield, Wifi } from 'lucide-react';
-import { Card, CardHeader, Badge, Button } from './ui';
+import { Card, CardHeader, Badge, Button, RingGauge } from './ui';
 
 type AdminOpsSnapshot = {
   ok: boolean;
@@ -315,12 +315,22 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
                   Host
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Metric label="CPU (instantâneo)" value={`${data.system.cpu}%`} />
-                <Metric
-                  label="Load 1m"
-                  value={formatLoadDisplay(data.system.load1, data.system.cpus).main}
-                  hint={formatLoadDisplay(data.system.load1, data.system.cpus).sub}
+              <div className="flex flex-wrap justify-center gap-5 sm:gap-6 pt-1">
+                <RingGauge
+                  percent={data.system.cpu}
+                  label="CPU"
+                  primary={`${Math.round(data.system.cpu)}%`}
+                  secondary="instantâneo"
+                  size={84}
+                  stroke={5}
+                />
+                <RingGauge
+                  percent={Math.min(100, (data.system.load1 / Math.max(0.001, data.system.cpus)) * 100)}
+                  label="Carga 1 min"
+                  primary={formatLoadDisplay(data.system.load1, data.system.cpus).main}
+                  secondary={`Vs ${data.system.cpus} CPU`}
+                  size={84}
+                  stroke={5}
                 />
               </div>
               <p className="text-[10px] leading-snug pt-0.5" style={{ color: 'var(--text-3)' }}>
@@ -335,12 +345,28 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
                 <HardDrive className="w-4 h-4 text-violet-400 shrink-0" aria-hidden />
                 Processo Node
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Metric label="RAM (processo)" value={`${data.system.ram}%`} />
-                <Metric
+              <div className="flex flex-wrap justify-center gap-5 sm:gap-6 pt-1">
+                <RingGauge
+                  percent={data.system.ram}
+                  label="RAM (processo)"
+                  primary={`${Math.round(data.system.ram)}%`}
+                  secondary="reservado no host"
+                  size={84}
+                  stroke={5}
+                />
+                <RingGauge
+                  percent={
+                    data.system.processRssMb > 0
+                      ? Math.min(100, (data.system.processHeapMb / data.system.processRssMb) * 100)
+                      : 0
+                  }
                   label="Heap / RSS"
-                  value={`${data.system.processHeapMb} / ${data.system.processRssMb} MB`}
-                  hint={data.system.processUptimeSec > 0 ? `Uptime: ${Math.floor(data.system.processUptimeSec / 60)} min` : undefined}
+                  primary={`${data.system.processRssMb > 0 ? Math.round((data.system.processHeapMb / data.system.processRssMb) * 100) : 0}%`}
+                  secondary={`Heap ${data.system.processHeapMb} MB · RSS ${data.system.processRssMb} MB${
+                    data.system.processUptimeSec > 0 ? ` · ${Math.floor(data.system.processUptimeSec / 60)} min` : ''
+                  }`}
+                  size={84}
+                  stroke={5}
                 />
               </div>
             </div>
