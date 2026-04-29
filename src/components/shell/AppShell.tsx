@@ -3,6 +3,7 @@ import { Crown } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { useZapMass } from '../../context/ZapMassContext';
+import { useSessionUsageHeartbeat } from '../../hooks/useSessionUsageHeartbeat';
 
 interface AppShellProps {
   currentView: string;
@@ -36,6 +37,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   mobileUpgradeFab = false
 }) => {
   const { socket } = useZapMass();
+  useSessionUsageHeartbeat(socket);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {

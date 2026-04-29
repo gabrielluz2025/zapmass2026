@@ -62,6 +62,7 @@ import { registerWorkspaceRoutes } from './workspaceRoutes.js';
 import { registerWorkspaceStaffPasswordRoutes } from './workspaceStaffPasswordRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
 import { structuredLog } from './structuredLog.js';
+import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing } from './redisPing.js';
 
 function notifyCampaignSocketError(
@@ -424,6 +425,7 @@ const registerSocketHandlers = () => {
     const authOp = String((socket.data as { authUid?: string }).authUid || uid);
     let lastUiLogKey = '';
     let lastUiLogAt = 0;
+    let lastUsageBeatAt = Date.now();
     const ownsConnectionId = (connectionId: string) => ownsConnectionForUid(uid, connectionId);
     const userLog = (event: string, payload?: Record<string, unknown>) =>
       logEvent(event, { uid, ...(payload || {}) });
@@ -792,6 +794,17 @@ const registerSocketHandlers = () => {
       lastUiLogKey = key;
       lastUiLogAt = now;
       userLog('ui:event', payload);
+    });
+
+    /** Heartbeat do cliente: aba visível + socket ligado; atribui ao tenant (conta ZapMass). */
+    socket.on('usage-heartbeat', () => {
+      if (!uid || uid === 'anonymous') return;
+      const now = Date.now();
+      const raw = now - lastUsageBeatAt;
+      lastUsageBeatAt = now;
+      if (raw < 8_000) return;
+      const delta = Math.min(Math.max(0, raw), 180_000);
+      void incrementTenantUsageMs(uid, delta);
     });
 
     socket.on('update-settings', (settings: { minDelay?: number; maxDelay?: number; dailyLimit?: number; sleepMode?: boolean; webhookUrl?: string; emailNotif?: boolean }) => {

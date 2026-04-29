@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Zap,
   Workflow,
+  ChevronLeft,
   ChevronRight,
   Package,
   Eye,
@@ -314,6 +315,32 @@ export const ChatTab: React.FC = () => {
       /* ignore */
     }
   }, [pipelineView, pipelineViewStorageKey]);
+
+  const quadroPaneCollapsedKey = useMemo(
+    () => `zapmass-quadro-right-pane-collapsed:v1:${user?.uid || 'anon'}`,
+    [user?.uid]
+  );
+  const [quadroRightPaneCollapsed, setQuadroRightPaneCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setQuadroRightPaneCollapsed(localStorage.getItem(quadroPaneCollapsedKey) === '1');
+    } catch {
+      /* ignore */
+    }
+  }, [quadroPaneCollapsedKey]);
+
+  useEffect(() => {
+    try {
+      if (quadroRightPaneCollapsed) localStorage.setItem(quadroPaneCollapsedKey, '1');
+      else localStorage.removeItem(quadroPaneCollapsedKey);
+    } catch {
+      /* ignore */
+    }
+  }, [quadroRightPaneCollapsed, quadroPaneCollapsedKey]);
+
+  const quadroHidesRightPane =
+    pipelineView === 'quadro' && !selectedChatId && quadroRightPaneCollapsed;
 
   // Handshake vindo da aba Contatos: abrir conversa por telefone.
   // Evita prop drilling — Contatos grava sessionStorage + navega, aqui resolvemos.
@@ -989,8 +1016,12 @@ export const ChatTab: React.FC = () => {
       }}
     >
       <div
-        className={`${showMobileChat ? 'hidden md:flex' : 'flex'} w-full flex-col flex-shrink-0 ${
-          pipelineView === 'quadro' ? 'md:flex-1 md:min-w-0 md:max-w-[min(1100px,72vw)]' : 'md:w-[380px]'
+        className={`${showMobileChat ? 'hidden md:flex' : 'flex'} relative w-full flex-col flex-shrink-0 ${
+          pipelineView === 'quadro'
+            ? quadroHidesRightPane
+              ? 'md:flex-1 md:min-w-0'
+              : 'md:flex-1 md:min-w-0 md:max-w-[min(1100px,72vw)]'
+            : 'md:w-[380px]'
         }`}
         style={{
           background:
@@ -1493,10 +1524,55 @@ export const ChatTab: React.FC = () => {
             </>
           )}
         </div>
+
+        {pipelineView === 'quadro' && !selectedChatId && (
+          <div className="pointer-events-none absolute inset-y-8 right-0 z-[8] hidden md:flex items-center pr-1">
+            <button
+              type="button"
+              onClick={() => setQuadroRightPaneCollapsed((v) => !v)}
+              className="pointer-events-auto flex flex-col items-center justify-center gap-1 rounded-l-xl py-3 px-1.5 min-w-[2.25rem] shadow-lg transition-opacity hover:opacity-95 active:opacity-90"
+              style={{
+                background: 'var(--surface-1)',
+                border: '1px solid var(--border-subtle)',
+                borderRight: 'none',
+                color: 'var(--text-2)',
+                boxShadow: '-4px 0 18px -6px rgba(0,0,0,0.35)'
+              }}
+              title={
+                quadroRightPaneCollapsed
+                  ? 'Mostrar painel direito (introdução / conversa)'
+                  : 'Esconder painel direito e ampliar o quadro'
+              }
+              aria-label={
+                quadroRightPaneCollapsed
+                  ? 'Mostrar painel direito'
+                  : 'Esconder painel direito para ampliar o quadro'
+              }
+            >
+              {quadroRightPaneCollapsed ? (
+                <ChevronLeft className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden />
+              ) : (
+                <ChevronRight className="w-5 h-5 shrink-0" strokeWidth={2} aria-hidden />
+              )}
+              <span
+                className="text-[9px] font-bold uppercase tracking-wider leading-tight text-center max-w-[2.75rem]"
+                style={{ color: 'var(--text-3)' }}
+              >
+                {quadroRightPaneCollapsed ? 'Painel' : 'Ampliar'}
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       <div
-        className={`${!showMobileChat && !selectedChatId ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0`}
+        className={`${
+          quadroHidesRightPane
+            ? 'hidden'
+            : !showMobileChat && !selectedChatId
+              ? 'hidden md:flex'
+              : 'flex'
+        } flex-1 flex-col min-w-0`}
         style={{ background: 'var(--surface-1)' }}
       >
         {selectedConversation ? (

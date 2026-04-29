@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GripVertical, Inbox, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
+import { GripVertical, Inbox, Layers, Pencil, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Conversation } from '../../types';
 import type { ClientPipelineBoardPersisted, PipelineColumnDef } from '../../utils/clientPipelineBoardStorage';
 import {
@@ -59,6 +59,18 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
   const [deleteAsk, setDeleteAsk] = useState<PipelineColumnDef | null>(null);
   const newColInputRef = useRef<HTMLInputElement>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+  const columnsScrollRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollBoardX, setCanScrollBoardX] = useState({ left: false, right: false });
+
+  const updateBoardScrollHints = useCallback(() => {
+    const el = columnsScrollRef.current;
+    if (!el) return;
+    const { scrollLeft, clientWidth, scrollWidth } = el;
+    setCanScrollBoardX({
+      left: scrollLeft > 6,
+      right: scrollLeft + clientWidth < scrollWidth - 6
+    });
+  }, []);
 
   useEffect(() => {
     setState(loadClientPipeline(userUid));
@@ -97,6 +109,27 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
     () => Array.from(convsByColumn.values()).reduce((n, list) => n + list.length, 0),
     [convsByColumn]
   );
+
+  useEffect(() => {
+    const el = columnsScrollRef.current;
+    if (!el) return;
+    updateBoardScrollHints();
+    const onScroll = () => updateBoardScrollHints();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(() => updateBoardScrollHints());
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      ro.disconnect();
+    };
+  }, [updateBoardScrollHints, state.columns.length, conversations.length, state.cardColumn]);
+
+  const scrollBoardBy = useCallback((dir: 'left' | 'right') => {
+    const el = columnsScrollRef.current;
+    if (!el) return;
+    const step = Math.min(320, Math.max(220, el.clientWidth * 0.45));
+    el.scrollBy({ left: dir === 'right' ? step : -step, behavior: 'smooth' });
+  }, []);
 
   const moveCard = (conversationId: string, columnId: string) => {
     setState((prev) => {
@@ -249,14 +282,50 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
           </Button>
         </div>
 
-        {/* Área de colunas — “mesa” com profundidade */}
-        <div
-          className="relative flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden px-3 sm:px-4 pb-3 pt-3"
-          style={{
-            background:
-              'radial-gradient(ellipse 120% 80% at 50% 0%, color-mix(in srgb, var(--brand-500) 7%, transparent) 0%, transparent 52%), linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 28%, var(--surface-0)) 0%, var(--surface-0) 100%)'
-          }}
-        >
+        {/* Área de colunas — “mesa” com profundidade + deslize horizontal */}
+        <div className="relative flex min-h-0 flex-1 min-w-0 flex-col">
+          {canScrollBoardX.left && (
+            <button
+              type="button"
+              onClick={() => scrollBoardBy('left')}
+              className="absolute left-2 top-1/2 z-[5] -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition-opacity hover:opacity-95 md:left-3"
+              style={{
+                background: 'color-mix(in srgb, var(--surface-1) 92%, var(--surface-0))',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-1)',
+                boxShadow: '0 8px 24px -8px rgba(0,0,0,0.45)'
+              }}
+              title="Deslizar quadro para a esquerda"
+              aria-label="Deslizar quadro para a esquerda"
+            >
+              <ChevronLeft className="w-5 h-5" strokeWidth={2.25} aria-hidden />
+            </button>
+          )}
+          {canScrollBoardX.right && (
+            <button
+              type="button"
+              onClick={() => scrollBoardBy('right')}
+              className="absolute right-2 top-1/2 z-[5] -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition-opacity hover:opacity-95 md:right-3"
+              style={{
+                background: 'color-mix(in srgb, var(--surface-1) 92%, var(--surface-0))',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-1)',
+                boxShadow: '0 8px 24px -8px rgba(0,0,0,0.45)'
+              }}
+              title="Deslizar quadro para a direita"
+              aria-label="Deslizar quadro para a direita"
+            >
+              <ChevronRight className="w-5 h-5" strokeWidth={2.25} aria-hidden />
+            </button>
+          )}
+          <div
+            ref={columnsScrollRef}
+            className="relative flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden scroll-smooth px-3 sm:px-4 pb-3 pt-3"
+            style={{
+              background:
+                'radial-gradient(ellipse 120% 80% at 50% 0%, color-mix(in srgb, var(--brand-500) 7%, transparent) 0%, transparent 52%), linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 28%, var(--surface-0)) 0%, var(--surface-0) 100%)'
+            }}
+          >
           {state.columns.map((col, colIdx) => {
             const list = convsByColumn.get(col.id) || [];
             const accent = COLUMN_ACCENTS[colIdx % COLUMN_ACCENTS.length];
@@ -449,6 +518,7 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
             </span>
           </button>
         </div>
+      </div>
       </div>
 
       <Modal

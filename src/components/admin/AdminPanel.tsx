@@ -93,6 +93,10 @@ type AccessUserInsights = {
     failedCount: number;
     totalContacts: number;
   }>;
+  usage: {
+    totalActiveMs: number;
+    lastActiveAt: string | null;
+  } | null;
 };
 
 const toPtDateTime = (iso: string | null | undefined): string => {
@@ -102,6 +106,16 @@ const toPtDateTime = (iso: string | null | undefined): string => {
   } catch {
     return '—';
   }
+};
+
+/** Duração legível a partir de ms (tempo no app). */
+const formatAppUsageMs = (ms: number): string => {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  if (ms < 60_000) return `≈ ${Math.max(1, Math.round(ms / 1000))} s`;
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  if (h > 0) return `${h}h ${m}min`;
+  return `${m} min`;
 };
 
 const copyToClipboard = async (text: string, okMessage = 'Copiado para a área de transferência.') => {
@@ -1197,6 +1211,35 @@ export const AdminPanel: React.FC = () => {
                       <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
                         Conta: {toPtDateTime(insights.accountCreatedAt)} · Login: {toPtDateTime(insights.lastSignInAt)}
                       </p>
+                    </div>
+                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+                      <p className="text-[10px] uppercase font-bold tracking-wide mb-2 flex items-center gap-1.5" style={{ color: 'var(--text-3)' }}>
+                        <Clock3 className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                        Uso no sistema (estimado)
+                      </p>
+                      {!insights.usage || insights.usage.totalActiveMs < 1 ? (
+                        <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                          Ainda sem medição para esta conta. O contador inicia quando alguém usa o app com a{' '}
+                          <strong className="text-[var(--text-2)]">aba em primeiro plano</strong> e o socket ligado ao servidor
+                          (após esta actualização).
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-[20px] font-extrabold leading-tight tabular-nums" style={{ color: 'var(--text-1)' }}>
+                            {formatAppUsageMs(insights.usage.totalActiveMs)}
+                          </p>
+                          <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+                            Última actividade: {toPtDateTime(insights.usage.lastActiveAt)}
+                          </p>
+                          <p
+                            className="text-[10px] mt-2 leading-snug border-t pt-2"
+                            style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)' }}
+                          >
+                            Acumulado por intervalos (~30s) enquanto o separador está visível. Inclui dono e membros da
+                            equipa na mesma conta ZapMass.
+                          </p>
+                        </>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <Metric label="Contatos" value={insights.counts.contactsTotal} />

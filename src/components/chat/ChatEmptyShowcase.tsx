@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Workflow,
   StickyNote,
@@ -10,8 +10,21 @@ import {
   Search,
   Zap,
   ShieldCheck,
-  ArrowRight
+  ArrowRight,
+  EyeOff,
+  Eye
 } from 'lucide-react';
+
+const INTRO_HIDDEN_KEY = 'zapmass-chat-pipeline-intro-hidden';
+
+function readIntroHidden(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(INTRO_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 interface Props {
   totalConversations: number;
@@ -37,6 +50,18 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
   totalChannels,
   crmStats
 }) => {
+  const [introHidden, setIntroHiddenState] = useState(readIntroHidden);
+
+  const setIntroHidden = useCallback((hidden: boolean) => {
+    setIntroHiddenState(hidden);
+    try {
+      if (hidden) window.localStorage.setItem(INTRO_HIDDEN_KEY, '1');
+      else window.localStorage.removeItem(INTRO_HIDDEN_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const features = [
     { icon: <StickyNote className="w-4 h-4 stroke-[2]" />, label: 'Anotações privadas', hint: 'Histórico por cliente' },
     { icon: <Tag className="w-4 h-4 stroke-[2]" />, label: 'Tags coloridas', hint: 'VIP, lead, urgente…' },
@@ -78,6 +103,42 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
     }
   ];
 
+  if (introHidden) {
+    return (
+      <div
+        className="flex-1 flex flex-col items-center justify-center min-h-0 px-4 py-8"
+        style={{ background: 'var(--surface-0)' }}
+      >
+        <div
+          className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 rounded-2xl px-5 py-4 max-w-lg w-full"
+          style={{
+            background: 'var(--surface-1)',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: '0 12px 40px -24px rgba(0,0,0,0.35)'
+          }}
+        >
+          <p className="text-[13px] leading-snug flex-1" style={{ color: 'var(--text-2)' }}>
+            Introdução do pipeline está <strong style={{ color: 'var(--text-1)' }}>oculta</strong>. À esquerda, escolha
+            uma conversa ou use o modo Quadro.
+          </p>
+          <button
+            type="button"
+            onClick={() => setIntroHidden(false)}
+            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold transition-opacity hover:opacity-90"
+            style={{
+              background: 'color-mix(in srgb, var(--brand-500) 16%, var(--surface-0))',
+              color: 'var(--brand-600)',
+              border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)'
+            }}
+          >
+            <Eye className="w-4 h-4 shrink-0" aria-hidden />
+            Mostrar introdução
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col items-stretch justify-center relative overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-8 sm:py-10 min-h-0">
       {/* Fundo atmosférico */}
@@ -92,6 +153,24 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[color-mix(in_srgb,var(--brand-500)_35%,transparent)] to-transparent" aria-hidden />
 
       <div className="relative w-full max-w-[920px] mx-auto flex flex-col">
+        <div className="flex justify-end w-full mb-2 sm:mb-3">
+          <button
+            type="button"
+            onClick={() => setIntroHidden(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-semibold transition-opacity hover:opacity-85"
+            style={{
+              background: 'var(--surface-1)',
+              color: 'var(--text-2)',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: '0 4px 16px -8px rgba(0,0,0,0.35)'
+            }}
+            title="Esconder painel de introdução (a preferência fica guardada neste navegador)"
+            aria-label="Ocultar introdução do pipeline"
+          >
+            <EyeOff className="w-4 h-4 shrink-0" aria-hidden />
+            Ocultar introdução
+          </button>
+        </div>
         {/* Hero + CTA visual */}
         <div className="mb-8 sm:mb-10 grid lg:grid-cols-[1fr_minmax(220px,280px)] gap-8 lg:gap-10 items-center">
           <div>

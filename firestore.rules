@@ -68,6 +68,11 @@ service cloud.firestore {
       allow create: if false;
     }
 
+    /** Estatísticas de tempo no app (só servidor / Admin SDK). */
+    match /users/{uid}/usageStats/{docId} {
+      allow read, write: if false;
+    }
+
     /** Vinculo funcionario ↔ dono (leitura propria ou do dono). Escrita via Firebase Admin apenas. */
     match /userWorkspaceLinks/{staffUid} {
       allow read: if request.auth != null &&

@@ -85,6 +85,11 @@ type AdminUserInsights = {
     failedCount: number;
     totalContacts: number;
   }>;
+  /** Tempo acumulado com aba visível e ligado ao servidor (por conta). */
+  usage: {
+    totalActiveMs: number;
+    lastActiveAt: string | null;
+  } | null;
 };
 
 function tsToIso(v: unknown): string | null {
@@ -492,6 +497,24 @@ export function registerAdminAppConfigRoutes(app: Express): void {
           totalContacts: Number(c.totalContacts) || 0
         }));
 
+      const usageSnap = await db.collection('users').doc(uid).collection('usageStats').doc('summary').get();
+      let usage: AdminUserInsights['usage'] = null;
+      if (usageSnap.exists) {
+        const u = usageSnap.data() as Record<string, unknown>;
+        const totalRaw = u?.totalActiveMs;
+        let totalActiveMs = 0;
+        if (typeof totalRaw === 'number' && Number.isFinite(totalRaw)) {
+          totalActiveMs = totalRaw;
+        } else if (typeof totalRaw === 'string' && totalRaw.trim()) {
+          const parsed = Number(totalRaw);
+          if (Number.isFinite(parsed)) totalActiveMs = parsed;
+        }
+        usage = {
+          totalActiveMs: Math.max(0, Math.round(totalActiveMs)),
+          lastActiveAt: tsToIso(u?.lastActiveAt)
+        };
+      }
+
       const firstActivityMsCandidates = [
         rawMinActivityEpoch,
         ...lists.map((l) => asEpoch(l.createdAt)),
@@ -530,7 +553,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         },
         contactTagsTop,
         listSegmentsTop,
-        recentCampaigns
+        recentCampaigns,
+        usage
       };
 
       return res.json({ ok: true, insights: payload });
