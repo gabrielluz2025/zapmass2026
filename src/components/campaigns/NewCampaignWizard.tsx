@@ -136,6 +136,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [channelWeightsById, setChannelWeightsById] = useState<Record<string, number>>({});
   const [delaySeconds, setDelaySeconds] = useState(45);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Checklist obrigatoria antes de disparar ou agendar (passo 4). */
+  const [preflightAck, setPreflightAck] = useState({
+    audience: false,
+    messages: false,
+    responsibility: false
+  });
   /** Laboratório A/B: duas campanhas com 1ª mensagem diferente (apenas sequencial). */
   const [abLabEnabled, setAbLabEnabled] = useState(false);
   const [abFirstBodyB, setAbFirstBodyB] = useState('');
@@ -651,7 +657,21 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     scheduleTimeZone
   ]);
   const scheduleOk = launchMode === 'now' || abLabEnabled || scheduleSlots.length > 0;
-  const canSubmit = canGoFromAudience && canGoFromMessage && canGoFromChannels && !isSubmitting && abLabOk && scheduleOk;
+  const preflightComplete =
+    preflightAck.audience && preflightAck.messages && preflightAck.responsibility;
+  const canSubmit =
+    canGoFromAudience &&
+    canGoFromMessage &&
+    canGoFromChannels &&
+    !isSubmitting &&
+    abLabOk &&
+    scheduleOk &&
+    preflightComplete;
+
+  useEffect(() => {
+    if (step !== 4) return;
+    setPreflightAck({ audience: false, messages: false, responsibility: false });
+  }, [step, launchMode]);
 
   useEffect(() => {
     if (abLabEnabled) setLaunchMode('now');
@@ -1713,6 +1733,63 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             <Card>
               <h3 className="ui-title text-[15px] mb-1">Revisao final</h3>
               <p className="ui-subtitle text-[12.5px] mb-4">Confira os dados antes de iniciar o disparo.</p>
+
+              <div
+                className="mb-5 p-4 rounded-xl space-y-3"
+                style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)' }}
+              >
+                <p className="text-[12px] font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                  <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
+                  Checklist antes do envio
+                </p>
+                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                  Marque cada item para liberar o botão «
+                  {launchMode === 'schedule' ? 'Agendar campanha' : 'Iniciar disparo'}».
+                </p>
+                <label className="flex items-start gap-2.5 cursor-pointer text-[12.5px] leading-snug">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 rounded"
+                    checked={preflightAck.audience}
+                    onChange={(e) => setPreflightAck((p) => ({ ...p, audience: e.target.checked }))}
+                  />
+                  <span style={{ color: 'var(--text-2)' }}>
+                    Revisei o <strong>público</strong>:{' '}
+                    <strong style={{ color: 'var(--text-1)' }}>{numbers.length}</strong> número(s) na fila.
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 cursor-pointer text-[12.5px] leading-snug">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 rounded"
+                    checked={preflightAck.messages}
+                    onChange={(e) => setPreflightAck((p) => ({ ...p, messages: e.target.checked }))}
+                  />
+                  <span style={{ color: 'var(--text-2)' }}>
+                    Revisei o(s) <strong>texto(s)</strong>, variáveis e (se houver) o fluxo por respostas.
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 cursor-pointer text-[12.5px] leading-snug">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 rounded"
+                    checked={preflightAck.responsibility}
+                    onChange={(e) => setPreflightAck((p) => ({ ...p, responsibility: e.target.checked }))}
+                  />
+                  <span style={{ color: 'var(--text-2)' }}>
+                    Os chips precisam estar <strong>Conectados</strong> no momento do disparo
+                    {launchMode === 'schedule'
+                      ? ' (na hora agendada ou em cada janela)'
+                      : ''}
+                    ; intervalo <strong>{delaySeconds}s</strong>; uso alinhado a WhatsApp e legislação (opt-in / spam).
+                  </span>
+                </label>
+                {!preflightComplete && (
+                  <p className="text-[11px] font-semibold" style={{ color: '#f59e0b' }}>
+                    Marque os três itens acima para continuar.
+                  </p>
+                )}
+              </div>
 
               <div
                   className="mb-5 p-4 rounded-xl space-y-3"

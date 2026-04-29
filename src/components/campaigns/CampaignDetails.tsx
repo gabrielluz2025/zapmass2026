@@ -591,20 +591,30 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     reportSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const channelLabelForExport = (id?: string) => {
+    if (!id) return '';
+    const c = connections.find((x) => x.id === id);
+    const label = c?.name || id.slice(0, 14);
+    return label.replace(/[;\n\r]+/g, ' ');
+  };
+
   const exportReportCsv = () => {
     if (filteredReport.length === 0) {
       toast.error('Nenhum registro para exportar.');
       return;
     }
-    const header = 'nome;telefone;status;enviado_em;respondido_em;resposta;erro\n';
+    const header =
+      'nome;telefone;status;enviado_em;respondido_em;resposta;erro;mensagem_enviada;canal\n';
     const body = filteredReport
       .map((r) => {
         const status = STATUS_META[r.status].label;
         const safe = (s: string | undefined) => (s || '').replace(/[;\n\r]+/g, ' ');
-        return `${safe(r.contactName)};${r.phone};${status};${r.sentTime};${r.replyTime || ''};${safe(r.replyText)};${safe(r.errorMessage)}`;
+        return `${safe(r.contactName)};${r.phone};${status};${r.sentTime};${r.replyTime || ''};${safe(r.replyText)};${safe(
+          r.errorMessage
+        )};${safe(r.sentMessage)};${channelLabelForExport(r.connectionId)}`;
       })
       .join('\n');
-    const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\uFEFF' + header + body], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -613,7 +623,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast.success(`CSV gerado com ${filteredReport.length} linhas.`);
+    toast.success(`Ficheiro gerado (${filteredReport.length} linhas) — UTF-8 para Excel.`);
   };
 
   const copyPhone = (phone: string) => {
@@ -713,8 +723,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 size="sm"
                 leftIcon={<Download className="w-4 h-4" />}
                 onClick={exportReportCsv}
+                title="Arquivo CSV com UTF-8 (abre no Excel). Inclui mensagem e canal."
               >
-                CSV
+                CSV / Excel
               </Button>
             </div>
           </div>
@@ -1124,8 +1135,14 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   { id: 'FAILED', label: 'Falhas' }
                 ]}
               />
-              <Button variant="secondary" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={exportReportCsv}>
-                CSV
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Download className="w-3.5 h-3.5" />}
+                onClick={exportReportCsv}
+                title="CSV UTF-8 para Excel"
+              >
+                CSV / Excel
               </Button>
             </div>
           </div>
