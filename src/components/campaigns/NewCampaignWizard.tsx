@@ -15,6 +15,7 @@ import {
   Plus,
   Search,
   Send,
+  Smartphone,
   Sparkles,
   Trash2,
   Users,
@@ -44,6 +45,7 @@ import {
   CONTACT_TEMP_LABEL,
   type ContactTemperature
 } from '../../utils/contactTemperature';
+import { useZapMass } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 
 type CampaignFlowMode = 'sequential' | 'reply';
@@ -142,6 +144,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     messages: false,
     responsibility: false
   });
+  const [quickTestPhone, setQuickTestPhone] = useState('');
+  const [quickTestBusy, setQuickTestBusy] = useState(false);
+  const { socket } = useZapMass();
   /** Laboratório A/B: duas campanhas com 1ª mensagem diferente (apenas sequencial). */
   const [abLabEnabled, setAbLabEnabled] = useState(false);
   const [abFirstBodyB, setAbFirstBodyB] = useState('');
@@ -492,6 +497,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
   const activeMessageBody = messageStages[activeStageIdx]?.body ?? '';
   const messageRisk = useMemo(() => analyzeMessageRisk(activeMessageBody), [activeMessageBody]);
+  /** Primeira etapa com texto — usada no teste rápido do passo 4. */
+  const firstMessageStageBody = useMemo(
+    () => messageStages.map((s) => s.body.trim()).find((b) => b.length > 0) || '',
+    [messageStages]
+  );
 
   useEffect(() => {
     if (activeStageIdx >= messageStages.length) {
@@ -719,6 +729,43 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       o[id] = Math.max(1, Math.min(100, Math.round(Number(channelWeightsById[id]) || 1)));
     });
     return o;
+  };
+
+  const sendWizardQuickTest = () => {
+    if (!socket?.connected) {
+      toast.error('Sem ligação ao servidor. Aguarde ou recarregue a página.');
+      return;
+    }
+    const fromId = getConnectedSelectedIds()[0];
+    if (!fromId) {
+      toast.error('Selecione um canal conectado (passo Canais).');
+      return;
+    }
+    if (!firstMessageStageBody.trim()) {
+      toast.error('Preencha pelo menos a primeira mensagem (passo Mensagem).');
+      return;
+    }
+    const raw = quickTestPhone.replace(/\D/g, '');
+    if (raw.length < 10) {
+      toast.error('Indique um número válido com DDD.');
+      return;
+    }
+    setQuickTestBusy(true);
+    const onResult = (result: { success?: boolean; message?: string; error?: string }) => {
+      socket?.off('test-dispatch-result', onResult);
+      setQuickTestBusy(false);
+      if (result?.success) {
+        toast.success(result.message || 'Teste enviado com sucesso.');
+      } else {
+        toast.error(result?.error || 'Falha ao enviar teste.');
+      }
+    };
+    socket.on('test-dispatch-result', onResult);
+    socket.emit('test-dispatch', {
+      fromConnectionId: fromId,
+      toPhone: quickTestPhone.trim(),
+      message: firstMessageStageBody
+    });
   };
 
   const handleSubmit = async () => {
@@ -1787,6 +1834,54 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 {!preflightComplete && (
                   <p className="text-[11px] font-semibold" style={{ color: '#f59e0b' }}>
                     Marque os três itens acima para continuar.
+                  </p>
+                )}
+              </div>
+
+              <div
+                className="mb-5 p-4 rounded-xl space-y-3"
+                style={{ background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.28)' }}
+              >
+                <p className="text-[12px] font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                  <Smartphone className="w-4 h-4 text-blue-500" />
+                  Teste rápido (recomendado)
+                </p>
+                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                  Envia apenas a <strong>primeira mensagem</strong> do fluxo pelo primeiro canal conectado selecionado.
+                  Use o seu número ou um contacto de confiança antes de disparar para toda a lista.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                  <div className="flex-1 min-w-0">
+                    <label className="ui-eyebrow mb-1 block" htmlFor="wizard-quick-test-phone">
+                      Número (com DDD)
+                    </label>
+                    <Input
+                      id="wizard-quick-test-phone"
+                      value={quickTestPhone}
+                      onChange={(e) => setQuickTestPhone(e.target.value)}
+                      placeholder="ex. 5511999990000"
+                      disabled={quickTestBusy}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={quickTestBusy}
+                    disabled={
+                      quickTestBusy ||
+                      !socket?.connected ||
+                      !getConnectedSelectedIds()[0] ||
+                      !firstMessageStageBody.trim()
+                    }
+                    onClick={sendWizardQuickTest}
+                    className="shrink-0"
+                  >
+                    Enviar teste
+                  </Button>
+                </div>
+                {numbers.length >= 25 && (
+                  <p className="text-[11px] font-medium" style={{ color: '#6366f1' }}>
+                    Lista com {numbers.length} contactos: enviar um teste primeiro reduz risco de erro em massa.
                   </p>
                 )}
               </div>

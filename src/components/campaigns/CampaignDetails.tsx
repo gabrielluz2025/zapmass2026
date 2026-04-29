@@ -8,10 +8,12 @@ import {
   Clock,
   Copy,
   Download,
+  FileJson,
   FileSpreadsheet,
   MessageSquare,
   Pause,
   Play,
+  Printer,
   Reply,
   Search,
   Share2,
@@ -626,6 +628,96 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     toast.success(`Ficheiro gerado (${filteredReport.length} linhas) — UTF-8 para Excel.`);
   };
 
+  const exportReportJson = () => {
+    if (filteredReport.length === 0) {
+      toast.error('Nenhum registro para exportar.');
+      return;
+    }
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      filter: detailFilter,
+      search: detailSearch || undefined,
+      rows: filteredReport.map((r) => ({
+        phone: r.phone,
+        contactName: r.contactName,
+        status: r.status,
+        statusLabel: STATUS_META[r.status].label,
+        sentTime: r.sentTime,
+        sentTimestampMs: r.sentTimestampMs,
+        replyTime: r.replyTime,
+        replyTimestampMs: r.replyTimestampMs,
+        replyText: r.replyText,
+        errorMessage: r.errorMessage,
+        sentMessage: r.sentMessage,
+        connectionId: r.connectionId,
+        channelLabel: channelLabelForExport(r.connectionId)
+      }))
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `relatorio-${campaign.name.replace(/\W+/g, '-')}-${campaign.id.slice(0, 8)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success(`JSON com ${filteredReport.length} linhas.`);
+  };
+
+  const printReportForPdf = () => {
+    if (filteredReport.length === 0) {
+      toast.error('Nada para imprimir com o filtro atual.');
+      return;
+    }
+    const esc = (s: string) =>
+      String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    const rows = filteredReport
+      .map(
+        (r) => `<tr>
+      <td>${esc(r.contactName)}</td>
+      <td>${esc(r.phone)}</td>
+      <td>${esc(STATUS_META[r.status].label)}</td>
+      <td>${esc(r.sentTime)}</td>
+      <td>${esc(r.replyTime || '')}</td>
+      <td>${esc((r.replyText || '').slice(0, 280))}</td>
+    </tr>`
+      )
+      .join('');
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(campaign.name)}</title>
+<style>
+  body{font-family:system-ui,-apple-system,sans-serif;padding:20px;color:#111}
+  h1{font-size:20px;margin:0 0 8px}
+  .meta{color:#555;font-size:12px;margin-bottom:20px}
+  table{border-collapse:collapse;width:100%;font-size:11px}
+  th,td{border:1px solid #ccc;padding:8px;text-align:left;vertical-align:top}
+  th{background:#f3f4f6;font-weight:600}
+  @media print { body { padding: 12px } }
+</style></head><body>
+<h1>${esc(campaign.name)}</h1>
+<div class="meta">ZapMass · ${esc(new Date().toLocaleString('pt-BR'))} · ${filteredReport.length} linhas · Filtro: ${esc(detailFilter)}</div>
+<table>
+<thead><tr><th>Nome</th><th>Telefone</th><th>Status</th><th>Enviado</th><th>Resposta em</th><th>Resposta</th></tr></thead>
+<tbody>${rows}</tbody>
+</table>
+<script>window.onload=function(){window.focus();window.print();}</script>
+</body></html>`;
+    const w = window.open('', '_blank', 'noopener,noreferrer');
+    if (!w) {
+      toast.error('Permita pop-ups para abrir a impressão ou PDF.');
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  };
+
   const copyPhone = (phone: string) => {
     navigator.clipboard.writeText(phone).then(
       () => toast.success(`${phone} copiado.`),
@@ -726,6 +818,24 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 title="Arquivo CSV com UTF-8 (abre no Excel). Inclui mensagem e canal."
               >
                 CSV / Excel
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<FileJson className="w-4 h-4" />}
+                onClick={exportReportJson}
+                title="Exportar JSON (automação / backup estruturado)"
+              >
+                JSON
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Printer className="w-4 h-4" />}
+                onClick={printReportForPdf}
+                title="Abre janela para imprimir ou guardar como PDF"
+              >
+                Imprimir / PDF
               </Button>
             </div>
           </div>
@@ -1143,6 +1253,24 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 title="CSV UTF-8 para Excel"
               >
                 CSV / Excel
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<FileJson className="w-3.5 h-3.5" />}
+                onClick={exportReportJson}
+                title="JSON"
+              >
+                JSON
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Printer className="w-3.5 h-3.5" />}
+                onClick={printReportForPdf}
+                title="Imprimir / PDF"
+              >
+                PDF
               </Button>
             </div>
           </div>
