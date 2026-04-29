@@ -2886,6 +2886,7 @@ const initializeClient = async (id: string, name: string) => {
 
         // Mensagens recebidas em tempo real
         client.on('message', async (msg) => {
+            if (!msg || typeof msg.getChat !== 'function') return;
             if (msg.isStatus) return;
             const chat = await msg.getChat().catch(() => null);
             if (!chat) return;
@@ -2961,7 +2962,8 @@ const initializeClient = async (id: string, name: string) => {
                     console.log('[FunnelStats] Falha em handleCampaignAck:', e?.message || e);
                 }
             }
-            const convId = getConversationKey(id, msg.to);
+            if (!msg || msg.to == null || msg.to === '') return;
+            const convId = getConversationKey(id, String(msg.to));
             const conv = conversations.find(c => c.id === convId);
             if (!conv) return;
             conv.messages = conv.messages.map((m) =>
