@@ -78,8 +78,17 @@ services:
   wa-worker:
     image: zapmass:latest
     command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
-    # Chromium no worker usa /dev/shm; default 64MB causa crashes com varias sessoes.
-    shm_size: "2gb"
+    # A imagem declara HEALTHCHECK curl :3001 (API); o worker não abre HTTP — sem isto Swarm fica em "starting" para sempre.
+    healthcheck:
+      disable: true
+    # Chromium: no Swarm `shm_size` do Compose é ignorado — tmpfs em /dev/shm (~2GiB).
+    volumes:
+      - zapmass-data:/app/data
+      - ./secrets:/run/secrets:ro
+      - type: tmpfs
+        target: /dev/shm
+        tmpfs:
+          size: 2147483648
     # shutdownAll espera ate ~15s por cliente + backup; mais folga que o default Swarm (~10s) evita SIGKILL a meio.
     stop_grace_period: 60s
     environment:
@@ -88,9 +97,6 @@ services:
       SESSION_PROCESS_MODE: worker
       WORKER_ID: "{{.Task.Name}}"
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
-    volumes:
-      - zapmass-data:/app/data
-      - ./secrets:/run/secrets:ro
     deploy:
       # Com API em monolith: 0. Com ZAPMASS_API_SESSION_MODE=api: use 1 ou mais (Chromium no worker).
       replicas: ${WA_WORKER_REPLICAS:-0}

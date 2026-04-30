@@ -92,6 +92,9 @@ services:
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
     command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
     init: true
+    # Imagem HEALTHCHECK usa :3001 (API); o worker não escuta HTTP.
+    healthcheck:
+      disable: true
     shm_size: "2gb"
     stop_grace_period: 60s
     environment:
