@@ -5,11 +5,19 @@ const CHANNEL = 'zapmass:owner-socket-emit';
 
 type OwnerEmit = (uid: string, event: string, payload: Record<string, unknown>) => void;
 
+type OwnerEmitSubscriberDeps = {
+    onBridged?: (msg: { uid: string; event: string; payload: Record<string, unknown> }) => void;
+};
+
 /**
  * No arranque da API (processo com Socket.IO real): subscreve Redis para o worker
  * publicar eventos (qr-code, etc.) que devem chegar ao `user:uid` no browser.
  */
-export const startOwnerEmitRedisSubscriber = (io: Server, redisUrl: string): (() => void) | null => {
+export const startOwnerEmitRedisSubscriber = (
+    io: Server,
+    redisUrl: string,
+    deps?: OwnerEmitSubscriberDeps
+): (() => void) | null => {
   if (!redisUrl?.trim()) return null;
   const sub = new IORedis(redisUrl, { maxRetriesPerRequest: 1 });
   let closed = false;
@@ -26,6 +34,11 @@ export const startOwnerEmitRedisSubscriber = (io: Server, redisUrl: string): (()
     try {
       const parsed = JSON.parse(message) as { uid?: string; event?: string; payload?: Record<string, unknown> };
       if (!parsed?.uid || !parsed?.event) return;
+      deps?.onBridged?.({
+        uid: String(parsed.uid),
+        event: String(parsed.event),
+        payload: parsed.payload ?? {}
+      });
       io.to(`user:${parsed.uid}`).emit(parsed.event, parsed.payload ?? {});
     } catch (e) {
       console.warn('[owner-emit-redis] mensagem inválida:', (e as Error)?.message);

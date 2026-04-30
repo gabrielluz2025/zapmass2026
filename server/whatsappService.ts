@@ -339,6 +339,19 @@ const ensureDataDir = async () => {
     await fs.promises.mkdir(authDir, { recursive: true });
 };
 
+/** Pastas Chromium de cópia de segurança (`session-xx.backup`) geravam canais fantasmas se listadas ao reconstruir a lista. */
+const isPhantomSessionBackupConnectionId = (id: unknown): boolean =>
+    typeof id === 'string' && id.length > 0 && id.endsWith('.backup');
+
+/** Remove sufixo errado quando o nome veio por engano da pasta `.backup`. */
+const sanitizeFallbackConnectionName = <T extends WhatsAppConnection>(rest: T): string => {
+    const n = rest.name;
+    if (typeof n === 'string' && n.startsWith('WhatsApp · ') && /\.backup$/i.test(n)) {
+        return n.replace(/\.backup$/i, '').trim();
+    }
+    return n;
+};
+
 /** Tenta recuperar nome/metadados gravados mesmo se connections.json principal estiver vazio ou corrompido. */
 const readAnyConnectionsSnapshotById = async (): Promise<Map<string, WhatsAppConnection>> => {
     const byId = new Map<string, WhatsAppConnection>();
@@ -348,9 +361,9 @@ const readAnyConnectionsSnapshotById = async (): Promise<Map<string, WhatsAppCon
             const parsed = JSON.parse(raw) as WhatsAppConnection[];
             if (!Array.isArray(parsed)) continue;
             for (const c of parsed) {
-                if (c && typeof c.id === 'string' && c.id.length > 0 && !byId.has(c.id)) {
-                    byId.set(c.id, c);
-                }
+                if (!c || typeof c.id !== 'string' || c.id.length === 0 || byId.has(c.id)) continue;
+                if (isPhantomSessionBackupConnectionId(c.id)) continue;
+                byId.set(c.id, c);
             }
         } catch {
             /* ignora arquivo ausente ou JSON inválido */
@@ -363,8 +376,10 @@ const loadConnectionsFromAuth = async () => {
     try {
         await fs.promises.mkdir(authDir, { recursive: true });
         const entries = await fs.promises.readdir(authDir, { withFileTypes: true });
+        /** Backup de Chromium fica em `session-{slug}.backup` — não é uma segunda sessão. */
         const dirSlugs = entries
             .filter((entry) => entry.isDirectory() && entry.name.startsWith('session-'))
+            .filter((entry) => !entry.name.endsWith('.backup'))
             .map((entry) => entry.name.replace('session-', ''))
             .filter(Boolean);
 
@@ -403,6 +418,7 @@ const loadConnectionsFromAuth = async () => {
             if (prev) {
                 rebuilt.push({
                     ...prev,
+                    name: sanitizeFallbackConnectionName(prev),
                     status: ConnectionStatus.CONNECTING,
                     lastActivity: 'Restaurando sessao...',
                     queueSize: prev.queueSize || 0,
@@ -416,9 +432,10 @@ const loadConnectionsFromAuth = async () => {
             const shortLabel = logicalId.includes('__')
                 ? (logicalId.split('__').pop()?.slice(-8) || logicalId.slice(-8))
                 : logicalId.slice(-8);
+            const tail = shortLabel.replace(/\.backup$/i, '').trim() || shortLabel;
             rebuilt.push({
                 id: logicalId,
-                name: `WhatsApp · ${shortLabel}`,
+                name: `WhatsApp · ${tail}`,
                 phoneNumber: null,
                 status: ConnectionStatus.CONNECTING,
                 lastActivity: 'Restaurando sessao...',
@@ -429,17 +446,37 @@ const loadConnectionsFromAuth = async () => {
             });
         }
 
-        connectionsInfo = rebuilt;
+        const uniqById = new Map<string, WhatsAppConnection>();
+        for (const row of rebuilt) {
+            const prevRow = uniqById.get(row.id);
+            if (!prevRow) {
+                uniqById.set(row.id, row);
+                continue;
+            }
+            const prevFallback = prevRow.name.startsWith('WhatsApp ·');
+            const rowFallback = row.name.startsWith('WhatsApp ·');
+            if (prevFallback && !rowFallback) {
+                uniqById.set(row.id, row);
+            }
+        }
+
+        connectionsInfo = [...uniqById.values()];
         await persistConnections();
     } catch {
         // Ignora se nao conseguir ler a pasta de auth
     }
 };
 
+const stripQrForDisk = (list: WhatsAppConnection[]): Omit<WhatsAppConnection, 'qrCode'>[] =>
+    list.map((c) => {
+        const { qrCode: _q, ...rest } = c as WhatsAppConnection & { qrCode?: string };
+        return rest;
+    });
+
 const persistConnections = async () => {
     await ensureDataDir();
     try {
-        const data = JSON.stringify(connectionsInfo, null, 2);
+        const data = JSON.stringify(stripQrForDisk(connectionsInfo), null, 2);
         await fs.promises.writeFile(connectionsFile, data, 'utf8');
         await fs.promises.copyFile(connectionsFile, connectionsBackupFile).catch((e) => {
             console.warn('[Connections] Nao foi possivel gravar backup:', (e as Error)?.message || e);
@@ -461,14 +498,35 @@ const loadConnections = async () => {
                     continue;
                 }
                 const headlessApi = process.env.SESSION_PROCESS_MODE === 'api';
-                connectionsInfo = parsed.map((conn) => ({
-                    ...conn,
-                    status: headlessApi ? (conn.status ?? ConnectionStatus.CONNECTING) : ConnectionStatus.CONNECTING,
-                    lastActivity: headlessApi ? (conn.lastActivity ?? 'Sincronizando estado…') : 'Restaurando sessao...',
-                    queueSize: conn.queueSize || 0,
-                    messagesSentToday: conn.messagesSentToday || 0,
-                    signalStrength: conn.signalStrength || 'STRONG'
-                }));
+                connectionsInfo = parsed
+                    .filter((conn) => !isPhantomSessionBackupConnectionId(conn?.id))
+                    .map((conn) => {
+                    const { qrCode: _drop, ...rest } = conn as WhatsAppConnection & { qrCode?: string };
+                    const name = sanitizeFallbackConnectionName(rest);
+                    return {
+                        ...rest,
+                        name,
+                        status: headlessApi ? (rest.status ?? ConnectionStatus.CONNECTING) : ConnectionStatus.CONNECTING,
+                        lastActivity: headlessApi ? (rest.lastActivity ?? 'Sincronizando estado…') : 'Restaurando sessao...',
+                        queueSize: rest.queueSize || 0,
+                        messagesSentToday: rest.messagesSentToday || 0,
+                        signalStrength: rest.signalStrength || 'STRONG'
+                    };
+                });
+                const needsConnectionsFileHeal =
+                    fp === connectionsFile &&
+                    (parsed.some((c) => isPhantomSessionBackupConnectionId(c?.id)) ||
+                        parsed.some((c) => {
+                            if (!c || typeof c.name !== 'string') return false;
+                            return (
+                                c.name.startsWith('WhatsApp · ') &&
+                                /\.backup$/i.test(c.name) &&
+                                sanitizeFallbackConnectionName(c as WhatsAppConnection) !== c.name
+                            );
+                        }));
+                if (needsConnectionsFileHeal) {
+                    void persistConnections().catch(() => {});
+                }
                 if (fp !== connectionsFile) {
                     console.warn(
                         `[Connections] connections.json ausente ou vazio — recuperado backup (${connectionsInfo.length} canais)`
@@ -494,14 +552,26 @@ const startConnectionsFileSyncFromWorker = () => {
         try {
             const raw = await fs.promises.readFile(connectionsFile, 'utf8');
             const parsed = JSON.parse(raw) as WhatsAppConnection[];
-            const next = parsed.map((conn) => ({
-                ...conn,
-                status: conn.status ?? ConnectionStatus.CONNECTING,
-                lastActivity: conn.lastActivity ?? '—',
-                queueSize: conn.queueSize || 0,
-                messagesSentToday: conn.messagesSentToday || 0,
-                signalStrength: conn.signalStrength || 'STRONG'
-            }));
+            const next = parsed
+                .filter((conn) => !isPhantomSessionBackupConnectionId(conn?.id))
+                .map((conn) => {
+                    const { qrCode: _drop, ...rest } = conn as WhatsAppConnection & { qrCode?: string };
+                    const name = sanitizeFallbackConnectionName(rest);
+                    return {
+                        ...rest,
+                        name,
+                        status: rest.status ?? ConnectionStatus.CONNECTING,
+                        lastActivity: rest.lastActivity ?? '—',
+                        queueSize: rest.queueSize || 0,
+                        messagesSentToday: rest.messagesSentToday || 0,
+                        signalStrength: rest.signalStrength || 'STRONG'
+                    };
+                });
+            for (const c of next) {
+                if (c.status === ConnectionStatus.CONNECTED || c.status === ConnectionStatus.DISCONNECTED) {
+                    bridgeQrByConnectionId.delete(c.id);
+                }
+            }
             const prevIds = JSON.stringify(connectionsInfo.map((c) => ({ id: c.id, status: c.status })));
             const nextIds = JSON.stringify(next.map((c) => ({ id: c.id, status: c.status })));
             connectionsInfo = next;
@@ -665,11 +735,57 @@ const ownerUidFromConnectionId = (connectionId?: string): string | null => {
     return connectionId.slice(0, idx);
 };
 
+/** No processo API (sem Chromium), o worker envia QR via Redis; gravamos aqui para enriquecer `connections-update`. */
+const bridgeQrByConnectionId = new Map<string, string>();
+
+const mergeBridgeQrIntoConnections = (list: WhatsAppConnection[]): WhatsAppConnection[] =>
+    bridgeQrByConnectionId.size === 0
+        ? list
+        : list.map((c) => {
+              const bridged = bridgeQrByConnectionId.get(c.id);
+              return bridged ? { ...c, qrCode: bridged } : c;
+          });
+
 const emitConnectionsUpdate = () => {
     if (!io) return;
     for (const socket of getConnectedSocketsSafe()) {
         const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
-        socket.emit('connections-update', filterByConnectionScope(uid, connectionsInfo));
+        socket.emit('connections-update', mergeBridgeQrIntoConnections(filterByConnectionScope(uid, connectionsInfo)));
+    }
+};
+
+/**
+ * Chamado pela subscricao Redis na API sempre que o worker publicar um evento ao dono da sessao.
+ * Mantém o QR em RAM para proximos `connections-update` (fallback da UI quando a ordem de eventos falha).
+ */
+export const ingestOwnerBridgedSocketEvent = (event: string, payload?: Record<string, unknown>) => {
+    if ((process.env.SESSION_PROCESS_MODE || '').trim() !== 'api') return;
+    const connectionId =
+        typeof payload?.connectionId === 'string' && payload.connectionId ? String(payload.connectionId) : '';
+    if (!connectionId) return;
+
+    const clearBridgedQr = (): void => {
+        if (bridgeQrByConnectionId.delete(connectionId)) {
+            emitConnectionsUpdate();
+        }
+    };
+
+    if (event === 'qr-code') {
+        const qr = typeof payload?.qrCode === 'string' ? payload.qrCode : '';
+        if (qr.trim().length > 0) {
+            bridgeQrByConnectionId.set(connectionId, qr);
+            emitConnectionsUpdate();
+        }
+        return;
+    }
+    if (
+        event === 'connection-authenticated' ||
+        event === 'connection-ready' ||
+        event === 'auth-failure' ||
+        event === 'connection-init-failure'
+    ) {
+        clearBridgedQr();
+        return;
     }
 };
 
@@ -741,7 +857,7 @@ export function emitScheduledCampaignUserNotice(
     void persistUserNotification(String(ownerUid || ''), {
         title,
         body: payload.message,
-        kind: k === 'subscription' ? 'error' : 'warning',
+        kind: k === 'subscription' ? 'error' : k === 'no_chip' ? 'warning' : 'info',
         category: 'schedule',
         campaignId: payload.campaignId
     }).catch(() => {});
@@ -896,11 +1012,20 @@ const resolveNumberIdsWithRetries = async (
 /** Erro típico do Puppeteer/Chromium quando o bundle do WhatsApp Web mudou e o whatsapp-web.js ficou atrás da versão. */
 const isLikelyGetChatEvaluateError = (raw: string): boolean => {
     const msg = String(raw || '');
-    return (
+    if (
         msg.includes("reading 'getChat'") ||
         msg.includes('reading "getChat"') ||
         /Cannot read properties of undefined\s*\(\s*reading\s+[`'"]getChat[`'"]\s*\)/i.test(msg)
-    );
+    ) {
+        return true;
+    }
+    if (/\bgetchat\b/i.test(msg) && /(undefined|null|not a function|cannot read)/i.test(msg)) {
+        return true;
+    }
+    if (/evaluation failed/i.test(msg) && /\b(getchat|wwebjs|whatsapp web|@\w+)/i.test(msg)) {
+        return true;
+    }
+    return false;
 };
 
 const formatSendError = (rawMessage?: string) => {
@@ -2801,7 +2926,8 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
         batteryLevel: 100,
         connectedSince,
         totalMessagesSent: existingConn?.totalMessagesSent || 0,
-        healthScore: 100
+        healthScore: 100,
+        qrCode: undefined
     });
 
     // Buscar foto de perfil async (getProfilePicUrl falha para si mesmo; usar Store diretamente)
@@ -2944,7 +3070,11 @@ const initializeClient = async (id: string, name: string) => {
     }
 
     // Definir CONNECTING imediatamente — evita UI mostrar "Offline" enquanto Chrome carrega
-    updateConnectionState(id, { status: ConnectionStatus.CONNECTING, lastActivity: 'Inicializando...' });
+    updateConnectionState(id, {
+        status: ConnectionStatus.CONNECTING,
+        lastActivity: 'Inicializando...',
+        qrCode: undefined
+    });
     emitConnectionsUpdate();
 
     // Se a sessao principal estiver faltando mas tivermos um backup do shutdown
@@ -3024,7 +3154,11 @@ const initializeClient = async (id: string, name: string) => {
         client.on('qr', (qr) => {
             if (isReadyHandled) return;
             console.log(`[whatsapp-web.js] 📱 QR Code gerado para ${name}`);
-            updateConnectionState(id, { status: ConnectionStatus.QR_READY, lastActivity: 'Aguardando Leitura' });
+            updateConnectionState(id, {
+                status: ConnectionStatus.QR_READY,
+                lastActivity: 'Aguardando Leitura',
+                qrCode: qr
+            });
             emitToConnectionOwner('qr-code', id, { connectionId: id, qrCode: qr });
             emitConnectionsUpdate();
         });
@@ -3032,7 +3166,11 @@ const initializeClient = async (id: string, name: string) => {
         client.on('authenticated', () => {
             if (isReadyHandled) return;
             console.log(`[whatsapp-web.js] 🔐 ${name} autenticado`);
-            updateConnectionState(id, { status: ConnectionStatus.CONNECTING, lastActivity: 'Autenticado' });
+            updateConnectionState(id, {
+                status: ConnectionStatus.CONNECTING,
+                lastActivity: 'Autenticado',
+                qrCode: undefined
+            });
             emitConnectionsUpdate();
             emitToConnectionOwner('connection-authenticated', id, { connectionId: id });
         });
@@ -3052,7 +3190,11 @@ const initializeClient = async (id: string, name: string) => {
         client.on('auth_failure', (msg) => {
             console.error(`[whatsapp-web.js] ❌ Falha ${name}:`, msg);
             clearConnectionTimeout();
-            updateConnectionState(id, { status: ConnectionStatus.DISCONNECTED, lastActivity: 'Falha auth' });
+            updateConnectionState(id, {
+                status: ConnectionStatus.DISCONNECTED,
+                lastActivity: 'Falha auth',
+                qrCode: undefined
+            });
             emitConnectionsUpdate();
             emitToConnectionOwner('auth-failure', id, { connectionId: id, message: msg });
         });
@@ -3061,7 +3203,11 @@ const initializeClient = async (id: string, name: string) => {
         connectionTimeoutRef = setTimeout(async () => {
             if (!isReadyHandled) {
                 console.log(`[whatsapp-web.js] ⏱️ Timeout ${name} (240s) - limpando e reiniciando motor...`);
-                updateConnectionState(id, { status: ConnectionStatus.DISCONNECTED, lastActivity: 'Timeout conexão' });
+                updateConnectionState(id, {
+                    status: ConnectionStatus.DISCONNECTED,
+                    lastActivity: 'Timeout conexão',
+                    qrCode: undefined
+                });
                 emitConnectionsUpdate();
                 
                 // CRÍTICO: Limpar referência ANTES de tentar destruir e agendar reconexão
@@ -3091,7 +3237,12 @@ const initializeClient = async (id: string, name: string) => {
             console.warn(`[whatsapp-web.js] ${name} desconectado: ${reason}`);
             stopHealthCheck(id);
             // Limpar connectedSince ao desconectar genuinamente (será recalculado ao reconectar)
-            updateConnectionState(id, { status: ConnectionStatus.DISCONNECTED, lastActivity: 'Desconectado', connectedSince: undefined });
+            updateConnectionState(id, {
+                status: ConnectionStatus.DISCONNECTED,
+                lastActivity: 'Desconectado',
+                connectedSince: undefined,
+                qrCode: undefined
+            });
             
             // Garantir que a instância antiga seja removida do mapa
             if (clients.has(id)) {
@@ -3209,7 +3360,11 @@ const initializeClient = async (id: string, name: string) => {
 
     } catch (err: any) {
         console.error(`Erro ao inicializar cliente whatsapp-web.js ${name}:`, err?.message || err);
-        updateConnectionState(id, { status: ConnectionStatus.DISCONNECTED, lastActivity: 'Erro ao iniciar' });
+        updateConnectionState(id, {
+            status: ConnectionStatus.DISCONNECTED,
+            lastActivity: 'Erro ao iniciar',
+            qrCode: undefined
+        });
         emitConnectionsUpdate();
         persistConnections().catch(() => {});
 
@@ -3857,10 +4012,20 @@ const processQueue = async () => {
             // whatsapp-web.js: envio com resolve JID (LID / getNumberId) + timeout de segurança.
             const sendWithTimeout = async (
                 chatId: string,
-                msg: string
+                msg: string,
+                sendOpts?: { skipJidResolve?: boolean }
             ): Promise<{ result: unknown; jidUsed: string }> => {
                 try {
-                    const jidToUse = await maybeResolveUserJidForSend(activeClient, chatId);
+                    const raw = String(chatId || '').trim();
+                    let jidToUse = raw;
+                    if (sendOpts?.skipJidResolve) {
+                        if (!raw.includes('@')) {
+                            const d = raw.replace(/\D/g, '');
+                            jidToUse = d.length >= 10 ? `${d}@c.us` : raw;
+                        }
+                    } else {
+                        jidToUse = await maybeResolveUserJidForSend(activeClient, chatId);
+                    }
                     console.log(`[Queue] 📤 Enviando para ${jidToUse}`);
                     const result = await Promise.race([
                         activeClient.sendMessage(jidToUse, msg, CAMPAIGN_TEXT_SEND_OPTS),
@@ -3901,36 +4066,34 @@ const processQueue = async () => {
             } catch (sendErr: any) {
                 const errMsg = String(sendErr?.message || '');
                 const hasNoLid = errMsg.includes('No LID for user');
+                const hasMarkedUnread = errMsg.includes('markedUnread');
                 const hasGetChatCrash = isLikelyGetChatEvaluateError(errMsg);
-                const shouldRunSendFallbacks = hasNoLid || hasGetChatCrash;
+                const shouldRunSendFallbacks = hasNoLid || hasGetChatCrash || hasMarkedUnread;
 
                 let fallbackOk = false;
 
                 if (shouldRunSendFallbacks) {
                     invalidateCachedNumber(formattedNum);
-                    emitCampaignLog(
-                        'WARN',
-                        hasNoLid
-                            ? 'Contato sem LID mapeado — tentando variantes e envio direto'
-                            : 'Erro ao resolver conversa no WA Web — tentando variantes e envio direto',
-                        {
-                            to: formattedNum,
-                            connectionId: item.connectionId
-                        }
-                    );
+                    const warnMsg = hasNoLid
+                        ? 'Contato sem LID mapeado — tentando variantes e envio direto'
+                        : hasMarkedUnread
+                          ? 'Instabilidade markedUnread no WA Web — tentando variantes e envio direto'
+                          : 'Erro ao resolver conversa no WA Web — tentando variantes e envio direto';
+                    emitCampaignLog('WARN', warnMsg, {
+                        to: formattedNum,
+                        connectionId: item.connectionId
+                    });
 
+                    /** 1) @c.us literal primeiro: evita chamar enforceLid/getNumberId quando o primeiro send já rebentou por getChat. */
                     for (const variant of variants) {
-                        const wid = await activeClient.getNumberId(variant).catch(() => null);
-                        if (!wid?._serialized) continue;
                         try {
-                            const fb = await sendWithTimeout(wid._serialized, item.message);
+                            const fb = await sendRawJidNoResolve(`${variant}@c.us`, item.message);
                             sentResult = fb.result;
                             finalChatId = fb.jidUsed;
-                            setCachedNumberId(formattedNum, wid._serialized);
+                            setCachedNumberId(formattedNum, fb.jidUsed);
                             fallbackOk = true;
-                            emitCampaignLog('INFO', 'Reenvio ok apos novo getNumberId', {
-                                variant,
-                                jid: wid._serialized
+                            emitCampaignLog('INFO', 'Reenvio ok via @c.us direto (prioritário)', {
+                                variant
                             });
                             break;
                         } catch {
@@ -3938,16 +4101,22 @@ const processQueue = async () => {
                         }
                     }
 
+                    /** 2) getNumberId + sendMessage sem segundo pré-resolve — JID já canónico (@lid/@c.us). */
                     if (!fallbackOk) {
                         for (const variant of variants) {
+                            const wid = await activeClient.getNumberId(variant).catch(() => null);
+                            if (!wid?._serialized) continue;
                             try {
-                                const fb = await sendRawJidNoResolve(`${variant}@c.us`, item.message);
+                                const fb = await sendWithTimeout(wid._serialized, item.message, {
+                                    skipJidResolve: true
+                                });
                                 sentResult = fb.result;
                                 finalChatId = fb.jidUsed;
-                                setCachedNumberId(formattedNum, fb.jidUsed);
+                                setCachedNumberId(formattedNum, wid._serialized);
                                 fallbackOk = true;
-                                emitCampaignLog('INFO', 'Reenvio ok via @c.us direto (sem pre-resolve)', {
-                                    variant
+                                emitCampaignLog('INFO', 'Reenvio ok apos novo getNumberId', {
+                                    variant,
+                                    jid: wid._serialized
                                 });
                                 break;
                             } catch {
@@ -4707,7 +4876,11 @@ const scheduleReconnect = (id: string, name: string, reason: string) => {
     
     const state = reconnectState.get(id) || { attempts: 0 };
     if (state.attempts >= MAX_RECONNECT_ATTEMPTS) {
-        updateConnectionState(id, { status: ConnectionStatus.DISCONNECTED, lastActivity: 'Falha ao reconectar' });
+        updateConnectionState(id, {
+            status: ConnectionStatus.DISCONNECTED,
+            lastActivity: 'Falha ao reconectar',
+            qrCode: undefined
+        });
         emitConnectionsUpdate();
         reconnectState.delete(id);
         return;
@@ -4720,7 +4893,11 @@ const scheduleReconnect = (id: string, name: string, reason: string) => {
         clearTimeout(state.timeout);
     }
 
-    updateConnectionState(id, { status: ConnectionStatus.CONNECTING, lastActivity: `Reconectando (${nextAttempts})...` });
+    updateConnectionState(id, {
+        status: ConnectionStatus.CONNECTING,
+        lastActivity: `Reconectando (${nextAttempts})...`,
+        qrCode: undefined
+    });
     emitConnectionsUpdate();
 
     state.timeout = setTimeout(async () => {
@@ -4750,7 +4927,11 @@ export const reconnectConnection = async (id: string) => {
         clients.delete(id);
     }
 
-    updateConnectionState(id, { status: ConnectionStatus.CONNECTING, lastActivity: 'Reconectando...' });
+    updateConnectionState(id, {
+        status: ConnectionStatus.CONNECTING,
+        lastActivity: 'Reconectando...',
+        qrCode: undefined
+    });
     emitConnectionsUpdate();
     
     initializeClient(id, conn.name);
@@ -4774,7 +4955,8 @@ export const forceQr = async (id: string) => {
     await removeSessionDir(id);
     updateConnectionState(id, {
         status: ConnectionStatus.CONNECTING,
-        lastActivity: 'Forcando novo QR...'
+        lastActivity: 'Forcando novo QR...',
+        qrCode: undefined
     });
     emitConnectionsUpdate();
     initializeClient(id, conn.name);

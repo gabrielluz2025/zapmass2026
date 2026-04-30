@@ -23,6 +23,8 @@ export interface WhatsAppConnection {
   signalStrength: 'STRONG' | 'MEDIUM' | 'WEAK';
   /** Dono (Firebase uid); usado se o id nao tiver prefixo `uid__`. */
   ownerUid?: string;
+  /** QR atual (somente RAM / evento Socket; nunca persistir em disco). */
+  qrCode?: string;
 }
 
 export interface DashboardMetrics {

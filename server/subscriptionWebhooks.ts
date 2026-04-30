@@ -10,8 +10,57 @@ import { sendPaymentConfirmationEmail } from './emailService.js';
 import { issueInvoice, isNfeEnabled } from './nfeService.js';
 import { getMercadoPagoAccessToken } from './mercadoPagoAccess.js';
 import { parseExternalReference } from './mpExternalReference.js';
+import {
+  infinitePayWebhookLimiter,
+  mercadoWebhookLimiter
+} from './httpRateLimit.js';
+import { verifyMercadoPagoWebhookSignature } from './mercadoPagoWebhookSignature.js';
+import { structuredLog } from './structuredLog.js';
 
 const MP_API = 'https://api.mercadopago.com';
+
+let warnedMercadoPagoUnsignedProduction = false;
+
+function allowMercadoPagoUnsignedInProduction(): boolean {
+  const raw = (process.env.MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+/** Pré-voo: produção exige segredo MP ou excepção explícita; com segredo valida HMAC oficial. */
+function assertMercadoPagoWebhookAllowed(
+  req: Request,
+  body: Record<string, unknown>,
+  res: Response
+): boolean {
+  const prod = process.env.NODE_ENV === 'production';
+  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET?.trim() || '';
+  if (prod && !secret && !allowMercadoPagoUnsignedInProduction()) {
+    res.status(503).json({
+      ok: false,
+      error:
+        'Webhook MP: defina MERCADOPAGO_WEBHOOK_SECRET (Painel Mercado Pago → Suas integrações → Webhooks → assinatura secreta) ou transitório MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED=1'
+    });
+    return false;
+  }
+  if (secret) {
+    const v = verifyMercadoPagoWebhookSignature(req, body, secret);
+    if (v.ok === false) {
+      structuredLog('warn', 'webhook.mercadopago.signature_rejected', { reason: v.reason });
+      res
+        .status(401)
+        .json({ ok: false, error: 'Assinatura do webhook Mercado Pago inválida ou cabeçalhos em falta.' });
+      return false;
+    }
+    return true;
+  }
+  if (prod && !secret && allowMercadoPagoUnsignedInProduction()) {
+    if (!warnedMercadoPagoUnsignedProduction) {
+      warnedMercadoPagoUnsignedProduction = true;
+      structuredLog('warn', 'webhook.mercadopago.unsigned_allowed_production', {});
+    }
+  }
+  return true;
+}
 
 async function mpGetJson(path: string): Promise<Record<string, unknown> | null> {
   const token = getMercadoPagoAccessToken();
@@ -333,9 +382,10 @@ async function processMercadoPagoBody(body: Record<string, unknown>): Promise<vo
 }
 
 export function registerSubscriptionWebhooks(app: Express): void {
-  app.post('/api/webhooks/mercadopago', async (req: Request, res: Response) => {
+  app.post('/api/webhooks/mercadopago', mercadoWebhookLimiter, async (req: Request, res: Response) => {
     try {
       const body = (req.body || {}) as Record<string, unknown>;
+      if (!assertMercadoPagoWebhookAllowed(req, body, res)) return;
       console.log('[MP Webhook] Recebido:', body.type || body.topic || body.action, body.data || '');
       await processMercadoPagoBody(body);
       res.status(200).json({ ok: true });
@@ -349,13 +399,28 @@ export function registerSubscriptionWebhooks(app: Express): void {
     res.status(200).send('ok');
   });
 
-  app.post('/api/webhooks/infinitepay', async (req: Request, res: Response) => {
+  app.post('/api/webhooks/infinitepay', infinitePayWebhookLimiter, async (req: Request, res: Response) => {
     try {
-      const secret = process.env.INFINITEPAY_WEBHOOK_SECRET?.trim();
-      if (secret) {
-        const got = String(req.headers['x-infinitepay-secret'] || req.headers['x-webhook-secret'] || '');
-        if (got !== secret) {
+      if (process.env.NODE_ENV === 'production') {
+        const secretProd = process.env.INFINITEPAY_WEBHOOK_SECRET?.trim();
+        if (!secretProd) {
+          return res.status(503).json({
+            ok: false,
+            error:
+              'INFINITEPAY_WEBHOOK_SECRET obrigatório em produção se o endpoint InfinitePay estiver exposto.'
+          });
+        }
+        const gotProd = String(req.headers['x-infinitepay-secret'] || req.headers['x-webhook-secret'] || '');
+        if (gotProd !== secretProd) {
           return res.status(401).json({ ok: false, error: 'Invalid webhook secret' });
+        }
+      } else {
+        const secretDev = process.env.INFINITEPAY_WEBHOOK_SECRET?.trim();
+        if (secretDev) {
+          const gotDev = String(req.headers['x-infinitepay-secret'] || req.headers['x-webhook-secret'] || '');
+          if (gotDev !== secretDev) {
+            return res.status(401).json({ ok: false, error: 'Invalid webhook secret' });
+          }
         }
       }
 

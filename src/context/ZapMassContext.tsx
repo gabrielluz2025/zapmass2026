@@ -38,6 +38,11 @@ import {
 } from '../utils/campaignMetrics';
 import { computeNextRunIso, localDateTimeToUtcIso } from '../utils/campaignSchedule';
 import { parseFirestoreDateToIso } from '../utils/followUp';
+import {
+  resetCampaignRecipientErrorBurst,
+  scheduleCampaignRecipientErrorDigest,
+  type CampaignErrorBurstState
+} from '../utils/campaignIssueToast';
 
 const INITIAL_METRICS: DashboardMetrics = {
   totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0
@@ -221,6 +226,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     lastWriteAt: number;
     payload: { processedCount: number; successCount: number; failedCount: number };
   }>>({});
+
+  /** Falhas ERROR por número na campanha: digest em vez de toast por entrada. */
+  const campaignRecipientErrorBurstRef = useRef<CampaignErrorBurstState>({ count: 0, timer: null });
+  /** Evita Rajada de toast em erros repetidos socket / envio único (throttle tempo). */
+  const socketOperationErrorToastAtRef = useRef<number>(0);
+  const sendMessageErrorToastAtRef = useRef<number>(0);
 
   const flushCampaignProgressToFirestore = (campaignId: string, force = false) => {
     const entry = campaignProgressPersistRef.current[campaignId];
@@ -913,6 +924,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         processed?: number;
         total?: number;
       }) => {
+        resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
         const { successCount, failCount, campaignId } = payload;
         const processedCount =
           typeof payload.processed === 'number' && !Number.isNaN(payload.processed)
@@ -980,12 +992,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           });
           clearCampaignProgressPersist(campaignId);
         }
-        toast.success('Campanha finalizada!');
+        const ok = Number(successCount) || 0;
+        const fail = Number(failCount) || 0;
+        if (fail > 0) {
+          toast.success(
+            `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra relatório ou «Registos do sistema» por número — evitamos notificar número a número durante o disparo.`,
+            { duration: 9500, icon: '✅' }
+          );
+        } else {
+          toast.success('Campanha finalizada!', { duration: 4500 });
+        }
       }
     );
 
-    socket.on('campaign-error', ({ error }) => {
-      toast.error(error || 'Falha ao iniciar campanha.');
+    socket.on('campaign-error', ({ error }: { error?: string }) => {
+      toast.error(error || 'Falha ao iniciar campanha.', {
+        id: 'campaign-bootstrap',
+        duration: 7500
+      });
     });
 
     socket.on(
@@ -995,7 +1019,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           typeof p?.message === 'string' && p.message.trim().length > 0
             ? p.message.trim()
             : 'O agendamento não pôde iniciar; nova tentativa será feita em breve.';
-        toast.error(message);
+        const kind = typeof p?.kind === 'string' ? p.kind : 'retry';
+        if (kind === 'subscription') {
+          toast.error(message, { duration: 9000, id: 'scheduled-notice', icon: '💳' });
+        } else if (kind === 'no_chip') {
+          toast(message, { duration: 7500, id: 'scheduled-notice', icon: '📶' });
+        } else {
+          toast(message, { duration: 7000, id: 'scheduled-notice', icon: '⏰' });
+        }
         setSystemLogs((prev) =>
           [
             {
@@ -1012,13 +1043,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     );
 
-    socket.on('send-message-error', ({ error }) => {
-      toast.error(error || 'Falha ao enviar mensagem.');
+    socket.on('send-message-error', ({ error }: { error?: string }) => {
+      const now = Date.now();
+      const minGapMs = 8000;
+      if (now - sendMessageErrorToastAtRef.current < minGapMs) return;
+      sendMessageErrorToastAtRef.current = now;
+      toast.error(error || 'Falha ao enviar mensagem.', { id: 'send-message-error', duration: 6000 });
     });
 
     socket.on('socket-operation-error', (p: { op?: string; error?: string }) => {
       const msg = p?.error || 'Operação falhou. Tente de novo.';
-      toast.error(msg);
+      const now = Date.now();
+      const minGapMs = 10_000;
+      if (now - socketOperationErrorToastAtRef.current < minGapMs) return;
+      socketOperationErrorToastAtRef.current = now;
+      toast.error(msg, { id: 'socket-operation-error', duration: 6500 });
     });
 
     socket.on('campaign-log', (log: { timestamp: string; level: string; message: string; payload?: Record<string, unknown> }) => {
@@ -1031,7 +1070,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...prev
       ].slice(0, 200));
       if (log.level === 'ERROR') {
-        toast.error(log.message);
+        const payload = (log.payload || {}) as Record<string, unknown>;
+        const toRaw = payload.to;
+        const digitsOnly = typeof toRaw === 'string' ? toRaw.replace(/\D/g, '') : '';
+        const looksLikeRecipientNumber = digitsOnly.length >= 8;
+
+        if (looksLikeRecipientNumber) {
+          scheduleCampaignRecipientErrorDigest(campaignRecipientErrorBurstRef);
+        } else {
+          const clip = typeof log.message === 'string' ? log.message.slice(0, 220) : 'Erro na campanha.';
+          const cid = String(payload.campaignId || '').slice(0, 64);
+          const stable = `${cid}:${typeof log.message === 'string' ? log.message.slice(0, 40) : 'err'}`;
+          toast.error(clip, { id: `campaign-scope:${stable}`, duration: 9000 });
+        }
       }
 
       if (log.level === 'ERROR' && log.payload?.campaignId) {
@@ -1089,6 +1140,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     return () => {
+      resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
       Object.values(campaignProgressPersistRef.current).forEach((entry) => {
         if (entry.timer) clearTimeout(entry.timer);
       });

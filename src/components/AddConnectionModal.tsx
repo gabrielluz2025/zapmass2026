@@ -28,17 +28,20 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [qrZoomOpen, setQrZoomOpen] = useState(false);
 
-  // Reset state when modal opens
+  const prevIsOpenRef = useRef(false);
+
+  // Reset state only quando o modal passa de fechado -> aberto (evita regressao ao naming por re-renders)
   useEffect(() => {
-    if (isOpen) {
-      setStep('naming');
-      setConnectionName('');
-      setQrCodeData(null);
-      setCurrentConnectionId(null);
-      pendingConnectionIdRef.current = null;
-      priorConnectionIdsRef.current = new Set();
-      setQrZoomOpen(false);
-    }
+    const wasOpen = prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+    if (!isOpen || wasOpen) return;
+    setStep('naming');
+    setConnectionName('');
+    setQrCodeData(null);
+    setCurrentConnectionId(null);
+    pendingConnectionIdRef.current = null;
+    priorConnectionIdsRef.current = new Set();
+    setQrZoomOpen(false);
   }, [isOpen]);
 
   /** Se o evento `qr-code` nao chegar, o contexto ainda actualiza a lista com qrCode no canal novo. */
@@ -47,7 +50,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     const newChannel = connections.find(
       (c) =>
         !priorConnectionIdsRef.current.has(c.id) &&
-        c.status === ConnectionStatus.QR_READY &&
+        (c.status === ConnectionStatus.QR_READY || c.status === ConnectionStatus.CONNECTING) &&
         Boolean(c.qrCode?.length)
     );
     if (newChannel?.qrCode) {

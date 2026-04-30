@@ -40,6 +40,12 @@ services:
       # Repasse explícito (Compose lê o .env ao lado deste ficheiro para interpolar ${…}).
       MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
       MERCADOPAGO_BACK_URL: ${MERCADOPAGO_BACK_URL:-}
+      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
+      MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED: ${MERCADOPAGO_WEBHOOK_ALLOW_UNSIGNED:-}
+      INFINITEPAY_WEBHOOK_SECRET: ${INFINITEPAY_WEBHOOK_SECRET:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
+      EVOLUTION_WEBHOOK_TOKEN: ${EVOLUTION_WEBHOOK_TOKEN:-}
       # Credenciais Firebase Admin (service account). Coloca o JSON em
       # /opt/zapmass/secrets/firebase-admin.json no host (chmod 600).
       # Se o ficheiro nao existir, o servidor sobe na mesma mas rotas que

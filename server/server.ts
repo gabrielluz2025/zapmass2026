@@ -64,6 +64,8 @@ import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing } from './redisPing.js';
+import { configureTrustProxy } from './trustProxySetup.js';
+import { evolutionWebhookLimiter } from './httpRateLimit.js';
 
 function notifyCampaignSocketError(
   uid: string,
@@ -92,6 +94,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const app = express();
+configureTrustProxy(app);
 const httpServer = createServer(app);
 const serverStartedAt = new Date();
 const socketMaxHttpBufferMb = (() => {
@@ -185,8 +188,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-/** Redis + router de sessão (útil com API + wa-worker). Não expõe segredos. */
-app.get('/api/health/deep', async (_req, res) => {
+/** Redis + router de sessão (útil com API + wa-worker). Em produção: redes não privadas ou METRICS_TOKEN. */
+app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   const redisUrl = process.env.REDIS_URL?.trim();
   let redis: { configured: boolean; ok?: boolean; pingMs?: number; error?: string } = {
     configured: Boolean(redisUrl)
@@ -249,8 +252,17 @@ app.post('/api/backup', async (req, res) => {
 
 // ZapMass usa whatsapp-web.js. Endpoint mantido para compatibilidade (reverse proxies antigos).
 // Não processa eventos Evolution — ver `handleWebhook` em whatsappService (no-op).
-app.post('/webhook/evolution', (req, res) => {
+app.post('/webhook/evolution', evolutionWebhookLimiter, (req, res) => {
   try {
+    const tok = process.env.EVOLUTION_WEBHOOK_TOKEN?.trim();
+    if (tok) {
+      const auth = String(req.headers.authorization || '');
+      const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+      const headerAlt = String(req.headers['x-evolution-webhook-token'] || '');
+      if (bearer !== tok && headerAlt !== tok) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    }
     const ev = (req.body || {}) as { event?: string; instance?: string };
     structuredLog('info', 'webhook.evolution_ignored', {
       event: ev.event,
@@ -1098,7 +1110,11 @@ const bootstrap = async () => {
 
   const redisUrl = process.env.REDIS_URL?.trim();
   if (redisUrl && process.env.SESSION_PROCESS_MODE !== 'worker') {
-    startOwnerEmitRedisSubscriber(io, redisUrl);
+    startOwnerEmitRedisSubscriber(io, redisUrl, {
+      onBridged: (msg) => {
+        waService.ingestOwnerBridgedSocketEvent(msg.event, msg.payload);
+      }
+    });
   }
 
   const backupOnStart = process.env.BACKUP_ON_START === 'true';
