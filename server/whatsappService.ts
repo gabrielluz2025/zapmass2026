@@ -733,9 +733,22 @@ const resolveNumberIdsWithRetries = async (
     return null;
 };
 
+/** Erro típico do Puppeteer/Chromium quando o bundle do WhatsApp Web mudou e o whatsapp-web.js ficou atrás da versão. */
+const isLikelyGetChatEvaluateError = (raw: string): boolean => {
+    const msg = String(raw || '');
+    return (
+        msg.includes("reading 'getChat'") ||
+        msg.includes('reading "getChat"') ||
+        /Cannot read properties of undefined\s*\(\s*reading\s+[`'"]getChat[`'"]\s*\)/i.test(msg)
+    );
+};
+
 const formatSendError = (rawMessage?: string) => {
     const msg = rawMessage || 'Falha ao enviar mensagem';
     const lower = msg.toLowerCase();
+    if (isLikelyGetChatEvaluateError(msg) || msg.includes('getChat')) {
+        return 'Incompatibilidade ou instabilidade ao abrir conversa no WhatsApp Web. Atualize o servidor (whatsapp-web.js), reconecte o canal e tente de novo.';
+    }
     if (msg.includes('No LID for user')) {
         return 'WhatsApp ainda nao associou este contato (LID). Abra o chat com o numero no WhatsApp Web/celular e tente de novo, ou confira o 9º digito.';
     }
@@ -753,6 +766,9 @@ const formatSendError = (rawMessage?: string) => {
     }
     return msg;
 };
+
+/** Disparo em massa: evita sendSeen (paths sensíveis no WA-Web) e link preview por mensagem. */
+const CAMPAIGN_TEXT_SEND_OPTS = { sendSeen: false, linkPreview: false };
 
 const emitCampaignLog = (level: 'INFO' | 'WARN' | 'ERROR', message: string, payload?: Record<string, unknown>) => {
     emitToOwnerUid('campaign-log', currentCampaign.ownerUid, {
@@ -2770,11 +2786,16 @@ const initializeClient = async (id: string, name: string) => {
 
     try {
         const sessionPath = path.join(authDir, `session-${id}`);
+        const remoteWaHtml = process.env.WWEBJS_WEB_VERSION_URL?.trim();
+        const webVersionCache = remoteWaHtml
+            ? { type: 'remote' as const, remotePath: remoteWaHtml }
+            : { type: 'local' as const };
+        if (remoteWaHtml) {
+            console.log(`[whatsapp-web.js] webVersionCache remote: ${remoteWaHtml.slice(0, 80)}…`);
+        }
         const client = new Client({
             authStrategy: new LocalAuth({ clientId: id, dataPath: authDir }),
-            webVersionCache: {
-                type: 'local'
-            },
+            webVersionCache,
             puppeteer: {
                 // Forca isolamento explicito por conexao para evitar colisoes de perfil.
                 userDataDir: sessionPath,
@@ -3643,7 +3664,7 @@ const processQueue = async () => {
                     const jidToUse = await maybeResolveUserJidForSend(activeClient, chatId);
                     console.log(`[Queue] 📤 Enviando para ${jidToUse}`);
                     const result = await Promise.race([
-                        activeClient.sendMessage(jidToUse, msg),
+                        activeClient.sendMessage(jidToUse, msg, CAMPAIGN_TEXT_SEND_OPTS),
                         new Promise((_, reject) =>
                             setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
                         )
@@ -3663,7 +3684,7 @@ const processQueue = async () => {
             ): Promise<{ result: unknown; jidUsed: string }> => {
                 console.log(`[Queue] 📤 Envio direto sem pré-resolve JID: ${jidLiteral}`);
                 const result = await Promise.race([
-                    activeClient.sendMessage(jidLiteral, msg),
+                    activeClient.sendMessage(jidLiteral, msg, CAMPAIGN_TEXT_SEND_OPTS),
                     new Promise((_, reject) =>
                         setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
                     )
@@ -3681,14 +3702,18 @@ const processQueue = async () => {
             } catch (sendErr: any) {
                 const errMsg = String(sendErr?.message || '');
                 const hasNoLid = errMsg.includes('No LID for user');
+                const hasGetChatCrash = isLikelyGetChatEvaluateError(errMsg);
+                const shouldRunSendFallbacks = hasNoLid || hasGetChatCrash;
 
                 let fallbackOk = false;
 
-                if (hasNoLid) {
+                if (shouldRunSendFallbacks) {
                     invalidateCachedNumber(formattedNum);
                     emitCampaignLog(
                         'WARN',
-                        'Contato sem LID mapeado — tentando variantes e envio direto',
+                        hasNoLid
+                            ? 'Contato sem LID mapeado — tentando variantes e envio direto'
+                            : 'Erro ao resolver conversa no WA Web — tentando variantes e envio direto',
                         {
                             to: formattedNum,
                             connectionId: item.connectionId
@@ -3740,7 +3765,7 @@ const processQueue = async () => {
                                 const chat = wc.getChatById ? await wc.getChatById(jid).catch(() => null) : null;
                                 if (chat && typeof chat.sendMessage === 'function') {
                                     const result = await Promise.race([
-                                        chat.sendMessage(item.message),
+                                        chat.sendMessage(item.message, CAMPAIGN_TEXT_SEND_OPTS),
                                         new Promise((_, reject) =>
                                             setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
                                         )
@@ -3876,9 +3901,14 @@ const processQueue = async () => {
                 continue;
             }
 
-            // No LID: fallbacks da fila ja rodaram; aviso antes do retry/backoff
+            // No LID / getChat: fallbacks na fila ja rodaram — aviso antes do retry/backoff
             if (rawMsg.includes('No LID for user')) {
                 emitCampaignLog('WARN', 'Numero sem LID — fallbacks esgotados, nova tentativa na fila', {
+                    to: item.to,
+                    connectionId: item.connectionId
+                });
+            } else if (isLikelyGetChatEvaluateError(rawMsg)) {
+                emitCampaignLog('WARN', 'Erro getChat no WhatsApp Web — fallbacks esgotados, nova tentativa na fila', {
                     to: item.to,
                     connectionId: item.connectionId
                 });
