@@ -3,11 +3,15 @@ import {
   Bell,
   Check,
   CheckCheck,
+  ExternalLink,
   Loader2,
+  Send,
   Trash2,
   X
 } from 'lucide-react';
-import { useNotifications } from '../../context/NotificationContext';
+import { useNotifications, type AppNotificationRow } from '../../context/NotificationContext';
+import { useAppView } from '../../context/AppViewContext';
+import { Button, Modal } from '../ui';
 
 const kindStyles: Record<string, { dot: string; accent: string }> = {
   success: { dot: 'bg-emerald-500', accent: '#10b981' },
@@ -40,8 +44,27 @@ function formatTime(ms: number): string {
 
 export const NotificationBell: React.FC = () => {
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead, remove } = useNotifications();
+  const { setCurrentView } = useAppView();
   const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<AppNotificationRow | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const navigateToCampaign = (campaignId: string) => {
+    try {
+      sessionStorage.setItem('zapmass.openCampaignById', campaignId);
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new CustomEvent('zapmass-open-campaign', { detail: { campaignId } }));
+    setCurrentView('campaigns');
+    setDetail(null);
+    setOpen(false);
+  };
+
+  const openNotificationDetail = (n: AppNotificationRow) => {
+    setDetail(n);
+    if (!n.read) void markAsRead(n.id);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -54,8 +77,75 @@ export const NotificationBell: React.FC = () => {
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
+  const dSt = detail ? kindStyles[detail.kind] || kindStyles.info : null;
+  const dCat = detail ? categoryLabel[detail.category] || detail.category || 'Outro' : '';
+
   return (
     <div ref={rootRef} className="relative shrink-0">
+      <Modal
+        isOpen={!!detail}
+        onClose={() => setDetail(null)}
+        title={detail?.title || 'Notificação'}
+        subtitle={detail ? `${dCat} · ${formatTime(detail.createdAtMs)}` : undefined}
+        icon={detail ? <span className={`inline-block w-2.5 h-2.5 rounded-full ${dSt?.dot || ''}`} /> : undefined}
+        size="md"
+        footer={
+          detail ? (
+            <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+              {detail.campaignId ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<Send className="w-3.5 h-3.5" />}
+                  onClick={() => navigateToCampaign(detail.campaignId!)}
+                >
+                  Ver campanha
+                </Button>
+              ) : null}
+              {detail.category === 'billing' ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<ExternalLink className="w-3.5 h-3.5" />}
+                  onClick={() => {
+                    setCurrentView('subscription');
+                    setDetail(null);
+                    setOpen(false);
+                  }}
+                >
+                  Minha assinatura
+                </Button>
+              ) : null}
+              <Button type="button" variant="ghost" size="sm" onClick={() => void remove(detail.id)}>
+                Apagar
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setDetail(null)}>
+                Fechar
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {detail ? (
+          <div className="space-y-3 text-left">
+            <p className="text-[13px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-2)' }}>
+              {detail.body}
+            </p>
+            {detail.campaignId ? (
+              <p className="text-[11px] rounded-lg px-3 py-2" style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}>
+                Refere-se à campanha{' '}
+                <code className="text-[11px] font-mono" style={{ color: 'var(--text-2)' }}>
+                  {detail.campaignId}
+                </code>
+                . Use «Ver campanha» para abrir o relatório.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
+
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -158,68 +248,89 @@ export const NotificationBell: React.FC = () => {
                     return (
                       <li
                         key={n.id}
-                        className="rounded-xl p-3 text-left transition-colors"
+                        className="rounded-xl text-left transition-colors"
                         style={{
                           background: n.read ? 'var(--surface-1)' : 'var(--surface-2)',
                           borderLeft: `4px solid ${st.accent}`
                         }}
                       >
-                        <div className="flex gap-2">
-                          <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
-                              <span
-                                className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
-                                style={{
-                                  background: 'rgba(99,102,241,0.12)',
-                                  color: 'var(--text-3)'
-                                }}
-                              >
-                                {cat}
-                              </span>
-                              {!n.read ? (
-                                <span className="text-[10px] font-bold text-sky-600">Nova</span>
-                              ) : null}
-                              <span className="text-[10px] ml-auto tabular-nums" style={{ color: 'var(--text-3)' }}>
-                                {formatTime(n.createdAtMs)}
-                              </span>
-                            </div>
-                            <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
-                              {n.title}
-                            </p>
-                            <p className="text-[12px] mt-1 whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-2)' }}>
-                              {n.body}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                              {!n.read ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void markAsRead(n.id)}
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg"
+                        <button
+                          type="button"
+                          className="w-full text-left p-3 rounded-xl cursor-pointer hover:brightness-[1.02] active:brightness-[0.98]"
+                          style={{ color: 'inherit' }}
+                          onClick={() => openNotificationDetail(n)}
+                        >
+                          <div className="flex gap-2 pointer-events-none">
+                            <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                                <span
+                                  className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
                                   style={{
-                                    background: 'var(--surface-0)',
-                                    border: '1px solid var(--border-subtle)',
-                                    color: 'var(--brand-600)'
+                                    background: 'rgba(99,102,241,0.12)',
+                                    color: 'var(--text-3)'
                                   }}
                                 >
-                                  <Check className="w-3.5 h-3.5" />
-                                  Marcar como lida
-                                </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                onClick={() => void remove(n.id)}
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg opacity-80 hover:opacity-100"
-                                style={{
-                                  color: 'var(--text-3)'
-                                }}
-                                title="Remover"
+                                  {cat}
+                                </span>
+                                {!n.read ? (
+                                  <span className="text-[10px] font-bold text-sky-600">Nova</span>
+                                ) : null}
+                                <span className="text-[10px] ml-auto tabular-nums" style={{ color: 'var(--text-3)' }}>
+                                  {formatTime(n.createdAtMs)}
+                                </span>
+                              </div>
+                              <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
+                                {n.title}
+                              </p>
+                              <p
+                                className="text-[12px] mt-1 line-clamp-2 whitespace-pre-wrap leading-relaxed"
+                                style={{ color: 'var(--text-2)' }}
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Apagar
-                              </button>
+                                {n.body}
+                              </p>
+                              <p className="text-[10px] mt-1.5 font-medium" style={{ color: 'var(--brand-600)' }}>
+                                Toque para ver o conteúdo completo
+                                {n.campaignId ? ' · campanha ligada' : ''}
+                              </p>
                             </div>
                           </div>
+                        </button>
+                        <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-0">
+                          {!n.read ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void markAsRead(n.id);
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg"
+                              style={{
+                                background: 'var(--surface-0)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--brand-600)'
+                              }}
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              Marcar como lida
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void remove(n.id);
+                              if (detail?.id === n.id) setDetail(null);
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg opacity-80 hover:opacity-100"
+                            style={{
+                              color: 'var(--text-3)'
+                            }}
+                            title="Remover"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Apagar
+                          </button>
                         </div>
                       </li>
                     );

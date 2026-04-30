@@ -362,6 +362,66 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
 
   const dismissInsight = (id: string) => setDismissedInsights((prev) => [...prev, id]);
 
+  // Notificações / deep-link: abrir detalhe da campanha (sino ou sessionStorage).
+  useEffect(() => {
+    const tryOpen = (campaignId: string): boolean => {
+      if (!campaigns.some((c) => c.id === campaignId)) {
+        if (campaigns.length === 0) return false;
+        toast.error('Campanha não encontrada.');
+        return false;
+      }
+      setSelectedCampaignId(campaignId);
+      setViewState('details');
+      return true;
+    };
+    const onOpenCampaign = (e: Event) => {
+      const id = (e as CustomEvent<{ campaignId?: string }>).detail?.campaignId;
+      if (!id) return;
+      if (tryOpen(id)) {
+        try {
+          sessionStorage.removeItem('zapmass.openCampaignById');
+        } catch {
+          /* ignore */
+        }
+      } else if (campaigns.length > 0) {
+        try {
+          sessionStorage.removeItem('zapmass.openCampaignById');
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener('zapmass-open-campaign', onOpenCampaign);
+    return () => window.removeEventListener('zapmass-open-campaign', onOpenCampaign);
+  }, [campaigns]);
+
+  useEffect(() => {
+    let id: string | null = null;
+    try {
+      id = sessionStorage.getItem('zapmass.openCampaignById');
+    } catch {
+      return;
+    }
+    if (!id) return;
+    if (campaigns.length === 0) return;
+    if (!campaigns.some((c) => c.id === id)) {
+      try {
+        sessionStorage.removeItem('zapmass.openCampaignById');
+      } catch {
+        /* ignore */
+      }
+      toast.error('Campanha desta notificação já não existe.');
+      return;
+    }
+    try {
+      sessionStorage.removeItem('zapmass.openCampaignById');
+    } catch {
+      /* ignore */
+    }
+    setSelectedCampaignId(id);
+    setViewState('details');
+  }, [campaigns]);
+
   return (
     <>
       <WhatsAppRiskAcceptModal
