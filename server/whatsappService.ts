@@ -3634,7 +3634,7 @@ const processQueue = async () => {
                 targetChatId
             });
 
-            // whatsapp-web.js: envio direto com timeout de segurança
+            // whatsapp-web.js: envio com resolve JID (LID / getNumberId) + timeout de segurança.
             const sendWithTimeout = async (
                 chatId: string,
                 msg: string
@@ -3656,6 +3656,22 @@ const processQueue = async () => {
                 }
             };
 
+            /** Envio ao JID literal sem pré-resolve — contorna falhas «No LID for user» quando o servidor ainda pode enviar @c.us. */
+            const sendRawJidNoResolve = async (
+                jidLiteral: string,
+                msg: string
+            ): Promise<{ result: unknown; jidUsed: string }> => {
+                console.log(`[Queue] 📤 Envio direto sem pré-resolve JID: ${jidLiteral}`);
+                const result = await Promise.race([
+                    activeClient.sendMessage(jidLiteral, msg),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
+                    )
+                ]);
+                console.log('[Queue] ✅ Mensagem enviada (JID literal)');
+                return { result, jidUsed: jidLiteral };
+            };
+
             let sentResult: any = null;
             let finalChatId = targetChatId;
             try {
@@ -3664,31 +3680,86 @@ const processQueue = async () => {
                 finalChatId = firstSend.jidUsed;
             } catch (sendErr: any) {
                 const errMsg = String(sendErr?.message || '');
-                // Se falhou com "No LID" no chatId atual, invalida cache e tenta a outra variante
-                if (errMsg.includes('No LID for user') && variants.length > 1) {
+                const hasNoLid = errMsg.includes('No LID for user');
+
+                let fallbackOk = false;
+
+                if (hasNoLid) {
                     invalidateCachedNumber(formattedNum);
-                    const otherVariants = variants.filter(v => targetChatId !== `${v}@c.us` && targetChatId !== `${v}@lid`);
-                    let fallbackOk = false;
-                    for (const variant of otherVariants) {
-                        const altId = await activeClient.getNumberId(variant).catch(() => null);
-                        if (altId?._serialized) {
+                    emitCampaignLog(
+                        'WARN',
+                        'Contato sem LID mapeado — tentando variantes e envio direto',
+                        {
+                            to: formattedNum,
+                            connectionId: item.connectionId
+                        }
+                    );
+
+                    for (const variant of variants) {
+                        const wid = await activeClient.getNumberId(variant).catch(() => null);
+                        if (!wid?._serialized) continue;
+                        try {
+                            const fb = await sendWithTimeout(wid._serialized, item.message);
+                            sentResult = fb.result;
+                            finalChatId = fb.jidUsed;
+                            setCachedNumberId(formattedNum, wid._serialized);
+                            fallbackOk = true;
+                            emitCampaignLog('INFO', 'Reenvio ok apos novo getNumberId', {
+                                variant,
+                                jid: wid._serialized
+                            });
+                            break;
+                        } catch {
+                            /* próxima variante */
+                        }
+                    }
+
+                    if (!fallbackOk) {
+                        for (const variant of variants) {
                             try {
-                                const fb = await sendWithTimeout(altId._serialized, item.message);
+                                const fb = await sendRawJidNoResolve(`${variant}@c.us`, item.message);
                                 sentResult = fb.result;
                                 finalChatId = fb.jidUsed;
-                                setCachedNumberId(formattedNum, altId._serialized);
-                                console.log(`[Queue] ✅ Fallback bem-sucedido via ${variant}`);
+                                setCachedNumberId(formattedNum, fb.jidUsed);
                                 fallbackOk = true;
+                                emitCampaignLog('INFO', 'Reenvio ok via @c.us direto (sem pre-resolve)', {
+                                    variant
+                                });
                                 break;
                             } catch {
-                                /* tenta proxima variante */
+                                /* próxima variante */
                             }
                         }
                     }
-                    if (!fallbackOk) throw sendErr;
-                } else {
-                    throw sendErr;
+
+                    if (!fallbackOk) {
+                        const wc: any = activeClient;
+                        for (const variant of variants) {
+                            const jid = `${variant}@c.us`;
+                            try {
+                                const chat = wc.getChatById ? await wc.getChatById(jid).catch(() => null) : null;
+                                if (chat && typeof chat.sendMessage === 'function') {
+                                    const result = await Promise.race([
+                                        chat.sendMessage(item.message),
+                                        new Promise((_, reject) =>
+                                            setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
+                                        )
+                                    ]);
+                                    sentResult = result;
+                                    finalChatId = jid;
+                                    setCachedNumberId(formattedNum, jid);
+                                    fallbackOk = true;
+                                    emitCampaignLog('INFO', 'Reenvio ok via getChatById.sendMessage', { variant });
+                                    break;
+                                }
+                            } catch {
+                                /* próxima */
+                            }
+                        }
+                    }
                 }
+
+                if (!fallbackOk) throw sendErr;
             }
 
             // Garante cache alinhado ao JID que de fato enviou (ex.: @lid após resolve)
@@ -3805,13 +3876,12 @@ const processQueue = async () => {
                 continue;
             }
 
-            // Erro No LID: logar aviso mas NÃO bloquear — tratar como erro normal e seguir retry
+            // No LID: fallbacks da fila ja rodaram; aviso antes do retry/backoff
             if (rawMsg.includes('No LID for user')) {
-                emitCampaignLog('WARN', 'Numero sem LID — tentando reenvio normal', {
+                emitCampaignLog('WARN', 'Numero sem LID — fallbacks esgotados, nova tentativa na fila', {
                     to: item.to,
                     connectionId: item.connectionId
                 });
-                // Não bloquear: cai no fluxo normal de retry abaixo
             }
 
             // Outro chip da mesma rodada antes de backoff no mesmo numero
