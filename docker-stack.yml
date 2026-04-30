@@ -47,6 +47,8 @@ services:
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      # WhatsApp Web bundle (getChat / LID / markedUnread); mesmo valor no .env da VPS — Swarm não usa env_file como Compose.
+      WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
     env_file:
       - .env
     volumes:
@@ -79,6 +81,7 @@ services:
       REDIS_URL: redis://redis:6379
       SESSION_PROCESS_MODE: worker
       WORKER_ID: "{{.Task.Name}}"
+      WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
     volumes:
       - zapmass-data:/app/data
       - ./secrets:/run/secrets:ro

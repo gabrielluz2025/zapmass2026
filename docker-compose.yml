@@ -50,6 +50,7 @@ services:
       MAX_STAFF_PASSWORD_ACCOUNTS: ${MAX_STAFF_PASSWORD_ACCOUNTS:-}
       SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
     env_file:
       - path: .env
         required: false
@@ -92,6 +93,7 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       SESSION_PROCESS_MODE: worker
       WORKER_ID: worker-compose
+      WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
     env_file:
       - path: .env
         required: false

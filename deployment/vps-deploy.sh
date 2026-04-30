@@ -22,21 +22,24 @@ VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo ?)"
 export VITE_GIT_REF
 echo "==> VITE_GIT_REF=${VITE_GIT_REF} (commit deste deploy)"
 
-# Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_*, HOST_PORT, FIREBASE_WEB_API_KEY, MAX_STAFF_PASSWORD_ACCOUNTS… (ver .env.example)
+# Repassa VITE_*, MERCADOPAGO_*, ZAPMASS_*, WWEBJS_WEB_VERSION_URL, HOST_PORT, FIREBASE_WEB_API_KEY… (ver .env.example)
 if [ -f .env ]; then
   while IFS='=' read -r k v; do
     k="${k//$'\r'/}"
     v="${v//$'\r'/}"
     case "$k" in
-      VITE_*|MERCADOPAGO_*|ZAPMASS_*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS)
+      VITE_*|MERCADOPAGO_*|ZAPMASS_*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS|WWEBJS_WEB_VERSION_URL)
         export "$k=$v"
         ;;
     esac
-  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS)=' .env || true)
+  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS|WWEBJS_WEB_VERSION_URL)=' .env || true)
   if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
     echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
   else
     echo "==> AVISO: MERCADOPAGO_ACCESS_TOKEN vazio após .env"
+  fi
+  if [ -n "${WWEBJS_WEB_VERSION_URL:-}" ]; then
+    echo "==> WWEBJS_WEB_VERSION_URL exportada (${WWEBJS_WEB_VERSION_URL:0:88}…)"
   fi
 fi
 
@@ -130,6 +133,10 @@ else
   if docker compose ps --services 2>/dev/null | grep -q '^zapmass$'; then
     echo "==> (compose) forçar recriação do serviço zapmass"
     docker compose up -d --no-deps --build --force-recreate zapmass
+  fi
+  if docker compose --profile workers ps --services --status running 2>/dev/null | grep -q '^wa-worker$'; then
+    echo "==> (compose) forçar recriação do serviço wa-worker (profile workers)"
+    docker compose --profile workers up -d --no-deps --build --force-recreate wa-worker
   fi
 fi
 

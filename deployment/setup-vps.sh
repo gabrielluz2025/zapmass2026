@@ -95,9 +95,25 @@ fi
 echo "==> .env (ALLOWED_ORIGINS=${ALLOWED_ORIGINS_VALUE})"
 if [ -f .env ] && [ "${SETUP_KEEP_ENV:-}" = "1" ]; then
   echo "    Mantendo .env existente (SETUP_KEEP_ENV=1)."
+  # Garantir bundle WhatsApp Web recomendado (não sobrescreve se já existe linha activa).
+  WDEF="$ROOT/deployment/wwebjs-default-bundle.env"
+  if [ -f "$WDEF" ] && [ -f .env ]; then
+    WL="$(grep '^WWEBJS_WEB_VERSION_URL=' "$WDEF" | head -n1)"
+    if [ -n "${WL:-}" ] && ! grep -qE '^[[:space:]]*WWEBJS_WEB_VERSION_URL[[:space:]]*=' .env 2>/dev/null; then
+      printf '\n%s\n' "$WL" >> .env
+      echo "    Acrescentado WWEBJS_WEB_VERSION_URL a partir de deployment/wwebjs-default-bundle.env"
+    fi
+  fi
 else
   if [ -f .env ]; then
     cp -a .env ".env.bak.$(date +%Y%m%d%H%M%S)"
+  fi
+  WWEB_SETUP_LINE=""
+  if [ -f "$ROOT/deployment/wwebjs-default-bundle.env" ]; then
+    WWEB_SETUP_LINE="$(grep '^WWEBJS_WEB_VERSION_URL=' "$ROOT/deployment/wwebjs-default-bundle.env" | head -n1)"
+  fi
+  if [ -z "${WWEB_SETUP_LINE:-}" ]; then
+    WWEB_SETUP_LINE='WWEBJS_WEB_VERSION_URL=https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1034300341-alpha.html'
   fi
   {
     echo "NODE_ENV=production"
@@ -106,6 +122,7 @@ else
     if [ -n "$CH_PATH" ]; then
       echo "PUPPETEER_EXECUTABLE_PATH=${CH_PATH}"
     fi
+    echo "$WWEB_SETUP_LINE"
   } > .env
   echo "    Escrito $ROOT/.env"
 fi

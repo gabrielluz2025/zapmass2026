@@ -108,6 +108,18 @@ if grep -q '^HOST_PORT=' "$ROOT/.env"; then
 else
   echo "HOST_PORT=${HOST_PORT}" >> "$ROOT/.env"
 fi
+WWEBJS_LINE=""
+if [ -f "$ROOT/deployment/wwebjs-default-bundle.env" ]; then
+  WWEBJS_LINE="$(grep '^WWEBJS_WEB_VERSION_URL=' "$ROOT/deployment/wwebjs-default-bundle.env" | head -n1)"
+fi
+if [ -z "${WWEBJS_LINE:-}" ]; then
+  WWEBJS_LINE='WWEBJS_WEB_VERSION_URL=https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1034300341-alpha.html'
+fi
+if grep -qE '^[[:space:]]*WWEBJS_WEB_VERSION_URL[[:space:]]*=' "$ROOT/.env" 2>/dev/null; then
+  :
+else
+  printf '\n# WhatsApp Web bundle — valor em deployment/wwebjs-default-bundle.env\n%s\n' "$WWEBJS_LINE" >> "$ROOT/.env"
+fi
 echo "    ALLOWED_ORIGINS=${ALLOW}"
 echo "    HOST_PORT=${HOST_PORT} (mapeamento docker compose)"
 

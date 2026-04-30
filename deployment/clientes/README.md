@@ -54,6 +54,22 @@ Passos (uma única vez — partilhado por todas as instâncias):
 
 Clientes criados a partir de agora já vêm configurados automaticamente pelo `novo-cliente.sh`.
 
+## Bundle WhatsApp Web (`WWEBJS_WEB_VERSION_URL`)
+
+O servidor pode fixar o HTML do WhatsApp Web usado pelo `whatsapp-web.js` (via `webVersionCache`), para reduzir erros relacionados com `getChat`, LIDs ou `markedUnread` quando o WA Web muda em produção.
+
+- **Valor recomendado no repositório:** `deployment/wwebjs-default-bundle.env` — altere apenas esse ficheiro para mudar o URL em massa conforme novas versões [wa-version](https://github.com/wppconnect-team/wa-version/tree/main/html).
+- **Novos clientes:** o `.env` gerado já inclui esta variável (template).
+- **Instalações antigas** (`.env` raiz em `/opt/zapmass` sem a linha, ou containers de cliente antigos):
+
+  ```bash
+  sudo bash /opt/zapmass/deployment/clientes/scripts/aplicar-wwebjs-bundle.sh
+  ```
+
+  O script lê `wwebjs-default-bundle.env`, acrescenta ao `.env` onde faltar e reinicia os clientes modificados.
+
+- **Docker Swarm:** o mesmo URL deve estar no `.env` da VPS; `deployment/vps-deploy.sh` exporta‑no para `docker-stack.yml`.
+
 ## Variáveis de ambiente opcionais
 
 | Variável | Default | O que faz |

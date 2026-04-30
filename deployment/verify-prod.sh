@@ -33,6 +33,15 @@ else
 fi
 echo
 
+if [ -f "$REPO/.env" ]; then
+  if grep -qE '^[[:space:]]*WWEBJS_WEB_VERSION_URL[[:space:]]*=' "$REPO/.env" 2>/dev/null; then
+    echo "==> .env raiz: WWEBJS_WEB_VERSION_URL definida."
+  else
+    echo "AVISO: .env raiz sem WWEBJS_WEB_VERSION_URL — veja deployment/wwebjs-default-bundle.env e clientes/scripts/aplicar-wwebjs-bundle.sh"
+  fi
+fi
+echo
+
 if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
   echo "==> Docker Swarm — serviço zapmass_api (última tarefa)"
   docker service ps zapmass_api --no-trunc 2>/dev/null | head -5 || true
