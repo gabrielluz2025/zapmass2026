@@ -20,6 +20,8 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const dataDir = path.resolve(projectRoot, process.env.DATA_DIR || 'data');
 const connectionsFile = path.join(dataDir, 'connections.json');
+/** Cópia de segurança: evita perder `name`/metadados se `connections.json` corromper ou ficar []. */
+const connectionsBackupFile = path.join(dataDir, 'connections.backup.json');
 const queueFile = path.join(dataDir, 'message_queue.json');
 const dlqFile = path.join(dataDir, 'dead_letter_queue.json');
 const warmupQueueFile = path.join(dataDir, 'warmup_queue.json');
@@ -271,56 +273,119 @@ const ensureDataDir = async () => {
     await fs.promises.mkdir(authDir, { recursive: true });
 };
 
+/** Tenta recuperar nome/metadados gravados mesmo se connections.json principal estiver vazio ou corrompido. */
+const readAnyConnectionsSnapshotById = async (): Promise<Map<string, WhatsAppConnection>> => {
+    const byId = new Map<string, WhatsAppConnection>();
+    for (const fp of [connectionsFile, connectionsBackupFile]) {
+        try {
+            const raw = await fs.promises.readFile(fp, 'utf8');
+            const parsed = JSON.parse(raw) as WhatsAppConnection[];
+            if (!Array.isArray(parsed)) continue;
+            for (const c of parsed) {
+                if (c && typeof c.id === 'string' && c.id.length > 0 && !byId.has(c.id)) {
+                    byId.set(c.id, c);
+                }
+            }
+        } catch {
+            /* ignora arquivo ausente ou JSON inválido */
+        }
+    }
+    return byId;
+};
+
 const loadConnectionsFromAuth = async () => {
     try {
         await fs.promises.mkdir(authDir, { recursive: true });
         const entries = await fs.promises.readdir(authDir, { withFileTypes: true });
         const sessionIds = entries
-            .filter(entry => entry.isDirectory() && entry.name.startsWith('session-'))
-            .map(entry => entry.name.replace('session-', ''))
+            .filter((entry) => entry.isDirectory() && entry.name.startsWith('session-'))
+            .map((entry) => entry.name.replace('session-', ''))
             .filter(Boolean);
 
         if (sessionIds.length === 0) return;
 
-        connectionsInfo = sessionIds.map((id) => ({
-            id,
-            name: `Canal ${id}`,
-            phoneNumber: null,
-            status: ConnectionStatus.CONNECTING,
-            lastActivity: 'Restaurando sessao...',
-            queueSize: 0,
-            messagesSentToday: 0,
-            signalStrength: 'STRONG',
-            batteryLevel: 0
-        }));
+        const snapshotById = await readAnyConnectionsSnapshotById();
+
+        connectionsInfo = sessionIds.map((id) => {
+            const prev = snapshotById.get(id);
+            if (prev) {
+                return {
+                    ...prev,
+                    status: ConnectionStatus.CONNECTING,
+                    lastActivity: 'Restaurando sessao...',
+                    queueSize: prev.queueSize || 0,
+                    messagesSentToday: prev.messagesSentToday || 0,
+                    signalStrength: prev.signalStrength || 'STRONG',
+                    batteryLevel: prev.batteryLevel ?? 0
+                };
+            }
+            const shortLabel = id.includes('__')
+                ? (id.split('__').pop()?.slice(-8) || id.slice(-8))
+                : id.slice(-8);
+            return {
+                id,
+                name: `WhatsApp · ${shortLabel}`,
+                phoneNumber: null,
+                status: ConnectionStatus.CONNECTING,
+                lastActivity: 'Restaurando sessao...',
+                queueSize: 0,
+                messagesSentToday: 0,
+                signalStrength: 'STRONG',
+                batteryLevel: 0
+            };
+        });
 
         await persistConnections();
-    } catch (error) {
+    } catch {
         // Ignora se nao conseguir ler a pasta de auth
     }
 };
 
 const persistConnections = async () => {
     await ensureDataDir();
-    await fs.promises.writeFile(connectionsFile, JSON.stringify(connectionsInfo, null, 2), 'utf8');
+    try {
+        const data = JSON.stringify(connectionsInfo, null, 2);
+        await fs.promises.writeFile(connectionsFile, data, 'utf8');
+        await fs.promises.copyFile(connectionsFile, connectionsBackupFile).catch((e) => {
+            console.warn('[Connections] Nao foi possivel gravar backup:', (e as Error)?.message || e);
+        });
+    } catch (e) {
+        console.error('[Connections] Falha ao persistir connections.json:', e);
+        throw e;
+    }
 };
 
 const loadConnections = async () => {
     try {
-        const raw = await fs.promises.readFile(connectionsFile, 'utf8');
-        const parsed = JSON.parse(raw) as WhatsAppConnection[];
-        const headlessApi = process.env.SESSION_PROCESS_MODE === 'api';
-        connectionsInfo = parsed.map((conn) => ({
-            ...conn,
-            status: headlessApi ? (conn.status ?? ConnectionStatus.CONNECTING) : ConnectionStatus.CONNECTING,
-            lastActivity: headlessApi
-                ? (conn.lastActivity ?? 'Sincronizando estado…')
-                : 'Restaurando sessao...',
-            queueSize: conn.queueSize || 0,
-            messagesSentToday: conn.messagesSentToday || 0,
-            signalStrength: conn.signalStrength || 'STRONG'
-        }));
-    } catch (error) {
+        const tryFiles = [connectionsFile, connectionsBackupFile];
+        for (const fp of tryFiles) {
+            try {
+                const raw = await fs.promises.readFile(fp, 'utf8');
+                const parsed = JSON.parse(raw) as WhatsAppConnection[];
+                if (!Array.isArray(parsed) || parsed.length === 0) {
+                    continue;
+                }
+                const headlessApi = process.env.SESSION_PROCESS_MODE === 'api';
+                connectionsInfo = parsed.map((conn) => ({
+                    ...conn,
+                    status: headlessApi ? (conn.status ?? ConnectionStatus.CONNECTING) : ConnectionStatus.CONNECTING,
+                    lastActivity: headlessApi ? (conn.lastActivity ?? 'Sincronizando estado…') : 'Restaurando sessao...',
+                    queueSize: conn.queueSize || 0,
+                    messagesSentToday: conn.messagesSentToday || 0,
+                    signalStrength: conn.signalStrength || 'STRONG'
+                }));
+                if (fp !== connectionsFile) {
+                    console.warn(
+                        `[Connections] connections.json ausente ou vazio — recuperado backup (${connectionsInfo.length} canais)`
+                    );
+                }
+                return;
+            } catch {
+                /* próximo arquivo */
+            }
+        }
+        connectionsInfo = [];
+    } catch {
         connectionsInfo = [];
     }
 };
@@ -1426,10 +1491,12 @@ const updateChannelMetrics = (connectionId: string, success: boolean, latencyMs?
 };
 
 // Sistema de strikes: evita reconectar por blips transitorios de getState().
-// Um unico erro de 1 frame no WhatsApp Web nao significa que o canal caiu.
-// Exige 3 falhas consecutivas (ou estado explicitamente ruim) antes de reconectar.
+// Timeouts do getState (null) em rede lenta ou burst de CPU nao devem derrubar o canal no 3º tick.
 const healthStrikes = new Map<string, number>();
-const HEALTH_STRIKES_THRESHOLD = 3;
+/** Estado explicitamente incoerente (nao-null) — reconecta apos poucas leituras seguidas. */
+const HEALTH_HARD_STRIKES_THRESHOLD = 4;
+/** Timeout/erro leitura (state null) — precisa muitas falhas seguidas antes de reconectar. */
+const HEALTH_SOFT_STRIKES_THRESHOLD = 14;
 // Estados em que aceita o canal como "ok o suficiente" - evita reconexao por estado transitorio
 const HEALTH_OK_STATES = new Set(['CONNECTED', 'OPENING', 'PAIRING', 'SYNCING']);
 // Estados terminais que sempre exigem reconexao imediata
@@ -1495,14 +1562,21 @@ const startHealthCheck = (connectionId: string, aggressive = false) => {
                 return;
             }
 
-            // Estado null/outro - incrementa strike
+            // Estado null/timeout/leitura vazia: rede/Chromium ocupado — mais tolerancia
+            const isTransientRead = state == null || (typeof state === 'string' && state.trim() === '');
+            const strikeLimit = isTransientRead ? HEALTH_SOFT_STRIKES_THRESHOLD : HEALTH_HARD_STRIKES_THRESHOLD;
+
             const nextStrikes = currentStrikes + 1;
             healthStrikes.set(connectionId, nextStrikes);
             updateChannelMetrics(connectionId, false);
-            console.warn(`[HealthCheck] Canal ${connectionId} estado=${state} (strike ${nextStrikes}/${HEALTH_STRIKES_THRESHOLD})`);
+            console.warn(
+                `[HealthCheck] Canal ${connectionId} estado=${JSON.stringify(state)} (strike ${nextStrikes}/${strikeLimit}${isTransientRead ? ', leitura transitoria' : ''})`
+            );
 
-            if (nextStrikes >= HEALTH_STRIKES_THRESHOLD) {
-                console.warn(`[HealthCheck] Canal ${connectionId} atingiu ${HEALTH_STRIKES_THRESHOLD} falhas consecutivas. Reconectando...`);
+            if (nextStrikes >= strikeLimit) {
+                console.warn(
+                    `[HealthCheck] Canal ${connectionId} atingiu limite (${strikeLimit}) de falhas consecutivas. Reconectando...`
+                );
                 healthStrikes.set(connectionId, 0);
                 if (currentCampaign.isRunning && aggressive) {
                     console.warn('[HealthCheck] 🚨 Canal caiu durante campanha! Pausando temporariamente...');
@@ -1511,16 +1585,32 @@ const startHealthCheck = (connectionId: string, aggressive = false) => {
                 await reconnectConnection(connectionId);
             }
         } catch (error: any) {
-            // Erro inesperado (nao do getState). Conta como strike mas nao reconecta imediato.
+            // Erros fora do getState tratados como falha soft (mesma tolerancia de timeout)
             console.error(`[HealthCheck] Falha na verificacao do canal ${connectionId}:`, error?.message || error);
             const currentStrikes = healthStrikes.get(connectionId) || 0;
-            healthStrikes.set(connectionId, currentStrikes + 1);
+            const nextStrikes = currentStrikes + 1;
+            healthStrikes.set(connectionId, nextStrikes);
             updateChannelMetrics(connectionId, false);
+            if (nextStrikes >= HEALTH_SOFT_STRIKES_THRESHOLD) {
+                console.warn(
+                    `[HealthCheck] Canal ${connectionId} atingiu ${HEALTH_SOFT_STRIKES_THRESHOLD} erros seguidos no health check — reconectando`
+                );
+                healthStrikes.set(connectionId, 0);
+                if (currentCampaign.isRunning && aggressive) {
+                    emitToConnectionOwner('campaign-connection-lost', connectionId, {
+                        connectionId,
+                        campaignId: currentCampaign.campaignId
+                    });
+                }
+                await reconnectConnection(connectionId);
+            }
         }
     }, intervalTime);
 
     healthCheckIntervals.set(connectionId, interval);
-    console.log(`[HealthCheck] Iniciado para canal ${connectionId} (intervalo: ${intervalTime}ms, strikes: ${HEALTH_STRIKES_THRESHOLD})`);
+            console.log(
+                `[HealthCheck] Iniciado para canal ${connectionId} (intervalo: ${intervalTime}ms, strikes: hard=${HEALTH_HARD_STRIKES_THRESHOLD} soft=${HEALTH_SOFT_STRIKES_THRESHOLD})`
+            );
 };
 
 const stopHealthCheck = (connectionId: string) => {
