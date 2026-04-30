@@ -15,6 +15,8 @@ import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/conn
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 
+import crypto from 'node:crypto';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
@@ -28,6 +30,72 @@ const warmupQueueFile = path.join(dataDir, 'warmup_queue.json');
 const warmedNumbersFile = path.join(dataDir, 'warmed_numbers.json');
 const authDir = path.resolve(projectRoot, process.env.AUTH_DIR || 'data/.wwebjs_auth');
 const webCacheDir = path.join(dataDir, '.wwebjs_cache');
+
+/** Gravado dentro da pasta session-* para reconstruir connections.json após desastre quando o slug ≠ id lógico. */
+const ZAPMASS_LOGICAL_ID_MARKER = '.zapmass_connection_id';
+/** Regex do whatsapp-web.js LocalAuth (constructor) — outros caracteres geram "Invalid clientId". */
+const WA_LOCALAUTH_CLIENT_ID_RE = /^[-_\w]+$/i;
+
+/**
+ * clientId / nome da pasta session-* no disco. O id da conexão na API continua sendo o `logicalConnectionId`.
+ */
+export const whatsappSessionSlugForLogicalId = (logicalConnectionId: string): string => {
+    const s = String(logicalConnectionId || '').trim();
+    if (!s) return 'empty';
+    if (WA_LOCALAUTH_CLIENT_ID_RE.test(s)) return s;
+    return `w${crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 47)}`;
+};
+
+const waSessionDirPair = (
+    logicalId: string
+): { slug: string; sessionPath: string; backupPath: string } => {
+    const slug = whatsappSessionSlugForLogicalId(logicalId);
+    return {
+        slug,
+        sessionPath: path.join(authDir, `session-${slug}`),
+        backupPath: path.join(authDir, `session-${slug}.backup`)
+    };
+};
+
+async function migrateLegacyWaSessionFolders(logicalId: string): Promise<void> {
+    const { slug, sessionPath: targetMain, backupPath: targetBak } = waSessionDirPair(logicalId);
+    if (logicalId === slug) return;
+
+    try {
+        const hasTarget = await fs.promises.access(targetMain).then(() => true).catch(() => false);
+        if (!hasTarget) {
+            const legacyMain = path.join(authDir, `session-${logicalId}`);
+            const legacyExists = await fs.promises.access(legacyMain).then(() => true).catch(() => false);
+            if (legacyExists) {
+                await fs.promises.rename(legacyMain, targetMain);
+                console.log('[SessionSlug] Pasta da sessao renomeada para clientId compativel com LocalAuth.');
+            }
+        }
+    } catch (e: unknown) {
+        console.warn('[SessionSlug] Migracao session principal:', (e as Error)?.message || e);
+    }
+
+    try {
+        const hasBk = await fs.promises.access(targetBak).then(() => true).catch(() => false);
+        if (!hasBk) {
+            const legacyBak = path.join(authDir, `session-${logicalId}.backup`);
+            const le = await fs.promises.access(legacyBak).then(() => true).catch(() => false);
+            if (le) {
+                await fs.promises.rename(legacyBak, targetBak);
+            }
+        }
+    } catch (e: unknown) {
+        console.warn('[SessionSlug] Migracao backup:', (e as Error)?.message || e);
+    }
+}
+
+async function writeLogicalIdMarkerToSessionDir(logicalId: string, sessionDir: string): Promise<void> {
+    try {
+        await fs.promises.writeFile(path.join(sessionDir, ZAPMASS_LOGICAL_ID_MARKER), logicalId, 'utf8');
+    } catch {
+        /* ignore */
+    }
+}
 
 // Rate limiting: mensagens por hora
 const RATE_LIMIT_PER_HOUR = 100;
@@ -114,17 +182,15 @@ const clearCacheForConnection = (connectionId: string) => {
 
 /** Remove pasta Chromium + backup — necessário ao apagar canal (senão reinício recria entrada vinda de sessão em disco). */
 const removeSessionDir = async (connectionId: string) => {
-    const sessionPath = path.join(authDir, `session-${connectionId}`);
-    const backupPath = path.join(authDir, `session-${connectionId}.backup`);
-    try {
-        await fs.promises.rm(sessionPath, { recursive: true, force: true });
-    } catch {
-        /* ignore */
+    const { sessionPath, backupPath } = waSessionDirPair(connectionId);
+    const legacyMain = path.join(authDir, `session-${connectionId}`);
+    const legacyBak = path.join(authDir, `session-${connectionId}.backup`);
+    const toRemove = [sessionPath, backupPath];
+    if (whatsappSessionSlugForLogicalId(connectionId) !== connectionId) {
+        toRemove.push(legacyMain, legacyBak);
     }
-    try {
-        await fs.promises.rm(backupPath, { force: true });
-    } catch {
-        /* ignore */
+    for (const p of toRemove) {
+        await fs.promises.rm(p, { recursive: true, force: true }).catch(() => {});
     }
 };
 
@@ -250,7 +316,7 @@ const clearWebCache = async (connectionId?: string) => {
     try {
         if (connectionId) {
             console.log(`[Cache] Limpando cache específico para ${connectionId}...`);
-            const sessionPath = path.join(authDir, `session-${connectionId}`);
+            const { sessionPath } = waSessionDirPair(connectionId);
             const localCachePath = path.join(sessionPath, 'Default', 'Cache');
             const localCodeCachePath = path.join(sessionPath, 'Default', 'Code Cache');
             
@@ -297,19 +363,45 @@ const loadConnectionsFromAuth = async () => {
     try {
         await fs.promises.mkdir(authDir, { recursive: true });
         const entries = await fs.promises.readdir(authDir, { withFileTypes: true });
-        const sessionIds = entries
+        const dirSlugs = entries
             .filter((entry) => entry.isDirectory() && entry.name.startsWith('session-'))
             .map((entry) => entry.name.replace('session-', ''))
             .filter(Boolean);
 
-        if (sessionIds.length === 0) return;
+        if (dirSlugs.length === 0) return;
 
         const snapshotById = await readAnyConnectionsSnapshotById();
+        const rebuilt: WhatsAppConnection[] = [];
 
-        connectionsInfo = sessionIds.map((id) => {
-            const prev = snapshotById.get(id);
+        for (const slug of dirSlugs) {
+            const sessionDirPath = path.join(authDir, `session-${slug}`);
+            let logicalId = slug;
+            try {
+                const markerRaw = (
+                    await fs.promises
+                        .readFile(path.join(sessionDirPath, ZAPMASS_LOGICAL_ID_MARKER), 'utf8')
+                        .catch(() => '')
+                ).trim();
+                if (markerRaw) logicalId = markerRaw;
+            } catch {
+                /* usar slug */
+            }
+
+            if (
+                slug.startsWith('w') &&
+                /^w[a-f0-9]{47}$/.test(slug) &&
+                logicalId === slug &&
+                !snapshotById.has(slug)
+            ) {
+                console.warn(
+                    `[Connections] Ignorando pasta orfa ${path.basename(sessionDirPath)} (sem marker e sem snapshot)`
+                );
+                continue;
+            }
+
+            const prev = snapshotById.get(logicalId);
             if (prev) {
-                return {
+                rebuilt.push({
                     ...prev,
                     status: ConnectionStatus.CONNECTING,
                     lastActivity: 'Restaurando sessao...',
@@ -317,13 +409,15 @@ const loadConnectionsFromAuth = async () => {
                     messagesSentToday: prev.messagesSentToday || 0,
                     signalStrength: prev.signalStrength || 'STRONG',
                     batteryLevel: prev.batteryLevel ?? 0
-                };
+                });
+                continue;
             }
-            const shortLabel = id.includes('__')
-                ? (id.split('__').pop()?.slice(-8) || id.slice(-8))
-                : id.slice(-8);
-            return {
-                id,
+
+            const shortLabel = logicalId.includes('__')
+                ? (logicalId.split('__').pop()?.slice(-8) || logicalId.slice(-8))
+                : logicalId.slice(-8);
+            rebuilt.push({
+                id: logicalId,
                 name: `WhatsApp · ${shortLabel}`,
                 phoneNumber: null,
                 status: ConnectionStatus.CONNECTING,
@@ -332,9 +426,10 @@ const loadConnectionsFromAuth = async () => {
                 messagesSentToday: 0,
                 signalStrength: 'STRONG',
                 batteryLevel: 0
-            };
-        });
+            });
+        }
 
+        connectionsInfo = rebuilt;
         await persistConnections();
     } catch {
         // Ignora se nao conseguir ler a pasta de auth
@@ -1608,9 +1703,9 @@ const startHealthCheck = (connectionId: string, aggressive = false) => {
     }, intervalTime);
 
     healthCheckIntervals.set(connectionId, interval);
-            console.log(
-                `[HealthCheck] Iniciado para canal ${connectionId} (intervalo: ${intervalTime}ms, strikes: hard=${HEALTH_HARD_STRIKES_THRESHOLD} soft=${HEALTH_SOFT_STRIKES_THRESHOLD})`
-            );
+    console.log(
+        `[HealthCheck] Iniciado para canal ${connectionId} (intervalo: ${intervalTime}ms, strikes: hard=${HEALTH_HARD_STRIKES_THRESHOLD} soft=${HEALTH_SOFT_STRIKES_THRESHOLD})`
+    );
 };
 
 const stopHealthCheck = (connectionId: string) => {
@@ -1626,8 +1721,7 @@ const stopHealthCheck = (connectionId: string) => {
 // --- SESSION BACKUP & RESTORE ---
 
 const backupSession = async (connectionId: string): Promise<boolean> => {
-    const sessionPath = path.join(authDir, `session-${connectionId}`);
-    const backupPath = path.join(authDir, `session-${connectionId}.backup`);
+    const { sessionPath, backupPath } = waSessionDirPair(connectionId);
     
     try {
         // Remove backup antigo
@@ -1651,8 +1745,7 @@ const backupSession = async (connectionId: string): Promise<boolean> => {
 };
 
 const restoreSession = async (connectionId: string): Promise<boolean> => {
-    const sessionPath = path.join(authDir, `session-${connectionId}`);
-    const backupPath = path.join(authDir, `session-${connectionId}.backup`);
+    const { sessionPath, backupPath } = waSessionDirPair(connectionId);
     
     try {
         // Verifica se backup existe
@@ -1676,7 +1769,7 @@ const restoreSession = async (connectionId: string): Promise<boolean> => {
 };
 
 const cleanupSessionBackup = async (connectionId: string) => {
-    const backupPath = path.join(authDir, `session-${connectionId}.backup`);
+    const { backupPath } = waSessionDirPair(connectionId);
     try {
         await fs.promises.rm(backupPath, { recursive: true, force: true });
         console.log(`[SessionBackup] Backup removido para ${connectionId}`);
@@ -1690,7 +1783,7 @@ const cleanupSessionBackup = async (connectionId: string) => {
 // (crash, HMR restart, kill -9), o Puppeteer lanca "The browser is already running".
 // Esta funcao apaga os locks para permitir uma nova inicializacao limpa.
 const clearSessionLocks = (connectionId: string): boolean => {
-    const sessionRoot = path.join(authDir, `session-${connectionId}`);
+    const { sessionPath: sessionRoot } = waSessionDirPair(connectionId);
     if (!fs.existsSync(sessionRoot)) return false;
     const lockFiles = [
         path.join(sessionRoot, 'SingletonLock'),
@@ -1750,58 +1843,71 @@ const clearSessionLocks = (connectionId: string): boolean => {
 // (ex: tsx watch / HMR). Esses processos orfaos continuam segurando o userDataDir e
 // lancam "The browser is already running". Aqui matamos os chrome.exe que estao
 // referenciando a pasta de sessao especifica - sem tocar em outros Chromes do usuario.
-const killOrphanChromeForSession = (connectionId: string): Promise<void> => {
-    return new Promise((resolve) => {
-        const sessionPath = path.join(authDir, `session-${connectionId}`);
-        if (process.platform === 'linux') {
-            const escaped = sessionPath.replace(/'/g, `'\\''`);
-            const shScript = `set +e; pids="$(ps -eo pid,args | awk '/(chrome|chromium)/ && index($0, "${escaped}") {print $1}')"; if [ -n "$pids" ]; then echo "$pids" | xargs -r kill -9; echo "killed:$pids"; fi; exit 0`;
-            execFile(
-                'sh',
-                ['-lc', shScript],
-                { timeout: 8000 },
-                (_err, stdout) => {
-                    if (stdout && stdout.includes('killed:')) {
-                        const killed = stdout
-                            .replace('killed:', ' ')
-                            .trim()
-                            .split(/\s+/)
-                            .filter(Boolean);
-                        if (killed.length > 0) {
-                            console.log(`[ChromeKill] ${killed.length} chromium orfao(s) encerrado(s) para sessao ${connectionId}`);
+const killOrphanChromeForSession = async (connectionId: string): Promise<void> => {
+    const paths = new Set<string>();
+    paths.add(waSessionDirPair(connectionId).sessionPath);
+    if (whatsappSessionSlugForLogicalId(connectionId) !== connectionId) {
+        paths.add(path.join(authDir, `session-${connectionId}`));
+    }
+    const pathList = [...paths];
+
+    for (const sessionPath of pathList) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise<void>((resolve) => {
+            if (process.platform === 'linux') {
+                const escaped = sessionPath.replace(/'/g, `'\\''`);
+                const shScript = `set +e; pids="$(ps -eo pid,args | awk '/(chrome|chromium)/ && index($0, "${escaped}") {print $1}')"; if [ -n "$pids" ]; then echo "$pids" | xargs -r kill -9; echo "killed:$pids"; fi; exit 0`;
+                execFile(
+                    'sh',
+                    ['-lc', shScript],
+                    { timeout: 8000 },
+                    (_err, stdout) => {
+                        if (stdout && stdout.includes('killed:')) {
+                            const killed = stdout
+                                .replace('killed:', ' ')
+                                .trim()
+                                .split(/\s+/)
+                                .filter(Boolean);
+                            if (killed.length > 0) {
+                                console.log(
+                                    `[ChromeKill] ${killed.length} chromium orfao(s) encerrado(s) para sessao ${connectionId}`
+                                );
+                            }
                         }
+                        resolve();
+                    }
+                );
+                return;
+            }
+            if (process.platform !== 'win32') {
+                resolve();
+                return;
+            }
+            const safePath = sessionPath.replace(/'/g, "''");
+            const psScript =
+                `$ErrorActionPreference='SilentlyContinue'; ` +
+                `Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='chromium.exe'" | ` +
+                `Where-Object { $_.CommandLine -like '*${safePath}*' } | ` +
+                `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host ('killed:' + $_.ProcessId) }`;
+            execFile(
+                'powershell',
+                ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+                { timeout: 8000, windowsHide: true },
+                (err, stdout) => {
+                    if (stdout && stdout.includes('killed:')) {
+                        const kills = stdout.trim().split(/\r?\n/).filter((l) => l.startsWith('killed:'));
+                        console.log(
+                            `[ChromeKill] ${kills.length} chrome.exe orfao(s) encerrado(s) para sessao ${connectionId}`
+                        );
+                    }
+                    if (err && !err.killed) {
+                        /* silencioso */
                     }
                     resolve();
                 }
             );
-            return;
-        }
-        if (process.platform !== 'win32') {
-            resolve();
-            return;
-        }
-        const safePath = sessionPath.replace(/'/g, "''");
-        const psScript =
-            `$ErrorActionPreference='SilentlyContinue'; ` +
-            `Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='chromium.exe'" | ` +
-            `Where-Object { $_.CommandLine -like '*${safePath}*' } | ` +
-            `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host ('killed:' + $_.ProcessId) }`;
-        execFile(
-            'powershell',
-            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
-            { timeout: 8000, windowsHide: true },
-            (err, stdout) => {
-                if (stdout && stdout.includes('killed:')) {
-                    const kills = stdout.trim().split(/\r?\n/).filter((l) => l.startsWith('killed:'));
-                    console.log(`[ChromeKill] ${kills.length} chrome.exe orfao(s) encerrado(s) para sessao ${connectionId}`);
-                }
-                if (err && !err.killed) {
-                    // Erro silencioso (ex: sem permissao, powershell ausente) - nao impede fluxo
-                }
-                resolve();
-            }
-        );
-    });
+        });
+    }
 };
 
 // --- QUEUE PERSISTENCE ---
@@ -2845,8 +2951,8 @@ const initializeClient = async (id: string, name: string) => {
     // anterior, restauramos proativamente. Evita o usuario ver um QR novo quando
     // o Chromium foi morto de forma tosca no deploy anterior.
     try {
-        const sessionPath = path.join(authDir, `session-${id}`);
-        const backupPath = path.join(authDir, `session-${id}.backup`);
+        await migrateLegacyWaSessionFolders(id);
+        const { sessionPath, backupPath } = waSessionDirPair(id);
         const sessionExists = await fs.promises.access(sessionPath).then(() => true).catch(() => false);
         const backupExists = await fs.promises.access(backupPath).then(() => true).catch(() => false);
         if (!sessionExists && backupExists && (backupRestoreAttempts.get(id) || 0) < 1) {
@@ -2854,7 +2960,9 @@ const initializeClient = async (id: string, name: string) => {
             await restoreSession(id).catch(() => false);
             backupRestoreAttempts.set(id, 1);
         }
-    } catch { /* ignore — initialize lida com a ausencia */ }
+    } catch {
+        /* ignore — initialize lida com a ausencia */
+    }
 
     // Limpar reconnect antigo se existir
     const state = reconnectState.get(id);
@@ -2875,7 +2983,7 @@ const initializeClient = async (id: string, name: string) => {
     let connectionTimeoutRef: NodeJS.Timeout | null = null;
 
     try {
-        const sessionPath = path.join(authDir, `session-${id}`);
+        const { slug, sessionPath } = waSessionDirPair(id);
         const remoteWaHtml = process.env.WWEBJS_WEB_VERSION_URL?.trim();
         const webVersionCache = remoteWaHtml
             ? { type: 'remote' as const, remotePath: remoteWaHtml }
@@ -2884,7 +2992,7 @@ const initializeClient = async (id: string, name: string) => {
             console.log(`[whatsapp-web.js] webVersionCache remote: ${remoteWaHtml.slice(0, 80)}…`);
         }
         const client = new Client({
-            authStrategy: new LocalAuth({ clientId: id, dataPath: authDir }),
+            authStrategy: new LocalAuth({ clientId: slug, dataPath: authDir }),
             webVersionCache,
             puppeteer: {
                 // Forca isolamento explicito por conexao para evitar colisoes de perfil.
@@ -3097,6 +3205,7 @@ const initializeClient = async (id: string, name: string) => {
         clients.set(id, client);
         console.log(`[whatsapp-web.js] Cliente ${name} criado, iniciando...`);
         await client.initialize();
+        await writeLogicalIdMarkerToSessionDir(id, waSessionDirPair(id).sessionPath);
 
     } catch (err: any) {
         console.error(`Erro ao inicializar cliente whatsapp-web.js ${name}:`, err?.message || err);
