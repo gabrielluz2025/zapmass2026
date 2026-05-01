@@ -338,6 +338,15 @@ export interface ZapMassContextType {
   warmupQueue: WarmupItem[];
   warmedCount: number;
   isBackendConnected: boolean;
+  /** Carga de sessão (workers/concorrência) recebida via socket; undefined enquanto não chega. */
+  sessionLiveStats?: {
+    workersAlive: number;
+    inFlight: number;
+    waiting: number;
+    maxConcurrent: number;
+    pendingAssignments: number;
+    busRemote: boolean;
+  } | null;
   
   // Campaign State
   campaignStatus: {

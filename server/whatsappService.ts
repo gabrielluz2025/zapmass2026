@@ -3042,6 +3042,7 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     emitToConnectionOwner('connection-ready', id, { connectionId: id });
     emitConnectionPhase(id, 'ready');
     initAutoRetryCount.delete(id);
+    pendingPairingCodeRequests.delete(id);
     emitConnectionsUpdate();
     persistConnections().catch(() => {});
     reconnectState.delete(id);
@@ -3245,6 +3246,33 @@ const initializeClient = async (id: string, name: string) => {
             emitToConnectionOwner('qr-code', id, { connectionId: id, qrCode: qr });
             emitConnectionsUpdate();
             emitConnectionPhase(id, 'awaiting-scan');
+
+            // Se há um pedido pendente de pairing code, processa-o agora que o
+            // AuthStore do WA Web já está montado (evento `qr` indica isso).
+            const pendingPhone = pendingPairingCodeRequests.get(id);
+            if (pendingPhone) {
+                (async () => {
+                    try {
+                        const code: string = await (client as unknown as {
+                            requestPairingCode: (phone: string, showNotification?: boolean) => Promise<string>;
+                        }).requestPairingCode(pendingPhone, true);
+                        if (typeof code === 'string' && code.length > 0) {
+                            pendingPairingCodeRequests.delete(id);
+                            emitToConnectionOwner('pairing-code', id, {
+                                connectionId: id,
+                                code,
+                                phone: pendingPhone
+                            });
+                        }
+                    } catch (e: any) {
+                        console.warn(`[whatsapp-web.js] pairing pendente falhou ${name}:`, e?.message || e);
+                        emitToConnectionOwner('pairing-code-failed', id, {
+                            connectionId: id,
+                            message: 'Não foi possível obter o código de pareamento. Use o QR.'
+                        });
+                    }
+                })();
+            }
         });
 
         client.on('authenticated', () => {
@@ -4628,6 +4656,59 @@ const handleCampaignProgress = () => {
 };
 
 /**
+ * Pedidos pendentes de pairing code: o utilizador pode pedir um código antes
+ * do cliente WA Web estar pronto para o gerar. Quando o evento `qr` chegar
+ * (AuthStore montado), processamos. Mapa: connectionId → telefone (apenas dígitos).
+ */
+const pendingPairingCodeRequests = new Map<string, string>();
+
+/**
+ * Pede um código de pareamento de 8 dígitos ao WhatsApp Web em vez de QR.
+ * - Sanitiza o telefone (apenas dígitos, 8–16 chars).
+ * - Se a sessão ainda não está pronta para pairing, regista pedido pendente
+ *   e processa-o quando o evento `qr` for recebido.
+ * - Em caso de sucesso, emite `pairing-code` (apenas para o dono da conexão).
+ */
+export const requestPairingCode = async (
+    connectionId: string,
+    phone: string
+): Promise<{ ok: boolean; reason?: string; code?: string }> => {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length < 8 || digits.length > 16) return { ok: false, reason: 'invalid-phone' };
+    const conn = connectionsInfo.find((c) => c.id === connectionId);
+    if (!conn) return { ok: false, reason: 'not-found' };
+
+    pendingPairingCodeRequests.set(connectionId, digits);
+    const client = clients.get(connectionId);
+    if (!client) {
+        // Cliente ainda nem foi instanciado (raro). Resolve quando initializeClient correr.
+        emitToConnectionOwner('pairing-code-pending', connectionId, { connectionId, phone: digits });
+        return { ok: true, reason: 'queued' };
+    }
+
+    try {
+        const code: string = await (client as unknown as {
+            requestPairingCode: (phone: string, showNotification?: boolean) => Promise<string>;
+        }).requestPairingCode(digits, true);
+        if (typeof code === 'string' && code.length > 0) {
+            pendingPairingCodeRequests.delete(connectionId);
+            emitToConnectionOwner('pairing-code', connectionId, { connectionId, code, phone: digits });
+            return { ok: true, code };
+        }
+        return { ok: true, reason: 'queued' };
+    } catch (e: any) {
+        const msg = e?.message || String(e);
+        // Erro tipico: AuthStore ainda nao montou. Mantém na fila para o handler do `qr`.
+        if (/AuthStore|PairingCodeLinkUtils|undefined|not yet|not ready|Cannot read/i.test(msg)) {
+            emitToConnectionOwner('pairing-code-pending', connectionId, { connectionId, phone: digits });
+            return { ok: true, reason: 'queued' };
+        }
+        pendingPairingCodeRequests.delete(connectionId);
+        return { ok: false, reason: 'pairing-failed' };
+    }
+};
+
+/**
  * Renomeia uma conexão sem reiniciar a sessão.
  * Persiste no disco e propaga via `connections-update` para todos os sockets do dono.
  */
@@ -4649,6 +4730,7 @@ export const deleteConnection = async (id: string) => {
     if (!id) return;
     console.log(`[deleteConnection] Removendo canal ${id}...`);
     try { stopHealthCheck(id); } catch { /* ignore */ }
+    pendingPairingCodeRequests.delete(id);
     const rs = reconnectState.get(id);
     if (rs?.timeout) clearTimeout(rs.timeout);
     reconnectState.delete(id);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, QrCode, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
+import { X, QrCode, Smartphone, Loader2, CheckCircle2, KeyRound, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMass } from '../context/ZapMassContext';
 import { ConnectionStatus } from '../types';
@@ -44,6 +44,12 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   const [phase, setPhase] = useState<InitPhase>('queued');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [autoRetry, setAutoRetry] = useState<{ attempt: number; of: number } | null>(null);
+  /** Modo "pareamento por código" no passo scanning. Quando true, mostra UI de telefone + código em vez do QR. */
+  const [pairMode, setPairMode] = useState(false);
+  const [pairPhone, setPairPhone] = useState('');
+  const [pairCode, setPairCode] = useState<string | null>(null);
+  const [pairWaiting, setPairWaiting] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
   /** Evita corrida: ready pode chegar antes do setState do QR no mesmo tick. */
   const pendingConnectionIdRef = useRef<string | null>(null);
   const stepRef = useRef(step);
@@ -70,6 +76,11 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     setPhase('queued');
     setQueuePosition(null);
     setAutoRetry(null);
+    setPairMode(false);
+    setPairPhone('');
+    setPairCode(null);
+    setPairWaiting(false);
+    setPairError(null);
   }, [isOpen]);
 
   /** Se o evento `qr-code` nao chegar, o contexto ainda actualiza a lista com qrCode no canal novo. */
@@ -241,6 +252,29 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       setQueuePosition(pos);
     };
 
+    const onPairingCode = (data: { connectionId: string; code: string }) => {
+      const pending = pendingConnectionIdRef.current;
+      if (pending && pending !== data.connectionId) return;
+      setPairCode(data.code);
+      setPairWaiting(false);
+      setPairError(null);
+    };
+
+    const onPairingPending = (data: { connectionId: string }) => {
+      const pending = pendingConnectionIdRef.current;
+      if (pending && pending !== data.connectionId) return;
+      setPairWaiting(true);
+      setPairError(null);
+    };
+
+    const onPairingFailed = (data: { connectionId: string; message?: string }) => {
+      const pending = pendingConnectionIdRef.current;
+      if (pending && pending !== data.connectionId) return;
+      setPairWaiting(false);
+      setPairCode(null);
+      setPairError(data.message || 'Não foi possível obter o código.');
+    };
+
     socket.on('qr-code', handleQrCode);
     socket.on('connection-ready', handleReady);
     socket.on('connection-progress', onProgress);
@@ -249,6 +283,9 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     socket.on('connection-limit-reached', onConnectionLimit);
     socket.on('connection-init-failure', onInitFailure);
     socket.on('session-worker-missing', onSessionWorkerMissing);
+    socket.on('pairing-code', onPairingCode);
+    socket.on('pairing-code-pending', onPairingPending);
+    socket.on('pairing-code-failed', onPairingFailed);
 
     return () => {
         socket.off('qr-code', handleQrCode);
@@ -259,6 +296,9 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         socket.off('connection-limit-reached', onConnectionLimit);
         socket.off('connection-init-failure', onInitFailure);
         socket.off('session-worker-missing', onSessionWorkerMissing);
+        socket.off('pairing-code', onPairingCode);
+        socket.off('pairing-code-pending', onPairingPending);
+        socket.off('pairing-code-failed', onPairingFailed);
     };
   }, [socket, isOpen, onClose]);
 
@@ -274,6 +314,24 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       setStep('loading_qr');
       onSuccess(connectionName);
   };
+
+  /** Envia ao servidor o pedido de pairing code para o `currentConnectionId`. */
+  const handleRequestPairingCode = () => {
+    if (!socket || !currentConnectionId) return;
+    const digits = pairPhone.replace(/\D/g, '');
+    if (digits.length < 8 || digits.length > 16) {
+      setPairError('Telefone inválido. Inclua o código do país (ex.: 5511999998888).');
+      return;
+    }
+    setPairError(null);
+    setPairCode(null);
+    setPairWaiting(true);
+    socket.emit('request-pairing-code', { id: currentConnectionId, phone: digits });
+  };
+
+  /** Formata "XXXXXXXX" → "XXXX-XXXX" para exibição. */
+  const formatPairCode = (code: string) =>
+    code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 
   if (!isOpen) return null;
 
@@ -390,7 +448,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
             </div>
           )}
 
-          {step === 'scanning' && qrCodeData && (
+          {step === 'scanning' && qrCodeData && !pairMode && (
             <div className="flex flex-col items-center text-center w-full">
               <div className="bg-white p-4 rounded-xl border-2 border-emerald-100 shadow-inner mb-4 relative group">
                 <div className="relative">
@@ -419,10 +477,128 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
                 </ol>
               </div>
               
-              <p className="text-xs text-emerald-600 font-bold animate-pulse flex items-center gap-2">
+              <p className="text-xs text-emerald-600 font-bold animate-pulse flex items-center gap-2 mb-3">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Aguardando leitura do código...
               </p>
+
+              <button
+                type="button"
+                onClick={() => setPairMode(true)}
+                className="text-[12px] font-semibold text-emerald-700 hover:underline inline-flex items-center gap-1.5"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                Não consegue escanear? Use código de 8 dígitos
+              </button>
+            </div>
+          )}
+
+          {step === 'scanning' && pairMode && (
+            <div className="flex flex-col items-center text-center w-full">
+              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mb-3">
+                <KeyRound className="w-6 h-6 text-emerald-700" />
+              </div>
+              <h3 className="text-base font-bold text-gray-800">Ligar por código de 8 dígitos</h3>
+              <p className="text-[12px] text-gray-500 mt-1 mb-4 max-w-[300px]">
+                Insira o número do WhatsApp que vai ligar. O servidor gera um código que você digita
+                em <strong>WhatsApp &gt; Configurações &gt; Aparelhos conectados &gt; Conectar com número</strong>.
+              </p>
+
+              {!pairCode && (
+                <div className="w-full">
+                  <label htmlFor="pairPhone" className="sr-only">Telefone</label>
+                  <input
+                    id="pairPhone"
+                    name="pairPhone"
+                    type="tel"
+                    inputMode="numeric"
+                    autoFocus
+                    placeholder="55 11 99999-8888"
+                    className="ui-input text-center tracking-wider"
+                    value={pairPhone}
+                    onChange={(e) => setPairPhone(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRequestPairingCode();
+                    }}
+                    disabled={pairWaiting}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Inclua o código do país (sem o "+" e sem espaços ou traços).
+                  </p>
+
+                  {pairError && (
+                    <p className="text-[12px] text-red-600 font-semibold mt-2">{pairError}</p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleRequestPairingCode}
+                    disabled={pairWaiting || pairPhone.replace(/\D/g, '').length < 8}
+                    className="mt-4 w-full brand-btn font-medium py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {pairWaiting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Aguardando código...
+                      </>
+                    ) : (
+                      <>
+                        <KeyRound className="w-4 h-4" />
+                        Gerar código
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {pairCode && (
+                <div className="w-full">
+                  <p className="text-[11px] text-gray-500 uppercase font-bold tracking-wider mb-2">Seu código</p>
+                  <div className="flex items-center justify-center gap-3">
+                    <div
+                      className="font-mono text-[28px] font-bold tracking-[0.25em] bg-emerald-50 border-2 border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl select-all"
+                      aria-label="Código de pareamento"
+                    >
+                      {formatPairCode(pairCode)}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(pairCode).then(
+                          () => toast.success('Código copiado!', { duration: 2000 }),
+                          () => toast.error('Não foi possível copiar.')
+                        );
+                      }}
+                      className="p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition"
+                      title="Copiar código"
+                      aria-label="Copiar código"
+                    >
+                      <Copy className="w-4 h-4 text-gray-600" />
+                    </button>
+                  </div>
+                  <p className="text-[12px] text-gray-600 mt-3">
+                    No celular: <strong>WhatsApp &gt; Configurações &gt; Aparelhos conectados &gt; Conectar com número</strong>.
+                    Digite este código.
+                  </p>
+                  <p className="text-[11px] text-emerald-600 font-bold animate-pulse flex items-center justify-center gap-2 mt-3">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Aguardando confirmação no celular...
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPairMode(false);
+                  setPairCode(null);
+                  setPairError(null);
+                  setPairWaiting(false);
+                }}
+                className="mt-4 text-[12px] font-semibold text-emerald-700 hover:underline"
+              >
+                Voltar para QR Code
+              </button>
             </div>
           )}
 

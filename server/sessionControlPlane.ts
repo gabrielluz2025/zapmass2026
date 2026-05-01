@@ -1,6 +1,9 @@
 import * as waService from './whatsappService.js';
 import { evaluateMayCreateWaConnection } from './connectionLimits.js';
-import { runWithSessionCommandLimits } from './sessionCommandConcurrency.js';
+import {
+  runWithSessionCommandLimits,
+  getSessionCommandConcurrencyStats
+} from './sessionCommandConcurrency.js';
 import { SessionCommandBus } from './sessionCommandBus.js';
 import { SessionRouter } from './sessionRouter.js';
 import type { SessionCommand, SessionEvent } from './sessionContracts.js';
@@ -81,6 +84,11 @@ const executeLocally = async (command: SessionCommand): Promise<void> => {
   }
   if (command.type === 'rename-connection') {
     await waService.renameConnection(command.connectionId, command.payload.name);
+    return;
+  }
+  if (command.type === 'request-pairing-code') {
+    const result = await waService.requestPairingCode(command.connectionId, command.payload.phone);
+    if (!result.ok) throw new Error(`[pairing-code] ${result.reason || 'falhou'}`);
     return;
   }
   if (command.type === 'send-message') {
@@ -182,6 +190,22 @@ export const stopSessionControlPlane = async (): Promise<void> => {
 
 export const getSessionRouterMetrics = () => router.getMetricsSnapshot();
 
+/**
+ * Combina router (workers vivos) + concorrência local (slots ocupados/fila).
+ * Usado pela UI para mostrar "X workers, Y/Z ocupados, N na fila".
+ */
+export const getSessionLiveStats = () => {
+  const routerSnap = router.getMetricsSnapshot();
+  const concurrency = getSessionCommandConcurrencyStats();
+  return {
+    router: routerSnap,
+    concurrency,
+    bus: { remote: isSessionBusRemote() },
+    workerId: WORKER_ID,
+    timestamp: Date.now()
+  };
+};
+
 export const submitDeleteConnection = async (connectionId: string, requestedByUid: string) => {
   const command: SessionCommand = {
     commandId: nextId('cmd'),
@@ -246,6 +270,24 @@ export const submitForceQr = async (connectionId: string, requestedByUid: string
     requestedByUid,
     type: 'force-qr',
     connectionId
+  };
+  router.recordCommandPublished();
+  markSessionCommandPublished(command.type);
+  await bus.publishCommand(command);
+};
+
+export const submitRequestPairingCode = async (
+  connectionId: string,
+  phone: string,
+  requestedByUid: string
+) => {
+  const command: SessionCommand = {
+    commandId: nextId('cmd'),
+    requestedAt: Date.now(),
+    requestedByUid,
+    type: 'request-pairing-code',
+    connectionId,
+    payload: { phone }
   };
   router.recordCommandPublished();
   markSessionCommandPublished(command.type);

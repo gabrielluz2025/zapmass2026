@@ -88,6 +88,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   warmupQueue: [],
   warmedCount: 0,
   isBackendConnected: false,
+  sessionLiveStats: null,
   campaignStatus: { isRunning: false, total: 0, processed: 0, success: 0, failed: 0 },
   addConnection: async () => {},
   removeConnection: () => {},
@@ -169,6 +170,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [funnelStats, setFunnelStats] = useState<FunnelStats>(INITIAL_FUNNEL);
   const [campaignGeo, setCampaignGeo] = useState<CampaignGeoState>(INITIAL_CAMPAIGN_GEO);
   const [warmupChipStats, setWarmupChipStats] = useState<Record<string, WarmupChipStats>>({});
+  const [sessionLiveStats, setSessionLiveStats] = useState<{
+    workersAlive: number;
+    inFlight: number;
+    waiting: number;
+    maxConcurrent: number;
+    pendingAssignments: number;
+    busRemote: boolean;
+  } | null>(null);
   
   // Warmup Timer State (lives in context so it persists across tab switches)
   const [warmupActive, setWarmupActive] = useState(false);
@@ -797,6 +806,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     // Real system metrics
     socket.on('system-metrics', (data: SystemMetrics) => {
       setSystemMetrics(prev => ({ ...prev, ...data }));
+    });
+
+    socket.on('session-live-stats', (data: {
+      router?: { aliveWorkers?: number; pendingAssignments?: number };
+      concurrency?: { inFlight?: number; waiting?: number; max?: number };
+      bus?: { remote?: boolean };
+    }) => {
+      setSessionLiveStats({
+        workersAlive: Number(data?.router?.aliveWorkers || 0),
+        pendingAssignments: Number(data?.router?.pendingAssignments || 0),
+        inFlight: Number(data?.concurrency?.inFlight || 0),
+        waiting: Number(data?.concurrency?.waiting || 0),
+        maxConcurrent: Number(data?.concurrency?.max || 0),
+        busRemote: Boolean(data?.bus?.remote)
+      });
     });
 
     // Real latency via ping/pong (a cada 5s)
@@ -1942,6 +1966,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       warmupQueue,
       warmedCount,
       isBackendConnected,
+      sessionLiveStats,
       campaignStatus,
       systemMetrics,
       addConnection,

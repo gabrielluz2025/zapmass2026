@@ -28,6 +28,7 @@ import {
   isUidTreatedAsServerAdmin
 } from './connectionLimits.js';
 import {
+  getSessionLiveStats,
   getSessionRouterMetrics,
   getWhatsappProcessWorkerCount,
   isSessionBusRemote,
@@ -38,6 +39,7 @@ import {
   submitForceQr,
   submitReconnectConnection,
   submitRenameConnection,
+  submitRequestPairingCode,
   submitSendMedia,
   submitSendMessage
 } from './sessionControlPlane.js';
@@ -218,6 +220,10 @@ app.get('/api/session-router/metrics', metricsAccessMiddleware, (_req, res) => {
   res.json(getSessionRouterMetrics());
 });
 
+app.get('/api/session/live-stats', (_req, res) => {
+  res.json(getSessionLiveStats());
+});
+
 app.get('/metrics', metricsAccessMiddleware, async (_req, res) => {
   res.setHeader('Content-Type', metricsContentType());
   res.send(await collectMetrics());
@@ -318,6 +324,18 @@ const emitSystemAndPromMetrics = () => {
 };
 emitSystemAndPromMetrics();
 setInterval(emitSystemAndPromMetrics, 10000);
+
+/** Stats de concorrência/workers para a UI mostrar "X workers · Y/Z ocupados · N na fila". */
+const emitSessionLiveStats = () => {
+  if (!io) return;
+  try {
+    io.emit('session-live-stats', getSessionLiveStats());
+  } catch {
+    /* broadcast falhou; voltamos a tentar daqui a 10s */
+  }
+};
+emitSessionLiveStats();
+setInterval(emitSessionLiveStats, 10000);
 
 /** Ping Firebase Auth para gauges / alertas Prometheus (~60s; evita martelar a API Google). */
 void refreshFirebaseProbeForMetrics();
@@ -628,6 +646,49 @@ const registerSocketHandlers = () => {
           });
         } catch (e) {
           reportSocketAsyncError('force-qr', e);
+        }
+      })();
+    });
+
+    // Pairing code (8 dígitos) — alternativa ao QR.
+    // O cliente envia { id, phone }; validamos posse, sanitizamos telefone,
+    // e enviamos ao control plane (ou execução local em monolítico).
+    socket.on('request-pairing-code', ({ id, phone }: { id: string; phone: string }) => {
+      void (async () => {
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (!ownsConnectionId(id)) {
+            denyCrossTenant('request-pairing-code', { id });
+            return;
+          }
+          const digits = String(phone || '').replace(/\D/g, '');
+          if (digits.length < 8 || digits.length > 16) {
+            socket.emit('pairing-code-failed', {
+              connectionId: id,
+              message: 'Telefone inválido. Use formato internacional (ex.: 5511999998888).'
+            });
+            return;
+          }
+          userLog('ui:request-pairing-code', { id, phone: `${digits.slice(0, 4)}…${digits.slice(-2)}` });
+          await runSessionCommandOrLocal({
+            submit: () => submitRequestPairingCode(id, digits, authOp),
+            local: async () => {
+              const r = await waService.requestPairingCode(id, digits);
+              if (!r.ok) {
+                socket.emit('pairing-code-failed', {
+                  connectionId: id,
+                  message:
+                    r.reason === 'invalid-phone'
+                      ? 'Telefone inválido.'
+                      : r.reason === 'not-found'
+                        ? 'Conexão não encontrada.'
+                        : 'Não foi possível obter o código de pareamento. Tente novamente.'
+                });
+              }
+            }
+          });
+        } catch (e) {
+          reportSocketAsyncError('request-pairing-code', e);
         }
       })();
     });

@@ -5,7 +5,8 @@ export type SessionCommandType =
   | 'send-message'
   | 'send-media'
   | 'delete-connection'
-  | 'rename-connection';
+  | 'rename-connection'
+  | 'request-pairing-code';
 
 export interface SessionCommandBase {
   commandId: string;
@@ -64,6 +65,15 @@ export interface RenameConnectionCommand extends SessionCommandBase {
   };
 }
 
+export interface RequestPairingCodeCommand extends SessionCommandBase {
+  type: 'request-pairing-code';
+  connectionId: string;
+  payload: {
+    /** Telefone em E.164 sem `+` (apenas dígitos). Ex.: `5511999998888`. */
+    phone: string;
+  };
+}
+
 export type SessionCommand =
   | CreateConnectionCommand
   | ReconnectConnectionCommand
@@ -71,7 +81,8 @@ export type SessionCommand =
   | SendMessageCommand
   | SendMediaCommand
   | DeleteConnectionCommand
-  | RenameConnectionCommand;
+  | RenameConnectionCommand
+  | RequestPairingCodeCommand;
 
 export type SessionEventType =
   | 'worker-heartbeat'

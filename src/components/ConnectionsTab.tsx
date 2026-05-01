@@ -36,6 +36,7 @@ import { useZapMass } from '../context/ZapMassContext';
 import { ConnectionCardNew as ConnectionCard } from './ConnectionCardNew';
 import { ConnectionListRow } from './ConnectionListRow';
 import { AddConnectionModal } from './AddConnectionModal';
+import { SessionLoadIndicator } from './SessionLoadIndicator';
 import { SectionHeader, StatCard, Tabs, Input, Button, EmptyState, Modal } from './ui';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -493,6 +494,7 @@ export const ConnectionsTab: React.FC = () => {
               )}
             </p>
             <div className="flex items-center gap-2 order-1 sm:order-2 sm:shrink-0">
+              <SessionLoadIndicator compact />
               <KeyboardHintButton />
               <Button
                 variant="primary"
