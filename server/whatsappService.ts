@@ -833,6 +833,26 @@ const emitToOwnerUid = (event: string, ownerUid: string | undefined, payload: Re
     io.to(`user:${ownerUid}`).emit(event, payload);
 };
 
+/**
+ * Variante exportada de `emitToOwnerUid`. Usa o bridge Redis quando disponível
+ * (modo `api`+`worker`); cai para `io` local caso contrário. Útil para componentes
+ * fora deste módulo (ex.: control plane) que precisam notificar um utilizador
+ * sem ter um `connectionId` ainda — por exemplo, antes de criar uma conexão.
+ */
+export const publishOwnerEvent = (
+    ownerUid: string | undefined,
+    event: string,
+    payload: Record<string, unknown>
+): void => {
+    if (!ownerUid) return;
+    if (ownerEmitRedisBridge) {
+        ownerEmitRedisBridge(ownerUid, event, payload);
+        return;
+    }
+    if (!io) return;
+    io.to(`user:${ownerUid}`).emit(event, payload);
+};
+
 /** Aviso ao utilizador (socket) quando o runner de campanhas agendadas adia ou falha ao iniciar. */
 export function emitScheduledCampaignUserNotice(
     ownerUid: string | undefined,
@@ -2837,13 +2857,27 @@ const syncConversationsFromClient = async (client: any, connectionId: string) =>
 
 // --- CONNECTION MANAGEMENT ---
 
+/** Sanitiza nome amigável: corta controlos, normaliza espaços e limita comprimento. */
+const sanitizeConnectionDisplayName = (raw: string | undefined | null, fallback = 'WhatsApp'): string => {
+    const cleaned = String(raw ?? '')
+        // remove caracteres de controlo (incluindo \u0000-\u001F, DEL e similares)
+        // que podem corromper armazenamento ou logs
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+        // normaliza espaços
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned) return fallback;
+    return cleaned.length > 60 ? cleaned.slice(0, 60).trim() : cleaned;
+};
+
 export const createConnection = async (name: string, ownerUid?: string) => {
+    const safeName = sanitizeConnectionDisplayName(name);
     const baseId = Date.now().toString();
     const connectionId = ownerUid ? `${ownerUid}__${baseId}` : baseId;
     
     const newConn: WhatsAppConnection = {
         id: connectionId,
-        name,
+        name: safeName,
         phoneNumber: null,
         status: ConnectionStatus.CONNECTING,
         lastActivity: 'Inicializando...',
@@ -2855,7 +2889,7 @@ export const createConnection = async (name: string, ownerUid?: string) => {
     };
     connectionsInfo.push(newConn);
     persistConnections().catch(() => {});
-    initializeClient(connectionId, name);
+    initializeClient(connectionId, safeName);
     return newConn;
 };
 
@@ -3007,6 +3041,7 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     console.log(`[handleClientReady] Emitindo connection-ready e connections-update...`);
     emitToConnectionOwner('connection-ready', id, { connectionId: id });
     emitConnectionPhase(id, 'ready');
+    initAutoRetryCount.delete(id);
     emitConnectionsUpdate();
     persistConnections().catch(() => {});
     reconnectState.delete(id);
@@ -3060,6 +3095,9 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
 
 // Controla quantas vezes ja tentamos restaurar backup por sessao nesta vida do processo
 const backupRestoreAttempts = new Map<string, number>();
+/** Contador de auto-retentativa do init quando o 1º QR demora — limita a 1 antes de avisar o utilizador. */
+const initAutoRetryCount = new Map<string, number>();
+const MAX_INIT_AUTO_RETRY = Math.max(0, Number(process.env.WA_INIT_AUTO_RETRY || '1'));
 
 /** Tempo máx. para o `qr` (ou `ready` se sessão restaurada) chegar; senão aborta. */
 const FIRST_QR_TIMEOUT_MS = Number(process.env.WA_FIRST_QR_TIMEOUT_MS || 90_000);
@@ -3252,17 +3290,48 @@ const initializeClient = async (id: string, name: string) => {
         });
         
         // Timeout para o PRIMEIRO QR/auth: se nada chegou em FIRST_QR_TIMEOUT_MS,
-        // aborta o motor e devolve erro amigável imediato — o utilizador não fica preso.
+        // tenta automaticamente uma vez antes de devolver erro amigável ao utilizador.
         firstQrTimeoutRef = setTimeout(async () => {
             if (isReadyHandled) return;
             const conn = connectionsInfo.find((c) => c.id === id);
             if (conn?.status === ConnectionStatus.QR_READY) return; // Já temos QR; deixa o timeout global gerir.
-            console.warn(`[whatsapp-web.js] ⏱️ Sem QR/auth em ${FIRST_QR_TIMEOUT_MS}ms para ${name} — abortando motor.`);
             clearTimeout(loadingPhaseTimer);
+            const tries = initAutoRetryCount.get(id) || 0;
+            const willRetry = tries < MAX_INIT_AUTO_RETRY;
+            console.warn(
+                `[whatsapp-web.js] ⏱️ Sem QR/auth em ${FIRST_QR_TIMEOUT_MS}ms para ${name} — ` +
+                `${willRetry ? `auto-retry ${tries + 1}/${MAX_INIT_AUTO_RETRY}` : 'abortando motor.'}`
+            );
+            // Independente de retry/desistência, libertamos o motor actual.
+            if (clients.has(id)) {
+                const clientToDestroy = clients.get(id);
+                clients.delete(id);
+                try { await clientToDestroy?.destroy(); } catch { /* ignore */ }
+            }
+            try { clearSessionLocks(id); } catch { /* ignore */ }
+            if (willRetry) {
+                initAutoRetryCount.set(id, tries + 1);
+                emitConnectionPhase(id, 'preparing', { autoRetry: tries + 1, of: MAX_INIT_AUTO_RETRY });
+                updateConnectionState(id, {
+                    status: ConnectionStatus.CONNECTING,
+                    lastActivity: `A retentar (${tries + 1}/${MAX_INIT_AUTO_RETRY})...`,
+                    qrCode: undefined
+                });
+                emitConnectionsUpdate();
+                // Pequeno delay para o GC do Chromium fechar tudo bem.
+                setTimeout(() => {
+                    initializeClient(id, name).catch((e: any) =>
+                        console.warn(`[whatsapp-web.js] auto-retry init falhou para ${name}:`, e?.message || e)
+                    );
+                }, 1500);
+                return;
+            }
+            // Esgotou retries — agora avisa o utilizador.
+            initAutoRetryCount.delete(id);
             emitConnectionPhase(id, 'failed', { reason: 'first-qr-timeout' });
             emitToConnectionOwner('connection-init-failure', id, {
                 connectionId: id,
-                message: `Não foi possível gerar o QR code em ${Math.round(FIRST_QR_TIMEOUT_MS / 1000)}s. Tente novamente; se persistir, verifique a conexão do servidor com whatsapp.com.`
+                message: `Não foi possível gerar o QR code em ${Math.round(FIRST_QR_TIMEOUT_MS / 1000)}s mesmo após retentar. Tente "Forçar QR" mais tarde ou verifique a ligação do servidor a whatsapp.com.`
             });
             updateConnectionState(id, {
                 status: ConnectionStatus.DISCONNECTED,
@@ -3270,11 +3339,6 @@ const initializeClient = async (id: string, name: string) => {
                 qrCode: undefined
             });
             emitConnectionsUpdate();
-            if (clients.has(id)) {
-                const clientToDestroy = clients.get(id);
-                clients.delete(id);
-                try { await clientToDestroy?.destroy(); } catch { /* ignore */ }
-            }
         }, FIRST_QR_TIMEOUT_MS);
 
         // Timeout global: 240s para dar tempo ao WhatsApp Web de carregar completamente
@@ -4568,22 +4632,23 @@ const handleCampaignProgress = () => {
  * Persiste no disco e propaga via `connections-update` para todos os sockets do dono.
  */
 export const renameConnection = async (id: string, newName: string): Promise<{ ok: boolean; reason?: string }> => {
-    const trimmed = String(newName || '').trim();
-    if (!trimmed) return { ok: false, reason: 'invalid-name' };
-    if (trimmed.length > 60) return { ok: false, reason: 'name-too-long' };
+    if (!String(newName || '').trim()) return { ok: false, reason: 'invalid-name' };
+    const sanitized = sanitizeConnectionDisplayName(newName, '');
+    if (!sanitized) return { ok: false, reason: 'invalid-name' };
     const conn = connectionsInfo.find((c) => c.id === id);
     if (!conn) return { ok: false, reason: 'not-found' };
-    if (conn.name === trimmed) return { ok: true };
-    conn.name = trimmed;
+    if (conn.name === sanitized) return { ok: true };
+    conn.name = sanitized;
     emitConnectionsUpdate();
     persistConnections().catch(() => {});
-    console.log(`[renameConnection] ${id} renomeado para "${trimmed}"`);
+    console.log(`[renameConnection] ${id} renomeado para "${sanitized}"`);
     return { ok: true };
 };
 
 export const deleteConnection = async (id: string) => {
+    if (!id) return;
     console.log(`[deleteConnection] Removendo canal ${id}...`);
-    stopHealthCheck(id);
+    try { stopHealthCheck(id); } catch { /* ignore */ }
     const rs = reconnectState.get(id);
     if (rs?.timeout) clearTimeout(rs.timeout);
     reconnectState.delete(id);
@@ -4601,15 +4666,22 @@ export const deleteConnection = async (id: string) => {
         }
         clients.delete(id);
     }
-    clearCacheForConnection(id);
-    await removeSessionDir(id);
+    try { clearCacheForConnection(id); } catch { /* ignore */ }
+    try { await removeSessionDir(id); } catch (e: any) {
+        console.warn(`[deleteConnection] removeSessionDir falhou para ${id}:`, e?.message || e);
+    }
+    const before = connectionsInfo.length;
     connectionsInfo = connectionsInfo.filter((c) => c.id !== id);
     conversations = conversations.filter((conv) => conv.connectionId !== id);
     channelQualityMetrics.delete(id);
     emitConnectionsUpdate();
     emitConversationsUpdate();
     persistConnections().catch(() => {});
-    console.log(`[deleteConnection] Canal ${id} removido (sessão em disco apagada). Total: ${connectionsInfo.length}`);
+    if (before === connectionsInfo.length) {
+        console.log(`[deleteConnection] ${id} não estava registado (idempotente).`);
+    } else {
+        console.log(`[deleteConnection] Canal ${id} removido. Total: ${connectionsInfo.length}`);
+    }
 };
 
 export const sendMessage = async (conversationId: string, text: string) => {
@@ -5015,6 +5087,8 @@ export const reconnectConnection = async (id: string) => {
     const conn = connectionsInfo.find(c => c.id === id);
     if (!conn) return;
 
+    // Reset do contador de auto-retry — acção do utilizador zera tentativas.
+    initAutoRetryCount.delete(id);
     // SIMPLIFICADO: Sem backup (estava falhando com EPERM)
     // LIMPAR CACHE ao reiniciar canal
     clearCacheForConnection(id);
@@ -5039,6 +5113,8 @@ export const forceQr = async (id: string) => {
     const conn = connectionsInfo.find(c => c.id === id);
     if (!conn) return;
 
+    // Reset do contador de auto-retry — força um ciclo limpo.
+    initAutoRetryCount.delete(id);
     // SIMPLIFICADO: Sem backup
     // LIMPAR CACHE ao forçar novo QR
     clearCacheForConnection(id);

@@ -42,6 +42,8 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const [currentConnectionId, setCurrentConnectionId] = useState<string | null>(null);
   const [phase, setPhase] = useState<InitPhase>('queued');
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [autoRetry, setAutoRetry] = useState<{ attempt: number; of: number } | null>(null);
   /** Evita corrida: ready pode chegar antes do setState do QR no mesmo tick. */
   const pendingConnectionIdRef = useRef<string | null>(null);
   const stepRef = useRef(step);
@@ -66,6 +68,8 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     priorConnectionIdsRef.current = new Set();
     setQrZoomOpen(false);
     setPhase('queued');
+    setQueuePosition(null);
+    setAutoRetry(null);
   }, [isOpen]);
 
   /** Se o evento `qr-code` nao chegar, o contexto ainda actualiza a lista com qrCode no canal novo. */
@@ -210,7 +214,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       );
     };
 
-    const onProgress = (data: { connectionId: string; phase: InitPhase }) => {
+    const onProgress = (data: { connectionId: string; phase: InitPhase; autoRetry?: number; of?: number }) => {
       const stepNow = stepRef.current;
       if (stepNow !== 'loading_qr' && stepNow !== 'scanning') return;
       if (priorConnectionIdsRef.current.has(data.connectionId)) return;
@@ -218,11 +222,29 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       if (pending && pending !== data.connectionId) return;
       if (data.phase === 'failed') return; // tratado por connection-init-failure.
       setPhase(data.phase);
+      setQueuePosition(null);
+      if (data.autoRetry && data.of) {
+        setAutoRetry({ attempt: data.autoRetry, of: data.of });
+      } else if (data.phase === 'preparing' || data.phase === 'awaiting-scan' || data.phase === 'authenticated' || data.phase === 'ready') {
+        // Em fases positivas, mantém o aviso de retry visível somente se acabou de mudar.
+      }
+    };
+
+    const onQueueProgress = (data: { phase?: string; queue?: { position?: number }; pendingFor?: string }) => {
+      const stepNow = stepRef.current;
+      if (stepNow !== 'loading_qr') return;
+      // Só relevante para o fluxo de criação aberto neste modal.
+      if (data.pendingFor && data.pendingFor !== 'create-connection') return;
+      const pos = Number(data.queue?.position || 0);
+      if (!Number.isFinite(pos) || pos <= 0) return;
+      setPhase('queued');
+      setQueuePosition(pos);
     };
 
     socket.on('qr-code', handleQrCode);
     socket.on('connection-ready', handleReady);
     socket.on('connection-progress', onProgress);
+    socket.on('connection-queue-progress', onQueueProgress);
     socket.on('subscription-required', onSubscriptionRequired);
     socket.on('connection-limit-reached', onConnectionLimit);
     socket.on('connection-init-failure', onInitFailure);
@@ -232,6 +254,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         socket.off('qr-code', handleQrCode);
         socket.off('connection-ready', handleReady);
         socket.off('connection-progress', onProgress);
+        socket.off('connection-queue-progress', onQueueProgress);
         socket.off('subscription-required', onSubscriptionRequired);
         socket.off('connection-limit-reached', onConnectionLimit);
         socket.off('connection-init-failure', onInitFailure);
@@ -308,6 +331,19 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
               <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mb-4" />
               <h3 className="text-lg font-semibold text-gray-800">{phaseLabels[phase].title}</h3>
               <p className="text-gray-500 text-sm mt-1">{phaseLabels[phase].sub}</p>
+
+              {queuePosition && queuePosition > 0 && (
+                <div className="mt-3 px-3 py-1.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                  Posição na fila: {queuePosition}
+                  {queuePosition === 1 ? ' — próximo a iniciar' : ''}
+                </div>
+              )}
+
+              {autoRetry && (
+                <div className="mt-3 px-3 py-1.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                  Tentativa automática {autoRetry.attempt}/{autoRetry.of}
+                </div>
+              )}
 
               <ol className="mt-5 w-full text-left space-y-1.5 text-[12px]">
                 {[

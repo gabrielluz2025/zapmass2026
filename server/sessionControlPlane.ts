@@ -6,6 +6,33 @@ import { SessionRouter } from './sessionRouter.js';
 import type { SessionCommand, SessionEvent } from './sessionContracts.js';
 import { markSessionCommandPublished, markSessionCommandResult } from './observability.js';
 
+/**
+ * Notifica o utilizador de que o comando ainda está a aguardar slot livre.
+ * - `create-connection` ainda não tem `connectionId` → publicamos para o `ownerUid`.
+ * - Outros tipos têm `connectionId` → emitToConnectionOwner descobre o dono.
+ */
+const emitQueueProgress = (command: SessionCommand, position: number): void => {
+  const detail = {
+    queue: { position, etaPhase: position <= 1 ? 'about-to-start' : 'waiting' },
+    phase: 'queued',
+    at: Date.now()
+  };
+  if (command.type === 'create-connection') {
+    waService.publishOwnerEvent(command.payload.ownerUid || command.requestedByUid, 'connection-queue-progress', {
+      ...detail,
+      pendingFor: 'create-connection'
+    });
+    return;
+  }
+  if ('connectionId' in command && command.connectionId) {
+    waService.publishOwnerEvent(command.requestedByUid, 'connection-queue-progress', {
+      ...detail,
+      pendingFor: command.type,
+      connectionId: command.connectionId
+    });
+  }
+};
+
 const PROCESS_MODE = process.env.SESSION_PROCESS_MODE || 'monolith';
 const WORKER_ID = process.env.WORKER_ID || `api-${process.pid}`;
 
@@ -102,7 +129,9 @@ export const startSessionControlPlane = async (): Promise<void> => {
       if (targetWorker !== WORKER_ID && PROCESS_MODE === 'api') return;
       await publishWorkerEvent('command-accepted', command, { targetWorker });
       try {
-        await runWithSessionCommandLimits(command, () => executeLocally(command));
+        await runWithSessionCommandLimits(command, () => executeLocally(command), {
+          onQueuePosition: (position) => emitQueueProgress(command, position)
+        });
         const connectionId = extractConnectionId(command);
         if (connectionId) router.renewConnectionLease(connectionId, WORKER_ID);
         router.recordCommandCompleted();
