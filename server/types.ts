@@ -25,6 +25,13 @@ export interface WhatsAppConnection {
   ownerUid?: string;
   /** QR atual (somente RAM / evento Socket; nunca persistir em disco). */
   qrCode?: string;
+  /**
+   * Sessao considerada invalida: cliente autentica via LocalAuth mas o
+   * WhatsApp Web nunca chega a `ready` (servidor revogou o aparelho).
+   * Quando true: nenhuma reconexao automatica e tentada e o boot do worker
+   * NAO restaura este canal. Utilizador tem de pedir QR/pareamento de novo.
+   */
+  sessionZombie?: boolean;
 }
 
 export interface DashboardMetrics {

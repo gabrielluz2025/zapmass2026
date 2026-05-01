@@ -24,6 +24,13 @@ export interface WhatsAppConnection {
   healthScore?: number;
   signalStrength: 'STRONG' | 'MEDIUM' | 'WEAK';
   ownerUid?: string;
+  /**
+   * Sessão considerada inválida: cliente autentica via LocalAuth mas o
+   * WhatsApp Web nunca chega a `ready` (servidor revogou o aparelho).
+   * Quando true: nenhuma reconexão automática é tentada e o boot do worker
+   * NÃO restaura este canal. Utilizador tem de pedir QR/pareamento de novo.
+   */
+  sessionZombie?: boolean;
 }
 
 export interface SystemMetrics {

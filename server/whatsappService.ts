@@ -300,6 +300,15 @@ const MAX_MESSAGES = 10000; // cap generoso para permitir historico completo qua
 const MAX_CONVERSATIONS = 200;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const reconnectState = new Map<string, { attempts: number; timeout?: NodeJS.Timeout }>();
+/**
+ * Quantas vezes seguidas o cliente disparou `authenticated` mas nunca chegou
+ * a `ready` (timeout de 240s). Indica sessão zumbi: credencial local válida
+ * mas aparelho revogado no servidor do WhatsApp. Acima do tecto, paramos de
+ * reiniciar automaticamente — utilizador tem de re-parear (QR ou código).
+ * Reset em `ready` (sucesso) ou em acção do utilizador.
+ */
+const authWithoutReadyCount = new Map<string, number>();
+const MAX_AUTH_WITHOUT_READY = 3;
 const webFixInProgress = new Map<string, number>(); // connectionId -> lastAttemptMs
 const healthCheckIntervals = new Map<string, NodeJS.Timeout>(); // connectionId -> interval
 const channelQualityMetrics = new Map<string, {
@@ -1658,6 +1667,20 @@ export const init = (socketIo: SocketIOServer) => {
                 return;
             }
             for (const conn of connectionsInfo) {
+                // Sessao marcada como zumbi por circuit breaker: nao restaurar
+                // automaticamente — entraria em loop de auth-sem-ready. Aparece
+                // como DISCONNECTED no painel; utilizador clica em Reconectar.
+                if (conn.sessionZombie) {
+                    console.warn(
+                        `[restore] 🧟 Saltando ${conn.name} (${conn.id}): ` +
+                        `sessao marcada zumbi. Utilizador tem de re-parear.`
+                    );
+                    updateConnectionState(conn.id, {
+                        status: ConnectionStatus.DISCONNECTED,
+                        lastActivity: 'Sessao expirou — re-pareamento necessario'
+                    });
+                    continue;
+                }
                 // Evita corrida no bootstrap ao abrir varios Chromium ao mesmo tempo.
                 // Isso reduz chance de falso positivo de profile lock em hosts com IO lento.
                 await initializeClient(conn.id, conn.name);
@@ -3043,6 +3066,13 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     emitConnectionPhase(id, 'ready');
     initAutoRetryCount.delete(id);
     pendingPairingCodeRequests.delete(id);
+    authWithoutReadyCount.delete(id);
+    // Sessao saudavel agora: se estava marcada como zumbi (ressuscitada por
+    // re-pareamento manual), retira a flag para voltar ao auto-restore.
+    const reborn = connectionsInfo.find((c) => c.id === id);
+    if (reborn?.sessionZombie) {
+        updateConnectionState(id, { sessionZombie: false });
+    }
     emitConnectionsUpdate();
     persistConnections().catch(() => {});
     reconnectState.delete(id);
@@ -3161,11 +3191,17 @@ const initializeClient = async (id: string, name: string) => {
         /* ignore — initialize lida com a ausencia */
     }
 
-    // Limpar reconnect antigo se existir
+    // Cancelar APENAS o timer pendente; preservar `attempts` para o backoff
+    // exponencial em scheduleReconnect avancar (2s -> 4s -> 8s -> ... -> 30s)
+    // ate atingir MAX_RECONNECT_ATTEMPTS. Se zerassemos aqui, todas as
+    // tentativas ficariam em 2s e o tecto nunca seria atingido (loop infinito
+    // em sessoes zumbi que disparam `authenticated` mas nunca `ready`).
+    // Reset completo so em sucesso (`ready`) ou em accao do utilizador
+    // (reconnectConnection / forceQr / deleteConnection) — handlers proprios.
     const state = reconnectState.get(id);
     if (state?.timeout) {
         clearTimeout(state.timeout);
-        reconnectState.delete(id);
+        reconnectState.set(id, { attempts: state.attempts });
     }
     
     // NÃO limpar cache aqui — clearing a cada init força re-download completo do WWeb
@@ -3283,6 +3319,11 @@ const initializeClient = async (id: string, name: string) => {
             }
             clearTimeout(loadingPhaseTimer);
             console.log(`[whatsapp-web.js] 🔐 ${name} autenticado`);
+            // Marca tentativa de auth sem ready ainda. Quando `ready` chegar,
+            // este contador é zerado. Se a sessão for zumbi (auth ok, mas
+            // ready nunca chega), o contador acumula e o circuit breaker do
+            // timeout 240s desliga o auto-reconnect.
+            authWithoutReadyCount.set(id, (authWithoutReadyCount.get(id) || 0) + 1);
             updateConnectionState(id, {
                 status: ConnectionStatus.CONNECTING,
                 lastActivity: 'Autenticado',
@@ -3373,14 +3414,8 @@ const initializeClient = async (id: string, name: string) => {
         connectionTimeoutRef = setTimeout(async () => {
             if (!isReadyHandled) {
                 console.log(`[whatsapp-web.js] ⏱️ Timeout ${name} (240s) - limpando e reiniciando motor...`);
-                updateConnectionState(id, {
-                    status: ConnectionStatus.DISCONNECTED,
-                    lastActivity: 'Timeout conexão',
-                    qrCode: undefined
-                });
-                emitConnectionsUpdate();
                 clearTimeout(loadingPhaseTimer);
-                
+
                 // CRÍTICO: Limpar referência ANTES de tentar destruir e agendar reconexão
                 if (clients.has(id)) {
                     const clientToDestroy = clients.get(id);
@@ -3392,7 +3427,46 @@ const initializeClient = async (id: string, name: string) => {
                         console.log(`[whatsapp-web.js] Erro ao destruir cliente (timeout):`, e);
                     }
                 }
-                
+
+                // Circuit breaker: se autenticou mas nunca chegou a `ready`
+                // por N timeouts seguidos, sessao foi revogada do lado do WA
+                // (LocalAuth ok, aparelho removido no telemovel). Marcar como
+                // zumbi e parar o auto-reconnect — utilizador tem de re-parear.
+                const authStuck = authWithoutReadyCount.get(id) || 0;
+                if (authStuck >= MAX_AUTH_WITHOUT_READY) {
+                    console.warn(
+                        `[whatsapp-web.js] 🧟 Sessao ${name} marcada como zumbi (` +
+                        `${authStuck} auth sem ready). Auto-reconnect desativado ` +
+                        `ate o utilizador clicar em Reconectar/Gerar QR.`
+                    );
+                    updateConnectionState(id, {
+                        status: ConnectionStatus.DISCONNECTED,
+                        lastActivity: 'Sessao expirou — re-pareamento necessario',
+                        qrCode: undefined,
+                        sessionZombie: true
+                    });
+                    emitConnectionsUpdate();
+                    persistConnections().catch(() => {});
+                    emitToConnectionOwner('connection-session-zombie', id, {
+                        connectionId: id,
+                        message:
+                            'Sessao parece ter sido removida no celular. Clique em ' +
+                            '"Reconectar" ou "Gerar QR" para parear novamente.'
+                    });
+                    // Limpa state de reconnect para que, ao re-parear, o backoff
+                    // recomece do zero.
+                    const rs = reconnectState.get(id);
+                    if (rs?.timeout) clearTimeout(rs.timeout);
+                    reconnectState.delete(id);
+                    return;
+                }
+
+                updateConnectionState(id, {
+                    status: ConnectionStatus.DISCONNECTED,
+                    lastActivity: 'Timeout conexão',
+                    qrCode: undefined
+                });
+                emitConnectionsUpdate();
                 scheduleReconnect(id, name, 'timeout_240s');
             }
         }, 240000);
@@ -5171,6 +5245,12 @@ export const reconnectConnection = async (id: string) => {
 
     // Reset do contador de auto-retry — acção do utilizador zera tentativas.
     initAutoRetryCount.delete(id);
+    // Acção do utilizador também zera o contador de reconexão automática para
+    // que o backoff exponencial recomece em 2s (e não num delay alto residual).
+    const rs = reconnectState.get(id);
+    if (rs?.timeout) clearTimeout(rs.timeout);
+    reconnectState.delete(id);
+    authWithoutReadyCount.delete(id);
     // SIMPLIFICADO: Sem backup (estava falhando com EPERM)
     // LIMPAR CACHE ao reiniciar canal
     clearCacheForConnection(id);
@@ -5197,6 +5277,12 @@ export const forceQr = async (id: string) => {
 
     // Reset do contador de auto-retry — força um ciclo limpo.
     initAutoRetryCount.delete(id);
+    // Idem para o contador de reconexão e do circuit breaker auth-sem-ready:
+    // forçar QR é uma acção explícita do utilizador, recomeça do zero.
+    const rs = reconnectState.get(id);
+    if (rs?.timeout) clearTimeout(rs.timeout);
+    reconnectState.delete(id);
+    authWithoutReadyCount.delete(id);
     // SIMPLIFICADO: Sem backup
     // LIMPAR CACHE ao forçar novo QR
     clearCacheForConnection(id);
