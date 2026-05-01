@@ -96,6 +96,7 @@ services:
       REDIS_URL: redis://redis:6379
       SESSION_PROCESS_MODE: worker
       WORKER_ID: "{{.Task.Name}}"
+      FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
     deploy:
       # Com API em monolith: 0. Com ZAPMASS_API_SESSION_MODE=api: use 1 ou mais (Chromium no worker).

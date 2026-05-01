@@ -12,7 +12,7 @@ export function getFirebaseAdmin(): admin.app.App | null {
     return admin.app();
   }
   const jsonRaw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
+  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim() || '/run/secrets/firebase-admin.json';
 
   try {
     if (jsonRaw) {
@@ -38,6 +38,7 @@ export function isFirebaseAdminConfigured(): boolean {
   return !!(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() ||
     (process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim() &&
-      existsSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH.trim()))
+      existsSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH.trim())) ||
+    existsSync('/run/secrets/firebase-admin.json')
   );
 }
