@@ -32,11 +32,19 @@ if [ -f .env ]; then
         export "$k=$v"
         ;;
     esac
-  done < <(grep -E '^[[:space:]]*(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|INFINITEPAY_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS|WWEBJS_WEB_VERSION_URL|TRUST_PROXY|TRUST_PROXY_HOPS|EVOLUTION_WEBHOOK_TOKEN)=' .env || true)
+  # Aceitar também `export VAR=...` (sem isso o grep não apanha a linha e o Swarm fica sem MERCADOPAGO/FIREBASE/etc.).
+  done < <(grep -E '^[[:space:]]*(export[[:space:]]+)?(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|INFINITEPAY_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS|WWEBJS_WEB_VERSION_URL|TRUST_PROXY|TRUST_PROXY_HOPS|EVOLUTION_WEBHOOK_TOKEN)=' .env | sed -E 's/^[[:space:]]*export[[:space:]]+//' || true)
   if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
     echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
   else
     echo "==> AVISO: MERCADOPAGO_ACCESS_TOKEN vazio após .env"
+  fi
+  if [ -n "${FIREBASE_WEB_API_KEY:-}" ]; then
+    echo "==> FIREBASE_WEB_API_KEY presente (prefixo ${FIREBASE_WEB_API_KEY:0:8}…; len=${#FIREBASE_WEB_API_KEY})"
+  elif [ -n "${VITE_FIREBASE_API_KEY:-}" ]; then
+    echo "==> VITE_FIREBASE_API_KEY presente p/ API (len=${#VITE_FIREBASE_API_KEY}; usar no stack deploy)"
+  else
+    echo "==> AVISO: nem FIREBASE_WEB_API_KEY nem VITE_FIREBASE_API_KEY após .env — login Funcionário falha; ver .env.example"
   fi
   if [ -n "${WWEBJS_WEB_VERSION_URL:-}" ]; then
     echo "==> WWEBJS_WEB_VERSION_URL exportada (${WWEBJS_WEB_VERSION_URL:0:88}…)"

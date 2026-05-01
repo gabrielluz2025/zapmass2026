@@ -26,6 +26,8 @@ services:
       SESSION_PROCESS_MODE: ${ZAPMASS_API_SESSION_MODE:-monolith}
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       FIREBASE_WEB_API_KEY: ${FIREBASE_WEB_API_KEY:-}
+      # Mesmo valor que no frontend; no Swarm env_file não injeta — necessário no deploy. O servidor aceita esta ou FIREBASE_WEB_API_KEY.
+      VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
       MAX_STAFF_PASSWORD_ACCOUNTS: ${MAX_STAFF_PASSWORD_ACCOUNTS:-}
       # Swarm: `env_file` não injeta como no `docker compose up`. O deploy SSH exporta MERCADOPAGO_* do .env
       # e o Compose substitui ${...} no deploy. Sem isto: "MERCADOPAGO_ACCESS_TOKEN nao configurado".
