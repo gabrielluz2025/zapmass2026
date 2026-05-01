@@ -37,6 +37,7 @@ import {
   submitDeleteConnection,
   submitForceQr,
   submitReconnectConnection,
+  submitRenameConnection,
   submitSendMedia,
   submitSendMessage
 } from './sessionControlPlane.js';
@@ -577,6 +578,37 @@ const registerSocketHandlers = () => {
           });
         } catch (e) {
           reportSocketAsyncError('reconnect-connection', e);
+        }
+      })();
+    });
+
+    socket.on('rename-connection', ({ id, name }: { id?: string; name?: string }) => {
+      void (async () => {
+        try {
+          const connId = String(id || '').trim();
+          const newName = String(name || '').trim();
+          if (!connId || !newName) {
+            socket.emit('socket-operation-error', { op: 'rename-connection', error: 'Parâmetros inválidos' });
+            return;
+          }
+          if (newName.length > 60) {
+            socket.emit('socket-operation-error', { op: 'rename-connection', error: 'Nome muito longo (máx 60).' });
+            return;
+          }
+          if (!ownsConnectionId(connId)) {
+            denyCrossTenant('rename-connection', { id: connId });
+            return;
+          }
+          userLog('ui:rename-connection', { id: connId, name: newName });
+          await runSessionCommandOrLocal({
+            submit: () => submitRenameConnection(connId, newName, authOp),
+            local: async () => {
+              await waService.renameConnection(connId, newName);
+            }
+          });
+          socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
+        } catch (e) {
+          reportSocketAsyncError('rename-connection', e);
         }
       })();
     });

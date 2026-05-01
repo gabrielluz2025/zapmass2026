@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X } from 'lucide-react';
 import { QRCodeModal } from './QRCodeModal';
+import { QrCanvas } from './QrCanvas';
 import { WhatsAppConnection, ConnectionStatus } from '../types';
 
 const formatUptime = (connectedSince?: number): string => {
@@ -17,13 +18,15 @@ interface ConnectionCardProps {
   onDisconnect: (id: string) => void;
   onReconnect: (id: string) => void;
   onForceQr: (id: string) => void;
+  onRename?: (id: string, name: string) => void;
 }
 
 export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({ 
   connection, 
   onDisconnect, 
   onReconnect,
-  onForceQr
+  onForceQr,
+  onRename
 }) => {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -38,6 +41,23 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
 
   const [qrSeconds, setQrSeconds] = useState(60);
   const [qrZoomOpen, setQrZoomOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState(connection.name);
+
+  useEffect(() => {
+    if (!renameOpen) setRenameValue(connection.name);
+  }, [connection.name, renameOpen]);
+
+  const submitRename = () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === connection.name) {
+      setRenameOpen(false);
+      setRenameValue(connection.name);
+      return;
+    }
+    onRename?.(connection.id, trimmed);
+    setRenameOpen(false);
+  };
   useEffect(() => {
     if (!isQrReady || !connection.qrCode) return;
     setQrSeconds(60);
@@ -98,11 +118,58 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-base font-black text-slate-900 dark:text-white truncate">{connection.name}</h3>
-              <span className="text-[9px] font-black px-2.5 py-0.5 rounded-full flex-shrink-0"
-                style={{ background: `${statusColor}18`, color: statusColor }}>
-                {statusLabel}
-              </span>
+              {renameOpen ? (
+                <div className="flex items-center gap-1 flex-1 min-w-0">
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') submitRename();
+                      if (e.key === 'Escape') { setRenameOpen(false); setRenameValue(connection.name); }
+                    }}
+                    maxLength={60}
+                    className="flex-1 min-w-0 px-2 py-0.5 text-sm font-bold rounded-md border border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={submitRename}
+                    className="p-1 rounded-md text-emerald-600 hover:bg-emerald-50"
+                    aria-label="Salvar nome"
+                    title="Salvar"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setRenameOpen(false); setRenameValue(connection.name); }}
+                    className="p-1 rounded-md text-slate-400 hover:bg-slate-100"
+                    aria-label="Cancelar renomear"
+                    title="Cancelar"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white truncate" title={connection.name}>{connection.name}</h3>
+                  {onRename && (
+                    <button
+                      type="button"
+                      onClick={() => setRenameOpen(true)}
+                      className="p-0.5 rounded-md text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors flex-shrink-0"
+                      aria-label="Renomear conexão"
+                      title="Renomear"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                  <span className="text-[9px] font-black px-2.5 py-0.5 rounded-full flex-shrink-0"
+                    style={{ background: `${statusColor}18`, color: statusColor }}>
+                    {statusLabel}
+                  </span>
+                </>
+              )}
             </div>
             <p className="text-xs text-slate-400 font-mono truncate">{connection.phoneNumber || 'Aguardando conexão...'}</p>
           </div>
@@ -129,9 +196,11 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               aria-label="Ampliar QR Code"
               title="Clique para ampliar"
             >
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(connection.qrCode)}`}
-                alt="" className="w-44 h-44 pointer-events-none"
+              <QrCanvas
+                value={connection.qrCode}
+                size={176}
+                className="pointer-events-none"
+                ariaLabel={`QR Code de ${connection.name}`}
               />
             </button>
             <div className="flex items-center justify-between w-full">

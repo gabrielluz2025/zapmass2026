@@ -52,6 +52,10 @@ const executeLocally = async (command: SessionCommand): Promise<void> => {
     await waService.forceQr(command.connectionId);
     return;
   }
+  if (command.type === 'rename-connection') {
+    await waService.renameConnection(command.connectionId, command.payload.name);
+    return;
+  }
   if (command.type === 'send-message') {
     await waService.sendMessage(command.payload.conversationId, command.payload.text);
     return;
@@ -182,6 +186,24 @@ export const submitReconnectConnection = async (connectionId: string, requestedB
     requestedByUid,
     type: 'reconnect-connection',
     connectionId
+  };
+  router.recordCommandPublished();
+  markSessionCommandPublished(command.type);
+  await bus.publishCommand(command);
+};
+
+export const submitRenameConnection = async (
+  connectionId: string,
+  name: string,
+  requestedByUid: string
+) => {
+  const command: SessionCommand = {
+    commandId: nextId('cmd'),
+    requestedAt: Date.now(),
+    requestedByUid,
+    type: 'rename-connection',
+    connectionId,
+    payload: { name }
   };
   router.recordCommandPublished();
   markSessionCommandPublished(command.type);

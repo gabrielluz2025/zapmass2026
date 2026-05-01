@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, Download, Smartphone, Copy, Check } from 'lucide-react';
+import { QrCanvas } from './QrCanvas';
 
 interface QRCodeModalProps {
   isOpen: boolean;
@@ -16,12 +17,15 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
 }) => {
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const qrWrapperRef = useRef<HTMLDivElement | null>(null);
 
   if (!isOpen) return null;
 
   const handleDownload = () => {
+    const canvas = qrWrapperRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
     const link = document.createElement('a');
-    link.href = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qrCode)}`;
+    link.href = canvas.toDataURL('image/png');
     link.download = `qrcode-${connectionName.replace(/\s+/g, '-').toLowerCase()}.png`;
     document.body.appendChild(link);
     link.click();
@@ -87,12 +91,12 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
         {/* Content Area */}
         {!showCode ? (
           /* QR Code View */
-          <div className="flex justify-center mb-6">
+          <div className="flex justify-center mb-6" ref={qrWrapperRef}>
             <div className="bg-white p-6 rounded-2xl shadow-2xl border-2 border-amber-500/30">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qrCode)}`}
-                alt={`QR Code Ampliado ${connectionName}`}
-                className="w-96 h-96 object-contain"
+              <QrCanvas
+                value={qrCode}
+                size={384}
+                ariaLabel={`QR Code Ampliado ${connectionName}`}
               />
             </div>
           </div>

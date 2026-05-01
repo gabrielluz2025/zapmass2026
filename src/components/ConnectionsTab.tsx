@@ -91,7 +91,7 @@ const loadSort = (): SortKey => {
 };
 
 export const ConnectionsTab: React.FC = () => {
-  const { connections, addConnection, removeConnection, reconnectConnection, forceQr } =
+  const { connections, addConnection, removeConnection, reconnectConnection, forceQr, renameConnection } =
     useZapMass();
   const { user } = useAuth();
   const { subscription, readOnlyMode, enforce: subEnforce } = useSubscription();
@@ -906,6 +906,7 @@ export const ConnectionsTab: React.FC = () => {
                     onDisconnect={removeConnection}
                     onReconnect={reconnectConnection}
                     onForceQr={forceQr}
+                    onRename={renameConnection}
                   />
                 </div>
               );

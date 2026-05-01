@@ -4,7 +4,8 @@ export type SessionCommandType =
   | 'force-qr'
   | 'send-message'
   | 'send-media'
-  | 'delete-connection';
+  | 'delete-connection'
+  | 'rename-connection';
 
 export interface SessionCommandBase {
   commandId: string;
@@ -55,13 +56,22 @@ export interface DeleteConnectionCommand extends SessionCommandBase {
   connectionId: string;
 }
 
+export interface RenameConnectionCommand extends SessionCommandBase {
+  type: 'rename-connection';
+  connectionId: string;
+  payload: {
+    name: string;
+  };
+}
+
 export type SessionCommand =
   | CreateConnectionCommand
   | ReconnectConnectionCommand
   | ForceQrCommand
   | SendMessageCommand
   | SendMediaCommand
-  | DeleteConnectionCommand;
+  | DeleteConnectionCommand
+  | RenameConnectionCommand;
 
 export type SessionEventType =
   | 'worker-heartbeat'

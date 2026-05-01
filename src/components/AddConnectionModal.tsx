@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { useZapMass } from '../context/ZapMassContext';
 import { ConnectionStatus } from '../types';
 import { QRCodeModal } from './QRCodeModal';
+import { QrCanvas } from './QrCanvas';
 
 interface AddConnectionModalProps {
   isOpen: boolean;
@@ -13,12 +14,34 @@ interface AddConnectionModalProps {
 
 const QR_LOAD_TIMEOUT_MS = 120_000;
 
+type InitPhase =
+  | 'queued'
+  | 'preparing'
+  | 'launching-browser'
+  | 'loading-whatsapp-web'
+  | 'awaiting-scan'
+  | 'authenticated'
+  | 'ready'
+  | 'failed';
+
+const phaseLabels: Record<InitPhase, { title: string; sub: string }> = {
+  'queued': { title: 'Na fila', sub: 'Aguardando worker disponível...' },
+  'preparing': { title: 'Preparando sessão', sub: 'Limpando estado e isolando perfil do navegador.' },
+  'launching-browser': { title: 'Iniciando navegador', sub: 'Abrindo o Chromium em segundo plano.' },
+  'loading-whatsapp-web': { title: 'Conectando ao WhatsApp', sub: 'Carregando whatsapp.com (pode levar alguns segundos).' },
+  'awaiting-scan': { title: 'Aguardando leitura', sub: 'Escaneie o QR com o seu celular.' },
+  'authenticated': { title: 'Autenticado', sub: 'Sincronizando sessão...' },
+  'ready': { title: 'Conectado', sub: 'Tudo pronto.' },
+  'failed': { title: 'Falha ao iniciar', sub: 'Tente novamente em instantes.' }
+};
+
 export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { socket, connections, isBackendConnected } = useZapMass();
   const [step, setStep] = useState<'naming' | 'loading_qr' | 'scanning' | 'success'>('naming');
   const [connectionName, setConnectionName] = useState('');
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const [currentConnectionId, setCurrentConnectionId] = useState<string | null>(null);
+  const [phase, setPhase] = useState<InitPhase>('queued');
   /** Evita corrida: ready pode chegar antes do setState do QR no mesmo tick. */
   const pendingConnectionIdRef = useRef<string | null>(null);
   const stepRef = useRef(step);
@@ -42,6 +65,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     pendingConnectionIdRef.current = null;
     priorConnectionIdsRef.current = new Set();
     setQrZoomOpen(false);
+    setPhase('queued');
   }, [isOpen]);
 
   /** Se o evento `qr-code` nao chegar, o contexto ainda actualiza a lista com qrCode no canal novo. */
@@ -186,8 +210,19 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       );
     };
 
+    const onProgress = (data: { connectionId: string; phase: InitPhase }) => {
+      const stepNow = stepRef.current;
+      if (stepNow !== 'loading_qr' && stepNow !== 'scanning') return;
+      if (priorConnectionIdsRef.current.has(data.connectionId)) return;
+      const pending = pendingConnectionIdRef.current;
+      if (pending && pending !== data.connectionId) return;
+      if (data.phase === 'failed') return; // tratado por connection-init-failure.
+      setPhase(data.phase);
+    };
+
     socket.on('qr-code', handleQrCode);
     socket.on('connection-ready', handleReady);
+    socket.on('connection-progress', onProgress);
     socket.on('subscription-required', onSubscriptionRequired);
     socket.on('connection-limit-reached', onConnectionLimit);
     socket.on('connection-init-failure', onInitFailure);
@@ -196,6 +231,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     return () => {
         socket.off('qr-code', handleQrCode);
         socket.off('connection-ready', handleReady);
+        socket.off('connection-progress', onProgress);
         socket.off('subscription-required', onSubscriptionRequired);
         socket.off('connection-limit-reached', onConnectionLimit);
         socket.off('connection-init-failure', onInitFailure);
@@ -211,6 +247,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
         return;
       }
       priorConnectionIdsRef.current = new Set(connections.map((c) => c.id));
+      setPhase('queued');
       setStep('loading_qr');
       onSuccess(connectionName);
   };
@@ -267,13 +304,40 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
           )}
 
           {step === 'loading_qr' && (
-            <div className="flex flex-col items-center text-center py-8 max-w-sm">
+            <div className="flex flex-col items-center text-center py-6 max-w-sm w-full">
               <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mb-4" />
-              <h3 className="text-lg font-semibold text-gray-800">Iniciando motor do WhatsApp...</h3>
-              <p className="text-gray-500 text-sm mt-1">
-                Abrindo o Chrome em segundo plano. Pode levar 30–90 s no primeiro arranque. Se várias pessoas
-                conectam ao mesmo tempo, o sistema processa em fila sem bloquear outras contas.
+              <h3 className="text-lg font-semibold text-gray-800">{phaseLabels[phase].title}</h3>
+              <p className="text-gray-500 text-sm mt-1">{phaseLabels[phase].sub}</p>
+
+              <ol className="mt-5 w-full text-left space-y-1.5 text-[12px]">
+                {[
+                  { key: 'preparing', label: 'Preparar sessão' },
+                  { key: 'launching-browser', label: 'Iniciar navegador' },
+                  { key: 'loading-whatsapp-web', label: 'Conectar ao WhatsApp Web' },
+                  { key: 'awaiting-scan', label: 'Aguardar QR' }
+                ].map(({ key, label }) => {
+                  const order: InitPhase[] = ['queued', 'preparing', 'launching-browser', 'loading-whatsapp-web', 'awaiting-scan'];
+                  const idxNow = order.indexOf(phase);
+                  const idxThis = order.indexOf(key as InitPhase);
+                  const done = idxNow > idxThis;
+                  const active = idxNow === idxThis;
+                  return (
+                    <li key={key} className="flex items-center gap-2">
+                      <span
+                        className={`inline-block w-2.5 h-2.5 rounded-full ${
+                          done ? 'bg-emerald-500' : active ? 'bg-amber-500 animate-pulse' : 'bg-slate-300'
+                        }`}
+                      />
+                      <span className={done || active ? 'text-slate-700' : 'text-slate-400'}>{label}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+
+              <p className="text-[11px] text-slate-400 mt-4">
+                Várias contas em paralelo entram em fila no servidor — outras contas continuam a operar normalmente.
               </p>
+
               <button
                 type="button"
                 onClick={() => {
@@ -283,7 +347,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
                   }
                   setStep('naming');
                 }}
-                className="mt-6 text-sm font-semibold text-emerald-700 hover:underline"
+                className="mt-5 text-sm font-semibold text-emerald-700 hover:underline"
               >
                 Cancelar e voltar
               </button>
@@ -293,7 +357,6 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
           {step === 'scanning' && qrCodeData && (
             <div className="flex flex-col items-center text-center w-full">
               <div className="bg-white p-4 rounded-xl border-2 border-emerald-100 shadow-inner mb-4 relative group">
-                {/* Efeito de Pulse ao redor do QR Code */}
                 <div className="relative">
                     <button
                       type="button"
@@ -302,13 +365,8 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
                       aria-label="Ampliar QR Code"
                       title="Clique para ampliar"
                     >
-                      <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCodeData)}`} 
-                        alt="" 
-                        className="w-52 h-52 object-contain pointer-events-none"
-                      />
+                      <QrCanvas value={qrCodeData} size={208} className="rounded" ariaLabel="QR Code para ligar WhatsApp" />
                     </button>
-                    {/* Ring Pulse Animation */}
                     <div className="absolute -inset-4 border-2 border-emerald-400/50 rounded-xl animate-pulse z-0 pointer-events-none"></div>
                 </div>
               </div>

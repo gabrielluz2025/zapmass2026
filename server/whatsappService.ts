@@ -3006,6 +3006,7 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
 
     console.log(`[handleClientReady] Emitindo connection-ready e connections-update...`);
     emitToConnectionOwner('connection-ready', id, { connectionId: id });
+    emitConnectionPhase(id, 'ready');
     emitConnectionsUpdate();
     persistConnections().catch(() => {});
     reconnectState.delete(id);
@@ -3060,6 +3061,32 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
 // Controla quantas vezes ja tentamos restaurar backup por sessao nesta vida do processo
 const backupRestoreAttempts = new Map<string, number>();
 
+/** Tempo máx. para o `qr` (ou `ready` se sessão restaurada) chegar; senão aborta. */
+const FIRST_QR_TIMEOUT_MS = Number(process.env.WA_FIRST_QR_TIMEOUT_MS || 90_000);
+
+type ConnectionInitPhase =
+    | 'queued'
+    | 'preparing'
+    | 'launching-browser'
+    | 'loading-whatsapp-web'
+    | 'awaiting-scan'
+    | 'authenticated'
+    | 'ready'
+    | 'failed';
+
+const emitConnectionPhase = (
+    id: string,
+    phase: ConnectionInitPhase,
+    extra?: Record<string, unknown>
+) => {
+    emitToConnectionOwner('connection-progress', id, {
+        connectionId: id,
+        phase,
+        at: Date.now(),
+        ...(extra || {})
+    });
+};
+
 const initializeClient = async (id: string, name: string) => {
     console.log(`Inicializando cliente whatsapp-web.js: ${name} (${id})`);
     
@@ -3076,6 +3103,7 @@ const initializeClient = async (id: string, name: string) => {
         qrCode: undefined
     });
     emitConnectionsUpdate();
+    emitConnectionPhase(id, 'preparing');
 
     // Se a sessao principal estiver faltando mas tivermos um backup do shutdown
     // anterior, restauramos proativamente. Evita o usuario ver um QR novo quando
@@ -3143,16 +3171,33 @@ const initializeClient = async (id: string, name: string) => {
         });
 
         let isReadyHandled = false;
+        let firstQrTimeoutRef: NodeJS.Timeout | null = null;
 
         const clearConnectionTimeout = () => {
             if (connectionTimeoutRef) {
                 clearTimeout(connectionTimeoutRef);
                 connectionTimeoutRef = null;
             }
+            if (firstQrTimeoutRef) {
+                clearTimeout(firstQrTimeoutRef);
+                firstQrTimeoutRef = null;
+            }
         };
-        
+
+        emitConnectionPhase(id, 'launching-browser');
+        // Após `launching-browser`, o WWeb-JS faz GET no whatsapp.com — sinaliza
+        // a fase intermediária para o front após ~3s (quando o `qr` ainda não veio).
+        const loadingPhaseTimer = setTimeout(() => {
+            if (!isReadyHandled) emitConnectionPhase(id, 'loading-whatsapp-web');
+        }, 3500);
+
         client.on('qr', (qr) => {
             if (isReadyHandled) return;
+            if (firstQrTimeoutRef) {
+                clearTimeout(firstQrTimeoutRef);
+                firstQrTimeoutRef = null;
+            }
+            clearTimeout(loadingPhaseTimer);
             console.log(`[whatsapp-web.js] 📱 QR Code gerado para ${name}`);
             updateConnectionState(id, {
                 status: ConnectionStatus.QR_READY,
@@ -3161,10 +3206,16 @@ const initializeClient = async (id: string, name: string) => {
             });
             emitToConnectionOwner('qr-code', id, { connectionId: id, qrCode: qr });
             emitConnectionsUpdate();
+            emitConnectionPhase(id, 'awaiting-scan');
         });
 
         client.on('authenticated', () => {
             if (isReadyHandled) return;
+            if (firstQrTimeoutRef) {
+                clearTimeout(firstQrTimeoutRef);
+                firstQrTimeoutRef = null;
+            }
+            clearTimeout(loadingPhaseTimer);
             console.log(`[whatsapp-web.js] 🔐 ${name} autenticado`);
             updateConnectionState(id, {
                 status: ConnectionStatus.CONNECTING,
@@ -3173,6 +3224,7 @@ const initializeClient = async (id: string, name: string) => {
             });
             emitConnectionsUpdate();
             emitToConnectionOwner('connection-authenticated', id, { connectionId: id });
+            emitConnectionPhase(id, 'authenticated');
         });
 
         client.on('ready', async () => {
@@ -3199,6 +3251,32 @@ const initializeClient = async (id: string, name: string) => {
             emitToConnectionOwner('auth-failure', id, { connectionId: id, message: msg });
         });
         
+        // Timeout para o PRIMEIRO QR/auth: se nada chegou em FIRST_QR_TIMEOUT_MS,
+        // aborta o motor e devolve erro amigável imediato — o utilizador não fica preso.
+        firstQrTimeoutRef = setTimeout(async () => {
+            if (isReadyHandled) return;
+            const conn = connectionsInfo.find((c) => c.id === id);
+            if (conn?.status === ConnectionStatus.QR_READY) return; // Já temos QR; deixa o timeout global gerir.
+            console.warn(`[whatsapp-web.js] ⏱️ Sem QR/auth em ${FIRST_QR_TIMEOUT_MS}ms para ${name} — abortando motor.`);
+            clearTimeout(loadingPhaseTimer);
+            emitConnectionPhase(id, 'failed', { reason: 'first-qr-timeout' });
+            emitToConnectionOwner('connection-init-failure', id, {
+                connectionId: id,
+                message: `Não foi possível gerar o QR code em ${Math.round(FIRST_QR_TIMEOUT_MS / 1000)}s. Tente novamente; se persistir, verifique a conexão do servidor com whatsapp.com.`
+            });
+            updateConnectionState(id, {
+                status: ConnectionStatus.DISCONNECTED,
+                lastActivity: 'Sem QR no tempo previsto',
+                qrCode: undefined
+            });
+            emitConnectionsUpdate();
+            if (clients.has(id)) {
+                const clientToDestroy = clients.get(id);
+                clients.delete(id);
+                try { await clientToDestroy?.destroy(); } catch { /* ignore */ }
+            }
+        }, FIRST_QR_TIMEOUT_MS);
+
         // Timeout global: 240s para dar tempo ao WhatsApp Web de carregar completamente
         connectionTimeoutRef = setTimeout(async () => {
             if (!isReadyHandled) {
@@ -3209,6 +3287,7 @@ const initializeClient = async (id: string, name: string) => {
                     qrCode: undefined
                 });
                 emitConnectionsUpdate();
+                clearTimeout(loadingPhaseTimer);
                 
                 // CRÍTICO: Limpar referência ANTES de tentar destruir e agendar reconexão
                 if (clients.has(id)) {
@@ -3386,6 +3465,7 @@ const initializeClient = async (id: string, name: string) => {
         const forUser = (msg || String(err) || 'erro desconhecido').replace(/\0/g, '');
         const userMsg = forUser.length > 500 ? forUser.slice(0, 500) + '…' : forUser;
         emitToConnectionOwner('connection-init-failure', id, { connectionId: id, message: userMsg });
+        emitConnectionPhase(id, 'failed', { reason: 'init-error', message: userMsg.slice(0, 160) });
         const isBrowserLock =
             msg.includes('browser is already running') ||
             msg.includes('SingletonLock') ||
@@ -4481,6 +4561,24 @@ const handleCampaignProgress = () => {
         // Salvar progresso a cada 5 mensagens
         persistQueue().catch(() => {});
     }
+};
+
+/**
+ * Renomeia uma conexão sem reiniciar a sessão.
+ * Persiste no disco e propaga via `connections-update` para todos os sockets do dono.
+ */
+export const renameConnection = async (id: string, newName: string): Promise<{ ok: boolean; reason?: string }> => {
+    const trimmed = String(newName || '').trim();
+    if (!trimmed) return { ok: false, reason: 'invalid-name' };
+    if (trimmed.length > 60) return { ok: false, reason: 'name-too-long' };
+    const conn = connectionsInfo.find((c) => c.id === id);
+    if (!conn) return { ok: false, reason: 'not-found' };
+    if (conn.name === trimmed) return { ok: true };
+    conn.name = trimmed;
+    emitConnectionsUpdate();
+    persistConnections().catch(() => {});
+    console.log(`[renameConnection] ${id} renomeado para "${trimmed}"`);
+    return { ok: true };
 };
 
 export const deleteConnection = async (id: string) => {
