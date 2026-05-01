@@ -91,6 +91,16 @@ async function migrateLegacyWaSessionFolders(logicalId: string): Promise<void> {
 
 async function writeLogicalIdMarkerToSessionDir(logicalId: string, sessionDir: string): Promise<void> {
     try {
+        // Defesa em profundidade: nunca persistir `.backup` no marker — id
+        // terminado em `.backup` indica canal fantasma criado por cura
+        // antiga. Persistir isto ressuscita o canal a cada boot via
+        // loadConnectionsFromAuth e gera loop de auth-sem-ready.
+        if (isPhantomSessionBackupConnectionId(logicalId)) {
+            console.warn(
+                `[SessionSlug] Recusado gravar marker .backup (logicalId=${logicalId}) em ${sessionDir}`
+            );
+            return;
+        }
         await fs.promises.writeFile(path.join(sessionDir, ZAPMASS_LOGICAL_ID_MARKER), logicalId, 'utf8');
     } catch {
         /* ignore */
@@ -420,6 +430,28 @@ const loadConnectionsFromAuth = async () => {
                 console.warn(
                     `[Connections] Ignorando pasta orfa ${path.basename(sessionDirPath)} (sem marker e sem snapshot)`
                 );
+                continue;
+            }
+
+            // Marker terminado em `.backup` significa que esta pasta foi
+            // criada por uma cura anterior (loadConnections filtra `.backup`,
+            // mas escrevemos o marker antes). Sem isto, o canal fantasma volta
+            // a aparecer em connections.json a cada boot e gera loop de
+            // auth-sem-ready (sessao revogada do lado do WA). Apagamos a
+            // pasta para limpar o residuo de credenciais e seguimos em frente.
+            if (isPhantomSessionBackupConnectionId(logicalId)) {
+                console.warn(
+                    `[Connections] Apagando pasta fantasma ${path.basename(sessionDirPath)} ` +
+                    `(marker logicalId=${logicalId} termina em .backup; sessao zumbi).`
+                );
+                try {
+                    await fs.promises.rm(sessionDirPath, { recursive: true, force: true });
+                } catch (e) {
+                    console.warn(
+                        `[Connections] Falha ao apagar ${sessionDirPath}:`,
+                        (e as Error)?.message || e
+                    );
+                }
                 continue;
             }
 
