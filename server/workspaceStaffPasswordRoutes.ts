@@ -369,7 +369,9 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
     }
   });
 
-  /** Revoga acesso por senha. */
+  /**
+   * Revoga acesso por senha, ou remove permanentemente da lista se já revogado (?purge=true).
+   */
   app.delete('/api/workspace/staff-password-users/:staffAuthUid', async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
@@ -383,6 +385,8 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
     if (!staffAuthUid || staffAuthUid.length < 8) {
       return res.status(400).json({ ok: false, error: 'Identificador inválido.' });
     }
+    const purge =
+      String(req.query.purge ?? '').toLowerCase() === 'true' || req.query.purge === '1';
     try {
       const { uid: ownerUid, db } = await assertOwnerBearer(adminApp, token);
       const col = db.collection('users').doc(ownerUid).collection('staffPasswordUsers');
@@ -392,6 +396,25 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
       }
       const doc = qs.docs[0];
       const auth = getAuth(adminApp);
+
+      if (purge) {
+        const revokedAt = doc.data()?.revokedAt;
+        if (revokedAt == null) {
+          return res.status(400).json({
+            ok: false,
+            error: 'Primeiro revogue o acesso; só depois pode apagar da lista.'
+          });
+        }
+        try {
+          await auth.deleteUser(staffAuthUid);
+        } catch {
+          /* já removido ou inexistente */
+        }
+        await db.collection('userWorkspaceLinks').doc(staffAuthUid).delete().catch(() => undefined);
+        await doc.ref.delete();
+        return res.json({ ok: true });
+      }
+
       try {
         await auth.updateUser(staffAuthUid, { disabled: true });
       } catch {
@@ -405,7 +428,7 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
         return res.status(403).json({ ok: false, error: 'Sem permissão.' });
       }
       console.error('[workspace/staff-password-users DELETE]', e);
-      return res.status(400).json({ ok: false, error: 'Falha ao revogar.' });
+      return res.status(400).json({ ok: false, error: purge ? 'Falha ao apagar.' : 'Falha ao revogar.' });
     }
   });
 }

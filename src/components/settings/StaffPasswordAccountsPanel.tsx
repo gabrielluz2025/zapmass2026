@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { KeyRound, Loader2, ShieldOff } from 'lucide-react';
+import { KeyRound, Loader2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAuth } from 'firebase/auth';
 import { Badge, Button, Input } from '../ui';
@@ -106,6 +106,24 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin }) => 
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Falha ao revogar.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const permanentRemove = async (staffAuthUid: string) => {
+    if (!staffAuthUid) return;
+    if (!confirm('Remover este registo da lista para sempre? O utilizador já está revogado.')) return;
+    setBusy(true);
+    try {
+      await apiFetch(
+        `/api/workspace/staff-password-users/${encodeURIComponent(staffAuthUid)}?purge=true`,
+        { method: 'DELETE' }
+      );
+      toast.success('Removido da lista.');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao apagar.');
     } finally {
       setBusy(false);
     }
@@ -236,11 +254,26 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin }) => 
                         </span>
                       )}
                     </div>
-                    {!r.revoked && (
-                      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void revoke(r.staffAuthUid)}>
-                        Revogar
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {!r.revoked && (
+                        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void revoke(r.staffAuthUid)}>
+                          Revogar
+                        </Button>
+                      )}
+                      {r.revoked && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy || !r.staffAuthUid}
+                          leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+                          onClick={() => void permanentRemove(r.staffAuthUid)}
+                          className="text-red-600 hover:text-red-700 dark:text-red-400"
+                        >
+                          Apagar da lista
+                        </Button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
