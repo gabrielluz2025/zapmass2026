@@ -204,6 +204,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   }, [socket, isOpen, onClose]);
 
   const handleCreate = () => {
+      if (step !== 'naming') return;
       if (!connectionName.trim()) return;
       if (!isBackendConnected) {
         toast.error('Sem ligação ao servidor. Aguarde o indicador "Online" ou recarregue a página.');
@@ -269,7 +270,10 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
             <div className="flex flex-col items-center text-center py-8 max-w-sm">
               <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mb-4" />
               <h3 className="text-lg font-semibold text-gray-800">Iniciando motor do WhatsApp...</h3>
-              <p className="text-gray-500 text-sm mt-1">Abrindo o Chrome em segundo plano. Pode levar 30–90 s no primeiro arranque.</p>
+              <p className="text-gray-500 text-sm mt-1">
+                Abrindo o Chrome em segundo plano. Pode levar 30–90 s no primeiro arranque. Se várias pessoas
+                conectam ao mesmo tempo, o sistema processa em fila sem bloquear outras contas.
+              </p>
               <button
                 type="button"
                 onClick={() => {

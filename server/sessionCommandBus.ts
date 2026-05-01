@@ -102,7 +102,12 @@ export class SessionCommandBus {
                 const idx = values.findIndex((v: string) => v === 'data');
                 if (idx < 0 || !values[idx + 1]) continue;
                 const payload = JSON.parse(values[idx + 1]) as SessionCommand;
-                await handler(payload);
+                const out = handler(payload);
+                if (out && typeof (out as Promise<void>).catch === 'function') {
+                  void (out as Promise<void>).catch((err) =>
+                    console.error('[session-bus] erro em handler de comando', err)
+                  );
+                }
               }
             }
           } catch (error) {
@@ -116,8 +121,13 @@ export class SessionCommandBus {
       };
     }
 
-    const wrapped = async (cmd: SessionCommand) => {
-      await handler(cmd);
+    const wrapped = (cmd: SessionCommand) => {
+      const out = handler(cmd);
+      if (out && typeof (out as Promise<void>).catch === 'function') {
+        void (out as Promise<void>).catch((err) =>
+          console.error('[session-bus] erro em handler de comando', err)
+        );
+      }
     };
     busEmitter.on('command', wrapped);
     return () => busEmitter.off('command', wrapped);

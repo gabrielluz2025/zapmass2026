@@ -1,5 +1,6 @@
 import * as waService from './whatsappService.js';
 import { evaluateMayCreateWaConnection } from './connectionLimits.js';
+import { runWithSessionCommandLimits } from './sessionCommandConcurrency.js';
 import { SessionCommandBus } from './sessionCommandBus.js';
 import { SessionRouter } from './sessionRouter.js';
 import type { SessionCommand, SessionEvent } from './sessionContracts.js';
@@ -97,7 +98,7 @@ export const startSessionControlPlane = async (): Promise<void> => {
       if (targetWorker !== WORKER_ID && PROCESS_MODE === 'api') return;
       await publishWorkerEvent('command-accepted', command, { targetWorker });
       try {
-        await executeLocally(command);
+        await runWithSessionCommandLimits(command, () => executeLocally(command));
         const connectionId = extractConnectionId(command);
         if (connectionId) router.renewConnectionLease(connectionId, WORKER_ID);
         router.recordCommandCompleted();

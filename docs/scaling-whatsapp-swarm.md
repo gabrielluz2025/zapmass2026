@@ -1,5 +1,8 @@
 # Escalabilidade de sessoes WhatsApp (Swarm agora, K3s-ready)
 
+- `SESSION_COMMAND_CONCURRENCY` (default `3`): no `wa-worker`, até N comandos pesados (ex.: novo QR, reconnect) em paralelo.
+  Evita que um utilizador trave todos os outros; subir só se o host tiver RAM para vários Chromium (cada sessão é pesada).
+
 ## Componentes
 - `api` (`server/server.ts`): autentica usuario, valida escopo de conexao e publica comandos.
 - `sessionControlPlane` (`server/sessionControlPlane.ts`): contrato entre API, router e workers.
@@ -12,6 +15,7 @@
 - `REDIS_URL=redis://redis:6379`
 - `WORKER_ID` (opcional; default usa PID)
 - `SESSION_WORKER_LEASE_MS` (lease de roteamento)
+- `SESSION_COMMAND_CONCURRENCY` (opcional; ver nota no topo)
 
 ## Split API + worker (fase 1)
 
