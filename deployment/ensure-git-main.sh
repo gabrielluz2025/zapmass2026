@@ -14,8 +14,9 @@ if ! git show-ref -q --verify refs/remotes/origin/main; then
   exit 1
 fi
 # Evita falhas tipo "local changes would be overwritten" (ex.: vps-deploy.sh editado na VPS).
+# -f descarta alterações locais em ficheiros rastreados antes de alinhar com origin/main.
 if git show-ref -q --verify refs/heads/main; then
-  git checkout main
+  git checkout -f main
 else
   git checkout -b main origin/main
 fi
