@@ -49,6 +49,8 @@ if [ -f .env ]; then
   if [ -n "${WWEBJS_WEB_VERSION_URL:-}" ]; then
     echo "==> WWEBJS_WEB_VERSION_URL exportada (${WWEBJS_WEB_VERSION_URL:0:88}…)"
   fi
+  # Swarm: wa-worker deploy.replicas vem de ${WA_WORKER_REPLICAS:-0} no docker-stack (vazio = 0 réplicas).
+  echo "==> ZAPMASS_API_SESSION_MODE=${ZAPMASS_API_SESSION_MODE:-monolith} WA_WORKER_REPLICAS=${WA_WORKER_REPLICAS:-0} (defina 1+ no .env com modo api)"
 fi
 
 # Converte RAM em pico: swap idempotente (4 GiB) se total < alvo; desligar: ENSURE_SWAP_ON_DEPLOY=0
