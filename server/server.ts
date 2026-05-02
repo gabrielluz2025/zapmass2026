@@ -1,8 +1,9 @@
 import { PROJECT_ROOT } from './bootstrapEnv.js';
 import { isMercadoPagoAccessTokenConfigured } from './mercadoPagoAccess.js';
 
-import express from 'express';
+import express, { type Request } from 'express';
 import { createServer } from 'http';
+import type { IncomingHttpHeaders } from 'http';
 import net from 'net';
 import { Server } from 'socket.io';
 import cors from 'cors';
@@ -128,35 +129,83 @@ if (process.env.NODE_ENV === 'production' && extraOrigins.length === 0) {
   );
 }
 
-const allowedOrigins = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-  if (!origin) {
-    callback(null, true);
-    return;
+/** Hostname do cabecalho Host / X-Forwarded-Host (porta IPv4 removida; IPv6 entre []). */
+function hostnameFromHostHeader(raw: string): string {
+  const h = raw.split(',')[0].trim();
+  if (!h) return '';
+  if (h.startsWith('[')) {
+    const end = h.indexOf(']');
+    return end > 1 ? h.slice(1, end).toLowerCase() : h.toLowerCase();
   }
-  if (LOCAL_ORIGIN_RE.test(origin)) {
-    callback(null, true);
-    return;
+  const colon = h.indexOf(':');
+  return (colon === -1 ? h : h.slice(0, colon)).toLowerCase();
+}
+
+/** Mesmo site que o pedido (ex.: Origin https://zap-mass.com e Host zap-mass.com atras do Nginx). */
+function originMatchesRequestHost(origin: string, headers: IncomingHttpHeaders): boolean {
+  try {
+    const o = new URL(origin);
+    const xf = headers['x-forwarded-host'];
+    const raw =
+      (typeof xf === 'string' ? xf : Array.isArray(xf) ? xf[0] : '') ||
+      headers.host ||
+      '';
+    const reqHost = hostnameFromHostHeader(raw);
+    return Boolean(reqHost && o.hostname.toLowerCase() === reqHost);
+  } catch {
+    return false;
   }
-  const ok = extraOrigins.some((allowed) => origin === allowed || origin.startsWith(`${allowed}/`));
-  if (ok) {
+}
+
+function isOriginAllowed(origin: string | undefined, req: { headers: IncomingHttpHeaders }): boolean {
+  if (!origin) return true;
+  if (LOCAL_ORIGIN_RE.test(origin)) return true;
+  if (extraOrigins.some((allowed) => origin === allowed || origin.startsWith(`${allowed}/`))) return true;
+  if (originMatchesRequestHost(origin, req.headers)) return true;
+  return false;
+}
+
+function corsResolve(
+  origin: string | undefined,
+  req: Request,
+  callback: (err: Error | null, allow?: boolean) => void
+) {
+  if (isOriginAllowed(origin, req)) {
     callback(null, true);
     return;
   }
   console.warn(`[CORS] Origem bloqueada: ${origin}`);
   callback(new Error('Not allowed by CORS'));
-};
+}
 
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization", "ngrok-skip-browser-warning"]
-}));
+app.use((req, res, next) => {
+  cors({
+    origin: (origin, callback) => corsResolve(origin, req, callback),
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
+  })(req, res, next);
+});
 
 const io = new Server(httpServer, {
+  allowRequest: (req, callback) => {
+    try {
+      const origin = req.headers.origin;
+      const o = typeof origin === 'string' ? origin : undefined;
+      const ok = isOriginAllowed(o, req);
+      if (!ok) {
+        console.warn(`[Socket.IO] Origem bloqueada: ${origin ?? '(none)'}`);
+      }
+      callback(null, ok);
+    } catch (e) {
+      console.error('[Socket.IO] allowRequest:', e);
+      callback(null, false);
+    }
+  },
   cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    allowedHeaders: ["ngrok-skip-browser-warning"],
+    // Handshake validado em allowRequest; reflect origin para o browser receber ACAO correto.
+    origin: true,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['ngrok-skip-browser-warning'],
     credentials: true
   },
   transports: ['websocket', 'polling'], // Garante suporte a ambos
