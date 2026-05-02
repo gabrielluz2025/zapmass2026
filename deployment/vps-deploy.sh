@@ -132,6 +132,16 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
       sleep 6
     fi
   done
+  # docker-stack: replicas: ${WA_WORKER_REPLICAS:-0}; em alguns hosts a interpolação no YAML falha → 0/0.
+  if docker service inspect zapmass_wa-worker >/dev/null 2>&1; then
+    _wr="${WA_WORKER_REPLICAS:-0}"
+    case "${_wr}" in ''|*[!0-9]*) _wr=0 ;; esac
+    if [ "${_wr}" -gt 0 ]; then
+      echo "==> (swarm) zapmass_wa-worker → ${_wr} réplicas (WA_WORKER_REPLICAS no .env)"
+      docker service scale "zapmass_wa-worker=${_wr}" || true
+    fi
+    unset _wr
+  fi
   # Só alterar ficheiros em deployment/swarm/*.yml no host não recria a tarefa: força reload das regras do Prometheus.
   if docker service inspect zapmass_prometheus >/dev/null 2>&1; then
     echo "==> (swarm) forçar recarregamento: zapmass_prometheus (alert_rules.yml / prometheus.yml no host)"
