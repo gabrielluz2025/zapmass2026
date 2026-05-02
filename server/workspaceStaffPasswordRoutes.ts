@@ -82,6 +82,35 @@ async function assertOwnerBearer(adminApp: ReturnType<typeof getFirebaseAdmin>, 
   return { uid, db };
 }
 
+/**
+ * Converte mensagem do Identity Toolkit (REST) em código interno para texto ao utilizador.
+ * Ver: https://firebase.google.com/docs/reference/rest/auth — error.message costuma ser o código.
+ */
+function mapIdentityToolkitError(rawMessage: string): string {
+  const msg = String(rawMessage || '').trim();
+  const head = msg.split(' : ')[0]?.trim() || msg;
+  const upper = head.toUpperCase();
+
+  const direct: Record<string, string> = {
+    EMAIL_NOT_FOUND: 'EMAIL_AUTH',
+    INVALID_PASSWORD: 'WRONG_PASSWORD',
+    INVALID_LOGIN_CREDENTIALS: 'WRONG_PASSWORD',
+    USER_DISABLED: 'USER_DISABLED',
+    OPERATION_NOT_ALLOWED: 'OPERATION_NOT_ALLOWED',
+    TOO_MANY_ATTEMPTS_TRY_LATER: 'TOO_MANY_ATTEMPTS'
+  };
+  if (direct[upper]) return direct[upper];
+
+  const ml = msg.toLowerCase();
+  if (ml.includes('api_key') && ml.includes('referrer')) return 'API_KEY_REFERRER';
+  if (ml.includes('api_key') && ml.includes('ip')) return 'API_KEY_IP';
+  if (ml.includes('referer') && ml.includes('blocked')) return 'API_KEY_REFERRER';
+  if (upper === 'INVALID_EMAIL') return 'EMAIL_AUTH';
+
+  console.warn('[staff/sign-in] Firebase Identity Toolkit (não mapeado):', head.slice(0, 160));
+  return 'AUTH_FAILED';
+}
+
 async function identityToolkitSignInWithPassword(email: string, password: string): Promise<{ localId: string }> {
   const keyRes = resolveFirebaseWebApiKey();
   if (!keyRes.ok) {
@@ -101,15 +130,8 @@ async function identityToolkitSignInWithPassword(email: string, password: string
     error?: { message?: string };
   };
   if (!res.ok || !body.localId) {
-    const msg = String(body.error?.message || '');
-    const code = msg.split(' : ')[0]?.trim() || msg;
-    const map: Record<string, string> = {
-      EMAIL_NOT_FOUND: 'EMAIL_AUTH',
-      INVALID_PASSWORD: 'WRONG_PASSWORD',
-      INVALID_LOGIN_CREDENTIALS: 'WRONG_PASSWORD',
-      USER_DISABLED: 'USER_DISABLED'
-    };
-    throw new Error(map[code] || 'AUTH_FAILED');
+    const raw = String(body.error?.message || '');
+    throw new Error(mapIdentityToolkitError(raw));
   }
   return { localId: body.localId };
 }
@@ -164,9 +186,17 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
         }
         const c = ie instanceof Error ? ie.message : 'AUTH_FAILED';
         const pt: Record<string, string> = {
-          EMAIL_AUTH: 'Gestor não encontrado ou usuário não cadastrado.',
+          EMAIL_AUTH:
+            'E-mail do gestor ou nome de usuário não encontrado. Confirme os dados ou peça ao gestor para recriar o acesso.',
           WRONG_PASSWORD: 'Senha incorreta.',
           USER_DISABLED: 'Este acesso foi desativado. Fale com o gestor.',
+          OPERATION_NOT_ALLOWED:
+            'Login por e-mail/senha está desativado no projeto Firebase. Peça ao gestor para ativar «E-mail/senha» em Authentication → Sign-in method.',
+          TOO_MANY_ATTEMPTS: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
+          API_KEY_REFERRER:
+            'A Web API Key do Firebase bloqueia pedidos do servidor. No Google Cloud → Credenciais → editar a chave → restrições de pedido da API: inclua Identity Toolkit ou use «Nenhuma» para testar.',
+          API_KEY_IP:
+            'A Web API Key do Firebase bloqueia o IP deste servidor. Ajuste as restrições de IP da chave no Google Cloud ou permita o IP da VPS.',
           AUTH_FAILED: 'Não foi possível entrar. Verifique usuário e senha.'
         };
         return res.status(401).json({ ok: false, error: pt[c] || pt.AUTH_FAILED });
