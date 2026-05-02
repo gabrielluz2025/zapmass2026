@@ -107,7 +107,6 @@ function mapIdentityToolkitError(rawMessage: string): string {
   if (ml.includes('referer') && ml.includes('blocked')) return 'API_KEY_REFERRER';
   if (upper === 'INVALID_EMAIL') return 'EMAIL_AUTH';
 
-  console.warn('[staff/sign-in] Firebase Identity Toolkit (não mapeado):', head.slice(0, 160));
   return 'AUTH_FAILED';
 }
 
@@ -131,7 +130,13 @@ async function identityToolkitSignInWithPassword(email: string, password: string
   };
   if (!res.ok || !body.localId) {
     const raw = String(body.error?.message || '');
-    throw new Error(mapIdentityToolkitError(raw));
+    const mapped = mapIdentityToolkitError(raw);
+    console.warn('[staff/sign-in] IdentityToolkit', {
+      httpStatus: res.status,
+      firebaseMessage: raw.slice(0, 320),
+      mapped
+    });
+    throw new Error(mapped);
   }
   return { localId: body.localId };
 }
