@@ -222,19 +222,6 @@ O vídeo não substitui este documento, mas **reforça** com imagem. Sugestão: 
 
 Mostrar, na prática, **onde clicar** e **qual ordem seguir** no primeiro dia de uso: conectar um chip → importar contatos → criar uma lista → enviar uma campanha pequena → ver o relatório.
 
-## Roteiro por capítulos (com estimativa de tempo)
-
-| Min | O que mostrar na tela |
-|-----|------------------------|
-| 0:00–0:30 | Abertura: logo ZapMass; mostrar **Responsável** (Google) vs **Funcionário** (e-mail do gestor + usuário + senha); bolinha verde “servidor OK”. |
-| 0:30–2:00 | **Conexões**: adicionar ou reconectar um chip (QR), mostrar online. |
-| 2:00–4:00 | **Contatos**: importar 3–5 contatos de teste ou colar; criar uma **lista** e pôr contatos nela. |
-| 4:00–7:00 | **Campanhas → Nova campanha**: público = lista; mensagem simples; escolher chip; intervalo; revisar; **não** precisa ser milhares de números — use poucos para demo. |
-| 7:00–9:00 | **Relatórios**: mudar período 7/30 dias; mostrar **Exportar CSV**. |
-| 9:00–10:30 | **Minha assinatura** e **Configurações** (só passar pelas abas principais, sem expor dados sensíveis). |
-| 10:30–11:30 | **Pipeline** ou **Painel** (o que fizer mais sentido para o seu público). |
-| 11:30–12:00 | Fechamento: “Sugestão” na barra, onde achar ajuda, link deste tutorial. |
-
 ## Dicas de produção (simples)
 
 - **Grave a tela** (OBS Studio, Xbox Game Bar no Windows, ou QuickTime no Mac) em **1080p**, zoom do navegador em **100–110%** para leitura confortável.
