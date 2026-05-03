@@ -58,9 +58,9 @@ const navGroups: NavGroup[] = [
       { id: 'dashboard', label: 'Painel', icon: LayoutDashboard, description: 'Visão geral' },
       {
         id: 'religious-members',
-        label: 'Novo membro',
+        label: 'Ficha membro',
         icon: Church,
-        description: 'Cadastro rápido (só segmento religioso)'
+        description: 'Cadastro eclesiástico (só segmento religioso)'
       },
       {
         id: 'team',

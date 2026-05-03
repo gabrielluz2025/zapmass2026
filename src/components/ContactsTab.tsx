@@ -4,6 +4,17 @@ import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
+import { useAppProfile } from '../context/AppProfileContext';
+import { ReligiousMemberProfileModalFields } from './religious/ReligiousMemberProfileModalFields';
+import {
+  buildReligiousProfileComplete,
+  contactToMemberForm,
+  emptyForm,
+  hasReligiousProfileData,
+  mergeReligiousProfile,
+  religiousExportColumns,
+  type MemberFormState
+} from './religious/religiousMemberFormShared';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
@@ -454,6 +465,7 @@ const emptyCampaignDraft = (): CampaignWizardDraft => {
 export const ContactsTab: React.FC = () => {
   const { contacts, contactLists, conversations, addContact, removeContact, updateContact, createContactList, deleteContactList, updateContactList } = useZapMass();
   const { setCurrentView } = useAppView();
+  const { segment } = useAppProfile();
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
   const deferredConversations = useDeferredValue(conversations);
 
@@ -506,6 +518,7 @@ export const ContactsTab: React.FC = () => {
   });
   /** Data/hora local do retorno (campo `datetime-local`); convertido para ISO na gravação. */
   const [followUpDatetimeLocal, setFollowUpDatetimeLocal] = useState('');
+  const [religiousMemberForm, setReligiousMemberForm] = useState<MemberFormState>(() => emptyForm());
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [editingListName, setEditingListName] = useState('');
@@ -1583,6 +1596,7 @@ export const ContactsTab: React.FC = () => {
       notes: contact.notes || '',
       followUpNote: contact.followUpNote || ''
     });
+    setReligiousMemberForm(segment === 'religious' ? contactToMemberForm(contact) : emptyForm());
     setNewContactTargetMode('none');
     setNewContactTargetListId('');
     setNewContactNewListName('');
@@ -1737,7 +1751,13 @@ export const ContactsTab: React.FC = () => {
       ['7. Tags: separadas por ponto e virgula (Ex: VIP;Novos;Cliente).'],
       ['8. Data retorno (opcional): ISO 8601 (ex.: 2026-05-15T18:00:00.000Z), numero de data do Excel, ou texto dd/mm/aaaa com hora opcional.'],
       ['9. Nota retorno: texto curto; opcional.'],
-      ['10. Campos vazios sao permitidos, basta deixar a celula em branco.']
+      ['10. Campos vazios sao permitidos, basta deixar a celula em branco.'],
+      ...(segment === 'religious'
+        ? [
+            [''],
+            ['11. Segmento religioso: ao exportar a base em Contatos, o XLSX inclui colunas extra (RG, ficha eclesiastica, etc.). Este modelo continua so com as colunas padrao — preencha a ficha no app ou importe e depois complete em Contatos / Ficha membro.']
+          ]
+        : [])
     ];
     const wsNotes = XLSX.utils.aoa_to_sheet(notes);
     wsNotes['!cols'] = [{ wch: 80 }];
@@ -1748,15 +1768,19 @@ export const ContactsTab: React.FC = () => {
   };
 
   const handleExport = () => {
-    const header = TEMPLATE_COLUMNS.map(c => c.label);
-    const rows = contacts.map(c => TEMPLATE_COLUMNS.map(col => {
-      if (col.key === 'tags') return (c.tags || []).join(';');
-      if (col.key === 'status') return c.status;
-      const v = (c as any)[col.key];
-      return v == null ? '' : String(v);
-    }));
+    const religiousExtras = segment === 'religious' ? religiousExportColumns() : [];
+    const header = [...TEMPLATE_COLUMNS.map((c) => c.label), ...religiousExtras.map((c) => c.label)];
+    const rows = contacts.map((c) => [
+      ...TEMPLATE_COLUMNS.map((col) => {
+        if (col.key === 'tags') return (c.tags || []).join(';');
+        if (col.key === 'status') return c.status;
+        const v = (c as Record<string, unknown>)[col.key as string];
+        return v == null ? '' : String(v);
+      }),
+      ...religiousExtras.map((col) => col.get(c))
+    ]);
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    ws['!cols'] = TEMPLATE_COLUMNS.map(c => ({ wch: c.width }));
+    ws['!cols'] = [...TEMPLATE_COLUMNS.map((c) => ({ wch: c.width })), ...religiousExtras.map((c) => ({ wch: c.width }))];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Contatos');
     XLSX.writeFile(wb, `base_contatos_zapmass_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -1830,8 +1854,38 @@ export const ContactsTab: React.FC = () => {
     const followUpIso = datetimeLocalToUtcIso(followUpDatetimeLocal);
     const followNote = (newContact.followUpNote || '').trim().slice(0, 500);
 
+    const mergedRm: MemberFormState =
+      segment === 'religious'
+        ? {
+            ...religiousMemberForm,
+            name: (newContact.name || '').trim(),
+            phone: newContact.phone || '',
+            email: newContact.email || '',
+            church: newContact.church || '',
+            birthday: newContact.birthday || '',
+            profession: newContact.profession || '',
+            street: newContact.street || '',
+            number: newContact.number || '',
+            neighborhood: newContact.neighborhood || '',
+            zipCode: newContact.zipCode || '',
+            city: newContact.city || '',
+            state: newContact.state || '',
+            notes: newContact.notes || ''
+          }
+        : emptyForm();
+
+    const rolePayload =
+      segment === 'religious'
+        ? (() => {
+            const cb = mergedRm.ministerRoles.length > 0 ? mergedRm.ministerRoles.join(', ') : '';
+            return [cb, mergedRm.roleFree.trim()].filter(Boolean).join(' · ') || '';
+          })()
+        : (newContact.role || '').trim();
+
+    const religiousPayload = segment === 'religious' ? buildReligiousProfileComplete(mergedRm) : null;
+
     if (editingContactId) {
-      await updateContact(editingContactId, {
+      const patch: Partial<Contact> = {
         name: newContact.name || 'Sem Nome',
         phone: cleanPhone,
         city: newContact.city || '',
@@ -1841,7 +1895,7 @@ export const ContactsTab: React.FC = () => {
         neighborhood: newContact.neighborhood || '',
         zipCode: newContact.zipCode || '',
         church: newContact.church || '',
-        role: newContact.role || '',
+        role: rolePayload,
         profession: newContact.profession || '',
         birthday: newContact.birthday || '',
         email: newContact.email || '',
@@ -1849,7 +1903,11 @@ export const ContactsTab: React.FC = () => {
         status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID',
         followUpAt: followUpIso ?? '',
         followUpNote: followNote || ''
-      });
+      };
+      if (religiousPayload) {
+        patch.religiousMemberProfile = hasReligiousProfileData(religiousPayload) ? religiousPayload : {};
+      }
+      await updateContact(editingContactId, patch);
       if (newContactTargetMode !== 'none') {
         await attachContactsToList(
           [editingContactId],
@@ -1871,7 +1929,7 @@ export const ContactsTab: React.FC = () => {
         neighborhood: newContact.neighborhood,
         zipCode: newContact.zipCode,
         church: newContact.church,
-        role: newContact.role,
+        role: rolePayload,
         profession: newContact.profession,
         birthday: newContact.birthday,
         email: newContact.email,
@@ -1880,15 +1938,22 @@ export const ContactsTab: React.FC = () => {
         ...(followNote ? { followUpNote: followNote } : {}),
         tags: ['Novo'],
         status: cleanPhone.length >= 10 ? 'VALID' : 'INVALID',
-        lastMsg: 'Nunca'
+        lastMsg: 'Nunca',
+        ...(religiousPayload && hasReligiousProfileData(religiousPayload)
+          ? { religiousMemberProfile: religiousPayload }
+          : {})
       };
       const existingByPhone = contactByPhoneKey.get(normPhoneKey(cleanPhone));
       let targetContactId = '';
       if (existingByPhone) {
-        await updateContact(
-          existingByPhone.id,
-          mergeContactData(existingByPhone, incomingContact, ['Novo'])
-        );
+        const mergedPayload = mergeContactData(existingByPhone, incomingContact, ['Novo']);
+        if (segment === 'religious' && religiousPayload && hasReligiousProfileData(religiousPayload)) {
+          mergedPayload.religiousMemberProfile = mergeReligiousProfile(
+            existingByPhone.religiousMemberProfile,
+            religiousPayload
+          );
+        }
+        await updateContact(existingByPhone.id, mergedPayload);
         targetContactId = existingByPhone.id;
         toast.success('Contato já existia e foi unificado com os novos dados.');
       } else {
@@ -1912,7 +1977,7 @@ export const ContactsTab: React.FC = () => {
     setNewContactTargetListId('');
     setNewContactNewListName('');
     setFollowUpDatetimeLocal('');
-    setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' });
+    setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm());
   };
 
   const managedListForView = useMemo(
@@ -1956,17 +2021,19 @@ export const ContactsTab: React.FC = () => {
       const slug = list.name.replace(/[^\wÀ-ỹ\s\-]/gi, '').trim().replace(/\s+/g, '_').slice(0, 48) || 'lista';
       const day = new Date().toISOString().slice(0, 10);
       if (fmt === 'xlsx') {
-        const header = TEMPLATE_COLUMNS.map((c) => c.label);
-        const rows = withPhone.map((c) =>
-          TEMPLATE_COLUMNS.map((col) => {
+        const religiousExtras = segment === 'religious' ? religiousExportColumns() : [];
+        const header = [...TEMPLATE_COLUMNS.map((c) => c.label), ...religiousExtras.map((c) => c.label)];
+        const rows = withPhone.map((c) => [
+          ...TEMPLATE_COLUMNS.map((col) => {
             if (col.key === 'tags') return (c.tags || []).join(';');
             if (col.key === 'status') return c.status;
             const v = (c as Record<string, unknown>)[col.key];
             return v == null ? '' : String(v);
-          })
-        );
+          }),
+          ...religiousExtras.map((col) => col.get(c))
+        ]);
         const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-        ws['!cols'] = TEMPLATE_COLUMNS.map((c) => ({ wch: c.width }));
+        ws['!cols'] = [...TEMPLATE_COLUMNS.map((c) => ({ wch: c.width })), ...religiousExtras.map((c) => ({ wch: c.width }))];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Lista');
         XLSX.writeFile(wb, `lista_${slug}_${day}.xlsx`);
@@ -1983,7 +2050,7 @@ export const ContactsTab: React.FC = () => {
       URL.revokeObjectURL(url);
       toast.success(`${withPhone.length} contato(s) exportado(s) (vCard).`);
     },
-    [managedListForView, contacts]
+    [managedListForView, contacts, segment]
   );
 
   const allAddPoolSelected =
@@ -2005,7 +2072,7 @@ export const ContactsTab: React.FC = () => {
   const openNewContactModal = useCallback(() => {
                 setEditingContactId(null);
                 setFollowUpDatetimeLocal('');
-                setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' });
+                setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm());
                 setNewContactTargetMode('none');
                 setNewContactTargetListId('');
                 setNewContactNewListName('');
@@ -2602,7 +2669,7 @@ export const ContactsTab: React.FC = () => {
       {/* ... Modal Code (unchanged logic, just inside this updated component) ... */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
-           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xl animate-in fade-in zoom-in duration-200 flex flex-col my-auto border border-slate-200 dark:border-slate-800">
+           <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full animate-in fade-in zoom-in duration-200 flex flex-col my-auto border border-slate-200 dark:border-slate-800 ${segment === 'religious' ? 'max-w-3xl' : 'max-w-xl'}`}>
               
               {/* Modal Header */}
               <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 rounded-t-2xl">
@@ -2617,7 +2684,7 @@ export const ContactsTab: React.FC = () => {
                       {editingContactId ? 'Atualize os dados e salve as alteraÃ§Ãµes.' : 'Preencha os dados abaixo para cadastrar manualmente.'}
                     </p>
                  </div>
-                 <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
+                 <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm()); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
                     <X className="w-5 h-5" />
                  </button>
               </div>
@@ -2801,6 +2868,7 @@ export const ContactsTab: React.FC = () => {
                           </div>
                        </div>
 
+                       {segment !== 'religious' ? (
                        <div>
                           <label htmlFor="newContactRole" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">
                             Cargo na Igreja
@@ -2829,8 +2897,20 @@ export const ContactsTab: React.FC = () => {
                             Pode digitar um cargo novo — ele vira sugestao da proxima vez.
                           </p>
                        </div>
+                       ) : (
+                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                         Cargo na igreja ao gravar: combina as funções marcadas na ficha abaixo com o complemento em texto livre (campo &quot;Complemento de função&quot;).
+                       </p>
+                       )}
                     </div>
                  </div>
+
+                 {segment === 'religious' ? (
+                   <ReligiousMemberProfileModalFields
+                     form={religiousMemberForm}
+                     onPatch={(p) => setReligiousMemberForm((prev) => ({ ...prev, ...p }))}
+                   />
+                 ) : null}
 
                  {/* Divider */}
                  <div className="border-t border-slate-100 dark:border-slate-800"></div>
@@ -3011,7 +3091,7 @@ export const ContactsTab: React.FC = () => {
               {/* Modal Footer */}
               <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 rounded-b-2xl flex justify-between items-center gap-4">
                  <button 
-                    onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); }}
+                    onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm()); }}
                     className="px-6 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                  >
                     Cancelar

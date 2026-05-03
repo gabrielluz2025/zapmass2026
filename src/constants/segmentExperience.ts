@@ -37,7 +37,7 @@ const RELIGIOUS: SegmentExperience = {
   suggestedNav: [
     {
       view: 'religious-members',
-      label: 'Novo membro',
+      label: 'Ficha de membro',
       hint: 'Formulário rápido só no segmento religioso.'
     },
     { view: 'contacts', label: 'Contatos', hint: 'Listas por grupo, aniversários e etiquetas.' },

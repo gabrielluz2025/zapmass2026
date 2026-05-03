@@ -39,7 +39,7 @@ const VIEW_LABEL_PT: Record<string, string> = {
   admin: 'Administrador',
   'creator-studio': 'Criador',
   'admin-ops': 'Operações servidor',
-  'religious-members': 'Novo membro (igreja)'
+  'religious-members': 'Ficha de membro (igreja)'
 };
 
 type SuggestionArea = 'usability' | 'campaigns' | 'reports' | 'integrations' | 'other';

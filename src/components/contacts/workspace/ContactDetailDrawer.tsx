@@ -1,11 +1,12 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   X, Phone, Mail, MapPin, Church, Briefcase, Cake, Tag, Edit3, Trash2,
   MessageCircle, Rocket, Copy, Flame, Snowflake, Clock, User as UserIcon,
-  Sparkles, ListPlus, CalendarClock
+  Sparkles, ListPlus, CalendarClock, Printer, ScrollText
 } from 'lucide-react';
 import { formatFollowUpLabel, parseFollowUpMs, localStartOfTodayMs } from '../../../utils/followUp';
-import type { Contact } from '../../../types';
+import type { Contact, ReligiousMemberProfile } from '../../../types';
+import { useAppProfile } from '../../../context/AppProfileContext';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -58,6 +59,60 @@ const formatPhone = (raw: string): string => {
   return raw || '—';
 };
 
+function escapeHtml(s: string): string {
+  return (s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+const RECEIVED_PT: Record<string, string> = {
+  faith: 'Profissão de fé',
+  transfer: 'Transferência',
+  acclaim: 'Aclamação'
+};
+
+/** Linhas não vazias da ficha eclesiástica para o drawer e para impressão. */
+function religiousFichaRows(r: ReligiousMemberProfile | undefined): { label: string; value: string }[] {
+  if (!r) return [];
+  const rows: { label: string; value: string }[] = [];
+  const push = (label: string, v?: string) => {
+    const t = (v || '').trim();
+    if (t) rows.push({ label, value: t });
+  };
+  push('RG', r.rg);
+  push('Data emissão RG', r.rgIssueDate);
+  push('Órgão expedidor RG', r.rgIssuer);
+  push('CPF', r.cpf);
+  push('Nacionalidade', r.nationality);
+  push('Naturalidade', r.birthPlace);
+  if (r.gender === 'M') rows.push({ label: 'Sexo', value: 'Masculino' });
+  else if (r.gender === 'F') rows.push({ label: 'Sexo', value: 'Feminino' });
+  if (r.landline) rows.push({ label: 'Telefone fixo', value: r.landline });
+  push('Escolaridade', r.educationLevel);
+  push('País', r.country);
+  push('Nome do pai', r.fatherName);
+  push('Nome da mãe', r.motherName);
+  push('Estado civil', r.maritalStatus);
+  push('Cônjuge', r.spouseName);
+  push('Data do casamento', r.weddingDate);
+  if (r.ministerRoles?.length) rows.push({ label: 'Funções ministeriais', value: r.ministerRoles.join(', ') });
+  if (r.leaderGroups?.length) rows.push({ label: 'Líder de conjunto', value: r.leaderGroups.join(', ') });
+  push('Profissão de fé', r.professionOfFaith);
+  push('Data de batismo', r.baptismDate);
+  push('Igreja anterior', r.previousChurch);
+  push('Pastor anterior', r.previousPastor);
+  if (r.receivedBy && RECEIVED_PT[r.receivedBy]) {
+    rows.push({ label: 'Recebido nesta igreja por', value: RECEIVED_PT[r.receivedBy] });
+  }
+  push('Data de recebimento', r.churchJoinDate);
+  if (r.baptizedHolySpirit === 'yes') rows.push({ label: 'Batizado com o Espírito Santo', value: 'Sim' });
+  else if (r.baptizedHolySpirit === 'no') rows.push({ label: 'Batizado com o Espírito Santo', value: 'Não' });
+  push('Data (Espírito Santo)', r.holySpiritDate);
+  return rows;
+}
+
 export const ContactDetailDrawer: React.FC<Props> = ({
   contact,
   tempStats,
@@ -69,6 +124,55 @@ export const ContactDetailDrawer: React.FC<Props> = ({
   onCopyPhone,
   onAddToList
 }) => {
+  const { segment } = useAppProfile();
+
+  const fichaRows = useMemo(() => religiousFichaRows(contact?.religiousMemberProfile), [contact?.religiousMemberProfile]);
+
+  const printFichaPdf = useCallback(() => {
+    if (!contact || segment !== 'religious') return;
+    const w = window.open('', '_blank', 'noopener,noreferrer');
+    if (!w) return;
+    const core: { label: string; value: string }[] = [
+      { label: 'Nome', value: contact.name || '—' },
+      { label: 'Telefone (WhatsApp)', value: formatPhone(contact.phone || '') },
+      { label: 'E-mail', value: (contact.email || '').trim() || '—' },
+      { label: 'Aniversário', value: (contact.birthday || '').trim() || '—' },
+      { label: 'Endereço', value: [contact.street, contact.number].filter(Boolean).join(', ') || '—' },
+      { label: 'Bairro', value: (contact.neighborhood || '').trim() || '—' },
+      { label: 'Cidade / UF', value: [contact.city, contact.state].filter(Boolean).join(' / ') || '—' },
+      { label: 'CEP', value: (contact.zipCode || '').trim() || '—' },
+      { label: 'Igreja', value: (contact.church || '').trim() || '—' },
+      { label: 'Cargo (igreja)', value: (contact.role || '').trim() || '—' },
+      { label: 'Profissão', value: (contact.profession || '').trim() || '—' },
+      { label: 'Notas', value: (contact.notes || '').trim() || '—' }
+    ];
+    const rowsHtml = [...core, ...religiousFichaRows(contact.religiousMemberProfile)]
+      .map(
+        (row) =>
+          `<div class="row"><div class="l">${escapeHtml(row.label)}</div><div class="v">${escapeHtml(row.value)}</div></div>`
+      )
+      .join('');
+    const title = `Ficha — ${contact.name || 'Contato'}`;
+    w.document.write(
+      `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>` +
+        '<style>@media print{body{padding:12px}}body{font-family:system-ui,-apple-system,sans-serif;padding:24px;max-width:720px;margin:0 auto;color:#111}h1{font-size:20px;margin:0 0 4px}p.sub{color:#555;font-size:12px;margin:0 0 20px}h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:#444;margin:20px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}.row{display:flex;border-bottom:1px solid #eee;padding:7px 0;gap:12px}.l{width:38%;min-width:120px;color:#555;font-size:12px;font-weight:600}.v{flex:1;font-size:13px;white-space:pre-wrap;word-break:break-word}</style></head><body>' +
+        `<h1>${escapeHtml(contact.name || 'Contato')}</h1><p class="sub">ZapMass — ficha de membro (resumo) · ${new Date().toLocaleString('pt-BR')}</p>` +
+        '<h2>Dados gerais e ficha eclesiástica</h2>' +
+        rowsHtml +
+        '</body></html>'
+    );
+    w.document.close();
+    w.focus();
+    w.print();
+    window.setTimeout(() => {
+      try {
+        w.close();
+      } catch {
+        /* ignore */
+      }
+    }, 400);
+  }, [contact, segment]);
+
   useEffect(() => {
     if (!contact) return;
     const onKey = (e: KeyboardEvent) => {
@@ -196,6 +300,50 @@ export const ContactDetailDrawer: React.FC<Props> = ({
               {contact.church && <InfoRow icon={<Church className="w-4 h-4" />} label="Igreja" value={contact.church} />}
               {contact.role && <InfoRow icon={<UserIcon className="w-4 h-4" />} label="Cargo (igreja)" value={contact.role} />}
               {contact.profession && <InfoRow icon={<Briefcase className="w-4 h-4" />} label="Profissão" value={contact.profession} />}
+            </Section>
+          )}
+
+          {segment === 'religious' && (
+            <Section title="Ficha de membro">
+              <div className="rounded-xl border border-emerald-200/80 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/25 px-3 py-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300">
+                    <ScrollText className="w-4 h-4 shrink-0" />
+                    <p className="text-[11px] leading-snug text-emerald-900/90 dark:text-emerald-200/90">
+                      Dados alargados (RG, família, eclesiástico). Use <strong>Editar</strong> ou a aba <strong>Ficha membro</strong> para alterar.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => printFichaPdf()}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-emerald-600/30 bg-white dark:bg-slate-900 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40 transition"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    PDF
+                  </button>
+                </div>
+                {fichaRows.length === 0 ? (
+                  <p className="text-sm text-slate-600 dark:text-slate-400 px-1">
+                    Ainda não há campos da ficha preenchidos neste contato.
+                  </p>
+                ) : (
+                  <div className="space-y-1 max-h-[min(50vh,320px)] overflow-y-auto pr-1">
+                    {fichaRows.map((row, idx) => (
+                      <div
+                        key={`${idx}-${row.label}`}
+                        className="flex gap-2 px-2 py-1.5 rounded-lg bg-white/80 dark:bg-slate-900/60 border border-emerald-100/60 dark:border-emerald-900/30"
+                      >
+                        <span className="text-[10px] uppercase tracking-wide font-bold text-slate-500 dark:text-slate-400 w-[40%] shrink-0 leading-tight">
+                          {row.label}
+                        </span>
+                        <span className="text-[13px] text-slate-800 dark:text-slate-200 leading-snug break-words min-w-0">
+                          {row.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </Section>
           )}
 

@@ -262,6 +262,40 @@ export interface UserSubscription {
   updatedAt?: unknown;
 }
 
+/**
+ * Ficha eclesiástica / cadastro alargado (segmento religioso).
+ * Gravado em Firestore dentro do documento do contacto; a aba Contatos pode ignorar campos não mapeados.
+ */
+export interface ReligiousMemberProfile {
+  rg?: string;
+  rgIssueDate?: string;
+  rgIssuer?: string;
+  cpf?: string;
+  nationality?: string;
+  birthPlace?: string;
+  gender?: 'M' | 'F' | '';
+  landline?: string;
+  educationLevel?: string;
+  fatherName?: string;
+  motherName?: string;
+  maritalStatus?: string;
+  spouseName?: string;
+  weddingDate?: string;
+  /** Funções ministeriais (ex.: Diácono, Pastor). */
+  ministerRoles?: string[];
+  /** Liderança de conjunto (ex.: Jovens, Irmãs). */
+  leaderGroups?: string[];
+  professionOfFaith?: string;
+  baptismDate?: string;
+  previousChurch?: string;
+  previousPastor?: string;
+  receivedBy?: 'faith' | 'transfer' | 'acclaim' | '';
+  churchJoinDate?: string;
+  baptizedHolySpirit?: 'yes' | 'no' | '';
+  holySpiritDate?: string;
+  country?: string;
+}
+
 export interface Contact {
   id: string;
   /** IDs de documento legados (ex.: /contacts) que foram unidos a este contato pelo mesmo telefone — listas antigas ainda referenciam esses IDs. */
@@ -287,6 +321,8 @@ export interface Contact {
   followUpAt?: string;
   /** Nota opcional ligada ao retorno (ex.: contexto para a ligação). */
   followUpNote?: string;
+  /** Ficha de membro (cadastro religioso alargado). */
+  religiousMemberProfile?: ReligiousMemberProfile;
 }
 
 // --- CHAT TYPES ---

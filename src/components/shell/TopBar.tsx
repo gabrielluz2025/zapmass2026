@@ -28,7 +28,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   admin: { title: 'Painel do criador', subtitle: 'Configuração remota do produto' },
   'admin-ops': { title: 'Operações (servidor)', subtitle: 'Canais, RAM, fila e integrações' },
   'creator-studio': { title: 'Estúdio do criador', subtitle: 'Ferramentas internas e diagnóstico' },
-  'religious-members': { title: 'Novo membro', subtitle: 'Cadastro rápido (segmento religioso)' }
+  'religious-members': { title: 'Ficha de membro', subtitle: 'Cadastro eclesiástico (segmento religioso)' }
 };
 
 export const TopBar: React.FC<TopBarProps> = ({
