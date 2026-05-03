@@ -4,6 +4,7 @@ export { Badge } from './Badge';
 export { Tabs } from './Tabs';
 export type { TabItem } from './Tabs';
 export { Input, Textarea, Select } from './Input';
+export { BrDateInput } from './BrDateInput';
 export { Modal } from './Modal';
 export { StatCard } from './StatCard';
 export { EmptyState } from './EmptyState';

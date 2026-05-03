@@ -1,6 +1,6 @@
 import React from 'react';
 import { Church, User } from 'lucide-react';
-import { Input } from '../ui';
+import { BrDateInput, Input } from '../ui';
 import {
   LEADER_GROUPS,
   MINISTER_ROLES,
@@ -73,7 +73,7 @@ export const ReligiousMemberProfileModalFields: React.FC<Props> = ({ form: f, on
           </div>
           <div>
             <ModalFieldLabel optional>Data emissão RG</ModalFieldLabel>
-            <Input value={f.rgIssueDate} onChange={(e) => set('rgIssueDate', e.target.value)} placeholder="DD/MM/AAAA" className="ui-input" />
+            <BrDateInput value={f.rgIssueDate} onValueChange={(v) => set('rgIssueDate', v)} className="ui-input" />
           </div>
           <div>
             <ModalFieldLabel optional>Órgão expedidor</ModalFieldLabel>
@@ -140,9 +140,9 @@ export const ReligiousMemberProfileModalFields: React.FC<Props> = ({ form: f, on
           </div>
           <div className="sm:col-span-2">
             <ModalFieldLabel optional>Data do casamento (bodas todo ano neste dia)</ModalFieldLabel>
-            <Input
+            <BrDateInput
               value={f.weddingDate}
-              onChange={(e) => set('weddingDate', e.target.value)}
+              onValueChange={(v) => set('weddingDate', v)}
               placeholder="DD/MM/AAAA (com ano para anos de casados)"
               className="ui-input"
             />
@@ -192,7 +192,7 @@ export const ReligiousMemberProfileModalFields: React.FC<Props> = ({ form: f, on
           </div>
           <div>
             <ModalFieldLabel optional>Data de batismo</ModalFieldLabel>
-            <Input value={f.baptismDate} onChange={(e) => set('baptismDate', e.target.value)} className="ui-input" />
+            <BrDateInput value={f.baptismDate} onValueChange={(v) => set('baptismDate', v)} className="ui-input" />
           </div>
           <div>
             <ModalFieldLabel optional>Igreja anterior</ModalFieldLabel>
@@ -223,7 +223,7 @@ export const ReligiousMemberProfileModalFields: React.FC<Props> = ({ form: f, on
           </div>
           <div>
             <ModalFieldLabel optional>Data de recebimento</ModalFieldLabel>
-            <Input value={f.churchJoinDate} onChange={(e) => set('churchJoinDate', e.target.value)} className="ui-input" />
+            <BrDateInput value={f.churchJoinDate} onValueChange={(v) => set('churchJoinDate', v)} className="ui-input" />
           </div>
           <div className="sm:col-span-2">
             <ModalFieldLabel optional>Batizado com Espírito Santo?</ModalFieldLabel>
@@ -240,7 +240,7 @@ export const ReligiousMemberProfileModalFields: React.FC<Props> = ({ form: f, on
           </div>
           <div>
             <ModalFieldLabel optional>Quando? (Espírito Santo)</ModalFieldLabel>
-            <Input value={f.holySpiritDate} onChange={(e) => set('holySpiritDate', e.target.value)} className="ui-input" />
+            <BrDateInput value={f.holySpiritDate} onValueChange={(v) => set('holySpiritDate', v)} className="ui-input" />
           </div>
         </div>
       </div>

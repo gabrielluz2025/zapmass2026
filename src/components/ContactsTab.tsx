@@ -17,7 +17,7 @@ import {
 } from './religious/religiousMemberFormShared';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
-import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
+import { Badge, BrDateInput, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
 import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
 import { ContactsSidebar, type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
 import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual';
@@ -41,6 +41,7 @@ import {
   daysUntilWeddingAnniversary,
   parseWeddingDayMonth
 } from '../utils/weddingAnniversary';
+import { storedDateToBrDisplay } from '../utils/brDateMask';
 import {
   computeContactTemperatures,
   CONTACT_TEMP_LABEL,
@@ -1629,7 +1630,7 @@ export const ContactsTab: React.FC = () => {
       church: contact.church || '',
       role: contact.role || '',
       profession: contact.profession || '',
-      birthday: contact.birthday || '',
+      birthday: storedDateToBrDisplay(contact.birthday || ''),
       email: contact.email || '',
       notes: contact.notes || '',
       followUpNote: contact.followUpNote || ''
@@ -3052,14 +3053,14 @@ export const ContactsTab: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                        <div>
                           <label htmlFor="newContactBirthday" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Aniversario</label>
-                          <input
+                          <BrDateInput
                             id="newContactBirthday"
                             name="newContactBirthday"
-                            type="date"
-                            value={newContact.birthday || ''}
-                            onChange={e => setNewContact({ ...newContact, birthday: e.target.value })}
                             className="ui-input"
+                            value={newContact.birthday || ''}
+                            onValueChange={(v) => setNewContact({ ...newContact, birthday: v })}
                           />
+                          <p className="text-[11px] text-slate-400 mt-1">Formato DD/MM/AAAA (barras ao digitar).</p>
                        </div>
 
                        <div>

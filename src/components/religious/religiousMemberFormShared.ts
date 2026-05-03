@@ -1,4 +1,5 @@
 import type { Contact, ReligiousMemberProfile } from '../../types';
+import { storedDateToBrDisplay } from '../../utils/brDateMask';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../utils/weddingAnniversary';
 
 export const MINISTER_ROLES = [
@@ -136,7 +137,7 @@ export function contactToMemberForm(c: Contact): MemberFormState {
     email: c.email || '',
     church: c.church || '',
     roleFree: parsed.roleFree,
-    birthday: c.birthday || '',
+    birthday: storedDateToBrDisplay(c.birthday || ''),
     profession: c.profession || '',
     street: c.street || '',
     number: c.number || '',
@@ -147,7 +148,7 @@ export function contactToMemberForm(c: Contact): MemberFormState {
     country: r.country || 'Brasil',
     notes: c.notes || '',
     rg: r.rg || '',
-    rgIssueDate: r.rgIssueDate || '',
+    rgIssueDate: storedDateToBrDisplay(r.rgIssueDate || ''),
     rgIssuer: r.rgIssuer || '',
     cpf: r.cpf || '',
     nationality: r.nationality || '',
@@ -159,17 +160,17 @@ export function contactToMemberForm(c: Contact): MemberFormState {
     motherName: r.motherName || '',
     maritalStatus: r.maritalStatus || '',
     spouseName: r.spouseName || '',
-    weddingDate: r.weddingDate || '',
+    weddingDate: storedDateToBrDisplay(r.weddingDate || ''),
     ministerRoles,
     leaderGroups: [...(r.leaderGroups || [])],
     professionOfFaith: r.professionOfFaith || '',
-    baptismDate: r.baptismDate || '',
+    baptismDate: storedDateToBrDisplay(r.baptismDate || ''),
     previousChurch: r.previousChurch || '',
     previousPastor: r.previousPastor || '',
     receivedBy: r.receivedBy === 'faith' || r.receivedBy === 'transfer' || r.receivedBy === 'acclaim' ? r.receivedBy : '',
-    churchJoinDate: r.churchJoinDate || '',
+    churchJoinDate: storedDateToBrDisplay(r.churchJoinDate || ''),
     baptizedHolySpirit: r.baptizedHolySpirit === 'yes' || r.baptizedHolySpirit === 'no' ? r.baptizedHolySpirit : '',
-    holySpiritDate: r.holySpiritDate || ''
+    holySpiritDate: storedDateToBrDisplay(r.holySpiritDate || '')
   };
 }
 

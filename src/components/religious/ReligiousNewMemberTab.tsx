@@ -5,7 +5,7 @@ import { useAppProfile } from '../../context/AppProfileContext';
 import { useAppView } from '../../context/AppViewContext';
 import { useZapMass } from '../../context/ZapMassContext';
 import type { Contact } from '../../types';
-import { Button, Card, Input, SectionHeader, Textarea } from '../ui';
+import { BrDateInput, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import {
   LEADER_GROUPS,
   MINISTER_ROLES,
@@ -217,7 +217,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
             </div>
             <div>
               <FieldLabel optional>Data emissão RG</FieldLabel>
-              <Input value={f.rgIssueDate} onChange={(e) => set('rgIssueDate', e.target.value)} placeholder="DD/MM/AAAA" />
+              <BrDateInput value={f.rgIssueDate} onValueChange={(v) => set('rgIssueDate', v)} />
             </div>
             <div>
               <FieldLabel optional>Órgão expedidor</FieldLabel>
@@ -233,7 +233,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
             </div>
             <div>
               <FieldLabel optional>Data de nascimento</FieldLabel>
-              <Input value={f.birthday} onChange={(e) => set('birthday', e.target.value)} placeholder="DD/MM/AAAA" />
+              <BrDateInput value={f.birthday} onValueChange={(v) => set('birthday', v)} />
             </div>
             <div>
               <FieldLabel optional>Naturalidade</FieldLabel>
@@ -334,9 +334,9 @@ export const ReligiousNewMemberTab: React.FC = () => {
             </div>
             <div className="sm:col-span-2">
               <FieldLabel optional>Data do casamento (dia das bodas a cada ano)</FieldLabel>
-              <Input
+              <BrDateInput
                 value={f.weddingDate}
-                onChange={(e) => set('weddingDate', e.target.value)}
+                onValueChange={(v) => set('weddingDate', v)}
                 placeholder="DD/MM/AAAA (com ano para calcular anos de casados)"
               />
               {f.weddingDate.trim() ? <WeddingAnniversaryHint weddingDate={f.weddingDate} /> : null}
@@ -394,7 +394,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
               </div>
               <div>
                 <FieldLabel optional>Data de batismo</FieldLabel>
-                <Input value={f.baptismDate} onChange={(e) => set('baptismDate', e.target.value)} />
+                <BrDateInput value={f.baptismDate} onValueChange={(v) => set('baptismDate', v)} />
               </div>
               <div>
                 <FieldLabel optional>Igreja anterior</FieldLabel>
@@ -425,7 +425,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
               </div>
               <div>
                 <FieldLabel optional>Data de recebimento</FieldLabel>
-                <Input value={f.churchJoinDate} onChange={(e) => set('churchJoinDate', e.target.value)} />
+                <BrDateInput value={f.churchJoinDate} onValueChange={(v) => set('churchJoinDate', v)} />
               </div>
               <div className="sm:col-span-2">
                 <FieldLabel optional>Batizado com Espírito Santo?</FieldLabel>
@@ -442,7 +442,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
               </div>
               <div>
                 <FieldLabel optional>Quando? (Espírito Santo)</FieldLabel>
-                <Input value={f.holySpiritDate} onChange={(e) => set('holySpiritDate', e.target.value)} />
+                <BrDateInput value={f.holySpiritDate} onValueChange={(v) => set('holySpiritDate', v)} />
               </div>
             </div>
           </div>
