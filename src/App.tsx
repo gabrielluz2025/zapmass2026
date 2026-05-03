@@ -30,6 +30,7 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { CreatorStudio } from './components/creator/CreatorStudio';
 import { TutorialPage } from './components/help/TutorialPage';
 import { WorkspaceTeamPage } from './pages/WorkspaceTeamPage';
+import { ReligiousNewMemberTab } from './components/religious/ReligiousNewMemberTab';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
 import { isAdminUserEmail } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
@@ -204,6 +205,8 @@ const MainLayout: React.FC = () => {
         return <SettingsTab />;
       case 'team':
         return <WorkspaceTeamPage />;
+      case 'religious-members':
+        return <ReligiousNewMemberTab />;
       case 'help':
         return <TutorialPage />;
       case 'subscription':

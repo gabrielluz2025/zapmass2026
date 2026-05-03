@@ -35,6 +35,11 @@ const RELIGIOUS: SegmentExperience = {
     'O aquecimento de chips novos ajuda antes de avisos a listas grandes — veja o menu Aquecimento.'
   ],
   suggestedNav: [
+    {
+      view: 'religious-members',
+      label: 'Novo membro',
+      hint: 'Formulário rápido só no segmento religioso.'
+    },
     { view: 'contacts', label: 'Contatos', hint: 'Listas por grupo, aniversários e etiquetas.' },
     { view: 'warmup', label: 'Aquecimento', hint: 'Prepare números novos antes de avisos em massa.' }
   ],

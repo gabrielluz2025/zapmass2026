@@ -20,13 +20,15 @@ import {
   Crown,
   Server,
   BookOpen,
-  UserPlus
+  UserPlus,
+  Church
 } from 'lucide-react';
 import { useZapMass } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 import { getSavedMode, toggleMode } from '../../theme';
 import { isAdminUserEmail } from '../../utils/adminAccess';
 import { canAccessCreatorStudio } from '../../utils/creatorStudioAccess';
+import { useAppProfile } from '../../context/AppProfileContext';
 
 interface SidebarProps {
   currentView: string;
@@ -54,6 +56,12 @@ const navGroups: NavGroup[] = [
     label: 'Principal',
     items: [
       { id: 'dashboard', label: 'Painel', icon: LayoutDashboard, description: 'Visão geral' },
+      {
+        id: 'religious-members',
+        label: 'Novo membro',
+        icon: Church,
+        description: 'Cadastro rápido (só segmento religioso)'
+      },
       {
         id: 'team',
         label: 'Funcionários',
@@ -117,16 +125,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { isBackendConnected } = useZapMass();
   const { user, signOut } = useAuth();
+  const { segment } = useAppProfile();
   const [mode, setMode] = useState(getSavedMode());
 
   const navGroupsDisplay = useMemo(() => {
     const email = user?.email ?? null;
-    let groups = navGroups;
+    let groups = navGroups.map((g) => {
+      if (g.label !== 'Principal') return g;
+      const items =
+        segment === 'religious'
+          ? g.items
+          : g.items.filter((it) => it.id !== 'religious-members');
+      return { ...g, items };
+    });
     if (isAdminUserEmail(email)) {
-      groups = navGroups.map((g) => {
-        if (g.label === 'Sistema') return { ...g, items: [...g.items, ADMIN_NAV_ITEM] };
-        if (g.label === 'Operações') return { ...g, items: [...g.items, ADMIN_OPS_ITEM] };
-        return g;
+      groups = groups.map((gr) => {
+        if (gr.label === 'Sistema') return { ...gr, items: [...gr.items, ADMIN_NAV_ITEM] };
+        if (gr.label === 'Operações') return { ...gr, items: [...gr.items, ADMIN_OPS_ITEM] };
+        return gr;
       });
     }
     if (canAccessCreatorStudio(email)) {
@@ -139,7 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
     return groups;
-  }, [user?.email]);
+  }, [user?.email, segment]);
 
   useEffect(() => {
     setMode(getSavedMode());

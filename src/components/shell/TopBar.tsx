@@ -27,7 +27,8 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   help: { title: 'Como usar o ZapMass', subtitle: 'Tutorial para iniciantes — menus, abas e dicas' },
   admin: { title: 'Painel do criador', subtitle: 'Configuração remota do produto' },
   'admin-ops': { title: 'Operações (servidor)', subtitle: 'Canais, RAM, fila e integrações' },
-  'creator-studio': { title: 'Estúdio do criador', subtitle: 'Ferramentas internas e diagnóstico' }
+  'creator-studio': { title: 'Estúdio do criador', subtitle: 'Ferramentas internas e diagnóstico' },
+  'religious-members': { title: 'Novo membro', subtitle: 'Cadastro rápido (segmento religioso)' }
 };
 
 export const TopBar: React.FC<TopBarProps> = ({

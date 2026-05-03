@@ -21,7 +21,8 @@ const ALLOWED_VIEWS = new Set([
   'team',
   'admin',
   'creator-studio',
-  'admin-ops'
+  'admin-ops',
+  'religious-members'
 ]);
 
 function readInitialView(): string {

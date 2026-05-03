@@ -38,7 +38,8 @@ const VIEW_LABEL_PT: Record<string, string> = {
   team: 'Equipa',
   admin: 'Administrador',
   'creator-studio': 'Criador',
-  'admin-ops': 'Operações servidor'
+  'admin-ops': 'Operações servidor',
+  'religious-members': 'Novo membro (igreja)'
 };
 
 type SuggestionArea = 'usability' | 'campaigns' | 'reports' | 'integrations' | 'other';
