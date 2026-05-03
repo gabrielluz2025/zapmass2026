@@ -6,6 +6,7 @@ import {
   Clock,
   ExternalLink,
   FileWarning,
+  Layers,
   Moon,
   Palette,
   Save,
@@ -38,6 +39,14 @@ import {
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, Input, SectionHeader } from './ui';
 import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
+import { useWorkspace } from '../context/WorkspaceContext';
+import { useAppProfile } from '../context/AppProfileContext';
+import {
+  USE_SEGMENT_CHANGE_DATA_SAFE_SHORT,
+  USE_SEGMENT_OPTIONS,
+  USE_SEGMENT_TOAST_DATA_SAFE,
+  type UseSegmentId
+} from '../constants/useSegments';
 
 const SETTINGS_KEY = 'zapmass_settings';
 
@@ -116,6 +125,11 @@ export const SettingsTab: React.FC = () => {
   const { user, signOut } = useAuth();
   const goToView = useMainLayoutNav();
   const { subscription, loading: subLoading } = useSubscription();
+  const { effectiveWorkspaceUid, authUid, isTeamMember } = useWorkspace();
+  const { segment, savedSegment, saveSegment, loading: profileLoading } = useAppProfile();
+  const isWorkspaceOwner = Boolean(
+    user && authUid && effectiveWorkspaceUid && authUid === effectiveWorkspaceUid
+  );
 
   const saved: SystemSettings = (() => {
     try {
@@ -137,6 +151,13 @@ export const SettingsTab: React.FC = () => {
   const [savedOk, setSavedOk] = useState(false);
   const [clearingAll, setClearingAll] = useState(false);
   const settingsBaselineRef = useRef(serializeServerSettings(saved));
+
+  const [segmentChoice, setSegmentChoice] = useState<UseSegmentId>(segment);
+  const [segmentSaving, setSegmentSaving] = useState(false);
+
+  useEffect(() => {
+    if (section === 'conta') setSegmentChoice(segment);
+  }, [section, segment]);
 
   const [ackTick, setAckTick] = useState(0);
   const riskAck = useMemo(() => (user?.uid ? getWhatsAppRiskAck(user.uid) : null), [user?.uid, ackTick]);
@@ -600,6 +621,84 @@ export const SettingsTab: React.FC = () => {
               <Button variant="secondary" onClick={() => { signOut?.(); }}>
                 Sair da conta
               </Button>
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <div className="flex items-start gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(59, 130, 246, 0.12)' }}
+              >
+                <Layers className="w-4 h-4" style={{ color: 'var(--text-2)' }} />
+              </div>
+              <div className="flex-1 min-w-0 space-y-3">
+                <div>
+                  <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                    Segmento de uso — pode mudar quando quiser
+                  </p>
+                  <p className="text-[11.5px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
+                    Usado para personalizar o produto no futuro. A equipa vê o mesmo segmento definido pelo gestor.
+                  </p>
+                  <p
+                    className="text-[11.5px] mt-2 leading-snug rounded-lg px-2.5 py-2"
+                    style={{
+                      color: 'var(--text-2)',
+                      background: 'rgba(16, 185, 129, 0.08)',
+                      border: '1px solid rgba(16, 185, 129, 0.2)'
+                    }}
+                  >
+                    {USE_SEGMENT_CHANGE_DATA_SAFE_SHORT}
+                  </p>
+                </div>
+                {profileLoading ? (
+                  <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
+                    A carregar…
+                  </p>
+                ) : isWorkspaceOwner ? (
+                  <>
+                    <select
+                      className="w-full max-w-md rounded-xl border px-3 py-2.5 text-[13px] bg-transparent"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-1)' }}
+                      value={segmentChoice}
+                      onChange={(e) => setSegmentChoice(e.target.value as UseSegmentId)}
+                    >
+                      {USE_SEGMENT_OPTIONS.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.title}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={
+                        segmentSaving || (savedSegment !== null && segmentChoice === savedSegment)
+                      }
+                      onClick={async () => {
+                        setSegmentSaving(true);
+                        try {
+                          await saveSegment(segmentChoice);
+                          toast.success(`Segmento atualizado. ${USE_SEGMENT_TOAST_DATA_SAFE}`);
+                        } catch (err) {
+                          console.error(err);
+                          toast.error('Não foi possível guardar o segmento.');
+                        } finally {
+                          setSegmentSaving(false);
+                        }
+                      }}
+                    >
+                      {segmentSaving ? 'A guardar…' : 'Guardar segmento'}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+                    {isTeamMember
+                      ? `Segmento do gestor: ${USE_SEGMENT_OPTIONS.find((o) => o.id === segment)?.title ?? segment}. Só o gestor altera aqui; mudar o segmento não apaga dados da conta partilhada.`
+                      : '—'}
+                  </p>
+                )}
+              </div>
             </div>
           </Card>
 

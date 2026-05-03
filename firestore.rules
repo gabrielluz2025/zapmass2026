@@ -63,6 +63,18 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    /** Perfil leve do dono (segmento de uso). Leitura pela equipa; escrita só pelo próprio uid. */
+    match /users/{uid}/app_profile/{docId} {
+      allow read: if canAccessUserSubtree(uid);
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && docId == 'main'
+        && request.resource.data.keys().hasOnly(['useSegment'])
+        && request.resource.data.useSegment is string
+        && request.resource.data.useSegment in ['religious', 'sales', 'collections', 'mass_broadcast', 'general'];
+      allow delete: if false;
+    }
+
     match /users/{uid}/notifications/{docId} {
       allow read, update, delete: if canAccessUserSubtree(uid);
       allow create: if false;

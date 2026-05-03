@@ -34,6 +34,8 @@ import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
 import { isAdminUserEmail } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
+import { AppProfileProvider, useAppProfile } from './context/AppProfileContext';
+import { SegmentOnboardingScreen } from './components/onboarding/SegmentOnboardingScreen';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
@@ -257,9 +259,16 @@ const MainLayout: React.FC = () => {
 
 const GateOrApp: React.FC = () => {
   const { loading: workspaceLoading } = useWorkspace();
+  const { loading: profileLoading, needsSegmentOnboarding } = useAppProfile();
   const { loading, enforce, needsOnboardingGate } = useSubscription();
   if (workspaceLoading) {
     return <SessionSpinner label="Carregando workspace..." />;
+  }
+  if (profileLoading) {
+    return <SessionSpinner label="Carregando perfil..." />;
+  }
+  if (needsSegmentOnboarding) {
+    return <SegmentOnboardingScreen />;
   }
   if (loading) {
     return <SessionSpinner label="Carregando assinatura..." />;
@@ -289,10 +298,12 @@ const AuthGate: React.FC = () => {
 
   return (
     <WorkspaceProvider>
-      <SubscriptionProvider>
-        <TrialAutoStart />
-        <GateOrApp />
-      </SubscriptionProvider>
+      <AppProfileProvider>
+        <SubscriptionProvider>
+          <TrialAutoStart />
+          <GateOrApp />
+        </SubscriptionProvider>
+      </AppProfileProvider>
     </WorkspaceProvider>
   );
 };

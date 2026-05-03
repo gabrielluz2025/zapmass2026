@@ -47,6 +47,7 @@ import {
 } from '../../utils/contactTemperature';
 import { useZapMass } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
+import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 
 type CampaignFlowMode = 'sequential' | 'reply';
 
@@ -1446,6 +1447,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   </button>
                 ))}
               </div>
+
+              <SegmentCampaignIdeas onApplyTemplate={(body) => setActiveMessageBody(body)} />
 
               <Textarea
                 key={messageStages[activeStageIdx]?.id}

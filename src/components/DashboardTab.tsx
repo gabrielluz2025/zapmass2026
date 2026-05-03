@@ -35,7 +35,10 @@ import { useZapMass } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useAppProfile } from '../context/AppProfileContext';
+import { getSegmentExperience } from '../constants/segmentExperience';
 import { isAdminUserEmail } from '../utils/adminAccess';
+import { SegmentExperiencePanel } from './segment/SegmentExperiencePanel';
 import {
   getMaxConnectionSlotsForUser,
   countAccountScopedConnections,
@@ -222,6 +225,8 @@ export const DashboardTab: React.FC = () => {
   const { setCurrentView } = useAppView();
   const { user } = useAuth();
   const { subscription } = useSubscription();
+  const { segment } = useAppProfile();
+  const segmentXp = useMemo(() => getSegmentExperience(segment), [segment]);
   const isAdmin = isAdminUserEmail(user?.email ?? null);
   const maxPlanChannelSlots = useMemo(
     () => getMaxConnectionSlotsForUser(subscription, isAdmin),
@@ -670,6 +675,11 @@ export const DashboardTab: React.FC = () => {
                   </span>
                 )}
               </p>
+              {segmentXp.dashboardTagline ? (
+                <p className="mt-2 text-[12px] sm:text-[13px] leading-snug max-w-xl" style={{ color: 'var(--text-3)' }}>
+                  {segmentXp.dashboardTagline}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -755,6 +765,8 @@ export const DashboardTab: React.FC = () => {
           ))}
         </div>
       </div>
+
+      <SegmentExperiencePanel />
 
       {/* Convites de equipa — visível desde o Painel */}
       <button
