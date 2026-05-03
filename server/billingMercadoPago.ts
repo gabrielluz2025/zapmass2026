@@ -75,6 +75,28 @@ function getBackUrl(): string {
   }
 }
 
+/** Checkout Pro: serviço digital sem envio — sem isto o MP pode pedir dados de entrega e manter o botão desativado. */
+function preferenceShipmentsDigital(): { mode: string } {
+  return { mode: 'not_specified' };
+}
+
+/** Dados do pagador: e-mail obrigatório; nome ajuda o MP a validar cartão e Pix. */
+function payerFromEmailAndDisplayName(
+  email: string,
+  displayName?: string | null
+): { email: string; first_name?: string; last_name?: string } {
+  const payer: { email: string; first_name?: string; last_name?: string } = { email };
+  const raw = typeof displayName === 'string' ? displayName.trim() : '';
+  if (!raw) return payer;
+  const parts = raw.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return payer;
+  const first = parts[0].slice(0, 60);
+  const rest = parts.slice(1).join(' ').trim();
+  payer.first_name = first;
+  payer.last_name = (rest || first).slice(0, 60);
+  return payer;
+}
+
 function parseChannelTier(v: unknown): ChannelTier | null {
   const n = Math.floor(Number(v) || 0);
   return n >= 1 && n <= 5 ? (n as ChannelTier) : null;
@@ -124,6 +146,8 @@ interface CreateParams {
   method: Method;
   /** Quando definido, o valor cobrado segue o plano por canais (tier 1–5). */
   channels?: ChannelTier;
+  /** Nome do utilizador (ex.: Firebase displayName) para o objecto `payer` no Checkout Pro. */
+  payerDisplayName?: string | null;
 }
 
 /**
@@ -143,7 +167,8 @@ async function createPreference(params: CreateParams): Promise<{ id: string; ini
       email: params.email,
       channels: params.channels,
       method: params.method,
-      plan: params.plan
+      plan: params.plan,
+      payerDisplayName: params.payerDisplayName
     });
   }
 
@@ -192,7 +217,8 @@ async function createPreference(params: CreateParams): Promise<{ id: string; ini
         unit_price: finalPrice
       }
     ],
-    payer: { email: params.email },
+    payer: payerFromEmailAndDisplayName(params.email, params.payerDisplayName),
+    shipments: preferenceShipmentsDigital(),
     external_reference: `${params.uid}:${params.plan}`,
     back_urls: { success: backUrl, failure: backUrl, pending: backUrl },
     auto_return: 'approved',
@@ -314,6 +340,7 @@ async function createChannelTierPreference(params: {
   title?: string;
   description?: string;
   amountOverride?: number;
+  payerDisplayName?: string | null;
 }): Promise<{ id: string; init_point: string }> {
   const access = requireMercadoPagoAccessToken();
   const backUrl = getBackUrl();
@@ -355,7 +382,8 @@ async function createChannelTierPreference(params: {
         unit_price: finalPrice
       }
     ],
-    payer: { email: params.email },
+    payer: payerFromEmailAndDisplayName(params.email, params.payerDisplayName),
+    shipments: preferenceShipmentsDigital(),
     external_reference: params.externalReference || `${params.uid}:tier:${params.channels}:${params.plan}`,
     back_urls: { success: backUrl, failure: backUrl, pending: backUrl },
     auto_return: 'approved',
@@ -447,7 +475,8 @@ async function createChannelAddonPreference(
         unit_price: finalPrice
       }
     ],
-    payer: { email: params.email },
+    payer: payerFromEmailAndDisplayName(params.email, undefined),
+    shipments: preferenceShipmentsDigital(),
     external_reference: `${params.uid}:chaddon_once:${params.extraSlots}`,
     back_urls: { success: backUrl, failure: backUrl, pending: backUrl },
     auto_return: 'approved',
@@ -619,15 +648,23 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       const channels = parseChannelTier(req.body?.channels);
       const tierArg = channels != null ? { channels } : {};
 
+      let payerDisplayName: string | null | undefined;
+      try {
+        payerDisplayName = (await getAuth(adminApp).getUser(uid)).displayName ?? undefined;
+      } catch {
+        payerDisplayName = undefined;
+      }
+
       const result =
         method === 'recurring'
-          ? await createPreapproval({ uid, email, plan, method, ...tierArg })
+          ? await createPreapproval({ uid, email, plan, method, ...tierArg, payerDisplayName })
           : await createPreference({
               uid,
               email,
               plan,
               method: method as 'pix' | 'card',
-              ...tierArg
+              ...tierArg,
+              payerDisplayName
             });
 
       return res.json({
@@ -714,6 +751,13 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         checkoutDescription = `Upgrade pró-rata do ciclo atual (${Math.round(prorataRatio * 100)}% do período restante).`;
       }
 
+      let payerDisplayName: string | null | undefined;
+      try {
+        payerDisplayName = (await getAuth(adminApp).getUser(uid)).displayName ?? undefined;
+      } catch {
+        payerDisplayName = undefined;
+      }
+
       const result = await createChannelTierPreference({
         uid,
         email,
@@ -723,7 +767,8 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         externalReference,
         title: checkoutTitle,
         description: checkoutDescription,
-        amountOverride: billedPrice
+        amountOverride: billedPrice,
+        payerDisplayName
       });
       return res.json({
         ok: true,
