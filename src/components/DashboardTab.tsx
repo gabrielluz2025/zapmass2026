@@ -29,7 +29,8 @@ import {
   AlertTriangle,
   BookOpen,
   UserPlus,
-  MapPin
+  MapPin,
+  Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
@@ -48,6 +49,8 @@ import {
 } from '../utils/weddingAnniversary';
 import { SegmentExperiencePanel } from './segment/SegmentExperiencePanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
+import { openChatNavigate } from '../utils/openChatByPhoneNav';
+import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
 import {
   getMaxConnectionSlotsForUser,
   countAccountScopedConnections,
@@ -1482,10 +1485,10 @@ export const DashboardTab: React.FC = () => {
                     return (
                       <div
                         key={v.id}
-                        className="p-2.5 rounded-xl flex items-center justify-between gap-2"
-                        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                        className="p-2.5 rounded-xl flex items-center justify-between gap-2 group border border-transparent hover:border-[var(--border-subtle)]"
+                        style={{ background: 'var(--surface-1)' }}
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
                             {v.contactName}
                             {v.communionNeeded ? (
@@ -1496,6 +1499,27 @@ export const DashboardTab: React.FC = () => {
                             <Calendar className="w-3 h-3 shrink-0" />
                             {label}
                           </p>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Pipeline (WhatsApp)"
+                            onClick={() => openChatNavigate(setCurrentView, v.phone, v.contactName)}
+                          >
+                            <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Descarregar .ics"
+                            onClick={() => {
+                              downloadPastoralVisitIcs(v);
+                              toast.success('Ficheiro .ics descarregado.');
+                            }}
+                          >
+                            <Download className="w-4 h-4" style={{ color: 'var(--text-2)' }} />
+                          </Button>
                         </div>
                       </div>
                     );

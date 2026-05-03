@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   Wine,
   AlertTriangle,
-  Search
+  Search,
+  MessageCircle,
+  Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppProfile } from '../../context/AppProfileContext';
@@ -24,6 +26,8 @@ import {
   scheduledVisitsInCalendarMonth,
   visitsDoneInCalendarMonth
 } from '../../utils/pastoralVisitHelpers';
+import { openChatNavigate } from '../../utils/openChatByPhoneNav';
+import { downloadPastoralVisitIcs } from '../../utils/pastoralVisitIcs';
 import { Badge, Button, Card, Input, Modal, Textarea } from '../ui';
 
 const NO_VISIT_MS = 60 * 86400000;
@@ -381,18 +385,28 @@ export const PastoralVisitsTab: React.FC = () => {
                         {c.phone}
                       </p>
                     </div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setPickedContact(c);
-                        setContactQuery(c.name);
-                        setStartLocal(toDatetimeLocalValue(Date.now() + 86400000));
-                        setModalOpen(true);
-                      }}
-                    >
-                      Agendar
-                    </Button>
+                    <div className="flex flex-wrap gap-1.5 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Abrir no Pipeline (WhatsApp)"
+                        onClick={() => openChatNavigate(setCurrentView, c.phone, c.name)}
+                      >
+                        <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setPickedContact(c);
+                          setContactQuery(c.name);
+                          setStartLocal(toDatetimeLocalValue(Date.now() + 86400000));
+                          setModalOpen(true);
+                        }}
+                      >
+                        Agendar
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -437,7 +451,26 @@ export const PastoralVisitsTab: React.FC = () => {
                     </p>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap gap-2 shrink-0">
+                <div className="flex flex-wrap gap-2 shrink-0 items-center">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Abrir no Pipeline (WhatsApp)"
+                    onClick={() => openChatNavigate(setCurrentView, v.phone, v.contactName)}
+                  >
+                    <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Descarregar .ics (Google, Apple, Outlook)"
+                    onClick={() => {
+                      downloadPastoralVisitIcs(v);
+                      toast.success('Ficheiro .ics gerado. Abra no calendário do telemóvel ou arraste para o Google Calendar.');
+                    }}
+                  >
+                    <Download className="w-4 h-4" style={{ color: 'var(--text-2)' }} />
+                  </Button>
                   {v.status === 'scheduled' && (
                     <>
                       <Button variant="primary" size="sm" leftIcon={<CheckCircle2 className="w-3.5 h-3.5" />} onClick={() => markDoneOpen(v)}>
