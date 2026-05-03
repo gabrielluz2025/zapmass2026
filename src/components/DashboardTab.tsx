@@ -28,7 +28,8 @@ import {
   WifiOff,
   AlertTriangle,
   BookOpen,
-  UserPlus
+  UserPlus,
+  MapPin
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
@@ -46,6 +47,7 @@ import {
   yearsCelebratingAtNextAnniversary
 } from '../utils/weddingAnniversary';
 import { SegmentExperiencePanel } from './segment/SegmentExperiencePanel';
+import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import {
   getMaxConnectionSlotsForUser,
   countAccountScopedConnections,
@@ -246,6 +248,17 @@ export const DashboardTab: React.FC = () => {
   const { subscription } = useSubscription();
   const { segment } = useAppProfile();
   const segmentXp = useMemo(() => getSegmentExperience(segment), [segment]);
+  const { visits: pastoralVisits, loading: pastoralLoading } = usePastoralVisits({
+    enabled: segment === 'religious'
+  });
+  const upcomingPastoralVisits = useMemo(() => {
+    const margin = 15 * 60 * 1000;
+    const t = Date.now();
+    return pastoralVisits
+      .filter((v) => v.status === 'scheduled' && v.scheduledEndMs >= t - margin)
+      .sort((a, b) => a.scheduledStartMs - b.scheduledStartMs)
+      .slice(0, 6);
+  }, [pastoralVisits]);
   const isAdmin = isAdminUserEmail(user?.email ?? null);
   const maxPlanChannelSlots = useMemo(
     () => getMaxConnectionSlotsForUser(subscription, isAdmin),
@@ -1416,6 +1429,82 @@ export const DashboardTab: React.FC = () => {
             </div>
           </div>
         </Card>
+
+        {segment === 'religious' && (
+          <Card className="overflow-hidden p-0">
+            <div
+              className="px-4 pt-4 pb-3 flex items-start justify-between gap-3"
+              style={{
+                background:
+                  'linear-gradient(160deg, rgba(16,185,129,0.14) 0%, rgba(59,130,246,0.08) 45%, transparent 100%)',
+                borderBottom: '1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent)'
+              }}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(16,185,129,0.4), rgba(59,130,246,0.32))',
+                    border: '1px solid rgba(16,185,129,0.45)',
+                    boxShadow: '0 8px 24px -8px rgba(16, 185, 129, 0.35)'
+                  }}
+                >
+                  <MapPin className="w-5 h-5 text-white drop-shadow" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="ui-title text-[15px] leading-tight" style={{ color: 'var(--text-1)' }}>
+                    Próximas visitas
+                  </h3>
+                  <p className="ui-subtitle text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                    Pastoral — agendadas no ZapMass
+                  </p>
+                </div>
+              </div>
+              <Button variant="secondary" size="sm" className="shrink-0" onClick={() => setCurrentView('pastoral-visits')}>
+                Abrir agenda
+              </Button>
+            </div>
+            <div className="px-4 pt-1 pb-4">
+              <div className="flex-1 overflow-y-auto max-h-[220px] space-y-2 min-h-[6rem]">
+                {pastoralLoading ? (
+                  <p className="text-[12px] py-6 text-center" style={{ color: 'var(--text-3)' }}>
+                    A carregar…
+                  </p>
+                ) : upcomingPastoralVisits.length === 0 ? (
+                  <p className="text-[12px] py-6 text-center leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    Nenhuma visita agendada nos próximos dias. Use o menu <strong style={{ color: 'var(--text-2)' }}>Visitas</strong> para
+                    planear.
+                  </p>
+                ) : (
+                  upcomingPastoralVisits.map((v) => {
+                    const a = new Date(v.scheduledStartMs);
+                    const label = `${a.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })} · ${a.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+                    return (
+                      <div
+                        key={v.id}
+                        className="p-2.5 rounded-xl flex items-center justify-between gap-2"
+                        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
+                            {v.contactName}
+                            {v.communionNeeded ? (
+                              <span className="ml-1.5 text-[10px] font-normal text-amber-600">· ceia</span>
+                            ) : null}
+                          </p>
+                          <p className="text-[11px] mt-0.5 flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+                            <Calendar className="w-3 h-3 shrink-0" />
+                            {label}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
         </div>
       </div>
 

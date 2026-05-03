@@ -40,6 +40,11 @@ const RELIGIOUS: SegmentExperience = {
       label: 'Ficha de membro',
       hint: 'Formulário rápido só no segmento religioso.'
     },
+    {
+      view: 'pastoral-visits',
+      label: 'Visitas pastorais',
+      hint: 'Agenda, ceia e quem está sem visita há tempo.'
+    },
     { view: 'contacts', label: 'Contatos', hint: 'Listas por grupo, aniversários e etiquetas.' },
     { view: 'warmup', label: 'Aquecimento', hint: 'Prepare números novos antes de avisos em massa.' }
   ],

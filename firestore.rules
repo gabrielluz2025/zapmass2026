@@ -80,6 +80,11 @@ service cloud.firestore {
       allow create: if false;
     }
 
+    /** Visitas pastorais (agenda, ceia, histórico) — segmento religioso; mesmo acesso que contatos. */
+    match /users/{uid}/pastoral_visits/{docId} {
+      allow read, write: if canAccessUserSubtree(uid);
+    }
+
     /** Estatísticas de tempo no app (só servidor / Admin SDK). */
     match /users/{uid}/usageStats/{docId} {
       allow read, write: if false;

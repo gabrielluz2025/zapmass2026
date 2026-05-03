@@ -21,7 +21,8 @@ import {
   Server,
   BookOpen,
   UserPlus,
-  Church
+  Church,
+  MapPin
 } from 'lucide-react';
 import { useZapMass } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -61,6 +62,12 @@ const navGroups: NavGroup[] = [
         label: 'Ficha membro',
         icon: Church,
         description: 'Cadastro eclesiástico (só segmento religioso)'
+      },
+      {
+        id: 'pastoral-visits',
+        label: 'Visitas',
+        icon: MapPin,
+        description: 'Agenda pastoral, ceia e acompanhamento'
       },
       {
         id: 'team',
@@ -135,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const items =
         segment === 'religious'
           ? g.items
-          : g.items.filter((it) => it.id !== 'religious-members');
+          : g.items.filter((it) => it.id !== 'religious-members' && it.id !== 'pastoral-visits');
       return { ...g, items };
     });
     if (isAdminUserEmail(email)) {
