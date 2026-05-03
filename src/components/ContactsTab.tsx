@@ -1,5 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone } from 'lucide-react';
+import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
@@ -35,6 +35,12 @@ import {
   parseFollowUpMs,
   parseImportFollowUpAt
 } from '../utils/followUp';
+import {
+  contactWeddingMatchesNextDays,
+  contactWeddingMatchesToday,
+  daysUntilWeddingAnniversary,
+  parseWeddingDayMonth
+} from '../utils/weddingAnniversary';
 import {
   computeContactTemperatures,
   CONTACT_TEMP_LABEL,
@@ -1158,6 +1164,15 @@ export const ContactsTab: React.FC = () => {
       }
     }
 
+    let weddingToday = 0;
+    let weddingWeek = 0;
+    for (const c of contacts) {
+      const clean = (c.phone || '').replace(/\D/g, '');
+      if (clean.length < 10) continue;
+      if (contactWeddingMatchesToday(c, today)) weddingToday++;
+      if (contactWeddingMatchesNextDays(c, 7, today)) weddingWeek++;
+    }
+
     const hot = contacts.filter((c) => contactTemps[c.id]?.temp === 'hot').length;
     const warm = contacts.filter((c) => contactTemps[c.id]?.temp === 'warm').length;
     const cold = contacts.filter((c) => contactTemps[c.id]?.temp === 'cold').length;
@@ -1212,6 +1227,8 @@ export const ContactsTab: React.FC = () => {
       dormant,
       bdayToday,
       bdayWeek,
+      weddingToday,
+      weddingWeek,
       addressComplete,
       addressPct,
       noCity,
@@ -1227,6 +1244,7 @@ export const ContactsTab: React.FC = () => {
   // ============================================================
   type SmartSegmentId =
     | 'birthday-week'
+    | 'wedding-week'
     | 'hot-inactive'
     | 'cold-reactivation'
     | 'no-tag'
@@ -1254,6 +1272,8 @@ export const ContactsTab: React.FC = () => {
         }
         return false;
       }
+      case 'wedding-week':
+        return contactWeddingMatchesNextDays(c, 7);
       case 'hot-inactive':
         return !!t && t.temp === 'hot' && (!t.lastReplyTs || (now - t.lastReplyTs) / DAY > 15);
       case 'cold-reactivation':
@@ -1291,6 +1311,7 @@ export const ContactsTab: React.FC = () => {
   }> = useMemo(() => {
     const list: Array<{ id: SmartSegmentId; label: string; icon: React.ElementType; color: string; hint: string }> = [
       { id: 'birthday-week',      label: 'Aniversários (7d)',    icon: Cake,        color: 'amber',   hint: 'Faça um envio personalizado' },
+      { id: 'wedding-week',       label: 'Bodas de casamento (7d)', icon: Heart,     color: 'rose',    hint: 'Data na ficha de membro' },
       { id: 'hot-inactive',       label: 'Quentes sem contato',  icon: Flame,       color: 'red',     hint: 'Não perca o engajamento' },
       { id: 'cold-reactivation',  label: 'Reativar frios',       icon: Snowflake,   color: 'sky',     hint: 'Campanha de win-back' },
       { id: 'last-7-days',        label: 'Novos (7d)',           icon: Sparkles,    color: 'emerald', hint: 'Acolhida para novatos' },
@@ -1481,6 +1502,10 @@ export const ContactsTab: React.FC = () => {
         }
         return false;
       }
+      case 'wedding_today':
+        return contactWeddingMatchesToday(c);
+      case 'wedding_week':
+        return contactWeddingMatchesNextDays(c, 7);
       default: return true;
     }
   }, [contactLists, contactTemps, phoneDupKeys]);
@@ -1502,7 +1527,9 @@ export const ContactsTab: React.FC = () => {
         (c.church?.toLowerCase().includes(q) ?? false) ||
         (c.role?.toLowerCase().includes(q) ?? false) ||
         (c.profession?.toLowerCase().includes(q) ?? false) ||
-        (c.followUpNote?.toLowerCase().includes(q) ?? false);
+        (c.followUpNote?.toLowerCase().includes(q) ?? false) ||
+        (c.religiousMemberProfile?.spouseName?.toLowerCase().includes(q) ?? false) ||
+        (c.religiousMemberProfile?.weddingDate?.toLowerCase().includes(q) ?? false);
       const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
       const matchesTag = !filterTag || c.tags.some((t) => t.toLowerCase() === filterTag.toLowerCase());
       const matchesTemp = filterTemp === 'ALL' || contactTemps[c.id]?.temp === filterTemp;
@@ -1529,12 +1556,23 @@ export const ContactsTab: React.FC = () => {
       activeFilter === 'retorno_atrasados' ||
       activeFilter === 'retorno_hoje' ||
       activeFilter === 'retorno_semana';
-    if (!isRetorno) return filteredContacts;
-    return [...filteredContacts].sort((a, b) => {
-      const ta = parseFollowUpMs(a.followUpAt) ?? Infinity;
-      const tb = parseFollowUpMs(b.followUpAt) ?? Infinity;
-      return ta - tb;
-    });
+    if (isRetorno) {
+      return [...filteredContacts].sort((a, b) => {
+        const ta = parseFollowUpMs(a.followUpAt) ?? Infinity;
+        const tb = parseFollowUpMs(b.followUpAt) ?? Infinity;
+        return ta - tb;
+      });
+    }
+    if (activeFilter === 'wedding_today' || activeFilter === 'wedding_week') {
+      return [...filteredContacts].sort((a, b) => {
+        const ma = parseWeddingDayMonth(a.religiousMemberProfile?.weddingDate);
+        const mb = parseWeddingDayMonth(b.religiousMemberProfile?.weddingDate);
+        if (!ma) return 1;
+        if (!mb) return -1;
+        return daysUntilWeddingAnniversary(ma) - daysUntilWeddingAnniversary(mb);
+      });
+    }
+    return filteredContacts;
   }, [filteredContacts, activeFilter]);
 
   // Pagination Logic
@@ -2113,6 +2151,7 @@ export const ContactsTab: React.FC = () => {
     // Mapeia os segmentos do modal de Insights para filtros da nova sidebar.
     const map: Record<string, SmartFilterId> = {
       'birthday-week': 'bday_week',
+      'wedding-week': 'wedding_week',
       'hot-inactive': 'hot',
       'cold-reactivation': 'cold',
       'no-tag': 'all',
@@ -2150,6 +2189,13 @@ export const ContactsTab: React.FC = () => {
     launchCampaignWithDraft(draft, 'Abrindo campanha de aniversário…');
   }, [buildDraftFromContacts, launchCampaignWithDraft]);
 
+  const handleWeddingCampaign = useCallback((people: Contact[]) => {
+    const name = people.length === 1 ? `Bodas: ${people[0].name}` : `Bodas de casamento (${people.length})`;
+    const draft = buildDraftFromContacts(people, name);
+    if (!draft) { toast.error('Sem telefones válidos nestes contatos.'); return; }
+    launchCampaignWithDraft(draft, 'Abrindo campanha de bodas…');
+  }, [buildDraftFromContacts, launchCampaignWithDraft]);
+
   const handleCreateCampaignWithFiltered = useCallback(() => {
     const draft = buildDraftFromContacts(filteredContacts, `Campanha (${filteredContacts.length} contatos)`);
     if (!draft) { toast.error('Nenhum contato no filtro atual.'); return; }
@@ -2165,6 +2211,8 @@ export const ContactsTab: React.FC = () => {
     new: smartStats.newOnes,
     bday_today: smartStats.bdayToday,
     bday_week: smartStats.bdayWeek,
+    wedding_today: smartStats.weddingToday,
+    wedding_week: smartStats.weddingWeek,
     dormant: smartStats.dormant,
     invalid: smartStats.invalid,
     no_address: contacts.filter((c) => !c.street || !c.city || !c.zipCode).length,
@@ -2190,7 +2238,8 @@ export const ContactsTab: React.FC = () => {
     valid: validCount,
     newLast7: smartStats.last7,
     hot: smartStats.hot,
-    bdayToday: smartStats.bdayToday
+    bdayToday: smartStats.bdayToday,
+    weddingWeek: smartStats.weddingWeek
   }), [smartStats, validCount]);
 
   /** Contato em destaque (drawer) — tempStats equivalente. */
@@ -2555,6 +2604,40 @@ export const ContactsTab: React.FC = () => {
           onQueryChange={setSearchTerm}
         />
         <div className="flex flex-col gap-3 min-w-0">
+          {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
+              <span className="text-[12px] text-amber-900 dark:text-amber-200 font-medium">
+                {listFilteredContacts.length} aniversariante(s) neste filtro
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="ml-auto"
+                leftIcon={<Send className="w-3.5 h-3.5" />}
+                onClick={() => handleBirthdayCampaign(listFilteredContacts)}
+              >
+                Mensagem de aniversário
+              </Button>
+            </div>
+          )}
+          {(activeFilter === 'wedding_week' || activeFilter === 'wedding_today') && listFilteredContacts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2">
+              <span className="text-[12px] text-rose-900 dark:text-rose-200 font-medium">
+                {listFilteredContacts.length} contato(s) com bodas neste filtro
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="ml-auto"
+                leftIcon={<Send className="w-3.5 h-3.5" />}
+                onClick={() => handleWeddingCampaign(listFilteredContacts)}
+              >
+                Mensagem de bodas
+              </Button>
+            </div>
+          )}
           <ContactsTableVirtual
             rows={listFilteredContacts}
             contactTemps={contactTemps}
@@ -2576,7 +2659,9 @@ export const ContactsTab: React.FC = () => {
                   ? 'Sua base está vazia. Importe ou crie um contato.'
                   : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
                     ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
-                    : 'Ajuste o filtro na lateral ou tente outra busca.'
+                    : activeFilter === 'wedding_today' || activeFilter === 'wedding_week'
+                      ? 'Ninguém com data de casamento na ficha neste período. Edite o contato (segmento religioso) e preencha Data do casamento na ficha de membro.'
+                      : 'Ajuste o filtro na lateral ou tente outra busca.'
             }
           />
           </div>
@@ -3004,6 +3089,7 @@ export const ContactsTab: React.FC = () => {
                        />
                     </div>
 
+                    {editingContactId ? (
                     <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-4 space-y-3">
                       <h4 className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-2">
                         <Clock className="w-3.5 h-3.5" /> Retorno (lembrete)
@@ -3034,6 +3120,7 @@ export const ContactsTab: React.FC = () => {
                         />
                       </div>
                     </div>
+                    ) : null}
                  </div>
 
                  <div className="border-t border-slate-100 dark:border-slate-800"></div>

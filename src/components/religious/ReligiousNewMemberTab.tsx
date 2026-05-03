@@ -16,6 +16,7 @@ import {
   toggleInList,
   type MemberFormState
 } from './religiousMemberFormShared';
+import { WeddingAnniversaryHint } from './WeddingAnniversaryHint';
 
 function normPhoneKey(p: string): string {
   let d = (p || '').replace(/\D/g, '');
@@ -328,12 +329,17 @@ export const ReligiousNewMemberTab: React.FC = () => {
               <Input value={f.maritalStatus} onChange={(e) => set('maritalStatus', e.target.value)} />
             </div>
             <div>
-              <FieldLabel optional>Nome do cônjuge</FieldLabel>
-              <Input value={f.spouseName} onChange={(e) => set('spouseName', e.target.value)} />
+              <FieldLabel optional>Casado(a) com (nome do cônjuge)</FieldLabel>
+              <Input value={f.spouseName} onChange={(e) => set('spouseName', e.target.value)} placeholder="Quem é o cônjuge" />
             </div>
             <div className="sm:col-span-2">
-              <FieldLabel optional>Data do casamento</FieldLabel>
-              <Input value={f.weddingDate} onChange={(e) => set('weddingDate', e.target.value)} placeholder="DD/MM/AAAA" />
+              <FieldLabel optional>Data do casamento (dia das bodas a cada ano)</FieldLabel>
+              <Input
+                value={f.weddingDate}
+                onChange={(e) => set('weddingDate', e.target.value)}
+                placeholder="DD/MM/AAAA (com ano para calcular anos de casados)"
+              />
+              {f.weddingDate.trim() ? <WeddingAnniversaryHint weddingDate={f.weddingDate} /> : null}
             </div>
           </div>
         </Card>

@@ -7,6 +7,7 @@ import {
 import { formatFollowUpLabel, parseFollowUpMs, localStartOfTodayMs } from '../../../utils/followUp';
 import type { Contact, ReligiousMemberProfile } from '../../../types';
 import { useAppProfile } from '../../../context/AppProfileContext';
+import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../../utils/weddingAnniversary';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -95,8 +96,13 @@ function religiousFichaRows(r: ReligiousMemberProfile | undefined): { label: str
   push('Nome do pai', r.fatherName);
   push('Nome da mãe', r.motherName);
   push('Estado civil', r.maritalStatus);
-  push('Cônjuge', r.spouseName);
-  push('Data do casamento', r.weddingDate);
+  push('Casado(a) com', r.spouseName);
+  push('Data do casamento (bodas)', r.weddingDate);
+  const mdWed = parseWeddingDayMonth(r.weddingDate);
+  if (mdWed?.fullYear) {
+    const yNext = yearsCelebratingAtNextAnniversary(mdWed);
+    if (yNext != null) rows.push({ label: 'Anos de casados (na próxima bodas)', value: String(yNext) });
+  }
   if (r.ministerRoles?.length) rows.push({ label: 'Funções ministeriais', value: r.ministerRoles.join(', ') });
   if (r.leaderGroups?.length) rows.push({ label: 'Líder de conjunto', value: r.leaderGroups.join(', ') });
   push('Profissão de fé', r.professionOfFaith);

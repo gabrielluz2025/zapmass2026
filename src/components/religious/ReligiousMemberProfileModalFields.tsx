@@ -7,6 +7,7 @@ import {
   type MemberFormState,
   toggleInList
 } from './religiousMemberFormShared';
+import { WeddingAnniversaryHint } from './WeddingAnniversaryHint';
 
 function ModalFieldLabel({ children, optional }: { children: React.ReactNode; optional?: boolean }) {
   return (
@@ -134,12 +135,18 @@ export const ReligiousMemberProfileModalFields: React.FC<Props> = ({ form: f, on
             <Input value={f.maritalStatus} onChange={(e) => set('maritalStatus', e.target.value)} className="ui-input" />
           </div>
           <div>
-            <ModalFieldLabel optional>Nome do cônjuge</ModalFieldLabel>
+            <ModalFieldLabel optional>Casado(a) com (nome do cônjuge)</ModalFieldLabel>
             <Input value={f.spouseName} onChange={(e) => set('spouseName', e.target.value)} className="ui-input" />
           </div>
           <div className="sm:col-span-2">
-            <ModalFieldLabel optional>Data do casamento</ModalFieldLabel>
-            <Input value={f.weddingDate} onChange={(e) => set('weddingDate', e.target.value)} placeholder="DD/MM/AAAA" className="ui-input" />
+            <ModalFieldLabel optional>Data do casamento (bodas todo ano neste dia)</ModalFieldLabel>
+            <Input
+              value={f.weddingDate}
+              onChange={(e) => set('weddingDate', e.target.value)}
+              placeholder="DD/MM/AAAA (com ano para anos de casados)"
+              className="ui-input"
+            />
+            {f.weddingDate.trim() ? <WeddingAnniversaryHint weddingDate={f.weddingDate} /> : null}
           </div>
         </div>
       </div>

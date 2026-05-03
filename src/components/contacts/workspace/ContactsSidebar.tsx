@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Users, Flame, Sparkles, Snowflake, Clock, Cake, Moon, AlertCircle,
-  MapPinOff, Copy, List as ListIcon, Plus, MoreHorizontal, LucideIcon, Search, X, Trash2, CalendarClock
+  MapPinOff, Copy, List as ListIcon, Plus, MoreHorizontal, LucideIcon, Search, X, Trash2, CalendarClock, Heart
 } from 'lucide-react';
 import type { ContactList } from '../../../types';
 
@@ -14,6 +14,8 @@ export type SmartFilterId =
   | 'new'
   | 'bday_today'
   | 'bday_week'
+  | 'wedding_today'
+  | 'wedding_week'
   | 'dormant'
   | 'invalid'
   | 'no_address'
@@ -32,6 +34,8 @@ export interface SidebarCounts {
   new: number;
   bday_today: number;
   bday_week: number;
+  wedding_today: number;
+  wedding_week: number;
   dormant: number;
   invalid: number;
   no_address: number;
@@ -89,6 +93,8 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
   const groupAttention: FilterItem[] = [
     { id: 'bday_today', label: 'Aniver. hoje', icon: Cake, tone: 'amber', count: counts.bday_today },
     { id: 'bday_week', label: 'Aniver. 7 dias', icon: Cake, tone: 'violet', count: counts.bday_week },
+    { id: 'wedding_today', label: 'Bodas hoje', icon: Heart, tone: 'rose', count: counts.wedding_today, hint: 'Data de casamento na ficha' },
+    { id: 'wedding_week', label: 'Bodas 7 dias', icon: Heart, tone: 'violet', count: counts.wedding_week, hint: 'Aniversário de casamento' },
     { id: 'dormant', label: 'Dormentes', icon: Moon, tone: 'slate', count: counts.dormant, hint: '>60 dias sem envio' },
     { id: 'invalid', label: 'Inválidos', icon: AlertCircle, tone: 'rose', count: counts.invalid },
     { id: 'no_address', label: 'Sem endereço', icon: MapPinOff, tone: 'orange', count: counts.no_address },

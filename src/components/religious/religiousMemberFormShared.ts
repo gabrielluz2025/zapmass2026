@@ -1,4 +1,5 @@
 import type { Contact, ReligiousMemberProfile } from '../../types';
+import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../utils/weddingAnniversary';
 
 export const MINISTER_ROLES = [
   'Congregado',
@@ -254,6 +255,17 @@ export function religiousExportColumns(): Array<{ label: string; width: number; 
     { label: 'Estado civil', width: 14, get: (c) => c.religiousMemberProfile?.maritalStatus || '' },
     { label: 'Cônjuge', width: 22, get: (c) => c.religiousMemberProfile?.spouseName || '' },
     { label: 'Data casamento', width: 12, get: (c) => c.religiousMemberProfile?.weddingDate || '' },
+    {
+      label: 'Anos próx. bodas',
+      width: 12,
+      get: (c) => {
+        const wd = (c.religiousMemberProfile?.weddingDate || '').trim();
+        const md = parseWeddingDayMonth(wd);
+        if (!md?.fullYear) return '';
+        const y = yearsCelebratingAtNextAnniversary(md);
+        return y != null ? String(y) : '';
+      }
+    },
     { label: 'Funções (ficha)', width: 28, get: (c) => (c.religiousMemberProfile?.ministerRoles || []).join('; ') },
     { label: 'Lider conjunto', width: 22, get: (c) => (c.religiousMemberProfile?.leaderGroups || []).join('; ') },
     { label: 'Profissão de fé', width: 18, get: (c) => c.religiousMemberProfile?.professionOfFaith || '' },

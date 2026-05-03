@@ -7,6 +7,8 @@ interface HeaderStats {
   newLast7: number;
   hot: number;
   bdayToday: number;
+  /** Contatos com bodas nos próximos 7 dias (data na ficha). */
+  weddingWeek: number;
 }
 
 interface Props {
@@ -73,6 +75,7 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
             <Pill label="Novos (7d)" value={stats.newLast7} tone="sky" />
             <Pill label="Quentes" value={stats.hot} tone="rose" />
             {stats.bdayToday > 0 && <Pill label="Aniver. hoje" value={stats.bdayToday} tone="amber" pulse />}
+            {stats.weddingWeek > 0 && <Pill label="Bodas 7d" value={stats.weddingWeek} tone="rose" />}
           </div>
         </div>
       </div>

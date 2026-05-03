@@ -33,6 +33,7 @@ import {
   WhatsAppConnection
 } from '../../types';
 import type { CampaignWizardDraft } from '../../types/campaignMission';
+import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../utils/weddingAnniversary';
 import { analyzeMessageRisk } from '../../utils/messageRiskScore';
 import {
   computeNextRunIso,
@@ -48,6 +49,8 @@ import {
 import { useZapMass } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
+import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
+import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 
 type CampaignFlowMode = 'sequential' | 'reply';
 
@@ -176,6 +179,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [selectedContactPhones, setSelectedContactPhones] = useState<Set<string>>(new Set());
   const [manualSelection, setManualSelection] = useState(false);
   const msgRef = useRef<HTMLTextAreaElement>(null);
+  const invalidReplyRef = useRef<HTMLTextAreaElement>(null);
+  const abFirstBodyBRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setChannelWeightsById((prev) => {
@@ -589,17 +594,20 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   };
 
   const insertVariable = (variable: string) => {
-    const el = msgRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const cur = activeMessageBody;
-    const newMsg = cur.substring(0, start) + variable + cur.substring(end);
-    setMessageStages((prev) => prev.map((s, i) => (i === activeStageIdx ? { ...s, body: newMsg } : s)));
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + variable.length, start + variable.length);
-    });
+    insertCampaignTokenIntoTextarea(msgRef.current, activeMessageBody, variable, (next) =>
+      setMessageStages((prev) => prev.map((s, i) => (i === activeStageIdx ? { ...s, body: next } : s)))
+    );
+  };
+
+  const insertInvalidReplyVariable = (variable: string) => {
+    const cur = messageStages[activeStageIdx]?.invalidReplyBody ?? '';
+    insertCampaignTokenIntoTextarea(invalidReplyRef.current, cur, variable, (next) =>
+      patchActiveStage({ invalidReplyBody: next })
+    );
+  };
+
+  const insertAbFirstBodyBVariable = (variable: string) => {
+    insertCampaignTokenIntoTextarea(abFirstBodyBRef.current, abFirstBodyB, variable, setAbFirstBodyB);
   };
 
   const numbers =
@@ -701,20 +709,30 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   }, [launchMode, repeatWeekly, onceScheduleDate, scheduleTimeZone]);
 
   const buildRecipients = (): Array<{ phone: string; vars: Record<string, string> }> => {
-    const fromContact = (c: Contact) => ({
-      phone: c.phone,
-      vars: {
-        nome: (c.name || '').split(' ')[0] || c.name || '',
-        nome_completo: c.name || '',
-        telefone: c.phone,
-        cidade: c.city || '',
-        igreja: c.church || '',
-        cargo: c.role || '',
-        profissao: c.profession || '',
-        aniversario: c.birthday || '',
-        email: c.email || ''
-      }
-    });
+    const fromContact = (c: Contact) => {
+      const wedding = (c.religiousMemberProfile?.weddingDate || '').trim();
+      const conjuge = (c.religiousMemberProfile?.spouseName || '').trim();
+      const mdWed = parseWeddingDayMonth(wedding);
+      const anosCasamento =
+        mdWed?.fullYear != null ? yearsCelebratingAtNextAnniversary(mdWed) : null;
+      return {
+        phone: c.phone,
+        vars: {
+          nome: (c.name || '').split(' ')[0] || c.name || '',
+          nome_completo: c.name || '',
+          telefone: c.phone,
+          cidade: c.city || '',
+          igreja: c.church || '',
+          cargo: c.role || '',
+          profissao: c.profession || '',
+          aniversario: c.birthday || '',
+          email: c.email || '',
+          conjuge,
+          data_bodas: wedding,
+          anos_casamento: anosCasamento != null ? String(anosCasamento) : ''
+        }
+      };
+    };
     if (sendMode === 'list') return selectedListContactsForSend.map(fromContact);
     if (sendMode === 'filter') return filteredContacts.map(fromContact);
     return numbers.map((phone) => ({ phone, vars: { telefone: phone } }));
@@ -897,17 +915,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     }
   };
 
-  const applyPreviewVars = (text: string) =>
-    text
-      .replace(/\{nome\}/g, 'Maria Silva')
-      .replace(/\{telefone\}/g, '(11) 98888-7777')
-      .replace(/\{cidade\}/g, 'Sao Paulo')
-      .replace(/\{igreja\}/g, 'Igreja Exemplo')
-      .replace(/\{cargo\}/g, 'Lider de Celula')
-      .replace(/\{profissao\}/g, 'Engenheira')
-      .replace(/\{data\}/g, new Date().toLocaleDateString('pt-BR'));
-
-  const stagePreviewBodies = messageStages.map((s) => applyPreviewVars(s.body)).filter((b) => b.trim().length > 0);
+  const stagePreviewBodies = messageStages
+    .map((s) => applyCampaignMessagePreviewVars(s.body))
+    .filter((b) => b.trim().length > 0);
 
   const estimateMinutes =
     campaignFlowMode === 'reply'
@@ -1434,19 +1444,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-1 mb-2">
-                {['{nome}', '{telefone}', '{cidade}', '{igreja}', '{cargo}', '{profissao}', '{data}'].map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => insertVariable(v)}
-                    className="text-[10.5px] font-mono font-semibold px-2 py-0.5 rounded-md transition-all hover:brightness-110"
-                    style={{ background: 'var(--brand-50)', color: 'var(--brand-700)' }}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
+              <CampaignMessageVariableChips onInsert={insertVariable} density="full" />
 
               <SegmentCampaignIdeas onApplyTemplate={(body) => setActiveMessageBody(body)} />
 
@@ -1570,7 +1568,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
                           Se nao for aceito, enviar
                         </label>
+                        <CampaignMessageVariableChips onInsert={insertInvalidReplyVariable} density="compact" />
                         <Textarea
+                          ref={invalidReplyRef}
                           placeholder="Ex: Opcao invalida. Digite 1 para sim ou 2 para nao."
                           value={messageStages[activeStageIdx].invalidReplyBody}
                           onChange={(e) => patchActiveStage({ invalidReplyBody: e.target.value })}
@@ -2090,7 +2090,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
                           Texto da 1ª mensagem — variante B
                         </label>
+                        <CampaignMessageVariableChips onInsert={insertAbFirstBodyBVariable} density="compact" />
                         <Textarea
+                          ref={abFirstBodyBRef}
                           placeholder="Mensagem alternativa para teste..."
                           value={abFirstBodyB}
                           onChange={(e) => setAbFirstBodyB(e.target.value)}
@@ -2183,7 +2185,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             : ` — aceita: ${parseValidTokensText(s.validTokensText).join(', ') || '—'}`)}
                       </p>
                       <p className="text-[13px] whitespace-pre-wrap" style={{ color: 'var(--text-1)' }}>
-                        {applyPreviewVars(s.body) || '—'}
+                        {applyCampaignMessagePreviewVars(s.body) || '—'}
                       </p>
                     </div>
                   ))}

@@ -5,6 +5,7 @@ import {
   Reply,
   Cake,
   Calendar,
+  Heart,
   User,
   Smartphone,
   ChevronDown,
@@ -38,6 +39,12 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { useAppProfile } from '../context/AppProfileContext';
 import { getSegmentExperience } from '../constants/segmentExperience';
 import { isAdminUserEmail } from '../utils/adminAccess';
+import {
+  daysUntilWeddingAnniversary,
+  parseWeddingDayMonth,
+  weddingNextOccurrence,
+  yearsCelebratingAtNextAnniversary
+} from '../utils/weddingAnniversary';
 import { SegmentExperiencePanel } from './segment/SegmentExperiencePanel';
 import {
   getMaxConnectionSlotsForUser,
@@ -57,6 +64,16 @@ interface UpcomingBirthday {
   daysRemaining: number;
   age: number | null;
   profilePicUrl?: string;
+}
+
+interface UpcomingWedding {
+  id: string;
+  name: string;
+  phone: string;
+  spouseName: string;
+  nextLabel: string;
+  daysRemaining: number;
+  yearsCelebrating: number | null;
 }
 
 const useCountUp = (target: number, duration = 1100) => {
@@ -82,6 +99,8 @@ const useCountUp = (target: number, duration = 1100) => {
 };
 
 const DEFAULT_BIRTHDAY_TEMPLATE = `Ola {nome}! 🎉🎂\n\nParabens pelo seu dia! Que esse novo ciclo seja repleto de alegrias, saude e conquistas.\n\nVoce e especial para nos!`;
+
+const WEDDING_BULK_DEFAULT = `Ola {nome}! 💍\n\nParabens pelo aniversario de casamento! Que Deus abencoe voce e {conjuge}.\n{anos_line}\n\nFeliz bodas!`;
 
 const BIRTHDAY_RANGE_DAYS = 30;
 
@@ -290,13 +309,18 @@ export const DashboardTab: React.FC = () => {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkPreviewIndex, setBulkPreviewIndex] = useState(0);
 
+  const [selectedWedding, setSelectedWedding] = useState<UpcomingWedding | null>(null);
+  const [weddingMessageText, setWeddingMessageText] = useState('');
+  const [weddingBulkOpen, setWeddingBulkOpen] = useState(false);
+  const [weddingBulkTemplate, setWeddingBulkTemplate] = useState(WEDDING_BULK_DEFAULT);
+  const [weddingBulkSubmitting, setWeddingBulkSubmitting] = useState(false);
 
   useEffect(() => {
-    if (selectedContact && connections.length > 0) {
+    if ((selectedContact || selectedWedding) && connections.length > 0) {
       const firstOnline = connections.find((c) => c.status === ConnectionStatus.CONNECTED);
       setSendingConnectionId(firstOnline ? firstOnline.id : connections[0]?.id || '');
     }
-  }, [selectedContact, connections]);
+  }, [selectedContact, selectedWedding, connections]);
 
   useEffect(() => {
     if (bulkBirthdayOpen && !bulkConnectionId) {
@@ -304,6 +328,13 @@ export const DashboardTab: React.FC = () => {
       if (firstOnline) setBulkConnectionId(firstOnline.id);
     }
   }, [bulkBirthdayOpen, connections, bulkConnectionId]);
+
+  useEffect(() => {
+    if (weddingBulkOpen && !bulkConnectionId) {
+      const firstOnline = connections.find((c) => c.status === ConnectionStatus.CONNECTED);
+      if (firstOnline) setBulkConnectionId(firstOnline.id);
+    }
+  }, [weddingBulkOpen, connections, bulkConnectionId]);
 
   const onlineCount = connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length;
   // --- ANIVERSARIANTES (derivado de contacts) ---
@@ -353,8 +384,38 @@ export const DashboardTab: React.FC = () => {
     return result.sort((a, b) => a.daysRemaining - b.daysRemaining);
   }, [contacts]);
 
+  const upcomingWeddings = useMemo<UpcomingWedding[]>(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const result: UpcomingWedding[] = [];
+    for (const c of contacts) {
+      const md = parseWeddingDayMonth(c.religiousMemberProfile?.weddingDate);
+      if (!md) continue;
+      const days = daysUntilWeddingAnniversary(md, today);
+      if (days > BIRTHDAY_RANGE_DAYS) continue;
+      const cleanPhone = (c.phone || '').replace(/\D/g, '');
+      if (cleanPhone.length < 10) continue;
+      const spouse = (c.religiousMemberProfile?.spouseName || '').trim();
+      const next = weddingNextOccurrence(md, today);
+      const nextLabel = next.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      const yearsCelebrating = yearsCelebratingAtNextAnniversary(md, today);
+      result.push({
+        id: c.id,
+        name: c.name,
+        phone: cleanPhone,
+        spouseName: spouse || '—',
+        nextLabel,
+        daysRemaining: days,
+        yearsCelebrating
+      });
+    }
+    return result.sort((a, b) => a.daysRemaining - b.daysRemaining);
+  }, [contacts]);
+
   const todaysBirthdays = upcomingBirthdays.filter((b) => b.daysRemaining === 0);
   const weekBirthdays = upcomingBirthdays.filter((b) => b.daysRemaining <= 7);
+  const todaysWeddings = upcomingWeddings.filter((w) => w.daysRemaining === 0);
+  const weekWeddings = upcomingWeddings.filter((w) => w.daysRemaining <= 7);
 
   const bulkCandidates = useMemo(
     () => upcomingBirthdays.filter((b) => b.daysRemaining <= bulkDaysRange),
@@ -385,6 +446,7 @@ export const DashboardTab: React.FC = () => {
   };
 
   const openBulkBirthday = () => {
+    setWeddingBulkOpen(false);
     setBulkBirthdayOpen(true);
     setBulkStep('compose');
     setBulkPreviewIndex(0);
@@ -468,6 +530,7 @@ export const DashboardTab: React.FC = () => {
   };
 
   const handleOpenChat = (contact: UpcomingBirthday) => {
+    setSelectedWedding(null);
     setSelectedContact(contact);
     const firstName = (contact.name || '').split(' ')[0] || 'amigo(a)';
     const ageLine = contact.age ? `\n\nParabens pelos seus ${contact.age} anos!` : '';
@@ -492,6 +555,80 @@ export const DashboardTab: React.FC = () => {
     setMessageText('');
   };
 
+  const handleOpenWeddingChat = (w: UpcomingWedding) => {
+    setSelectedContact(null);
+    setSelectedWedding(w);
+    const firstName = (w.name || '').split(' ')[0] || 'amigo(a)';
+    const conj = w.spouseName === '—' ? 'seu cônjuge' : w.spouseName;
+    const anos = w.yearsCelebrating != null ? ` Parabéns pelos ${w.yearsCelebrating} anos de casados!` : '';
+    const whenLabel = w.daysRemaining === 0 ? 'hoje' : `em ${w.daysRemaining} dia${w.daysRemaining > 1 ? 's' : ''}`;
+    setWeddingMessageText(
+      `Olá ${firstName}! 💍\n\nParabéns pelo aniversário de casamento (${whenLabel === 'hoje' ? 'de hoje' : whenLabel})! Que Deus abençoe você e ${conj}.${anos}\n\nFeliz bodas!`
+    );
+  };
+
+  const handleSendWeddingMessage = () => {
+    if (!selectedWedding || !sendingConnectionId || !weddingMessageText.trim()) return;
+    const phone = selectedWedding.phone?.replace(/\D/g, '');
+    if (!phone) {
+      toast.error('Contato sem número de telefone.');
+      return;
+    }
+    const conversationId = `${sendingConnectionId}:${phone}@c.us`;
+    sendMessage(conversationId, weddingMessageText.trim());
+    toast.success(`Mensagem enviada para ${selectedWedding.name}.`);
+    setSelectedWedding(null);
+    setShowChannelSelector(false);
+    setWeddingMessageText('');
+  };
+
+  const openWeddingBulk = () => {
+    setBulkBirthdayOpen(false);
+    setWeddingBulkTemplate(WEDDING_BULK_DEFAULT);
+    setWeddingBulkOpen(true);
+  };
+
+  const handleWeddingBulkSubmit = async () => {
+    if (!bulkConnectionId || !weddingBulkTemplate.trim()) return;
+    const list = weekWeddings;
+    if (list.length === 0) {
+      toast.error('Nenhum casal com bodas nesta semana.');
+      return;
+    }
+    const recipients = list.map((w) => ({
+      phone: w.phone,
+      vars: {
+        nome: (w.name || '').split(' ')[0] || w.name || '',
+        nome_completo: w.name || '',
+        telefone: w.phone,
+        conjuge: w.spouseName === '—' ? '' : w.spouseName,
+        data_bodas: w.nextLabel,
+        anos_casamento: w.yearsCelebrating != null ? String(w.yearsCelebrating) : '',
+        anos_line:
+          w.yearsCelebrating != null ? ` Hoje celebram ${w.yearsCelebrating} anos de casados.` : ' Muitas felicidades.'
+      }
+    }));
+    const numbers = recipients.map((r) => r.phone);
+    setWeddingBulkSubmitting(true);
+    try {
+      await startCampaign(
+        bulkConnectionId,
+        numbers,
+        weddingBulkTemplate.trim(),
+        [bulkConnectionId],
+        { id: undefined, name: `Bodas (${list.length})` },
+        `Bodas de casamento - ${new Date().toLocaleDateString('pt-BR')}`,
+        { delaySeconds: 10, recipients }
+      );
+      toast.success(`Disparo de bodas iniciado para ${list.length} contato(s).`);
+      setWeddingBulkOpen(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Falha ao iniciar disparo de bodas.';
+      toast.error(msg);
+    } finally {
+      setWeddingBulkSubmitting(false);
+    }
+  };
 
   const currentChannel = connections.find((c) => c.id === sendingConnectionId);
 
@@ -965,6 +1102,7 @@ export const DashboardTab: React.FC = () => {
           </div>
         </Card>
 
+        <div className="flex flex-col gap-4 min-h-0">
         <Card className="overflow-hidden p-0">
           <div
             className="px-4 pt-4 pb-3 flex items-start justify-between gap-3"
@@ -1131,6 +1269,154 @@ export const DashboardTab: React.FC = () => {
             </div>
           </div>
         </Card>
+
+        <Card className="overflow-hidden p-0">
+          <div
+            className="px-4 pt-4 pb-3 flex items-start justify-between gap-3"
+            style={{
+              background:
+                'linear-gradient(160deg, rgba(244,63,94,0.16) 0%, rgba(99,102,241,0.1) 45%, transparent 100%)',
+              borderBottom: '1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent)'
+            }}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(244,63,94,0.45), rgba(99,102,241,0.38))',
+                  border: '1px solid rgba(251, 113, 133, 0.5)',
+                  boxShadow: '0 8px 24px -8px rgba(244, 63, 94, 0.45)'
+                }}
+              >
+                <Heart className="w-5 h-5 text-white drop-shadow" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="ui-title text-[15px] leading-tight" style={{ color: 'var(--text-1)' }}>
+                  Bodas de casamento
+                </h3>
+                <p className="ui-subtitle text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  {todaysWeddings.length > 0
+                    ? `${todaysWeddings.length} hoje · ${weekWeddings.length} nesta semana`
+                    : `Próximos ${BIRTHDAY_RANGE_DAYS} dias (data na ficha de membro)`}
+                </p>
+              </div>
+            </div>
+            <div
+              className="shrink-0 min-w-[2.5rem] h-8 px-2.5 rounded-full flex items-center justify-center text-[12px] font-bold tabular-nums"
+              style={{
+                background: 'var(--surface-2)',
+                color: 'var(--text-2)',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              {upcomingWeddings.length}
+            </div>
+          </div>
+
+          <div className="px-4 pt-1 pb-4">
+            {upcomingWeddings.length > 0 && (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Sparkles className="w-3.5 h-3.5" />}
+                className="w-full mb-3 mt-3"
+                onClick={openWeddingBulk}
+              >
+                Mensagem em massa — bodas da semana ({weekWeddings.length})
+              </Button>
+            )}
+
+            <div className="flex-1 overflow-y-auto max-h-[300px] space-y-2 min-h-[11rem]">
+              {upcomingWeddings.length === 0 ? (
+                <div
+                  className="relative rounded-2xl overflow-hidden mt-2 flex flex-col items-center justify-center text-center px-4 py-9"
+                  style={{
+                    background:
+                      'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 96%, #fb7185) 0%, var(--surface-1) 100%)',
+                    border: '1px solid color-mix(in srgb, var(--border-subtle) 90%, #fb7185)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
+                  }}
+                >
+                  <Heart className="w-8 h-8 mb-2" style={{ color: '#fb7185' }} />
+                  <p className="text-[14px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+                    Nenhuma boda próxima
+                  </p>
+                  <p className="text-[12px] mt-1.5 max-w-[16rem] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    Preencha a data do casamento e o cônjuge na ficha de membro (Contatos ou aba Ficha membro).
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-4"
+                    leftIcon={<Users className="w-3.5 h-3.5" />}
+                    rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                    onClick={() => setCurrentView('contacts')}
+                  >
+                    Ir para Contatos
+                  </Button>
+                </div>
+              ) : (
+                upcomingWeddings.map((w) => (
+                  <div
+                    key={w.id}
+                    className={`p-2.5 rounded-xl transition-all flex items-center justify-between group border ${
+                      w.daysRemaining === 0
+                        ? 'border-rose-500/30 bg-rose-500/[0.07] dark:bg-rose-500/10'
+                        : 'border-transparent'
+                    } hover:border-[var(--border-subtle)] hover:bg-[var(--surface-2)]`}
+                    style={w.daysRemaining === 0 ? undefined : { background: 'var(--surface-1)' }}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-rose-50 dark:bg-rose-500/10 text-rose-500">
+                        {w.daysRemaining === 0 ? <Heart className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
+                          {w.name}
+                          {w.yearsCelebrating != null && (
+                            <span className="ml-1.5 text-[10.5px] font-normal" style={{ color: 'var(--text-3)' }}>
+                              — {w.yearsCelebrating} anos de casados
+                            </span>
+                          )}
+                        </p>
+                        <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0.5 text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                          <Calendar className="w-3 h-3 shrink-0" />
+                          <span>
+                            Bodas {w.nextLabel}
+                            {w.spouseName !== '—' ? ` · com ${w.spouseName}` : ''}
+                          </span>
+                          {w.daysRemaining === 0 ? (
+                            <span className="ml-0.5 px-1.5 py-0.5 rounded-md font-bold text-[10px] bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-300">
+                              Hoje
+                            </span>
+                          ) : w.daysRemaining === 1 ? (
+                            <span className="ml-0.5 px-1.5 py-0.5 rounded-md font-bold text-[10px] bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                              Amanhã
+                            </span>
+                          ) : (
+                            <span className="ml-0.5" style={{ color: 'var(--text-3)' }}>
+                              em {w.daysRemaining} dias
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenWeddingChat(w)}
+                      title="Enviar mensagem de bodas"
+                      className="shrink-0"
+                    >
+                      <MessageCircle className="w-4 h-4" style={{ color: 'var(--brand-600)' }} />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </Card>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
@@ -1444,6 +1730,154 @@ export const DashboardTab: React.FC = () => {
               value={messageText}
               onChange={(e) => setMessageText(e.target.value)}
             />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!selectedWedding}
+        onClose={() => {
+          setSelectedWedding(null);
+          setShowChannelSelector(false);
+        }}
+        title={selectedWedding?.name}
+        subtitle={
+          selectedWedding
+            ? `+${selectedWedding.phone} · bodas ${selectedWedding.nextLabel}${
+                selectedWedding.spouseName !== '—' ? ` · com ${selectedWedding.spouseName}` : ''
+              }${selectedWedding.daysRemaining === 0 ? ' (hoje)' : ''}`
+            : undefined
+        }
+        icon={<Heart className="w-4 h-4 text-rose-500" />}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setSelectedWedding(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              leftIcon={<Send className="w-4 h-4" />}
+              disabled={!sendingConnectionId || !weddingMessageText.trim()}
+              onClick={handleSendWeddingMessage}
+            >
+              Enviar
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="ui-eyebrow mb-1.5 block">Enviando por</label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowChannelSelector((v) => !v)}
+                className="w-full flex items-center justify-between p-3 rounded-lg transition-all"
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 brand-soft">
+                    {currentChannel?.profilePicUrl ? (
+                      <img src={currentChannel.profilePicUrl} alt="" className="w-8 h-8 rounded-md" />
+                    ) : (
+                      <Smartphone className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="text-left min-w-0">
+                    <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                      {currentChannel?.name || 'Selecione um canal'}
+                    </p>
+                    <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+                      {currentChannel?.phoneNumber || '-'}
+                    </p>
+                  </div>
+                </div>
+                <ChevronDown className="w-4 h-4" style={{ color: 'var(--text-3)' }} />
+              </button>
+              {showChannelSelector && (
+                <div
+                  className="absolute top-full left-0 right-0 mt-1 rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto"
+                  style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
+                >
+                  {connections.map((conn) => (
+                    <button
+                      key={conn.id}
+                      type="button"
+                      onClick={() => {
+                        setSendingConnectionId(conn.id);
+                        setShowChannelSelector(false);
+                      }}
+                      disabled={conn.status !== ConnectionStatus.CONNECTED}
+                      className="w-full flex items-center justify-between p-3 hover:bg-[var(--surface-1)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <div className="text-left min-w-0">
+                        <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                          {conn.name}
+                        </p>
+                        <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+                          {conn.phoneNumber || '-'}
+                        </p>
+                      </div>
+                      {conn.status !== ConnectionStatus.CONNECTED && <Badge variant="danger">Offline</Badge>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <label className="ui-eyebrow mb-1.5 block">Mensagem</label>
+            <Textarea rows={6} value={weddingMessageText} onChange={(e) => setWeddingMessageText(e.target.value)} />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={weddingBulkOpen}
+        onClose={() => {
+          if (weddingBulkSubmitting) return;
+          setWeddingBulkOpen(false);
+        }}
+        title="Mensagem em massa — bodas da semana"
+        subtitle={`${weekWeddings.length} contato(s) com aniversário de casamento nos próximos 7 dias`}
+        icon={<Heart className="w-4 h-4 text-rose-500" />}
+        size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setWeddingBulkOpen(false)} disabled={weddingBulkSubmitting}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              leftIcon={<Send className="w-4 h-4" />}
+              disabled={weddingBulkSubmitting || !bulkConnectionId || !weddingBulkTemplate.trim() || weekWeddings.length === 0}
+              onClick={() => void handleWeddingBulkSubmit()}
+            >
+              {weddingBulkSubmitting ? 'A enviar…' : `Disparar para ${weekWeddings.length}`}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="ui-eyebrow mb-1.5 block">Canal</label>
+            <Select value={bulkConnectionId} onChange={(e) => setBulkConnectionId(e.target.value)}>
+              {connections.map((c) => (
+                <option key={c.id} value={c.id} disabled={c.status !== ConnectionStatus.CONNECTED}>
+                  {c.name}
+                  {c.status !== ConnectionStatus.CONNECTED ? ' (offline)' : ''}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="ui-eyebrow mb-1.5 block">Texto da mensagem</label>
+            <Textarea rows={8} value={weddingBulkTemplate} onChange={(e) => setWeddingBulkTemplate(e.target.value)} />
+            <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+              Variáveis: <code>{'{nome}'}</code> <code>{'{conjuge}'}</code> <code>{'{data_bodas}'}</code>{' '}
+              <code>{'{anos_casamento}'}</code> <code>{'{anos_line}'}</code>
+            </p>
           </div>
         </div>
       </Modal>
