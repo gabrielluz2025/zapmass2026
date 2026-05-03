@@ -296,11 +296,11 @@ export const PastoralVisitsTab: React.FC = () => {
 
       {error && (
         <div
-          className="rounded-xl px-4 py-3 flex items-start gap-2 text-[13px]"
+          className="rounded-xl px-4 py-3 flex items-start gap-2 text-[12.5px] whitespace-pre-wrap leading-relaxed"
           style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--text-1)', border: '1px solid rgba(239,68,68,0.25)' }}
         >
           <AlertTriangle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
-          {error}
+          <span>{error}</span>
         </div>
       )}
 

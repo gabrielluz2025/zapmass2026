@@ -20,6 +20,21 @@ import { parsePastoralVisitStatus } from '../utils/pastoralVisitHelpers';
 const COLLECTION = 'pastoral_visits';
 const MAX_DOCS = 500;
 
+const PERMISSION_HINT =
+  'O Firestore ainda não tem as regras com `pastoral_visits` publicadas neste projeto.\n\n' +
+  'Na pasta do repositório (com Firebase CLI autenticado no projeto certo), execute:\n' +
+  '  npm run deploy:firestore-rules\n\n' +
+  'Ou: Firebase Console → Firestore → Regras → colar o conteúdo de `firestore.rules` do repositório e Publicar.';
+
+function mapPastoralLoadError(err: unknown): string {
+  const code = typeof err === 'object' && err && 'code' in err ? String((err as { code?: string }).code) : '';
+  const msg = err instanceof Error ? err.message : String(err || '');
+  if (code === 'permission-denied' || /permission|insufficient permissions/i.test(msg)) {
+    return PERMISSION_HINT;
+  }
+  return msg || 'Erro ao carregar visitas';
+}
+
 function docToVisit(d: QueryDocumentSnapshot): PastoralVisit {
   const data = d.data();
   return {
@@ -90,7 +105,7 @@ export function usePastoralVisits(opts: UsePastoralVisitsOpts = {}) {
       },
       (err) => {
         console.error('[usePastoralVisits]', err);
-        setError(err?.message || 'Erro ao carregar visitas');
+        setError(mapPastoralLoadError(err));
         setLoading(false);
       }
     );

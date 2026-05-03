@@ -80,7 +80,8 @@ service cloud.firestore {
       allow create: if false;
     }
 
-    /** Visitas pastorais (agenda, ceia, histórico) — segmento religioso; mesmo acesso que contatos. */
+    /** Visitas pastorais (agenda, ceia, histórico) — segmento religioso; mesmo acesso que contatos.
+     *  Após alterar: `npm run deploy:firestore-rules` (ou Consola Firebase → Regras → Publicar). */
     match /users/{uid}/pastoral_visits/{docId} {
       allow read, write: if canAccessUserSubtree(uid);
     }

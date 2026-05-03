@@ -25,7 +25,8 @@
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d --build",
     "docker:logs": "docker compose logs -f",
-    "session:resilience-check": "tsx scripts/session-resilience-check.ts"
+    "session:resilience-check": "tsx scripts/session-resilience-check.ts",
+    "deploy:firestore-rules": "firebase deploy --only firestore:rules"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.24",
