@@ -3616,7 +3616,8 @@ const initializeClient = async (id: string, name: string) => {
                         if (contact?.number) phoneDigits = String(contact.number).replace(/\D/g, '');
                         if (!phoneDigits) phoneDigits = toPhoneKey(chatSerialized);
                         if (phoneDigits.length >= 8) {
-                            handleReplyFlowIncoming(id, phoneDigits, String(msg.body || ''));
+                            const { bodyText, nonTextReply } = extractReplyFlowBodyFromIncoming(msg);
+                            handleReplyFlowIncoming(id, phoneDigits, bodyText, nonTextReply);
                         }
                     }
                 }
@@ -3833,14 +3834,50 @@ const sanitizeReplyFlowSteps = (
         .filter((s) => s.body.length > 0);
 };
 
-const replyMatchesGate = (step: ReplyFlowStepDef, bodyText: string): boolean => {
+/**
+ * Extrai texto da resposta do contato para o reply flow e indica se houve "resposta"
+ * sem texto (áudio sem transcrição, mídia sem legenda, botão, etc.).
+ * Antes só se usava msg.body — ficava vazio e a etapa seguinte nunca era enfileirada.
+ */
+const extractReplyFlowBodyFromIncoming = (msg: any): { bodyText: string; nonTextReply: boolean } => {
+    const rawBody = typeof msg?.body === 'string' ? msg.body : '';
+    const bodyTrim = rawBody.trim();
+    if (bodyTrim.length > 0) {
+        return { bodyText: rawBody, nonTextReply: false };
+    }
+    const cap =
+        typeof msg?.caption === 'string'
+            ? String(msg.caption).trim()
+            : typeof msg?._data?.caption === 'string'
+              ? String(msg._data.caption).trim()
+              : '';
+    if (cap.length > 0) {
+        return { bodyText: cap, nonTextReply: false };
+    }
+    const type = String(msg?.type || '').toLowerCase();
+    const hasMedia = Boolean(msg?.hasMedia);
+    const nonTextReply = hasMedia || (type.length > 0 && type !== 'chat');
+    return { bodyText: '', nonTextReply };
+};
+
+const replyMatchesGate = (
+    step: ReplyFlowStepDef,
+    bodyText: string,
+    opts?: { nonTextReply?: boolean }
+): boolean => {
     const t = String(bodyText || '').trim();
-    if (!t) return false;
+    const nonText = Boolean(opts?.nonTextReply);
+    if (!t && !nonText) return false;
     if (step.acceptAnyReply) return true;
+    const tokens = step.validTokens || [];
+    if (tokens.length === 0) {
+        return nonText || !!t;
+    }
+    if (!t && nonText) {
+        return false;
+    }
     const norm = t.toLowerCase();
     const first = norm.split(/\s+/)[0] || '';
-    const tokens = step.validTokens || [];
-    if (tokens.length === 0) return true;
     return tokens.some((tok) => tok === norm || tok === first);
 };
 
@@ -3852,6 +3889,10 @@ const enqueueReplyFlowOutbound = async (item: QueueItem) => {
     await persistQueue();
     if (!isProcessingQueue) {
         processQueue();
+    } else {
+        queueMicrotask(() => {
+            if (messageQueue.length > 0 && !isProcessingQueue) processQueue();
+        });
     }
 };
 
@@ -3916,7 +3957,12 @@ const findReplyFlowSession = (
     return null;
 };
 
-const handleReplyFlowIncoming = (connectionId: string, phoneDigits: string, bodyText: string) => {
+const handleReplyFlowIncoming = (
+    connectionId: string,
+    phoneDigits: string,
+    bodyText: string,
+    nonTextReply?: boolean
+) => {
     const found = findReplyFlowSession(connectionId, phoneDigits);
     if (!found) {
         // Pode ser uma resposta de quem nao esta em campanha — silencioso.
@@ -3945,18 +3991,22 @@ const handleReplyFlowIncoming = (connectionId: string, phoneDigits: string, body
     const awaiting = session.awaitingAfterStep;
 
     /** Log estruturado: ajuda muito a diagnosticar "etapa 2 nao saiu". */
+    const preview =
+        String(bodyText || '').slice(0, 80) ||
+        (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
     emitCampaignLog('INFO', 'Resposta recebida no fluxo por etapas', {
         campaignId: session.campaignId,
         connectionId,
         phoneDigits,
         currentStep: awaiting + 1,
         totalSteps: steps.length,
-        replyPreview: String(bodyText || '').slice(0, 80)
+        replyPreview: preview,
+        nonTextReply: Boolean(nonTextReply)
     });
 
     if (awaiting >= steps.length - 1) {
         const gate = steps[steps.length - 1];
-        if (!replyMatchesGate(gate, bodyText) && gate.invalidReplyBody) {
+        if (!replyMatchesGate(gate, bodyText, { nonTextReply }) && gate.invalidReplyBody) {
             const inv = applyMessageVars(gate.invalidReplyBody, phoneDigits, session.vars);
             void enqueueReplyFlowOutbound({
                 to: session.toRaw,
@@ -3974,7 +4024,7 @@ const handleReplyFlowIncoming = (connectionId: string, phoneDigits: string, body
     }
 
     const gateStep = steps[awaiting];
-    if (!replyMatchesGate(gateStep, bodyText)) {
+    if (!replyMatchesGate(gateStep, bodyText, { nonTextReply })) {
         if (gateStep.invalidReplyBody) {
             const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
             void enqueueReplyFlowOutbound({
@@ -4844,6 +4894,9 @@ const processQueue = async () => {
     }
 
     isProcessingQueue = false;
+    queueMicrotask(() => {
+        if (messageQueue.length > 0 && !isProcessingQueue) processQueue();
+    });
     currentCampaign.isRunning = false;
 
     /**
