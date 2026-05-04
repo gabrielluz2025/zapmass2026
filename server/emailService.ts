@@ -141,6 +141,227 @@ function buildHtml(p: PaymentConfirmationParams): string {
 </html>`;
 }
 
+// ============================================================================
+// Sugestões de melhoria — notificação por email para o(s) criador(es)
+// ============================================================================
+
+interface SuggestionNotificationParams {
+  /** Email do usuário que enviou a sugestão (pode ser vazio). */
+  suggesterEmail: string;
+  /** UID Firebase do remetente. */
+  suggesterUid: string;
+  /** Texto livre da sugestão (já trimmed). */
+  text: string;
+  /** Tela/área onde estava (slug interno, ex.: "campaigns"). */
+  screen: string;
+  /** Categoria escolhida ('usability' | 'campaigns' | 'reports' | 'integrations' | 'other'). */
+  category: string;
+  /** Data ISO em que a sugestão foi recebida. */
+  createdAt: Date;
+  /** URL para abrir o painel admin de sugestões (opcional). */
+  adminPanelUrl?: string;
+}
+
+const CATEGORY_PT: Record<string, string> = {
+  usability: 'Telas / usabilidade',
+  campaigns: 'Campanhas e envios',
+  reports: 'Relatórios e números',
+  integrations: 'Conexões e canais',
+  other: 'Outro tema'
+};
+
+const SCREEN_PT: Record<string, string> = {
+  connections: 'Conexões WhatsApp',
+  dashboard: 'Painel',
+  chat: 'Chat',
+  warmup: 'Aquecimento',
+  campaigns: 'Campanhas',
+  contacts: 'Contatos',
+  reports: 'Relatórios',
+  settings: 'Definições',
+  subscription: 'Assinatura',
+  help: 'Ajuda',
+  team: 'Equipa',
+  admin: 'Administrador',
+  'creator-studio': 'Criador',
+  'admin-ops': 'Operações servidor',
+  'religious-members': 'Ficha de membro (igreja)'
+};
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildSuggestionHtml(p: SuggestionNotificationParams): string {
+  const dateStr = p.createdAt.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  const categoryLabel = CATEGORY_PT[p.category] || p.category || '—';
+  const screenLabel = p.screen ? SCREEN_PT[p.screen] || p.screen : '—';
+  const fromLabel = p.suggesterEmail || `(sem email — uid ${p.suggesterUid.slice(0, 8)}…)`;
+  const textHtml = escapeHtml(p.text).replace(/\n/g, '<br/>');
+  const ctaUrl = p.adminPanelUrl || '';
+
+  const cta = ctaUrl
+    ? `<div style="text-align:center;margin:24px 0 8px">
+         <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:linear-gradient(135deg,#f59e0b 0%,#ea580c 100%);color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700;font-size:14px;box-shadow:0 4px 12px rgba(245,158,11,0.25)">
+           Ver no painel do criador
+         </a>
+       </div>`
+    : '';
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nova sugestão — ZapMass</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
+    <div style="max-width:580px;margin:0 auto;padding:32px 16px">
+      <div style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06)">
+        <div style="background:linear-gradient(135deg,#f59e0b 0%,#ea580c 100%);padding:28px 24px;text-align:center">
+          <div style="display:inline-block;width:56px;height:56px;background:rgba(255,255,255,0.22);border-radius:14px;line-height:56px;text-align:center;color:#fff;font-size:30px">💡</div>
+          <h1 style="margin:14px 0 4px;color:#fff;font-size:22px;font-weight:800;letter-spacing:-0.02em">Nova sugestão recebida</h1>
+          <p style="margin:0;color:rgba(255,255,255,0.92);font-size:14px">Um cliente compartilhou uma ideia sobre o ZapMass</p>
+        </div>
+
+        <div style="padding:28px 24px">
+          <table style="width:100%;border-collapse:collapse;margin:0 0 20px">
+            <tr>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;width:38%">De</td>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#111827;font-size:14px;font-weight:600;text-align:right;word-break:break-all">${escapeHtml(fromLabel)}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em">Tema</td>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#111827;font-size:14px;font-weight:600;text-align:right">${escapeHtml(categoryLabel)}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em">Tela atual</td>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#111827;font-size:14px;font-weight:600;text-align:right">${escapeHtml(screenLabel)}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.03em">Recebida em</td>
+              <td style="padding:10px 0;border-top:1px solid #e5e7eb;color:#111827;font-size:14px;font-weight:600;text-align:right">${escapeHtml(dateStr)}</td>
+            </tr>
+          </table>
+
+          <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:16px 18px;margin:0 0 8px">
+            <p style="margin:0 0 8px;color:#92400e;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Mensagem</p>
+            <p style="margin:0;color:#1f2937;font-size:14.5px;line-height:1.6;white-space:pre-wrap">${textHtml}</p>
+          </div>
+
+          ${cta}
+        </div>
+
+        <div style="padding:14px 24px;background:#f9fafb;border-top:1px solid #e5e7eb">
+          <p style="margin:0;color:#6b7280;font-size:12px;line-height:1.5">
+            <strong style="color:#374151">Responder ao cliente:</strong>
+            ${
+              p.suggesterEmail
+                ? `basta dar Reply neste email${p.suggesterEmail ? ` ou escrever para <a href="mailto:${escapeHtml(p.suggesterEmail)}" style="color:#ea580c;text-decoration:none;font-weight:600">${escapeHtml(p.suggesterEmail)}</a>` : ''}.`
+                : 'o usuário enviou sem email vinculado — visível só pelo UID no painel.'
+            }
+          </p>
+        </div>
+      </div>
+
+      <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;text-align:center;line-height:1.55">
+        Notificação automática do botão «Ideias / Sugestões» do ZapMass.<br/>
+        Para parar de receber estes emails, remova seu endereço de <code>ADMIN_EMAILS</code> ou de <code>SUGGESTION_NOTIFY_EMAIL</code>.
+      </p>
+    </div>
+  </body>
+</html>`;
+}
+
+/**
+ * Envia notificação de nova sugestão para os criadores/admins.
+ *
+ * Destino:
+ *   1) `SUGGESTION_NOTIFY_EMAIL` (lista separada por vírgula) se existir;
+ *   2) caso contrário, todos os endereços listados em `ADMIN_EMAILS`.
+ *
+ * Nunca lança — apenas loga e devolve `false` se algo falhar, para não quebrar
+ * o POST de sugestão nem a experiência do usuário final.
+ */
+export async function sendSuggestionNotificationEmail(
+  params: SuggestionNotificationParams
+): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    console.log('[EmailService] sugestão recebida mas RESEND_API_KEY ausente — notificação por email pulada');
+    return false;
+  }
+
+  const explicit = (process.env.SUGGESTION_NOTIFY_EMAIL || '').trim();
+  const adminList = (process.env.ADMIN_EMAILS || '').trim();
+  const raw = explicit.length > 0 ? explicit : adminList;
+
+  const recipients = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && /@/.test(s));
+
+  if (recipients.length === 0) {
+    console.log(
+      '[EmailService] sugestão recebida mas SUGGESTION_NOTIFY_EMAIL/ADMIN_EMAILS vazios — notificação pulada'
+    );
+    return false;
+  }
+
+  const from = (process.env.EMAIL_FROM || 'ZapMass <onboarding@resend.dev>').trim();
+
+  const categoryLabel = CATEGORY_PT[params.category] || params.category || 'sugestão';
+  const subject = `💡 Nova sugestão (${categoryLabel}) — ${
+    params.suggesterEmail || params.suggesterUid.slice(0, 8)
+  }`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from,
+        to: recipients,
+        subject,
+        html: buildSuggestionHtml(params),
+        // Reply-To: o email do próprio cliente, para responder direto.
+        reply_to: params.suggesterEmail || undefined
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error('[EmailService] sugestão Resend', res.status, text);
+      return false;
+    }
+    console.log(
+      '[EmailService] notificação de sugestão enviada para',
+      recipients.join(','),
+      '(de:',
+      params.suggesterEmail || params.suggesterUid,
+      ')'
+    );
+    return true;
+  } catch (e) {
+    console.error('[EmailService] erro ao enviar notificação de sugestão:', e);
+    return false;
+  }
+}
+
 export async function sendPaymentConfirmationEmail(params: PaymentConfirmationParams): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) {

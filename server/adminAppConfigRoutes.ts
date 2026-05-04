@@ -579,28 +579,71 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const limit = Math.min(200, Math.max(10, Number.parseInt(String(req.query.limit || ''), 10) || 100));
       const db = getFirestore(adminApp);
 
-      const snap = await db.collectionGroup('suggestions').orderBy('createdAt', 'desc').limit(limit).get();
+      type SuggestionItem = {
+        id: string;
+        uid: string;
+        text: string;
+        userEmail: string;
+        screen: string;
+        category: string;
+        createdAt: string | null;
+      };
 
-      const items = snap.docs.map((d) => {
+      const mapDoc = (d: FirebaseFirestore.QueryDocumentSnapshot): SuggestionItem => {
         const uid = (d.ref.parent.parent as { id?: string } | undefined)?.id || '';
         const raw = d.data();
-        const text = typeof raw?.text === 'string' ? raw.text : '';
-        const userEmail = typeof raw?.userEmail === 'string' ? raw.userEmail : '';
-        const screen = typeof raw?.screen === 'string' ? raw.screen : '';
-        const category = typeof raw?.category === 'string' ? raw.category : '';
         return {
           id: d.id,
           uid,
-          text,
-          userEmail,
-          screen,
-          category,
+          text: typeof raw?.text === 'string' ? raw.text : '',
+          userEmail: typeof raw?.userEmail === 'string' ? raw.userEmail : '',
+          screen: typeof raw?.screen === 'string' ? raw.screen : '',
+          category: typeof raw?.category === 'string' ? raw.category : '',
           createdAt: tsToIso(raw?.createdAt)
         };
-      });
+      };
 
-      console.log('[api/admin/product-suggestions]', auth.email, 'count=', items.length);
-      return res.json({ ok: true, items });
+      let items: SuggestionItem[] = [];
+      let usedFallback = false;
+
+      try {
+        const snap = await db
+          .collectionGroup('suggestions')
+          .orderBy('createdAt', 'desc')
+          .limit(limit)
+          .get();
+        items = snap.docs.map(mapDoc);
+      } catch (indexErr: unknown) {
+        const msg = indexErr instanceof Error ? indexErr.message : String(indexErr);
+        const looksLikeIndex = /index/i.test(msg) || /indexes/i.test(msg);
+        if (!looksLikeIndex) {
+          throw indexErr;
+        }
+        // Fallback: índice de collection-group ainda não foi criado/propagado.
+        // Lê tudo (até 800 docs no máximo) e ordena em memória; mantém o painel funcional.
+        console.warn(
+          '[api/admin/product-suggestions] índice ausente, usando fallback collectionGroup sem orderBy'
+        );
+        usedFallback = true;
+        const snap = await db.collectionGroup('suggestions').limit(800).get();
+        items = snap.docs
+          .map(mapDoc)
+          .sort((a, b) => {
+            const ta = a.createdAt ? Date.parse(a.createdAt) : 0;
+            const tb = b.createdAt ? Date.parse(b.createdAt) : 0;
+            return tb - ta;
+          })
+          .slice(0, limit);
+      }
+
+      console.log(
+        '[api/admin/product-suggestions]',
+        auth.email,
+        'count=',
+        items.length,
+        usedFallback ? '(fallback)' : ''
+      );
+      return res.json({ ok: true, items, usedFallback });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/admin/product-suggestions]', msg);

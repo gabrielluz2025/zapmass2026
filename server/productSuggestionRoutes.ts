@@ -2,11 +2,22 @@ import type { Express, Request, Response } from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { sendSuggestionNotificationEmail } from './emailService.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
   const m = /^Bearer\s+(.+)$/i.exec(h);
   return m ? m[1].trim() : null;
+}
+
+/** Origem pública usada para construir o link "Ver no painel do criador" no email. */
+function getPublicOrigin(req: Request): string {
+  const env = (process.env.PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || '').trim();
+  if (env) return env.replace(/\/+$/, '');
+  // Fallback: tenta deduzir pelo header (pode ficar com IP interno; ainda assim útil).
+  const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+  return host ? `${proto}://${host}` : '';
 }
 
 /**
@@ -43,12 +54,29 @@ export function registerProductSuggestionRoutes(app: Express): void {
           : '';
 
       const db = getFirestore(adminApp);
+      const createdAt = new Date();
       await db.collection('users').doc(uid).collection('suggestions').add({
         text,
         createdAt: FieldValue.serverTimestamp(),
         screen,
         category,
         userEmail: email
+      });
+
+      // Notifica os criadores/admins por email — fire-and-forget, não bloqueia
+      // a resposta para o cliente nem falha o POST se o email não puder ser enviado.
+      const origin = getPublicOrigin(req);
+      const adminPanelUrl = origin ? `${origin}/?view=admin` : undefined;
+      void sendSuggestionNotificationEmail({
+        suggesterEmail: email,
+        suggesterUid: uid,
+        text,
+        screen,
+        category,
+        createdAt,
+        adminPanelUrl
+      }).catch((err) => {
+        console.error('[api/product-suggestion] notificação email falhou:', err);
       });
 
       return res.json({ ok: true });

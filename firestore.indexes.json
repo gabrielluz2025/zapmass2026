@@ -8,6 +8,14 @@
         { "fieldPath": "nextRunAt", "order": "ASCENDING" },
         { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "suggestions",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
