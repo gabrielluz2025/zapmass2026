@@ -798,8 +798,12 @@ export function registerAdminAppConfigRoutes(app: Express): void {
               replyText: text,
               fromAdminEmail: auth.email
             });
-            emailSent = mailResult.ok;
-            emailError = mailResult.ok ? undefined : mailResult.reason.slice(0, 500);
+            if (mailResult.ok === false) {
+              emailSent = false;
+              emailError = mailResult.reason.slice(0, 500);
+            } else {
+              emailSent = true;
+            }
           } catch (mailErr) {
             console.error('[api/admin/product-suggestions/reply] email falhou:', mailErr);
             emailSent = false;
