@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History, Sparkles,
-  TrendingUp, KeyRound, Copy, BarChart3, Lightbulb
+  TrendingUp, KeyRound, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
-import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState } from '../ui';
+import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, Modal, Textarea } from '../ui';
 
 type AdminTab = 'config' | 'access' | 'suggestions';
 
@@ -29,6 +29,15 @@ type ProductSuggestion = {
   userEmail: string;
   screen: string;
   category?: string;
+  createdAt: string | null;
+};
+
+type SuggestionReply = {
+  id: string;
+  text: string;
+  adminEmail: string;
+  adminUid: string;
+  emailSent: boolean;
   createdAt: string | null;
 };
 type AccessUser = {
@@ -199,6 +208,12 @@ export const AdminPanel: React.FC = () => {
   const [insights, setInsights] = useState<AccessUserInsights | null>(null);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [productSuggestions, setProductSuggestions] = useState<ProductSuggestion[]>([]);
+  const [replyTarget, setReplyTarget] = useState<ProductSuggestion | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [repliesByKey, setRepliesByKey] = useState<Record<string, SuggestionReply[]>>({});
+  const [repliesLoadingKey, setRepliesLoadingKey] = useState<string | null>(null);
+  const [repliesOpenKey, setRepliesOpenKey] = useState<string | null>(null);
 
   useEffect(() => {
     setMarketingPriceMonthly(config.marketingPriceMonthly);
@@ -305,6 +320,101 @@ export const AdminPanel: React.FC = () => {
     void loadProductSuggestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  const replyKey = (s: { uid: string; id: string }) => `${s.uid}__${s.id}`;
+
+  const loadRepliesFor = async (s: ProductSuggestion) => {
+    if (!user) return;
+    const k = replyKey(s);
+    setRepliesLoadingKey(k);
+    try {
+      const h = await authHeaders();
+      const res = await fetch(
+        `/api/admin/product-suggestions/${encodeURIComponent(s.uid)}/${encodeURIComponent(s.id)}/replies`,
+        { headers: { Authorization: h.Authorization || '' } }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar histórico.');
+      }
+      setRepliesByKey((prev) => ({ ...prev, [k]: Array.isArray(data.items) ? data.items : [] }));
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao carregar histórico.');
+    } finally {
+      setRepliesLoadingKey(null);
+    }
+  };
+
+  const toggleRepliesPanel = (s: ProductSuggestion) => {
+    const k = replyKey(s);
+    if (repliesOpenKey === k) {
+      setRepliesOpenKey(null);
+      return;
+    }
+    setRepliesOpenKey(k);
+    if (!repliesByKey[k]) void loadRepliesFor(s);
+  };
+
+  const openReplyModal = (s: ProductSuggestion) => {
+    setReplyTarget(s);
+    setReplyText('');
+  };
+
+  const closeReplyModal = () => {
+    if (replySending) return;
+    setReplyTarget(null);
+    setReplyText('');
+  };
+
+  const submitReply = async () => {
+    if (!user || !replyTarget) return;
+    const trimmed = replyText.trim();
+    if (trimmed.length < 1) {
+      toast.error('Escreva a resposta antes de enviar.');
+      return;
+    }
+    setReplySending(true);
+    try {
+      const h = await authHeaders();
+      const res = await fetch(
+        `/api/admin/product-suggestions/${encodeURIComponent(replyTarget.uid)}/${encodeURIComponent(replyTarget.id)}/reply`,
+        {
+          method: 'POST',
+          headers: h,
+          body: JSON.stringify({ text: trimmed })
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao enviar resposta.');
+      }
+      const emailSent = data.emailSent === true;
+      const recipient: string = typeof data.recipient === 'string' ? data.recipient : '';
+      if (emailSent && recipient) {
+        toast.success(`Resposta enviada por email para ${recipient}.`);
+      } else if (recipient) {
+        toast(
+          'Resposta registada, mas o email não foi enviado (verifique RESEND_API_KEY/EMAIL_FROM).',
+          { icon: '⚠️', duration: 6000 }
+        );
+      } else {
+        toast(
+          'Resposta registada — o cliente não tem email vinculado, então só o histórico ficou guardado.',
+          { icon: 'ℹ️', duration: 6000 }
+        );
+      }
+      const k = replyKey(replyTarget);
+      // Recarrega o histórico para refletir o novo item.
+      await loadRepliesFor(replyTarget);
+      setRepliesOpenKey(k);
+      setReplyTarget(null);
+      setReplyText('');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao enviar resposta.');
+    } finally {
+      setReplySending(false);
+    }
+  };
 
   const activeCount = useMemo(() => users.filter((u) => !u.blocked).length, [users]);
   const blockedCount = useMemo(() => users.filter((u) => u.blocked).length, [users]);
@@ -1359,51 +1469,220 @@ export const AdminPanel: React.FC = () => {
             />
           ) : (
             <div className="space-y-3">
-              {productSuggestions.map((row) => (
-                <Card key={`${row.uid}-${row.id}`}>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <Badge variant="warning">{toPtDateTime(row.createdAt)}</Badge>
-                        {row.category ? (
-                          <Badge variant="info">{suggestionCategoryPt(row.category)}</Badge>
-                        ) : null}
-                        {row.screen ? (
-                          <Badge variant="neutral">{row.screen}</Badge>
-                        ) : null}
+              {productSuggestions.map((row) => {
+                const k = replyKey(row);
+                const open = repliesOpenKey === k;
+                const replies = repliesByKey[k] || [];
+                const repliesLoading = repliesLoadingKey === k;
+                const hasEmail = !!row.userEmail && /@/.test(row.userEmail);
+                return (
+                  <Card key={`${row.uid}-${row.id}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <Badge variant="warning">{toPtDateTime(row.createdAt)}</Badge>
+                          {row.category ? (
+                            <Badge variant="info">{suggestionCategoryPt(row.category)}</Badge>
+                          ) : null}
+                          {row.screen ? (
+                            <Badge variant="neutral">{row.screen}</Badge>
+                          ) : null}
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
+                          {row.text || '—'}
+                        </p>
                       </div>
-                      <p className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
-                        {row.text || '—'}
-                      </p>
                     </div>
-                  </div>
-                  <div
-                    className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] pt-3 border-t"
-                    style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}
-                  >
-                    <span>
-                      <strong style={{ color: 'var(--text-2)' }}>E-mail:</strong> {row.userEmail || '—'}
-                    </span>
-                    <span className="inline-flex items-center gap-1 font-mono">
-                      <strong style={{ color: 'var(--text-2)' }}>UID:</strong> {row.uid || '—'}
-                      {row.uid ? (
-                        <button
-                          type="button"
-                          className="p-0.5 rounded hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
-                          title="Copiar UID"
-                          onClick={() => void copyToClipboard(row.uid, 'UID copiado.')}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        type="button"
+                        leftIcon={<Send className="w-3.5 h-3.5" />}
+                        disabled={!hasEmail}
+                        title={
+                          hasEmail
+                            ? 'Enviar uma resposta por email para o cliente'
+                            : 'Cliente sem email vinculado — não é possível responder por email'
+                        }
+                        onClick={() => openReplyModal(row)}
+                      >
+                        Responder
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        type="button"
+                        leftIcon={<MessageCircle className="w-3.5 h-3.5" />}
+                        onClick={() => toggleRepliesPanel(row)}
+                      >
+                        {open ? 'Ocultar histórico' : 'Ver histórico'}
+                      </Button>
+                      {hasEmail ? (
+                        <a
+                          href={`mailto:${row.userEmail}?subject=${encodeURIComponent(
+                            'Sobre a sua sugestão no ZapMass'
+                          )}`}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300 hover:underline"
+                          title="Abrir no cliente de email instalado (Outlook, Mail, etc.)"
                         >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
+                          <Mail className="w-3.5 h-3.5" />
+                          mailto
+                        </a>
                       ) : null}
-                    </span>
-                  </div>
-                </Card>
-              ))}
+                    </div>
+
+                    {open ? (
+                      <div
+                        className="mt-3 rounded-lg border p-3"
+                        style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+                      >
+                        {repliesLoading ? (
+                          <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-3)' }}>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            A carregar histórico…
+                          </div>
+                        ) : replies.length === 0 ? (
+                          <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
+                            Nenhuma resposta enviada ainda.
+                          </p>
+                        ) : (
+                          <ul className="space-y-2">
+                            {replies.map((rep) => (
+                              <li
+                                key={rep.id}
+                                className="rounded-md p-2.5 text-[12.5px]"
+                                style={{
+                                  background: 'var(--surface-0)',
+                                  border: '1px solid var(--border-subtle)'
+                                }}
+                              >
+                                <div className="flex flex-wrap items-center gap-2 mb-1 text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                                  <span className="font-semibold" style={{ color: 'var(--text-2)' }}>
+                                    {rep.adminEmail || rep.adminUid || 'admin'}
+                                  </span>
+                                  <span>·</span>
+                                  <span>{toPtDateTime(rep.createdAt)}</span>
+                                  <span>·</span>
+                                  {rep.emailSent ? (
+                                    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                                      <CheckCircle2 className="w-3 h-3" /> email enviado
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                                      <XCircle className="w-3 h-3" /> só registado (sem email)
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
+                                  {rep.text}
+                                </p>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
+
+                    <div
+                      className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] pt-3 border-t"
+                      style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}
+                    >
+                      <span>
+                        <strong style={{ color: 'var(--text-2)' }}>E-mail:</strong> {row.userEmail || '—'}
+                      </span>
+                      <span className="inline-flex items-center gap-1 font-mono">
+                        <strong style={{ color: 'var(--text-2)' }}>UID:</strong> {row.uid || '—'}
+                        {row.uid ? (
+                          <button
+                            type="button"
+                            className="p-0.5 rounded hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
+                            title="Copiar UID"
+                            onClick={() => void copyToClipboard(row.uid, 'UID copiado.')}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
+                      </span>
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
       )}
+
+      <Modal
+        isOpen={replyTarget !== null}
+        onClose={closeReplyModal}
+        title="Responder ao cliente"
+        subtitle={
+          replyTarget?.userEmail
+            ? `Vai por email para ${replyTarget.userEmail}. Quando ele responder, chega no seu Reply-To.`
+            : 'O cliente desta sugestão não tem email vinculado.'
+        }
+        icon={<Send className="w-5 h-5 text-emerald-500" />}
+        size="lg"
+        closeOnBackdrop={!replySending}
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 w-full">
+            <Button variant="ghost" disabled={replySending} onClick={closeReplyModal}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              disabled={replySending || replyText.trim().length < 1 || !replyTarget?.userEmail}
+              leftIcon={<Send className="w-4 h-4" />}
+              onClick={() => void submitReply()}
+            >
+              {replySending ? 'A enviar…' : 'Enviar resposta por email'}
+            </Button>
+          </div>
+        }
+      >
+        {replyTarget ? (
+          <div className="space-y-4">
+            <div
+              className="rounded-lg border p-3"
+              style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+            >
+              <p className="text-[10.5px] uppercase font-bold tracking-wide mb-1" style={{ color: 'var(--text-3)' }}>
+                Sugestão original
+              </p>
+              <p className="text-[13px] whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
+                {replyTarget.text || '—'}
+              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] mt-2" style={{ color: 'var(--text-3)' }}>
+                <span>{toPtDateTime(replyTarget.createdAt)}</span>
+                {replyTarget.category ? <span>· {suggestionCategoryPt(replyTarget.category)}</span> : null}
+                {replyTarget.screen ? <span>· {replyTarget.screen}</span> : null}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[12.5px] font-semibold flex items-center gap-2 mb-1.5" style={{ color: 'var(--text-1)' }}>
+                A sua resposta
+                <span className="text-[10.5px] font-normal font-mono px-1.5 py-0.5 rounded" style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}>
+                  {replyText.length}/8000
+                </span>
+              </label>
+              <Textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value.slice(0, 8000))}
+                placeholder="Escreva uma resposta direta. Pode dizer o status (em estudo, planejado, já feito), perguntar mais detalhes ou agradecer…"
+                style={{ minHeight: '160px', fontSize: '13.5px', lineHeight: 1.55 }}
+                disabled={replySending}
+                autoFocus
+              />
+              <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+                Quando o cliente responder, vai cair direto no seu email ({user?.email || '—'}).
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 };

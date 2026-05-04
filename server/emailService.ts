@@ -362,6 +362,156 @@ export async function sendSuggestionNotificationEmail(
   }
 }
 
+// ============================================================================
+// Resposta do criador a uma sugestão (envia email para o cliente)
+// ============================================================================
+
+interface SuggestionReplyParams {
+  /** Email do cliente (destinatário). */
+  to: string;
+  /** Nome amigável do cliente (vem antes do "@", se não houver outro). */
+  toName?: string;
+  /** Mensagem original que o cliente enviou. */
+  originalText: string;
+  /** Categoria/tema escolhido pelo cliente. */
+  originalCategory: string;
+  /** Tela/área onde estava. */
+  originalScreen: string;
+  /** Quando o cliente enviou a sugestão. */
+  originalCreatedAt: Date | null;
+  /** Texto da resposta digitada pelo criador. */
+  replyText: string;
+  /** Email do admin/criador (vai como Reply-To para o cliente responder). */
+  fromAdminEmail: string;
+}
+
+function buildSuggestionReplyHtml(p: SuggestionReplyParams): string {
+  const greetingName =
+    (p.toName && p.toName.trim()) ||
+    (p.to ? p.to.split('@')[0].split(/[._-]/)[0] : '');
+  const greeting = greetingName ? `Olá, ${escapeHtml(greetingName)}!` : 'Olá!';
+  const originalDate = p.originalCreatedAt
+    ? p.originalCreatedAt.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : '';
+  const categoryLabel = CATEGORY_PT[p.originalCategory] || p.originalCategory || '';
+  const screenLabel = p.originalScreen ? SCREEN_PT[p.originalScreen] || p.originalScreen : '';
+  const originalHtml = escapeHtml(p.originalText).replace(/\n/g, '<br/>');
+  const replyHtml = escapeHtml(p.replyText).replace(/\n/g, '<br/>');
+
+  const contextLine = [originalDate, categoryLabel, screenLabel]
+    .filter((x) => x && x.length > 0)
+    .map((x) => escapeHtml(x))
+    .join(' · ');
+
+  return `
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resposta à sua sugestão — ZapMass</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
+    <div style="max-width:580px;margin:0 auto;padding:32px 16px">
+      <div style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06)">
+        <div style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);padding:26px 24px;text-align:center">
+          <div style="display:inline-block;width:52px;height:52px;background:rgba(255,255,255,0.22);border-radius:14px;line-height:52px;text-align:center;color:#fff;font-size:26px">💬</div>
+          <h1 style="margin:14px 0 4px;color:#fff;font-size:21px;font-weight:800;letter-spacing:-0.02em">A equipa do ZapMass respondeu</h1>
+          <p style="margin:0;color:rgba(255,255,255,0.92);font-size:13.5px">Sobre a ideia que você compartilhou conosco</p>
+        </div>
+
+        <div style="padding:26px 24px">
+          <p style="margin:0 0 16px;color:#111827;font-size:16px;font-weight:600">${greeting}</p>
+          <p style="margin:0 0 18px;color:#4b5563;line-height:1.55;font-size:14.5px">
+            Obrigado por nos enviar a sua sugestão. Aqui está o que queremos te dizer:
+          </p>
+
+          <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:16px 18px;margin:0 0 22px">
+            <p style="margin:0 0 6px;color:#065f46;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Resposta da equipa</p>
+            <p style="margin:0;color:#064e3b;font-size:15px;line-height:1.65;white-space:pre-wrap">${replyHtml}</p>
+          </div>
+
+          <details style="margin:0 0 12px">
+            <summary style="cursor:pointer;color:#6b7280;font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:8px;background:#f9fafb;list-style:none">
+              Ver a sugestão original
+            </summary>
+            <div style="margin-top:8px;padding:14px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px">
+              ${contextLine ? `<p style="margin:0 0 6px;color:#9ca3af;font-size:11px">${contextLine}</p>` : ''}
+              <p style="margin:0;color:#374151;font-size:13.5px;line-height:1.55;white-space:pre-wrap">${originalHtml}</p>
+            </div>
+          </details>
+        </div>
+
+        <div style="padding:14px 24px;background:#f9fafb;border-top:1px solid #e5e7eb">
+          <p style="margin:0;color:#6b7280;font-size:12px;line-height:1.55">
+            <strong style="color:#374151">Quer continuar a conversa?</strong> Basta responder a este email — vai chegar direto na nossa equipa.
+          </p>
+        </div>
+      </div>
+
+      <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;text-align:center;line-height:1.55">
+        Recebeste este email porque enviaste uma sugestão pelo botão «Ideias / Sugestão» dentro do ZapMass.
+      </p>
+    </div>
+  </body>
+</html>`;
+}
+
+/**
+ * Envia a resposta do criador/admin para o cliente que enviou a sugestão.
+ * Reply-To é o email do admin, para que a resposta do cliente caia direto nele.
+ *
+ * Retorna `false` (sem lançar) se o email não puder ser enviado, mas o registro
+ * em Firestore já foi feito pela rota — assim o painel sempre mostra o histórico.
+ */
+export async function sendSuggestionReplyEmail(params: SuggestionReplyParams): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    console.log('[EmailService] resposta de sugestão registrada mas RESEND_API_KEY ausente — email não enviado');
+    return false;
+  }
+  if (!params.to || !/@/.test(params.to)) {
+    console.log('[EmailService] resposta de sugestão sem email do destinatário — pulando email');
+    return false;
+  }
+
+  const from = (process.env.EMAIL_FROM || 'ZapMass <onboarding@resend.dev>').trim();
+  const subject = '💬 Resposta sobre a sua sugestão no ZapMass';
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from,
+        to: [params.to],
+        subject,
+        html: buildSuggestionReplyHtml(params),
+        reply_to: params.fromAdminEmail || process.env.EMAIL_REPLY_TO || undefined
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error('[EmailService] resposta de sugestão Resend', res.status, text);
+      return false;
+    }
+    console.log('[EmailService] resposta de sugestão enviada para', params.to);
+    return true;
+  } catch (e) {
+    console.error('[EmailService] erro ao enviar resposta de sugestão:', e);
+    return false;
+  }
+}
+
 export async function sendPaymentConfirmationEmail(params: PaymentConfirmationParams): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) {

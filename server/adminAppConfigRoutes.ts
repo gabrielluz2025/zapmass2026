@@ -5,6 +5,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { assertAdminFromBearer, adminEmailSet } from './adminAuth.js';
 import { defaultAppConfig, loadAppConfig, saveAppConfigMerge, type AppConfigGlobal } from './appConfigStore.js';
 import { loadMergedUserInsightData } from './insightMerge.js';
+import { sendSuggestionReplyEmail } from './emailService.js';
 
 function sanitizePutBody(body: unknown): Partial<AppConfigGlobal> {
   if (!body || typeof body !== 'object') return {};
@@ -676,4 +677,155 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       return res.status(500).json({ ok: false, error: msg + hint });
     }
   });
+
+  /**
+   * Lista o histórico de respostas dadas pelo criador a uma sugestão específica.
+   * Caminho: users/{uid}/suggestions/{id}/replies
+   */
+  app.get(
+    '/api/admin/product-suggestions/:uid/:id/replies',
+    async (req: Request, res: Response) => {
+      try {
+        const auth = await assertAdminFromBearer(req, res);
+        if (!auth) return;
+
+        const adminApp = getFirebaseAdmin();
+        if (!adminApp) {
+          return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+        }
+
+        const uid = String(req.params.uid || '').trim();
+        const id = String(req.params.id || '').trim();
+        if (!uid || !id) {
+          return res.status(400).json({ ok: false, error: 'Parâmetros uid/id obrigatórios.' });
+        }
+
+        const db = getFirestore(adminApp);
+        const snap = await db
+          .collection('users')
+          .doc(uid)
+          .collection('suggestions')
+          .doc(id)
+          .collection('replies')
+          .orderBy('createdAt', 'asc')
+          .limit(50)
+          .get();
+
+        const items = snap.docs.map((d) => {
+          const raw = d.data();
+          return {
+            id: d.id,
+            text: typeof raw?.text === 'string' ? raw.text : '',
+            adminEmail: typeof raw?.adminEmail === 'string' ? raw.adminEmail : '',
+            adminUid: typeof raw?.adminUid === 'string' ? raw.adminUid : '',
+            emailSent: raw?.emailSent === true,
+            createdAt: tsToIso(raw?.createdAt)
+          };
+        });
+
+        return res.json({ ok: true, items });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[api/admin/product-suggestions/replies][GET]', msg);
+        return res.status(500).json({ ok: false, error: msg });
+      }
+    }
+  );
+
+  /**
+   * Cria uma resposta a uma sugestão e envia email para o cliente (best-effort).
+   * Body: { text: string }
+   */
+  app.post(
+    '/api/admin/product-suggestions/:uid/:id/reply',
+    async (req: Request, res: Response) => {
+      try {
+        const auth = await assertAdminFromBearer(req, res);
+        if (!auth) return;
+
+        const adminApp = getFirebaseAdmin();
+        if (!adminApp) {
+          return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+        }
+
+        const uid = String(req.params.uid || '').trim();
+        const id = String(req.params.id || '').trim();
+        if (!uid || !id) {
+          return res.status(400).json({ ok: false, error: 'Parâmetros uid/id obrigatórios.' });
+        }
+
+        const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+        if (text.length < 1) {
+          return res.status(400).json({ ok: false, error: 'Escreva a resposta.' });
+        }
+        if (text.length > 8000) {
+          return res.status(400).json({ ok: false, error: 'Texto demasiado longo (limite 8000).' });
+        }
+
+        const db = getFirestore(adminApp);
+        const sugRef = db.collection('users').doc(uid).collection('suggestions').doc(id);
+        const sugSnap = await sugRef.get();
+        if (!sugSnap.exists) {
+          return res.status(404).json({ ok: false, error: 'Sugestão não encontrada.' });
+        }
+        const sug = sugSnap.data() || {};
+        const recipient = typeof sug.userEmail === 'string' ? sug.userEmail : '';
+        const originalText = typeof sug.text === 'string' ? sug.text : '';
+        const originalCategory = typeof sug.category === 'string' ? sug.category : '';
+        const originalScreen = typeof sug.screen === 'string' ? sug.screen : '';
+        const originalCreatedAtRaw = sug.createdAt;
+        const originalCreatedAt =
+          originalCreatedAtRaw instanceof Timestamp
+            ? originalCreatedAtRaw.toDate()
+            : originalCreatedAtRaw && typeof (originalCreatedAtRaw as Timestamp)?.toDate === 'function'
+              ? (originalCreatedAtRaw as Timestamp).toDate()
+              : null;
+
+        // Envia o email primeiro (best-effort) — assim, se a Resend rejeitar
+        // (ex.: domínio do remetente não verificado), gravamos `emailSent=false`
+        // mas mantemos o histórico para o admin tentar de novo.
+        let emailSent = false;
+        if (recipient && /@/.test(recipient)) {
+          try {
+            emailSent = await sendSuggestionReplyEmail({
+              to: recipient,
+              originalText,
+              originalCategory,
+              originalScreen,
+              originalCreatedAt,
+              replyText: text,
+              fromAdminEmail: auth.email
+            });
+          } catch (mailErr) {
+            console.error('[api/admin/product-suggestions/reply] email falhou:', mailErr);
+            emailSent = false;
+          }
+        }
+
+        await sugRef.collection('replies').add({
+          text,
+          adminEmail: auth.email,
+          adminUid: auth.uid,
+          emailSent,
+          createdAt: FieldValue.serverTimestamp()
+        });
+
+        // Marca a própria sugestão como respondida (útil para listar não-respondidas).
+        await sugRef.set(
+          {
+            lastRepliedAt: FieldValue.serverTimestamp(),
+            lastRepliedBy: auth.email,
+            replyCount: FieldValue.increment(1)
+          },
+          { merge: true }
+        );
+
+        return res.json({ ok: true, emailSent, recipient });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[api/admin/product-suggestions/reply][POST]', msg);
+        return res.status(500).json({ ok: false, error: msg });
+      }
+    }
+  );
 }
