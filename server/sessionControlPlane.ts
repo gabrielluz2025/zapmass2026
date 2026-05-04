@@ -95,12 +95,17 @@ const executeLocally = async (command: SessionCommand): Promise<void> => {
     await waService.sendMessage(command.payload.conversationId, command.payload.text);
     return;
   }
-  await waService.sendMedia(command.payload.conversationId, {
-    dataBase64: command.payload.dataBase64,
-    mimeType: command.payload.mimeType,
-    fileName: command.payload.fileName,
-    caption: command.payload.caption
-  });
+  if (command.type === 'send-media') {
+    await waService.sendMedia(command.payload.conversationId, {
+      dataBase64: command.payload.dataBase64,
+      mimeType: command.payload.mimeType,
+      fileName: command.payload.fileName,
+      caption: command.payload.caption,
+      sendMediaAsDocument: command.payload.sendMediaAsDocument
+    });
+    return;
+  }
+  throw new Error(`[session] comando nao suportado: ${String((command as { type?: string }).type)}`);
 };
 
 const publishWorkerEvent = async (
@@ -308,7 +313,14 @@ export const submitSendMessage = async (conversationId: string, text: string, re
 };
 
 export const submitSendMedia = async (
-  payload: { conversationId: string; dataBase64: string; mimeType: string; fileName: string; caption?: string },
+  payload: {
+    conversationId: string;
+    dataBase64: string;
+    mimeType: string;
+    fileName: string;
+    caption?: string;
+    sendMediaAsDocument?: boolean;
+  },
   requestedByUid: string
 ) => {
   const command: SessionCommand = {

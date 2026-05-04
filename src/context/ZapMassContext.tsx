@@ -1685,7 +1685,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const sendMedia = (
     conversationId: string,
-    payload: { dataBase64: string; mimeType: string; fileName: string; caption?: string }
+    payload: {
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      caption?: string;
+      sendMediaAsDocument?: boolean;
+    }
   ): Promise<{ ok: boolean; error?: string }> => {
     return new Promise((resolve) => {
       const socket = socketRef.current;
@@ -1869,7 +1875,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
-      mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string };
+      mediaAttachment?: {
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        sendMediaAsDocument?: boolean;
+      };
     }
   ) => {
     const uid = currentUidRef.current;

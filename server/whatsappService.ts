@@ -655,7 +655,7 @@ interface QueueItem {
  */
 const campaignMediaById = new Map<
     string,
-    { dataBase64: string; mimeType: string; fileName: string }
+    { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
 >();
 
 let messageQueue: QueueItem[] = [];
@@ -4105,7 +4105,7 @@ export const startCampaign = async (
     },
     ownerUidHint?: string,
     channelWeights?: Record<string, number>,
-    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string }
+    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
 ): Promise<boolean> => {
     if (connectionIds.length === 0) return false;
     /**
@@ -4118,7 +4118,8 @@ export const startCampaign = async (
         campaignMediaById.set(campaignId, {
             dataBase64: mediaAttachment.dataBase64,
             mimeType: mediaAttachment.mimeType,
-            fileName: mediaAttachment.fileName || 'anexo'
+            fileName: mediaAttachment.fileName || 'anexo',
+            ...(mediaAttachment.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {})
         });
     }
 
@@ -4520,7 +4521,8 @@ const processQueue = async () => {
                         );
                         sendOptsToUse = {
                             ...CAMPAIGN_TEXT_SEND_OPTS,
-                            caption: item.message || undefined
+                            caption: item.message || undefined,
+                            ...(media.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {})
                         };
                     } catch (mediaErr: any) {
                         console.warn(
@@ -5207,7 +5209,13 @@ const inferChatMessageTypeFromMime = (mimeType: string): ChatMessage['type'] => 
 
 export const sendMedia = async (
     conversationId: string,
-    payload: { dataBase64: string; mimeType: string; fileName: string; caption?: string }
+    payload: {
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        caption?: string;
+        sendMediaAsDocument?: boolean;
+    }
 ) => {
     const [connectionId, ...chatParts] = conversationId.split(':');
     const chatId = chatParts.length > 0 ? chatParts.join(':') : conversationId;
@@ -5218,14 +5226,19 @@ export const sendMedia = async (
     }
     const media = new MessageMedia(payload.mimeType, payload.dataBase64, payload.fileName);
     const jid = await maybeResolveUserJidForSend(client, chatId);
-    const sent: any = await client.sendMessage(jid, media, { caption: payload.caption || '' });
+    const sent: any = await client.sendMessage(jid, media, {
+        caption: payload.caption || '',
+        ...(payload.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {})
+    });
     allowDeletedConversation(conversationId);
     const nowMs = Date.now();
     const msgId =
         sent?.id?.id ||
         sent?.id?._serialized ||
         `${nowMs}_${Math.random().toString(36).slice(2, 8)}`;
-    const msgType = inferChatMessageTypeFromMime(payload.mimeType);
+    const msgType: ChatMessage['type'] = payload.sendMediaAsDocument
+        ? 'document'
+        : inferChatMessageTypeFromMime(payload.mimeType);
     const localMessage: ChatMessage = {
         id: msgId,
         text: payload.caption || payload.fileName,

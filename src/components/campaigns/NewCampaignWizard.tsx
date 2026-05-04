@@ -51,7 +51,7 @@ import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
-import { WHATSAPP_VIDEO_MAX_BYTES } from '../../utils/whatsappMediaLimits';
+import { videoShouldSendAsDocument } from '../../utils/whatsappMediaLimits';
 
 type CampaignFlowMode = 'sequential' | 'reply';
 
@@ -111,7 +111,13 @@ interface NewCampaignWizardProps {
      * com o texto da 1a etapa como legenda. Disponivel apenas em "disparar
      * agora" — agendamento ainda nao suporta anexo.
      */
-    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string };
+    mediaAttachment?: {
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      /** Vídeo > ~100 MB: enviar como documento no WhatsApp. */
+      sendMediaAsDocument?: boolean;
+    };
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -221,15 +227,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       toast.error(
         `Arquivo de ${sizeMb} MB excede o limite de ${CAMPAIGN_ATTACHMENT_LIMIT_MB} MB.`,
         { duration: 6000 }
-      );
-      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
-      return;
-    }
-    if (file.type.startsWith('video/') && file.size > WHATSAPP_VIDEO_MAX_BYTES) {
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      toast.error(
-        `Este vídeo tem ${sizeMb} MB. O WhatsApp aceita até ~100 MB por vídeo — comprima antes de anexar à campanha.`,
-        { duration: 10000 }
       );
       if (attachmentInputRef.current) attachmentInputRef.current.value = '';
       return;
@@ -894,11 +891,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       return;
     }
     let mediaPayload:
-      | { dataBase64: string; mimeType: string; fileName: string }
+      | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
       | undefined;
     if (campaignAttachment?.file) {
       try {
-        mediaPayload = await readAttachmentAsBase64(campaignAttachment.file);
+        const read = await readAttachmentAsBase64(campaignAttachment.file);
+        mediaPayload = {
+          ...read,
+          ...(videoShouldSendAsDocument(campaignAttachment.file)
+            ? { sendMediaAsDocument: true }
+            : {})
+        };
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
         toast.error(m);

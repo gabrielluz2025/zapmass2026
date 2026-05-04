@@ -50,7 +50,7 @@ import { useClientCrm, STATUS_META, hashTagColor } from './chat/useClientCrm';
 import { WaBubble } from './chat/wa/WaBubble';
 import { WaContactDrawer } from './chat/wa/WaContactDrawer';
 import { Conversation, ChatMessage } from '../types';
-import { WHATSAPP_VIDEO_MAX_BYTES } from '../utils/whatsappMediaLimits';
+import { videoShouldSendAsDocument } from '../utils/whatsappMediaLimits';
 import { Input, Modal, Select, Button } from './ui';
 
 // =====================================================================
@@ -957,15 +957,6 @@ export const ChatTab: React.FC = () => {
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
-    if (file.type.startsWith('video/') && file.size > WHATSAPP_VIDEO_MAX_BYTES) {
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      toast.error(
-        `Este vídeo tem ${sizeMb} MB. O WhatsApp aceita até ~100 MB por vídeo — acima disso o envio costuma falhar. Comprima o vídeo (menor resolução/bitrate) ou envie pelo telemóvel.`,
-        { duration: 11000 }
-      );
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
     if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
     setPendingMediaFile(file);
     setPendingMediaPreviewUrl(URL.createObjectURL(file));
@@ -1029,11 +1020,19 @@ export const ChatTab: React.FC = () => {
       // servidor já recebeu e está encaminhando ao WhatsApp. É só feedback
       // visual: o socket pode resolver antes ou depois sem mudar nada lógico.
       const transitionTimer = setTimeout(() => setUploadStage('sending'), 3000);
+      const sendMediaAsDocument = videoShouldSendAsDocument(file);
+      if (sendMediaAsDocument) {
+        toast(
+          'Vídeo grande: a enviar como ficheiro (documento), como o WhatsApp recomenda acima de ~100 MB.',
+          { duration: 5000 }
+        );
+      }
       const resp = await sendMedia(targetConversationId, {
         dataBase64,
         mimeType,
         fileName: file.name || 'arquivo',
-        caption: caption || undefined
+        caption: caption || undefined,
+        sendMediaAsDocument
       });
       clearTimeout(transitionTimer);
       if (!resp.ok) {

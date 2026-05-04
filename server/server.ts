@@ -781,7 +781,12 @@ const registerSocketHandlers = () => {
           delaySeconds?: number;
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
           channelWeights?: Record<string, number>;
-          mediaAttachment?: { dataBase64?: string; mimeType?: string; fileName?: string };
+          mediaAttachment?: {
+            dataBase64?: string;
+            mimeType?: string;
+            fileName?: string;
+            sendMediaAsDocument?: boolean;
+          };
         },
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
@@ -855,7 +860,8 @@ const registerSocketHandlers = () => {
             ? {
                 dataBase64: mediaAttachment.dataBase64,
                 mimeType: mediaAttachment.mimeType,
-                fileName: String(mediaAttachment.fileName || 'anexo')
+                fileName: String(mediaAttachment.fileName || 'anexo'),
+                ...(mediaAttachment.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {})
               }
             : undefined;
 
@@ -917,13 +923,15 @@ const registerSocketHandlers = () => {
           dataBase64,
           mimeType,
           fileName,
-          caption
+          caption,
+          sendMediaAsDocument
         }: {
           conversationId: string;
           dataBase64: string;
           mimeType: string;
           fileName: string;
           caption?: string;
+          sendMediaAsDocument?: boolean;
         },
         callback?: (resp: { ok: boolean; error?: string }) => void
       ) => {
@@ -945,17 +953,23 @@ const registerSocketHandlers = () => {
           conversationId,
           fileName,
           mimeType,
-          sizeMb: approxMb
+          sizeMb: approxMb,
+          sendMediaAsDocument: Boolean(sendMediaAsDocument)
         });
         try {
           await runSessionCommandOrLocal({
-            submit: () => submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, authOp),
+            submit: () =>
+              submitSendMedia(
+                { conversationId, dataBase64, mimeType, fileName, caption, sendMediaAsDocument },
+                authOp
+              ),
             local: () =>
               waService.sendMedia(conversationId, {
                 dataBase64,
                 mimeType,
                 fileName,
-                caption
+                caption,
+                sendMediaAsDocument
               })
           });
           logEvent('wa:send-media:done', {

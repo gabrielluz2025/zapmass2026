@@ -434,7 +434,13 @@ export interface ZapMassContextType {
   sendMessage: (conversationId: string, text: string) => void;
   sendMedia: (
     conversationId: string,
-    payload: { dataBase64: string; mimeType: string; fileName: string; caption?: string }
+    payload: {
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      caption?: string;
+      sendMediaAsDocument?: boolean;
+    }
   ) => Promise<{ ok: boolean; error?: string }>;
   markAsRead: (conversationId: string) => void;
   fetchConversationPicture: (conversationId: string) => void;
@@ -460,7 +466,12 @@ export interface ZapMassContextType {
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
       /** Anexo unico (foto, video ou arquivo) que vai com a 1a etapa. */
-      mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string };
+      mediaAttachment?: {
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        sendMediaAsDocument?: boolean;
+      };
     }
   ) => Promise<string>;
   /** Grava campanha como agendada (sem socket); o servidor dispara no horário. */

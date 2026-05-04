@@ -49,6 +49,7 @@ export interface SendMediaCommand extends SessionCommandBase {
     mimeType: string;
     fileName: string;
     caption?: string;
+    sendMediaAsDocument?: boolean;
   };
 }
 
