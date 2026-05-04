@@ -920,6 +920,17 @@ const registerSocketHandlers = () => {
           callback?.({ ok: false, error: 'Plano ativo necessario para enviar midia.' });
           return;
         }
+        // Estimativa do tamanho real do arquivo (base64 ≈ 4/3 do binário).
+        const base64Len = typeof dataBase64 === 'string' ? dataBase64.length : 0;
+        const approxBytes = Math.floor((base64Len * 3) / 4);
+        const approxMb = +(approxBytes / (1024 * 1024)).toFixed(2);
+        const startedAt = Date.now();
+        logEvent('wa:send-media:start', {
+          conversationId,
+          fileName,
+          mimeType,
+          sizeMb: approxMb
+        });
         try {
           await runSessionCommandOrLocal({
             submit: () => submitSendMedia({ conversationId, dataBase64, mimeType, fileName, caption }, authOp),
@@ -931,9 +942,22 @@ const registerSocketHandlers = () => {
                 caption
               })
           });
+          logEvent('wa:send-media:done', {
+            conversationId,
+            fileName,
+            sizeMb: approxMb,
+            elapsedMs: Date.now() - startedAt
+          });
           callback?.({ ok: true });
         } catch (error: any) {
           const message = error?.message || 'Falha ao enviar arquivo.';
+          logEvent('wa:send-media:error', {
+            conversationId,
+            fileName,
+            sizeMb: approxMb,
+            elapsedMs: Date.now() - startedAt,
+            error: message
+          });
           socket.emit('send-message-error', { conversationId, error: message });
           callback?.({ ok: false, error: message });
         }

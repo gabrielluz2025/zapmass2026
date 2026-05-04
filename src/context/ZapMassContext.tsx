@@ -1570,8 +1570,27 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         resolve({ ok: false, error: 'Sem conexao com servidor.' });
         return;
       }
+      // Vídeos grandes podem demorar minutos: o WA Web faz upload em chunks
+      // para a nuvem da Meta antes de retornar. Sem timeout, a UI fica presa
+      // em "Upload 100%" se o servidor cair / rede engasgar.
+      let done = false;
+      const finish = (r: { ok: boolean; error?: string }) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(r);
+      };
+      const TIMEOUT_MS = 5 * 60 * 1000;
+      const timer = setTimeout(() => {
+        finish({
+          ok: false,
+          error:
+            'Tempo esgotado: o WhatsApp não confirmou o envio em 5 minutos. ' +
+            'Pode ser arquivo muito grande, rede lenta no servidor, ou o WA recusou o tamanho.'
+        });
+      }, TIMEOUT_MS);
       socket.emit('send-media', { conversationId, ...payload }, (resp?: { ok: boolean; error?: string }) => {
-        resolve(resp || { ok: false, error: 'Sem resposta do servidor.' });
+        finish(resp || { ok: false, error: 'Sem resposta do servidor.' });
       });
     });
   };

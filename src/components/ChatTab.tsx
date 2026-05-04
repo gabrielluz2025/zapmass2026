@@ -251,6 +251,26 @@ export const ChatTab: React.FC = () => {
   const [sendingMedia, setSendingMedia] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  /**
+   * Etapas reais do envio de mídia:
+   * - 'reading'  : FileReader convertendo o arquivo em base64 (medível, % real).
+   * - 'uploading': socket emit em curso, servidor ainda não respondeu (sem %).
+   * - 'sending'  : servidor passou para a whatsapp-web.js → upload p/ Meta.
+   * Estados intermédios precisam de barra indeterminada porque não temos o
+   * progresso do upload via socket nem o do upload da Meta.
+   */
+  const [uploadStage, setUploadStage] = useState<'idle' | 'reading' | 'uploading' | 'sending'>('idle');
+  const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
+  const [uploadElapsedSec, setUploadElapsedSec] = useState(0);
+
+  useEffect(() => {
+    if (!uploadStartedAt) return;
+    setUploadElapsedSec(Math.max(0, Math.floor((Date.now() - uploadStartedAt) / 1000)));
+    const id = setInterval(() => {
+      setUploadElapsedSec(Math.max(0, Math.floor((Date.now() - uploadStartedAt) / 1000)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [uploadStartedAt]);
   const [lastFailedFile, setLastFailedFile] = useState<File | null>(null);
   // Evita flood ao backend: controla quando cada avatar foi requisitado.
   const avatarFetchAtRef = useRef<Map<string, number>>(new Map());
@@ -867,6 +887,8 @@ export const ChatTab: React.FC = () => {
     setSendingMedia(true);
     setUploadProgress(0);
     setUploadStatus('idle');
+    setUploadStage('reading');
+    setUploadStartedAt(Date.now());
     let sentOk = false;
     try {
       const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -884,16 +906,25 @@ export const ChatTab: React.FC = () => {
       const dataBase64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
       const mimeType = file.type || 'application/octet-stream';
       if (!dataBase64) throw new Error('Nao foi possivel processar o arquivo.');
+      // Leitura local concluída → começa o upload pelo socket. A barra com %
+      // não pode mais subir (não há progresso real do socket emit).
+      setUploadProgress(null);
+      setUploadStage('uploading');
+      // Após ~3s de "Enviando ao servidor" sem resposta, assumimos que o
+      // servidor já recebeu e está encaminhando ao WhatsApp. É só feedback
+      // visual: o socket pode resolver antes ou depois sem mudar nada lógico.
+      const transitionTimer = setTimeout(() => setUploadStage('sending'), 3000);
       const resp = await sendMedia(targetConversationId, {
         dataBase64,
         mimeType,
         fileName: file.name || 'arquivo',
         caption: inputText.trim() || undefined
       });
+      clearTimeout(transitionTimer);
       if (!resp.ok) {
         throw new Error(resp.error || 'Falha ao enviar arquivo.');
       }
-      setUploadProgress(100);
+      setUploadStage('idle');
       setUploadStatus('success');
       setLastFailedFile(null);
       sentOk = true;
@@ -902,11 +933,13 @@ export const ChatTab: React.FC = () => {
         setSelectedChatId(targetConversationId);
       }
     } catch (e: any) {
+      setUploadStage('idle');
       setUploadStatus('error');
       setLastFailedFile(file);
-      toast.error(e?.message || 'Falha ao enviar arquivo.');
+      toast.error(e?.message || 'Falha ao enviar arquivo.', { duration: 8000 });
     } finally {
       setSendingMedia(false);
+      setUploadStartedAt(null);
       setTimeout(() => setUploadProgress(null), 500);
       if (sentOk) {
         setTimeout(() => setUploadStatus('idle'), 2200);
@@ -1914,16 +1947,40 @@ export const ChatTab: React.FC = () => {
               >
                 {sendingMedia ? <Loader2 className="w-[22px] h-[22px] animate-spin" /> : <Paperclip className="w-[22px] h-[22px]" />}
               </button>
-              {uploadProgress !== null && (
-                <div className="min-w-[160px] max-w-[220px]">
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--wa-search)' }}>
-                    <div
-                      className="h-full transition-all duration-200"
-                      style={{ width: `${uploadProgress}%`, background: 'var(--wa-green)' }}
-                    />
+              {(uploadStage === 'reading' || uploadStage === 'uploading' || uploadStage === 'sending') && (
+                <div className="min-w-[180px] max-w-[260px]">
+                  <div
+                    className="h-1.5 rounded-full overflow-hidden relative"
+                    style={{ background: 'var(--wa-search)' }}
+                  >
+                    {uploadStage === 'reading' && uploadProgress !== null ? (
+                      <div
+                        className="h-full transition-all duration-200"
+                        style={{ width: `${uploadProgress}%`, background: 'var(--wa-green)' }}
+                      />
+                    ) : (
+                      <div
+                        className="h-full absolute inset-y-0 wa-upload-indeterminate"
+                        style={{ background: 'var(--wa-green)' }}
+                      />
+                    )}
                   </div>
-                  <p className="text-[10.5px] font-semibold mt-1 tabular-nums" style={{ color: 'var(--wa-text-3)' }}>
-                    Upload {uploadProgress}%
+                  <p
+                    className="text-[10.5px] font-semibold mt-1 tabular-nums truncate"
+                    style={{ color: 'var(--wa-text-3)' }}
+                    title={
+                      uploadStage === 'reading'
+                        ? 'Lendo arquivo no navegador'
+                        : uploadStage === 'uploading'
+                          ? 'Enviando para o servidor'
+                          : 'Encaminhando ao WhatsApp (pode demorar em vídeos grandes)'
+                    }
+                  >
+                    {uploadStage === 'reading'
+                      ? `Lendo ${uploadProgress ?? 0}%`
+                      : uploadStage === 'uploading'
+                        ? `Enviando ao servidor… ${uploadElapsedSec}s`
+                        : `Encaminhando ao WhatsApp… ${uploadElapsedSec}s`}
                   </p>
                 </div>
               )}

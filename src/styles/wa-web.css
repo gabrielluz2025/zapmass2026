@@ -437,3 +437,15 @@ html[data-mode='dark'] .wa-empty { background: var(--wa-panel); }
   text-transform: uppercase;
 }
 html[data-mode='dark'] .wa-empty-zap-badge { color: #d1f4e0; }
+
+/* Barra indeterminada do upload (servidor → WhatsApp): % real não é
+   conhecido, então animamos uma faixa deslizando para cá-lá. */
+@keyframes wa-upload-indeterminate-anim {
+  0%   { left: -40%; width: 40%; }
+  60%  { left: 100%; width: 40%; }
+  100% { left: 100%; width: 40%; }
+}
+.wa-upload-indeterminate {
+  animation: wa-upload-indeterminate-anim 1.4s ease-in-out infinite;
+  border-radius: inherit;
+}
