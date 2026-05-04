@@ -1399,6 +1399,12 @@ export const ContactsTab: React.FC = () => {
 
   const [activeSegment, setActiveSegment] = useState<SmartSegmentId | null>(null);
 
+  useEffect(() => {
+    if (segment !== 'religious') return;
+    setActiveFilter((f) => (f === 'wedding_today' || f === 'wedding_week' ? 'all' : f));
+    setActiveSegment((s) => (s === 'wedding-week' ? null : s));
+  }, [segment]);
+
   const smartSegments: Array<{
     id: SmartSegmentId;
     label: string;
@@ -1409,7 +1415,9 @@ export const ContactsTab: React.FC = () => {
   }> = useMemo(() => {
     const list: Array<{ id: SmartSegmentId; label: string; icon: React.ElementType; color: string; hint: string }> = [
       { id: 'birthday-week',      label: 'Aniversários (7d)',    icon: Cake,        color: 'amber',   hint: 'Faça um envio personalizado' },
-      { id: 'wedding-week',       label: 'Bodas de casamento (7d)', icon: Heart,     color: 'rose',    hint: 'Data na ficha de membro' },
+      ...(segment === 'religious'
+        ? []
+        : [{ id: 'wedding-week' as const, label: 'Bodas de casamento (7d)', icon: Heart, color: 'rose', hint: 'Data na ficha de membro' }]),
       { id: 'hot-inactive',       label: 'Quentes sem contato',  icon: Flame,       color: 'red',     hint: 'Não perca o engajamento' },
       { id: 'cold-reactivation',  label: 'Reativar frios',       icon: Snowflake,   color: 'sky',     hint: 'Campanha de win-back' },
       { id: 'last-7-days',        label: 'Novos (7d)',           icon: Sparkles,    color: 'emerald', hint: 'Acolhida para novatos' },
@@ -1422,7 +1430,7 @@ export const ContactsTab: React.FC = () => {
       ...s,
       count: contacts.filter((c) => getSmartSegmentMatches(s.id, c)).length
     }));
-  }, [contacts, getSmartSegmentMatches]);
+  }, [contacts, getSmartSegmentMatches, segment]);
 
   const fileImportRowsView = useMemo(
     () => buildFileImportRowsViewFromState(fileImportRows, contacts),
@@ -2641,6 +2649,7 @@ export const ContactsTab: React.FC = () => {
       {!listManageId && (
         <ContactsHeaderBar
           stats={headerStats}
+          hideWeddingWeekPill={segment === 'religious'}
           onNewContact={openNewContactModal}
           onImportXLSX={openImportXLSX}
           onImportVcf={openImportVcf}
@@ -2874,6 +2883,7 @@ export const ContactsTab: React.FC = () => {
           onDeleteList={(id, name) => void handleDeleteList(id, name)}
           query={searchTerm}
           onQueryChange={setSearchTerm}
+          hideWeddingFilters={segment === 'religious'}
         />
         <div className="flex flex-col gap-3 min-w-0">
           {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (
@@ -2893,7 +2903,9 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
-          {(activeFilter === 'wedding_week' || activeFilter === 'wedding_today') && listFilteredContacts.length > 0 && (
+          {segment !== 'religious' &&
+            (activeFilter === 'wedding_week' || activeFilter === 'wedding_today') &&
+            listFilteredContacts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-rose-200/80 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2">
               <span className="text-[12px] text-rose-900 dark:text-rose-200 font-medium">
                 {listFilteredContacts.length} contato(s) com bodas neste filtro

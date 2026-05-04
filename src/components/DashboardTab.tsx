@@ -401,6 +401,7 @@ export const DashboardTab: React.FC = () => {
   }, [contacts]);
 
   const upcomingWeddings = useMemo<UpcomingWedding[]>(() => {
+    if (segment === 'religious') return [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const result: UpcomingWedding[] = [];
@@ -426,7 +427,14 @@ export const DashboardTab: React.FC = () => {
       });
     }
     return result.sort((a, b) => a.daysRemaining - b.daysRemaining);
-  }, [contacts]);
+  }, [contacts, segment]);
+
+  useEffect(() => {
+    if (segment !== 'religious') return;
+    setSelectedWedding(null);
+    setWeddingBulkOpen(false);
+    setWeddingMessageText('');
+  }, [segment]);
 
   const todaysBirthdays = upcomingBirthdays.filter((b) => b.daysRemaining === 0);
   const weekBirthdays = upcomingBirthdays.filter((b) => b.daysRemaining <= 7);
@@ -1299,6 +1307,7 @@ export const DashboardTab: React.FC = () => {
           </div>
         </Card>
 
+        {segment !== 'religious' && (
         <Card className="overflow-hidden p-0">
           <div
             className="px-4 pt-4 pb-3 flex items-start justify-between gap-3"
@@ -1445,6 +1454,7 @@ export const DashboardTab: React.FC = () => {
             </div>
           </div>
         </Card>
+        )}
 
         {segment === 'religious' && (
           <Card className="overflow-hidden p-0">

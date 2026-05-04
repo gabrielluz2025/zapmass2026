@@ -13,6 +13,8 @@ interface HeaderStats {
 
 interface Props {
   stats: HeaderStats;
+  /** Segmento religioso: não mostrar pill de bodas na barra (bodas ficam só na ficha). */
+  hideWeddingWeekPill?: boolean;
   onNewContact: () => void;
   onImportXLSX: () => void;
   onImportVcf: () => void;
@@ -30,6 +32,7 @@ interface Props {
  */
 export const ContactsHeaderBar: React.FC<Props> = React.memo(({
   stats,
+  hideWeddingWeekPill = false,
   onNewContact,
   onImportXLSX,
   onImportVcf,
@@ -75,7 +78,9 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
             <Pill label="Novos (7d)" value={stats.newLast7} tone="sky" />
             <Pill label="Quentes" value={stats.hot} tone="rose" />
             {stats.bdayToday > 0 && <Pill label="Aniver. hoje" value={stats.bdayToday} tone="amber" pulse />}
-            {stats.weddingWeek > 0 && <Pill label="Bodas 7d" value={stats.weddingWeek} tone="rose" />}
+            {!hideWeddingWeekPill && stats.weddingWeek > 0 && (
+              <Pill label="Bodas 7d" value={stats.weddingWeek} tone="rose" />
+            )}
           </div>
         </div>
       </div>

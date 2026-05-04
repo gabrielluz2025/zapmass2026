@@ -57,6 +57,8 @@ interface Props {
   onDeleteList: (listId: string, listName: string) => void;
   query: string;
   onQueryChange: (q: string) => void;
+  /** Segmento religioso: bodas ficam só na ficha — não mostrar filtros rápidos de bodas. */
+  hideWeddingFilters?: boolean;
 }
 
 interface FilterItem {
@@ -77,7 +79,8 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
   onManageList,
   onDeleteList,
   query,
-  onQueryChange
+  onQueryChange,
+  hideWeddingFilters = false
 }) => {
   const [newListOpen, setNewListOpen] = React.useState(false);
   const [newListName, setNewListName] = React.useState('');
@@ -90,7 +93,7 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
     { id: 'new', label: 'Sem histórico', icon: Clock, tone: 'slate', count: counts.new, hint: 'Nunca enviou nada' }
   ];
 
-  const groupAttention: FilterItem[] = [
+  const groupAttentionAll: FilterItem[] = [
     { id: 'bday_today', label: 'Aniver. hoje', icon: Cake, tone: 'amber', count: counts.bday_today },
     { id: 'bday_week', label: 'Aniver. 7 dias', icon: Cake, tone: 'violet', count: counts.bday_week },
     { id: 'wedding_today', label: 'Bodas hoje', icon: Heart, tone: 'rose', count: counts.wedding_today, hint: 'Data de casamento na ficha' },
@@ -100,6 +103,10 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
     { id: 'no_address', label: 'Sem endereço', icon: MapPinOff, tone: 'orange', count: counts.no_address },
     { id: 'duplicates', label: 'Duplicados', icon: Copy, tone: 'rose', count: counts.duplicates }
   ];
+
+  const groupAttention = hideWeddingFilters
+    ? groupAttentionAll.filter((i) => i.id !== 'wedding_today' && i.id !== 'wedding_week')
+    : groupAttentionAll;
 
   const groupRetornos: FilterItem[] = [
     {
