@@ -44,8 +44,10 @@ import { ClientPipelineBoard } from './chat/ClientPipelineBoard';
 import { ClientCrmPanel } from './chat/ClientCrmPanel';
 import { ChatEmptyShowcase } from './chat/ChatEmptyShowcase';
 import { useClientCrm, STATUS_META, hashTagColor } from './chat/useClientCrm';
+import { WaBubble } from './chat/wa/WaBubble';
+import { WaContactDrawer } from './chat/wa/WaContactDrawer';
 import { Conversation, ChatMessage } from '../types';
-import { Input, Modal, Select, Tabs, Badge, Button } from './ui';
+import { Input, Modal, Select, Button } from './ui';
 
 // =====================================================================
 // Origem de uma conversa — usada para separar o que veio do celular
@@ -1007,156 +1009,187 @@ export const ChatTab: React.FC = () => {
 
   return (
     <div
-      className="flex h-[calc(100vh-5.5rem)] overflow-hidden rounded-2xl"
+      className="wa-pipeline-root flex h-[calc(100vh-5.5rem)] overflow-hidden rounded-2xl relative"
       style={{
-        border: '1px solid var(--border-subtle)',
-        boxShadow: '0 20px 50px -24px color-mix(in srgb, var(--brand-500) 18%, transparent), var(--shadow-md)',
-        background:
-          'linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 55%, var(--surface-0)) 0%, var(--surface-0) 45%, color-mix(in srgb, var(--surface-0) 88%, #020617) 100%)'
+        border: '1px solid var(--wa-divider)',
+        boxShadow: 'var(--wa-shadow-md)'
       }}
     >
       <div
-        className={`${showMobileChat ? 'hidden md:flex' : 'flex'} relative w-full flex-col flex-shrink-0 ${
+        className={`wa-side ${showMobileChat ? 'hidden md:flex' : 'flex'} relative w-full flex-col flex-shrink-0 ${
           pipelineView === 'quadro'
             ? quadroHidesRightPane
               ? 'md:flex-1 md:min-w-0'
               : 'md:flex-1 md:min-w-0 md:max-w-[min(1100px,72vw)]'
-            : 'md:w-[380px]'
+            : 'md:w-[400px]'
         }`}
-        style={{
-          background:
-            pipelineView === 'quadro'
-              ? 'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 50%, var(--surface-0)) 0%, var(--surface-0) 100%)'
-              : 'var(--surface-0)',
-          borderRight: '1px solid var(--border-subtle)'
-        }}
       >
-        <div
-          className="flex items-start justify-between gap-3 px-4 py-3.5 flex-shrink-0 relative overflow-hidden"
-          style={{
-            borderBottom: '1px solid var(--border-subtle)',
-            background:
-              'linear-gradient(135deg, color-mix(in srgb, var(--surface-1) 22%, var(--surface-0)) 0%, var(--surface-0) 100%)'
-          }}
-        >
-          <span
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-px opacity-80"
-            style={{
-              background: 'linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand-500) 35%, transparent), transparent)'
-            }}
-            aria-hidden
-          />
-          <div className="flex items-start gap-3 min-w-0 flex-1 relative z-[1]">
+        {/* Header WA Web — avatar/branding minimalista + ícones */}
+        <div className="wa-side-header flex items-center justify-between px-3 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
             <div
-              className="h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-xl"
+              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
               style={{
-                background: 'color-mix(in srgb, var(--brand-500) 14%, var(--surface-1))',
-                border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)',
-                boxShadow: '0 12px 32px -18px color-mix(in srgb, var(--brand-500) 40%, transparent)'
+                background: 'linear-gradient(135deg, var(--wa-green) 0%, var(--wa-green-strong) 100%)',
+                color: '#fff',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.12)'
               }}
               aria-hidden
+              title="ZapMass · CRM"
             >
-              <Workflow className="w-[18px] h-[18px]" strokeWidth={1.75} style={{ color: 'var(--brand-500)' }} />
+              <Workflow className="w-[18px] h-[18px]" strokeWidth={2} />
             </div>
-            <div className="min-w-0 pt-0.5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] mb-1 leading-none" style={{ color: 'var(--text-3)' }}>
-                CRM ZapMass
-              </p>
-              <h2 className="text-[15px] font-bold tracking-tight leading-tight mb-1" style={{ color: 'var(--text-1)' }}>
+            <div className="min-w-0">
+              <p className="text-[15px] font-medium leading-tight truncate" style={{ color: 'var(--wa-text)' }}>
                 Pipeline
-              </h2>
-              <p className="text-[11px] leading-snug flex flex-wrap items-center gap-x-1 gap-y-1" style={{ color: 'var(--text-3)' }}>
-                <Smartphone className="w-3 h-3 flex-shrink-0 opacity-85" aria-hidden />
-                <span>
-                  <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{totalPhone}</span> no celular
-                </span>
-                {totalSystem > 0 && (
-                  <>
-                    <span aria-hidden style={{ color: 'var(--text-3)', opacity: 0.55 }}>&middot;</span>
-                    <span style={{ color: 'var(--warning, #f59e0b)' }}>
-                      <span style={{ fontWeight: 600 }}>{totalSystem}</span> sistema
-                    </span>
-                  </>
-                )}
-                {totalEmpty > 0 && (
-                  <>
-                    <span aria-hidden style={{ color: 'var(--text-3)', opacity: 0.55 }}>&middot;</span>
-                    <span>
-                      <span style={{ fontWeight: 600, color: 'var(--text-2)' }}>{totalEmpty}</span> vazias
-                    </span>
-                  </>
-                )}
+              </p>
+              <p className="text-[11.5px] leading-tight truncate mt-0.5" style={{ color: 'var(--wa-text-3)' }}>
+                ZapMass · CRM
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setAuditCategory(totalSystem > 0 ? 'system' : totalEmpty > 0 ? 'empty' : 'phone');
-              setAuditSelection(new Set());
-              setShowAudit(true);
-            }}
-            className="flex-shrink-0 p-2 rounded-lg transition-colors hover:opacity-95 active:opacity-90 relative z-[1]"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-3)'
-            }}
-            title="Auditar origem das conversas"
-          >
-            <ShieldCheck className="w-[17px] h-[17px]" strokeWidth={1.75} />
-          </button>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button
+              type="button"
+              className="wa-icon-btn"
+              onClick={() => setPipelineView(pipelineView === 'lista' ? 'quadro' : 'lista')}
+              title={pipelineView === 'lista' ? 'Visualizar como Quadro (Kanban)' : 'Voltar para a Lista'}
+              aria-label="Alternar Lista/Quadro"
+            >
+              {pipelineView === 'lista' ? (
+                <LayoutGrid className="w-[22px] h-[22px]" strokeWidth={1.75} />
+              ) : (
+                <List className="w-[22px] h-[22px]" strokeWidth={1.75} />
+              )}
+            </button>
+            <button
+              type="button"
+              className="wa-icon-btn"
+              onClick={() => {
+                setAuditCategory(totalSystem > 0 ? 'system' : totalEmpty > 0 ? 'empty' : 'phone');
+                setAuditSelection(new Set());
+                setShowAudit(true);
+              }}
+              title="Auditar origem das conversas"
+              aria-label="Auditar origem das conversas"
+            >
+              <ShieldCheck className="w-[22px] h-[22px]" strokeWidth={1.75} />
+            </button>
+          </div>
         </div>
 
+        {/* Aviso compacto de origem (só quando há conversas suspeitas) */}
         {(totalSystem > 0 || totalEmpty > 0) && (
-          <div
-            className="mx-3 mt-3 rounded-lg px-3 py-2 flex items-start gap-2 cursor-pointer"
-            style={{
-              background: 'rgba(245,158,11,0.08)',
-              border: '1px solid rgba(245,158,11,0.25)'
-            }}
+          <button
+            type="button"
             onClick={() => {
               setAuditCategory(totalSystem > 0 ? 'system' : 'empty');
               setAuditSelection(new Set());
               setShowAudit(true);
             }}
+            className="flex items-center gap-2 px-3 py-2 text-left flex-shrink-0"
+            style={{
+              background: 'color-mix(in srgb, #f59e0b 10%, var(--wa-panel))',
+              borderBottom: '1px solid var(--wa-divider)',
+              color: 'var(--wa-text-2)'
+            }}
           >
-            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#f59e0b' }} />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11.5px] font-semibold leading-tight" style={{ color: 'var(--text-1)' }}>
-                {totalSystem + totalEmpty} conversa{totalSystem + totalEmpty === 1 ? '' : 's'} nao {totalSystem + totalEmpty === 1 ? 'veio' : 'vieram'} do celular
-              </p>
-              <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                Clique para revisar e apagar.
-              </p>
-            </div>
-          </div>
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: '#f59e0b' }} />
+            <span className="text-[12.5px] truncate flex-1">
+              {totalSystem + totalEmpty} conversa{totalSystem + totalEmpty === 1 ? '' : 's'} fora do celular · revisar
+            </span>
+          </button>
         )}
 
-        <div
-          className="mx-2 sm:mx-3 mb-2 mt-1 rounded-xl p-3 space-y-2.5 flex-shrink-0"
-          style={{
-            background:
-              'linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 88%, var(--surface-2)) 0%, var(--surface-1) 100%)',
-            border: '1px solid var(--border-subtle)',
-            boxShadow: 'inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent), 0 8px 24px -20px rgba(0,0,0,0.25)'
-          }}
-        >
-          <Input
-            leftIcon={<Search className="w-4 h-4" />}
-            rightIcon={
-              searchTerm ? (
-                <button onClick={() => setSearchTerm('')} type="button">
-                  <X className="w-4 h-4" />
-                </button>
-              ) : undefined
-            }
-            placeholder="Pesquisar conversas"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        {/* Busca estilo WA Web */}
+        <div className="wa-search-wrap flex-shrink-0">
+          <div className="wa-search">
+            <Search className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--wa-text-3)' }} aria-hidden />
+            <input
+              type="text"
+              placeholder="Pesquisar"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              aria-label="Pesquisar conversas"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="flex-shrink-0"
+                aria-label="Limpar busca"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                <X className="w-4 h-4" style={{ color: 'var(--wa-text-3)' }} />
+              </button>
+            )}
+          </div>
+        </div>
 
-          {connections.length > 0 && (
+        {/* Pills de filtros estilo WA */}
+        <div className="wa-filter-row flex-shrink-0">
+          <button
+            type="button"
+            className="wa-filter-pill"
+            data-active={chatFilter === 'all' ? 'true' : 'false'}
+            onClick={() => setChatFilter('all')}
+          >
+            Todas
+          </button>
+          <button
+            type="button"
+            className="wa-filter-pill"
+            data-active={chatFilter === 'unread' ? 'true' : 'false'}
+            onClick={() => setChatFilter('unread')}
+          >
+            Não lidas{totalUnread > 0 ? ` ${totalUnread}` : ''}
+          </button>
+          {crm.stats.pinned > 0 && (
+            <button
+              type="button"
+              className="wa-filter-pill"
+              data-active={chatFilter === 'pinned' ? 'true' : 'false'}
+              onClick={() => setChatFilter('pinned')}
+            >
+              Favoritos {crm.stats.pinned}
+            </button>
+          )}
+          <button
+            type="button"
+            className="wa-filter-pill"
+            data-active={chatFilter === 'groups' ? 'true' : 'false'}
+            onClick={() => setChatFilter('groups')}
+          >
+            Grupos{totalGroups > 0 ? ` ${totalGroups}` : ''}
+          </button>
+          {totalSystem > 0 && (
+            <button
+              type="button"
+              className="wa-filter-pill"
+              data-active={chatFilter === 'system' ? 'true' : 'false'}
+              onClick={() => setChatFilter('system')}
+            >
+              Disparo {totalSystem}
+            </button>
+          )}
+          {totalEmpty > 0 && (
+            <button
+              type="button"
+              className="wa-filter-pill"
+              data-active={chatFilter === 'empty' ? 'true' : 'false'}
+              onClick={() => setChatFilter('empty')}
+            >
+              Vazias {totalEmpty}
+            </button>
+          )}
+        </div>
+
+        {/* Seletor de canal (só com >1 chip ativo) */}
+        {connections.length > 1 && (
+          <div
+            className="px-3 py-2 flex-shrink-0"
+            style={{ background: 'var(--wa-panel)', borderBottom: '1px solid var(--wa-divider)' }}
+          >
             <Select
               value={selectedConnectionId}
               onChange={(e) => setSelectedConnectionId(e.target.value as string | 'ALL')}
@@ -1168,75 +1201,8 @@ export const ChatTab: React.FC = () => {
                 </option>
               ))}
             </Select>
-          )}
-
-          <Tabs
-            value={chatFilter}
-            onChange={(v) => setChatFilter(v as typeof chatFilter)}
-            size="sm"
-            items={[
-              { id: 'all', label: 'Todas' },
-              {
-                id: 'unread',
-                label: 'Nao lidas',
-                badge: totalUnread > 0 ? <Badge variant="success">{totalUnread}</Badge> : undefined
-              },
-              ...(crm.stats.pinned > 0
-                ? [{
-                    id: 'pinned' as const,
-                    label: 'Fixadas',
-                    icon: <Pin className="w-3 h-3" />,
-                    badge: <Badge variant="warning">{crm.stats.pinned}</Badge>
-                  }]
-                : []),
-              {
-                id: 'groups',
-                label: 'Grupos',
-                badge: totalGroups > 0 ? <Badge variant="neutral">{totalGroups}</Badge> : undefined
-              },
-              ...(totalSystem > 0
-                ? [{
-                    id: 'system' as const,
-                    label: 'Disparo',
-                    badge: <Badge variant="warning">{totalSystem}</Badge>
-                  }]
-                : []),
-              ...(totalEmpty > 0
-                ? [{
-                    id: 'empty' as const,
-                    label: 'Vazias',
-                    badge: <Badge variant="neutral">{totalEmpty}</Badge>
-                  }]
-                : [])
-            ]}
-          />
-
-          <Tabs
-            value={pipelineView}
-            onChange={(v) => setPipelineView(v as 'lista' | 'quadro')}
-            size="sm"
-            items={[
-              { id: 'lista', label: 'Lista', icon: <List className="w-3.5 h-3.5 opacity-80" /> },
-              { id: 'quadro', label: 'Quadro', icon: <LayoutGrid className="w-3.5 h-3.5 opacity-80" /> }
-            ]}
-          />
-          {pipelineView === 'quadro' && (
-            <div
-              className="flex items-start gap-2 rounded-lg px-2.5 py-2 text-[10px] leading-snug"
-              style={{
-                background: 'color-mix(in srgb, var(--brand-500) 9%, var(--surface-0))',
-                border: '1px solid color-mix(in srgb, var(--brand-500) 28%, transparent)',
-                color: 'var(--text-2)'
-              }}
-            >
-              <LayoutGrid className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: 'var(--brand-500)' }} aria-hidden />
-              <span>
-                <strong style={{ color: 'var(--text-1)' }}>Arraste cartões</strong> entre colunas. As etapas são guardadas
-                só neste navegador.
-              </span>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div
           className={`flex-1 min-h-0 ${
@@ -1266,63 +1232,30 @@ export const ChatTab: React.FC = () => {
             const crmStatus = crmData.status ? STATUS_META[crmData.status] : null;
             const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
             const hasNotes = !!(crmData.notes && crmData.notes.trim());
-            const { primary: convPrimary, whatsappSubtitle: convWaSub } = getConversationDisplay(conv);
+            const { whatsappSubtitle: convWaSub } = getConversationDisplay(conv);
             return (
               <button
                 key={conv.id}
                 type="button"
                 onClick={() => selectChat(conv.id)}
-                className="w-full text-left flex items-center gap-3 px-3 py-2.5 transition-all group relative rounded-lg mx-1.5 mb-0.5"
-                style={{
-                  background: isActive
-                    ? 'linear-gradient(120deg, color-mix(in srgb, var(--brand-500) 12%, var(--surface-1)) 0%, var(--surface-1) 100%)'
-                    : crmData.pinned
-                      ? 'rgba(245,158,11,0.05)'
-                      : 'transparent',
-                  borderBottom: 'none',
-                  boxShadow: isActive ? 'inset 0 0 0 1.5px color-mix(in srgb, var(--brand-500) 35%, transparent), 0 4px 14px -6px color-mix(in srgb, var(--brand-500) 20%, transparent)' : 'none'
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.background = 'var(--surface-1)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.background = crmData.pinned ? 'rgba(245,158,11,0.05)' : 'transparent';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }
-                }}
+                className="wa-conv-row group"
+                data-active={isActive ? 'true' : 'false'}
               >
-                {/* Barra lateral colorida do status */}
-                {crmStatus && (
-                  <span
-                    className="absolute left-0 top-0 bottom-0 w-[3px]"
-                    style={{ background: crmStatus.color }}
-                    aria-hidden
-                  />
-                )}
                 <div className="relative flex-shrink-0">
                   <img
                     src={getConvAvatar(conv)}
                     loading="lazy"
                     decoding="async"
-                    className="w-12 h-12 rounded-2xl object-cover"
+                    className="wa-conv-avatar"
                     alt=""
                     referrerPolicy="no-referrer"
-                    style={{
-                      border: '2px solid color-mix(in srgb, var(--surface-0) 50%, var(--border-subtle))',
-                      boxShadow: '0 4px 14px -4px rgba(0,0,0,0.25)',
-                      ...(crmStatus ? { boxShadow: `0 0 0 2px ${crmStatus.color}66, 0 4px 14px -4px rgba(0,0,0,0.2)` } : {})
-                    }}
                   />
                   {isGroup && (
                     <div
                       className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                      style={{ background: 'var(--surface-0)', border: '1.5px solid var(--border)' }}
+                      style={{ background: 'var(--wa-panel)', border: '1.5px solid var(--wa-divider)' }}
                     >
-                      <Users className="w-2.5 h-2.5" style={{ color: 'var(--text-2)' }} />
+                      <Users className="w-2.5 h-2.5" style={{ color: 'var(--wa-text-2)' }} />
                     </div>
                   )}
                   {crmData.pinned && (
@@ -1336,50 +1269,37 @@ export const ChatTab: React.FC = () => {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5 gap-2">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 min-w-0 flex-1">
-                      <span
-                        className="text-[13.5px] font-semibold truncate"
-                        style={{ color: 'var(--text-1)' }}
-                      >
-                        {conv.contactName}
-                      </span>
+                      <span className="wa-conv-name truncate">{conv.contactName}</span>
                       {crmData.favoriteAt && (
                         <Star className="w-3 h-3 flex-shrink-0 fill-current" style={{ color: '#f59e0b' }} />
                       )}
                       {hasNotes && (
-                        <StickyNote className="w-3 h-3 flex-shrink-0" style={{ color: '#10b981' }} />
+                        <StickyNote className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--wa-green-strong)' }} />
                       )}
                       {hasReminder && (
                         <Bell className="w-3 h-3 flex-shrink-0" style={{ color: '#ef4444' }} />
                       )}
                     </div>
-                    <span
-                      className="text-[10.5px] flex-shrink-0 tabular-nums font-semibold px-1.5 py-0.5 rounded-md"
-                      style={{
-                        color: conv.unreadCount > 0 ? 'var(--brand-700)' : 'var(--text-3)',
-                        background: conv.unreadCount > 0 ? 'color-mix(in srgb, var(--brand-500) 14%, transparent)' : 'transparent'
-                      }}
-                    >
+                    <span className="wa-conv-time tabular-nums" data-unread={conv.unreadCount > 0 ? 'true' : 'false'}>
                       {conv.lastMessageTime}
                     </span>
                   </div>
                   {convWaSub && (
-                    <p className="text-[10px] truncate -mt-0.5 mb-0.5" style={{ color: 'var(--text-3)', opacity: 0.92 }}>
+                    <p className="text-[12.5px] truncate" style={{ color: 'var(--wa-text-3)', opacity: 0.85 }}>
                       {convWaSub}
                     </p>
                   )}
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
                     <div className="flex items-center gap-1 min-w-0 flex-1">
                       {lastIcon}
-                      <p className="text-[12.5px] truncate" style={{ color: 'var(--text-2)' }}>
-                        {lastMsgPreview}
-                      </p>
+                      <p className="wa-conv-preview truncate">{lastMsgPreview}</p>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {crmStatus && (
                         <span
-                          className="text-[9.5px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-0.5"
+                          className="text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-0.5"
                           style={{ background: crmStatus.bg, color: crmStatus.color }}
                           title={`Status: ${crmStatus.label}`}
                         >
@@ -1388,17 +1308,17 @@ export const ChatTab: React.FC = () => {
                       )}
                       {origin === 'system' && (
                         <span
-                          className="text-[9.5px] px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 font-semibold"
+                          className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 font-semibold"
                           style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
-                          title="Conversa criada pelo disparo — nao existe historico no celular"
+                          title="Conversa criada pelo disparo"
                         >
                           <Zap className="w-2.5 h-2.5" /> Disparo
                         </span>
                       )}
                       {origin === 'empty' && (
                         <span
-                          className="text-[9.5px] px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"
-                          style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
+                          className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center"
+                          style={{ background: 'var(--wa-search)', color: 'var(--wa-text-3)' }}
                           title="Contato sincronizado, sem mensagens"
                         >
                           vazia
@@ -1406,23 +1326,19 @@ export const ChatTab: React.FC = () => {
                       )}
                       {connections.length > 1 && connection && (
                         <span
-                          className="text-[9.5px] px-1.5 py-0.5 rounded"
-                          style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
+                          className="text-[10px] px-1.5 py-0.5 rounded truncate max-w-[80px]"
+                          style={{ background: 'var(--wa-search)', color: 'var(--wa-text-3)' }}
                         >
                           {connection.name}
                         </span>
                       )}
                       {conv.unreadCount > 0 && (
-                        <span
-                          className="min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10.5px] font-bold px-1.5"
-                          style={{ background: 'var(--brand-600)', color: '#fff' }}
-                        >
+                        <span className="wa-unread-badge">
                           {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
                         </span>
                       )}
                     </div>
                   </div>
-                  {/* Tags CRM inline */}
                   {(crmData.tags && crmData.tags.length > 0) && (
                     <div className="flex items-center gap-1 mt-1 overflow-hidden">
                       {crmData.tags.slice(0, 3).map((tag) => {
@@ -1430,7 +1346,7 @@ export const ChatTab: React.FC = () => {
                         return (
                           <span
                             key={tag}
-                            className="text-[9.5px] px-1.5 py-[1px] rounded-full font-semibold truncate"
+                            className="text-[10px] px-1.5 py-[1px] rounded-full font-semibold truncate"
                             style={{
                               background: `${color}1a`,
                               color,
@@ -1443,14 +1359,13 @@ export const ChatTab: React.FC = () => {
                         );
                       })}
                       {crmData.tags.length > 3 && (
-                        <span className="text-[9.5px]" style={{ color: 'var(--text-3)' }}>
+                        <span className="text-[10px]" style={{ color: 'var(--wa-text-3)' }}>
                           +{crmData.tags.length - 3}
                         </span>
                       )}
                     </div>
                   )}
                 </div>
-                {/* Pin rapido no hover */}
                 <span
                   role="button"
                   tabIndex={0}
@@ -1465,12 +1380,12 @@ export const ChatTab: React.FC = () => {
                       crm.togglePin(conv.id);
                     }
                   }}
-                  className={`absolute right-10 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-opacity cursor-pointer ${
+                  className={`absolute right-9 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-opacity cursor-pointer ${
                     crmData.pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                   }`}
                   style={{
-                    background: crmData.pinned ? 'rgba(245,158,11,0.15)' : 'var(--surface-2)',
-                    color: crmData.pinned ? '#f59e0b' : 'var(--text-3)'
+                    background: crmData.pinned ? 'rgba(245,158,11,0.15)' : 'var(--wa-search)',
+                    color: crmData.pinned ? '#f59e0b' : 'var(--wa-text-3)'
                   }}
                   title={crmData.pinned ? 'Desafixar' : 'Fixar'}
                 >
@@ -1491,7 +1406,7 @@ export const ChatTab: React.FC = () => {
                       }
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md transition-opacity cursor-pointer"
-                    style={{ background: 'var(--surface-2)', color: 'var(--danger)' }}
+                    style={{ background: 'var(--wa-search)', color: '#ef4444' }}
                     title="Remover do painel"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1504,20 +1419,20 @@ export const ChatTab: React.FC = () => {
           {filteredConversations.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 px-6">
               <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center mb-3"
-                style={{ background: 'var(--surface-2)' }}
+                className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
+                style={{ background: 'var(--wa-search)' }}
               >
-                <MessageCircle className="w-5 h-5" style={{ color: 'var(--text-3)' }} />
+                <MessageCircle className="w-5 h-5" style={{ color: 'var(--wa-text-3)' }} />
               </div>
-              <p className="text-[13.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
+              <p className="text-[14px] font-medium" style={{ color: 'var(--wa-text)' }}>
                 Nenhuma conversa
               </p>
-              <p className="text-[12px] text-center mt-1" style={{ color: 'var(--text-3)' }}>
+              <p className="text-[12.5px] text-center mt-1" style={{ color: 'var(--wa-text-3)' }}>
                 {chatFilter === 'unread'
-                  ? 'Voce leu todas as mensagens.'
+                  ? 'Você leu todas as mensagens.'
                   : searchTerm
                   ? `Sem resultados para "${searchTerm}".`
-                  : 'Nenhuma conversa disponivel.'}
+                  : 'Nenhuma conversa disponível.'}
               </p>
             </div>
           )}
@@ -1572,23 +1487,16 @@ export const ChatTab: React.FC = () => {
             : !showMobileChat && !selectedChatId
               ? 'hidden md:flex'
               : 'flex'
-        } flex-1 flex-col min-w-0`}
-        style={{ background: 'var(--surface-1)' }}
+        } flex-1 flex-col min-w-0 relative`}
+        style={{ background: 'var(--wa-bg)' }}
       >
         {selectedConversation ? (
           <>
-            <div
-              className="flex items-center gap-3 px-4 py-3 flex-shrink-0 shadow-sm"
-              style={{
-                background: 'linear-gradient(175deg, var(--surface-0) 0%, color-mix(in srgb, var(--surface-1) 55%, var(--surface-0)) 100%)',
-                borderBottom: '1px solid var(--border-subtle)',
-                boxShadow: '0 6px 18px -12px rgba(0,0,0,0.45)'
-              }}
-            >
+            <div className="wa-chat-header flex-shrink-0">
               <button
                 onClick={() => setShowMobileChat(false)}
-                className="md:hidden p-1 -ml-1 mr-0.5"
-                style={{ color: 'var(--text-2)' }}
+                className="wa-icon-btn md:hidden -ml-1"
+                aria-label="Voltar"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
@@ -1603,23 +1511,13 @@ export const ChatTab: React.FC = () => {
                     loading="eager"
                     decoding="async"
                     referrerPolicy="no-referrer"
-                    className="w-11 h-11 rounded-2xl object-cover"
+                    className="w-10 h-10 rounded-full object-cover"
                     alt=""
-                    style={
-                      crm.get(selectedConversation.id).status
-                        ? {
-                            border: '2px solid var(--border-subtle)',
-                            boxShadow: `0 0 0 2px ${STATUS_META[crm.get(selectedConversation.id).status!].color}77, 0 8px 20px -8px rgba(0,0,0,0.3)`
-                          }
-                        : {
-                            border: '2px solid color-mix(in srgb, var(--border-subtle) 80%, transparent)',
-                            boxShadow: '0 8px 22px -10px rgba(0,0,0,0.35)'
-                          }
-                    }
+                    style={{ background: 'var(--wa-divider)' }}
                   />
                   {crm.get(selectedConversation.id).pinned && (
                     <div
-                      className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                      className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
                       style={{ background: '#f59e0b' }}
                       title="Fixado"
                     >
@@ -1629,7 +1527,10 @@ export const ChatTab: React.FC = () => {
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3 className="text-[15px] font-semibold truncate tracking-tight leading-tight" style={{ color: 'var(--text-1)' }}>
+                    <h3
+                      className="text-[16px] font-medium truncate leading-tight"
+                      style={{ color: 'var(--wa-text)' }}
+                    >
                       {selectedDisplay?.primary ?? selectedConversation.contactName}
                     </h3>
                     {(() => {
@@ -1638,7 +1539,7 @@ export const ChatTab: React.FC = () => {
                       const m = STATUS_META[s];
                       return (
                         <span
-                          className="text-[9.5px] px-1.5 py-0.5 rounded-full font-bold inline-flex items-center gap-0.5"
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"
                           style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}55` }}
                         >
                           <span>{m.emoji}</span>
@@ -1647,52 +1548,36 @@ export const ChatTab: React.FC = () => {
                       );
                     })()}
                   </div>
-                  {selectedDisplay?.whatsappSubtitle && (
-                    <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-3)', opacity: 0.92 }}>
-                      {selectedDisplay.whatsappSubtitle}
-                    </p>
-                  )}
-                  <p className="text-[11.5px] truncate mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  <p
+                    className="text-[12.5px] truncate mt-0.5"
+                    style={{ color: 'var(--wa-text-3)' }}
+                  >
                     {selectedConversation.contactPhone}
                     {selectedConnection && <span> · {selectedConnection.name}</span>}
+                    {selectedDisplay?.whatsappSubtitle && <span> · {selectedDisplay.whatsappSubtitle}</span>}
                   </p>
                 </div>
               </button>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    crm.togglePin(selectedConversation.id);
-                    toast.success(crm.get(selectedConversation.id).pinned ? 'Desafixado' : 'Fixado no topo');
-                  }}
-                  title={crm.get(selectedConversation.id).pinned ? 'Desafixar' : 'Fixar'}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  className="wa-icon-btn"
+                  onClick={() => setShowChatSearch(!showChatSearch)}
+                  title="Buscar mensagens"
+                  aria-label="Buscar mensagens"
                 >
-                  <Pin
-                    className={`w-4 h-4 ${crm.get(selectedConversation.id).pinned ? 'fill-current' : ''}`}
-                    style={{ color: crm.get(selectedConversation.id).pinned ? '#f59e0b' : undefined }}
-                  />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => setShowChatSearch(!showChatSearch)} title="Buscar mensagens">
-                  <Search className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowContactInfo(!showContactInfo)}
-                  title="Ficha do cliente"
-                >
-                  <Info className="w-4 h-4" />
-                </Button>
+                  <Search className="w-5 h-5" />
+                </button>
                 <div className="relative" ref={chatMenuRef}>
-                  <Button
-                    variant="ghost"
-                    size="icon"
+                  <button
+                    type="button"
+                    className="wa-icon-btn"
                     onClick={() => setShowChatMenu((v) => !v)}
                     title="Mais opções"
+                    aria-label="Mais opções"
                   >
-                    <MoreVertical className="w-4 h-4" />
-                  </Button>
+                    <MoreVertical className="w-5 h-5" />
+                  </button>
                   {showChatMenu && (
                     <div
                       className="absolute right-0 top-full mt-1 z-30 min-w-[220px] rounded-xl shadow-lg py-1.5"
@@ -1765,12 +1650,10 @@ export const ChatTab: React.FC = () => {
               </div>
             </div>
 
-            {pipelineAgg && <MessagePipelineStrip agg={pipelineAgg} />}
-
             {showChatSearch && (
               <div
                 className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
-                style={{ background: 'var(--surface-0)', borderBottom: '1px solid var(--border-subtle)' }}
+                style={{ background: 'var(--wa-header)', borderBottom: '1px solid var(--wa-divider)' }}
               >
                 <Input
                   autoFocus
@@ -1796,12 +1679,7 @@ export const ChatTab: React.FC = () => {
             <div
               ref={messagesContainerRef}
               onScroll={handleScroll}
-              className="flex-1 overflow-y-auto px-4 lg:px-10 py-4 relative"
-              style={{
-                backgroundImage:
-                  "radial-gradient(circle, rgba(16,185,129,0.04) 1px, transparent 1px)",
-                backgroundSize: '24px 24px'
-              }}
+              className="wa-chat-wallpaper flex-1 overflow-y-auto px-4 lg:px-10 py-4 relative"
             >
               {/* Banner especial: conversa nova sem histórico (rascunho local). */}
               {isSelectedDraft && (
@@ -1881,35 +1759,24 @@ export const ChatTab: React.FC = () => {
               </div>
               )}
 
-              <div className="space-y-1">
+              <div className="space-y-0">
                 {selectedConversation.messages.map((msg, idx) => {
                   const isMe = msg.sender === 'me';
                   const prevMsg = selectedConversation.messages[idx - 1];
                   const showTail = !prevMsg || prevMsg.sender !== msg.sender;
                   return (
-                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${showTail ? 'mt-2' : ''}`}>
-                      <div
-                        className={`relative rounded-[14px] text-[13.5px] leading-[18px] shadow-sm max-w-[75%] lg:max-w-[60%] px-3 py-2 ${
-                          showTail && isMe ? 'rounded-br-[4px]' : ''
-                        } ${showTail && !isMe ? 'rounded-bl-[4px]' : ''}`}
-                        style={{
-                          background: isMe ? 'var(--brand-600)' : 'var(--surface-0)',
-                          color: isMe ? '#fff' : 'var(--text-1)',
-                          border: isMe ? 'none' : '1px solid var(--border-subtle)'
-                        }}
+                    <div
+                      key={msg.id}
+                      className={showTail ? 'mt-2' : ''}
+                    >
+                      <WaBubble
+                        side={isMe ? 'out' : 'in'}
+                        showTail={showTail}
+                        status={isMe ? msg.status : undefined}
+                        time={msg.timestamp}
                       >
-                        <div>{renderMessageContent(msg)}</div>
-                        <div className="flex items-center justify-end gap-1.5 mt-0.5 ml-2 float-right">
-                          <span
-                            className="text-[10.5px] leading-none"
-                            style={{ color: isMe ? 'rgba(255,255,255,0.75)' : 'var(--text-3)' }}
-                          >
-                            {msg.timestamp}
-                          </span>
-                          {isMe && <OutboundPipelineBar status={msg.status} />}
-                        </div>
-                        <div className="clear-both" />
-                      </div>
+                        {renderMessageContent(msg)}
+                      </WaBubble>
                     </div>
                   );
                 })}
@@ -1993,23 +1860,19 @@ export const ChatTab: React.FC = () => {
               </div>
             )}
 
-            <div
-              className="flex items-center gap-2 px-3 py-2.5 flex-shrink-0"
-              style={{ background: 'var(--surface-0)', borderTop: '1px solid var(--border-subtle)' }}
-            >
+            <div className="wa-composer flex-shrink-0">
               <button
                 type="button"
                 onClick={() => {
                   setShowEmojiPicker(!showEmojiPicker);
                   setShowQuickReplies(false);
                 }}
-                className="p-2 rounded-lg transition-colors"
-                style={{
-                  color: showEmojiPicker ? 'var(--brand-600)' : 'var(--text-2)',
-                  background: showEmojiPicker ? 'var(--surface-2)' : 'transparent'
-                }}
+                className="wa-icon-btn"
+                style={showEmojiPicker ? { color: 'var(--wa-green-strong)' } : undefined}
+                title="Emojis"
+                aria-label="Inserir emoji"
               >
-                <Smile className="w-5 h-5" />
+                <Smile className="w-[22px] h-[22px]" />
               </button>
               <button
                 type="button"
@@ -2017,14 +1880,12 @@ export const ChatTab: React.FC = () => {
                   setShowQuickReplies(!showQuickReplies);
                   setShowEmojiPicker(false);
                 }}
-                className="p-2 rounded-lg transition-colors"
-                style={{
-                  color: showQuickReplies ? 'var(--brand-600)' : 'var(--text-2)',
-                  background: showQuickReplies ? 'var(--surface-2)' : 'transparent'
-                }}
-                title="Respostas rapidas"
+                className="wa-icon-btn"
+                style={showQuickReplies ? { color: 'var(--wa-green-strong)' } : undefined}
+                title="Respostas rápidas"
+                aria-label="Respostas rápidas"
               >
-                <MessageCircle className="w-5 h-5" />
+                <MessageCircle className="w-[22px] h-[22px]" />
               </button>
               <input
                 ref={fileInputRef}
@@ -2036,21 +1897,21 @@ export const ChatTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded-lg transition-colors hover:bg-[var(--surface-2)]"
-                style={{ color: 'var(--text-2)' }}
+                className="wa-icon-btn"
                 title="Anexar arquivo"
+                aria-label="Anexar arquivo"
               >
-                {sendingMedia ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
+                {sendingMedia ? <Loader2 className="w-[22px] h-[22px] animate-spin" /> : <Paperclip className="w-[22px] h-[22px]" />}
               </button>
               {uploadProgress !== null && (
-                <div className="min-w-[160px] max-w-[220px] flex-1">
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                <div className="min-w-[160px] max-w-[220px]">
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--wa-search)' }}>
                     <div
                       className="h-full transition-all duration-200"
-                      style={{ width: `${uploadProgress}%`, background: 'var(--brand-600)' }}
+                      style={{ width: `${uploadProgress}%`, background: 'var(--wa-green)' }}
                     />
                   </div>
-                  <p className="text-[10.5px] font-semibold mt-1 tabular-nums" style={{ color: 'var(--text-3)' }}>
+                  <p className="text-[10.5px] font-semibold mt-1 tabular-nums" style={{ color: 'var(--wa-text-3)' }}>
                     Upload {uploadProgress}%
                   </p>
                 </div>
@@ -2058,7 +1919,7 @@ export const ChatTab: React.FC = () => {
               {uploadProgress === null && uploadStatus === 'success' && (
                 <span
                   className="text-[10.5px] font-semibold px-2 py-1 rounded-md"
-                  style={{ background: 'rgba(16,185,129,0.14)', color: '#059669' }}
+                  style={{ background: 'rgba(0,168,132,0.16)', color: 'var(--wa-green-strong)' }}
                 >
                   Enviado
                 </span>
@@ -2078,7 +1939,7 @@ export const ChatTab: React.FC = () => {
                 </button>
               )}
 
-              <form onSubmit={handleSendMessage} className="flex items-center gap-2 flex-1">
+              <form onSubmit={handleSendMessage} className="flex items-center gap-2 flex-1 min-w-0">
                 {isSelectedDraft && (
                   <select
                     value={selectedDraftChannelId}
@@ -2092,9 +1953,9 @@ export const ChatTab: React.FC = () => {
                     }}
                     className="py-2 px-2.5 rounded-lg text-[12.5px] outline-none border max-w-[170px]"
                     style={{
-                      background: 'var(--surface-1)',
-                      color: 'var(--text-1)',
-                      borderColor: 'var(--border-subtle)'
+                      background: 'var(--wa-panel)',
+                      color: 'var(--wa-text)',
+                      borderColor: 'var(--wa-divider)'
                     }}
                     title="Escolha o canal para enviar"
                   >
@@ -2117,25 +1978,19 @@ export const ChatTab: React.FC = () => {
                       setShowQuickReplies(false);
                     }
                   }}
-                  placeholder="Digite uma mensagem..."
-                  className="w-full py-2 px-3 rounded-lg text-[14px] outline-none border"
-                  style={{
-                    background: 'var(--surface-1)',
-                    color: 'var(--text-1)',
-                    borderColor: 'var(--border-subtle)'
-                  }}
+                  placeholder="Digite uma mensagem"
+                  className="wa-composer-input"
+                  aria-label="Mensagem"
                 />
                 <button
                   type="submit"
                   disabled={!canSendCurrent}
-                  className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-40"
-                  style={{
-                    background: canSendCurrent ? 'var(--brand-600)' : 'var(--surface-2)',
-                    color: canSendCurrent ? '#fff' : 'var(--text-3)'
-                  }}
-                  title={isSelectedDraft && !selectedDraftChannelId ? 'Escolha um canal para enviar' : 'Enviar'}
+                  className="wa-composer-send"
+                  data-mode={inputText.trim() ? 'send' : 'mic'}
+                  title={isSelectedDraft && !selectedDraftChannelId ? 'Escolha um canal para enviar' : inputText.trim() ? 'Enviar' : 'Microfone'}
+                  style={!canSendCurrent ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                 >
-                  {inputText.trim() ? <Send className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  {inputText.trim() ? <Send className="w-5 h-5" /> : <Mic className="w-[22px] h-[22px]" />}
                 </button>
               </form>
             </div>
@@ -2150,17 +2005,25 @@ export const ChatTab: React.FC = () => {
         )}
       </div>
 
-      {showContactInfo && selectedConversation && (
-        <ClientCrmPanel
-          conversation={selectedConversation}
-          connectionName={selectedConnection?.name}
-          avatar={getConvAvatar(selectedConversation)}
-          crmData={crm.get(selectedConversation.id)}
-          pipelineAgg={pipelineAgg}
+      {selectedConversation && (
+        <WaContactDrawer
+          open={showContactInfo}
+          title="Dados do contato"
+          subtitle={selectedDisplay?.primary ?? selectedConversation.contactName}
           onClose={() => setShowContactInfo(false)}
-          onUpdate={(patch) => crm.update(selectedConversation.id, patch)}
-          onClear={() => crm.clear(selectedConversation.id)}
-        />
+        >
+          {pipelineAgg && <MessagePipelineStrip agg={pipelineAgg} />}
+          <ClientCrmPanel
+            conversation={selectedConversation}
+            connectionName={selectedConnection?.name}
+            avatar={getConvAvatar(selectedConversation)}
+            crmData={crm.get(selectedConversation.id)}
+            pipelineAgg={pipelineAgg}
+            onClose={() => setShowContactInfo(false)}
+            onUpdate={(patch) => crm.update(selectedConversation.id, patch)}
+            onClear={() => crm.clear(selectedConversation.id)}
+          />
+        </WaContactDrawer>
       )}
 
       {/* ============================ MODAL DE AUDITORIA DE ORIGEM ============================ */}
