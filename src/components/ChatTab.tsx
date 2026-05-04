@@ -96,14 +96,15 @@ const QUICK_REPLIES = [
 ];
 
 // Limite alinhado ao WhatsApp Web: imagens/áudio ~16 MB, vídeo até ~100 MB,
-// documento até 2 GB. Na prática a whatsapp-web.js fica estável até ~100 MB
-// por envio, então deixamos 100 MB como padrão (override por
-// VITE_CHAT_UPLOAD_LIMIT_MB no .env). O backend acompanha via
-// SOCKET_MAX_HTTP_BUFFER_MB com folga para o overhead do base64 (+33%).
+// documento até ~2 GB (servidor do WA aceita até 2 GB para PDF/zip/etc.).
+// A whatsapp-web.js consegue empurrar até ~200 MB por envio sem ficar instável.
+// Default 200 MB cobre vídeos longos e documentos grandes. Override:
+// VITE_CHAT_UPLOAD_LIMIT_MB. O backend acompanha via SOCKET_MAX_HTTP_BUFFER_MB
+// com folga para o overhead do base64 (+33%).
 const CHAT_UPLOAD_LIMIT_MB = (() => {
-  const raw = Number(import.meta.env.VITE_CHAT_UPLOAD_LIMIT_MB ?? 100);
-  if (!Number.isFinite(raw)) return 100;
-  return Math.max(1, Math.min(512, Math.round(raw)));
+  const raw = Number(import.meta.env.VITE_CHAT_UPLOAD_LIMIT_MB ?? 200);
+  if (!Number.isFinite(raw)) return 200;
+  return Math.max(1, Math.min(2048, Math.round(raw)));
 })();
 const CHAT_UPLOAD_LIMIT_BYTES = CHAT_UPLOAD_LIMIT_MB * 1024 * 1024;
 
