@@ -51,6 +51,7 @@ import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
+import { WHATSAPP_VIDEO_MAX_BYTES } from '../../utils/whatsappMediaLimits';
 
 type CampaignFlowMode = 'sequential' | 'reply';
 
@@ -220,6 +221,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       toast.error(
         `Arquivo de ${sizeMb} MB excede o limite de ${CAMPAIGN_ATTACHMENT_LIMIT_MB} MB.`,
         { duration: 6000 }
+      );
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+      return;
+    }
+    if (file.type.startsWith('video/') && file.size > WHATSAPP_VIDEO_MAX_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      toast.error(
+        `Este vídeo tem ${sizeMb} MB. O WhatsApp aceita até ~100 MB por vídeo — comprima antes de anexar à campanha.`,
+        { duration: 10000 }
       );
       if (attachmentInputRef.current) attachmentInputRef.current.value = '';
       return;

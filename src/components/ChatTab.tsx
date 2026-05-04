@@ -50,6 +50,7 @@ import { useClientCrm, STATUS_META, hashTagColor } from './chat/useClientCrm';
 import { WaBubble } from './chat/wa/WaBubble';
 import { WaContactDrawer } from './chat/wa/WaContactDrawer';
 import { Conversation, ChatMessage } from '../types';
+import { WHATSAPP_VIDEO_MAX_BYTES } from '../utils/whatsappMediaLimits';
 import { Input, Modal, Select, Button } from './ui';
 
 // =====================================================================
@@ -98,18 +99,67 @@ const QUICK_REPLIES = [
   { text: 'Pode me enviar mais detalhes?', emoji: '📝' }
 ];
 
-// Limite alinhado ao WhatsApp Web: imagens/áudio ~16 MB, vídeo até ~100 MB,
-// documento até ~2 GB (servidor do WA aceita até 2 GB para PDF/zip/etc.).
-// A whatsapp-web.js consegue empurrar até ~200 MB por envio sem ficar instável.
-// Default 200 MB cobre vídeos longos e documentos grandes. Override:
-// VITE_CHAT_UPLOAD_LIMIT_MB. O backend acompanha via SOCKET_MAX_HTTP_BUFFER_MB
-// com folga para o overhead do base64 (+33%).
+// Limite de leitura/envio pelo app (socket + RAM). Documentos até ~2 GB no WA.
+// Vídeo: o WhatsApp costuma falhar acima de ~100 MB — ver WHATSAPP_VIDEO_MAX_BYTES.
+// Imagens/áudio: limite menor no WA (~16 MB). Override: VITE_CHAT_UPLOAD_LIMIT_MB;
+// backend: SOCKET_MAX_HTTP_BUFFER_MB (+33% base64).
 const CHAT_UPLOAD_LIMIT_MB = (() => {
   const raw = Number(import.meta.env.VITE_CHAT_UPLOAD_LIMIT_MB ?? 200);
   if (!Number.isFinite(raw)) return 200;
   return Math.max(1, Math.min(2048, Math.round(raw)));
 })();
 const CHAT_UPLOAD_LIMIT_BYTES = CHAT_UPLOAD_LIMIT_MB * 1024 * 1024;
+
+type MediaUploadStage = 'idle' | 'reading' | 'uploading' | 'sending';
+
+/** Barra de envio de mídia: percentagem na leitura local quando o browser reporta; senão animação indeterminada. */
+const MediaUploadProgressBar: React.FC<{
+  uploadStage: MediaUploadStage;
+  uploadProgress: number | null;
+  uploadElapsedSec: number;
+  /** Na barra do composer (estreita); no painel de pré-visualização use full width. */
+  dense?: boolean;
+}> = ({ uploadStage, uploadProgress, uploadElapsedSec, dense }) => {
+  if (uploadStage !== 'reading' && uploadStage !== 'uploading' && uploadStage !== 'sending') return null;
+  const showDeterminate =
+    uploadStage === 'reading' && uploadProgress !== null && uploadProgress > 0;
+  const barH = dense ? 'h-1.5' : 'h-2';
+  const label =
+    uploadStage === 'reading'
+      ? uploadProgress !== null && uploadProgress > 0
+        ? `Lendo ficheiro ${uploadProgress}%`
+        : 'A ler ficheiro… (vídeos grandes podem demorar)'
+      : uploadStage === 'uploading'
+        ? `A enviar ao servidor… ${uploadElapsedSec}s`
+        : `A enviar pelo WhatsApp… ${uploadElapsedSec}s`;
+  return (
+    <div className={dense ? 'min-w-[180px] max-w-[260px]' : 'w-full'}>
+      <div
+        className={`${barH} rounded-full overflow-hidden relative`}
+        style={{ background: 'var(--wa-search)' }}
+      >
+        {showDeterminate ? (
+          <div
+            className="h-full transition-all duration-200"
+            style={{ width: `${uploadProgress}%`, background: 'var(--wa-green)' }}
+          />
+        ) : (
+          <div
+            className="h-full absolute inset-y-0 wa-upload-indeterminate"
+            style={{ background: 'var(--wa-green)' }}
+          />
+        )}
+      </div>
+      <p
+        className="text-[10.5px] font-semibold mt-1 tabular-nums truncate"
+        style={{ color: 'var(--wa-text-3)' }}
+        title={label}
+      >
+        {label}
+      </p>
+    </div>
+  );
+};
 
 /** Agregados da conversa para a faixa de pipeline (saidas + respostas recebidas). */
 const getConversationPipelineAgg = (conv: Conversation | undefined) => {
@@ -262,7 +312,7 @@ export const ChatTab: React.FC = () => {
    * Estados intermédios precisam de barra indeterminada porque não temos o
    * progresso do upload via socket nem o do upload da Meta.
    */
-  const [uploadStage, setUploadStage] = useState<'idle' | 'reading' | 'uploading' | 'sending'>('idle');
+  const [uploadStage, setUploadStage] = useState<MediaUploadStage>('idle');
   const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
   const [uploadElapsedSec, setUploadElapsedSec] = useState(0);
 
@@ -907,6 +957,15 @@ export const ChatTab: React.FC = () => {
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
+    if (file.type.startsWith('video/') && file.size > WHATSAPP_VIDEO_MAX_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      toast.error(
+        `Este vídeo tem ${sizeMb} MB. O WhatsApp aceita até ~100 MB por vídeo — acima disso o envio costuma falhar. Comprima o vídeo (menor resolução/bitrate) ou envie pelo telemóvel.`,
+        { duration: 11000 }
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
     setPendingMediaFile(file);
     setPendingMediaPreviewUrl(URL.createObjectURL(file));
@@ -941,7 +1000,7 @@ export const ChatTab: React.FC = () => {
     const caption = pendingMediaCaption.trim();
 
     setSendingMedia(true);
-    setUploadProgress(0);
+    setUploadProgress(null);
     setUploadStatus('idle');
     setUploadStage('reading');
     setUploadStartedAt(Date.now());
@@ -2074,6 +2133,13 @@ export const ChatTab: React.FC = () => {
                     )}
                   </button>
                 </div>
+                {sendingMedia && (
+                  <MediaUploadProgressBar
+                    uploadStage={uploadStage}
+                    uploadProgress={uploadProgress}
+                    uploadElapsedSec={uploadElapsedSec}
+                  />
+                )}
               </div>
             )}
 
@@ -2121,41 +2187,12 @@ export const ChatTab: React.FC = () => {
                 {sendingMedia ? <Loader2 className="w-[22px] h-[22px] animate-spin" /> : <Paperclip className="w-[22px] h-[22px]" />}
               </button>
               {(uploadStage === 'reading' || uploadStage === 'uploading' || uploadStage === 'sending') && (
-                <div className="min-w-[180px] max-w-[260px]">
-                  <div
-                    className="h-1.5 rounded-full overflow-hidden relative"
-                    style={{ background: 'var(--wa-search)' }}
-                  >
-                    {uploadStage === 'reading' && uploadProgress !== null ? (
-                      <div
-                        className="h-full transition-all duration-200"
-                        style={{ width: `${uploadProgress}%`, background: 'var(--wa-green)' }}
-                      />
-                    ) : (
-                      <div
-                        className="h-full absolute inset-y-0 wa-upload-indeterminate"
-                        style={{ background: 'var(--wa-green)' }}
-                      />
-                    )}
-                  </div>
-                  <p
-                    className="text-[10.5px] font-semibold mt-1 tabular-nums truncate"
-                    style={{ color: 'var(--wa-text-3)' }}
-                    title={
-                      uploadStage === 'reading'
-                        ? 'Lendo arquivo no navegador'
-                        : uploadStage === 'uploading'
-                          ? 'Enviando para o servidor'
-                          : 'Encaminhando ao WhatsApp (pode demorar em vídeos grandes)'
-                    }
-                  >
-                    {uploadStage === 'reading'
-                      ? `Lendo ${uploadProgress ?? 0}%`
-                      : uploadStage === 'uploading'
-                        ? `Enviando ao servidor… ${uploadElapsedSec}s`
-                        : `Encaminhando ao WhatsApp… ${uploadElapsedSec}s`}
-                  </p>
-                </div>
+                <MediaUploadProgressBar
+                  dense
+                  uploadStage={uploadStage}
+                  uploadProgress={uploadProgress}
+                  uploadElapsedSec={uploadElapsedSec}
+                />
               )}
               {uploadProgress === null && uploadStatus === 'success' && (
                 <span

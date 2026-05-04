@@ -1697,19 +1697,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // para a nuvem da Meta antes de retornar. Sem timeout, a UI fica presa
       // em "Upload 100%" se o servidor cair / rede engasgar.
       let done = false;
+      const b64len = typeof payload.dataBase64 === 'string' ? payload.dataBase64.length : 0;
+      const approxMb = Math.max(0.05, ((b64len * 3) / 4 / (1024 * 1024)) || 0);
+      let TIMEOUT_MS = 5 * 60 * 1000;
+      if (approxMb >= 80) TIMEOUT_MS = 35 * 60 * 1000;
+      else if (approxMb >= 40) TIMEOUT_MS = 20 * 60 * 1000;
+      else if (approxMb >= 15) TIMEOUT_MS = 12 * 60 * 1000;
+
+      let timer: ReturnType<typeof setTimeout>;
       const finish = (r: { ok: boolean; error?: string }) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
         resolve(r);
       };
-      const TIMEOUT_MS = 5 * 60 * 1000;
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         finish({
           ok: false,
           error:
-            'Tempo esgotado: o WhatsApp não confirmou o envio em 5 minutos. ' +
-            'Pode ser arquivo muito grande, rede lenta no servidor, ou o WA recusou o tamanho.'
+            `Tempo esgotado (${Math.round(TIMEOUT_MS / 60000)} min): o WhatsApp não confirmou o envio. ` +
+            'Pode ser ficheiro grande, rede lenta, ou limite do WhatsApp (~100 MB para vídeo).'
         });
       }, TIMEOUT_MS);
       socket.emit('send-media', { conversationId, ...payload }, (resp?: { ok: boolean; error?: string }) => {
