@@ -17,13 +17,7 @@ import {
   type MemberFormState
 } from './religiousMemberFormShared';
 import { WeddingAnniversaryHint } from './WeddingAnniversaryHint';
-
-function normPhoneKey(p: string): string {
-  let d = (p || '').replace(/\D/g, '');
-  if (!d) return '';
-  if ((d.length === 10 || d.length === 11) && !d.startsWith('55')) d = `55${d}`;
-  return d;
-}
+import { normPhoneKey } from '../../utils/brPhoneNormalize';
 
 function pickLonger(current?: string, incoming?: string): string {
   const cur = (current || '').trim();

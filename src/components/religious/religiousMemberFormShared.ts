@@ -1,5 +1,6 @@
 import type { Contact, ReligiousMemberProfile } from '../../types';
 import { storedDateToBrDisplay } from '../../utils/brDateMask';
+import { normalizeBRPhone } from '../../utils/brPhoneNormalize';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../utils/weddingAnniversary';
 
 export const MINISTER_ROLES = [
@@ -103,13 +104,7 @@ export function emptyForm(): MemberFormState {
   };
 }
 
-export function normalizeBRPhone(raw: string): string {
-  const d = (raw || '').replace(/\D/g, '');
-  if (!d) return '';
-  if (d.length >= 12 && d.length <= 13 && d.startsWith('55')) return d;
-  if (d.length === 10 || d.length === 11) return `55${d}`;
-  return d;
-}
+export { normalizeBRPhone };
 
 export function parseContactRole(role: string): { ministerFromRole: string[]; roleFree: string } {
   const t = (role || '').trim();

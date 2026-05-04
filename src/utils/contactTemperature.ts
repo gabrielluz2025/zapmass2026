@@ -1,4 +1,7 @@
 import type { Contact, Conversation } from '../types';
+import { normPhoneKey } from './brPhoneNormalize';
+
+export { normPhoneKey };
 
 export type ContactTemperature = 'hot' | 'warm' | 'cold' | 'new';
 
@@ -20,14 +23,6 @@ export const CONTACT_TEMP_LABEL: Record<ContactTemperature, string> = {
   cold: 'Frio',
   new: 'Sem hist.'
 };
-
-/** Chave única por telefone (BR: adiciona 55 se faltar) — igual à lógica na aba Contatos. */
-export function normPhoneKey(p: string): string {
-  let d = (p || '').replace(/\D/g, '');
-  if (!d) return '';
-  if ((d.length === 10 || d.length === 11) && !d.startsWith('55')) d = `55${d}`;
-  return d;
-}
 
 export function classifyTemperature(stats: Omit<TempStats, 'temp' | 'score'>): {
   temp: ContactTemperature;
