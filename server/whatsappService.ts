@@ -641,7 +641,22 @@ interface QueueItem {
     replyFlowOpen?: { campaignId: string; phoneDigits: string; vars: Record<string, string> };
     /** Apos envio bem-sucedido, atualiza etapa aguardada na sessao. */
     replyFlowAfterSend?: { phoneDigits: string; newAwaitingAfterStep: number };
+    /**
+     * Item enviado como midia (foto/video/arquivo) com `message` virando legenda.
+     * O conteudo base64 fica em `campaignMediaById` e e referenciado por
+     * `queueCampaignId` para nao duplicar megabytes em cada item da fila.
+     */
+    sendAsMedia?: boolean;
 }
+
+/**
+ * Anexo unico por campanha (foto/video/arquivo). Mantido em memoria com a
+ * vida util da campanha — limpo no fim do processamento da fila.
+ */
+const campaignMediaById = new Map<
+    string,
+    { dataBase64: string; mimeType: string; fileName: string }
+>();
 
 let messageQueue: QueueItem[] = [];
 let isProcessingQueue = false;
@@ -4039,9 +4054,23 @@ export const startCampaign = async (
         }>;
     },
     ownerUidHint?: string,
-    channelWeights?: Record<string, number>
+    channelWeights?: Record<string, number>,
+    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string }
 ): Promise<boolean> => {
     if (connectionIds.length === 0) return false;
+    /**
+     * Armazena o anexo (uma unica vez) indexado pelo campaignId. Itens da
+     * fila apenas marcam `sendAsMedia=true` e usam `queueCampaignId` para
+     * recuperar a midia na hora do envio — assim nao duplicamos megabytes
+     * em cada destinatario.
+     */
+    if (mediaAttachment && campaignId) {
+        campaignMediaById.set(campaignId, {
+            dataBase64: mediaAttachment.dataBase64,
+            mimeType: mediaAttachment.mimeType,
+            fileName: mediaAttachment.fileName || 'anexo'
+        });
+    }
 
     const sanitizedReplySteps =
         Boolean(replyFlow?.enabled && campaignId && Array.isArray(replyFlow?.steps) && (replyFlow?.steps?.length || 0) >= 2)
@@ -4183,6 +4212,7 @@ export const startCampaign = async (
         const vars = recipientVars.get(cleanPhone) || {};
 
         let addedForNumber = 0;
+        const hasMedia = !!(campaignId && campaignMediaById.has(campaignId));
         if (useReplyFlow) {
             const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
             messageQueue.push({
@@ -4192,13 +4222,14 @@ export const startCampaign = async (
                 alternateChannelIds: outboundPool,
                 status: 'PENDING',
                 queueCampaignId: campaignId,
+                sendAsMedia: hasMedia,
                 replyFlowOpen: campaignId
                     ? { campaignId, phoneDigits: cleanPhone, vars }
                     : undefined
             });
             addedForNumber = 1;
         } else {
-            for (const template of templates) {
+            templates.forEach((template, stageIndex) => {
                 const personalizedMessage = applyMessageVars(template, cleanPhone, vars);
 
                 messageQueue.push({
@@ -4207,10 +4238,12 @@ export const startCampaign = async (
                     connectionId: assignedConnectionId,
                     alternateChannelIds: outboundPool,
                     status: 'PENDING',
-                    queueCampaignId: campaignId
+                    queueCampaignId: campaignId,
+                    /** Anexo so vai com a 1a etapa — etapas seguintes sao texto puro. */
+                    sendAsMedia: hasMedia && stageIndex === 0
                 });
                 addedForNumber++;
-            }
+            });
         }
 
         const conn = connectionsInfo.find(c => c.id === assignedConnectionId);
@@ -4415,13 +4448,43 @@ const processQueue = async () => {
             emitCampaignLog('INFO', 'Tentando envio', {
                 to: formattedNum,
                 connectionId: item.connectionId,
-                targetChatId
+                targetChatId,
+                withMedia: !!item.sendAsMedia
             });
+
+            /**
+             * Monta o payload de envio: por padrao texto puro, mas quando o item
+             * carrega mídia (1a etapa de campanha com anexo) cria-se um
+             * MessageMedia e a mensagem original vira a `caption`.
+             */
+            let payloadToSend: any = item.message;
+            let sendOptsToUse: any = CAMPAIGN_TEXT_SEND_OPTS;
+            if (item.sendAsMedia && item.queueCampaignId) {
+                const media = campaignMediaById.get(item.queueCampaignId);
+                if (media) {
+                    try {
+                        payloadToSend = new MessageMedia(
+                            media.mimeType,
+                            media.dataBase64,
+                            media.fileName
+                        );
+                        sendOptsToUse = {
+                            ...CAMPAIGN_TEXT_SEND_OPTS,
+                            caption: item.message || undefined
+                        };
+                    } catch (mediaErr: any) {
+                        console.warn(
+                            '[Queue] Falha ao montar MessageMedia — enviando como texto:',
+                            mediaErr?.message || mediaErr
+                        );
+                    }
+                }
+            }
 
             // whatsapp-web.js: envio com resolve JID (LID / getNumberId) + timeout de segurança.
             const sendWithTimeout = async (
                 chatId: string,
-                msg: string,
+                msg: any,
                 sendOpts?: { skipJidResolve?: boolean }
             ): Promise<{ result: unknown; jidUsed: string }> => {
                 try {
@@ -4437,7 +4500,7 @@ const processQueue = async () => {
                     }
                     console.log(`[Queue] 📤 Enviando para ${jidToUse}`);
                     const result = await Promise.race([
-                        activeClient.sendMessage(jidToUse, msg, CAMPAIGN_TEXT_SEND_OPTS),
+                        activeClient.sendMessage(jidToUse, msg, sendOptsToUse),
                         new Promise((_, reject) =>
                             setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
                         )
@@ -4453,11 +4516,11 @@ const processQueue = async () => {
             /** Envio ao JID literal sem pré-resolve — contorna falhas «No LID for user» quando o servidor ainda pode enviar @c.us. */
             const sendRawJidNoResolve = async (
                 jidLiteral: string,
-                msg: string
+                msg: any
             ): Promise<{ result: unknown; jidUsed: string }> => {
                 console.log(`[Queue] 📤 Envio direto sem pré-resolve JID: ${jidLiteral}`);
                 const result = await Promise.race([
-                    activeClient.sendMessage(jidLiteral, msg, CAMPAIGN_TEXT_SEND_OPTS),
+                    activeClient.sendMessage(jidLiteral, msg, sendOptsToUse),
                     new Promise((_, reject) =>
                         setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
                     )
@@ -4469,7 +4532,7 @@ const processQueue = async () => {
             let sentResult: any = null;
             let finalChatId = targetChatId;
             try {
-                const firstSend = await sendWithTimeout(targetChatId, item.message);
+                const firstSend = await sendWithTimeout(targetChatId, payloadToSend);
                 sentResult = firstSend.result;
                 finalChatId = firstSend.jidUsed;
             } catch (sendErr: any) {
@@ -4496,7 +4559,7 @@ const processQueue = async () => {
                     /** 1) @c.us literal primeiro: evita chamar enforceLid/getNumberId quando o primeiro send já rebentou por getChat. */
                     for (const variant of variants) {
                         try {
-                            const fb = await sendRawJidNoResolve(`${variant}@c.us`, item.message);
+                            const fb = await sendRawJidNoResolve(`${variant}@c.us`, payloadToSend);
                             sentResult = fb.result;
                             finalChatId = fb.jidUsed;
                             setCachedNumberId(formattedNum, fb.jidUsed);
@@ -4516,7 +4579,7 @@ const processQueue = async () => {
                             const wid = await activeClient.getNumberId(variant).catch(() => null);
                             if (!wid?._serialized) continue;
                             try {
-                                const fb = await sendWithTimeout(wid._serialized, item.message, {
+                                const fb = await sendWithTimeout(wid._serialized, payloadToSend, {
                                     skipJidResolve: true
                                 });
                                 sentResult = fb.result;
@@ -4542,7 +4605,7 @@ const processQueue = async () => {
                                 const chat = wc.getChatById ? await wc.getChatById(jid).catch(() => null) : null;
                                 if (chat && typeof chat.sendMessage === 'function') {
                                     const result = await Promise.race([
-                                        chat.sendMessage(item.message, CAMPAIGN_TEXT_SEND_OPTS),
+                                        chat.sendMessage(payloadToSend, sendOptsToUse),
                                         new Promise((_, reject) =>
                                             setTimeout(() => reject(new Error('Timeout ao enviar (30s)')), 30000)
                                         )
@@ -4782,6 +4845,15 @@ const processQueue = async () => {
 
     isProcessingQueue = false;
     currentCampaign.isRunning = false;
+
+    /**
+     * Libera o anexo (megabytes em base64) assim que a fila esvazia. Em
+     * fluxo por respostas existem itens enfileirados depois (etapas 2+),
+     * mas eles sao texto puro — nao usam mais a midia.
+     */
+    if (currentCampaign.campaignId) {
+        campaignMediaById.delete(currentCampaign.campaignId);
+    }
 
     const finishedCampaignId = currentCampaign.campaignId;
     if (campaignGeoEmitTimer) {

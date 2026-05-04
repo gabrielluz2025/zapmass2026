@@ -105,6 +105,12 @@ interface NewCampaignWizardProps {
     };
     /** Peso por chip (somente uso real no servidor no modo sequencial; 1 = igual em todos). */
     channelWeights?: Record<string, number>;
+    /**
+     * Anexo unico (foto, video ou arquivo) que segue junto com a 1a etapa,
+     * com o texto da 1a etapa como legenda. Disponivel apenas em "disparar
+     * agora" — agendamento ainda nao suporta anexo.
+     */
+    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string };
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -181,6 +187,76 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const msgRef = useRef<HTMLTextAreaElement>(null);
   const invalidReplyRef = useRef<HTMLTextAreaElement>(null);
   const abFirstBodyBRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * Anexo unico da campanha — vai junto com a 1a etapa de cada destinatario,
+   * com o texto da 1a etapa funcionando como legenda. Suporta foto, video
+   * ou arquivo (PDF/DOC/etc). Para enviar links, basta colar a URL no texto.
+   *
+   * Limite: alinhado ao chat (200 MB padrao). Para evitar inflar o snapshot
+   * agendado com base64, anexos so funcionam em "disparar agora".
+   */
+  const CAMPAIGN_ATTACHMENT_LIMIT_MB = Math.max(
+    1,
+    Math.min(2048, Number(import.meta.env.VITE_CHAT_UPLOAD_LIMIT_MB) || 200)
+  );
+  const CAMPAIGN_ATTACHMENT_LIMIT_BYTES = CAMPAIGN_ATTACHMENT_LIMIT_MB * 1024 * 1024;
+  const [campaignAttachment, setCampaignAttachment] = useState<{
+    file: File;
+    previewUrl: string | null;
+  } | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (campaignAttachment?.previewUrl) URL.revokeObjectURL(campaignAttachment.previewUrl);
+    };
+  }, [campaignAttachment]);
+
+  const onPickAttachment = (file?: File | null) => {
+    if (!file) return;
+    if (file.size > CAMPAIGN_ATTACHMENT_LIMIT_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      toast.error(
+        `Arquivo de ${sizeMb} MB excede o limite de ${CAMPAIGN_ATTACHMENT_LIMIT_MB} MB.`,
+        { duration: 6000 }
+      );
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+      return;
+    }
+    if (campaignAttachment?.previewUrl) URL.revokeObjectURL(campaignAttachment.previewUrl);
+    const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
+    setCampaignAttachment({
+      file,
+      previewUrl: isMedia ? URL.createObjectURL(file) : null
+    });
+    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+  };
+
+  const removeAttachment = () => {
+    if (campaignAttachment?.previewUrl) URL.revokeObjectURL(campaignAttachment.previewUrl);
+    setCampaignAttachment(null);
+  };
+
+  /** Le o arquivo do anexo como base64 para enviar pelo socket. */
+  const readAttachmentAsBase64 = async (
+    file: File
+  ): Promise<{ dataBase64: string; mimeType: string; fileName: string }> => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Falha ao ler arquivo anexado.'));
+      reader.readAsDataURL(file);
+    });
+    const commaIdx = dataUrl.indexOf(',');
+    const dataBase64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+    if (!dataBase64) throw new Error('Nao foi possivel processar o arquivo anexado.');
+    return {
+      dataBase64,
+      mimeType: file.type || 'application/octet-stream',
+      fileName: file.name || 'anexo'
+    };
+  };
 
   useEffect(() => {
     setChannelWeightsById((prev) => {
@@ -795,6 +871,30 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    /**
+     * Anexo so funciona em "disparar agora" — agendamento exigiria persistir
+     * o base64 no Firestore (limite de doc ~1 MB) ou subir para Storage.
+     * Vamos avisar o usuario para escolher: ou tira o anexo ou tira o agendamento.
+     */
+    if (campaignAttachment && launchMode === 'schedule') {
+      toast.error(
+        'Anexos so funcionam em disparo imediato. Remova o anexo ou desative o agendamento.',
+        { duration: 7000 }
+      );
+      return;
+    }
+    let mediaPayload:
+      | { dataBase64: string; mimeType: string; fileName: string }
+      | undefined;
+    if (campaignAttachment?.file) {
+      try {
+        mediaPayload = await readAttachmentAsBase64(campaignAttachment.file);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
+        toast.error(m);
+        return;
+      }
+    }
     const stagesBodies = messageStages.map((s) => s.body.trim()).filter((b) => b.length > 0);
     const replyFlow: CampaignReplyFlow | undefined =
       campaignFlowMode === 'reply'
@@ -826,7 +926,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         recipients: buildRecipients(),
         contactListMeta,
         delaySeconds,
-        ...(campaignFlowMode === 'sequential' ? { channelWeights: buildChannelWeightsPayload() } : {})
+        ...(campaignFlowMode === 'sequential' ? { channelWeights: buildChannelWeightsPayload() } : {}),
+        ...(mediaPayload ? { mediaAttachment: mediaPayload } : {})
       };
       if (launchMode === 'schedule' && !abLabEnabled) {
         await onSubmit({
@@ -881,7 +982,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           recipients: recA.length ? recA : numsA.map((phone) => ({ phone, vars: { telefone: phone } })),
           contactListMeta,
           delaySeconds,
-          ...(cw ? { channelWeights: cw } : {})
+          ...(cw ? { channelWeights: cw } : {}),
+          ...(mediaPayload ? { mediaAttachment: mediaPayload } : {})
         });
         await onSubmit({
           name: `${name.trim()} — Var B`,
@@ -893,7 +995,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           recipients: recB.length ? recB : numsB.map((phone) => ({ phone, vars: { telefone: phone } })),
           contactListMeta,
           delaySeconds,
-          ...(cw ? { channelWeights: cw } : {})
+          ...(cw ? { channelWeights: cw } : {}),
+          ...(mediaPayload ? { mediaAttachment: mediaPayload } : {})
         });
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
@@ -1456,6 +1559,131 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 onChange={(e) => setActiveMessageBody(e.target.value)}
                 style={{ minHeight: '160px' }}
               />
+
+              {/* ============================ ANEXO DA CAMPANHA ============================
+                  Foto / video / arquivo enviado JUNTO com a 1a etapa, com o texto da 1a
+                  etapa funcionando como legenda. Para enviar links, basta colar a URL no
+                  texto — o WhatsApp gera o preview automaticamente. */}
+              {activeStageIdx === 0 && (
+                <div
+                  className="mt-3 rounded-xl p-3.5"
+                  style={{
+                    background: 'var(--surface-1)',
+                    border: '1px dashed var(--border-subtle)'
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div>
+                      <p className="text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                        Anexo da campanha
+                      </p>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                        Foto, video ou arquivo enviado junto com a 1a etapa. O texto acima vira a legenda.
+                      </p>
+                    </div>
+                    {!campaignAttachment && (
+                      <>
+                        <input
+                          ref={attachmentInputRef}
+                          type="file"
+                          className="hidden"
+                          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,application/*"
+                          onChange={(e) => onPickAttachment(e.target.files?.[0] || null)}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => attachmentInputRef.current?.click()}
+                        >
+                          Anexar
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  {campaignAttachment ? (
+                    <div
+                      className="flex items-start gap-3 rounded-lg p-2.5"
+                      style={{
+                        background: 'var(--surface-0)',
+                        border: '1px solid var(--border-subtle)'
+                      }}
+                    >
+                      <div
+                        className="rounded-md overflow-hidden flex items-center justify-center shrink-0"
+                        style={{
+                          width: 72,
+                          height: 72,
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border-subtle)'
+                        }}
+                      >
+                        {campaignAttachment.file.type.startsWith('image/') &&
+                        campaignAttachment.previewUrl ? (
+                          <img
+                            src={campaignAttachment.previewUrl}
+                            alt="anexo"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : campaignAttachment.file.type.startsWith('video/') &&
+                          campaignAttachment.previewUrl ? (
+                          <video
+                            src={campaignAttachment.previewUrl}
+                            className="w-full h-full object-cover"
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          <FileSpreadsheet
+                            className="w-8 h-8"
+                            style={{ color: 'var(--text-3)' }}
+                          />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-[12.5px] font-semibold truncate"
+                          style={{ color: 'var(--text-1)' }}
+                          title={campaignAttachment.file.name}
+                        >
+                          {campaignAttachment.file.name}
+                        </p>
+                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                          {(campaignAttachment.file.size / (1024 * 1024)).toFixed(2)} MB ·{' '}
+                          {campaignAttachment.file.type || 'arquivo'}
+                        </p>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            onClick={removeAttachment}
+                          >
+                            Remover anexo
+                          </Button>
+                          {launchMode === 'schedule' && (
+                            <span
+                              className="text-[10.5px] font-semibold"
+                              style={{ color: '#f59e0b' }}
+                            >
+                              Anexos so funcionam em disparo imediato
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[11.5px] flex items-start gap-2" style={{ color: 'var(--text-3)' }}>
+                      <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                      <span>
+                        Para enviar <strong>links</strong>, basta colar a URL no texto da etapa — o WhatsApp gera
+                        o preview automaticamente.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center gap-2 mt-3">
                 <Button

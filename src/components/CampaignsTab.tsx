@@ -223,6 +223,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       onceLocalTime?: string;
     };
     channelWeights?: Record<string, number>;
+    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string };
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -263,7 +264,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
               recipients: payload.recipients,
               messageStages: payload.messageStages,
               replyFlow: payload.replyFlow,
-              channelWeights: payload.channelWeights
+              channelWeights: payload.channelWeights,
+              mediaAttachment: payload.mediaAttachment
             }
           );
     appendAudit({

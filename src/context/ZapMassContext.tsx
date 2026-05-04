@@ -1739,6 +1739,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string };
     }
   ) => {
     const uid = currentUidRef.current;
@@ -1847,7 +1848,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             campaignId: campaignRef.id,
             delaySeconds: options?.delaySeconds,
             recipients: cleanRecipients,
-            channelWeights: options?.channelWeights
+            channelWeights: options?.channelWeights,
+            mediaAttachment: options?.mediaAttachment
           },
           (result?: { ok?: boolean; error?: string }) => {
             if (result?.ok === true) {

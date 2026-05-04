@@ -761,7 +761,8 @@ const registerSocketHandlers = () => {
           campaignId,
           delaySeconds,
           recipients,
-          channelWeights
+          channelWeights,
+          mediaAttachment
         }: {
           numbers?: string[];
           message?: string;
@@ -780,6 +781,7 @@ const registerSocketHandlers = () => {
           delaySeconds?: number;
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
           channelWeights?: Record<string, number>;
+          mediaAttachment?: { dataBase64?: string; mimeType?: string; fileName?: string };
         },
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
@@ -844,6 +846,19 @@ const registerSocketHandlers = () => {
           notifyCampaignSocketError(uid, err, campaignId);
           return;
         }
+        const sanitizedMedia =
+          mediaAttachment &&
+          typeof mediaAttachment.dataBase64 === 'string' &&
+          mediaAttachment.dataBase64.length > 0 &&
+          typeof mediaAttachment.mimeType === 'string' &&
+          mediaAttachment.mimeType.length > 0
+            ? {
+                dataBase64: mediaAttachment.dataBase64,
+                mimeType: mediaAttachment.mimeType,
+                fileName: String(mediaAttachment.fileName || 'anexo')
+              }
+            : undefined;
+
         const ok = await waService.startCampaign(
           numbers,
           stages,
@@ -852,7 +867,8 @@ const registerSocketHandlers = () => {
           recipients,
           replyFlow,
           uid,
-          channelWeights
+          channelWeights,
+          sanitizedMedia
         ); // uid = tenant (dono/conta partilhada)
         if (!ok) {
           const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';

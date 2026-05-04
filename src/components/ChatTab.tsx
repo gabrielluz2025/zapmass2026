@@ -35,7 +35,10 @@ import {
   Bell,
   Star,
   Copy,
-  RotateCcw
+  RotateCcw,
+  Image as ImageIcon,
+  Film,
+  FileText
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -272,6 +275,23 @@ export const ChatTab: React.FC = () => {
     return () => clearInterval(id);
   }, [uploadStartedAt]);
   const [lastFailedFile, setLastFailedFile] = useState<File | null>(null);
+  /**
+   * Pre-visualizacao de midia antes do envio:
+   * o usuario escolhe o arquivo, ve um preview, opcionalmente adiciona uma
+   * legenda, e so entao confirma o envio. Igual ao WhatsApp Web.
+   */
+  const [pendingMediaFile, setPendingMediaFile] = useState<File | null>(null);
+  const [pendingMediaPreviewUrl, setPendingMediaPreviewUrl] = useState<string | null>(null);
+  const [pendingMediaCaption, setPendingMediaCaption] = useState('');
+  const pendingCaptionRef = useRef<HTMLInputElement>(null);
+
+  /** Libera a URL temporaria do preview ao fechar/trocar (evita vazamento). */
+  useEffect(() => {
+    return () => {
+      if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
+    };
+  }, [pendingMediaPreviewUrl]);
+
   // Evita flood ao backend: controla quando cada avatar foi requisitado.
   const avatarFetchAtRef = useRef<Map<string, number>>(new Map());
 
@@ -865,7 +885,49 @@ export const ChatTab: React.FC = () => {
     inputRef.current?.focus();
   };
 
-  const handleFileSelected = async (file?: File | null) => {
+  /**
+   * Selecao de arquivo: NAO envia mais direto. Apenas valida tamanho e abre
+   * o painel de pre-visualizacao para o usuario revisar e (opcionalmente)
+   * digitar uma legenda antes de confirmar o envio.
+   */
+  const handleFileSelected = (file?: File | null) => {
+    if (!file || !selectedChatId) return;
+    if (isSelectedDraft && !selectedDraftChannelId) {
+      toast.error('Escolha um canal para enviar o arquivo.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    if (file.size > CHAT_UPLOAD_LIMIT_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      toast.error(
+        `Arquivo de ${sizeMb} MB excede o limite de ${CHAT_UPLOAD_LIMIT_MB} MB por envio. ` +
+          'Envie pelo celular ou comprima antes.',
+        { duration: 7000 }
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
+    setPendingMediaFile(file);
+    setPendingMediaPreviewUrl(URL.createObjectURL(file));
+    setPendingMediaCaption(inputText);
+    setShowEmojiPicker(false);
+    setShowQuickReplies(false);
+    setTimeout(() => pendingCaptionRef.current?.focus(), 60);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  /** Cancela o preview e limpa o arquivo pendente. */
+  const cancelPendingMedia = () => {
+    if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
+    setPendingMediaFile(null);
+    setPendingMediaPreviewUrl(null);
+    setPendingMediaCaption('');
+  };
+
+  /** Faz o envio efetivo (lendo o arquivo, emitindo via socket, etc.). */
+  const confirmAndSendPendingMedia = async () => {
+    const file = pendingMediaFile;
     if (!file || !selectedChatId) return;
     if (isSelectedDraft && !selectedDraftChannelId) {
       toast.error('Escolha um canal para enviar o arquivo.');
@@ -875,15 +937,9 @@ export const ChatTab: React.FC = () => {
       ? `${selectedDraftChannelId}:${(selectedConversation?.contactPhone || '').replace(/\D/g, '')}@c.us`
       : selectedChatId;
     if (!targetConversationId) return;
-    if (file.size > CHAT_UPLOAD_LIMIT_BYTES) {
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      toast.error(
-        `Arquivo de ${sizeMb} MB excede o limite de ${CHAT_UPLOAD_LIMIT_MB} MB por envio. ` +
-          'Envie pelo celular ou comprima antes.',
-        { duration: 7000 }
-      );
-      return;
-    }
+
+    const caption = pendingMediaCaption.trim();
+
     setSendingMedia(true);
     setUploadProgress(0);
     setUploadStatus('idle');
@@ -918,7 +974,7 @@ export const ChatTab: React.FC = () => {
         dataBase64,
         mimeType,
         fileName: file.name || 'arquivo',
-        caption: inputText.trim() || undefined
+        caption: caption || undefined
       });
       clearTimeout(transitionTimer);
       if (!resp.ok) {
@@ -928,7 +984,11 @@ export const ChatTab: React.FC = () => {
       setUploadStatus('success');
       setLastFailedFile(null);
       sentOk = true;
-      setInputText('');
+      // Limpa preview + a caixa de mensagem (se a legenda usou o texto digitado)
+      cancelPendingMedia();
+      if (caption && caption === inputText.trim()) {
+        setInputText('');
+      }
       if (isSelectedDraft && targetConversationId !== selectedChatId) {
         setSelectedChatId(targetConversationId);
       }
@@ -944,7 +1004,6 @@ export const ChatTab: React.FC = () => {
       if (sentOk) {
         setTimeout(() => setUploadStatus('idle'), 2200);
       }
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -1904,6 +1963,120 @@ export const ChatTab: React.FC = () => {
               </div>
             )}
 
+            {/*
+              ============================ PREVIEW DE MIDIA ============================
+              Aparece quando o usuario seleciona um arquivo. Mostra a previa,
+              campo de legenda opcional e botoes Cancelar / Enviar. So depois
+              do clique em Enviar e que a midia vai pelo socket.
+            */}
+            {pendingMediaFile && (
+              <div
+                className="flex-shrink-0 px-3 py-3 border-t"
+                style={{
+                  background: 'var(--wa-panel)',
+                  borderColor: 'var(--wa-divider)'
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="rounded-lg overflow-hidden flex items-center justify-center shrink-0"
+                    style={{
+                      width: 96,
+                      height: 96,
+                      background: 'var(--wa-search)',
+                      border: '1px solid var(--wa-divider)'
+                    }}
+                  >
+                    {pendingMediaFile.type.startsWith('image/') && pendingMediaPreviewUrl ? (
+                      <img
+                        src={pendingMediaPreviewUrl}
+                        alt="Pre-visualizacao"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : pendingMediaFile.type.startsWith('video/') && pendingMediaPreviewUrl ? (
+                      <video
+                        src={pendingMediaPreviewUrl}
+                        className="w-full h-full object-cover"
+                        muted
+                        playsInline
+                      />
+                    ) : pendingMediaFile.type.startsWith('image/') ? (
+                      <ImageIcon className="w-10 h-10" style={{ color: 'var(--wa-text-3)' }} />
+                    ) : pendingMediaFile.type.startsWith('video/') ? (
+                      <Film className="w-10 h-10" style={{ color: 'var(--wa-text-3)' }} />
+                    ) : (
+                      <FileText className="w-10 h-10" style={{ color: 'var(--wa-text-3)' }} />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="min-w-0">
+                        <p
+                          className="text-[13px] font-semibold truncate"
+                          style={{ color: 'var(--wa-text)' }}
+                          title={pendingMediaFile.name}
+                        >
+                          {pendingMediaFile.name}
+                        </p>
+                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--wa-text-3)' }}>
+                          {(pendingMediaFile.size / (1024 * 1024)).toFixed(2)} MB ·{' '}
+                          {pendingMediaFile.type || 'arquivo'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={cancelPendingMedia}
+                        disabled={sendingMedia}
+                        className="wa-icon-btn shrink-0"
+                        title="Cancelar envio"
+                        aria-label="Cancelar"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <input
+                      ref={pendingCaptionRef}
+                      type="text"
+                      value={pendingMediaCaption}
+                      onChange={(e) => setPendingMediaCaption(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') cancelPendingMedia();
+                        if (e.key === 'Enter' && !e.shiftKey && !sendingMedia) {
+                          e.preventDefault();
+                          void confirmAndSendPendingMedia();
+                        }
+                      }}
+                      placeholder="Adicione uma legenda (opcional)"
+                      disabled={sendingMedia}
+                      className="wa-composer-input"
+                      aria-label="Legenda da midia"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void confirmAndSendPendingMedia()}
+                    disabled={sendingMedia}
+                    className="wa-composer-send shrink-0 self-end"
+                    data-mode="send"
+                    title="Enviar arquivo"
+                    aria-label="Enviar"
+                    style={{
+                      opacity: sendingMedia ? 0.6 : 1,
+                      cursor: sendingMedia ? 'wait' : 'pointer'
+                    }}
+                  >
+                    {sendingMedia ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Send className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="wa-composer flex-shrink-0">
               <button
                 type="button"
@@ -1997,7 +2170,12 @@ export const ChatTab: React.FC = () => {
                   type="button"
                   onClick={() => {
                     if (!lastFailedFile) return;
-                    handleFileSelected(lastFailedFile);
+                    // Reabre o preview para revisar e tentar de novo
+                    if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
+                    setPendingMediaFile(lastFailedFile);
+                    setPendingMediaPreviewUrl(URL.createObjectURL(lastFailedFile));
+                    setPendingMediaCaption('');
+                    setUploadStatus('idle');
                   }}
                   className="text-[10.5px] font-semibold px-2 py-1 rounded-md transition-colors"
                   style={{ background: 'rgba(239,68,68,0.14)', color: '#dc2626' }}
