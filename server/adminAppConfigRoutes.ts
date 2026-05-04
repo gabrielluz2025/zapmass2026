@@ -606,6 +606,25 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       let items: SuggestionItem[] = [];
       let usedFallback = false;
 
+      // Detecta erro do tipo "índice não existe" (FAILED_PRECONDITION = 9 no gRPC).
+      // O Firestore exige um índice de collection-group para .orderBy em campo de
+      // subcoleção; quando ele ainda não foi criado/propagado, devemos cair no
+      // fallback (collectionGroup sem orderBy) — caso contrário o painel fica vazio.
+      const isMissingIndexError = (err: unknown): boolean => {
+        if (!err || typeof err !== 'object') return false;
+        const e = err as { code?: number | string; message?: string };
+        const msg = typeof e.message === 'string' ? e.message : String(err);
+        if (e.code === 9 || e.code === 'failed-precondition' || e.code === 'FAILED_PRECONDITION') {
+          return true;
+        }
+        return (
+          /failed[_-]?precondition/i.test(msg) ||
+          /requires? (an )?index/i.test(msg) ||
+          /\bindex\b/i.test(msg) ||
+          /\bindexes\b/i.test(msg)
+        );
+      };
+
       try {
         const snap = await db
           .collectionGroup('suggestions')
@@ -614,15 +633,14 @@ export function registerAdminAppConfigRoutes(app: Express): void {
           .get();
         items = snap.docs.map(mapDoc);
       } catch (indexErr: unknown) {
-        const msg = indexErr instanceof Error ? indexErr.message : String(indexErr);
-        const looksLikeIndex = /index/i.test(msg) || /indexes/i.test(msg);
-        if (!looksLikeIndex) {
+        if (!isMissingIndexError(indexErr)) {
+          // Erro inesperado — repassa para o catch externo (mantém status 500).
           throw indexErr;
         }
-        // Fallback: índice de collection-group ainda não foi criado/propagado.
-        // Lê tudo (até 800 docs no máximo) e ordena em memória; mantém o painel funcional.
+        const detail = indexErr instanceof Error ? indexErr.message : String(indexErr);
         console.warn(
-          '[api/admin/product-suggestions] índice ausente, usando fallback collectionGroup sem orderBy'
+          '[api/admin/product-suggestions] índice de collection group ausente, usando fallback sem orderBy:',
+          detail.slice(0, 220)
         );
         usedFallback = true;
         const snap = await db.collectionGroup('suggestions').limit(800).get();
@@ -647,10 +665,14 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/admin/product-suggestions]', msg);
-      const hint =
-        /index/i.test(msg) || /indexes/i.test(msg)
-          ? ' Crie/deploy o índice: firestore.indexes.json — collection group «suggestions» por createdAt descendente.'
-          : '';
+      const isIndex =
+        /failed[_-]?precondition/i.test(msg) ||
+        /requires? (an )?index/i.test(msg) ||
+        /\bindex\b/i.test(msg) ||
+        /\bindexes\b/i.test(msg);
+      const hint = isIndex
+        ? ' Deploy o índice: `firebase deploy --only firestore:indexes` (collection group «suggestions» por createdAt descendente). Alternativamente, reinicie o servidor Node — o fallback automático começa a funcionar e mostra as sugestões mesmo sem o índice.'
+        : '';
       return res.status(500).json({ ok: false, error: msg + hint });
     }
   });
