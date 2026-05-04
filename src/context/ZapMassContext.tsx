@@ -14,6 +14,7 @@ import {
   Conversation,
   ContactList,
   Contact,
+  ReligiousMemberProfile,
   SystemLog,
   WarmupItem,
   SystemMetrics,
@@ -360,6 +361,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const followUpRaw = raw.followUpNote ?? raw.follow_up_note ?? raw.retornoNota;
       const followUpNote =
         typeof followUpRaw === 'string' && followUpRaw.trim() ? followUpRaw.trim().slice(0, 500) : undefined;
+      const aliasRaw = raw.aliasContactIds;
+      const aliasContactIds = Array.isArray(aliasRaw)
+        ? aliasRaw.map((x: unknown) => String(x || '')).filter(Boolean)
+        : [];
+      const rmpRaw = raw.religiousMemberProfile;
+      const religiousMemberProfile: ReligiousMemberProfile | undefined =
+        rmpRaw && typeof rmpRaw === 'object' && !Array.isArray(rmpRaw)
+          ? (rmpRaw as ReligiousMemberProfile)
+          : undefined;
       return {
         id,
         name: raw.name || raw.nome || 'Sem Nome',
@@ -380,7 +390,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         status: raw.status || 'VALID',
         lastMsg: raw.lastMsg || raw.ultimaMsg,
         ...(followUpAt ? { followUpAt } : {}),
-        ...(followUpNote ? { followUpNote } : {})
+        ...(followUpNote ? { followUpNote } : {}),
+        ...(aliasContactIds.length > 0 ? { aliasContactIds } : {}),
+        ...(religiousMemberProfile && Object.keys(religiousMemberProfile).length > 0
+          ? { religiousMemberProfile }
+          : {})
       };
     };
 
@@ -1324,12 +1338,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     toast.success('Nome atualizado.');
   };
 
-  const addContact = async (contact: Contact) => {
+  const addContact = async (contact: Contact, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
     const { id, ...payload } = contact;
     const ref = await addDoc(collection(db, 'users', uid, 'contacts'), payload);
-    toast.success('Contato adicionado com sucesso!');
+    if (!options?.silent) {
+      toast.success('Contato adicionado com sucesso!');
+    }
     return ref.id;
   };
 
@@ -1343,7 +1359,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  const updateContact = async (id: string, updates: Partial<Contact>) => {
+  const updateContact = async (id: string, updates: Partial<Contact>, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
     const refUser = doc(db, 'users', uid, 'contacts', id);
@@ -1359,7 +1375,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         await updateDoc(refUser, updates as Record<string, unknown>);
       }
     }
-    toast.success('Contato atualizado com sucesso!');
+    if (!options?.silent) {
+      toast.success('Contato atualizado com sucesso!');
+    }
   };
 
   const clearAllUserData = async () => {

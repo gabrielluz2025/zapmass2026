@@ -407,9 +407,9 @@ export interface ZapMassContextType {
   reconnectConnection: (id: string) => void | Promise<void>;
   forceQr: (id: string) => void | Promise<void>;
   renameConnection: (id: string, name: string) => void | Promise<void>;
-  addContact: (contact: Contact) => Promise<string | void> | void;
+  addContact: (contact: Contact, options?: { silent?: boolean }) => Promise<string | void> | void;
   removeContact: (id: string, options?: { silent?: boolean }) => Promise<void> | void;
-  updateContact: (id: string, updates: Partial<Contact>) => Promise<void>;
+  updateContact: (id: string, updates: Partial<Contact>, options?: { silent?: boolean }) => Promise<void>;
   createContactList: (name: string, contactIds: string[], description?: string) => Promise<void>;
   deleteContactList: (id: string) => Promise<void>;
   updateContactList: (id: string, updates: Partial<ContactList>) => Promise<void>;

@@ -2049,13 +2049,13 @@ export const ContactsTab: React.FC = () => {
         const existing = localByKey.get(k);
         if (existing) {
           const mergedPayload = mergeContactData(existing, incoming, ['Importado']);
-          await updateContact(existing.id, mergedPayload);
+          await updateContact(existing.id, mergedPayload, { silent: true });
           const nextExisting: Contact = { ...existing, ...mergedPayload };
           localByKey.set(k, nextExisting);
           touchedIds.add(existing.id);
           merged++;
         } else {
-          const createdId = await addContact(incoming);
+          const createdId = await addContact(incoming, { silent: true });
           if (typeof createdId === 'string' && createdId) {
             const createdContact: Contact = { ...incoming, id: createdId };
             localByKey.set(k, createdContact);
@@ -4215,20 +4215,20 @@ export const ContactsTab: React.FC = () => {
                         notes: rv.notes || '',
                         ...(rv.followUpAt ? { followUpAt: rv.followUpAt } : {}),
                         ...(rv.followUpNote.trim() ? { followUpNote: rv.followUpNote.trim().slice(0, 500) } : {}),
-                        tags: ['ImportaÃ§Ã£o RÃ¡pida'],
+                        tags: ['Importação rápida'],
                         status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
                         lastMsg: 'Nunca'
                       };
                       const existing = localByKey.get(k);
                       if (existing) {
-                        const mergedPayload = mergeContactData(existing, c, ['Importação Rápida']);
-                        await updateContact(existing.id, mergedPayload);
+                        const mergedPayload = mergeContactData(existing, c, ['Importação rápida']);
+                        await updateContact(existing.id, mergedPayload, { silent: true });
                         const nextExisting: Contact = { ...existing, ...mergedPayload };
                         localByKey.set(k, nextExisting);
                         touchedIds.add(existing.id);
                         merged++;
                       } else {
-                        const createdId = await addContact(c);
+                        const createdId = await addContact(c, { silent: true });
                         if (typeof createdId === 'string' && createdId) {
                           localByKey.set(k, { ...c, id: createdId });
                           touchedIds.add(createdId);
