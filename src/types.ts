@@ -422,7 +422,13 @@ export interface ZapMassContextType {
     items: Array<{ id: string; updates: Partial<Contact> }>,
     options?: { silent?: boolean }
   ) => Promise<void>;
-  createContactList: (name: string, contactIds: string[], description?: string) => Promise<void>;
+  createContactList: (name: string, contactIds: string[], description?: string) => Promise<string>;
+  /** Acrescenta IDs à lista em várias escritas (arrayUnion em chunks) — necessário para milhares de contactos sem falhar no limite do documento / payload. */
+  appendContactIdsToContactList: (
+    listId: string,
+    contactIds: string[],
+    options?: { notesLine?: string }
+  ) => Promise<void>;
   deleteContactList: (id: string) => Promise<void>;
   updateContactList: (id: string, updates: Partial<ContactList>) => Promise<void>;
   sendMessage: (conversationId: string, text: string) => void;

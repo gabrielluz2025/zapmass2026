@@ -23,7 +23,21 @@ import {
   CampaignGeoState,
   CampaignGeoUfStats
 } from '../types';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, getDoc, getDocs, query, orderBy, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import {
+  arrayUnion,
+  collection,
+  onSnapshot,
+  addDoc,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  orderBy,
+  setDoc,
+  updateDoc,
+  writeBatch,
+} from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { useAppView } from './AppViewContext';
@@ -102,7 +116,8 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   removeContact: async () => {},
   updateContact: async () => {},
   bulkUpdateContacts: async () => {},
-  createContactList: async () => {},
+  createContactList: async () => '',
+  appendContactIdsToContactList: async () => {},
   deleteContactList: async () => {},
   updateContactList: async () => {},
   sendMessage: () => {},
@@ -1560,15 +1575,58 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return summary;
   };
 
-  const createContactList = async (name: string, contactIds: string[], description?: string) => {
+  const CONTACT_LIST_IDS_CHUNK = 350;
+
+  /** Evita um único update gigante (20k+ IDs pode falhar por limite do documento ou timeout). */
+  const appendContactIdsToContactList = async (
+    listId: string,
+    ids: string[],
+    options?: { notesLine?: string }
+  ): Promise<void> => {
+    const uid = currentUidRef.current;
+    if (!uid) throw new Error('Faça login para atualizar lista.');
+    const uniq = [...new Set(ids.filter(Boolean))];
+    if (uniq.length === 0 && !options?.notesLine) return;
+
+    const refUser = doc(db, 'users', uid, 'contact_lists', listId);
+    let ref = refUser;
+    let snap = await getDoc(refUser);
+    if (!snap.exists()) {
+      const refRoot = doc(db, 'contact_lists', listId);
+      const snapRoot = await getDoc(refRoot);
+      if (!snapRoot.exists()) throw new Error('Lista não encontrada (Firestore).');
+      ref = refRoot;
+      snap = snapRoot;
+    }
+
+    const prevNotes = String((snap.data() as Record<string, unknown>).notes ?? '');
+
+    for (let i = 0; i < uniq.length; i += CONTACT_LIST_IDS_CHUNK) {
+      const chunk = uniq.slice(i, i + CONTACT_LIST_IDS_CHUNK);
+      await updateDoc(ref, { contactIds: arrayUnion(...chunk) });
+    }
+
+    if (options?.notesLine) {
+      await updateDoc(ref, {
+        notes: `${prevNotes}\n${options.notesLine}`.trim(),
+        lastUpdated: new Date().toISOString(),
+      });
+    }
+  };
+
+  const createContactList = async (name: string, contactIds: string[], description?: string): Promise<string> => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para criar lista.');
-    await addDoc(collection(db, 'users', uid, 'contact_lists'), {
+    const ref = await addDoc(collection(db, 'users', uid, 'contact_lists'), {
       name,
-      contactIds,
+      contactIds: [],
       description: description || '',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     });
+    if (contactIds.length > 0) {
+      await appendContactIdsToContactList(ref.id, contactIds);
+    }
+    return ref.id;
   };
 
   const deleteContactList = async (id: string) => {
@@ -2093,6 +2151,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       updateContact,
       bulkUpdateContacts,
       createContactList,
+      appendContactIdsToContactList,
       deleteContactList,
       updateContactList,
       sendMessage,

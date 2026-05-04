@@ -628,6 +628,7 @@ export const ContactsTab: React.FC = () => {
     updateContact,
     bulkUpdateContacts,
     createContactList,
+    appendContactIdsToContactList,
     deleteContactList,
     updateContactList,
   } = useZapMass();
@@ -2082,19 +2083,16 @@ export const ContactsTab: React.FC = () => {
     if (contactIds.length === 0 || mode === 'none') return { attached: 0 };
     if (mode === 'existing') {
       const target = contactLists.find((l) => l.id === selectedListId);
-      if (!target) throw new Error('Lista selecionada não encontrada.');
-      const nextIds = Array.from(new Set([...(target.contactIds || []), ...contactIds]));
-      await updateContactList(target.id, {
-        contactIds: nextIds,
-        notes: `${target.notes || ''}\nAtualizada por ${originLabel} em ${new Date().toLocaleString()}`.trim()
+      await appendContactIdsToContactList(selectedListId, contactIds, {
+        notesLine: `Atualizada por ${originLabel} em ${new Date().toLocaleString()}`,
       });
-      return { attached: contactIds.length, listName: target.name };
+      return { attached: contactIds.length, listName: target?.name || 'Lista' };
     }
     const listName = newListName.trim();
     if (!listName) throw new Error('Informe o nome da nova lista.');
     await createContactList(listName, contactIds, `Lista criada por ${originLabel} com ${contactIds.length} contato(s).`);
     return { attached: contactIds.length, listName };
-  }, [contactLists, createContactList, updateContactList]);
+  }, [contactLists, createContactList, appendContactIdsToContactList]);
 
   const autoFixFileImportRows = useCallback(async () => {
     const prevRows = fileImportRowsRef.current;
