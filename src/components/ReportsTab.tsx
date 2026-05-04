@@ -98,13 +98,22 @@ export const ReportsTab: React.FC = () => {
   const healthRate = pct(totalSuccess, totalSent);
   const prevHealthRate = pct(prevSuccess, prevSent);
 
-  // Funil real vem do servidor (funnelStats é cumulativo, então mostramos proporção)
-  const funnel = {
-    sent: funnelStats.totalSent || totalSuccess,
-    delivered: funnelStats.totalDelivered || 0,
-    read: funnelStats.totalRead || 0,
-    replied: funnelStats.totalReplied || 0
-  };
+  // Funil real vem do servidor (funnelStats é cumulativo, então mostramos proporção).
+  // Garante coerência logica: enviada >= entregue >= lida >= respondida — protege
+  // dados antigos persistidos antes do fix de "responder sem ter lido" (servidor).
+  const funnel = (() => {
+    const sent = Math.max(0, funnelStats.totalSent || totalSuccess || 0);
+    const replied = Math.max(0, funnelStats.totalReplied || 0);
+    const read = Math.max(funnelStats.totalRead || 0, replied);
+    const delivered = Math.max(funnelStats.totalDelivered || 0, read);
+    const cap = (n: number) => (sent > 0 ? Math.min(sent, n) : n);
+    return {
+      sent,
+      delivered: cap(delivered),
+      read: cap(read),
+      replied: cap(replied)
+    };
+  })();
   const readRate = pct(funnel.read, funnel.delivered || funnel.sent);
   const replyRate = pct(funnel.replied, funnel.read || funnel.delivered || funnel.sent);
 

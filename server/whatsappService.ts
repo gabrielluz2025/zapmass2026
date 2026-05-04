@@ -1216,7 +1216,13 @@ let campaignGeoEmitPendingId: string | null = null;
 // Para cada conversa, lista de timestamps de disparos de campanha que ainda
 // nao receberam reply contabilizado. Quando chega um msg incoming 'them',
 // pega o disparo mais recente <= ts, marca como contabilizado e incrementa replied.
-interface PendingCampaignSend { ts: number; counted: boolean; campaignId?: string; ownerUid?: string }
+interface PendingCampaignSend {
+    ts: number;
+    counted: boolean;          // contabilizada como reply
+    msgId?: string;            // id curto do whatsapp-web.js para casar com ack
+    campaignId?: string;
+    ownerUid?: string;
+}
 const pendingCampaignSendsByConv = new Map<string, PendingCampaignSend[]>();
 
 let funnelSaveTimer: NodeJS.Timeout | null = null;
@@ -1472,7 +1478,13 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
     const [connId, chatPart] = conversationId.split(':');
     const ownerUid = currentCampaign.ownerUid || (cidForMeta ? campaignGeoOwnerById.get(cidForMeta) : undefined) || undefined;
     incrementOwnerFunnel(ownerUid, { totalSent: 1 });
-    const entry: PendingCampaignSend = { ts, counted: false, campaignId: cidForMeta, ownerUid };
+    const entry: PendingCampaignSend = {
+        ts,
+        counted: false,
+        msgId: normId || undefined,
+        campaignId: cidForMeta,
+        ownerUid
+    };
     const pushKey = (key: string) => {
         if (!key || key.endsWith(':') || key === `${connId}:`) return;
         const list = pendingCampaignSendsByConv.get(key) || [];
@@ -1590,11 +1602,37 @@ const handleIncomingForFunnel = (conversationId: string, incomingTs: number, pho
         funnelStats.totalReplied++;
         funnelStats.updatedAt = Date.now();
         const cid = candidate.campaignId;
-        incrementOwnerFunnel(candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined), { totalReplied: 1 });
+        const ownerForFunnel = candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined);
+        incrementOwnerFunnel(ownerForFunnel, { totalReplied: 1 });
         const uf = phoneDigitsToUf(toPhoneKey(chatPart || '')) || GEO_UNKNOWN_UF;
         if (cid) bumpCampaignGeo(cid, uf, 'replied');
+
+        /**
+         * Logica obvia: para responder, o contato precisou LER. Mas o ack=READ
+         * (visto azul duplo) so chega se a "Confirmacao de leitura" do contato
+         * estiver ATIVA — varia por usuario. Resultado pratico: o funil ficava
+         * mostrando "1 lida / 2 respostas", o que e logicamente impossivel.
+         *
+         * Quando contamos uma resposta, promovemos o ack desta mensagem para
+         * READ (e DELIVERED se ainda nao tinhamos), evitando a inconsistencia.
+         */
+        if (candidate.msgId) {
+            const currentAck = campaignAckLevel.get(candidate.msgId) || 0;
+            if (currentAck < 1) {
+                funnelStats.totalDelivered++;
+                incrementOwnerFunnel(ownerForFunnel, { totalDelivered: 1 });
+                if (cid) bumpCampaignGeo(cid, uf, 'delivered');
+            }
+            if (currentAck < 2) {
+                funnelStats.totalRead++;
+                incrementOwnerFunnel(ownerForFunnel, { totalRead: 1 });
+                if (cid) bumpCampaignGeo(cid, uf, 'read');
+            }
+            campaignAckLevel.set(candidate.msgId, 2);
+        }
+
         scheduleFunnelSave();
-        emitFunnelStats(candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined));
+        emitFunnelStats(ownerForFunnel);
     }
 };
 

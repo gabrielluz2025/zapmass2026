@@ -651,12 +651,25 @@ export const DashboardTab: React.FC = () => {
   // --- METRICAS REAIS (acumulador persistente do servidor) ---
   // funnelStats sobrevive a reinicios do servidor e a delecao de campanhas.
   // Pode ser zerado pelo usuario via botao "Limpar" abaixo do funil.
-  const metrics = useMemo(() => ({
-    totalSent: funnelStats.totalSent,
-    totalDelivered: funnelStats.totalDelivered,
-    totalRead: funnelStats.totalRead,
-    totalReplied: funnelStats.totalReplied
-  }), [funnelStats]);
+  //
+  // Coerencia logica do funil: enviada >= entregue >= lida >= respondida.
+  // Em casos onde o ack=READ nao chega (contato com confirmacao de leitura
+  // desligada), o servidor ja promove "lida" ao receber a resposta. Mas para
+  // dados antigos persistidos antes deste fix, sanitizamos aqui na UI para
+  // nunca mostrar "1 lida / 2 respostas".
+  const metrics = useMemo(() => {
+    const sent = Math.max(0, funnelStats.totalSent || 0);
+    const replied = Math.max(0, funnelStats.totalReplied || 0);
+    const read = Math.max(funnelStats.totalRead || 0, replied);
+    const delivered = Math.max(funnelStats.totalDelivered || 0, read);
+    const cap = (n: number) => (sent > 0 ? Math.min(sent, n) : n);
+    return {
+      totalSent: sent,
+      totalDelivered: cap(delivered),
+      totalRead: cap(read),
+      totalReplied: cap(replied)
+    };
+  }, [funnelStats]);
 
   const deliveryRate = metrics.totalSent > 0 ? Math.round((metrics.totalDelivered / metrics.totalSent) * 100) : 0;
   const readRate = metrics.totalSent > 0 ? Math.round((metrics.totalRead / metrics.totalSent) * 100) : 0;
