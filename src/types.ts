@@ -408,8 +408,20 @@ export interface ZapMassContextType {
   forceQr: (id: string) => void | Promise<void>;
   renameConnection: (id: string, name: string) => void | Promise<void>;
   addContact: (contact: Contact, options?: { silent?: boolean }) => Promise<string | void> | void;
+  /** Grava vários contactos novos em lotes (Firestore batch); ordem dos IDs corresponde à dos elementos. */
+  bulkAddContacts: (contacts: Contact[], options?: { silent?: boolean }) => Promise<string[]>;
   removeContact: (id: string, options?: { silent?: boolean }) => Promise<void> | void;
-  updateContact: (id: string, updates: Partial<Contact>, options?: { silent?: boolean }) => Promise<void>;
+  /** assumeUserDoc: só `users/{uid}/contacts/{id}` — sem getDoc (rápido para importação em massa). */
+  updateContact: (
+    id: string,
+    updates: Partial<Contact>,
+    options?: { silent?: boolean; assumeUserDoc?: boolean }
+  ) => Promise<void>;
+  /** Atualizações em batch na coleção do utilizador (sem getDoc por documento). */
+  bulkUpdateContacts: (
+    items: Array<{ id: string; updates: Partial<Contact> }>,
+    options?: { silent?: boolean }
+  ) => Promise<void>;
   createContactList: (name: string, contactIds: string[], description?: string) => Promise<void>;
   deleteContactList: (id: string) => Promise<void>;
   updateContactList: (id: string, updates: Partial<ContactList>) => Promise<void>;

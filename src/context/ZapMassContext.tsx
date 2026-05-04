@@ -98,8 +98,10 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   forceQr: async () => {},
   renameConnection: async () => {},
   addContact: async () => {},
+  bulkAddContacts: async () => [],
   removeContact: async () => {},
   updateContact: async () => {},
+  bulkUpdateContacts: async () => {},
   createContactList: async () => {},
   deleteContactList: async () => {},
   updateContactList: async () => {},
@@ -1349,6 +1351,33 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return ref.id;
   };
 
+  const bulkAddContacts = async (contactRows: Contact[], options?: { silent?: boolean }) => {
+    const uid = currentUidRef.current;
+    if (!uid) throw new Error('Faça login para adicionar contato.');
+    if (contactRows.length === 0) return [];
+    const ids: string[] = [];
+    const collRef = collection(db, 'users', uid, 'contacts');
+    let batch = writeBatch(db);
+    let pending = 0;
+    for (const contact of contactRows) {
+      const { id: _discard, ...payload } = contact;
+      const ref = doc(collRef);
+      batch.set(ref, payload as Record<string, unknown>);
+      ids.push(ref.id);
+      pending++;
+      if (pending >= 450) {
+        await batch.commit();
+        batch = writeBatch(db);
+        pending = 0;
+      }
+    }
+    if (pending > 0) await batch.commit();
+    if (!options?.silent && contactRows.length > 0) {
+      toast.success(`${contactRows.length} contato(s) gravados em lote.`);
+    }
+    return ids;
+  };
+
   const removeContact = async (id: string, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para remover contato.');
@@ -1359,10 +1388,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  const updateContact = async (id: string, updates: Partial<Contact>, options?: { silent?: boolean }) => {
+  const updateContact = async (
+    id: string,
+    updates: Partial<Contact>,
+    options?: { silent?: boolean; assumeUserDoc?: boolean }
+  ) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
     const refUser = doc(db, 'users', uid, 'contacts', id);
+    if (options?.assumeUserDoc) {
+      await updateDoc(refUser, updates as Record<string, unknown>);
+      if (!options?.silent) {
+        toast.success('Contato atualizado com sucesso!');
+      }
+      return;
+    }
     const snapUser = await getDoc(refUser);
     if (snapUser.exists()) {
       await updateDoc(refUser, updates as Record<string, unknown>);
@@ -1377,6 +1417,31 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
     if (!options?.silent) {
       toast.success('Contato atualizado com sucesso!');
+    }
+  };
+
+  const bulkUpdateContacts = async (
+    items: Array<{ id: string; updates: Partial<Contact> }>,
+    options?: { silent?: boolean }
+  ) => {
+    const uid = currentUidRef.current;
+    if (!uid) throw new Error('Faça login para atualizar contato.');
+    if (items.length === 0) return;
+    let batch = writeBatch(db);
+    let pending = 0;
+    for (const { id, updates } of items) {
+      const refUser = doc(db, 'users', uid, 'contacts', id);
+      batch.update(refUser, updates as Record<string, unknown>);
+      pending++;
+      if (pending >= 450) {
+        await batch.commit();
+        batch = writeBatch(db);
+        pending = 0;
+      }
+    }
+    if (pending > 0) await batch.commit();
+    if (!options?.silent) {
+      toast.success(`${items.length} contato(s) atualizados em lote.`);
     }
   };
 
@@ -2023,8 +2088,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       forceQr,
       renameConnection,
       addContact,
+      bulkAddContacts,
       removeContact,
       updateContact,
+      bulkUpdateContacts,
       createContactList,
       deleteContactList,
       updateContactList,
