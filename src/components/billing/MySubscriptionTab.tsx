@@ -1,19 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  ArrowDownCircle,
   CalendarDays,
   Check,
-  ChevronRight,
+  ChevronDown,
   Crown,
   FileText,
   Loader2,
-  Radio,
   Repeat,
   ShieldCheck,
+  Sparkles,
   TrendingUp,
   Users,
-  XCircle
+  XCircle,
+  Zap
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
@@ -368,12 +368,20 @@ export const MySubscriptionTab: React.FC = () => {
 
   const isDowngradeSelection = upgradeTarget < contractedChannels;
 
-  const goToTierSection = (tier: ChannelTier) => {
-    setUpgradeTarget(tier);
-    requestAnimationFrame(() => {
-      document.getElementById('canais-extras-whatsapp')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
+  const totalCycleDays = subscription?.plan === 'annual' ? 365 : 30;
+  const progressPct =
+    daysLeft != null && daysLeft >= 0
+      ? Math.max(4, Math.min(100, Math.round((daysLeft / totalCycleDays) * 100)))
+      : null;
+  const annualSavingsLabel = (() => {
+    const m = CHANNEL_TIER_PRICES_MONTHLY[contractedChannels] * 12;
+    const a = CHANNEL_TIER_PRICES_ANNUAL[contractedChannels];
+    if (m <= 0 || a <= 0) return null;
+    const pct = Math.round((1 - a / m) * 100);
+    return pct > 0 ? `Economize ${pct}%` : null;
+  })();
+  const showRenewCta = subscription?.status === 'active' || subscription?.status === 'past_due';
+  const heroAccent = statusLabel.color;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
@@ -392,248 +400,188 @@ export const MySubscriptionTab: React.FC = () => {
             Minha assinatura
           </h1>
           <p className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
-            Gerencie seu plano, métodos de pagamento e renovações.
+            Veja seu plano, pague em segundos e contrate mais canais quando precisar.
           </p>
         </div>
       </header>
 
+      {/* HERO STATUS — visão clara do plano + 1 CTA principal */}
       <section
-        className="rounded-2xl px-5 py-5"
-        style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
+        className="relative overflow-hidden rounded-2xl px-5 py-5"
+        style={{
+          background:
+            'linear-gradient(135deg, color-mix(in srgb, ' +
+            heroAccent +
+            ' 14%, var(--surface-0)) 0%, var(--surface-0) 65%)',
+          border: '1px solid var(--border)',
+          boxShadow: '0 8px 28px color-mix(in srgb, ' + heroAccent + ' 18%, transparent)'
+        }}
       >
-        <div className="flex flex-wrap items-start gap-4 justify-between mb-4">
-          <div>
-            <p className="text-[10.5px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-              Situação atual
-            </p>
-            <p className="text-[22px] font-extrabold mt-1" style={{ color: statusLabel.color }}>
-              {statusLabel.text}
-            </p>
-            {statusLabel.sub && (
-              <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                {statusLabel.sub}
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[12px]">
-            <Info icon={<CalendarDays className="w-3.5 h-3.5" />} label={expiryInfoLabel} value={expiryInfoValue} />
-            <Info icon={<Crown className="w-3.5 h-3.5" />} label="Plano" value={planLabel} />
-            <Info icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Via" value={providerLabel} />
-          </div>
-        </div>
-
         <div
-          className="rounded-xl px-4 py-4 mb-4"
-          style={{
-            background:
-              'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 9%, var(--surface-1)), var(--surface-1))',
-            border: '1px solid var(--border-subtle)'
-          }}
-        >
-          <p className="text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-3)' }}>
-            O seu plano agora
-          </p>
-          <p className="text-[15px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
-            {planSnapshotLine}
-          </p>
-          <p className="text-[11.5px] mt-2 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-            A <strong>linha de crescimento</strong> abaixo mostra quantos canais WhatsApp o seu contrato cobre. Suba de nível
-            na seção «Planos por quantidade» (upgrade com pró-rata no mesmo ciclo). Para{' '}
-            <strong>reduzir canais</strong> a meio do período é necessário falar com o suporte — o pagamento automático só
-            trata upgrades; antes de renovar você pode escolher um pacote menor.
-          </p>
-          <div className="mt-4">
-            <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>
-              Limite de canais no contrato
+          aria-hidden
+          className="pointer-events-none absolute -right-16 -top-16 w-56 h-56 rounded-full opacity-30 blur-3xl"
+          style={{ background: heroAccent }}
+        />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-[240px]">
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold uppercase tracking-wider"
+              style={{
+                background: 'color-mix(in srgb, ' + heroAccent + ' 18%, transparent)',
+                color: heroAccent,
+                border: '1px solid color-mix(in srgb, ' + heroAccent + ' 35%, transparent)'
+              }}
+            >
+              <Sparkles className="w-3 h-3" />
+              {statusLabel.text}
+            </span>
+            <p
+              className="text-[24px] sm:text-[26px] font-extrabold mt-2 leading-tight"
+              style={{ color: 'var(--text-1)' }}
+            >
+              {planSnapshotLine}
             </p>
-            <div className="flex flex-wrap items-center gap-y-2 gap-x-1">
-              {([1, 2, 3, 4, 5] as const).map((step, idx) => (
-                <React.Fragment key={step}>
-                  {idx > 0 ? (
-                    <ChevronRight
-                      className="w-3.5 h-3.5 shrink-0 opacity-35 mx-0.5"
-                      style={{ color: 'var(--text-3)' }}
-                      aria-hidden
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => goToTierSection(step)}
-                    className="min-w-[2.25rem] h-9 px-2 rounded-lg text-[12px] font-extrabold transition-all"
-                    style={{
-                      background:
-                        step === contractedChannels
-                          ? 'linear-gradient(135deg, var(--brand-500), var(--brand-600))'
-                          : step < contractedChannels
-                            ? 'var(--surface-2)'
-                            : 'var(--surface-1)',
-                      color: step === contractedChannels ? '#fff' : 'var(--text-2)',
-                      border:
-                        step === contractedChannels
-                          ? '1px solid color-mix(in srgb, var(--brand-500) 50%, transparent)'
-                          : '1px solid var(--border-subtle)',
-                      boxShadow:
-                        step === contractedChannels
-                          ? '0 4px 12px color-mix(in srgb, var(--brand-500) 35%, transparent)'
-                          : undefined
-                    }}
-                    title={`${step} canal(is) — clique para ver preços (secção abaixo)`}
-                  >
-                    {step}
-                  </button>
-                </React.Fragment>
-              ))}
-            </div>
-            <p className="text-[10px] mt-2" style={{ color: 'var(--text-3)' }}>
-              O destaque em laranja é o seu nível atual (
-              <strong style={{ color: 'var(--text-2)' }}>{contractedChannels}</strong> canal
-              {contractedChannels === 1 ? '' : 'is'}). À direita: caminho de upgrade.
+            <p className="text-[12.5px] mt-1" style={{ color: 'var(--text-2)' }}>
+              {expiryInfoLabel} <strong style={{ color: 'var(--text-1)' }}>{expiryInfoValue}</strong>
+              {statusLabel.sub ? (
+                <>
+                  {' · '}
+                  <span>{statusLabel.sub}</span>
+                </>
+              ) : null}
             </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {subscription?.plan !== 'annual' && (
+              <Action
+                onClick={() => void migrateToAnnualPix()}
+                loading={busy === 'pix'}
+                disabled={!!busy}
+                icon={<TrendingUp className="w-4 h-4" />}
+                primary
+                label="Pagar 1 ano (Pix −5%)"
+                hint={annualSavingsLabel ? `${annualSavingsLabel} vs mensal` : 'Soma os dias que faltam'}
+              />
+            )}
+            <Action
+              onClick={() => {
+                if (showRenewCta) {
+                  document
+                    .getElementById('canais-extras-whatsapp')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                  setUpgradeOpen(true);
+                }
+              }}
+              disabled={!!busy}
+              icon={<Zap className="w-4 h-4" />}
+              label={showRenewCta ? 'Renovar / mudar plano' : 'Assinar Pro'}
+              hint={showRenewCta ? 'Veja os planos abaixo' : `${priceMonthly} · ${priceAnnual}`}
+            />
           </div>
         </div>
 
-        {isRecurring && (
-          <div
-            className="rounded-xl px-3.5 py-2.5 flex items-start gap-2 mb-4"
-            style={{
-              background: 'linear-gradient(135deg, rgba(59,130,246,0.10), rgba(14,165,233,0.05))',
-              border: '1px solid rgba(59,130,246,0.3)'
-            }}
-          >
-            <Repeat className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#3b82f6' }} />
-            <div className="flex-1 text-[12px]" style={{ color: 'var(--text-2)' }}>
-              <strong style={{ color: 'var(--text-1)' }}>Débito automático ativo.</strong> Seu cartão será cobrado
-              automaticamente no próximo ciclo. Você pode cancelar a qualquer momento — o acesso continua até o fim do
-              período pago.
+        {progressPct != null && (
+          <div className="relative mt-5">
+            <div className="flex items-center justify-between text-[11px] mb-1.5" style={{ color: 'var(--text-3)' }}>
+              <span className="flex items-center gap-1.5">
+                <CalendarDays className="w-3.5 h-3.5" />
+                Tempo restante do plano
+              </span>
+              <span className="font-semibold" style={{ color: 'var(--text-2)' }}>
+                {daysLeft} {daysLeft === 1 ? 'dia' : 'dias'}
+              </span>
+            </div>
+            <div
+              className="h-2 rounded-full overflow-hidden"
+              style={{ background: 'var(--surface-2)' }}
+            >
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${progressPct}%`,
+                  background: `linear-gradient(90deg, ${heroAccent}, color-mix(in srgb, ${heroAccent} 70%, white))`
+                }}
+              />
             </div>
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2">
-          {subscription?.plan !== 'annual' && (
-            <Action
-              onClick={() => void migrateToAnnualPix()}
-              loading={busy === 'pix'}
-              disabled={!!busy}
-              icon={<TrendingUp className="w-4 h-4" />}
-              primary
-              label="Migrar para Anual (Pix −5%)"
-              hint={`Soma os dias restantes · ${priceAnnual}`}
-            />
-          )}
-          <Action
-            onClick={() => setUpgradeOpen(true)}
-            disabled={!!busy}
-            icon={<Crown className="w-4 h-4" />}
-            label={subscription?.status === 'active' ? 'Renovar ou mudar plano' : 'Assinar Pro'}
-            hint={`${priceMonthly} · ${priceAnnual}`}
+        <div className="relative mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[12px]">
+          <Info icon={<Crown className="w-3.5 h-3.5" />} label="Plano" value={planLabel} />
+          <Info
+            icon={<Users className="w-3.5 h-3.5" />}
+            label="Canais"
+            value={`${contractedChannels} canal${contractedChannels === 1 ? '' : 'is'}`}
           />
-          {isRecurring && (
-            <Action
-              onClick={cancelRecurring}
-              loading={busy === 'cancel'}
-              disabled={!!busy}
-              icon={<XCircle className="w-4 h-4" />}
-              danger
-              label="Cancelar débito automático"
-              hint="Acesso mantido até a expiração"
-            />
-          )}
+          <Info icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Pagamento via" value={providerLabel} />
         </div>
 
-        <div
-          className="rounded-xl px-4 py-4 mt-1"
-          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-        >
-          <p
-            className="text-[11px] font-bold uppercase tracking-wide mb-2 flex items-center gap-2"
-            style={{ color: 'var(--text-3)' }}
+        {isRecurring && (
+          <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl px-3.5 py-2.5"
+            style={{
+              background: 'rgba(59,130,246,0.10)',
+              border: '1px solid rgba(59,130,246,0.30)'
+            }}
           >
-            <ArrowDownCircle className="w-3.5 h-3.5" aria-hidden />
-            Cancelar renovação, pagamento ou plano menor
-          </p>
-          <ul className="space-y-2.5 text-[12px]" style={{ color: 'var(--text-2)' }}>
-            <li className="flex gap-2">
-              <span className="text-emerald-600 font-bold shrink-0">•</span>
-              <span>
-                <strong style={{ color: 'var(--text-1)' }}>Assinatura com cartão recorrente:</strong> use «Cancelar débito
-                automático». O ZapMass permanece ativo até{' '}
-                <strong style={{ color: 'var(--text-1)' }}>{expiryInfoValue}</strong> (sem nova cobrança depois disso).
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <span className="text-amber-600 font-bold shrink-0">•</span>
-              <span>
-                <strong style={{ color: 'var(--text-1)' }}>Pix ou pagamento avulso:</strong> não há renovação automática.
-                Para prolongar, paga de novo antes de <strong style={{ color: 'var(--text-1)' }}>{expiryInfoValue}</strong>.
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <span className="text-sky-600 font-bold shrink-0">•</span>
-              <span>
-                <strong style={{ color: 'var(--text-1)' }}>Período de teste:</strong> não cobramos nem renovamos sozinhos.
-                Quando o teste termina, o acesso Pro deixa de estar ativo até você contratar.
-              </span>
-            </li>
-            <li className="flex gap-2 items-start">
-              <span className="font-bold shrink-0" style={{ color: 'var(--text-3)' }}>
-                ↓
-              </span>
-              <span>
-                <strong style={{ color: 'var(--text-1)' }}>Menos canais (downgrade):</strong> o checkout aqui só faz{' '}
-                <em>upgrade</em> com pró-rata. Para reduzir canais no meio do ciclo, contacte o{' '}
-                <strong>suporte ZapMass</strong>. No fim do período pode voltar a esta página e escolher 1–5 canais de
-                novo.
-              </span>
-            </li>
-          </ul>
-        </div>
+            <div className="flex items-start gap-2 text-[12px]" style={{ color: 'var(--text-2)' }}>
+              <Repeat className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#3b82f6' }} />
+              <div>
+                <strong style={{ color: 'var(--text-1)' }}>Renovação automática ativa.</strong>{' '}
+                Seu cartão é cobrado todo ciclo. Pode cancelar quando quiser e o acesso continua até a data atual.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={cancelRecurring}
+              disabled={busy === 'cancel'}
+              className="text-[12px] font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+              style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.4)', background: 'var(--surface-1)' }}
+            >
+              {busy === 'cancel' ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cancelando…
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <XCircle className="w-3.5 h-3.5" /> Cancelar renovação
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </section>
 
+      {/* PLANOS — escolher quantidade de canais */}
       <section
         id="canais-extras-whatsapp"
         className="rounded-2xl px-5 py-5 scroll-mt-4"
-        style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+        style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
       >
-        <div className="flex items-center gap-2.5 mb-3">
-          <div
-            className="w-9 h-9 rounded-lg flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #10b981 0%, #06b6d4 100%)' }}
-          >
-            <Radio className="w-4 h-4 text-white" />
-          </div>
+        <div className="flex flex-wrap items-end justify-between gap-3 mb-1">
           <div>
-            <h2 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-              Planos por quantidade de canais
+            <h2 className="text-[18px] font-extrabold" style={{ color: 'var(--text-1)' }}>
+              Escolha seu plano
             </h2>
-            <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-              O plano contratado define seu limite total de canais (1 a 5), com upgrade pró-rata durante o ciclo.
+            <p className="text-[12.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+              Quanto mais canais, menor o custo por canal. Pague em 1 clique.
             </p>
           </div>
-        </div>
-        <p className="text-[12.5px] mb-3" style={{ color: 'var(--text-2)' }}>
-          Situação:{' '}
-          <strong style={{ color: 'var(--text-1)' }}>
-            {typeof subscription?.includedChannels === 'number' && subscription.includedChannels > 0
-              ? `${subscription.includedChannels} canal(is) no plano atual.`
-              : typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
-                ? `+${subscription.extraChannelSlots} extra(s) — até ${2 + (subscription.extraChannelSlots || 0)} canais.`
-                : 'Sem informação de plano por canais ainda (modelo legado).'}
-          </strong>
-        </p>
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          <h2 className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-          Selecione seu plano mensal
-          </h2>
-          <div className="inline-flex rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border-subtle)' }}>
+
+          {/* Toggle Mensal / Anual */}
+          <div
+            className="inline-flex p-1 rounded-xl"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+          >
             <button
               type="button"
               onClick={() => setTierPlanMode('monthly')}
-              className="px-2.5 py-1 text-[11px] font-semibold"
+              className="px-3.5 py-1.5 text-[12px] font-bold rounded-lg transition-all"
               style={{
-                background: tierPlanMode === 'monthly' ? 'rgba(16,185,129,0.14)' : 'transparent',
-                color: 'var(--text-1)'
+                background: tierPlanMode === 'monthly' ? 'var(--surface-0)' : 'transparent',
+                color: tierPlanMode === 'monthly' ? 'var(--text-1)' : 'var(--text-3)',
+                boxShadow: tierPlanMode === 'monthly' ? '0 2px 8px rgba(0,0,0,0.08)' : undefined
               }}
             >
               Mensal
@@ -641,143 +589,273 @@ export const MySubscriptionTab: React.FC = () => {
             <button
               type="button"
               onClick={() => setTierPlanMode('annual')}
-              className="px-2.5 py-1 text-[11px] font-semibold"
+              className="px-3.5 py-1.5 text-[12px] font-bold rounded-lg transition-all flex items-center gap-1.5"
               style={{
-                background: tierPlanMode === 'annual' ? 'rgba(16,185,129,0.14)' : 'transparent',
-                color: 'var(--text-1)'
+                background: tierPlanMode === 'annual' ? 'var(--surface-0)' : 'transparent',
+                color: tierPlanMode === 'annual' ? 'var(--text-1)' : 'var(--text-3)',
+                boxShadow: tierPlanMode === 'annual' ? '0 2px 8px rgba(0,0,0,0.08)' : undefined
               }}
             >
               Anual
+              {annualSavingsLabel && (
+                <span
+                  className="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-md"
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#fff'
+                  }}
+                >
+                  {annualSavingsLabel}
+                </span>
+              )}
             </button>
           </div>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
+
+        {/* Grid de planos */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mt-4">
           {(Object.keys(CHANNEL_TIER_PRICES_MONTHLY) as Array<keyof typeof CHANNEL_TIER_PRICES_MONTHLY>).map((n) => {
             const tier = Number(n) as ChannelTier;
             const price = tierPrice(tier, tierPlanMode);
-            const per = price / tier;
+            const monthly = tierPlanMode === 'annual' ? price / 12 : price;
+            const per = monthly / tier;
             const isCurrent = contractedChannels === tier;
+            const isSelected = upgradeTarget === tier;
+            const isPopular = tier === 3;
             return (
               <button
                 key={tier}
                 type="button"
                 onClick={() => setUpgradeTarget(tier)}
-                className="text-left rounded-lg px-3 py-2 border transition-all"
+                className="relative text-left rounded-xl p-3.5 border-2 transition-all hover:scale-[1.02]"
                 style={{
-                  borderColor:
-                    upgradeTarget === tier ? 'rgba(16,185,129,0.55)' : isCurrent ? 'rgba(59,130,246,0.55)' : 'var(--border-subtle)',
-                  background:
-                    upgradeTarget === tier
-                      ? 'linear-gradient(135deg, rgba(16,185,129,0.13), rgba(6,182,212,0.08))'
-                      : isCurrent
-                        ? 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.05))'
-                        : 'var(--surface-1)'
+                  borderColor: isSelected
+                    ? '#10b981'
+                    : isCurrent
+                      ? '#3b82f6'
+                      : 'var(--border-subtle)',
+                  background: isSelected
+                    ? 'linear-gradient(160deg, rgba(16,185,129,0.14), rgba(6,182,212,0.06))'
+                    : 'var(--surface-1)',
+                  boxShadow: isSelected ? '0 8px 22px rgba(16,185,129,0.18)' : undefined
                 }}
               >
-                <p className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>
+                {isPopular && !isCurrent && (
+                  <span
+                    className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9.5px] font-extrabold px-2 py-0.5 rounded-full whitespace-nowrap"
+                    style={{
+                      background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+                      color: '#fff',
+                      boxShadow: '0 4px 10px rgba(245,158,11,0.4)'
+                    }}
+                  >
+                    MAIS POPULAR
+                  </span>
+                )}
+                {isCurrent && (
+                  <span
+                    className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9.5px] font-extrabold px-2 py-0.5 rounded-full whitespace-nowrap"
+                    style={{
+                      background: '#3b82f6',
+                      color: '#fff'
+                    }}
+                  >
+                    SEU PLANO
+                  </span>
+                )}
+                <p className="text-[12px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
                   {tier} canal{tier > 1 ? 'is' : ''}
                 </p>
-                <p className="text-[14px] font-extrabold mt-0.5" style={{ color: 'var(--text-1)' }}>
-                  {brl(price)}
+                <p className="text-[22px] font-extrabold mt-1 leading-none" style={{ color: 'var(--text-1)' }}>
+                  {brl(monthly)}
+                  <span className="text-[11px] font-medium" style={{ color: 'var(--text-3)' }}>
+                    /mês
+                  </span>
                 </p>
-                <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                  {brl(per)} por canal ({tierPlanMode === 'annual' ? 'ano' : 'mês'})
+                {tierPlanMode === 'annual' && (
+                  <p className="text-[10.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                    {brl(price)}/ano à vista
+                  </p>
+                )}
+                <div
+                  className="h-px my-2.5 opacity-50"
+                  style={{ background: 'var(--border-subtle)' }}
+                />
+                <p className="text-[11px]" style={{ color: 'var(--text-2)' }}>
+                  <Check className="inline w-3 h-3 text-emerald-500 mr-1" />
+                  {brl(per)} por canal
                 </p>
+                <p className="text-[11px] mt-1" style={{ color: 'var(--text-2)' }}>
+                  <Check className="inline w-3 h-3 text-emerald-500 mr-1" />
+                  Disparos ilimitados
+                </p>
+                {tier >= 2 && (
+                  <p className="text-[11px] mt-1" style={{ color: 'var(--text-2)' }}>
+                    <Check className="inline w-3 h-3 text-emerald-500 mr-1" />
+                    Multi-WhatsApp
+                  </p>
+                )}
               </button>
             );
           })}
         </div>
+
+        {/* Resumo da escolha + CTAs */}
         <div
-          id="downgrade-info"
-          className="rounded-lg px-3.5 py-3 mb-3 text-[11.5px] flex gap-2 items-start"
+          className="rounded-xl px-4 py-4 mt-4"
           style={{
-            background: 'rgba(245,158,11,0.08)',
-            border: '1px solid rgba(245,158,11,0.35)',
-            color: 'var(--text-2)'
+            background:
+              'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 8%, var(--surface-1)), var(--surface-1))',
+            border: '1px solid var(--border-subtle)'
           }}
         >
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" aria-hidden />
-          <span>
-            <strong style={{ color: 'var(--text-1)' }}>Reduzir o número de canais:</strong> não use o checkout abaixo
-            para passar de <strong>{contractedChannels}</strong> para um valor menor no meio do ciclo — o sistema só
-            calcula upgrade com pró-rata. Para downgrade, fale com o suporte ou aguarde o fim do período e contrate de
-            novo o pacote desejado.
-          </span>
-        </div>
-        <div
-          className="rounded-lg px-3.5 py-3 mb-4"
-          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-        >
-          <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            {isDowngradeSelection
-              ? `Seleção: ${contractedChannels} → ${upgradeTarget} canal(is) (downgrade não disponível aqui)`
-              : `Upgrade simulado (${tierPlanMode === 'annual' ? 'anual' : 'mensal'}): ${contractedChannels} → ${upgradeTarget} canal${
-                  upgradeTarget > 1 ? 'is' : ''
-                }`}
-          </p>
-          {!isDowngradeSelection ? (
-            <p className="text-[11.5px]" style={{ color: 'var(--text-2)' }}>
-              Diferença mensal: <strong>{brl(monthlyDiff)}</strong>. Exemplo pró-rata (50% do ciclo restante):{' '}
-              <strong>{brl(prorataHalf)}</strong>.
-            </p>
-          ) : (
-            <p className="text-[11.5px] mt-1" style={{ color: 'var(--text-3)' }}>
-              Volte a escolher um nível igual ou superior a <strong>{contractedChannels}</strong> para abrir o Mercado
-              Pago.
-            </p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Action
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                Sua escolha
+              </p>
+              <p className="text-[16px] font-extrabold mt-0.5" style={{ color: 'var(--text-1)' }}>
+                {upgradeTarget} canal{upgradeTarget > 1 ? 'is' : ''} ·{' '}
+                {tierPlanMode === 'annual' ? 'Anual' : 'Mensal'}
+              </p>
+              {!isDowngradeSelection && monthlyDiff > 0 ? (
+                <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-2)' }}>
+                  Diferença vs seu plano atual: <strong>{brl(monthlyDiff)}/mês</strong>. Você só paga proporcional ao
+                  tempo que falta no ciclo.
+                </p>
+              ) : isDowngradeSelection ? (
+                <p className="text-[11.5px] mt-0.5" style={{ color: '#f59e0b' }}>
+                  Para reduzir canais durante o ciclo, fale com o suporte ou aguarde o fim do período.
+                </p>
+              ) : (
+                <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-2)' }}>
+                  Mesmo número de canais do plano atual.
+                </p>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="text-[26px] font-extrabold leading-none" style={{ color: 'var(--text-1)' }}>
+                {brl(selectedTierPrice)}
+              </p>
+              <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                /{tierPlanMode === 'annual' ? 'ano' : 'mês'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
               onClick={() => void startChannelTierPlan('pix', upgradeTarget, tierPlanMode)}
-              loading={tierBusy === 'pix'}
               disabled={!!tierBusy || isDowngradeSelection}
-              icon={<TrendingUp className="w-4 h-4" />}
-              label={`Contratar ${upgradeTarget} canal(is) ${tierPlanMode === 'annual' ? 'anual' : 'mensal'} (Pix -5%)`}
-              hint="Novo modelo de plano por quantidade de canais"
-            />
-            <Action
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-[14px] font-extrabold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#fff',
+                boxShadow: '0 8px 22px rgba(16,185,129,0.32)'
+              }}
+            >
+              {tierBusy === 'pix' ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Zap className="w-5 h-5" />
+              )}
+              <span className="flex flex-col items-start leading-tight">
+                <span>Pagar com Pix</span>
+                <span className="text-[10.5px] font-medium opacity-90">5% off · liberação imediata</span>
+              </span>
+            </button>
+            <button
+              type="button"
               onClick={() => void startChannelTierPlan('card', upgradeTarget, tierPlanMode)}
-              loading={tierBusy === 'card'}
               disabled={!!tierBusy || isDowngradeSelection}
-              icon={<Crown className="w-4 h-4" />}
-              label={`Contratar ${upgradeTarget} canal(is) ${tierPlanMode === 'annual' ? 'anual' : 'mensal'} (cartão)`}
-              hint="Checkout Mercado Pago"
-            />
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-[14px] font-bold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: 'var(--surface-0)',
+                color: 'var(--text-1)',
+                border: '1.5px solid var(--border)'
+              }}
+            >
+              {tierBusy === 'card' ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Crown className="w-5 h-5" />
+              )}
+              <span className="flex flex-col items-start leading-tight">
+                <span>Pagar no Cartão</span>
+                <span className="text-[10.5px] font-medium" style={{ color: 'var(--text-3)' }}>
+                  {tierPlanMode === 'annual' ? 'Até 12x · pode renovar todo ano' : 'Renova todo mês'}
+                </span>
+              </span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3 mt-3 text-[10.5px] flex-wrap" style={{ color: 'var(--text-3)' }}>
+            <span className="flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-emerald-500" /> Pagamento seguro Mercado Pago
+            </span>
+            <span>·</span>
+            <span>Sem fidelidade · Cancele quando quiser</span>
           </div>
         </div>
+      </section>
 
-        <h2 className="text-[14px] font-bold mb-2" style={{ color: 'var(--text-1)' }}>
-          Como funciona
+      {/* FAQ COMPACTO */}
+      <section
+        className="rounded-2xl px-5 py-5"
+        style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+      >
+        <h2 className="text-[15px] font-extrabold mb-3" style={{ color: 'var(--text-1)' }}>
+          Dúvidas comuns
         </h2>
-        <ul className="space-y-1.5 text-[12.5px]" style={{ color: 'var(--text-2)' }}>
-          <li className="flex items-start gap-2">
-            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-            <span>
-              Paga via Pix (5% off), cartão à vista/parcelado (anual até 12x) ou débito automático (cartão, renova
-              todo mês).
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-            <span>
-              Migração <strong>mensal → anual</strong>: os dias restantes do mensal são somados ao anual (você não
-              perde nada).
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-            <span>
-              Débito automático: cancela a qualquer momento. O acesso continua até o fim do ciclo já pago.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-            <span>
-              Pagamentos via Pix/cartão one-time <strong>não renovam sozinhos</strong>. Você paga novamente antes da
-              expiração (recebe lembrete por email).
-            </span>
-          </li>
-        </ul>
+        <div className="space-y-1.5">
+          <FaqItem
+            q="Como funciona o pagamento?"
+            a={
+              <>
+                Você escolhe <strong>Pix</strong> (5% off, libera na hora), <strong>cartão à vista</strong> ou <strong>parcelado em até 12x</strong> no anual.
+                Também há a opção de <strong>renovação automática</strong> no cartão — cobramos todo ciclo até você cancelar.
+              </>
+            }
+          />
+          <FaqItem
+            q="Posso cancelar quando quiser?"
+            a={
+              <>
+                Sim. Se está em <strong>renovação automática</strong>, basta clicar em «Cancelar renovação» no card de status — o
+                acesso continua até <strong>{expiryInfoValue}</strong>. Pagamentos via Pix/cartão à vista <strong>não renovam sozinhos</strong>:
+                você paga novamente antes da expiração (enviamos lembrete por e-mail).
+              </>
+            }
+          />
+          <FaqItem
+            q="Migrar de Mensal para Anual: perco os dias que sobram?"
+            a={
+              <>
+                Não. Os dias restantes do seu plano <strong>mensal são somados</strong> ao novo plano anual automaticamente. Você
+                não perde nada.
+              </>
+            }
+          />
+          <FaqItem
+            q="Quero mais canais agora — preciso esperar?"
+            a={
+              <>
+                Não. Pode subir de plano a qualquer momento. Você só paga a <strong>diferença proporcional aos dias que faltam</strong>{' '}
+                no ciclo (sem cobrar o mês inteiro de novo).
+              </>
+            }
+          />
+          <FaqItem
+            q="E se eu quiser MENOS canais?"
+            a={
+              <>
+                A redução é feita ao <strong>final do ciclo</strong>: aguarde a expiração e contrate o pacote menor, ou fale com o{' '}
+                <strong>suporte</strong> se precisa antes.
+              </>
+            }
+          />
+        </div>
       </section>
 
       {subscription?.nfeLastInvoiceId && (
@@ -823,6 +901,44 @@ export const MySubscriptionTab: React.FC = () => {
       )}
 
       <UpgradeProModal isOpen={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
+    </div>
+  );
+};
+
+const FaqItem: React.FC<{ q: string; a: React.ReactNode }> = ({ q, a }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      className="rounded-xl overflow-hidden transition-all"
+      style={{
+        background: open ? 'var(--surface-1)' : 'transparent',
+        border: '1px solid ' + (open ? 'var(--border)' : 'var(--border-subtle)')
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 text-left"
+      >
+        <span className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
+          {q}
+        </span>
+        <ChevronDown
+          className="w-4 h-4 shrink-0 transition-transform"
+          style={{
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            color: 'var(--text-3)'
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          className="px-3.5 pb-3 pt-0 text-[12.5px] leading-relaxed"
+          style={{ color: 'var(--text-2)' }}
+        >
+          {a}
+        </div>
+      )}
     </div>
   );
 };
