@@ -1596,6 +1596,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const markAsRead = (conversationId: string) => {
+    /**
+     * Atualizacao otimista: zera o badge ja, sem esperar o servidor responder.
+     * Evita o caso "abro a conversa mas o nao-lido continua" enquanto o
+     * `conversations-update` nao chega de volta.
+     */
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conversationId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c))
+    );
     socketRef.current?.emit('ui-log', { action: 'mark-as-read', conversationId });
     socketRef.current?.emit('mark-as-read', { conversationId });
   };

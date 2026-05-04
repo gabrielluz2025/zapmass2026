@@ -3802,10 +3802,83 @@ const enqueueReplyFlowOutbound = async (item: QueueItem) => {
     }
 };
 
+/**
+ * Encontra a session de reply flow para um telefone que respondeu.
+ *
+ * O numero salvo na session vem do que o usuario cadastrou (ex.: 5511988887777,
+ * com DDI 55 e o "9 extra" brasileiro). O numero da resposta vem do WhatsApp
+ * Web — que muitas vezes devolve sem o 9 (551188887777) ou ate sem DDI.
+ *
+ * Estrategia:
+ *   1) Match exato (caminho feliz)
+ *   2) Match por cauda dos ultimos 8 digitos (resolve 9 extra + DDI 55)
+ *   3) Match por igualdade ignorando o "9" apos o DDD em numeros BR
+ */
+const findReplyFlowSession = (
+    connectionId: string,
+    phoneDigits: string
+): { key: string; session: ReplyFlowSession } | null => {
+    const exactKey = `${connectionId}:${phoneDigits}`;
+    const exact = replyFlowSessions.get(exactKey);
+    if (exact) return { key: exactKey, session: exact };
+
+    const incoming = String(phoneDigits || '').replace(/\D/g, '');
+    if (incoming.length < 8) return null;
+    const incomingTail = incoming.slice(-8);
+
+    const stripBrNine = (n: string): string => {
+        // Brasil: tira o "9" extra apos o DDD em celulares (DDI 55 + DDD 2 + 9 + 8) = 13 digitos
+        if (n.length === 13 && n.startsWith('55') && n.charAt(4) === '9') {
+            return n.slice(0, 4) + n.slice(5);
+        }
+        // Sem DDI: 11 digitos com o 9 extra
+        if (n.length === 11 && n.charAt(2) === '9') {
+            return n.slice(0, 2) + n.slice(3);
+        }
+        return n;
+    };
+    const incomingNoNine = stripBrNine(incoming);
+
+    let bestKey: string | null = null;
+    let bestSession: ReplyFlowSession | null = null;
+
+    for (const [key, session] of replyFlowSessions) {
+        if (!key.startsWith(`${connectionId}:`)) continue;
+        const sessionPhone = key.slice(connectionId.length + 1).replace(/\D/g, '');
+        if (!sessionPhone) continue;
+        if (sessionPhone === incoming) return { key, session };
+        if (stripBrNine(sessionPhone) === incomingNoNine) {
+            bestKey = key;
+            bestSession = session;
+            break;
+        }
+        if (sessionPhone.length >= 8 && sessionPhone.slice(-8) === incomingTail) {
+            // Mantem o ultimo match — em geral so havera 1 com mesma cauda
+            bestKey = key;
+            bestSession = session;
+        }
+    }
+
+    if (bestKey && bestSession) return { key: bestKey, session: bestSession };
+    return null;
+};
+
 const handleReplyFlowIncoming = (connectionId: string, phoneDigits: string, bodyText: string) => {
-    const key = `${connectionId}:${phoneDigits}`;
-    const session = replyFlowSessions.get(key);
-    if (!session) return;
+    const found = findReplyFlowSession(connectionId, phoneDigits);
+    if (!found) {
+        // Pode ser uma resposta de quem nao esta em campanha — silencioso.
+        // Mas se ha sessoes ativas no canal, vale logar (debug):
+        const hasAnyForConn = [...replyFlowSessions.keys()].some((k) =>
+            k.startsWith(`${connectionId}:`)
+        );
+        if (hasAnyForConn) {
+            console.log(
+                `[ReplyFlow] Resposta de ${phoneDigits} no canal ${connectionId} sem session correspondente (${replyFlowSessions.size} session(s) ativas).`
+            );
+        }
+        return;
+    }
+    const { key, session } = found;
     const def = replyFlowDefs.get(session.campaignId);
     if (!def?.steps?.length) {
         replyFlowSessions.delete(key);
@@ -3817,6 +3890,16 @@ const handleReplyFlowIncoming = (connectionId: string, phoneDigits: string, body
 
     const steps = def.steps;
     const awaiting = session.awaitingAfterStep;
+
+    /** Log estruturado: ajuda muito a diagnosticar "etapa 2 nao saiu". */
+    emitCampaignLog('INFO', 'Resposta recebida no fluxo por etapas', {
+        campaignId: session.campaignId,
+        connectionId,
+        phoneDigits,
+        currentStep: awaiting + 1,
+        totalSteps: steps.length,
+        replyPreview: String(bodyText || '').slice(0, 80)
+    });
 
     if (awaiting >= steps.length - 1) {
         const gate = steps[steps.length - 1];
@@ -3861,13 +3944,23 @@ const handleReplyFlowIncoming = (connectionId: string, phoneDigits: string, body
     }
 
     const nextBody = applyMessageVars(steps[nextIdx].body, phoneDigits, session.vars);
+    /**
+     * Importante: o `replyFlowAfterSend.phoneDigits` precisa bater com a CHAVE
+     * canonica da session (pode ser diferente do `phoneDigits` recebido — ver
+     * findReplyFlowSession). Reutiliza-se o numero da chave para que, ao enviar
+     * a proxima etapa, o `replyFlowSessions.get(sessKey)` encontre a session e
+     * incremente o `awaitingAfterStep` corretamente.
+     */
+    const sessionPhoneKey = key.startsWith(`${connectionId}:`)
+        ? key.slice(connectionId.length + 1)
+        : phoneDigits;
     void enqueueReplyFlowOutbound({
         to: session.toRaw,
         message: nextBody,
         connectionId,
         status: 'PENDING',
         queueCampaignId: session.campaignId,
-        replyFlowAfterSend: { phoneDigits, newAwaitingAfterStep: nextIdx }
+        replyFlowAfterSend: { phoneDigits: sessionPhoneKey, newAwaitingAfterStep: nextIdx }
     });
 };
 
@@ -5028,8 +5121,24 @@ export const sendWarmupMessage = async (connectionId: string, toPhone: string, m
 };
 
 export const markAsRead = async (conversationId: string) => {
+    /**
+     * 1) Zera o badge localmente JA — UI nao espera o WhatsApp Web responder.
+     *    Sem isso, abrir a conversa no nosso chat deixava o badge "nao lido"
+     *    teimosamente ate a proxima sincronizacao completa.
+     */
     try {
-        // conversationId pode ser "connectionId:phoneNumber" ou apenas o chatId
+        const localConv = conversations.find((c) => c.id === conversationId);
+        if (localConv && (localConv.unreadCount || 0) > 0) {
+            localConv.unreadCount = 0;
+            upsertConversation(localConv);
+            emitConversationsUpdate();
+        }
+    } catch (localErr) {
+        console.error('[markAsRead] Erro ao zerar contador local:', localErr);
+    }
+
+    /** 2) Best-effort: avisa o WhatsApp Web (sendSeen) — pode falhar em versoes bugadas. */
+    try {
         const parts = conversationId.split(':');
         const connectionId = parts.length >= 2 ? parts[0] : null;
         const phone = parts.length >= 2 ? parts.slice(1).join(':') : conversationId;
