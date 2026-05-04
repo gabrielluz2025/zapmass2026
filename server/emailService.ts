@@ -463,26 +463,50 @@ function buildSuggestionReplyHtml(p: SuggestionReplyParams): string {
 </html>`;
 }
 
+export type ResendSendResult =
+  | { ok: true }
+  | { ok: false; reason: string };
+
 /**
  * Envia a resposta do criador/admin para o cliente que enviou a sugestão.
  * Reply-To é o email do admin, para que a resposta do cliente caia direto nele.
  *
- * Retorna `false` (sem lançar) se o email não puder ser enviado, mas o registro
- * em Firestore já foi feito pela rota — assim o painel sempre mostra o histórico.
+ * Devolve motivo legível quando falha (API Resend, chave ausente, etc.).
  */
-export async function sendSuggestionReplyEmail(params: SuggestionReplyParams): Promise<boolean> {
+export async function sendSuggestionReplyEmail(params: SuggestionReplyParams): Promise<ResendSendResult> {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) {
-    console.log('[EmailService] resposta de sugestão registrada mas RESEND_API_KEY ausente — email não enviado');
-    return false;
+    const msg =
+      'RESEND_API_KEY não está definida no servidor — adicione no .env do Node/Docker e reinicie.';
+    console.log('[EmailService]', msg);
+    return { ok: false, reason: msg };
   }
   if (!params.to || !/@/.test(params.to)) {
-    console.log('[EmailService] resposta de sugestão sem email do destinatário — pulando email');
-    return false;
+    const msg = 'Sugestão sem email do cliente cadastrado.';
+    console.log('[EmailService]', msg);
+    return { ok: false, reason: msg };
   }
 
   const from = (process.env.EMAIL_FROM || 'ZapMass <onboarding@resend.dev>').trim();
   const subject = '💬 Resposta sobre a sua sugestão no ZapMass';
+
+  const parseResendErrorBody = (raw: string): string => {
+    const trimmed = raw.trim().slice(0, 600);
+    if (!trimmed) return '(corpo vazio)';
+    try {
+      const j = JSON.parse(trimmed) as { message?: unknown; error?: unknown };
+      const m =
+        (typeof j.message === 'string' && j.message) ||
+        (typeof j.error === 'string' && j.error) ||
+        (j.error && typeof j.error === 'object' && typeof (j.error as { message?: string }).message === 'string'
+          ? (j.error as { message: string }).message
+          : '');
+      if (m) return m.slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+    return trimmed;
+  };
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -501,14 +525,23 @@ export async function sendSuggestionReplyEmail(params: SuggestionReplyParams): P
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      console.error('[EmailService] resposta de sugestão Resend', res.status, text);
-      return false;
+      const detail = parseResendErrorBody(text);
+      const useTestFrom = /onboarding@resend\.dev/i.test(from);
+      const testHint = useTestFrom
+        ? ' Dica: com onboarding@resend.dev a Resend só entrega para o email da conta que criou a API key; para qualquer cliente use um domínio verificado em EMAIL_FROM.'
+        : '';
+      console.error('[EmailService] resposta de sugestão Resend', res.status, detail);
+      return {
+        ok: false,
+        reason: `Resend (${res.status}): ${detail}.${testHint}`
+      };
     }
     console.log('[EmailService] resposta de sugestão enviada para', params.to);
-    return true;
+    return { ok: true };
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     console.error('[EmailService] erro ao enviar resposta de sugestão:', e);
-    return false;
+    return { ok: false, reason: `Rede/Erro: ${msg.slice(0, 280)}` };
   }
 }
 

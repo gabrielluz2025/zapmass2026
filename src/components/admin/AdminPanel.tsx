@@ -38,6 +38,8 @@ type SuggestionReply = {
   adminEmail: string;
   adminUid: string;
   emailSent: boolean;
+  /** Motivo quando emailSent=false (texto da API ou servidor). */
+  emailError?: string;
   createdAt: string | null;
 };
 type AccessUser = {
@@ -390,13 +392,15 @@ export const AdminPanel: React.FC = () => {
       }
       const emailSent = data.emailSent === true;
       const recipient: string = typeof data.recipient === 'string' ? data.recipient : '';
+      const emailErr = typeof data.emailError === 'string' ? data.emailError.trim() : '';
       if (emailSent && recipient) {
         toast.success(`Resposta enviada por email para ${recipient}.`);
       } else if (recipient) {
-        toast(
-          'Resposta registada, mas o email não foi enviado (verifique RESEND_API_KEY/EMAIL_FROM).',
-          { icon: '⚠️', duration: 6000 }
-        );
+        const detail =
+          emailErr.length > 0
+            ? emailErr
+            : 'Sem detalhe — verifique RESEND_API_KEY e EMAIL_FROM no servidor (Docker/.env) e os logs do Node.';
+        toast(`Resposta registada. ${detail}`, { icon: '⚠️', duration: 12000, style: { maxWidth: 560 } });
       } else {
         toast(
           'Resposta registada — o cliente não tem email vinculado, então só o histórico ficou guardado.',
@@ -1578,6 +1582,18 @@ export const AdminPanel: React.FC = () => {
                                 <p className="whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-1)' }}>
                                   {rep.text}
                                 </p>
+                                {!rep.emailSent && rep.emailError ? (
+                                  <p
+                                    className="mt-2 text-[10px] leading-snug rounded px-2 py-1.5"
+                                    style={{
+                                      color: 'var(--text-3)',
+                                      background: 'rgba(245,158,11,0.08)',
+                                      border: '1px solid rgba(245,158,11,0.25)'
+                                    }}
+                                  >
+                                    <strong style={{ color: 'var(--text-2)' }}>Motivo:</strong> {rep.emailError}
+                                  </p>
+                                ) : null}
                               </li>
                             ))}
                           </ul>

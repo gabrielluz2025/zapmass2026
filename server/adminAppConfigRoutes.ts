@@ -719,6 +719,7 @@ export function registerAdminAppConfigRoutes(app: Express): void {
             adminEmail: typeof raw?.adminEmail === 'string' ? raw.adminEmail : '',
             adminUid: typeof raw?.adminUid === 'string' ? raw.adminUid : '',
             emailSent: raw?.emailSent === true,
+            emailError: typeof raw?.emailError === 'string' ? raw.emailError : '',
             createdAt: tsToIso(raw?.createdAt)
           };
         });
@@ -785,9 +786,10 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         // (ex.: domínio do remetente não verificado), gravamos `emailSent=false`
         // mas mantemos o histórico para o admin tentar de novo.
         let emailSent = false;
+        let emailError: string | undefined;
         if (recipient && /@/.test(recipient)) {
           try {
-            emailSent = await sendSuggestionReplyEmail({
+            const mailResult = await sendSuggestionReplyEmail({
               to: recipient,
               originalText,
               originalCategory,
@@ -796,9 +798,13 @@ export function registerAdminAppConfigRoutes(app: Express): void {
               replyText: text,
               fromAdminEmail: auth.email
             });
+            emailSent = mailResult.ok;
+            emailError = mailResult.ok ? undefined : mailResult.reason.slice(0, 500);
           } catch (mailErr) {
             console.error('[api/admin/product-suggestions/reply] email falhou:', mailErr);
             emailSent = false;
+            emailError =
+              mailErr instanceof Error ? mailErr.message.slice(0, 500) : String(mailErr).slice(0, 500);
           }
         }
 
@@ -807,6 +813,7 @@ export function registerAdminAppConfigRoutes(app: Express): void {
           adminEmail: auth.email,
           adminUid: auth.uid,
           emailSent,
+          ...(emailError ? { emailError } : {}),
           createdAt: FieldValue.serverTimestamp()
         });
 
@@ -820,7 +827,7 @@ export function registerAdminAppConfigRoutes(app: Express): void {
           { merge: true }
         );
 
-        return res.json({ ok: true, emailSent, recipient });
+        return res.json({ ok: true, emailSent, recipient, emailError });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error('[api/admin/product-suggestions/reply][POST]', msg);
