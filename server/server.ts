@@ -101,9 +101,14 @@ const app = express();
 configureTrustProxy(app);
 const httpServer = createServer(app);
 const serverStartedAt = new Date();
+// Upload de mídia (send-media) chega via socket em base64. Base64 infla ~33%
+// o tamanho do binário, por isso este buffer precisa ser maior que o limite
+// do cliente (VITE_CHAT_UPLOAD_LIMIT_MB, padrão 100 MB).
+// 160 MB cobre 100 MB reais com folga; envios maiores precisam aumentar
+// SOCKET_MAX_HTTP_BUFFER_MB no .env (limite duro: 512 MB).
 const socketMaxHttpBufferMb = (() => {
-  const raw = Number(process.env.SOCKET_MAX_HTTP_BUFFER_MB ?? 80);
-  if (!Number.isFinite(raw)) return 80;
+  const raw = Number(process.env.SOCKET_MAX_HTTP_BUFFER_MB ?? 160);
+  if (!Number.isFinite(raw)) return 160;
   return Math.max(1, Math.min(512, Math.round(raw)));
 })();
 const jsonBodyLimitMb = (() => {
