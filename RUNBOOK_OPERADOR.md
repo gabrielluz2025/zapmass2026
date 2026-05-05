@@ -45,3 +45,9 @@ curl -fsS http://127.0.0.1:3001/api/health && echo
 curl -fsS http://127.0.0.1:3001/api/session-router/metrics && echo
 ```
 
+## Cobrança (referência rápida)
+
+- Pagamentos no produto são **somente Mercado Pago** (Infinite Pay não existe mais neste código).
+- Webhook de pagamentos: **`POST /api/webhooks/mercadopago`** — deve estar configurado no painel do Mercado Pago para a URL pública da API.
+- Rotas removidas (não usar em proxies nem integrações antigas): **`/api/webhooks/infinitepay`**, **`POST /api/billing/infinitepay/start`**.
+
