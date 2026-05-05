@@ -28,7 +28,12 @@ import {
   CHANNEL_TIER_PRICES_MONTHLY,
   brl
 } from '../constants/channelTierPricing';
-import { fetchServerBillingPrices, type ServerBillingPrices } from '../utils/marketingPrices';
+import {
+  computeAnnualSavingsPercent,
+  fetchServerBillingPrices,
+  roundMoneyBRL,
+  type ServerBillingPrices
+} from '../utils/marketingPrices';
 
 export const PreLoginLanding: React.FC = () => {
   useLandingDocumentMeta();
@@ -337,31 +342,7 @@ export const PreLoginLanding: React.FC = () => {
 
         {/* =============== PLANOS (visíveis antes do login) =============== */}
         <section id="planos" className="lg:col-span-2 mt-16 scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '240ms' }}>
-          <div className="text-center mb-8">
-            <div
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10.5px] font-bold uppercase tracking-widest mb-3"
-              style={{
-                background: 'var(--surface-0)',
-                borderColor: 'var(--border-subtle)',
-                color: 'var(--brand-600)'
-              }}
-            >
-              <Sparkles className="w-3 h-3" />
-              Planos
-            </div>
-            <h3
-              className="text-3xl sm:text-4xl font-black tracking-tight mb-2"
-              style={{ color: 'var(--text-1)' }}
-            >
-              Planos por quantidade de canais
-            </h3>
-            <p className="text-[14px] max-w-2xl mx-auto mb-8" style={{ color: 'var(--text-2)' }}>
-              Preços por quantidade de canais no checkout. Plano mensal ou anual — upgrade no meio do ciclo com cobrança
-              pró-rata.
-            </p>
-          </div>
-
-          <ChannelPricingTable />
+          <LandingPlanCards />
 
           <div
             className="max-w-3xl mx-auto mt-8 rounded-2xl border px-4 py-4 sm:px-6"
@@ -563,9 +544,29 @@ const HeroStatPill: React.FC<{ value: string; hint: string }> = ({ value, hint }
   </div>
 );
 
-const ChannelPricingTable: React.FC = () => {
+function tierMoney(n: (typeof CHANNEL_TIERS)[number], server: ServerBillingPrices | null): { monthly: number; annual: number } {
+  const row = server?.channelTiers?.[String(n)];
+  return {
+    monthly: row?.monthly ?? CHANNEL_TIER_PRICES_MONTHLY[n],
+    annual: row?.annual ?? CHANNEL_TIER_PRICES_ANNUAL[n]
+  };
+}
+
+function maxAnnualSavingsPct(server: ServerBillingPrices | null): number | null {
+  let best: number | null = null;
+  for (const n of CHANNEL_TIERS) {
+    const { monthly, annual } = tierMoney(n, server);
+    const p = computeAnnualSavingsPercent(monthly, annual);
+    if (p != null && (best === null || p > best)) best = p;
+  }
+  return best;
+}
+
+/** Secção de planos estilo cartões (landing pré-login), preços do servidor quando disponível. */
+const LandingPlanCards: React.FC = () => {
   const [server, setServer] = useState<ServerBillingPrices | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'done'>('loading');
+  const [cycle, setCycle] = useState<'monthly' | 'annual'>('monthly');
 
   useEffect(() => {
     let alive = true;
@@ -583,97 +584,207 @@ const ChannelPricingTable: React.FC = () => {
 
   const pixPct = Math.round((server?.pixDiscountPct ?? 0.05) * 100);
   const fromCheckout = server?.channelTiers != null;
+  const savingsPct = maxAnnualSavingsPct(server);
 
   return (
-    <div
-      className="rounded-2xl border overflow-hidden max-w-4xl mx-auto"
-      style={{
-        borderColor: 'var(--border-subtle)',
-        background: 'var(--surface-0)',
-        boxShadow: 'var(--shadow-xs)'
-      }}
-    >
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[320px] text-left">
-          <caption className="sr-only">
-            Preços mensais e anuais por quantidade de canais WhatsApp
-          </caption>
-          <thead>
-            <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
-              <th
-                scope="col"
-                className="px-4 py-3.5 text-[11px] font-bold uppercase tracking-wide"
-                style={{ color: 'var(--text-3)' }}
+    <div className="max-w-[1200px] mx-auto">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-8 lg:mb-10">
+        <div className="max-w-xl">
+          <h3 className="text-2xl sm:text-3xl lg:text-[2rem] font-black tracking-tight" style={{ color: 'var(--text-1)' }}>
+            Escolha seu plano
+          </h3>
+          <p className="text-[14px] sm:text-[15px] mt-2 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+            Quanto mais canais, menor o custo por canal.{' '}
+            <span style={{ color: 'var(--text-2)' }}>Valores iguais ao checkout Mercado Pago após o login.</span>
+          </p>
+        </div>
+
+        <div
+          className="inline-flex items-center gap-1 p-1 rounded-full shrink-0 self-start lg:self-center border"
+          style={{
+            background: 'var(--surface-1)',
+            borderColor: 'var(--border-subtle)'
+          }}
+          role="group"
+          aria-label="Período de cobrança"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setCycle('monthly');
+              trackLandingEvent('landing_plan_cycle', { cycle: 'monthly' });
+            }}
+            className="px-4 py-2 rounded-full text-[12.5px] font-bold transition-all min-w-[5.5rem]"
+            style={{
+              background: cycle === 'monthly' ? 'var(--surface-2)' : 'transparent',
+              color: cycle === 'monthly' ? 'var(--text-1)' : 'var(--text-3)',
+              boxShadow: cycle === 'monthly' ? '0 1px 8px rgba(0,0,0,0.12)' : undefined
+            }}
+            aria-pressed={cycle === 'monthly'}
+          >
+            Mensal
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCycle('annual');
+              trackLandingEvent('landing_plan_cycle', { cycle: 'annual' });
+            }}
+            className="px-4 py-2 rounded-full text-[12.5px] font-bold transition-all flex flex-wrap items-center justify-center gap-2 sm:min-w-[8rem]"
+            style={{
+              background: cycle === 'annual' ? 'var(--surface-2)' : 'transparent',
+              color: cycle === 'annual' ? 'var(--text-1)' : 'var(--text-3)',
+              boxShadow: cycle === 'annual' ? '0 1px 8px rgba(0,0,0,0.12)' : undefined
+            }}
+            aria-pressed={cycle === 'annual'}
+          >
+            Anual
+            {savingsPct != null ? (
+              <span
+                className="text-[10px] font-extrabold uppercase tracking-wide px-2 py-0.5 rounded-full text-white"
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                }}
               >
-                Canais
-              </th>
-              <th
-                scope="col"
-                className="px-4 py-3.5 text-[11px] font-bold uppercase tracking-wide"
-                style={{ color: 'var(--text-3)' }}
-              >
-                Mensal
-              </th>
-              <th
-                scope="col"
-                className="px-4 py-3.5 text-[11px] font-bold uppercase tracking-wide"
-                style={{ color: 'var(--brand-600)' }}
-              >
-                Anual
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {loadState === 'loading' ? (
-              <tr>
-                <td
-                  colSpan={3}
-                  className="px-4 py-8 text-center text-[13px]"
-                  style={{ color: 'var(--text-3)' }}
-                >
-                  Carregando preços do checkout…
-                </td>
-              </tr>
-            ) : (
-              CHANNEL_TIERS.map((n, i) => {
-                const row = server?.channelTiers?.[String(n)];
-                const monthlyShown = row?.displayMonthly ?? `${brl(row?.monthly ?? CHANNEL_TIER_PRICES_MONTHLY[n])} / mês`;
-                const annualShown = row?.displayAnnual ?? (
-                  <>
-                    <span className="font-semibold">{brl(row?.annual ?? CHANNEL_TIER_PRICES_ANNUAL[n])}</span>
-                    <span className="text-[11px] font-normal opacity-85"> / ano</span>
-                  </>
-                );
-                return (
-                  <tr
-                    key={n}
-                    style={i > 0 ? { borderTop: '1px solid var(--border-subtle)' } : undefined}
-                  >
-                    <td className="px-4 py-3 font-semibold text-[13px] sm:text-[14px]" style={{ color: 'var(--text-1)' }}>
-                      {n} {n === 1 ? 'canal' : 'canais'}
-                    </td>
-                    <td className="px-4 py-3 text-[13px] sm:text-[14px]" style={{ color: 'var(--text-2)' }}>
-                      {monthlyShown}
-                    </td>
-                    <td className="px-4 py-3 text-[13px] sm:text-[14px]" style={{ color: 'var(--text-1)' }}>
-                      {annualShown}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                Economize {savingsPct}%
+              </span>
+            ) : null}
+          </button>
+        </div>
       </div>
+
+      <div className="flex lg:grid lg:grid-cols-5 gap-4 overflow-x-auto pb-3 lg:pb-0 snap-x snap-mandatory lg:snap-none -mx-1 px-1 [scrollbar-width:thin]">
+        {loadState === 'loading'
+          ? CHANNEL_TIERS.map((n) => (
+              <div
+                key={n}
+                className="min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl h-[280px] animate-pulse border"
+                style={{
+                  background: 'var(--surface-1)',
+                  borderColor: 'var(--border-subtle)'
+                }}
+                aria-hidden
+              />
+            ))
+          : CHANNEL_TIERS.map((n) => {
+              const { monthly, annual } = tierMoney(n, server);
+              const total = cycle === 'monthly' ? monthly : annual;
+              const perChannel = roundMoneyBRL(total / n);
+              const equivMonthly = cycle === 'annual' ? roundMoneyBRL(annual / 12) : null;
+
+              const highlightStarter = n === 2;
+              const highlightPopular = n === 3;
+
+              return (
+                <article
+                  key={n}
+                  className="relative min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl p-5 flex flex-col border transition-shadow hover:shadow-lg"
+                  style={{
+                    background:
+                      highlightPopular || highlightStarter
+                        ? 'linear-gradient(180deg, var(--surface-0) 0%, rgba(15,23,42,0.45) 100%)'
+                        : 'var(--surface-0)',
+                    borderColor: highlightPopular
+                      ? 'rgba(16,185,129,0.55)'
+                      : highlightStarter
+                        ? 'rgba(59,130,246,0.65)'
+                        : 'var(--border-subtle)',
+                    borderWidth: highlightPopular || highlightStarter ? 2 : 1,
+                    boxShadow:
+                      highlightPopular || highlightStarter ? '0 12px 40px rgba(0,0,0,0.2)' : 'var(--shadow-xs)'
+                  }}
+                >
+                  {highlightStarter ? (
+                    <div className="absolute -top-px left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1]">
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full whitespace-nowrap text-white shadow-md"
+                        style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' }}
+                      >
+                        Indicado para começar
+                      </span>
+                    </div>
+                  ) : null}
+                  {highlightPopular ? (
+                    <div className="absolute -top-px left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1]">
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full whitespace-nowrap text-white shadow-md"
+                        style={{
+                          background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)'
+                        }}
+                      >
+                        Mais popular
+                      </span>
+                    </div>
+                  ) : null}
+
+                  <p className="text-[11px] font-bold uppercase tracking-widest mb-4 mt-2" style={{ color: 'var(--text-3)' }}>
+                    {n === 1 ? '1 canal' : `${n} canais`}
+                  </p>
+
+                  <div className="mb-1">
+                    <span className="text-[1.65rem] sm:text-[1.85rem] font-black tabular-nums tracking-tight" style={{ color: 'var(--text-1)' }}>
+                      {brl(total)}
+                    </span>
+                    <span className="text-[13px] font-medium ml-1" style={{ color: 'var(--text-3)' }}>
+                      {cycle === 'monthly' ? '/mês' : '/ano'}
+                    </span>
+                  </div>
+                  {equivMonthly != null ? (
+                    <p className="text-[11.5px] mb-4 min-h-[2.5rem]" style={{ color: 'var(--brand-600)' }}>
+                      Equivale a {brl(equivMonthly)}/mês em média
+                    </p>
+                  ) : (
+                    <p className="text-[11.5px] mb-4 min-h-[2.5rem]" style={{ color: 'var(--text-3)' }}>
+                      Renovação mensal · cancele quando quiser
+                    </p>
+                  )}
+
+                  <ul className="space-y-2.5 flex-1 text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+                    <li className="flex gap-2 items-start">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                      <span>
+                        <strong style={{ color: 'var(--text-1)' }}>{brl(perChannel)}</strong>{' '}
+                        {cycle === 'monthly' ? 'por canal no mês' : 'por canal no ano'}
+                      </span>
+                    </li>
+                    <li className="flex gap-2 items-start">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                      Campanhas e base organizadas no painel
+                    </li>
+                    {n >= 2 ? (
+                      <li className="flex gap-2 items-start">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                        Multi-WhatsApp ({n} números)
+                      </li>
+                    ) : null}
+                  </ul>
+
+                  <a
+                    href="#acesso"
+                    onClick={() => trackLandingEvent('landing_cta_click', { cta_id: `plan_card_${n}_${cycle}` })}
+                    className="mt-5 inline-flex justify-center items-center w-full py-2.5 rounded-xl text-[12px] font-bold transition-colors border"
+                    style={{
+                      borderColor: 'rgba(16,185,129,0.35)',
+                      color: 'var(--brand-600)',
+                      background: 'rgba(16,185,129,0.08)'
+                    }}
+                  >
+                    Começar com este plano
+                  </a>
+                </article>
+              );
+            })}
+      </div>
+
       <p
-        className="px-4 py-2.5 text-[11px] text-center border-t"
+        className="mt-6 px-4 py-3 rounded-xl text-[11px] text-center border"
         style={{
           borderColor: 'var(--border-subtle)',
           color: 'var(--text-3)',
           background: 'var(--surface-1)'
         }}
       >
-        Totais por ciclo · desconto Pix ({pixPct}%) aplicado no pagamento quando disponível
+        Desconto Pix ({pixPct}%) no pagamento quando disponível · upgrade pró-rata no meio do ciclo
         {fromCheckout ? ' · valores alinhados ao checkout' : ''}
       </p>
     </div>
