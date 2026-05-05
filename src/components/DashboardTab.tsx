@@ -47,6 +47,7 @@ import {
   weddingNextOccurrence,
   yearsCelebratingAtNextAnniversary
 } from '../utils/weddingAnniversary';
+import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
 import { SegmentExperiencePanel } from './segment/SegmentExperiencePanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
@@ -481,9 +482,10 @@ export const DashboardTab: React.FC = () => {
 
   // Substitui variaveis {nome}, {idade}, etc. igual ao backend
   const renderTemplate = (tpl: string, b: UpcomingBirthday): string => {
+    const nv = campaignRecipientNameVars(b.name || '');
     const vars: Record<string, string> = {
-      nome: (b.name || '').split(' ')[0] || b.name || '',
-      nome_completo: b.name || '',
+      nome: nv.nome,
+      nome_completo: nv.nome_completo,
       telefone: b.phone,
       aniversario: b.birthdayLabel,
       idade: b.age != null ? String(b.age) : ''
@@ -519,16 +521,19 @@ export const DashboardTab: React.FC = () => {
   const handleBulkBirthdaySubmit = async () => {
     if (!bulkConnectionId || bulkSelectedList.length === 0 || !bulkTemplate.trim()) return;
 
-    const recipients = bulkSelectedList.map((b) => ({
-      phone: b.phone,
-      vars: {
-        nome: (b.name || '').split(' ')[0] || b.name || '',
-        nome_completo: b.name || '',
-        telefone: b.phone,
-        aniversario: b.birthdayLabel,
-        idade: b.age != null ? String(b.age) : ''
-      }
-    }));
+    const recipients = bulkSelectedList.map((b) => {
+      const nv = campaignRecipientNameVars(b.name || '');
+      return {
+        phone: b.phone,
+        vars: {
+          nome: nv.nome,
+          nome_completo: nv.nome_completo,
+          telefone: b.phone,
+          aniversario: b.birthdayLabel,
+          idade: b.age != null ? String(b.age) : ''
+        }
+      };
+    });
 
     const numbers = recipients.map((r) => r.phone);
     setBulkSubmitting(true);
@@ -556,7 +561,7 @@ export const DashboardTab: React.FC = () => {
   const handleOpenChat = (contact: UpcomingBirthday) => {
     setSelectedWedding(null);
     setSelectedContact(contact);
-    const firstName = (contact.name || '').split(' ')[0] || 'amigo(a)';
+    const firstName = campaignRecipientNameVars(contact.name || '').nome || 'amigo(a)';
     const ageLine = contact.age ? `\n\nParabens pelos seus ${contact.age} anos!` : '';
     const whenLabel = contact.daysRemaining === 0 ? 'hoje' : `em ${contact.daysRemaining} dia${contact.daysRemaining > 1 ? 's' : ''}`;
     setMessageText(
@@ -582,7 +587,7 @@ export const DashboardTab: React.FC = () => {
   const handleOpenWeddingChat = (w: UpcomingWedding) => {
     setSelectedContact(null);
     setSelectedWedding(w);
-    const firstName = (w.name || '').split(' ')[0] || 'amigo(a)';
+    const firstName = campaignRecipientNameVars(w.name || '').nome || 'amigo(a)';
     const conj = w.spouseName === '—' ? 'seu cônjuge' : w.spouseName;
     const anos = w.yearsCelebrating != null ? ` Parabéns pelos ${w.yearsCelebrating} anos de casados!` : '';
     const whenLabel = w.daysRemaining === 0 ? 'hoje' : `em ${w.daysRemaining} dia${w.daysRemaining > 1 ? 's' : ''}`;
@@ -619,19 +624,22 @@ export const DashboardTab: React.FC = () => {
       toast.error('Nenhum casal com bodas nesta semana.');
       return;
     }
-    const recipients = list.map((w) => ({
-      phone: w.phone,
-      vars: {
-        nome: (w.name || '').split(' ')[0] || w.name || '',
-        nome_completo: w.name || '',
-        telefone: w.phone,
-        conjuge: w.spouseName === '—' ? '' : w.spouseName,
-        data_bodas: w.nextLabel,
-        anos_casamento: w.yearsCelebrating != null ? String(w.yearsCelebrating) : '',
-        anos_line:
-          w.yearsCelebrating != null ? ` Hoje celebram ${w.yearsCelebrating} anos de casados.` : ' Muitas felicidades.'
-      }
-    }));
+    const recipients = list.map((w) => {
+      const nv = campaignRecipientNameVars(w.name || '');
+      return {
+        phone: w.phone,
+        vars: {
+          nome: nv.nome,
+          nome_completo: nv.nome_completo,
+          telefone: w.phone,
+          conjuge: w.spouseName === '—' ? '' : w.spouseName,
+          data_bodas: w.nextLabel,
+          anos_casamento: w.yearsCelebrating != null ? String(w.yearsCelebrating) : '',
+          anos_line:
+            w.yearsCelebrating != null ? ` Hoje celebram ${w.yearsCelebrating} anos de casados.` : ' Muitas felicidades.'
+        }
+      };
+    });
     const numbers = recipients.map((r) => r.phone);
     setWeddingBulkSubmitting(true);
     try {

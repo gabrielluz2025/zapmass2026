@@ -1,6 +1,6 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2 } from 'lucide-react';
+import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
 import { useZapMass } from '../context/ZapMassContext';
@@ -50,6 +50,7 @@ import {
   type TempStats
 } from '../utils/contactTemperature';
 import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
+import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -282,7 +283,10 @@ const normalizeFileImportRowContactOnly = (row: FileImportRow): FileImportRow =>
   ...row,
   contact: {
     ...row.contact,
-    name: stripInvisibleChars((row.contact.name || '').trim()),
+    name: normalizeContactPersonName(stripInvisibleChars((row.contact.name || '').trim()), {
+      stripPrefixes: true,
+      titleCase: true
+    }),
     phone: normalizeBRPhone(stripInvisibleChars(row.contact.phone || '')),
     state: (row.contact.state || '').toUpperCase().slice(0, 2),
   },
@@ -324,7 +328,7 @@ async function recomputeFileImportRowsStoredIncludesAsync(
   const n = rows.length;
   if (n === 0) return rows;
   const out: FileImportRow[] = [];
-  const CHUNK = 350;
+  const CHUNK = 220;
   for (let i = 0; i < n; i += CHUNK) {
     const end = Math.min(i + CHUNK, n);
     for (let j = i; j < end; j++) {
@@ -348,7 +352,7 @@ async function batchedNormalizeFileImportRows(
 ): Promise<FileImportRow[]> {
   const n = rows.length;
   if (n === 0) return rows;
-  const CHUNK = Math.max(200, Math.min(500, Math.ceil(n / 25)));
+  const CHUNK = Math.max(120, Math.min(320, Math.ceil(n / 30)));
   const next = rows.slice();
   for (let i = 0; i < n; i += CHUNK) {
     const end = Math.min(i + CHUNK, n);
@@ -396,7 +400,11 @@ const mergeContactData = (
   const finalDigits = finalPhone.replace(/\D/g, '');
 
   return {
-    name: pickPreferredValue(existing.name, incoming.name) || 'Sem Nome',
+    name:
+      normalizeContactPersonName(pickPreferredValue(existing.name, incoming.name) || 'Sem Nome', {
+        stripPrefixes: true,
+        titleCase: true
+      }) || 'Sem Nome',
     phone: finalPhone,
     city: pickPreferredValue(existing.city, incoming.city),
     state: pickPreferredValue(existing.state, incoming.state).toUpperCase().slice(0, 2),
@@ -715,6 +723,14 @@ export const ContactsTab: React.FC = () => {
   const [quickListName, setQuickListName] = useState('');
   // Smart Import: colar do Excel/Word e interpretar livremente
   const [smartImportOpen, setSmartImportOpen] = useState(false);
+  const [nameNormalizeModalOpen, setNameNormalizeModalOpen] = useState(false);
+  const [nameNormalizeStripPrefixes, setNameNormalizeStripPrefixes] = useState(true);
+  const [nameNormalizeTitleCase, setNameNormalizeTitleCase] = useState(true);
+  const [nameNormalizeFirstLast, setNameNormalizeFirstLast] = useState(false);
+  const [nameNormalizeExtraPrefixes, setNameNormalizeExtraPrefixes] = useState('');
+  const [nameNormalizePreviewCount, setNameNormalizePreviewCount] = useState<number | null>(null);
+  const [nameNormalizePreviewBusy, setNameNormalizePreviewBusy] = useState(false);
+  const [nameNormalizeApplyBusy, setNameNormalizeApplyBusy] = useState(false);
   const [smartImportRaw, setSmartImportRaw] = useState('');
   const [smartImportRows, setSmartImportRows] = useState<SmartRow[]>([]);
   const [smartImportPreviewFilter, setSmartImportPreviewFilter] = useState<FileImportPreviewFilter>('all');
@@ -1105,7 +1121,7 @@ export const ContactsTab: React.FC = () => {
     const phone = normalizeBRPhone(digits) || digits;
     return {
       id: `import_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
-      name: (data.name as string) || '',
+      name: normalizeContactPersonName((data.name as string) || '', { stripPrefixes: true, titleCase: true }),
       phone,
       city: data.city || '',
       state: data.state || '',
@@ -1135,7 +1151,7 @@ export const ContactsTab: React.FC = () => {
     const zm = extractZapMassFollowFromVcfNotes(entry.notes || '');
     return {
       id: `import_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
-      name: entry.name.trim(),
+      name: normalizeContactPersonName(entry.name.trim(), { stripPrefixes: true, titleCase: true }),
       phone,
       city: entry.city || '',
       state: (entry.state || '').toUpperCase().slice(0, 2),
@@ -1164,7 +1180,7 @@ export const ContactsTab: React.FC = () => {
 
     const lower = file.name.toLowerCase();
     const isExcel = lower.endsWith('.xlsx') || lower.endsWith('.xls');
-    const PREVIEW_CHUNK = 550;
+    const PREVIEW_CHUNK = 280;
 
     try {
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
@@ -1259,7 +1275,7 @@ export const ContactsTab: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
-    const PREVIEW_CHUNK = 550;
+    const PREVIEW_CHUNK = 280;
     try {
       const text = await file.text();
       await new Promise<void>((r) => setTimeout(r, 0));
@@ -2192,10 +2208,13 @@ export const ContactsTab: React.FC = () => {
           total: totalImport,
           message: 'A importar contatos — pode continuar a usar o sistema.',
         });
-        const FIRE_BATCH = 400;
+        const FIRE_BATCH = 180;
         const pendingCreates: Contact[] = [];
         const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
         const pendingCreateKeys = new Set<string>();
+
+        const yieldImportUi = () =>
+          new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
         const flushCreates = async () => {
           if (pendingCreates.length === 0) return;
@@ -2205,6 +2224,7 @@ export const ContactsTab: React.FC = () => {
             if (kk) pendingCreateKeys.delete(kk);
           }
           const ids = await bulkAddContacts(slice, { silent: true });
+          await yieldImportUi();
           for (let idx = 0; idx < ids.length; idx++) {
             const incoming = slice[idx];
             const kk = normPhoneKey(incoming.phone);
@@ -2219,6 +2239,7 @@ export const ContactsTab: React.FC = () => {
           if (pendingUpdates.length === 0) return;
           const slice = pendingUpdates.splice(0, pendingUpdates.length);
           await bulkUpdateContacts(slice, { silent: true });
+          await yieldImportUi();
         };
 
         for (const rv of view) {
@@ -2271,7 +2292,7 @@ export const ContactsTab: React.FC = () => {
             total: totalImport,
             message: `A importar contatos (${importDone} de ${totalImport})…`,
           });
-          if (importDone % 64 === 0) {
+          if (importDone % 40 === 0) {
             await new Promise<void>((r) => setTimeout(r, 0));
           }
         }
@@ -2426,7 +2447,12 @@ export const ContactsTab: React.FC = () => {
   ]);
 
   const handleSaveNewContact = async () => {
-    if (!newContact.name || !newContact.phone) {
+    const canonicalName =
+      normalizeContactPersonName((newContact.name || '').trim(), {
+        stripPrefixes: true,
+        titleCase: true
+      }) || '';
+    if (!canonicalName || !newContact.phone) {
       alert('Por favor, preencha ao menos Nome e Telefone.');
       return;
     }
@@ -2447,7 +2473,7 @@ export const ContactsTab: React.FC = () => {
       segment === 'religious'
         ? {
             ...religiousMemberForm,
-            name: (newContact.name || '').trim(),
+            name: canonicalName,
             phone: newContact.phone || '',
             email: newContact.email || '',
             church: newContact.church || '',
@@ -2475,7 +2501,7 @@ export const ContactsTab: React.FC = () => {
 
     if (editingContactId) {
       const patch: Partial<Contact> = {
-        name: newContact.name || 'Sem Nome',
+        name: canonicalName,
         phone: cleanPhone,
         city: newContact.city || '',
         state: newContact.state || '',
@@ -2509,7 +2535,7 @@ export const ContactsTab: React.FC = () => {
     } else {
       const incomingContact: Contact = {
         id: Date.now().toString(),
-        name: newContact.name || 'Sem Nome',
+        name: canonicalName,
         phone: cleanPhone,
         city: newContact.city,
         state: newContact.state,
@@ -2899,6 +2925,87 @@ export const ContactsTab: React.FC = () => {
   const closeDrawer = useCallback(() => setSelectedContact(null), []);
   const clearBulkSelection = useCallback(() => setSelectedIds([]), []);
 
+  const openNameNormalizeModal = useCallback(() => {
+    setNameNormalizePreviewCount(null);
+    setNameNormalizeModalOpen(true);
+  }, []);
+
+  const runNameNormalizePreview = useCallback(async () => {
+    setNameNormalizePreviewBusy(true);
+    try {
+      const opts = {
+        stripPrefixes: nameNormalizeStripPrefixes,
+        titleCase: nameNormalizeTitleCase,
+        firstAndLastOnly: nameNormalizeFirstLast,
+        extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes)
+      };
+      let changed = 0;
+      const list = contactsRef.current;
+      const CHUNK = 350;
+      for (let i = 0; i < list.length; i += CHUNK) {
+        const end = Math.min(i + CHUNK, list.length);
+        for (let j = i; j < end; j++) {
+          const c = list[j];
+          const before = (c.name || '').trim();
+          const after = normalizeContactPersonName(before, opts);
+          if (!before && !after) continue;
+          if (after !== before) changed++;
+        }
+        await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+      }
+      setNameNormalizePreviewCount(changed);
+    } finally {
+      setNameNormalizePreviewBusy(false);
+    }
+  }, [
+    nameNormalizeStripPrefixes,
+    nameNormalizeTitleCase,
+    nameNormalizeFirstLast,
+    nameNormalizeExtraPrefixes
+  ]);
+
+  const applyNameNormalize = useCallback(async () => {
+    const opts = {
+      stripPrefixes: nameNormalizeStripPrefixes,
+      titleCase: nameNormalizeTitleCase,
+      firstAndLastOnly: nameNormalizeFirstLast,
+      extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes)
+    };
+    const items: Array<{ id: string; updates: Partial<Contact> }> = [];
+    for (const c of contactsRef.current) {
+      const before = (c.name || '').trim();
+      const after = normalizeContactPersonName(before, opts);
+      if (!after) continue;
+      if (after === before) continue;
+      items.push({ id: c.id, updates: { name: after } });
+    }
+    if (items.length === 0) {
+      toast.info('Nenhum nome precisou de alteração com estes critérios.');
+      return;
+    }
+    if (!window.confirm(`Atualizar ${items.length.toLocaleString('pt-BR')} contato(s) na base?`)) return;
+    setNameNormalizeApplyBusy(true);
+    try {
+      const SLICE = 200;
+      for (let i = 0; i < items.length; i += SLICE) {
+        const part = items.slice(i, i + SLICE);
+        await bulkUpdateContacts(part, { silent: true });
+        await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+      }
+      toast.success(`${items.length.toLocaleString('pt-BR')} nome(s) atualizado(s).`);
+      setNameNormalizeModalOpen(false);
+      setNameNormalizePreviewCount(null);
+    } finally {
+      setNameNormalizeApplyBusy(false);
+    }
+  }, [
+    bulkUpdateContacts,
+    nameNormalizeStripPrefixes,
+    nameNormalizeTitleCase,
+    nameNormalizeFirstLast,
+    nameNormalizeExtraPrefixes
+  ]);
+
   return (
     <div className="space-y-5 pb-10 relative">
       {/* input file escondido, usado pelos botões do hero/tabela */}
@@ -2928,6 +3035,7 @@ export const ContactsTab: React.FC = () => {
           onDownloadTemplate={handleDownloadTemplate}
           onExport={handleExport}
           onOpenInsights={openInsights}
+          onOpenNormalizeNames={openNameNormalizeModal}
         />
       )}
 
@@ -3289,6 +3397,128 @@ export const ContactsTab: React.FC = () => {
               </option>
             ))}
           </select>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={nameNormalizeModalOpen}
+        onClose={() => {
+          if (nameNormalizeApplyBusy || nameNormalizePreviewBusy) return;
+          setNameNormalizeModalOpen(false);
+        }}
+        title="Limpar e padronizar nomes"
+        subtitle="Remove prefixos comuns no início do nome, padroniza maiúsculas/minúsculas e, se quiser, mantém só o primeiro e o último nome."
+        icon={<SpellCheck2 className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 w-full">
+            <Button
+              variant="ghost"
+              type="button"
+              disabled={nameNormalizeApplyBusy || nameNormalizePreviewBusy}
+              onClick={() => setNameNormalizeModalOpen(false)}
+            >
+              Fechar
+            </Button>
+            <Button
+              variant="secondary"
+              type="button"
+              loading={nameNormalizePreviewBusy}
+              disabled={nameNormalizeApplyBusy || contacts.length === 0}
+              onClick={() => void runNameNormalizePreview()}
+            >
+              Calcular alterações
+            </Button>
+            <Button
+              variant="primary"
+              type="button"
+              loading={nameNormalizeApplyBusy}
+              disabled={nameNormalizePreviewBusy || contacts.length === 0}
+              onClick={() => void applyNameNormalize()}
+            >
+              Aplicar na base
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-[13px]" style={{ color: 'var(--text-1)' }}>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 rounded border-slate-300"
+              checked={nameNormalizeStripPrefixes}
+              onChange={(e) => {
+                setNameNormalizeStripPrefixes(e.target.checked);
+                setNameNormalizePreviewCount(null);
+              }}
+            />
+            <span>
+              Remover prefixos no início (ex.: Pastor, Padre, Sr., Dr., SAMAE…). Você pode acrescentar mais abaixo.
+            </span>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 rounded border-slate-300"
+              checked={nameNormalizeTitleCase}
+              onChange={(e) => {
+                setNameNormalizeTitleCase(e.target.checked);
+                setNameNormalizePreviewCount(null);
+              }}
+            />
+            <span>
+              Capitalizar nome (primeira letra maiúscula; partículas como &quot;de&quot;, &quot;da&quot; ficam minúsculas no meio).
+            </span>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 rounded border-slate-300"
+              checked={nameNormalizeFirstLast}
+              onChange={(e) => {
+                setNameNormalizeFirstLast(e.target.checked);
+                setNameNormalizePreviewCount(null);
+              }}
+            />
+            <span>
+              Manter apenas primeiro e último nome (útil quando há muitos nomes do meio ou ruído no meio do campo).
+            </span>
+          </label>
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
+              Prefixos ou instituições extras (opcional)
+            </label>
+            <textarea
+              className="w-full rounded-lg border px-3 py-2 text-[13px] min-h-[72px]"
+              style={{
+                borderColor: 'var(--border)',
+                background: 'var(--surface-1)',
+                color: 'var(--text-1)'
+              }}
+              placeholder={'Um por linha ou separados por vírgula.\nEx.: prefeitura, secretaria, empresa x'}
+              value={nameNormalizeExtraPrefixes}
+              onChange={(e) => {
+                setNameNormalizeExtraPrefixes(e.target.value);
+                setNameNormalizePreviewCount(null);
+              }}
+            />
+          </div>
+          <div
+            className="rounded-lg px-3 py-2 text-[12px]"
+            style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}
+          >
+            {contacts.length === 0 ? (
+              <>Sem contatos na base.</>
+            ) : nameNormalizePreviewCount === null ? (
+              <>Clique em «Calcular alterações» para estimar quantos registros mudariam antes de aplicar.</>
+            ) : (
+              <>
+                Estimativa:{' '}
+                <strong className="tabular-nums">{nameNormalizePreviewCount.toLocaleString('pt-BR')}</strong> de{' '}
+                <span className="tabular-nums">{contacts.length.toLocaleString('pt-BR')}</span> contato(s) com nome
+                diferente após as regras acima.
+              </>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -4279,7 +4509,10 @@ export const ContactsTab: React.FC = () => {
                           setSmartImportRows((rows) =>
                             rows.map((r) => ({
                               ...r,
-                              name: (r.name || '').trim(),
+                              name: normalizeContactPersonName((r.name || '').trim(), {
+                                stripPrefixes: true,
+                                titleCase: true
+                              }),
                               phone: normalizeBRPhone(r.phone || ''),
                               state: (r.state || '').toUpperCase().slice(0, 2)
                             }))
@@ -4506,8 +4739,45 @@ export const ContactsTab: React.FC = () => {
                     let imported = 0;
                     let skipped = 0;
                     let merged = 0;
+                    const FIRE_BATCH = 150;
+                    const pendingCreates: Contact[] = [];
+                    const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
+                    const pendingCreateKeys = new Set<string>();
+
+                    const yieldUi = () =>
+                      new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+                    const flushCreates = async () => {
+                      if (pendingCreates.length === 0) return;
+                      const slice = pendingCreates.splice(0, pendingCreates.length);
+                      for (const c of slice) {
+                        const kk = normPhoneKey(c.phone);
+                        if (kk) pendingCreateKeys.delete(kk);
+                      }
+                      const ids = await bulkAddContacts(slice, { silent: true });
+                      await yieldUi();
+                      for (let idx = 0; idx < ids.length; idx++) {
+                        const incoming = slice[idx];
+                        const kk = normPhoneKey(incoming.phone);
+                        if (!kk) continue;
+                        localByKey.set(kk, { ...incoming, id: ids[idx] });
+                        touchedIds.add(ids[idx]);
+                        imported++;
+                      }
+                    };
+
+                    const flushUpdates = async () => {
+                      if (pendingUpdates.length === 0) return;
+                      const slice = pendingUpdates.splice(0, pendingUpdates.length);
+                      await bulkUpdateContacts(slice, { silent: true });
+                      await yieldUi();
+                      merged += slice.length;
+                    };
+
+                    let rowN = 0;
                     for (const rv of smartImportRowsView) {
-                      const base = smartImportRows.find(b => b.id === rv.id);
+                      rowN++;
+                      const base = smartImportRows.find((b) => b.id === rv.id);
                       if (!base?.include) continue;
                       if ((rv.problems?.length || 0) > 0) {
                         skipped++;
@@ -4519,9 +4789,14 @@ export const ContactsTab: React.FC = () => {
                         skipped++;
                         continue;
                       }
+                      const displayName =
+                        normalizeContactPersonName(rv.name.trim(), {
+                          stripPrefixes: true,
+                          titleCase: true
+                        }) || 'Sem Nome';
                       const c: Contact = {
                         id: `smart_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-                        name: rv.name.trim() || 'Sem Nome',
+                        name: displayName,
                         phone,
                         city: rv.city || '',
                         state: rv.state || '',
@@ -4536,28 +4811,35 @@ export const ContactsTab: React.FC = () => {
                         email: rv.email || '',
                         notes: rv.notes || '',
                         ...(rv.followUpAt ? { followUpAt: rv.followUpAt } : {}),
-                        ...(rv.followUpNote.trim() ? { followUpNote: rv.followUpNote.trim().slice(0, 500) } : {}),
+                        ...(rv.followUpNote.trim()
+                          ? { followUpNote: rv.followUpNote.trim().slice(0, 500) }
+                          : {}),
                         tags: ['Importação rápida'],
                         status: phone.replace(/\D/g, '').length >= 10 ? 'VALID' : 'INVALID',
                         lastMsg: 'Nunca'
                       };
-                      const existing = localByKey.get(k);
+                      let existing = localByKey.get(k);
+                      if (!existing && pendingCreateKeys.has(k)) {
+                        await flushCreates();
+                        existing = localByKey.get(k);
+                      }
+
                       if (existing) {
                         const mergedPayload = mergeContactData(existing, c, ['Importação rápida']);
-                        await updateContact(existing.id, mergedPayload, { silent: true });
                         const nextExisting: Contact = { ...existing, ...mergedPayload };
                         localByKey.set(k, nextExisting);
                         touchedIds.add(existing.id);
-                        merged++;
+                        pendingUpdates.push({ id: existing.id, updates: mergedPayload });
+                        if (pendingUpdates.length >= FIRE_BATCH) await flushUpdates();
                       } else {
-                        const createdId = await addContact(c, { silent: true });
-                        if (typeof createdId === 'string' && createdId) {
-                          localByKey.set(k, { ...c, id: createdId });
-                          touchedIds.add(createdId);
-                          imported++;
-                        }
+                        pendingCreates.push(c);
+                        pendingCreateKeys.add(k);
+                        if (pendingCreates.length >= FIRE_BATCH) await flushCreates();
                       }
+                      if (rowN % 40 === 0) await yieldUi();
                     }
+                    await flushCreates();
+                    await flushUpdates();
                     let attached = 0;
                     let listName = '';
                     const importIds = Array.from(touchedIds);
@@ -4574,9 +4856,9 @@ export const ContactsTab: React.FC = () => {
                     }
                     toast.success(
                       `${imported} contato(s) novo(s).` +
-                      (merged ? ` ${merged} contato(s) unificado(s).` : '') +
-                      (skipped ? ` ${skipped} linha(s) ignorada(s) (com problema).` : '') +
-                      (attached > 0 ? ` ${attached} vinculado(s) em "${listName}".` : '')
+                        (merged ? ` ${merged} contato(s) unificado(s).` : '') +
+                        (skipped ? ` ${skipped} linha(s) ignorada(s) (com problema).` : '') +
+                        (attached > 0 ? ` ${attached} vinculado(s) em "${listName}".` : '')
                     );
                     setSmartImportOpen(false);
                     setSmartImportRaw('');

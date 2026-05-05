@@ -34,6 +34,7 @@ import {
 } from '../../types';
 import type { CampaignWizardDraft } from '../../types/campaignMission';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../utils/weddingAnniversary';
+import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { analyzeMessageRisk } from '../../utils/messageRiskScore';
 import {
   computeNextRunIso,
@@ -798,11 +799,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       const mdWed = parseWeddingDayMonth(wedding);
       const anosCasamento =
         mdWed?.fullYear != null ? yearsCelebratingAtNextAnniversary(mdWed) : null;
+      const nv = campaignRecipientNameVars(c.name || '');
       return {
         phone: c.phone,
         vars: {
-          nome: (c.name || '').split(' ')[0] || c.name || '',
-          nome_completo: c.name || '',
+          nome: nv.nome,
+          nome_completo: nv.nome_completo,
           telefone: c.phone,
           cidade: c.city || '',
           igreja: c.church || '',

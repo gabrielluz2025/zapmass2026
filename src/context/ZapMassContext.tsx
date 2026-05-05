@@ -59,6 +59,14 @@ import {
   type CampaignErrorBurstState
 } from '../utils/campaignIssueToast';
 
+const FIRESTORE_BATCH_CHUNK = 280;
+
+async function yieldToUiThread(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+}
+
 const INITIAL_METRICS: DashboardMetrics = {
   totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0
 };
@@ -1380,13 +1388,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       batch.set(ref, payload as Record<string, unknown>);
       ids.push(ref.id);
       pending++;
-      if (pending >= 450) {
+      if (pending >= FIRESTORE_BATCH_CHUNK) {
         await batch.commit();
+        await yieldToUiThread();
         batch = writeBatch(db);
         pending = 0;
       }
     }
-    if (pending > 0) await batch.commit();
+    if (pending > 0) {
+      await batch.commit();
+      await yieldToUiThread();
+    }
     if (!options?.silent && contactRows.length > 0) {
       toast.success(`${contactRows.length} contato(s) gravados em lote.`);
     }
@@ -1448,13 +1460,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const refUser = doc(db, 'users', uid, 'contacts', id);
       batch.update(refUser, updates as Record<string, unknown>);
       pending++;
-      if (pending >= 450) {
+      if (pending >= FIRESTORE_BATCH_CHUNK) {
         await batch.commit();
+        await yieldToUiThread();
         batch = writeBatch(db);
         pending = 0;
       }
     }
-    if (pending > 0) await batch.commit();
+    if (pending > 0) {
+      await batch.commit();
+      await yieldToUiThread();
+    }
     if (!options?.silent) {
       toast.success(`${items.length} contato(s) atualizados em lote.`);
     }
