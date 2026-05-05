@@ -217,7 +217,7 @@ Use estes guias para operar na VPS com segurança:
 
 Recomendação:
 - rotina diária: `RUNBOOK_OPERADOR.md`
-- mudança de versão/deploy: `RUNBOOK_PRODUCAO.md`
+- mudança de versão/deploy: `RUNBOOK_PRODUCAO.md` (GitHub Actions, re-run e script manual na VPS no topo do runbook)
 - degradação/erro crítico: `RUNBOOK_INCIDENTE.md`
 - validação de multi-tenant por release: `RUNBOOK_ISOLAMENTO.md`
 

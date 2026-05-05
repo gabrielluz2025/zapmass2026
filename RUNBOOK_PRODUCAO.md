@@ -1,5 +1,22 @@
 # RUNBOOK PRODUCAO - ZAPMASS (SWARM)
 
+## Como o deploy chega à VPS
+
+1. **GitHub Actions** — Um push em `main` (que altere paths cobertos pelo workflow) dispara **«Build + deploy VPS»**: valida build no runner e, em seguida, SSH na VPS para executar `deployment/vps-deploy.sh`. Exige secrets no repositório: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (opcional: `VPS_SSH_PORT`). Acompanhe em **GitHub → Actions**.
+
+2. **Reexecutar** — Se o código já está em `main` mas o deploy falhou: **Actions** → execução falhada → **Re-run failed jobs** (ou **Re-run all jobs**). Também pode forçar um novo push em `main`.
+
+3. **Manual na VPS** — Quando o Actions não consegue SSH (firewall, timeout na porta 22, etc.), entre na VPS pelo seu cliente SSH ou terminal do painel e rode:
+   ```bash
+   cd /opt/zapmass && bash deployment/manual-pull-deploy.sh
+   ```
+   Isto alinha o clone com `origin/main` e corre o mesmo fluxo que o pipeline (`vps-deploy.sh`, build Docker, Swarm/Compose e healthcheck).
+
+**Opcional no seu PC:** com [GitHub CLI](https://cli.github.com/) instalado (`gh auth login`), pode disparar o workflow sem novo commit:
+`gh workflow run "Build + deploy VPS"`
+
+---
+
 ## 1) Deploy seguro
 
 ```bash
