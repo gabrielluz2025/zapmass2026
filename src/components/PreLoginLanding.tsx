@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -28,13 +28,12 @@ import {
   CHANNEL_TIER_PRICES_MONTHLY,
   brl
 } from '../constants/channelTierPricing';
+import { fetchServerBillingPrices, type ServerBillingPrices } from '../utils/marketingPrices';
 
 export const PreLoginLanding: React.FC = () => {
   useLandingDocumentMeta();
   const { config } = useAppConfig();
   const { title: trialTitle, body: trialBody } = resolveLandingTrialCopy(config);
-  const channelFromMonthly = `${brl(CHANNEL_TIER_PRICES_MONTHLY[1])} / mês`;
-  const channelFromAnnual = `${brl(CHANNEL_TIER_PRICES_ANNUAL[1])} / ano`;
 
   useEffect(() => {
     const FAQ_WHATSAPP_ID = 'faq-whatsapp-lgpd';
@@ -205,81 +204,76 @@ export const PreLoginLanding: React.FC = () => {
             </a>
           </div>
 
-          {/* Teste + destaques num único cartão (menos blocos empilhados) */}
+          {/* Teste grátis + destaques — cartão mais suave (sem grelha rígida) */}
           <div
-            className="rounded-2xl max-w-xl border overflow-hidden"
+            className="rounded-3xl max-w-xl p-5 sm:p-6"
             style={{
-              background: 'var(--surface-0)',
-              borderColor: 'var(--border-subtle)',
-              boxShadow: 'var(--shadow-xs)'
+              background:
+                'linear-gradient(165deg, var(--surface-0) 0%, rgba(16,185,129,0.06) 42%, var(--surface-0) 100%)',
+              border: '1px solid rgba(16,185,129,0.18)',
+              boxShadow: '0 12px 48px rgba(0,0,0,0.14)'
             }}
           >
-            <div className="px-4 py-4 sm:px-5 sm:py-5">
-              <div className="flex items-start gap-3">
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.08))',
-                    color: 'var(--brand-600)'
-                  }}
-                >
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div className="min-w-0 space-y-2">
-                  <p className="text-[14px] sm:text-[15px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
-                    {trialTitle}
-                  </p>
-                  <p className="text-[12.5px] sm:text-[13px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                    {trialBody}
-                  </p>
-                </div>
+            <div className="flex items-start gap-4">
+              <div
+                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ring-1 ring-emerald-500/25"
+                style={{
+                  background: 'linear-gradient(145deg, rgba(16,185,129,0.25), rgba(16,185,129,0.06))',
+                  color: 'var(--brand-600)'
+                }}
+              >
+                <Sparkles className="w-5 h-5" strokeWidth={2} />
               </div>
+              <div className="min-w-0 space-y-2">
+                <p className="text-[15px] sm:text-[16px] font-bold leading-snug tracking-tight" style={{ color: 'var(--text-1)' }}>
+                  {trialTitle}
+                </p>
+                <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                  {trialBody}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mt-5">
+              <HeroStatPill value="1 a 5 canais" hint="por plano no checkout" />
+              <HeroStatPill value="Pix −5%" hint="desconto no pagamento" />
+              <HeroStatPill value="24/7" hint="rodando na nuvem" />
             </div>
 
             <div
-              className="flex border-t"
-              style={{
-                borderColor: 'var(--border-subtle)',
-                background: 'var(--surface-1)'
-              }}
+              className="mt-5 rounded-2xl px-4 py-4 space-y-3"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
             >
-              <div className="flex-1 min-w-0 border-r" style={{ borderColor: 'var(--border-subtle)' }}>
-                <HeroStatCell value="1 a 5" line2="canais por plano" />
-              </div>
-              <div className="flex-1 min-w-0 border-r" style={{ borderColor: 'var(--border-subtle)' }}>
-                <HeroStatCell value="Pix −5%" line2="desconto no checkout" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <HeroStatCell value="24/7" line2="nuvem" />
-              </div>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+                Incluso na conta
+              </p>
+              <ul className="space-y-2.5 text-[13px] leading-snug" style={{ color: 'var(--text-2)' }}>
+                <li className="flex gap-3 items-start">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
+                  <span>
+                    <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
+                      Gestor
+                    </span>{' '}
+                    — login com Google.
+                  </span>
+                </li>
+                <li className="flex gap-3 items-start">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
+                  <span>
+                    <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
+                      Equipe
+                    </span>{' '}
+                    — usuários criados por você no painel.
+                  </span>
+                </li>
+                <li className="flex gap-3 items-start">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
+                  <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
+                    Dados isolados por conta.
+                  </span>
+                </li>
+              </ul>
             </div>
-
-            <ul className="px-4 py-3 sm:px-5 space-y-2.5 text-[12.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
-              <li className="flex gap-2.5 items-start">
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
-                <span>
-                  <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-                    Gestor:
-                  </span>{' '}
-                  entra com Google.
-                </span>
-              </li>
-              <li className="flex gap-2.5 items-start">
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
-                <span>
-                  <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-                    Equipe:
-                  </span>{' '}
-                  usuário criado por você no painel.
-                </span>
-              </li>
-              <li className="flex gap-2.5 items-start">
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
-                <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-                  Dados isolados por conta.
-                </span>
-              </li>
-            </ul>
           </div>
 
           <div className="max-w-xl pt-1">
@@ -342,7 +336,7 @@ export const PreLoginLanding: React.FC = () => {
         </div>
 
         {/* =============== PLANOS (visíveis antes do login) =============== */}
-        <section id="planos" className="lg:col-span-2 mt-16 animate-fade-in-up" style={{ animationDelay: '240ms' }}>
+        <section id="planos" className="lg:col-span-2 mt-16 scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '240ms' }}>
           <div className="text-center mb-8">
             <div
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10.5px] font-bold uppercase tracking-widest mb-3"
@@ -361,41 +355,51 @@ export const PreLoginLanding: React.FC = () => {
             >
               Planos por quantidade de canais
             </h3>
-            <p className="text-[14px] max-w-xl mx-auto" style={{ color: 'var(--text-2)' }}>
-              Você escolhe de 1 até 5 canais no checkout. Upgrade no meio do ciclo com cobrança pró-rata.
+            <p className="text-[14px] max-w-2xl mx-auto mb-8" style={{ color: 'var(--text-2)' }}>
+              Preços por quantidade de canais no checkout. Plano mensal ou anual — upgrade no meio do ciclo com cobrança
+              pró-rata.
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-4 max-w-3xl mx-auto">
-            <PlanPreviewCard
-              label="Mensal"
-              price={`${channelFromMonthly} (1 canal)`}
-              sub="Escala até 5 canais no checkout"
-              perks={[
-                'Planos: 1, 2, 3, 4 ou 5 canais',
-                'Upgrade com pró-rata',
-                'Cancelamento em 1 clique'
-              ]}
-            />
-            <PlanPreviewCard
-              featured
-              label="Anual"
-              price={`${channelFromAnnual} (1 canal)`}
-              sub="Economia no ciclo anual"
-              perks={[
-                'Mesmas faixas de 1 a 5 canais',
-                'Tudo do plano mensal',
-                'Prioridade no suporte'
-              ]}
-            />
+          <ChannelPricingTable />
+
+          <div
+            className="max-w-3xl mx-auto mt-8 rounded-2xl border px-4 py-4 sm:px-6"
+            style={{
+              background: 'var(--surface-0)',
+              borderColor: 'var(--border-subtle)'
+            }}
+          >
+            <p className="text-[13px] font-bold mb-3" style={{ color: 'var(--text-1)' }}>
+              Em todos os planos
+            </p>
+            <ul className="grid sm:grid-cols-2 gap-x-8 gap-y-2 text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+              <li className="flex gap-2 items-start">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                Pagamento via Mercado Pago (Pix com 5% off, cartão parcelado ou débito)
+              </li>
+              <li className="flex gap-2 items-start">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                Cancelamento em poucos cliques em «Minha assinatura»
+              </li>
+              <li className="flex gap-2 items-start">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                Acesso liberado na hora após confirmação do pagamento
+              </li>
+              <li className="flex gap-2 items-start">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                Plano anual inclui prioridade no suporte
+              </li>
+            </ul>
           </div>
 
           <p
-            className="text-center text-[12px] mt-5"
+            className="text-center text-[12px] mt-6 max-w-2xl mx-auto"
             style={{ color: 'var(--text-3)' }}
           >
-            Pagamento via <strong style={{ color: 'var(--text-2)' }}>Mercado Pago</strong> · Pix (5% off),
-            cartão parcelado ou débito automático · Acesso liberado na hora da confirmação.
+            Os valores são carregados do servidor ao abrir a página — os mesmos do checkout Mercado Pago (incluindo ajustes por
+            variáveis de ambiente no deploy). Sem taxas escondidas no produto; condições do Mercado Pago valem para o método de
+            pagamento escolhido. Se o servidor não responder, mostramos os preços base de referência.
           </p>
         </section>
 
@@ -540,24 +544,141 @@ export const PreLoginLanding: React.FC = () => {
   );
 };
 
-const HeroStatCell: React.FC<{ value: string; line2: string }> = ({ value, line2 }) => (
-  <div className="px-2 py-3 sm:py-3.5 text-center min-w-0">
-    <div
-      className="text-[15px] sm:text-[17px] font-black tabular-nums leading-none tracking-tight"
-      style={{
-        background: 'linear-gradient(135deg, #10b981, #059669)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        backgroundClip: 'text'
-      }}
-    >
+const CHANNEL_TIERS = [1, 2, 3, 4, 5] as const;
+
+const HeroStatPill: React.FC<{ value: string; hint: string }> = ({ value, hint }) => (
+  <div
+    className="rounded-2xl px-3.5 py-2.5 sm:px-4 border flex-1 min-w-[140px] sm:min-w-0 sm:flex-none"
+    style={{
+      background: 'var(--surface-1)',
+      borderColor: 'rgba(16,185,129,0.22)'
+    }}
+  >
+    <p className="text-[13px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
       {value}
-    </div>
-    <div className="text-[10px] sm:text-[11px] mt-1 font-medium" style={{ color: 'var(--text-3)' }}>
-      {line2}
-    </div>
+    </p>
+    <p className="text-[10.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
+      {hint}
+    </p>
   </div>
 );
+
+const ChannelPricingTable: React.FC = () => {
+  const [server, setServer] = useState<ServerBillingPrices | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'done'>('loading');
+
+  useEffect(() => {
+    let alive = true;
+    fetchServerBillingPrices()
+      .then((p) => {
+        if (alive) setServer(p);
+      })
+      .finally(() => {
+        if (alive) setLoadState('done');
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const pixPct = Math.round((server?.pixDiscountPct ?? 0.05) * 100);
+  const fromCheckout = server?.channelTiers != null;
+
+  return (
+    <div
+      className="rounded-2xl border overflow-hidden max-w-4xl mx-auto"
+      style={{
+        borderColor: 'var(--border-subtle)',
+        background: 'var(--surface-0)',
+        boxShadow: 'var(--shadow-xs)'
+      }}
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[320px] text-left">
+          <caption className="sr-only">
+            Preços mensais e anuais por quantidade de canais WhatsApp
+          </caption>
+          <thead>
+            <tr style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}>
+              <th
+                scope="col"
+                className="px-4 py-3.5 text-[11px] font-bold uppercase tracking-wide"
+                style={{ color: 'var(--text-3)' }}
+              >
+                Canais
+              </th>
+              <th
+                scope="col"
+                className="px-4 py-3.5 text-[11px] font-bold uppercase tracking-wide"
+                style={{ color: 'var(--text-3)' }}
+              >
+                Mensal
+              </th>
+              <th
+                scope="col"
+                className="px-4 py-3.5 text-[11px] font-bold uppercase tracking-wide"
+                style={{ color: 'var(--brand-600)' }}
+              >
+                Anual
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {loadState === 'loading' ? (
+              <tr>
+                <td
+                  colSpan={3}
+                  className="px-4 py-8 text-center text-[13px]"
+                  style={{ color: 'var(--text-3)' }}
+                >
+                  Carregando preços do checkout…
+                </td>
+              </tr>
+            ) : (
+              CHANNEL_TIERS.map((n, i) => {
+                const row = server?.channelTiers?.[String(n)];
+                const monthlyShown = row?.displayMonthly ?? `${brl(row?.monthly ?? CHANNEL_TIER_PRICES_MONTHLY[n])} / mês`;
+                const annualShown = row?.displayAnnual ?? (
+                  <>
+                    <span className="font-semibold">{brl(row?.annual ?? CHANNEL_TIER_PRICES_ANNUAL[n])}</span>
+                    <span className="text-[11px] font-normal opacity-85"> / ano</span>
+                  </>
+                );
+                return (
+                  <tr
+                    key={n}
+                    style={i > 0 ? { borderTop: '1px solid var(--border-subtle)' } : undefined}
+                  >
+                    <td className="px-4 py-3 font-semibold text-[13px] sm:text-[14px]" style={{ color: 'var(--text-1)' }}>
+                      {n} {n === 1 ? 'canal' : 'canais'}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] sm:text-[14px]" style={{ color: 'var(--text-2)' }}>
+                      {monthlyShown}
+                    </td>
+                    <td className="px-4 py-3 text-[13px] sm:text-[14px]" style={{ color: 'var(--text-1)' }}>
+                      {annualShown}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p
+        className="px-4 py-2.5 text-[11px] text-center border-t"
+        style={{
+          borderColor: 'var(--border-subtle)',
+          color: 'var(--text-3)',
+          background: 'var(--surface-1)'
+        }}
+      >
+        Totais por ciclo · desconto Pix ({pixPct}%) aplicado no pagamento quando disponível
+        {fromCheckout ? ' · valores alinhados ao checkout' : ''}
+      </p>
+    </div>
+  );
+};
 
 const BenefitTile: React.FC<{ icon: React.ReactNode; title: string; text: string }> = ({ icon, title, text }) => (
   <li
@@ -585,72 +706,6 @@ const BenefitTile: React.FC<{ icon: React.ReactNode; title: string; text: string
       </p>
     </div>
   </li>
-);
-
-const PlanPreviewCard: React.FC<{
-  label: string;
-  price: string;
-  sub: string;
-  perks: string[];
-  featured?: boolean;
-}> = ({ label, price, sub, perks, featured }) => (
-  <div
-    className="relative rounded-2xl p-5"
-    style={
-      featured
-        ? {
-            background:
-              'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(59,130,246,0.06))',
-            border: '1.5px solid rgba(16,185,129,0.4)',
-            boxShadow: '0 12px 40px rgba(16,185,129,0.15)'
-          }
-        : {
-            background: 'var(--surface-0)',
-            border: '1px solid var(--border)'
-          }
-    }
-  >
-    {featured && (
-      <span
-        className="absolute -top-2.5 left-5 text-[9.5px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full"
-        style={{
-          background: 'linear-gradient(135deg, #10b981, #059669)',
-          color: '#fff',
-          boxShadow: '0 4px 14px rgba(16,185,129,0.4)'
-        }}
-      >
-        Mais escolhido
-      </span>
-    )}
-
-    <p
-      className="text-[11px] font-bold uppercase tracking-widest mb-1"
-      style={{ color: featured ? 'var(--brand-600)' : 'var(--text-3)' }}
-    >
-      {label}
-    </p>
-    <p
-      className="text-[28px] font-black leading-tight"
-      style={{ color: 'var(--text-1)' }}
-    >
-      {price}
-    </p>
-    <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-      {sub}
-    </p>
-
-    <ul className="mt-4 space-y-1.5">
-      {perks.map((p) => (
-        <li key={p} className="flex items-start gap-2 text-[12.5px]" style={{ color: 'var(--text-2)' }}>
-          <CheckCircle2
-            className="w-4 h-4 shrink-0 mt-0.5"
-            style={{ color: 'var(--brand-600)' }}
-          />
-          <span>{p}</span>
-        </li>
-      ))}
-    </ul>
-  </div>
 );
 
 const StepCard: React.FC<{ n: number; title: string; text: string }> = ({ n, title, text }) => (

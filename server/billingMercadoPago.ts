@@ -5,27 +5,17 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { mergeUserSubscription } from './subscriptionFirestore.js';
 import { channelAddonUnitPriceBrl } from './connectionLimits.js';
 import { getMercadoPagoAccessToken, requireMercadoPagoAccessToken } from './mercadoPagoAccess.js';
+import {
+  CHANNEL_TIER_PRICES_ANNUAL,
+  CHANNEL_TIER_PRICES_MONTHLY,
+  type ChannelTier
+} from '../shared/channelTierPricing.js';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
-type ChannelTier = 1 | 2 | 3 | 4 | 5;
 
 const PIX_DISCOUNT_PCT = 0.05;
 const MP_API = 'https://api.mercadopago.com';
-const CHANNEL_TIER_PRICES_MONTHLY: Record<ChannelTier, number> = {
-  1: 149.9,
-  2: 249.9,
-  3: 329.9,
-  4: 399.9,
-  5: 459.9
-};
-const CHANNEL_TIER_PRICES_ANNUAL: Record<ChannelTier, number> = {
-  1: 1529,
-  2: 2549,
-  3: 3365,
-  4: 4079,
-  5: 4691
-};
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';

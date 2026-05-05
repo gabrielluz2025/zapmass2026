@@ -70,6 +70,35 @@ O servidor pode fixar o HTML do WhatsApp Web usado pelo `whatsapp-web.js` (via `
 
 - **Docker Swarm:** o mesmo URL deve estar no `.env` da VPS; `deployment/vps-deploy.sh` exporta‑no para `docker-stack.yml`.
 
+## Cobrança — Mercado Pago (por instância de cliente)
+
+O checkout cobra por **tiers de 1 a 5 canais** (mensal ou anual). Os valores aplicados são os mesmos que a landing e o painel mostram ao consultarem **`GET /api/billing/mercadopago/prices`** na URL desse cliente (endpoint público).
+
+Coloca estas variáveis no **`.env` do cliente**, por exemplo `/opt/zapmass/clientes/<slug>/.env` (novos clientes: edita depois do `novo-cliente.sh`; reinicia o container para aplicar).
+
+| Variável | Uso |
+|----------|-----|
+| `MERCADOPAGO_ACCESS_TOKEN` | Token da API Mercado Pago desta conta/projeto MP. Alternativa: `MERCADOPAGO_ACCESS_TOKEN_FILE` ou secret montado em `/run/secrets/` (ver `server/mercadoPagoAccess.ts` no repositório). |
+| `MERCADOPAGO_BACK_URL` | URL base **deste** cliente após o checkout (ex.: `https://acme.zap-mass.com` ou o domínio próprio). Deve bater com `PUBLIC_URL` / origem que o utilizador usa no browser. |
+
+**Overrides opcionais dos tiers (BRL, número decimal)** — se definidas e válidas, substituem os defaults em `shared/channelTierPricing.ts` da imagem:
+
+| Variável | Descrição |
+|----------|-----------|
+| `MERCADOPAGO_CHANNEL_TIER_1` … `MERCADOPAGO_CHANNEL_TIER_5` | Preço **mensal** do plano com exatamente *n* canais. |
+| `MERCADOPAGO_CHANNEL_TIER_1_ANNUAL` … `MERCADOPAGO_CHANNEL_TIER_5_ANNUAL` | Preço **anual** (total do período) com *n* canais. |
+
+**Modo legado (sem tiers)** — ainda usado em alguns fluxos internos e na validação ao arrancar o servidor:
+
+| Variável | Descrição |
+|----------|-----------|
+| `MERCADOPAGO_PRICE_MONTHLY` | Preço mensal quando o fluxo não usa tiers. |
+| `MERCADOPAGO_PRICE_ANNUAL` | Preço anual no mesmo modo legado. |
+
+Recomendação: mantém `MERCADOPAGO_PRICE_*` válidos mesmo que só uses tiers — evita erro no log de arranque (`[mercadopago] MERCADOPAGO_PRICE_* invalido`).
+
+Documentação espelhada (visão geral do projeto): `README.md` na raiz do repositório.
+
 ## Variáveis de ambiente opcionais
 
 | Variável | Default | O que faz |

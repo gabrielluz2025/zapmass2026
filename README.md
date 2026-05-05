@@ -45,6 +45,7 @@
 
 ```
 zapmass-sender/
+├── shared/           # Constantes partilhadas entre cliente e servidor (ex.: defaults de preços por tier)
 ├── src/              # Frontend (React + Vite + Tailwind)
 │   ├── components/   # Componentes UI
 │   ├── context/      # State management
@@ -137,6 +138,31 @@ CONTACT_CACHE_TTL=86400000
 # Warmup
 WARMUP_ENABLED=true
 ```
+
+### Cobrança — Mercado Pago e planos por quantidade de canais
+
+No checkout atual o valor cobrado segue **tiers de 1 a 5 canais** (mensal ou anual). A landing e o painel podem consultar os valores efetivos em **`GET /api/billing/mercadopago/prices`** (público); alterações por ambiente aplicam-se ao mesmo tempo no servidor e na UI.
+
+| Variável | Uso |
+|----------|-----|
+| `MERCADOPAGO_ACCESS_TOKEN` | Token da API Mercado Pago (obrigatório para checkout em produção). Alternativa: ficheiro via `MERCADOPAGO_ACCESS_TOKEN_FILE` ou secret montado em `/run/secrets/` (ver `server/mercadoPagoAccess.ts`). |
+| `MERCADOPAGO_BACK_URL` | URL base do site após o checkout (ex.: `https://app.seudominio.com`). |
+
+**Overrides opcionais dos tiers (BRL, número decimal)** — se definidas e válidas, substituem os defaults em `shared/channelTierPricing.ts`:
+
+| Variável | Descrição |
+|----------|-----------|
+| `MERCADOPAGO_CHANNEL_TIER_1` … `MERCADOPAGO_CHANNEL_TIER_5` | Preço **mensal** do plano com exatamente *n* canais. |
+| `MERCADOPAGO_CHANNEL_TIER_1_ANNUAL` … `MERCADOPAGO_CHANNEL_TIER_5_ANNUAL` | Preço **anual** (total do período) com *n* canais. |
+
+**Plano “flat” legado** — usado apenas em fluxos que **não** enviam quantidade de canais (ex.: alguns caminhos antigos / log no arranque):
+
+| Variável | Descrição |
+|----------|-----------|
+| `MERCADOPAGO_PRICE_MONTHLY` | Preço mensal quando o fluxo não usa tiers (fallback em alguns caminhos / validação no arranque). |
+| `MERCADOPAGO_PRICE_ANNUAL` | Preço anual no mesmo modo legado. |
+
+Recomendação em deploy: mantenha `MERCADOPAGO_PRICE_*` válidos mesmo usando só tiers, para evitar erro no log de arranque do servidor.
 
 ---
 

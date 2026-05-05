@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["server/**/*.ts", "src/utils/connectionScope.ts"],
+  "include": ["server/**/*.ts", "shared/**/*.ts", "src/utils/connectionScope.ts"],
   "exclude": [
       "legacy",
       "node_modules",
