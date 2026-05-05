@@ -3,6 +3,9 @@
 # Uso na VPS:   bash /opt/zapmass/deployment/verify-prod.sh
 # Ou remoto:    ssh user@IP 'bash -s' < deployment/verify-prod.sh
 # Override porta: HOST_PORT=3101 bash deployment/verify-prod.sh
+#
+# Se `git pull` disser "You are not currently on a branch": deploy por Actions deixa detached HEAD.
+# Corra antes: bash deployment/ensure-git-main.sh
 set -euo pipefail
 
 REPO="${ZAPMASS_ROOT:-/opt/zapmass}"

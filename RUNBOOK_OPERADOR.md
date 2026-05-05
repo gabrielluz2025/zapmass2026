@@ -2,15 +2,17 @@
 
 ## Deploy seguro
 
+Depois de um deploy por GitHub Actions o clone fica em **detached HEAD** (`git checkout` por SHA). **`git pull` falha** até voltares ao ramo `main`:
+
 ```bash
 set -euo pipefail
 cd /opt/zapmass
-git fetch --all --prune
-git checkout main
-git pull --ff-only
+bash deployment/ensure-git-main.sh   # fetch + checkout main + reset --hard origin/main
 docker build -t zapmass:latest .
 docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
 ```
+
+Ou o fluxo completo (igual ao pipeline, com build e health): **`bash deployment/manual-pull-deploy.sh`** (ele chama `ensure-git-main.sh` antes de `vps-deploy.sh`).
 
 ## Validacao rapida (PASS/FAIL)
 
