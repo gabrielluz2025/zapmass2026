@@ -3617,7 +3617,7 @@ const initializeClient = async (id: string, name: string) => {
                         if (!phoneDigits) phoneDigits = toPhoneKey(chatSerialized);
                         if (phoneDigits.length >= 8) {
                             const { bodyText, nonTextReply } = extractReplyFlowBodyFromIncoming(msg);
-                            handleReplyFlowIncoming(id, phoneDigits, bodyText, nonTextReply);
+                            handleReplyFlowIncoming(id, phoneDigits, bodyText, nonTextReply, convId);
                         }
                     }
                 }
@@ -3799,10 +3799,17 @@ type ReplyFlowSession = {
     vars: Record<string, string>;
     /** Mesmo `to` usado na fila na abertura (formato da campanha). */
     toRaw: string;
+    /**
+     * Chave `getConversationKey(connectionId, chatJidaposEnvio)` — bate com a conversa
+     * onde chegam as respostas (incl. @lid quando o WA nao expõe contact.number).
+     */
+    registeredConvKey?: string;
 };
 
 const replyFlowDefs = new Map<string, { steps: ReplyFlowStepDef[] }>();
 const replyFlowSessions = new Map<string, ReplyFlowSession>();
+/** conversationId (conn:jidSerialized) → chave canonica em replyFlowSessions (conn:digitosCampanha). */
+const replyFlowConvToCanonicalKey = new Map<string, string>();
 const replyFlowSessionCountByCampaign = new Map<string, number>();
 
 const adjustReplyFlowSessionCount = (campaignId: string, delta: number) => {
@@ -3817,6 +3824,17 @@ const maybeClearReplyFlowDef = (campaignId: string) => {
     if ((replyFlowSessionCountByCampaign.get(campaignId) || 0) === 0) {
         replyFlowDefs.delete(campaignId);
     }
+};
+
+const disposeReplyFlowSession = (canonicalKey: string, session: ReplyFlowSession) => {
+    const reg = session.registeredConvKey;
+    if (reg) {
+        replyFlowConvToCanonicalKey.delete(reg);
+        session.registeredConvKey = undefined;
+    }
+    replyFlowSessions.delete(canonicalKey);
+    adjustReplyFlowSessionCount(session.campaignId, -1);
+    maybeClearReplyFlowDef(session.campaignId);
 };
 
 const sanitizeReplyFlowSteps = (
@@ -3961,9 +3979,18 @@ const handleReplyFlowIncoming = (
     connectionId: string,
     phoneDigits: string,
     bodyText: string,
-    nonTextReply?: boolean
+    nonTextReply?: boolean,
+    incomingConvId?: string
 ) => {
-    const found = findReplyFlowSession(connectionId, phoneDigits);
+    let found: { key: string; session: ReplyFlowSession } | null = null;
+    if (incomingConvId) {
+        const canonKey = replyFlowConvToCanonicalKey.get(incomingConvId);
+        if (canonKey) {
+            const session = replyFlowSessions.get(canonKey);
+            if (session) found = { key: canonKey, session };
+        }
+    }
+    if (!found) found = findReplyFlowSession(connectionId, phoneDigits);
     if (!found) {
         // Pode ser uma resposta de quem nao esta em campanha — silencioso.
         // Mas se ha sessoes ativas no canal, vale logar (debug):
@@ -3980,9 +4007,7 @@ const handleReplyFlowIncoming = (
     const { key, session } = found;
     const def = replyFlowDefs.get(session.campaignId);
     if (!def?.steps?.length) {
-        replyFlowSessions.delete(key);
-        adjustReplyFlowSessionCount(session.campaignId, -1);
-        maybeClearReplyFlowDef(session.campaignId);
+        disposeReplyFlowSession(key, session);
         return;
     }
     if (pausedCampaigns.has(session.campaignId)) return;
@@ -4017,9 +4042,7 @@ const handleReplyFlowIncoming = (
             });
             return;
         }
-        replyFlowSessions.delete(key);
-        adjustReplyFlowSessionCount(session.campaignId, -1);
-        maybeClearReplyFlowDef(session.campaignId);
+        disposeReplyFlowSession(key, session);
         return;
     }
 
@@ -4040,9 +4063,7 @@ const handleReplyFlowIncoming = (
 
     const nextIdx = awaiting + 1;
     if (nextIdx >= steps.length) {
-        replyFlowSessions.delete(key);
-        adjustReplyFlowSessionCount(session.campaignId, -1);
-        maybeClearReplyFlowDef(session.campaignId);
+        disposeReplyFlowSession(key, session);
         return;
     }
 
@@ -4739,12 +4760,15 @@ const processQueue = async () => {
 
             if (item.replyFlowOpen && item.replyFlowOpen.campaignId) {
                 const sessKey = `${item.connectionId}:${item.replyFlowOpen.phoneDigits}`;
+                const convKey = getConversationKey(item.connectionId, finalChatId);
                 replyFlowSessions.set(sessKey, {
                     campaignId: item.replyFlowOpen.campaignId,
                     awaitingAfterStep: 0,
                     vars: item.replyFlowOpen.vars,
-                    toRaw: item.to
+                    toRaw: item.to,
+                    registeredConvKey: convKey
                 });
+                replyFlowConvToCanonicalKey.set(convKey, sessKey);
                 adjustReplyFlowSessionCount(item.replyFlowOpen.campaignId, 1);
             }
             if (item.replyFlowAfterSend) {

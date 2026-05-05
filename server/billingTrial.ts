@@ -5,6 +5,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { mergeUserSubscription, type UserSubscriptionDoc } from './subscriptionFirestore.js';
 import { getTrialDurationMs } from './appConfigStore.js';
+import { notifyAdminsNewClientSignup } from './adminNewSignupNotify.js';
 
 const COLLECTION = 'userSubscriptions';
 
@@ -68,6 +69,10 @@ export function registerBillingTrialRoutes(app: Express): void {
         mercadoPagoChannelAddonPreapprovalId: FieldValue.delete(),
         mercadoPagoChannelAddonOneTimePaymentId: FieldValue.delete()
       } as any);
+
+      void notifyAdminsNewClientSignup({ uid, source: 'trial' }).catch((e) => {
+        console.error('[billing/trial/start] notify admins novo cliente', e);
+      });
 
       return res.json({ ok: true, trialEndsAt: trialEnds.toISOString() });
     } catch (e: unknown) {

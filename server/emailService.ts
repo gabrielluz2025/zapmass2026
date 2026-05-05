@@ -363,6 +363,94 @@ export async function sendSuggestionNotificationEmail(
 }
 
 // ============================================================================
+// Novo cliente (trial ou primeira assinatura) — email aos criadores
+// ============================================================================
+
+export interface NewClientSignupEmailParams {
+  clientUid: string;
+  clientEmail: string;
+  clientName?: string;
+  sourceLabel: string;
+}
+
+function buildNewClientSignupHtml(p: NewClientSignupEmailParams): string {
+  const name = escapeHtml(p.clientName || '—');
+  const em = escapeHtml(p.clientEmail || '—');
+  const uid = escapeHtml(p.clientUid);
+  const src = escapeHtml(p.sourceLabel);
+  return `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"/><title>Novo cliente — ZapMass</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
+  <div style="max-width:560px;margin:0 auto;padding:32px 16px">
+    <div style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06)">
+      <div style="background:linear-gradient(135deg,#059669 0%,#047857 100%);padding:24px;text-align:center">
+        <h1 style="margin:0;color:#fff;font-size:20px;font-weight:800">Novo cliente no ZapMass</h1>
+        <p style="margin:8px 0 0;color:rgba(255,255,255,0.92);font-size:14px">${src}</p>
+      </div>
+      <div style="padding:24px">
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td style="padding:8px 0;color:#6b7280;font-size:13px;font-weight:600">Nome</td><td style="padding:8px 0;text-align:right;font-weight:600">${name}</td></tr>
+          <tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600">E-mail</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:600">${em}</td></tr>
+          <tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;color:#6b7280;font-size:13px;font-weight:600">UID</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;text-align:right;font-size:12px;font-family:monospace">${uid}</td></tr>
+        </table>
+      </div>
+    </div>
+    <p style="margin:16px 0 0;color:#9ca3af;font-size:12px;text-align:center">Notificação automática. Para alterar destinatários: <code>NEW_CLIENT_NOTIFY_EMAIL</code>, <code>SUGGESTION_NOTIFY_EMAIL</code> ou <code>ADMIN_EMAILS</code>.</p>
+  </div>
+</body></html>`;
+}
+
+/**
+ * Destinos: NEW_CLIENT_NOTIFY_EMAIL → senão SUGGESTION_NOTIFY_EMAIL → senão ADMIN_EMAILS.
+ * Não lança exceção.
+ */
+export async function sendNewClientSignupNotificationEmail(p: NewClientSignupEmailParams): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    console.log('[EmailService] novo cliente: RESEND_API_KEY ausente — email pulado');
+    return false;
+  }
+  const explicit =
+    (process.env.NEW_CLIENT_NOTIFY_EMAIL || process.env.SUGGESTION_NOTIFY_EMAIL || '').trim();
+  const adminList = (process.env.ADMIN_EMAILS || '').trim();
+  const raw = explicit.length > 0 ? explicit : adminList;
+  const recipients = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && /@/.test(s));
+  if (recipients.length === 0) {
+    console.log('[EmailService] novo cliente: lista de emails vazia — pulado');
+    return false;
+  }
+  const from = (process.env.EMAIL_FROM || 'ZapMass <onboarding@resend.dev>').trim();
+  const subject = `Novo cliente — ${p.clientEmail || p.clientUid.slice(0, 10)}`;
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from,
+        to: recipients,
+        subject,
+        html: buildNewClientSignupHtml(p)
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error('[EmailService] novo cliente Resend', res.status, text);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('[EmailService] erro email novo cliente:', e);
+    return false;
+  }
+}
+
+// ============================================================================
 // Resposta do criador a uma sugestão (envia email para o cliente)
 // ============================================================================
 

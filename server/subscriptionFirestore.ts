@@ -1,6 +1,7 @@
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { addCalendarMonths } from './subscriptionPeriod.js';
+import { notifyAdminsNewSignupAfterPaidIfNeeded } from './adminNewSignupNotify.js';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'none';
 /** Apenas Mercado Pago é usado para novas cobranças; `infinitepay` só em dados legados. */
@@ -41,6 +42,8 @@ export interface UserSubscriptionDoc {
   manualGrant?: boolean;
   /** Se true, o teste de 1h ja foi concedido nesta conta (nao repetir). */
   freeTrialUsed?: boolean;
+  /** Quando o criador foi notificado (sino + email) sobre este novo cliente — evita duplicar. */
+  adminNewClientNotifiedAt?: Timestamp | null;
   /** Id da ultima NFS-e emitida no NFE.io (quando nfe-io ativo). */
   nfeLastInvoiceId?: string;
   /** Status da ultima NFS-e (Processing|Issued|Cancelled|Error). */
@@ -104,5 +107,9 @@ export async function extendPaidSubscription(
     } as Record<string, unknown>,
     { merge: true }
   );
+  const wasRenewal = cur?.status === 'active' && existingEnd != null && existingEnd > now;
+  void notifyAdminsNewSignupAfterPaidIfNeeded(uid, { wasRenewal }).catch((e) => {
+    console.error('[extendPaidSubscription] notify admins novo cliente', e);
+  });
   return true;
 }

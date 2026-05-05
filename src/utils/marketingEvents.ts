@@ -21,7 +21,7 @@ export function trackLandingEvent(action: string, params?: Record<string, string
 }
 
 /** Conclusão do fluxo de autenticação (funil pós-clique nos CTAs da landing). */
-export function trackLoginSuccess(method: 'google' | 'staff'): void {
+export function trackLoginSuccess(method: 'google' | 'facebook' | 'apple' | 'staff'): void {
   trackLandingEvent('login_success', { method });
 }
 

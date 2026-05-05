@@ -1,6 +1,13 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  FacebookAuthProvider,
+  OAuthProvider,
+  setPersistence,
+  browserLocalPersistence
+} from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAa-a8MMECStZgKxxELeLSJT7JpJOKMJZw',
@@ -23,3 +30,12 @@ setPersistence(auth, browserLocalPersistence).catch((err) => {
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+/** Habilitar Facebook e Apple no Firebase Console → Authentication → Sign-in method. */
+export const facebookProvider = new FacebookAuthProvider();
+facebookProvider.addScope('email');
+facebookProvider.addScope('public_profile');
+
+export const appleProvider = new OAuthProvider('apple.com');
+appleProvider.addScope('email');
+appleProvider.addScope('name');

@@ -6,16 +6,20 @@ import {
   getRedirectResult,
   signOut as firebaseSignOut,
   signInWithCustomToken,
-  User
+  User,
+  UserCredential,
+  type AuthProvider
 } from 'firebase/auth';
 import toast from 'react-hot-toast';
-import { auth, googleProvider } from '../services/firebase';
+import { auth, appleProvider, facebookProvider, googleProvider } from '../services/firebase';
 import { trackLoginSuccess } from '../utils/marketingEvents';
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithFacebook: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
   /** Login de funcionário (token emitido pelo servidor após validar e-mail do gestor + usuário + senha). */
   signInWithStaffCustomToken: (customToken: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -25,6 +29,8 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
   signInWithGoogle: async () => {},
+  signInWithFacebook: async () => {},
+  signInWithApple: async () => {},
   signInWithStaffCustomToken: async () => {},
   signOut: async () => {}
 });
@@ -34,7 +40,7 @@ const mapAuthErrorMessage = (err: any): string => {
   const code: string = err?.code || '';
   switch (code) {
     case 'auth/popup-blocked':
-      return 'Seu navegador bloqueou o popup de login. Vamos redirecionar para o Google...';
+      return 'Seu navegador bloqueou o popup de login. Vamos redirecionar na mesma página…';
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
       return 'Login cancelado.';
@@ -52,10 +58,49 @@ const mapAuthErrorMessage = (err: any): string => {
     case 'auth/invalid-custom-token':
     case 'auth/custom-token-mismatch':
       return 'Token de acesso inválido ou expirado. Tente entrar de novo.';
+    case 'auth/account-exists-with-different-credential':
+      return 'Este e-mail já está ligado a outro método de login. Use o mesmo botão (Google, Apple ou Facebook) que usou na primeira vez.';
     default:
-      return err?.message || 'Falha ao entrar com Google.';
+      return err?.message || 'Falha ao entrar. Tente novamente.';
   }
 };
+
+const trackLoginSuccessFromCredential = (res: UserCredential) => {
+  const pid = res.providerId || res.user?.providerData?.[0]?.providerId || '';
+  if (pid === 'facebook.com') trackLoginSuccess('facebook');
+  else if (pid === 'apple.com') trackLoginSuccess('apple');
+  else trackLoginSuccess('google');
+};
+
+async function signInWithProviderPopupOrRedirect(
+  provider: AuthProvider,
+  opts: { redirectToastId: string; redirectMessage: string }
+): Promise<void> {
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (err: any) {
+    const code = err?.code || '';
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      return;
+    }
+    if (
+      code === 'auth/popup-blocked' ||
+      code === 'auth/operation-not-supported-in-this-environment' ||
+      code === 'auth/web-storage-unsupported'
+    ) {
+      try {
+        toast.loading(opts.redirectMessage, { id: opts.redirectToastId, duration: 3000 });
+        await signInWithRedirect(auth, provider);
+        return;
+      } catch (redirectErr: any) {
+        console.error('[AuthContext] signInWithRedirect:', redirectErr);
+        toast.error(mapAuthErrorMessage(redirectErr));
+        return;
+      }
+    }
+    throw err;
+  }
+}
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -66,7 +111,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     getRedirectResult(auth)
       .then((res) => {
         if (res?.user) {
-          trackLoginSuccess('google');
+          trackLoginSuccessFromCredential(res);
           toast.success('Login realizado com sucesso.');
         }
       })
@@ -87,32 +132,45 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signInWithGoogle = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithProviderPopupOrRedirect(googleProvider, {
+        redirectToastId: 'google-redirect',
+        redirectMessage: 'Redirecionando para o Google...'
+      });
+      if (!auth.currentUser) return;
       trackLoginSuccess('google');
       toast.success('Login realizado com sucesso.');
     } catch (err: any) {
-      const code = err?.code || '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        return;
-      }
-      // Popup bloqueado pelo navegador / bloqueador de anuncios / iframe sem permissao
-      // => cai automaticamente para fluxo de redirect (mesma aba).
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/operation-not-supported-in-this-environment' ||
-        code === 'auth/web-storage-unsupported'
-      ) {
-        try {
-          toast.loading('Redirecionando para o Google...', { id: 'google-redirect', duration: 3000 });
-          await signInWithRedirect(auth, googleProvider);
-          return;
-        } catch (redirectErr: any) {
-          console.error('[AuthContext] signInWithRedirect fallback:', redirectErr);
-          toast.error(mapAuthErrorMessage(redirectErr));
-          return;
-        }
-      }
       console.error('[AuthContext] signInWithGoogle:', err);
+      toast.error(mapAuthErrorMessage(err));
+    }
+  };
+
+  const signInWithFacebook = async () => {
+    try {
+      await signInWithProviderPopupOrRedirect(facebookProvider, {
+        redirectToastId: 'facebook-redirect',
+        redirectMessage: 'Redirecionando para o Facebook...'
+      });
+      if (!auth.currentUser) return;
+      trackLoginSuccess('facebook');
+      toast.success('Login realizado com sucesso.');
+    } catch (err: any) {
+      console.error('[AuthContext] signInWithFacebook:', err);
+      toast.error(mapAuthErrorMessage(err));
+    }
+  };
+
+  const signInWithApple = async () => {
+    try {
+      await signInWithProviderPopupOrRedirect(appleProvider, {
+        redirectToastId: 'apple-redirect',
+        redirectMessage: 'Redirecionando para a Apple...'
+      });
+      if (!auth.currentUser) return;
+      trackLoginSuccess('apple');
+      toast.success('Login realizado com sucesso.');
+    } catch (err: any) {
+      console.error('[AuthContext] signInWithApple:', err);
       toast.error(mapAuthErrorMessage(err));
     }
   };
@@ -145,7 +203,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signInWithStaffCustomToken, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        signInWithGoogle,
+        signInWithFacebook,
+        signInWithApple,
+        signInWithStaffCustomToken,
+        signOut
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -15,16 +15,30 @@ interface LoginCardProps {
   landingLayout?: boolean;
 }
 
+type OauthPid = 'google' | 'facebook' | 'apple';
+type LoadingState =
+  | 'idle'
+  | 'staff'
+  | 'oauth:google:trial'
+  | 'oauth:google:customer'
+  | 'oauth:facebook:trial'
+  | 'oauth:facebook:customer'
+  | 'oauth:apple:trial'
+  | 'oauth:apple:customer';
+
+const oauthSpin = (loading: LoadingState, provider: OauthPid, mode: 'trial' | 'customer') =>
+  loading === (`oauth:${provider}:${mode}` as LoadingState);
+
 export const LoginCard: React.FC<LoginCardProps> = ({
   title = 'Entre na sua conta',
-  subtitle = 'Acesse sua operação com 1 clique no Google e comece seu teste sem complicação.',
+  subtitle = 'Acesse com Google, Apple ou Facebook — um clique para entrar e começar seu teste sem complicação.',
   showTrialOption = false,
   landingLayout = false
 }) => {
-  const { signInWithGoogle, signInWithStaffCustomToken } = useAuth();
+  const { signInWithGoogle, signInWithFacebook, signInWithApple, signInWithStaffCustomToken } = useAuth();
   const { config } = useAppConfig();
   const [entryMode, setEntryMode] = useState<'admin' | 'staff'>('admin');
-  const [loading, setLoading] = useState<'idle' | 'login' | 'trial' | 'staff'>('idle');
+  const [loading, setLoading] = useState<LoadingState>('idle');
 
   const [managerEmail, setManagerEmail] = useState('');
   const [staffLoginName, setStaffLoginName] = useState('');
@@ -34,10 +48,11 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     ? 'Começar grátis com Google'
     : `Entrar com Google e iniciar teste grátis (${formatTrialHoursLabel(config.trialHours)})`;
 
-  const runLogin = async (mode: 'trial' | 'customer') => {
+  const runOAuthLogin = async (provider: 'google' | 'facebook' | 'apple', mode: 'trial' | 'customer') => {
     if (landingLayout) {
       trackLandingEvent('landing_login_click', {
-        login_kind: mode === 'trial' ? 'google_trial' : 'google_existing'
+        login_kind:
+          mode === 'trial' ? `${provider}_trial` : `${provider}_existing`
       });
     }
     if (mode === 'trial') {
@@ -55,9 +70,11 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         /* ignore */
       }
     }
-    setLoading(mode === 'trial' ? 'trial' : 'login');
+    setLoading(`oauth:${provider}:${mode}` as LoadingState);
     try {
-      await signInWithGoogle();
+      if (provider === 'google') await signInWithGoogle();
+      else if (provider === 'facebook') await signInWithFacebook();
+      else await signInWithApple();
     } finally {
       setLoading('idle');
     }
@@ -146,7 +163,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           {subtitle}
         </p>
 
-        {/* Quem entra: gestor (Google) ou funcionário (usuário + senha criados pelo gestor) */}
+        {/* Quem entra: gestor (OAuth) ou funcionário (usuário + senha criados pelo gestor) */}
         <div
           className="flex rounded-xl p-1 mb-5 gap-1"
           style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -193,8 +210,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           <div className="space-y-3 mb-2">
             <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
               O responsável cria o seu usuário e senha na área{' '}
-              <strong>Funcionários</strong> do painel. Use o <strong>e-mail dele (Google)</strong> e o usuário que criou para
-              você.
+              <strong>Funcionários</strong> do painel. Use o <strong>e-mail principal do gestor</strong> (o mesmo da conta dele
+              no ZapMass) e o usuário que criou para você.
             </p>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
@@ -276,15 +293,15 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               )}
             </button>
             <p className="text-[11px] leading-snug pt-1" style={{ color: 'var(--text-3)' }}>
-              Este acesso usa a assinatura da conta do gestor. Teste grátis só é ativado quando o responsável entra com
-              Google pela primeira vez.
+              Este acesso usa a assinatura da conta do gestor. O teste grátis só é ativado quando o responsável entra pela
+              primeira vez com Google, Apple ou Facebook.
             </p>
           </div>
         ) : showTrialOption ? (
           <>
             <button
               type="button"
-              onClick={() => runLogin('trial')}
+              onClick={() => void runOAuthLogin('google', 'trial')}
               disabled={busy}
               className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:brightness-110 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
               style={{
@@ -292,10 +309,10 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 boxShadow: '0 14px 32px rgba(16,185,129,0.35)'
               }}
             >
-              {loading === 'trial' ? (
+              {oauthSpin(loading, 'google', 'trial') ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Abrindo Google…
+                  Conectando…
                 </>
               ) : (
                 <>
@@ -310,12 +327,12 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               </p>
             ) : (
               <p className="text-[11.5px] mt-2 text-center" style={{ color: 'var(--text-3)' }}>
-                Fluxo único: você entra com Google e o teste é ativado automaticamente no primeiro acesso.
+                No primeiro acesso, o teste grátis ativa automaticamente (Google, Apple ou Facebook).
               </p>
             )}
             <button
               type="button"
-              onClick={() => runLogin('customer')}
+              onClick={() => void runOAuthLogin('google', 'customer')}
               disabled={busy}
               className="w-full mt-2.5 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-[12.5px] font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               style={{
@@ -324,7 +341,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 border: '1px solid var(--border-subtle)'
               }}
             >
-              {loading === 'login' ? (
+              {oauthSpin(loading, 'google', 'customer') ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   Entrando…
@@ -336,32 +353,162 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 </>
               )}
             </button>
+
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                Ou continue com
+              </span>
+              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+            </div>
+            <p className="text-[11px] font-semibold text-center mb-2" style={{ color: 'var(--text-2)' }}>
+              Começar grátis
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => void runOAuthLogin('facebook', 'trial')}
+                disabled={busy}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[12px] font-bold text-white transition-all disabled:opacity-60"
+                style={{ background: '#1877F2', boxShadow: '0 8px 20px rgba(24,119,242,0.25)' }}
+              >
+                {oauthSpin(loading, 'facebook', 'trial') ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FacebookLogo tone="light" />
+                )}
+                {landingLayout ? 'Facebook — grátis' : 'Grátis com Facebook'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runOAuthLogin('apple', 'trial')}
+                disabled={busy}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[12px] font-bold text-white transition-all disabled:opacity-60"
+                style={{ background: '#000', boxShadow: '0 8px 20px rgba(0,0,0,0.2)' }}
+              >
+                {oauthSpin(loading, 'apple', 'trial') ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <AppleLogo tone="light" />
+                )}
+                {landingLayout ? 'Apple — grátis' : 'Grátis com Apple'}
+              </button>
+            </div>
+            <p className="text-[11px] text-center mt-3 mb-1.5 font-medium" style={{ color: 'var(--text-3)' }}>
+              Já sou cliente
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => void runOAuthLogin('facebook', 'customer')}
+                disabled={busy}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[12px] font-semibold transition-all disabled:opacity-60"
+                style={{
+                  background: 'var(--surface-1)',
+                  color: 'var(--text-2)',
+                  border: '1px solid var(--border-subtle)'
+                }}
+              >
+                {oauthSpin(loading, 'facebook', 'customer') ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FacebookLogo />
+                )}
+                Facebook
+              </button>
+              <button
+                type="button"
+                onClick={() => void runOAuthLogin('apple', 'customer')}
+                disabled={busy}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[12px] font-semibold transition-all disabled:opacity-60"
+                style={{
+                  background: 'var(--surface-1)',
+                  color: 'var(--text-2)',
+                  border: '1px solid var(--border-subtle)'
+                }}
+              >
+                {oauthSpin(loading, 'apple', 'customer') ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <AppleLogo />
+                )}
+                Apple
+              </button>
+            </div>
           </>
         ) : (
-          <button
-            type="button"
-            onClick={() => runLogin('customer')}
-            disabled={busy}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{
-              background: '#fff',
-              color: '#111',
-              border: '1px solid #e5e7eb',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.08)'
-            }}
-          >
-            {loading === 'login' ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Entrando…
-              </>
-            ) : (
-              <>
-                <GoogleLogo />
-                Entrar com Google
-              </>
-            )}
-          </button>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => void runOAuthLogin('google', 'customer')}
+              disabled={busy}
+              className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14px] transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{
+                background: '#fff',
+                color: '#111',
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.08)'
+              }}
+            >
+              {oauthSpin(loading, 'google', 'customer') ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Conectando…
+                </>
+              ) : (
+                <>
+                  <GoogleLogo />
+                  Entrar com Google
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => void runOAuthLogin('facebook', 'customer')}
+              disabled={busy}
+              className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14px] text-white transition-all hover:brightness-110 active:scale-[0.99] disabled:opacity-60"
+              style={{
+                background: '#1877F2',
+                border: '1px solid rgba(0,0,0,0.06)',
+                boxShadow: '0 6px 18px rgba(24,119,242,0.28)'
+              }}
+            >
+              {oauthSpin(loading, 'facebook', 'customer') ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Conectando…
+                </>
+              ) : (
+                <>
+                  <FacebookLogo tone="light" />
+                  Entrar com Facebook
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => void runOAuthLogin('apple', 'customer')}
+              disabled={busy}
+              className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl font-semibold text-[14px] text-white transition-all hover:opacity-95 active:scale-[0.99] disabled:opacity-60"
+              style={{
+                background: '#000',
+                border: '1px solid #333',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.2)'
+              }}
+            >
+              {oauthSpin(loading, 'apple', 'customer') ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Conectando…
+                </>
+              ) : (
+                <>
+                  <AppleLogo tone="light" />
+                  Entrar com Apple
+                </>
+              )}
+            </button>
+          </div>
         )}
 
         {landingLayout ? (
@@ -376,7 +523,10 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             <div className="px-3 pb-3 pt-0 space-y-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               {entryMode === 'admin' ? (
                 <>
-                  <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Responsável: login com Google (OAuth) — sem criar senha no ZapMass" />
+                  <Feature
+                    icon={<ShieldCheck className="w-3.5 h-3.5" />}
+                    label="Responsável: login com Google, Apple ou Facebook (OAuth) — sem criar senha no ZapMass"
+                  />
                   <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente no navegador" />
                 </>
               ) : (
@@ -408,7 +558,10 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             <div className="space-y-2">
               {entryMode === 'admin' ? (
                 <>
-                  <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Responsável: login com Google (OAuth) — sem senha nosso" />
+                  <Feature
+                    icon={<ShieldCheck className="w-3.5 h-3.5" />}
+                    label="Responsável: login com Google, Apple ou Facebook (OAuth) — sem senha nosso"
+                  />
                   <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
                 </>
               ) : (
@@ -444,6 +597,38 @@ const Feature: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, lab
       {label}
     </span>
   </div>
+);
+
+const FacebookLogo: React.FC<{ tone?: 'light' | 'brand' }> = ({ tone = 'brand' }) => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+    style={{ color: tone === 'light' ? '#fff' : '#1877F2' }}
+  >
+    <path
+      fill="currentColor"
+      d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"
+    />
+  </svg>
+);
+
+const AppleLogo: React.FC<{ tone?: 'light' | 'dark' }> = ({ tone = 'dark' }) => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+    style={{ color: tone === 'light' ? '#fff' : '#000' }}
+  >
+    <path
+      fill="currentColor"
+      d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"
+    />
+  </svg>
 );
 
 const GoogleLogo: React.FC = () => (

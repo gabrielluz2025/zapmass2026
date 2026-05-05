@@ -192,7 +192,7 @@ export const PreLoginLanding: React.FC = () => {
                 boxShadow: '0 14px 32px rgba(16,185,129,0.35)'
               }}
             >
-              Começar grátis com Google
+              Começar grátis — Google, Apple ou Facebook
               <ArrowRight className="w-4 h-4 opacity-95" />
             </a>
             <a
@@ -259,7 +259,7 @@ export const PreLoginLanding: React.FC = () => {
                     <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
                       Gestor
                     </span>{' '}
-                    — login com Google.
+                    — login com Google, Apple ou Facebook.
                   </span>
                 </li>
                 <li className="flex gap-3 items-start">
@@ -325,7 +325,7 @@ export const PreLoginLanding: React.FC = () => {
             landingLayout
             showTrialOption
             title="Crie sua conta em um passo"
-            subtitle="Gestor: Google no primeiro acesso ativa o teste. Equipe: use a aba Funcionário com usuário criado pelo gestor."
+            subtitle="Gestor: no primeiro acesso com Google, Apple ou Facebook o teste é ativado. Equipe: use a aba Funcionário com usuário criado pelo gestor."
           />
           <p className="text-[10.5px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
             Ao entrar você aceita as políticas do ZapMass. Dúvidas sobre responsabilidades com o WhatsApp e a LGPD:{' '}
@@ -490,7 +490,7 @@ export const PreLoginLanding: React.FC = () => {
             />
             <FaqItem
               q="Meus dados e os dados dos clientes ficam seguros?"
-              a="Sim. Cada conta opera com dados isolados (por gestor/responsável), autenticação segura pelo Google para o proprietário ou com usuário e senha criados dentro do ZapMass para a equipe, sempre sobre HTTPS. Você mantém controle sobre sua operação e sua base."
+              a="Sim. Cada conta opera com dados isolados (por gestor/responsável), autenticação segura com Google, Apple ou Facebook para o proprietário ou com usuário e senha criados dentro do ZapMass para a equipe, sempre sobre HTTPS. Você mantém controle sobre sua operação e sua base."
             />
             <FaqItem
               q="Preciso deixar computador ligado para disparar?"
