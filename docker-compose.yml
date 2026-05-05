@@ -9,6 +9,8 @@
 # Manual: cp .env.example .env, ajuste ALLOWED_ORIGINS e HOST_PORT, depois:
 #   docker compose up -d --build
 #
+# GA4: com VITE_GA_MEASUREMENT_ID=G-… no `.env`, o `docker compose up --build` embute o gtag no bundle.
+#
 # Porta publicada: HOST_PORT no .env (padrão 3001). Libere essa porta no firewall da VPS.
 # Dados: volume zapmass-data → /app/data (sessão WhatsApp e filas persistem no servidor).
 #
@@ -28,6 +30,8 @@ services:
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         # Na VPS: `export VITE_GIT_REF=$(git rev-parse --short HEAD)` antes do up --build, ou o workflow de deploy define.
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
+        # GA4 opcional — incorporado no bundle pelo Vite (ver .env.example).
+        VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
     init: true
     ports:
       - "${HOST_PORT:-3001}:3001"
@@ -96,6 +100,7 @@ services:
         VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-true}
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
+        VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
     command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
     init: true
     # Imagem HEALTHCHECK usa :3001 (API); o worker não escuta HTTP.

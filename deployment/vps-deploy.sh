@@ -49,6 +49,9 @@ if [ -f .env ]; then
   if [ -n "${WWEBJS_WEB_VERSION_URL:-}" ]; then
     echo "==> WWEBJS_WEB_VERSION_URL exportada (${WWEBJS_WEB_VERSION_URL:0:88}…)"
   fi
+  if [ -n "${VITE_GA_MEASUREMENT_ID:-}" ]; then
+    echo "==> VITE_GA_MEASUREMENT_ID presente (GA4 embutido no build do frontend)"
+  fi
   if [ -n "${RESEND_API_KEY:-}" ]; then
     echo "==> RESEND_API_KEY presente (prefixo ${RESEND_API_KEY:0:12}…)"
   else
@@ -116,6 +119,7 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     --build-arg VITE_ENFORCE_SUBSCRIPTION="${VITE_ENFORCE_SUBSCRIPTION:-true}" \
     --build-arg VITE_CREATOR_STUDIO="${VITE_CREATOR_STUDIO:-}" \
     --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
+    --build-arg VITE_GA_MEASUREMENT_ID="${VITE_GA_MEASUREMENT_ID:-}" \
     .
   docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
   # Swarm: duas "service update" em sequência podem falhar com "update out of sequence" — retentar e espaçar.
