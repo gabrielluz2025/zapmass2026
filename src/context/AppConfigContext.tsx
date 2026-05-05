@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { clampLandingTrialBody, clampLandingTrialTitle } from '../constants/landingTrialLimits';
 import type { AppConfigGlobal } from '../types/appConfig';
 import { DEFAULT_APP_CONFIG } from '../types/appConfig';
 
@@ -28,8 +29,8 @@ function normalizePayload(raw: unknown): AppConfigGlobal {
     marketingPriceMonthly: typeof o.marketingPriceMonthly === 'string' ? o.marketingPriceMonthly : '',
     marketingPriceAnnual: typeof o.marketingPriceAnnual === 'string' ? o.marketingPriceAnnual : '',
     trialHours,
-    landingTrialTitle: typeof o.landingTrialTitle === 'string' ? o.landingTrialTitle : '',
-    landingTrialBody: typeof o.landingTrialBody === 'string' ? o.landingTrialBody : ''
+    landingTrialTitle: clampLandingTrialTitle(typeof o.landingTrialTitle === 'string' ? o.landingTrialTitle : ''),
+    landingTrialBody: clampLandingTrialBody(typeof o.landingTrialBody === 'string' ? o.landingTrialBody : '')
   };
 }
 

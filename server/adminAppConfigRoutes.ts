@@ -3,7 +3,14 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { assertAdminFromBearer, adminEmailSet } from './adminAuth.js';
-import { defaultAppConfig, loadAppConfig, saveAppConfigMerge, type AppConfigGlobal } from './appConfigStore.js';
+import {
+  clampLandingTrialBodyInput,
+  clampLandingTrialTitleInput,
+  defaultAppConfig,
+  loadAppConfig,
+  saveAppConfigMerge,
+  type AppConfigGlobal
+} from './appConfigStore.js';
 import { loadMergedUserInsightData } from './insightMerge.js';
 import { sendSuggestionReplyEmail } from './emailService.js';
 
@@ -13,8 +20,8 @@ function sanitizePutBody(body: unknown): Partial<AppConfigGlobal> {
   const out: Partial<AppConfigGlobal> = {};
   if (typeof b.marketingPriceMonthly === 'string') out.marketingPriceMonthly = b.marketingPriceMonthly;
   if (typeof b.marketingPriceAnnual === 'string') out.marketingPriceAnnual = b.marketingPriceAnnual;
-  if (typeof b.landingTrialTitle === 'string') out.landingTrialTitle = b.landingTrialTitle;
-  if (typeof b.landingTrialBody === 'string') out.landingTrialBody = b.landingTrialBody;
+  if (typeof b.landingTrialTitle === 'string') out.landingTrialTitle = clampLandingTrialTitleInput(b.landingTrialTitle);
+  if (typeof b.landingTrialBody === 'string') out.landingTrialBody = clampLandingTrialBodyInput(b.landingTrialBody);
   if (typeof b.trialHours === 'number' && Number.isFinite(b.trialHours)) out.trialHours = b.trialHours;
   else if (typeof b.trialHours === 'string' && b.trialHours.trim()) {
     const n = Number(b.trialHours);

@@ -4,18 +4,22 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
+import { trackLandingEvent } from '../../utils/marketingEvents';
 
 interface LoginCardProps {
   title?: string;
   subtitle?: string;
   /** Quando true, o CTA principal ja inicia o teste apos login (fluxo unificado). */
   showTrialOption?: boolean;
+  /** Na landing: textos curtos + bloco «Entrada segura» recolhível (menos ruído). */
+  landingLayout?: boolean;
 }
 
 export const LoginCard: React.FC<LoginCardProps> = ({
   title = 'Entre na sua conta',
   subtitle = 'Acesse sua operação com 1 clique no Google e comece seu teste sem complicação.',
-  showTrialOption = false
+  showTrialOption = false,
+  landingLayout = false
 }) => {
   const { signInWithGoogle, signInWithStaffCustomToken } = useAuth();
   const { config } = useAppConfig();
@@ -26,9 +30,16 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   const [staffLoginName, setStaffLoginName] = useState('');
   const [staffPassword, setStaffPassword] = useState('');
 
-  const trialBtn = `Entrar com Google e iniciar teste grátis (${formatTrialHoursLabel(config.trialHours)})`;
+  const trialBtn = landingLayout
+    ? 'Começar grátis com Google'
+    : `Entrar com Google e iniciar teste grátis (${formatTrialHoursLabel(config.trialHours)})`;
 
   const runLogin = async (mode: 'trial' | 'customer') => {
+    if (landingLayout) {
+      trackLandingEvent('landing_login_click', {
+        login_kind: mode === 'trial' ? 'google_trial' : 'google_existing'
+      });
+    }
     if (mode === 'trial') {
       try {
         sessionStorage.setItem('zapmass.startTrialAfterLogin', '1');
@@ -66,6 +77,9 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     if (staffPassword.length < 8) {
       toast.error('Senha com pelo menos 8 caracteres.');
       return;
+    }
+    if (landingLayout) {
+      trackLandingEvent('landing_login_click', { login_kind: 'staff' });
     }
     try {
       sessionStorage.removeItem('zapmass.startTrialAfterLogin');
@@ -110,18 +124,20 @@ export const LoginCard: React.FC<LoginCardProps> = ({
       }}
     >
       <div className="relative z-[1]">
-        <div
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border mb-3"
-          style={{
-            background: 'rgba(16,185,129,0.08)',
-            borderColor: 'rgba(16,185,129,0.25)'
-          }}
-        >
-          <Sparkles className="w-3 h-3" style={{ color: 'var(--brand-600)' }} />
-          <span className="text-[10.5px] uppercase tracking-widest font-bold" style={{ color: 'var(--brand-600)' }}>
-            Bem-vindo
-          </span>
-        </div>
+        {!landingLayout && (
+          <div
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border mb-3"
+            style={{
+              background: 'rgba(16,185,129,0.08)',
+              borderColor: 'rgba(16,185,129,0.25)'
+            }}
+          >
+            <Sparkles className="w-3 h-3" style={{ color: 'var(--brand-600)' }} />
+            <span className="text-[10.5px] uppercase tracking-widest font-bold" style={{ color: 'var(--brand-600)' }}>
+              Bem-vindo
+            </span>
+          </div>
+        )}
 
         <h2 className="text-[22px] font-extrabold leading-tight mb-1.5" style={{ color: 'var(--text-1)' }}>
           {title}
@@ -288,9 +304,15 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 </>
               )}
             </button>
-            <p className="text-[11.5px] mt-2 text-center" style={{ color: 'var(--text-3)' }}>
-              Fluxo único: você entra com Google e o teste é ativado automaticamente no primeiro acesso.
-            </p>
+            {landingLayout ? (
+              <p className="text-[11px] mt-2 text-center font-medium" style={{ color: 'var(--text-2)' }}>
+                {formatTrialHoursLabel(config.trialHours)} com tudo liberado · sem cartão
+              </p>
+            ) : (
+              <p className="text-[11.5px] mt-2 text-center" style={{ color: 'var(--text-3)' }}>
+                Fluxo único: você entra com Google e o teste é ativado automaticamente no primeiro acesso.
+              </p>
+            )}
             <button
               type="button"
               onClick={() => runLogin('customer')}
@@ -342,36 +364,66 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           </button>
         )}
 
-        {/* Divider */}
-        <div className="flex items-center gap-3 my-5">
-          <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-          <span
-            className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-widest"
-            style={{ color: 'var(--text-3)' }}
-          >
-            <Lock className="w-3 h-3" />
-            Entrada segura
-          </span>
-          <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-        </div>
+        {landingLayout ? (
+          <details className="mt-5 rounded-xl border overflow-hidden group" style={{ borderColor: 'var(--border-subtle)' }}>
+            <summary className="flex items-center gap-2 px-3 py-2.5 cursor-pointer list-none text-[12px] font-semibold select-none hover:bg-black/[0.03]">
+              <Lock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
+              <span style={{ color: 'var(--text-2)' }}>Como funciona o acesso e a segurança</span>
+              <span className="ml-auto text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                Ver
+              </span>
+            </summary>
+            <div className="px-3 pb-3 pt-0 space-y-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              {entryMode === 'admin' ? (
+                <>
+                  <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Responsável: login com Google (OAuth) — sem criar senha no ZapMass" />
+                  <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente no navegador" />
+                </>
+              ) : (
+                <>
+                  <Feature
+                    icon={<Lock className="w-3.5 h-3.5" />}
+                    label="Senha de funcionário validada no servidor e ligada à conta do gestor."
+                  />
+                  <Feature icon={<Users className="w-3.5 h-3.5" />} label="Até 10 funcionários — o gestor cria e revoga no painel." />
+                </>
+              )}
+              <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Sem fidelidade no teste: você decide quando assinar" />
+            </div>
+          </details>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 my-5">
+              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+              <span
+                className="inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-widest"
+                style={{ color: 'var(--text-3)' }}
+              >
+                <Lock className="w-3 h-3" />
+                Entrada segura
+              </span>
+              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
+            </div>
 
-        <div className="space-y-2">
-          {entryMode === 'admin' ? (
-            <>
-              <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Responsável: login com Google (OAuth) — sem senha nosso" />
-              <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
-            </>
-          ) : (
-            <>
-              <Feature
-                icon={<Lock className="w-3.5 h-3.5" />}
-                label="Senha de funcionário validada no servidor (Firebase Auth) e ligada à conta do gestor."
-              />
-              <Feature icon={<Users className="w-3.5 h-3.5" />} label="Limite de 10 funcionários com senha — o gestor gere e revoga no painel." />
-            </>
-          )}
-          <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Sem fidelidade na experiência: você decide quando continuar" />
-        </div>
+            <div className="space-y-2">
+              {entryMode === 'admin' ? (
+                <>
+                  <Feature icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Responsável: login com Google (OAuth) — sem senha nosso" />
+                  <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
+                </>
+              ) : (
+                <>
+                  <Feature
+                    icon={<Lock className="w-3.5 h-3.5" />}
+                    label="Senha de funcionário validada no servidor (Firebase Auth) e ligada à conta do gestor."
+                  />
+                  <Feature icon={<Users className="w-3.5 h-3.5" />} label="Limite de 10 funcionários com senha — o gestor gere e revoga no painel." />
+                </>
+              )}
+              <Feature icon={<Sparkles className="w-3.5 h-3.5" />} label="Sem fidelidade na experiência: você decide quando continuar" />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

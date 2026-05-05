@@ -7,6 +7,11 @@ import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
 import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, Modal, Textarea } from '../ui';
+import {
+  LANDING_TRIAL_BODY_MAX_CHARS,
+  LANDING_TRIAL_TITLE_MAX_CHARS
+} from '../../constants/landingTrialLimits';
+import { resolveLandingTrialCopy } from '../../utils/landingTrialResolved';
 
 type AdminTab = 'config' | 'access' | 'suggestions';
 
@@ -224,6 +229,17 @@ export const AdminPanel: React.FC = () => {
     setLandingTrialTitle(config.landingTrialTitle);
     setLandingTrialBody(config.landingTrialBody);
   }, [config]);
+
+  const landingTrialPreview = useMemo(() => {
+    let th = Math.round(Number.parseFloat(String(trialHours).trim()));
+    if (!Number.isFinite(th)) th = 1;
+    th = Math.max(1, Math.min(168, th));
+    return resolveLandingTrialCopy({
+      trialHours: th,
+      landingTrialTitle,
+      landingTrialBody
+    });
+  }, [trialHours, landingTrialTitle, landingTrialBody]);
 
   const save = async () => {
     if (!user) return;
@@ -797,28 +813,54 @@ export const AdminPanel: React.FC = () => {
           <Card>
             <CardHeader
               title="Landing — bloco de teste grátis"
-              subtitle="Título e corpo opcionais na página inicial."
+              subtitle={`Opcional; máximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no título e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Na página pública, cliques disparam eventos landing_cta_click e landing_login_click para gtag ou dataLayer, se existirem.`}
               icon={<Sparkles className="w-4 h-4 text-amber-600" />}
             />
             <div className="mt-4 space-y-3">
               <div>
-                <label className="ui-eyebrow text-[10px]">Título</label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="ui-eyebrow text-[10px]">Título</label>
+                  <span className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                    {landingTrialTitle.length}/{LANDING_TRIAL_TITLE_MAX_CHARS}
+                  </span>
+                </div>
                 <input
                   className="ui-input mt-1"
                   value={landingTrialTitle}
+                  maxLength={LANDING_TRIAL_TITLE_MAX_CHARS}
                   onChange={(e) => setLandingTrialTitle(e.target.value)}
                   placeholder="Vazio = título automático a partir das horas"
                 />
               </div>
               <div>
-                <label className="ui-eyebrow text-[10px]">Texto</label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="ui-eyebrow text-[10px]">Texto</label>
+                  <span className="text-[10px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                    {landingTrialBody.length}/{LANDING_TRIAL_BODY_MAX_CHARS}
+                  </span>
+                </div>
                 <textarea
                   rows={4}
+                  maxLength={LANDING_TRIAL_BODY_MAX_CHARS}
                   className="ui-input mt-1 resize-y min-h-[100px]"
                   value={landingTrialBody}
                   onChange={(e) => setLandingTrialBody(e.target.value)}
                   placeholder="Vazio = texto padrão da landing"
                 />
+              </div>
+              <div
+                className="rounded-xl border p-4 space-y-2"
+                style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+              >
+                <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                  Pré-visualização (como na landing)
+                </p>
+                <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
+                  {landingTrialPreview.title}
+                </p>
+                <p className="text-[12px] leading-relaxed font-medium" style={{ color: 'var(--text-2)' }}>
+                  {landingTrialPreview.body}
+                </p>
               </div>
             </div>
           </Card>

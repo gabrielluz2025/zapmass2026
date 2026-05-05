@@ -12,6 +12,15 @@ export interface AppConfigGlobal {
 const COLLECTION = 'appConfig';
 const DOC_ID = 'global';
 
+/** Alinhado a `src/constants/landingTrialLimits.ts`. */
+const LANDING_TRIAL_TITLE_MAX = 120;
+const LANDING_TRIAL_BODY_MAX = 600;
+
+function clampLandingStr(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max);
+}
+
 let cache: { at: number; data: AppConfigGlobal } | null = null;
 const TTL_MS = 15_000;
 
@@ -19,6 +28,14 @@ function clampTrialHours(n: number): number {
   if (!Number.isFinite(n) || n < 1) return 1;
   if (n > 168) return 168;
   return Math.round(n);
+}
+
+export function clampLandingTrialTitleInput(s: string): string {
+  return clampLandingStr(s, LANDING_TRIAL_TITLE_MAX);
+}
+
+export function clampLandingTrialBodyInput(s: string): string {
+  return clampLandingStr(s, LANDING_TRIAL_BODY_MAX);
 }
 
 export function mergeAppConfigPartial(raw: Record<string, unknown> | undefined): AppConfigGlobal {
@@ -34,8 +51,14 @@ export function mergeAppConfigPartial(raw: Record<string, unknown> | undefined):
     marketingPriceMonthly: typeof o.marketingPriceMonthly === 'string' ? o.marketingPriceMonthly : '',
     marketingPriceAnnual: typeof o.marketingPriceAnnual === 'string' ? o.marketingPriceAnnual : '',
     trialHours,
-    landingTrialTitle: typeof o.landingTrialTitle === 'string' ? o.landingTrialTitle : '',
-    landingTrialBody: typeof o.landingTrialBody === 'string' ? o.landingTrialBody : ''
+    landingTrialTitle: clampLandingStr(
+      typeof o.landingTrialTitle === 'string' ? o.landingTrialTitle : '',
+      LANDING_TRIAL_TITLE_MAX
+    ),
+    landingTrialBody: clampLandingStr(
+      typeof o.landingTrialBody === 'string' ? o.landingTrialBody : '',
+      LANDING_TRIAL_BODY_MAX
+    )
   };
 }
 
@@ -69,8 +92,13 @@ export async function saveAppConfigMerge(db: Firestore, partial: Partial<AppConf
       partial.marketingPriceAnnual !== undefined ? partial.marketingPriceAnnual : current.marketingPriceAnnual,
     trialHours: partial.trialHours !== undefined ? clampTrialHours(partial.trialHours) : current.trialHours,
     landingTrialTitle:
-      partial.landingTrialTitle !== undefined ? partial.landingTrialTitle : current.landingTrialTitle,
-    landingTrialBody: partial.landingTrialBody !== undefined ? partial.landingTrialBody : current.landingTrialBody
+      partial.landingTrialTitle !== undefined
+        ? clampLandingStr(partial.landingTrialTitle, LANDING_TRIAL_TITLE_MAX)
+        : current.landingTrialTitle,
+    landingTrialBody:
+      partial.landingTrialBody !== undefined
+        ? clampLandingStr(partial.landingTrialBody, LANDING_TRIAL_BODY_MAX)
+        : current.landingTrialBody
   };
   await ref.set(next, { merge: true });
   invalidateAppConfigCache();

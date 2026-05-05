@@ -1,21 +1,22 @@
 import React from 'react';
 import {
   Activity,
+  ArrowRight,
   BarChart3,
   CheckCircle2,
   ChevronDown,
-  KeyRound,
   MessageCircle,
-  Rocket,
   Send,
-  ShieldCheck,
   Sparkles,
   Users,
   Zap
 } from 'lucide-react';
 import { LoginCard } from './auth/LoginCard';
+import { useLandingDocumentMeta } from '../hooks/useLandingDocumentMeta';
 import { useAppConfig } from '../context/AppConfigContext';
-import { formatTrialDurationPhrase, formatTrialHoursLabel } from '../utils/trialCopy';
+import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
+import { trackLandingEvent } from '../utils/marketingEvents';
+import { formatTrialHoursLabel } from '../utils/trialCopy';
 import { LandingWhatsAppRiskNotice } from './legal/LandingWhatsAppRiskNotice';
 import {
   CHANNEL_TIER_PRICES_ANNUAL,
@@ -23,22 +24,10 @@ import {
   brl
 } from '../constants/channelTierPricing';
 
-const DEFAULT_PRICE_MONTHLY =
-  (import.meta.env.VITE_MARKETING_PRICE_MONTHLY as string | undefined)?.trim() || 'R$ 49,90 / mês';
-const DEFAULT_PRICE_ANNUAL =
-  (import.meta.env.VITE_MARKETING_PRICE_ANNUAL as string | undefined)?.trim() || 'R$ 479,90 / ano';
-
 export const PreLoginLanding: React.FC = () => {
+  useLandingDocumentMeta();
   const { config } = useAppConfig();
-  const trialTitle =
-    config.landingTrialTitle.trim() ||
-    `Experimente ${formatTrialHoursLabel(config.trialHours)} grátis`;
-  const trialBody =
-    config.landingTrialBody.trim() ||
-    `Você usa todos os recursos durante ${formatTrialDurationPhrase(config.trialHours)}, sem cartão e sem cobrança automática. Ao final do teste, você escolhe o plano ideal para continuar com os envios liberados.`;
-
-  const priceMonthly = config.marketingPriceMonthly.trim() || DEFAULT_PRICE_MONTHLY;
-  const priceAnnual = config.marketingPriceAnnual.trim() || DEFAULT_PRICE_ANNUAL;
+  const { title: trialTitle, body: trialBody } = resolveLandingTrialCopy(config);
   const channelFromMonthly = `${brl(CHANNEL_TIER_PRICES_MONTHLY[1])} / mês`;
   const channelFromAnnual = `${brl(CHANNEL_TIER_PRICES_ANNUAL[1])} / ano`;
 
@@ -89,7 +78,7 @@ export const PreLoginLanding: React.FC = () => {
         }}
       />
 
-      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-8 lg:py-14 lg:grid lg:grid-cols-[1.05fr_0.95fr] lg:gap-12 lg:items-start">
+      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-8 lg:py-14 lg:grid lg:grid-cols-[1.05fr_0.92fr] lg:gap-10 lg:items-start">
         {/* Header */}
         <header className="flex items-center justify-between mb-10 lg:mb-12 lg:col-span-2 animate-fade-in-up">
           <div className="flex items-center gap-3">
@@ -112,6 +101,7 @@ export const PreLoginLanding: React.FC = () => {
           <div className="flex items-center gap-2">
             <a
               href="#planos"
+              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_planos' })}
               className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
               style={{
                 color: 'var(--text-2)'
@@ -121,6 +111,7 @@ export const PreLoginLanding: React.FC = () => {
             </a>
             <a
               href="#faq"
+              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_faq' })}
               className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
               style={{
                 color: 'var(--text-2)'
@@ -128,52 +119,86 @@ export const PreLoginLanding: React.FC = () => {
             >
               Dúvidas
             </a>
-            <div
-              className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border"
+            <a
+              href="#acesso"
+              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_start_free' })}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[12.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] shadow-lg"
               style={{
-                background: 'rgba(16,185,129,0.08)',
-                borderColor: 'rgba(16,185,129,0.25)',
-                color: 'var(--brand-600)'
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                boxShadow: '0 8px 24px rgba(16,185,129,0.35)'
               }}
             >
-              <span className="relative flex w-2 h-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-              Online agora
-            </div>
+              Começar grátis
+              <ArrowRight className="w-4 h-4 opacity-90" />
+            </a>
           </div>
         </header>
 
-        {/* Coluna esquerda */}
-        <div className="lg:col-start-1 space-y-6 mb-10 lg:mb-0 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
+        {/* Coluna esquerda — mensagem principal */}
+        <div className="lg:col-start-1 space-y-5 mb-10 lg:mb-0 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
           <div
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[11px] font-bold uppercase tracking-widest"
+            className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10.5px] font-bold uppercase tracking-widest"
             style={{
               background: 'var(--surface-0)',
               borderColor: 'var(--border-subtle)',
               color: 'var(--brand-600)'
             }}
           >
-              <Sparkles className="w-3 h-3" />
+            <Sparkles className="w-3 h-3" />
             Operação profissional
           </div>
 
           <h2
-            className="text-4xl sm:text-5xl font-black leading-[1.02] tracking-tight max-w-xl"
+            className="text-3xl sm:text-[2.65rem] font-black leading-[1.08] tracking-tight max-w-[22rem] sm:max-w-xl"
             style={{ color: 'var(--text-1)' }}
           >
-            Estruture seu WhatsApp para{' '}
-            <span className="text-gradient-brand">vender com consistência</span> e segurança operacional.
+            Disparos no WhatsApp{' '}
+            <span className="text-gradient-brand">organizados</span>
+            {' '}para você vender com consistência.
           </h2>
 
-          <p className="text-[15.5px] leading-relaxed max-w-lg" style={{ color: 'var(--text-2)' }}>
-            Centralize canais, campanhas, atendimento e métricas em um único painel. Do primeiro envio ao acompanhamento diário, tudo fica organizado para você escalar sem improviso.
+          <p className="text-[15px] leading-relaxed max-w-lg" style={{ color: 'var(--text-2)' }}>
+            Um painel para campanhas, base de contatos, atendimento e métricas — sem improviso na operação.
           </p>
 
-          {/* Stats row — social proof */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+            <a
+              href="#acesso"
+              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_google_anchor' })}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl text-[14px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98]"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 55%, #047857 100%)',
+                boxShadow: '0 14px 32px rgba(16,185,129,0.35)'
+              }}
+            >
+              Começar grátis com Google
+              <ArrowRight className="w-4 h-4 opacity-95" />
+            </a>
+            <a
+              href="#planos"
+              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_view_plans' })}
+              className="inline-flex items-center justify-center px-5 py-3 rounded-xl text-[13px] font-semibold border transition-colors hover:bg-black/[0.03]"
+              style={{
+                color: 'var(--text-2)',
+                borderColor: 'var(--border-subtle)',
+                background: 'var(--surface-0)'
+              }}
+            >
+              Ver planos e valores
+            </a>
+          </div>
+          <div className="-mt-1 space-y-1 max-w-lg">
+            <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-2)' }}>
+              {trialTitle}
+            </p>
+            <p className="text-[12px] leading-relaxed font-medium" style={{ color: 'var(--text-3)' }}>
+              {trialBody}
+            </p>
+          </div>
+
+          {/* Stats row */}
           <div
-            className="flex flex-wrap items-stretch gap-0 rounded-2xl overflow-hidden"
+            className="flex flex-wrap items-stretch gap-0 rounded-2xl overflow-hidden max-w-xl"
             style={{
               background: 'var(--surface-0)',
               border: '1px solid var(--border-subtle)',
@@ -184,93 +209,72 @@ export const PreLoginLanding: React.FC = () => {
             <StatSep />
             <StatMini value="Pix -5%" label="Desconto imediato" />
             <StatSep />
-            <StatMini value="24/7" label="Operação na nuvem" />
+            <StatMini value="24/7" label="Nuvem" />
           </div>
 
-          {/* Highlights */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Chip
-              icon={<KeyRound className="w-3.5 h-3.5" />}
-              label="Gestor pelo Google ou equipe com usuário e senha"
-            />
-            <Chip icon={<CheckCircle2 className="w-3.5 h-3.5" />} label="Dados isolados por conta" />
-            <Chip icon={<Sparkles className="w-3.5 h-3.5" />} label="Teste grátis com ativação imediata" />
-          </div>
+          <p className="text-[12px] leading-snug max-w-lg flex flex-wrap items-center gap-x-2 gap-y-1" style={{ color: 'var(--text-3)' }}>
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
+              Login do gestor com Google
+            </span>
+            <span className="opacity-40 hidden sm:inline">·</span>
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
+              Equipe com usuário criado no painel
+            </span>
+            <span className="opacity-40 hidden sm:inline">·</span>
+            <span className="inline-flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
+              Dados isolados por conta
+            </span>
+          </p>
 
-          {/* Features grid */}
-          <ul className="grid sm:grid-cols-2 gap-3 pt-3">
-            <Pitch
-              icon={<Send className="w-4 h-4" />}
-              title="Campanhas com proteção de ritmo"
-              text="Limites por canal, atrasos inteligentes e pausas automáticas para reduzir risco operacional."
-            />
-            <Pitch
-              icon={<Users className="w-4 h-4" />}
-              title="Base de clientes organizada"
-              text="Importe CSV, use listas e etiquetas e mantenha o histórico pronto para segmentações precisas."
-            />
-            <Pitch
-              icon={<MessageCircle className="w-4 h-4" />}
-              title="Atendimento centralizado"
-              text="Responda conversas em um só lugar, com contexto de origem para acelerar o fechamento."
-            />
-            <Pitch
-              icon={<BarChart3 className="w-4 h-4" />}
-              title="Indicadores em tempo real"
-              text="Acompanhe entrega, leitura, resposta e falhas por campanha e por canal."
-            />
-          </ul>
-
-          {/* Trial card destacado */}
-          <div
-            className="relative rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-4 overflow-hidden"
-            style={{
-              background:
-                'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0.04) 60%, rgba(59,130,246,0.08) 100%)',
-              border: '1px solid rgba(16,185,129,0.28)'
-            }}
-          >
-            <div
-              aria-hidden
-              className="absolute -top-10 -right-10 w-40 h-40 rounded-full pointer-events-none"
-              style={{
-                background: 'radial-gradient(circle, rgba(16,185,129,0.28), transparent 70%)',
-                filter: 'blur(12px)'
-              }}
-            />
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 relative"
-              style={{
-                background: 'linear-gradient(135deg,#10b981,#059669)',
-                boxShadow: '0 10px 30px rgba(16,185,129,0.35)'
-              }}
-            >
-              <Rocket className="w-6 h-6 text-white" />
-            </div>
-            <div className="relative">
-              <p className="text-[14.5px] font-extrabold" style={{ color: 'var(--text-1)' }}>
-                {trialTitle}
-              </p>
-              <p className="text-[13px] leading-snug mt-1" style={{ color: 'var(--text-2)' }}>
-                {trialBody}
-              </p>
-            </div>
+          {/* Benefícios — texto mais curto */}
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-3)' }}>
+              O que você ganha
+            </p>
+            <ul className="grid sm:grid-cols-2 gap-3">
+              <Pitch
+                icon={<Send className="w-4 h-4" />}
+                title="Campanhas com ritmo seguro"
+                text="Limites por canal e pausas inteligentes para reduzir risco na operação."
+              />
+              <Pitch
+                icon={<Users className="w-4 h-4" />}
+                title="Base em ordem"
+                text="CSV, listas e etiquetas para segmentar com clareza."
+              />
+              <Pitch
+                icon={<MessageCircle className="w-4 h-4" />}
+                title="Atendimento no mesmo lugar"
+                text="Conversas centralizadas com contexto para responder rápido."
+              />
+              <Pitch
+                icon={<BarChart3 className="w-4 h-4" />}
+                title="Métricas na hora"
+                text="Entrega, leitura e resposta por campanha e canal."
+              />
+            </ul>
           </div>
         </div>
 
-        {/* Coluna direita (login) */}
-        <div className="lg:col-start-2 space-y-4 animate-fade-in-up" style={{ animationDelay: '160ms' }}>
-          <LandingWhatsAppRiskNotice />
+        {/* Coluna direita — acesso */}
+        <div
+          id="acesso"
+          className="lg:col-start-2 space-y-4 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-8 lg:self-start"
+          style={{ animationDelay: '160ms' }}
+        >
+          <LandingWhatsAppRiskNotice compact />
           <LoginCard
+            landingLayout
             showTrialOption
-            subtitle={`Responsável: entre com Google — no primeiro acesso pode ativar automaticamente o teste de ${formatTrialHoursLabel(
-              config.trialHours
-            )}. Funcionários: escolham «Funcionário» quando o gestor tiver criado usuário e senha em Funcionários.`}
+            title="Crie sua conta em um passo"
+            subtitle="Gestor: Google no primeiro acesso ativa o teste. Equipe: use a aba Funcionário com usuário criado pelo gestor."
           />
-          <p className="text-[11px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
-            Ao entrar, você concorda com o uso do ZapMass conforme as políticas do produto. O WhatsApp é operado pela
-            Meta — o risco de banimento e as obrigações de LGPD são de quem dispara. Veja{' '}
-            <strong>Configurações → WhatsApp / LGPD</strong> depois do login.
+          <p className="text-[10.5px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
+            Ao entrar você aceita as políticas do ZapMass. WhatsApp é da Meta — risco de banimento e LGPD são da sua operação.
+            Detalhes em <strong className="font-semibold">Configurações → WhatsApp / LGPD</strong>.
           </p>
         </div>
 
@@ -432,20 +436,6 @@ export const PreLoginLanding: React.FC = () => {
     </div>
   );
 };
-
-const Chip: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
-  <span
-    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-semibold border"
-    style={{
-      background: 'var(--surface-0)',
-      borderColor: 'var(--border-subtle)',
-      color: 'var(--text-2)'
-    }}
-  >
-    <span style={{ color: 'var(--brand-600)' }}>{icon}</span>
-    {label}
-  </span>
-);
 
 const Pitch: React.FC<{ icon: React.ReactNode; title: string; text: string }> = ({ icon, title, text }) => (
   <li

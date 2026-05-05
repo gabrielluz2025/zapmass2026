@@ -7,7 +7,7 @@ import {
   WHATSAPP_RISK_SHORT
 } from '../../constants/whatsappLegal';
 
-export const LandingWhatsAppRiskNotice: React.FC = () => {
+export const LandingWhatsAppRiskNotice: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
   const [open, setOpen] = useState(false);
 
   return (
@@ -23,10 +23,12 @@ export const LandingWhatsAppRiskNotice: React.FC = () => {
         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
-            Risco de banimento, LGPD e API oficial
+            {compact ? 'WhatsApp e LGPD — leia antes' : 'Risco de banimento, LGPD e API oficial'}
           </p>
           <p className="text-[11px] mt-0.5 line-clamp-2" style={{ color: 'var(--text-3)' }}>
-            Quem assume o risco da operacao e o cliente. Toque para ver detalhes e links da Meta.
+            {compact
+              ? 'Resumo e links oficiais da Meta.'
+              : 'Quem assume o risco da operacao e o cliente. Toque para ver detalhes e links da Meta.'}
           </p>
         </div>
         {open ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
