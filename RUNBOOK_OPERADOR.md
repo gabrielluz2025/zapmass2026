@@ -61,7 +61,8 @@ docker service logs zapmass_api --tail 120
 ```
 
 3. Procure nos logs por **`Cannot find module`**, **`ERR_MODULE_NOT_FOUND`**, **`shared/channelTierPricing`**. Se aparecer: `cd /opt/zapmass && git pull` (ou checkout do commit certo) e **`bash deployment/vps-deploy.sh`** ou o workflow **Re-run** no GitHub.
-4. Se o health local for 200 mas o site público continuar 502: confira o **server block** do Nginx (`proxy_pass` deve apontar para a mesma porta que o Docker publica no host).
+4. Script automático na VPS: **`bash /opt/zapmass/deployment/verify-prod.sh`** — usa `HOST_PORT` do `.env`, mostra health e, se falhar, já imprime **logs** do serviço (Swarm ou Compose).
+5. Se o health local for 200 mas o site público continuar 502: confira o **server block** do Nginx (`proxy_pass` deve apontar para a mesma porta que o Docker publica no host).
 
 ## Cobrança (referência rápida)
 
