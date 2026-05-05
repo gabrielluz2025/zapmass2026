@@ -76,6 +76,8 @@ RUN --mount=type=cache,target=/root/.npm \
   && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
+# billingMercadoPago.ts importa ../shared/channelTierPricing — obrigatório no runtime (tsx).
+COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/src/utils ./src/utils
 # insightMerge e mergeLegacyUserDocs importam tipos (Contact, Campaign, etc.)
 COPY --from=builder /app/src/types.ts ./src/types.ts

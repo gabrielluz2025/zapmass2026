@@ -33,6 +33,7 @@ on:
       - principal
       - "produção"
     paths:
+      - "shared/**"
       - "src/**"
       - "docs/**"
       - "server/**"
