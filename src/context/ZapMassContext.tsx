@@ -1699,16 +1699,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         resolve({ ok: false, error: 'Sem conexao com servidor.' });
         return;
       }
-      // Vídeos grandes podem demorar minutos: o WA Web faz upload em chunks
-      // para a nuvem da Meta antes de retornar. Sem timeout, a UI fica presa
-      // em "Upload 100%" se o servidor cair / rede engasgar.
+      // WA Web faz upload para a Meta; em ficheiros grandes (~100–200 MB) ou uplink
+      // fraco na VPS o ack pode demorar bem mais que alguns minutos.
       let done = false;
       const b64len = typeof payload.dataBase64 === 'string' ? payload.dataBase64.length : 0;
       const approxMb = Math.max(0.05, ((b64len * 3) / 4 / (1024 * 1024)) || 0);
-      let TIMEOUT_MS = 5 * 60 * 1000;
-      if (approxMb >= 80) TIMEOUT_MS = 35 * 60 * 1000;
-      else if (approxMb >= 40) TIMEOUT_MS = 20 * 60 * 1000;
-      else if (approxMb >= 15) TIMEOUT_MS = 12 * 60 * 1000;
+      let TIMEOUT_MS = 10 * 60 * 1000;
+      if (approxMb >= 150) TIMEOUT_MS = 120 * 60 * 1000;
+      else if (approxMb >= 100) TIMEOUT_MS = 95 * 60 * 1000;
+      else if (approxMb >= 60) TIMEOUT_MS = 75 * 60 * 1000;
+      else if (approxMb >= 35) TIMEOUT_MS = 55 * 60 * 1000;
+      else if (approxMb >= 15) TIMEOUT_MS = 28 * 60 * 1000;
+      if (payload.sendMediaAsDocument === true) {
+        TIMEOUT_MS = Math.round(TIMEOUT_MS * 1.2);
+      }
+      TIMEOUT_MS = Math.min(TIMEOUT_MS, 130 * 60 * 1000);
 
       let timer: ReturnType<typeof setTimeout>;
       const finish = (r: { ok: boolean; error?: string }) => {
@@ -1717,12 +1722,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         clearTimeout(timer);
         resolve(r);
       };
+      const waitMin = Math.round(TIMEOUT_MS / 60000);
       timer = setTimeout(() => {
         finish({
           ok: false,
           error:
-            `Tempo esgotado (${Math.round(TIMEOUT_MS / 60000)} min): o WhatsApp não confirmou o envio. ` +
-            'Pode ser ficheiro grande, rede lenta, ou limite do WhatsApp (~100 MB para vídeo).'
+            `Tempo esgotado (${waitMin} min): não houve confirmação do WhatsApp a tempo. ` +
+            'Ficheiros grandes ou rede lenta podem precisar de mais tempo — comprima o vídeo, melhore o uplink da VPS ou envie pelo telemóvel.'
         });
       }, TIMEOUT_MS);
       socket.emit('send-media', { conversationId, ...payload }, (resp?: { ok: boolean; error?: string }) => {
