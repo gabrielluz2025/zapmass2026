@@ -45,6 +45,24 @@ curl -fsS http://127.0.0.1:3001/api/health && echo
 curl -fsS http://127.0.0.1:3001/api/session-router/metrics && echo
 ```
 
+## 502 Bad Gateway no browser (Nginx ok, backend morto)
+
+O Nginx responde, mas **`proxy_pass` para a API** não recebe HTTP 200 — em geral o contentor **`zapmass_api`** está a reiniciar ou nem escuta na porta publicada (`HOST_PORT`, por defeito **3001**).
+
+1. **Confirme o código na VPS** — o `Dockerfile` tem de copiar **`shared/`** para a imagem (commit `c18c3fb` ou mais recente). Sem isso o Node rebenta ao importar `channelTierPricing` e o site fica em 502.
+2. Na VPS (SSH):
+
+```bash
+# API a escutar?
+curl -sS -o /dev/null -w "HTTP %{http_code}\n" "http://127.0.0.1:${HOST_PORT:-3001}/api/health" || echo "curl falhou"
+
+docker service ps zapmass_api --no-trunc
+docker service logs zapmass_api --tail 120
+```
+
+3. Procure nos logs por **`Cannot find module`**, **`ERR_MODULE_NOT_FOUND`**, **`shared/channelTierPricing`**. Se aparecer: `cd /opt/zapmass && git pull` (ou checkout do commit certo) e **`bash deployment/vps-deploy.sh`** ou o workflow **Re-run** no GitHub.
+4. Se o health local for 200 mas o site público continuar 502: confira o **server block** do Nginx (`proxy_pass` deve apontar para a mesma porta que o Docker publica no host).
+
 ## Cobrança (referência rápida)
 
 - Pagamentos no produto são **somente Mercado Pago** (Infinite Pay não existe mais neste código).
