@@ -18,6 +18,8 @@ interface ImportMetaEnv {
   readonly VITE_CREATOR_STUDIO?: string;
   /** Commit enxertado no build (VPS: export VITE_GIT_REF antes do docker compose; local: git). */
   readonly VITE_GIT_REF?: string;
+  /** Google Analytics 4 — Measurement ID (ex.: G-XXXXXXXXXX). Opcional; sem isto os eventos só vigoram se outro snippet definir gtag/dataLayer. */
+  readonly VITE_GA_MEASUREMENT_ID?: string;
 }
 
 interface ImportMeta {

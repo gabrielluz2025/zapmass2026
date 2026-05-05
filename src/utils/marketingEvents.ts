@@ -24,3 +24,9 @@ export function trackLandingEvent(action: string, params?: Record<string, string
 export function trackLoginSuccess(method: 'google' | 'staff'): void {
   trackLandingEvent('login_success', { method });
 }
+
+/** Trial ativado com sucesso via POST /api/billing/trial/start (resposta ok). */
+export function trackTrialStarted(trialHours: number): void {
+  const h = Math.max(1, Math.min(168, Math.round(Number(trialHours)) || 1));
+  trackLandingEvent('trial_started', { trial_hours: String(h) });
+}

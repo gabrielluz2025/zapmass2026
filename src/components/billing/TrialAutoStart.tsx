@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { persistTrialEndFromServer } from '../../utils/trialLocalEnd';
+import { trackTrialStarted } from '../../utils/marketingEvents';
 import { isAdminUserEmail } from '../../utils/adminAccess';
 
 /** Se a landing marcou sessionStorage, inicia o teste de 1h uma vez apos o login. */
@@ -43,6 +44,7 @@ export const TrialAutoStart: React.FC = () => {
         if (cancelled) return;
         if (data.ok) {
           persistTrialEndFromServer(typeof data.trialEndsAt === 'string' ? data.trialEndsAt : undefined);
+          trackTrialStarted(config.trialHours);
           toast.success(`Teste de ${formatTrialHoursLabel(config.trialHours)} ativado! Aproveite o ZapMass.`);
         } else {
           const msg = typeof data.error === 'string' ? data.error : 'Nao foi possivel ativar o teste.';
