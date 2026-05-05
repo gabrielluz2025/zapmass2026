@@ -3865,10 +3865,10 @@ const replyMatchesGate = (
     bodyText: string,
     opts?: { nonTextReply?: boolean }
 ): boolean => {
+    if (step.acceptAnyReply) return true;
     const t = String(bodyText || '').trim();
     const nonText = Boolean(opts?.nonTextReply);
     if (!t && !nonText) return false;
-    if (step.acceptAnyReply) return true;
     const tokens = step.validTokens || [];
     if (tokens.length === 0) {
         return nonText || !!t;

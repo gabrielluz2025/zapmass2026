@@ -148,7 +148,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [name, setName] = useState('');
   const [messageStages, setMessageStages] = useState<MessageStageDraft[]>(() => [newMessageStage(), newMessageStage()]);
   const [activeStageIdx, setActiveStageIdx] = useState(0);
-  const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('reply');
+  const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('sequential');
   const [selectedListId, setSelectedListId] = useState('');
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   /** Distribuição de carga entre chips (somente modo sequencial, 2+ conectados). */
@@ -1455,8 +1455,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               <h3 className="ui-title text-[15px] mb-1">Qual a mensagem?</h3>
               <p className="ui-subtitle text-[12.5px] mb-4">
                 {campaignFlowMode === 'reply'
-                  ? 'Fluxo por respostas: a etapa 1 e enviada na abertura. Quando o contato responder, o sistema envia a etapa 2 (e assim por diante), conforme as regras abaixo. Opcional: exija respostas como 1 ou 2 e defina um texto se errar.'
-                  : 'Envio em sequencia automatica: cada contato recebe todas as etapas em ordem, uma apos a outa, respeitando o intervalo anti-ban entre cada envio. Use variaveis dinamicas para personalizar.'}
+                  ? 'Fluxo por respostas: a etapa 1 é enviada na abertura. Quando o contato responder, o sistema envia a etapa 2 (e assim por diante), conforme as regras abaixo. Opcional: exija respostas como 1 ou 2 e defina um texto se errar.'
+                  : 'Envio em sequência automática: cada contato recebe todas as etapas em ordem, uma após a outra, respeitando o intervalo anti-ban entre cada envio. Use variáveis dinâmicas para personalizar.'}
               </p>
 
               <label className="text-[11px] font-semibold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-3)' }}>
@@ -1477,11 +1477,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   {
                     id: 'reply' as const,
                     title: 'Fluxo por respostas',
-                    desc: 'Aguarda a resposta do contato antes da proxima mensagem.'
+                    desc: 'Aguarda a resposta do contato antes da próxima mensagem.'
                   },
                   {
                     id: 'sequential' as const,
-                    title: 'Sequencia automatica',
+                    title: 'Sequência automática',
                     desc: 'Envia todas as etapas em fila, sem esperar resposta.'
                   }
                 ].map((opt) => {
@@ -1506,6 +1506,32 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     </button>
                   );
                 })}
+              </div>
+
+              <div
+                className="mb-4 rounded-xl p-3.5 text-[12px] leading-relaxed"
+                style={{
+                  background: 'rgba(59, 130, 246, 0.06)',
+                  border: '1px solid rgba(59, 130, 246, 0.18)'
+                }}
+              >
+                <p className="font-semibold mb-1.5" style={{ color: 'var(--text-1)' }}>
+                  {campaignFlowMode === 'sequential' ? 'Sequência automática — como funciona' : 'Fluxo por respostas — como funciona'}
+                </p>
+                {campaignFlowMode === 'sequential' ? (
+                  <p style={{ color: 'var(--text-2)' }}>
+                    Todas as etapas entram na fila ao iniciar a campanha: cada contato recebe a etapa 1, depois a 2, etc.,{' '}
+                    <strong style={{ color: 'var(--text-1)' }}>sem precisar responder</strong>. O intervalo entre envios vale
+                    entre cada mensagem. Escolha este modo se você quer disparar várias mensagens em sequência.
+                  </p>
+                ) : (
+                  <p style={{ color: 'var(--text-2)' }}>
+                    Só a <strong style={{ color: 'var(--text-1)' }}>primeira</strong> etapa é enviada na abertura. As
+                    seguintes só saem <strong style={{ color: 'var(--text-1)' }}>depois que o contato responder</strong>{' '}
+                    e passar pela regra da etapa em espera (aceitar qualquer resposta ou palavras definidas em cada etapa).
+                    Se parecer que “travou na primeira mensagem”, confira estas regras ou troque para sequência automática.
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -2387,8 +2413,28 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <ReviewRow label="Intervalo" value={`${delaySeconds}s entre envios`} />
                 <ReviewRow
                   label="Modo"
-                  value={campaignFlowMode === 'reply' ? 'Fluxo por respostas' : 'Sequencia automatica'}
+                  value={campaignFlowMode === 'reply' ? 'Fluxo por respostas' : 'Sequência automática'}
                 />
+                <div
+                  className="rounded-lg p-3 text-[12px] leading-snug -mt-1"
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.055)',
+                    border: '1px solid rgba(59, 130, 246, 0.16)'
+                  }}
+                >
+                  {campaignFlowMode === 'sequential' ? (
+                    <span style={{ color: 'var(--text-2)' }}>
+                      Todas as etapas serão enviadas em fila para cada contato (intervalo entre cada envio). Não é
+                      necessário que o destinatário responda entre uma mensagem e outra.
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--text-2)' }}>
+                      Apenas a 1ª mensagem vai na abertura; as próximas só depois da resposta do contato e conforme as
+                      regras por etapa (abaixo em “Mensagens”). Para disparar todas sem esperar resposta, volte ao passo
+                      Mensagem e escolha sequência automática.
+                    </span>
+                  )}
+                </div>
                 <ReviewRow
                   label="Etapas"
                   value={`${messageStages.length} mensagem${messageStages.length !== 1 ? 'ns' : ''} por contato`}

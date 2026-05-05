@@ -1,23 +1,13 @@
 import React, { useMemo } from 'react';
-import { BookOpen, Copy, Layers, Lightbulb, Navigation } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { BookOpen, Lightbulb, Navigation } from 'lucide-react';
 import { useAppProfile } from '../../context/AppProfileContext';
 import { useAppView } from '../../context/AppViewContext';
 import { getSegmentExperience } from '../../constants/segmentExperience';
 import { getUseSegmentTitle } from '../../constants/useSegments';
 import { Card } from '../ui';
 
-async function copyToClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.success('Texto copiado.');
-  } catch {
-    toast.error('Não foi possível copiar.');
-  }
-}
-
 /**
- * Painel contextual por segmento: dicas, ideias de mensagem e atalhos.
+ * Painel contextual por segmento: dicas e atalhos de navegação.
  * Usado no Dashboard; não altera dados nem assinatura.
  */
 export const SegmentExperiencePanel: React.FC = () => {
@@ -27,8 +17,7 @@ export const SegmentExperiencePanel: React.FC = () => {
   const title = getUseSegmentTitle(segment);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-      <Card className="p-4 sm:p-5">
+    <Card className="p-4 sm:p-5">
         <div className="flex items-start gap-3 mb-3">
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -101,54 +90,6 @@ export const SegmentExperiencePanel: React.FC = () => {
             </div>
           </div>
         )}
-      </Card>
-
-      <Card className="p-4 sm:p-5">
-        <div className="flex items-start gap-3 mb-3">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}
-          >
-            <Layers className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-              Ideias de mensagem
-            </p>
-            <p className="text-[13px] mt-0.5 leading-snug" style={{ color: 'var(--text-2)' }}>
-              Copie e cole em <strong>Campanhas</strong> ou use os botões no assistente de nova campanha. Ajuste sempre ao
-              seu caso e às leis de privacidade.
-            </p>
-          </div>
-        </div>
-        <div className="space-y-2">
-          {xp.messageBlueprints.map((bp) => (
-            <div
-              key={bp.id}
-              className="rounded-xl p-3 flex flex-col sm:flex-row sm:items-start gap-2"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
-                  {bp.label}
-                </p>
-                <p className="text-[11px] mt-1 font-mono leading-relaxed whitespace-pre-wrap break-words" style={{ color: 'var(--text-3)' }}>
-                  {bp.body}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void copyToClipboard(bp.body)}
-                className="shrink-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold self-start"
-                style={{ background: 'var(--surface-0)', border: '1px solid var(--border)', color: 'var(--text-2)' }}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copiar
-              </button>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
+    </Card>
   );
 };

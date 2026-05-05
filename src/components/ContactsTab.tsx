@@ -727,6 +727,7 @@ export const ContactsTab: React.FC = () => {
   const [nameNormalizeStripPrefixes, setNameNormalizeStripPrefixes] = useState(true);
   const [nameNormalizeTitleCase, setNameNormalizeTitleCase] = useState(true);
   const [nameNormalizeFirstLast, setNameNormalizeFirstLast] = useState(false);
+  const [nameNormalizeSanitizeChars, setNameNormalizeSanitizeChars] = useState(true);
   const [nameNormalizeExtraPrefixes, setNameNormalizeExtraPrefixes] = useState('');
   const [nameNormalizePreviewCount, setNameNormalizePreviewCount] = useState<number | null>(null);
   const [nameNormalizePreviewBusy, setNameNormalizePreviewBusy] = useState(false);
@@ -2937,6 +2938,7 @@ export const ContactsTab: React.FC = () => {
         stripPrefixes: nameNormalizeStripPrefixes,
         titleCase: nameNormalizeTitleCase,
         firstAndLastOnly: nameNormalizeFirstLast,
+        sanitizeCharacters: nameNormalizeSanitizeChars,
         extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes)
       };
       let changed = 0;
@@ -2961,6 +2963,7 @@ export const ContactsTab: React.FC = () => {
     nameNormalizeStripPrefixes,
     nameNormalizeTitleCase,
     nameNormalizeFirstLast,
+    nameNormalizeSanitizeChars,
     nameNormalizeExtraPrefixes
   ]);
 
@@ -2969,6 +2972,7 @@ export const ContactsTab: React.FC = () => {
       stripPrefixes: nameNormalizeStripPrefixes,
       titleCase: nameNormalizeTitleCase,
       firstAndLastOnly: nameNormalizeFirstLast,
+      sanitizeCharacters: nameNormalizeSanitizeChars,
       extraPrefixes: parseExtraPrefixes(nameNormalizeExtraPrefixes)
     };
     const items: Array<{ id: string; updates: Partial<Contact> }> = [];
@@ -3003,6 +3007,7 @@ export const ContactsTab: React.FC = () => {
     nameNormalizeStripPrefixes,
     nameNormalizeTitleCase,
     nameNormalizeFirstLast,
+    nameNormalizeSanitizeChars,
     nameNormalizeExtraPrefixes
   ]);
 
@@ -3407,7 +3412,7 @@ export const ContactsTab: React.FC = () => {
           setNameNormalizeModalOpen(false);
         }}
         title="Limpar e padronizar nomes"
-        subtitle="Remove prefixos comuns no início do nome, padroniza maiúsculas/minúsculas e, se quiser, mantém só o primeiro e o último nome."
+        subtitle="Remove prefixos, padroniza maiúsculas, opcionalmente reduz a primeiro/último nome e pode limpar símbolos, números e emoji no nome."
         icon={<SpellCheck2 className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
         footer={
           <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 w-full">
@@ -3441,6 +3446,21 @@ export const ContactsTab: React.FC = () => {
         }
       >
         <div className="space-y-4 text-[13px]" style={{ color: 'var(--text-1)' }}>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 rounded border-slate-300"
+              checked={nameNormalizeSanitizeChars}
+              onChange={(e) => {
+                setNameNormalizeSanitizeChars(e.target.checked);
+                setNameNormalizePreviewCount(null);
+              }}
+            />
+            <span>
+              Limpar caracteres estranhos (invisíveis do Excel/WhatsApp, emoji, números e pontuação). Mantém letras com
+              acento, espaço, hífen e apóstrofo em nomes como Ana-Maria ou D&apos;Avila.
+            </span>
+          </label>
           <label className="flex items-start gap-2 cursor-pointer">
             <input
               type="checkbox"

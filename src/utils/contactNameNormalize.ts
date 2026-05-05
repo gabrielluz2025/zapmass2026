@@ -7,6 +7,11 @@ export type ContactNameNormalizeOpts = {
   titleCase?: boolean;
   /** Mantém apenas o primeiro e o último token (útil para remover meios antigos). */
   firstAndLastOnly?: boolean;
+  /**
+   * Remove caracteres invisíveis, emoji, números e pontuação estranha.
+   * Mantém letras (incl. acentos), espaço, hífen e apóstrofo (') para nomes compostos.
+   */
+  sanitizeCharacters?: boolean;
 };
 
 function stripDiacritics(s: string): string {
@@ -122,6 +127,21 @@ function applyFirstAndLastOnly(name: string): string {
 }
 
 /**
+ * Remove zero-width/BOM, emoji, dígitos e símbolos; conserva letras Unicode (acentos),
+ * espaços e, para nomes compostos, hífen e apóstrofo (' ou ').
+ */
+export function sanitizePersonNameCharacters(raw: string): string {
+  if (!raw) return '';
+  let s = raw
+    .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return '';
+  s = s.replace(/[^\p{L}\p{M}\s'\u2019\-]/gu, ' ');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Normaliza espaços; opcionalmente remove prefixos de cargo/instituição no início,
  * reduz a primeiro+último nome e aplica capitalização estilo nome próprio (pt-BR).
  */
@@ -130,10 +150,14 @@ export function normalizeContactPersonName(raw: string, opts: ContactNameNormali
     extraPrefixes = [],
     stripPrefixes = false,
     titleCase = false,
-    firstAndLastOnly = false
+    firstAndLastOnly = false,
+    sanitizeCharacters = false
   } = opts;
 
   let s = (raw || '').trim().replace(/\s+/g, ' ');
+  if (sanitizeCharacters) {
+    s = sanitizePersonNameCharacters(s);
+  }
   if (!s) return '';
 
   if (stripPrefixes) {

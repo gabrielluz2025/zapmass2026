@@ -36,6 +36,7 @@ import {
   Star,
   Copy,
   RotateCcw,
+  Pencil,
   Image as ImageIcon,
   Film,
   FileText
@@ -51,6 +52,14 @@ import { WaBubble } from './chat/wa/WaBubble';
 import { WaContactDrawer } from './chat/wa/WaContactDrawer';
 import { Conversation, ChatMessage } from '../types';
 import { videoShouldSendAsDocument } from '../utils/whatsappMediaLimits';
+import {
+  CHAT_QUICK_REPLIES_MAX_ITEMS,
+  CHAT_QUICK_REPLY_TEXT_MAX,
+  cloneDefaultChatQuickReplies,
+  loadChatQuickReplies,
+  saveChatQuickReplies,
+  type ChatQuickReply
+} from '../utils/chatQuickReplies';
 import { Input, Modal, Select, Button } from './ui';
 
 // =====================================================================
@@ -89,14 +98,6 @@ const EMOJI_GROUPS = [
   { label: 'Rostos', emojis: ['😀','😃','😄','😁','😆','🥹','😅','🤣','😂','🙂','😉','😊','😇','🥰','😍','🤩','😘','😋','😎','🥳','😔','😴','🤔','😐','🙄','😬','😮','😯','🤯','🤠'] },
   { label: 'Gestos', emojis: ['👋','🤚','🖐️','✋','🖖','👌','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','🙏'] },
   { label: 'Objetos', emojis: ['💬','💭','💡','🔔','🎵','📱','💻','📷','📹','📞','📧','📦','📝','📋','📌','📎','🔑'] }
-];
-
-const QUICK_REPLIES = [
-  { text: 'Ola! Tudo bem?', emoji: '👋' },
-  { text: 'Obrigado pelo contato!', emoji: '🙏' },
-  { text: 'Vou verificar e ja retorno.', emoji: '🔍' },
-  { text: 'Perfeito! Vamos la!', emoji: '🚀' },
-  { text: 'Pode me enviar mais detalhes?', emoji: '📝' }
 ];
 
 // Limite de leitura/envio pelo app (socket + RAM). Documentos até ~2 GB no WA.
@@ -283,6 +284,9 @@ export const ChatTab: React.FC = () => {
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<ChatQuickReply[]>(() => loadChatQuickReplies());
+  const [quickRepliesEditorOpen, setQuickRepliesEditorOpen] = useState(false);
+  const [quickRepliesDraft, setQuickRepliesDraft] = useState<ChatQuickReply[]>([]);
   const [chatFilter, setChatFilter] = useState<'all' | 'unread' | 'groups' | 'system' | 'empty' | 'pinned'>('all');
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [searchInChat, setSearchInChat] = useState('');
@@ -362,6 +366,29 @@ export const ChatTab: React.FC = () => {
     },
     [contacts]
   );
+
+  const openQuickRepliesEditor = useCallback(() => {
+    setQuickRepliesDraft(quickReplies.map((r) => ({ ...r })));
+    setQuickRepliesEditorOpen(true);
+  }, [quickReplies]);
+
+  const saveQuickRepliesFromDraft = useCallback(() => {
+    const sanitized = quickRepliesDraft
+      .map((r) => ({
+        text: r.text.trim().slice(0, CHAT_QUICK_REPLY_TEXT_MAX),
+        emoji: (r.emoji.trim().slice(0, 16) || '💬')
+      }))
+      .filter((r) => r.text.length > 0)
+      .slice(0, CHAT_QUICK_REPLIES_MAX_ITEMS);
+    if (sanitized.length === 0) {
+      toast.error('Adicione pelo menos uma mensagem com texto.');
+      return;
+    }
+    setQuickReplies(sanitized);
+    saveChatQuickReplies(sanitized);
+    setQuickRepliesEditorOpen(false);
+    toast.success('Mensagens rápidas guardadas.');
+  }, [quickRepliesDraft]);
 
   // De/para de contatos do sistema por telefone:
   // prioridade sempre para nome cadastrado no sistema.
@@ -1965,28 +1992,45 @@ export const ChatTab: React.FC = () => {
 
             {showQuickReplies && (
               <div
-                className="flex gap-2 px-4 py-2 overflow-x-auto flex-shrink-0"
+                className="flex items-stretch flex-shrink-0 min-h-[48px]"
                 style={{ background: 'var(--surface-0)', borderTop: '1px solid var(--border-subtle)' }}
               >
-                {QUICK_REPLIES.map((qr, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      setInputText(qr.text);
-                      setShowQuickReplies(false);
-                      inputRef.current?.focus();
-                    }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg whitespace-nowrap text-[12.5px] transition-colors flex-shrink-0"
-                    style={{
-                      background: 'var(--surface-2)',
-                      color: 'var(--text-1)',
-                      border: '1px solid var(--border-subtle)'
-                    }}
-                  >
-                    <span>{qr.emoji}</span>
-                    <span>{qr.text}</span>
-                  </button>
-                ))}
+                <div className="flex gap-2 px-4 py-2 overflow-x-auto flex-1 min-w-0 items-center">
+                  {quickReplies.map((qr, i) => (
+                    <button
+                      key={`${i}-${qr.text.slice(0, 24)}`}
+                      type="button"
+                      onClick={() => {
+                        setInputText(qr.text);
+                        setShowQuickReplies(false);
+                        inputRef.current?.focus();
+                      }}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg whitespace-nowrap text-[12.5px] transition-colors flex-shrink-0"
+                      style={{
+                        background: 'var(--surface-2)',
+                        color: 'var(--text-1)',
+                        border: '1px solid var(--border-subtle)'
+                      }}
+                    >
+                      <span aria-hidden>{qr.emoji}</span>
+                      <span>{qr.text}</span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={openQuickRepliesEditor}
+                  className="shrink-0 px-3 flex items-center justify-center transition-colors hover:opacity-90"
+                  style={{
+                    borderLeft: '1px solid var(--border-subtle)',
+                    color: 'var(--text-2)',
+                    background: 'var(--surface-1)'
+                  }}
+                  title="Editar mensagens rápidas"
+                  aria-label="Editar mensagens rápidas"
+                >
+                  <Pencil className="w-[18px] h-[18px]" />
+                </button>
               </div>
             )}
 
@@ -2307,6 +2351,99 @@ export const ChatTab: React.FC = () => {
           />
         </WaContactDrawer>
       )}
+
+      <Modal
+        isOpen={quickRepliesEditorOpen}
+        onClose={() => setQuickRepliesEditorOpen(false)}
+        title="Mensagens rápidas"
+        subtitle={`Edite os atalhos do chat (até ${CHAT_QUICK_REPLIES_MAX_ITEMS} mensagens). São guardadas neste navegador.`}
+        icon={<Pencil className="w-5 h-5" />}
+        size="lg"
+        footer={
+          <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setQuickRepliesDraft(cloneDefaultChatQuickReplies())}
+            >
+              Restaurar padrões
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setQuickRepliesEditorOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="primary" onClick={saveQuickRepliesFromDraft}>
+              Guardar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
+            Emoji à esquerda (opcional) e texto da mensagem. Ao tocar num botão rápido, o texto vai para o campo de envio.
+          </p>
+          <div className="space-y-2">
+            {quickRepliesDraft.map((row, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2">
+                <Input
+                  size="sm"
+                  maxLength={16}
+                  value={row.emoji}
+                  onChange={(e) =>
+                    setQuickRepliesDraft((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, emoji: e.target.value } : r))
+                    )
+                  }
+                  placeholder="👋"
+                  className="w-[4.5rem] shrink-0 text-center"
+                  aria-label={`Emoji da mensagem ${i + 1}`}
+                />
+                <Input
+                  size="sm"
+                  maxLength={CHAT_QUICK_REPLY_TEXT_MAX}
+                  value={row.text}
+                  onChange={(e) =>
+                    setQuickRepliesDraft((prev) =>
+                      prev.map((r, j) => (j === i ? { ...r, text: e.target.value } : r))
+                    )
+                  }
+                  placeholder="Texto da mensagem"
+                  className="flex-1 min-w-[160px]"
+                  aria-label={`Texto da mensagem ${i + 1}`}
+                />
+                <button
+                  type="button"
+                  disabled={quickRepliesDraft.length <= 1}
+                  onClick={() =>
+                    setQuickRepliesDraft((prev) => (prev.length <= 1 ? prev : prev.filter((_, j) => j !== i)))
+                  }
+                  className="p-2 rounded-lg transition-colors disabled:opacity-35 shrink-0"
+                  style={{ color: 'var(--text-2)' }}
+                  title={quickRepliesDraft.length <= 1 ? 'Mantenha pelo menos uma mensagem' : 'Remover linha'}
+                  aria-label={`Remover mensagem rápida ${i + 1}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          {quickRepliesDraft.length < CHAT_QUICK_REPLIES_MAX_ITEMS && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                setQuickRepliesDraft((prev) =>
+                  prev.length >= CHAT_QUICK_REPLIES_MAX_ITEMS
+                    ? prev
+                    : [...prev, { emoji: '💬', text: '' }]
+                )
+              }
+            >
+              + Adicionar mensagem
+            </Button>
+          )}
+        </div>
+      </Modal>
 
       {/* ============================ MODAL DE AUDITORIA DE ORIGEM ============================ */}
       <Modal
