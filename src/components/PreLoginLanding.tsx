@@ -152,7 +152,7 @@ export const PreLoginLanding: React.FC = () => {
         </header>
 
         {/* Coluna esquerda — mensagem principal */}
-        <div className="lg:col-start-1 space-y-5 mb-10 lg:mb-0 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
+        <div className="lg:col-start-1 space-y-6 mb-10 lg:mb-0 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
           <div
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10.5px] font-bold uppercase tracking-widest"
             style={{
@@ -204,73 +204,113 @@ export const PreLoginLanding: React.FC = () => {
               Ver planos e valores
             </a>
           </div>
-          <div className="-mt-1 space-y-1 max-w-lg">
-            <p className="text-[13px] font-bold leading-snug" style={{ color: 'var(--text-2)' }}>
-              {trialTitle}
-            </p>
-            <p className="text-[12px] leading-relaxed font-medium" style={{ color: 'var(--text-3)' }}>
-              {trialBody}
-            </p>
-          </div>
 
-          {/* Stats row */}
+          {/* Teste + destaques num único cartão (menos blocos empilhados) */}
           <div
-            className="flex flex-wrap items-stretch gap-0 rounded-2xl overflow-hidden max-w-xl"
+            className="rounded-2xl max-w-xl border overflow-hidden"
             style={{
               background: 'var(--surface-0)',
-              border: '1px solid var(--border-subtle)',
+              borderColor: 'var(--border-subtle)',
               boxShadow: 'var(--shadow-xs)'
             }}
           >
-            <StatMini value="1 a 5" label="Canais por plano" />
-            <StatSep />
-            <StatMini value="Pix -5%" label="Desconto imediato" />
-            <StatSep />
-            <StatMini value="24/7" label="Nuvem" />
+            <div className="px-4 py-4 sm:px-5 sm:py-5">
+              <div className="flex items-start gap-3">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.08))',
+                    color: 'var(--brand-600)'
+                  }}
+                >
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 space-y-2">
+                  <p className="text-[14px] sm:text-[15px] font-bold leading-snug" style={{ color: 'var(--text-1)' }}>
+                    {trialTitle}
+                  </p>
+                  <p className="text-[12.5px] sm:text-[13px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    {trialBody}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="flex border-t"
+              style={{
+                borderColor: 'var(--border-subtle)',
+                background: 'var(--surface-1)'
+              }}
+            >
+              <div className="flex-1 min-w-0 border-r" style={{ borderColor: 'var(--border-subtle)' }}>
+                <HeroStatCell value="1 a 5" line2="canais por plano" />
+              </div>
+              <div className="flex-1 min-w-0 border-r" style={{ borderColor: 'var(--border-subtle)' }}>
+                <HeroStatCell value="Pix −5%" line2="desconto no checkout" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <HeroStatCell value="24/7" line2="nuvem" />
+              </div>
+            </div>
+
+            <ul className="px-4 py-3 sm:px-5 space-y-2.5 text-[12.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
+              <li className="flex gap-2.5 items-start">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                <span>
+                  <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
+                    Gestor:
+                  </span>{' '}
+                  entra com Google.
+                </span>
+              </li>
+              <li className="flex gap-2.5 items-start">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                <span>
+                  <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
+                    Equipe:
+                  </span>{' '}
+                  usuário criado por você no painel.
+                </span>
+              </li>
+              <li className="flex gap-2.5 items-start">
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
+                  Dados isolados por conta.
+                </span>
+              </li>
+            </ul>
           </div>
 
-          <p className="text-[12px] leading-snug max-w-lg flex flex-wrap items-center gap-x-2 gap-y-1" style={{ color: 'var(--text-3)' }}>
-            <span className="inline-flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
-              Login do gestor com Google
-            </span>
-            <span className="opacity-40 hidden sm:inline">·</span>
-            <span className="inline-flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
-              Equipe com usuário criado no painel
-            </span>
-            <span className="opacity-40 hidden sm:inline">·</span>
-            <span className="inline-flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
-              Dados isolados por conta
-            </span>
-          </p>
-
-          {/* Benefícios — texto mais curto */}
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-3)' }}>
-              O que você ganha
-            </p>
-            <ul className="grid sm:grid-cols-2 gap-3">
-              <Pitch
-                icon={<Send className="w-4 h-4" />}
+          <div className="max-w-xl pt-1">
+            <div className="mb-3">
+              <h3 className="text-[15px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+                O que o painel entrega
+              </h3>
+              <p className="text-[12px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                Quatro pilares para campanhas e atendimento sem dispersão.
+              </p>
+            </div>
+            <ul className="grid sm:grid-cols-2 gap-2.5">
+              <BenefitTile
+                icon={<Send className="w-3.5 h-3.5" />}
                 title="Campanhas com ritmo seguro"
-                text="Limites por canal e pausas inteligentes para reduzir risco na operação."
+                text="Limites por canal e pausas inteligentes."
               />
-              <Pitch
-                icon={<Users className="w-4 h-4" />}
-                title="Base em ordem"
-                text="CSV, listas e etiquetas para segmentar com clareza."
+              <BenefitTile
+                icon={<Users className="w-3.5 h-3.5" />}
+                title="Base organizada"
+                text="CSV, listas e etiquetas para segmentar."
               />
-              <Pitch
-                icon={<MessageCircle className="w-4 h-4" />}
-                title="Atendimento no mesmo lugar"
-                text="Conversas centralizadas com contexto para responder rápido."
+              <BenefitTile
+                icon={<MessageCircle className="w-3.5 h-3.5" />}
+                title="Atendimento centralizado"
+                text="Conversas no mesmo lugar, com contexto."
               />
-              <Pitch
-                icon={<BarChart3 className="w-4 h-4" />}
-                title="Métricas na hora"
-                text="Entrega, leitura e resposta por campanha e canal."
+              <BenefitTile
+                icon={<BarChart3 className="w-3.5 h-3.5" />}
+                title="Indicadores na hora"
+                text="Entrega e resposta por campanha e canal."
               />
             </ul>
           </div>
@@ -500,40 +540,10 @@ export const PreLoginLanding: React.FC = () => {
   );
 };
 
-const Pitch: React.FC<{ icon: React.ReactNode; title: string; text: string }> = ({ icon, title, text }) => (
-  <li
-    className="group relative flex gap-3 rounded-xl p-3.5 border transition-all duration-200 hover:-translate-y-0.5"
-    style={{
-      background: 'var(--surface-0)',
-      borderColor: 'var(--border-subtle)',
-      boxShadow: 'var(--shadow-xs)'
-    }}
-  >
+const HeroStatCell: React.FC<{ value: string; line2: string }> = ({ value, line2 }) => (
+  <div className="px-2 py-3 sm:py-3.5 text-center min-w-0">
     <div
-      className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-105"
-      style={{
-        background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))',
-        color: 'var(--brand-600)',
-        boxShadow: '0 4px 14px rgba(16,185,129,0.12)'
-      }}
-    >
-      {icon}
-    </div>
-    <div className="min-w-0">
-      <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
-        {title}
-      </p>
-      <p className="text-[11.5px] leading-snug mt-0.5" style={{ color: 'var(--text-3)' }}>
-        {text}
-      </p>
-    </div>
-  </li>
-);
-
-const StatMini: React.FC<{ value: string; label: string }> = ({ value, label }) => (
-  <div className="flex-1 min-w-[120px] px-4 py-3 text-center">
-    <div
-      className="text-[22px] font-black tabular-nums leading-none"
+      className="text-[15px] sm:text-[17px] font-black tabular-nums leading-none tracking-tight"
       style={{
         background: 'linear-gradient(135deg, #10b981, #059669)',
         WebkitBackgroundClip: 'text',
@@ -543,17 +553,38 @@ const StatMini: React.FC<{ value: string; label: string }> = ({ value, label }) 
     >
       {value}
     </div>
-    <div
-      className="text-[10.5px] font-semibold uppercase tracking-wider mt-1"
-      style={{ color: 'var(--text-3)' }}
-    >
-      {label}
+    <div className="text-[10px] sm:text-[11px] mt-1 font-medium" style={{ color: 'var(--text-3)' }}>
+      {line2}
     </div>
   </div>
 );
 
-const StatSep: React.FC = () => (
-  <div className="w-px self-stretch my-3" style={{ background: 'var(--border-subtle)' }} />
+const BenefitTile: React.FC<{ icon: React.ReactNode; title: string; text: string }> = ({ icon, title, text }) => (
+  <li
+    className="flex gap-3 rounded-xl px-3 py-3 border"
+    style={{
+      background: 'var(--surface-0)',
+      borderColor: 'var(--border-subtle)'
+    }}
+  >
+    <div
+      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+      style={{
+        background: 'rgba(16,185,129,0.1)',
+        color: 'var(--brand-600)'
+      }}
+    >
+      {icon}
+    </div>
+    <div className="min-w-0">
+      <p className="text-[12.5px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
+        {title}
+      </p>
+      <p className="text-[11px] leading-snug mt-1" style={{ color: 'var(--text-3)' }}>
+        {text}
+      </p>
+    </div>
+  </li>
 );
 
 const PlanPreviewCard: React.FC<{
