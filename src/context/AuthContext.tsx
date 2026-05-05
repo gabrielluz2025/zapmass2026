@@ -52,6 +52,8 @@ const mapAuthErrorMessage = (err: any): string => {
       return 'Esta conta foi desabilitada. Fale com o suporte.';
     case 'auth/unauthorized-domain':
       return 'Dominio nao autorizado. Peca ao admin para adicionar este dominio no Firebase.';
+    case 'auth/operation-not-allowed':
+      return 'Este provedor de login nao esta ativo no Firebase. No Console: Authentication → Sign-in method — ative o provedor (Facebook: App ID e segredo da Meta; copie a URL de redirecionamento OAuth do assistente para developers.facebook.com).';
     case 'auth/operation-not-supported-in-this-environment':
     case 'auth/web-storage-unsupported':
       return 'Seu navegador nao suporta este login. Ative cookies e tente novamente.';
