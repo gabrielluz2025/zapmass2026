@@ -19,3 +19,8 @@ export function trackLandingEvent(action: string, params?: Record<string, string
     /* ignore */
   }
 }
+
+/** Conclusão do fluxo de autenticação (funil pós-clique nos CTAs da landing). */
+export function trackLoginSuccess(method: 'google' | 'staff'): void {
+  trackLandingEvent('login_success', { method });
+}

@@ -813,7 +813,7 @@ export const AdminPanel: React.FC = () => {
           <Card>
             <CardHeader
               title="Landing — bloco de teste grátis"
-              subtitle={`Opcional; máximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no título e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Na página pública, cliques disparam eventos landing_cta_click e landing_login_click para gtag ou dataLayer, se existirem.`}
+              subtitle={`Opcional; máximo ${LANDING_TRIAL_TITLE_MAX_CHARS} caracteres no título e ${LANDING_TRIAL_BODY_MAX_CHARS} no texto. Na página pública: landing_cta_click, landing_login_click e login_success (Google ou funcionário) para gtag/dataLayer, se existirem.`}
               icon={<Sparkles className="w-4 h-4 text-amber-600" />}
             />
             <div className="mt-4 space-y-3">

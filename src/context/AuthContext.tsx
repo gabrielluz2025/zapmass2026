@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import toast from 'react-hot-toast';
 import { auth, googleProvider } from '../services/firebase';
+import { trackLoginSuccess } from '../utils/marketingEvents';
 
 interface AuthContextValue {
   user: User | null;
@@ -65,6 +66,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     getRedirectResult(auth)
       .then((res) => {
         if (res?.user) {
+          trackLoginSuccess('google');
           toast.success('Login realizado com sucesso.');
         }
       })
@@ -86,6 +88,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signInWithGoogle = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
+      trackLoginSuccess('google');
       toast.success('Login realizado com sucesso.');
     } catch (err: any) {
       const code = err?.code || '';
@@ -122,6 +125,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     try {
       await signInWithCustomToken(auth, t);
+      trackLoginSuccess('staff');
       toast.success('Acesso de funcionário ativado.');
     } catch (err: unknown) {
       console.error('[AuthContext] signInWithStaffCustomToken:', err);
