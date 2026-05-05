@@ -15,7 +15,6 @@ import { getAppVersion } from './version.js';
 import { runBackup } from './backup.js';
 import { registerSubscriptionWebhooks } from './subscriptionWebhooks.js';
 import { registerBillingMercadoPagoRoutes } from './billingMercadoPago.js';
-import { registerBillingInfinitePayRoutes } from './billingInfinitePay.js';
 import { registerBillingTrialRoutes } from './billingTrial.js';
 import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
 import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
@@ -226,7 +225,6 @@ app.use(express.json({ limit: `${jsonBodyLimitMb}mb` }) as any);
 
 registerSubscriptionWebhooks(app);
 registerBillingMercadoPagoRoutes(app);
-registerBillingInfinitePayRoutes(app);
 registerBillingTrialRoutes(app);
 registerAdminAppConfigRoutes(app);
 registerAdminOpsRoutes(app);

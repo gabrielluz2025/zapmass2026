@@ -141,6 +141,8 @@ WARMUP_ENABLED=true
 
 ### Cobrança — Mercado Pago e planos por quantidade de canais
 
+O checkout e os webhooks de pagamento usam **somente Mercado Pago** (gateway Infinite Pay não faz parte do produto).
+
 No checkout atual o valor cobrado segue **tiers de 1 a 5 canais** (mensal ou anual). A landing e o painel podem consultar os valores efetivos em **`GET /api/billing/mercadopago/prices`** (público); alterações por ambiente aplicam-se ao mesmo tempo no servidor e na UI.
 
 | Variável | Uso |

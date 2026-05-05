@@ -218,6 +218,7 @@ export interface BirthdayContact {
 
 /** Estado da assinatura (Firestore `userSubscriptions/{uid}`), atualizado pelos webhooks no servidor. */
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'none';
+/** Provedor de cobrança ativo no produto: apenas Mercado Pago. `infinitepay` pode aparecer em docs Firestore antigos. */
 export type SubscriptionProvider = 'mercadopago' | 'infinitepay' | 'none';
 
 export interface UserSubscription {

@@ -28,7 +28,7 @@ O back-end precisa de uma Service Account do Firebase para:
 
 - Validar o ID token enviado pelo frontend ao ativar o **teste grátis de 1h**.
 - Escrever em `userSubscriptions/<uid>` no Firestore.
-- Processar webhooks de pagamento (Mercado Pago, InfinitePay).
+- Processar webhooks de pagamento (Mercado Pago).
 - Autenticar o painel admin.
 
 Passos (uma única vez — partilhado por todas as instâncias):
@@ -71,6 +71,8 @@ O servidor pode fixar o HTML do WhatsApp Web usado pelo `whatsapp-web.js` (via `
 - **Docker Swarm:** o mesmo URL deve estar no `.env` da VPS; `deployment/vps-deploy.sh` exporta‑no para `docker-stack.yml`.
 
 ## Cobrança — Mercado Pago (por instância de cliente)
+
+Só existe integração ativa com **Mercado Pago** (checkout + webhook `/api/webhooks/mercadopago`).
 
 O checkout cobra por **tiers de 1 a 5 canais** (mensal ou anual). Os valores aplicados são os mesmos que a landing e o painel mostram ao consultarem **`GET /api/billing/mercadopago/prices`** na URL desse cliente (endpoint público).
 

@@ -3,6 +3,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { addCalendarMonths } from './subscriptionPeriod.js';
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'none';
+/** Apenas Mercado Pago é usado para novas cobranças; `infinitepay` só em dados legados. */
 export type SubscriptionProvider = 'mercadopago' | 'infinitepay' | 'none';
 export type SubscriptionPlan = 'monthly' | 'annual' | null;
 

@@ -74,9 +74,9 @@ function resolveProviderLabel(sub: UserSubscription | null | undefined): string 
   if (!sub) return '—';
   if (sub.mercadoPagoPreapprovalId || sub.mercadoPagoLastPaymentId) return 'Mercado Pago';
   if (sub.mercadoPagoChannelAddonPreapprovalId || sub.mercadoPagoChannelAddonOneTimePaymentId) return 'Mercado Pago';
-  if (sub.infinitePayReference) return 'Infinite Pay';
+  if (sub.infinitePayReference || sub.provider === 'infinitepay')
+    return 'Pagamento legado (gateway descontinuado)';
   if (sub.provider === 'mercadopago') return 'Mercado Pago';
-  if (sub.provider === 'infinitepay') return 'Infinite Pay';
   if (sub.manualGrant === true) return 'Liberação manual';
   if (sub.status === 'trialing' || sub.provider === 'none') return '— (teste / sem gateway)';
   return '—';

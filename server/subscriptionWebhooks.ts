@@ -10,10 +10,7 @@ import { sendPaymentConfirmationEmail } from './emailService.js';
 import { issueInvoice, isNfeEnabled } from './nfeService.js';
 import { getMercadoPagoAccessToken } from './mercadoPagoAccess.js';
 import { parseExternalReference } from './mpExternalReference.js';
-import {
-  infinitePayWebhookLimiter,
-  mercadoWebhookLimiter
-} from './httpRateLimit.js';
+import { mercadoWebhookLimiter } from './httpRateLimit.js';
 import { verifyMercadoPagoWebhookSignature } from './mercadoPagoWebhookSignature.js';
 import { structuredLog } from './structuredLog.js';
 
@@ -396,82 +393,6 @@ export function registerSubscriptionWebhooks(app: Express): void {
   });
 
   app.get('/api/webhooks/mercadopago', (_req: Request, res: Response) => {
-    res.status(200).send('ok');
-  });
-
-  app.post('/api/webhooks/infinitepay', infinitePayWebhookLimiter, async (req: Request, res: Response) => {
-    try {
-      if (process.env.NODE_ENV === 'production') {
-        const secretProd = process.env.INFINITEPAY_WEBHOOK_SECRET?.trim();
-        if (!secretProd) {
-          return res.status(503).json({
-            ok: false,
-            error:
-              'INFINITEPAY_WEBHOOK_SECRET obrigatório em produção se o endpoint InfinitePay estiver exposto.'
-          });
-        }
-        const gotProd = String(req.headers['x-infinitepay-secret'] || req.headers['x-webhook-secret'] || '');
-        if (gotProd !== secretProd) {
-          return res.status(401).json({ ok: false, error: 'Invalid webhook secret' });
-        }
-      } else {
-        const secretDev = process.env.INFINITEPAY_WEBHOOK_SECRET?.trim();
-        if (secretDev) {
-          const gotDev = String(req.headers['x-infinitepay-secret'] || req.headers['x-webhook-secret'] || '');
-          if (gotDev !== secretDev) {
-            return res.status(401).json({ ok: false, error: 'Invalid webhook secret' });
-          }
-        }
-      }
-
-      const body = (req.body || {}) as Record<string, unknown>;
-      console.log('[InfinitePay Webhook]', JSON.stringify(body).slice(0, 800));
-
-      const ext = (body.external_reference ||
-        body.externalReference ||
-        body.order_nsu ||
-        body.orderNsu) as string | undefined;
-      const status = String(body.status || body.payment_status || '').toLowerCase();
-      const parsedRef = parseExternalReference(ext);
-      const uid = parsedRef.kind === 'none' ? '' : parsedRef.uid;
-      const plan: SubscriptionPlan =
-        parsedRef.kind === 'plan' || parsedRef.kind === 'tier_plan' || parsedRef.kind === 'tier_upgrade'
-          ? parsedRef.plan
-          : null;
-
-      const paidAmount = typeof body.paid_amount === 'number' ? body.paid_amount : Number(body.paid_amount);
-      const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
-      const looksPaid =
-        status === 'paid' ||
-        status === 'approved' ||
-        status === 'completed' ||
-        body.paid === true ||
-        (Number.isFinite(paidAmount) && Number.isFinite(amount) && amount > 0 && paidAmount >= amount) ||
-        (Number.isFinite(paidAmount) && paidAmount > 0 && (body.transaction_nsu != null || body.invoice_slug != null));
-
-      if (uid && looksPaid) {
-        const billingPlan: 'monthly' | 'annual' = plan === 'annual' ? 'annual' : 'monthly';
-        await extendPaidSubscription(uid, billingPlan, {
-          provider: 'infinitepay',
-          plan: billingPlan,
-          infinitePayReference: String(body.order_nsu || body.orderNsu || body.transaction_nsu || body.id || '')
-        });
-      } else if (uid && (status === 'canceled' || status === 'cancelled' || status === 'failed')) {
-        await mergeUserSubscription(uid, {
-          status: 'canceled',
-          provider: 'infinitepay',
-          plan: plan || null
-        });
-      }
-
-      res.status(200).json({ ok: true });
-    } catch (e) {
-      console.error('[InfinitePay Webhook] Erro:', e);
-      res.status(500).json({ ok: false });
-    }
-  });
-
-  app.get('/api/webhooks/infinitepay', (_req: Request, res: Response) => {
     res.status(200).send('ok');
   });
 
