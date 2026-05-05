@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -17,7 +17,12 @@ import { useAppConfig } from '../context/AppConfigContext';
 import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
-import { LandingWhatsAppRiskNotice } from './legal/LandingWhatsAppRiskNotice';
+import {
+  WHATSAPP_META_CLOUD_OVERVIEW,
+  WHATSAPP_META_POLICY,
+  WHATSAPP_RISK_BULLETS,
+  WHATSAPP_RISK_SHORT
+} from '../constants/whatsappLegal';
 import {
   CHANNEL_TIER_PRICES_ANNUAL,
   CHANNEL_TIER_PRICES_MONTHLY,
@@ -30,6 +35,18 @@ export const PreLoginLanding: React.FC = () => {
   const { title: trialTitle, body: trialBody } = resolveLandingTrialCopy(config);
   const channelFromMonthly = `${brl(CHANNEL_TIER_PRICES_MONTHLY[1])} / mês`;
   const channelFromAnnual = `${brl(CHANNEL_TIER_PRICES_ANNUAL[1])} / ano`;
+
+  useEffect(() => {
+    const FAQ_WHATSAPP_ID = 'faq-whatsapp-lgpd';
+    const openIfHash = () => {
+      if (typeof window === 'undefined' || window.location.hash !== `#${FAQ_WHATSAPP_ID}`) return;
+      const el = document.getElementById(FAQ_WHATSAPP_ID);
+      if (el instanceof HTMLDetailsElement) el.open = true;
+    };
+    openIfHash();
+    window.addEventListener('hashchange', openIfHash);
+    return () => window.removeEventListener('hashchange', openIfHash);
+  }, []);
 
   return (
     <div
@@ -265,7 +282,6 @@ export const PreLoginLanding: React.FC = () => {
           className="lg:col-start-2 space-y-4 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-8 lg:self-start"
           style={{ animationDelay: '160ms' }}
         >
-          <LandingWhatsAppRiskNotice compact />
           <LoginCard
             landingLayout
             showTrialOption
@@ -273,8 +289,15 @@ export const PreLoginLanding: React.FC = () => {
             subtitle="Gestor: Google no primeiro acesso ativa o teste. Equipe: use a aba Funcionário com usuário criado pelo gestor."
           />
           <p className="text-[10.5px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
-            Ao entrar você aceita as políticas do ZapMass. WhatsApp é da Meta — risco de banimento e LGPD são da sua operação.
-            Detalhes em <strong className="font-semibold">Configurações → WhatsApp / LGPD</strong>.
+            Ao entrar você aceita as políticas do ZapMass. Dúvidas sobre responsabilidades com o WhatsApp e a LGPD:{' '}
+            <a
+              href="#faq-whatsapp-lgpd"
+              className="font-semibold underline underline-offset-2 hover:opacity-90"
+              style={{ color: 'var(--brand-600)' }}
+            >
+              ver FAQ
+            </a>
+            {' '}ou <strong className="font-semibold">Configurações → WhatsApp / LGPD</strong> depois do login.
           </p>
         </div>
 
@@ -387,6 +410,46 @@ export const PreLoginLanding: React.FC = () => {
             <FaqItem
               q="Como o ZapMass reduz risco de bloqueio?"
               a="Aplicamos limites por canal, pausas automáticas e cadência inteligente. Isso reduz risco operacional, mas não existe garantia de zero bloqueio — boas práticas de envio continuam essenciais."
+            />
+            <FaqItem
+              id="faq-whatsapp-lgpd"
+              q="WhatsApp (Meta), LGPD e API oficial — qual é minha responsabilidade?"
+              a={
+                <>
+                  <p className="mb-3">{WHATSAPP_RISK_SHORT}</p>
+                  <ul className="list-disc pl-4 space-y-1.5 mb-3">
+                    {WHATSAPP_RISK_BULLETS.map((t) => (
+                      <li key={t}>{t}</li>
+                    ))}
+                  </ul>
+                  <p className="text-[12.5px] mb-2" style={{ color: 'var(--text-3)' }}>
+                    Documentação oficial da Meta:{' '}
+                    <a
+                      href={WHATSAPP_META_POLICY}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold hover:underline"
+                      style={{ color: 'var(--brand-600)' }}
+                    >
+                      Políticas do WhatsApp para empresas
+                    </a>
+                    {' · '}
+                    <a
+                      href={WHATSAPP_META_CLOUD_OVERVIEW}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold hover:underline"
+                      style={{ color: 'var(--brand-600)' }}
+                    >
+                      Visão geral da API (Cloud)
+                    </a>
+                    .
+                  </p>
+                  <p className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
+                    No painel: <strong className="font-semibold" style={{ color: 'var(--text-2)' }}>Configurações → WhatsApp / LGPD</strong> para referência interna do produto.
+                  </p>
+                </>
+              }
             />
             <FaqItem
               q="Com quantos canais posso começar?"
@@ -597,9 +660,10 @@ const StepCard: React.FC<{ n: number; title: string; text: string }> = ({ n, tit
   </div>
 );
 
-const FaqItem: React.FC<{ q: string; a: string }> = ({ q, a }) => (
+const FaqItem: React.FC<{ q: string; a: React.ReactNode; id?: string }> = ({ q, a, id }) => (
   <details
-    className="group rounded-xl overflow-hidden transition-colors"
+    id={id}
+    className="group rounded-xl overflow-hidden transition-colors scroll-mt-24"
     style={{
       background: 'var(--surface-0)',
       border: '1px solid var(--border-subtle)'
