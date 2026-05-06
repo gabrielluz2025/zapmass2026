@@ -784,3 +784,21 @@ html[data-mode='dark'] ::-webkit-scrollbar-thumb { background: rgba(30,41,59,0.8
     transform: scale(1);
   }
 }
+
+/* ── Landing hero responsive grid ── */
+@media (min-width: 1024px) {
+  .lg\:grid-cols-\[1fr_520px\] { grid-template-columns: 1fr 520px; }
+  .lg\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lg\:items-center { align-items: center; }
+}
+@media (min-width: 640px) {
+  .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sm\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sm\:items-center { align-items: center; }
+}
+@keyframes heroFloat {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-12px); }
+}
+.landing-float { animation: heroFloat 5s ease-in-out infinite; }
