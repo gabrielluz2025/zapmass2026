@@ -131,6 +131,15 @@ const calculateBackoffDelay = (attempts: number): number => {
     return delay;
 };
 
+// Backoff para mídia pesada: mais conservador para evitar congestionamento em lotes grandes.
+const calculateMediaBackoffDelay = (attempts: number): number => {
+    // 6s → 12s → 24s → 48s → 90s (máx 90s)
+    const baseDelay = 6000;
+    const maxDelay = 90000;
+    const delay = Math.min(baseDelay * Math.pow(2, attempts - 1), maxDelay);
+    return delay;
+};
+
 // Proteção contra loop infinito de markedUnread
 const markedUnreadRestarts = new Map<string, number[]>();
 const MAX_MARKED_UNREAD_RESTARTS = 3; // Máximo 3 restarts por minuto
@@ -659,8 +668,61 @@ const campaignMediaById = new Map<
 >();
 
 let messageQueue: QueueItem[] = [];
+let mediaQueue: QueueItem[] = [];
 let isProcessingQueue = false;
 const MAX_QUEUE_ATTEMPTS = 5;
+const MAX_MEDIA_QUEUE_ATTEMPTS = 7;
+const MEDIA_CHANNEL_COOLDOWN_MS = 3500;
+const mediaChannelNextAvailableAt = new Map<string, number>();
+
+const isMediaQueueItem = (item: QueueItem | undefined | null): boolean =>
+    Boolean(item?.sendAsMedia && item?.queueCampaignId);
+
+const enqueueQueueItem = (item: QueueItem) => {
+    if (isMediaQueueItem(item)) mediaQueue.push(item);
+    else messageQueue.push(item);
+};
+
+const requeueQueueItem = (item: QueueItem) => {
+    if (isMediaQueueItem(item)) mediaQueue.push(item);
+    else messageQueue.push(item);
+};
+
+const getAttemptsLimitForItem = (item: QueueItem): number =>
+    isMediaQueueItem(item) ? MAX_MEDIA_QUEUE_ATTEMPTS : MAX_QUEUE_ATTEMPTS;
+
+const dequeueNextQueueItem = (): QueueItem | null => {
+    if (messageQueue.length > 0) {
+        const next = messageQueue.shift();
+        return next || null;
+    }
+    if (mediaQueue.length === 0) return null;
+
+    const now = Date.now();
+    const readyIndex = mediaQueue.findIndex((it) => {
+        const nextAt = mediaChannelNextAvailableAt.get(it.connectionId) || 0;
+        return now >= nextAt;
+    });
+
+    if (readyIndex >= 0) {
+        const [item] = mediaQueue.splice(readyIndex, 1);
+        return item || null;
+    }
+    return null;
+};
+
+const getNextMediaReadyDelayMs = (): number => {
+    if (mediaQueue.length === 0) return 0;
+    const now = Date.now();
+    let minDelay = Number.POSITIVE_INFINITY;
+    for (const item of mediaQueue) {
+        const nextAt = mediaChannelNextAvailableAt.get(item.connectionId) || 0;
+        const wait = Math.max(0, nextAt - now);
+        if (wait < minDelay) minDelay = wait;
+    }
+    if (!Number.isFinite(minDelay)) return 0;
+    return minDelay;
+};
 
 interface WarmupItem {
     to: string;
@@ -2170,6 +2232,7 @@ const persistQueue = async () => {
         await ensureDataDir();
         const queueData = {
             queue: messageQueue,
+            mediaQueue,
             campaign: currentCampaign,
             timestamp: new Date().toISOString()
         };
@@ -2184,9 +2247,15 @@ const loadQueue = async () => {
         const raw = await fs.promises.readFile(queueFile, 'utf8');
         const data = JSON.parse(raw);
         
-        if (data.queue && Array.isArray(data.queue) && data.queue.length > 0) {
-            messageQueue = data.queue;
-            console.log(`[QueueRestore] ✅ Restaurada fila com ${messageQueue.length} mensagens pendentes`);
+        const restoredTextQueue: QueueItem[] = Array.isArray(data.queue) ? data.queue : [];
+        const restoredMediaQueue: QueueItem[] = Array.isArray(data.mediaQueue) ? data.mediaQueue : [];
+        const mergedLegacyQueue = [...restoredTextQueue, ...restoredMediaQueue];
+        if (mergedLegacyQueue.length > 0) {
+            messageQueue = mergedLegacyQueue.filter((item) => !isMediaQueueItem(item));
+            mediaQueue = mergedLegacyQueue.filter((item) => isMediaQueueItem(item));
+            console.log(
+                `[QueueRestore] ✅ Restaurada fila com ${messageQueue.length + mediaQueue.length} mensagens pendentes (${messageQueue.length} texto, ${mediaQueue.length} mídia)`
+            );
             
             if (data.campaign && data.campaign.isRunning) {
                 currentCampaign = { ...data.campaign };
@@ -2279,7 +2348,7 @@ export const markWarmupReady = async (numbers: string[]) => {
     warmupQueue = warmupQueue.filter((item) => !normalized.includes(item.to));
 
     requeueItems.forEach((item) => {
-        messageQueue.push({
+        enqueueQueueItem({
             to: item.to,
             message: item.message,
             connectionId: item.connectionId,
@@ -3900,7 +3969,7 @@ const replyMatchesGate = (
 };
 
 const enqueueReplyFlowOutbound = async (item: QueueItem) => {
-    messageQueue.push(item);
+    enqueueQueueItem(item);
     const conn = connectionsInfo.find((c) => c.id === item.connectionId);
     if (conn) conn.queueSize = (conn.queueSize || 0) + 1;
     emitConnectionsUpdate();
@@ -3909,7 +3978,7 @@ const enqueueReplyFlowOutbound = async (item: QueueItem) => {
         processQueue();
     } else {
         queueMicrotask(() => {
-            if (messageQueue.length > 0 && !isProcessingQueue) processQueue();
+            if ((messageQueue.length > 0 || mediaQueue.length > 0) && !isProcessingQueue) processQueue();
         });
     }
 };
@@ -4287,7 +4356,7 @@ export const startCampaign = async (
         const hasMedia = !!(campaignId && campaignMediaById.has(campaignId));
         if (useReplyFlow) {
             const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
-            messageQueue.push({
+            enqueueQueueItem({
                 to: num,
                 message: personalizedMessage,
                 connectionId: assignedConnectionId,
@@ -4304,7 +4373,7 @@ export const startCampaign = async (
             templates.forEach((template, stageIndex) => {
                 const personalizedMessage = applyMessageVars(template, cleanPhone, vars);
 
-                messageQueue.push({
+                enqueueQueueItem({
                     to: num,
                     message: personalizedMessage,
                     connectionId: assignedConnectionId,
@@ -4336,9 +4405,16 @@ const processQueue = async () => {
     if (isProcessingQueue) return;
     isProcessingQueue = true;
 
-    while (messageQueue.length > 0) {
-        const item = messageQueue.shift();
-        if (!item) break;
+    while (messageQueue.length > 0 || mediaQueue.length > 0) {
+        const item = dequeueNextQueueItem();
+        if (!item) {
+            const waitMs = getNextMediaReadyDelayMs();
+            if (waitMs > 0) {
+                await new Promise((r) => setTimeout(r, Math.min(waitMs, 5000)));
+                continue;
+            }
+            break;
+        }
 
         // Incrementa tentativas totais
         item.totalAttempts = (item.totalAttempts || 0) + 1;
@@ -4360,7 +4436,7 @@ const processQueue = async () => {
         // Circuit Breaker
         if (!checkCircuitBreaker(item.connectionId)) {
             console.warn(`[CircuitBreaker] Canal ${item.connectionId} está ABERTO. Recolocando mensagem na fila...`);
-            messageQueue.push(item); // Recoloca no final
+            requeueQueueItem(item); // Recoloca no final (texto/mídia)
             await new Promise(r => setTimeout(r, 10000)); // Aguarda 10s antes de verificar novamente
             continue;
         }
@@ -4368,7 +4444,7 @@ const processQueue = async () => {
         // Rate limiting - CORREÇÃO: só verificar na primeira tentativa, não nos retries
         if (!item.attempts && !checkRateLimit(item.connectionId)) {
             console.warn(`[RateLimit] Canal ${item.connectionId} excedeu limite de ${RATE_LIMIT_PER_HOUR} msgs/hora. Aguardando...`);
-            messageQueue.push(item); // Recoloca no final
+            requeueQueueItem(item); // Recoloca no final (texto/mídia)
             await new Promise(r => setTimeout(r, 30000)); // Aguarda 30s
             continue;
         }
@@ -4418,6 +4494,8 @@ const processQueue = async () => {
         if (!isReady) {
             item.attempts = (item.attempts || 0) + 1;
             item.lastError = 'Conexao indisponivel';
+            const maxAttemptsForItem = getAttemptsLimitForItem(item);
+            const isMediaItem = isMediaQueueItem(item);
             
             // Auto-restart após 3 tentativas
             if (item.attempts === 3) {
@@ -4438,20 +4516,20 @@ const processQueue = async () => {
                 
                 // Reseta attempts para dar nova chance após restart
                 item.attempts = 0;
-                messageQueue.push(item);
+                requeueQueueItem(item);
                 continue;
             }
             
             // Se está CONNECTING (reconectando), aguarda 5s antes de retentar
             if (connInfo?.status === ConnectionStatus.CONNECTING) {
                 console.log(`[Queue] Canal ${item.connectionId} reconectando. Aguardando 5s... (tentativa ${item.attempts})`);
-                await new Promise(r => setTimeout(r, 5000));
+                await new Promise(r => setTimeout(r, isMediaItem ? 8000 : 5000));
             } else {
                 console.warn(`[Queue] Conexão ${item.connectionId} indisponível. Tentativa ${item.attempts}.`);
-                await new Promise(r => setTimeout(r, 2000)); // Aguarda 2s antes de retry
+                await new Promise(r => setTimeout(r, isMediaItem ? 5000 : 2000)); // mídia aguarda mais
             }
             
-            if (item.attempts >= MAX_QUEUE_ATTEMPTS) {
+            if (item.attempts >= maxAttemptsForItem) {
                 emitCampaignLog('ERROR', 'Falha ao enviar: conexao indisponivel (apos retries e restart)', {
                     to: item.to,
                     connectionId: item.connectionId,
@@ -4461,7 +4539,7 @@ const processQueue = async () => {
                 currentCampaign.processed++; // Contabiliza como processado (falha)
                 handleCampaignProgress();
             } else {
-                messageQueue.push(item);
+                requeueQueueItem(item);
             }
             continue;
         }
@@ -4700,6 +4778,13 @@ const processQueue = async () => {
                 if (!fallbackOk) throw sendErr;
             }
 
+            if (isMediaQueueItem(item)) {
+                mediaChannelNextAvailableAt.set(
+                    item.connectionId,
+                    Date.now() + MEDIA_CHANNEL_COOLDOWN_MS
+                );
+            }
+
             // Garante cache alinhado ao JID que de fato enviou (ex.: @lid após resolve)
             setCachedNumberId(formattedNum, finalChatId);
 
@@ -4872,9 +4957,11 @@ const processQueue = async () => {
             // Para outros erros, incrementa attempts normalmente
             item.attempts = (item.attempts || 0) + 1;
             item.lastError = formatSendError(error?.message || 'Falha ao enviar');
+            const isMediaItem = isMediaQueueItem(item);
+            const maxAttemptsForItem = getAttemptsLimitForItem(item);
             console.error(`[Queue] Falha ao enviar para ${item.to}:`, error);
 
-            if (item.attempts >= MAX_QUEUE_ATTEMPTS) {
+            if (item.attempts >= maxAttemptsForItem) {
                 emitCampaignLog('ERROR', item.lastError || 'Falha ao enviar mensagem', {
                     to: item.to,
                     connectionId: item.connectionId,
@@ -4885,11 +4972,15 @@ const processQueue = async () => {
                 recordCircuitBreakerFailure(item.connectionId);
                 advancedFeatures.recordFailurePattern(item.to, new Date().getHours(), true);
             } else {
-                // Backoff exponencial antes de retry
-                const backoffDelay = calculateBackoffDelay(item.attempts);
-                console.log(`[Queue] Retry com backoff: ${backoffDelay}ms (tentativa ${item.attempts})`);
+                // Backoff específico: mídia usa janela maior para reduzir congestionamento.
+                const backoffDelay = isMediaItem
+                    ? calculateMediaBackoffDelay(item.attempts)
+                    : calculateBackoffDelay(item.attempts);
+                console.log(
+                    `[Queue] Retry com backoff (${isMediaItem ? 'midia' : 'texto'}): ${backoffDelay}ms (tentativa ${item.attempts})`
+                );
                 await new Promise(r => setTimeout(r, backoffDelay));
-                messageQueue.push(item);
+                requeueQueueItem(item);
                 continue;
             }
         }
@@ -4921,7 +5012,7 @@ const processQueue = async () => {
 
     isProcessingQueue = false;
     queueMicrotask(() => {
-        if (messageQueue.length > 0 && !isProcessingQueue) processQueue();
+        if ((messageQueue.length > 0 || mediaQueue.length > 0) && !isProcessingQueue) processQueue();
     });
     currentCampaign.isRunning = false;
 
@@ -4977,7 +5068,7 @@ const processQueue = async () => {
     // Análise de auto-scaling
     const avgMessagesPerHour = (currentCampaign.total / ((Date.now() - (currentCampaign as any).startTime) / (1000 * 60 * 60))) || 0;
     const scalingAnalysis = advancedFeatures.analyzeCapacity(
-        messageQueue.length,
+        messageQueue.length + mediaQueue.length,
         connectionsInfo.filter(c => c.status === ConnectionStatus.CONNECTED).length,
         avgMessagesPerHour
     );
@@ -5012,10 +5103,13 @@ const processQueue = async () => {
  */
 const resumeQueueIfNeeded = (connectionId: string) => {
     void connectionId;
-    const hasWork = messageQueue.length > 0 || !!currentCampaign.isRunning;
+    const pending = messageQueue.length + mediaQueue.length;
+    const hasWork = pending > 0 || !!currentCampaign.isRunning;
     if (!hasWork) return;
     if (isProcessingQueue) return;
-    console.log(`[QueueResume] Motor pronto — retomando fila se necessario (pendentes: ${messageQueue.length}, campanhaRunning=${!!currentCampaign.isRunning})`);
+    console.log(
+        `[QueueResume] Motor pronto — retomando fila se necessario (pendentes: ${pending}, campanhaRunning=${!!currentCampaign.isRunning})`
+    );
     processQueue();
 };
 

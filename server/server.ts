@@ -23,6 +23,12 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import {
+  WHATSAPP_AUDIO_MAX_BYTES,
+  WHATSAPP_IMAGE_MAX_BYTES,
+  WHATSAPP_VIDEO_MAX_BYTES,
+  classifyWhatsAppAttachmentKind
+} from '../src/utils/whatsappMediaLimits.js';
+import {
   evaluateMayCreateWaConnection,
   readUserSubscriptionForLimits,
   isUidTreatedAsServerAdmin
@@ -116,6 +122,50 @@ const jsonBodyLimitMb = (() => {
   if (!Number.isFinite(raw)) return 25;
   return Math.max(1, Math.min(512, Math.round(raw)));
 })();
+
+const approxBytesFromBase64 = (base64: string): number => {
+  if (!base64) return 0;
+  const cleaned = base64.replace(/\s+/g, '');
+  const len = cleaned.length;
+  if (len === 0) return 0;
+  let padding = 0;
+  if (cleaned.endsWith('==')) padding = 2;
+  else if (cleaned.endsWith('=')) padding = 1;
+  return Math.max(0, Math.floor((len * 3) / 4) - padding);
+};
+
+const normalizeCampaignMediaAttachment = (mediaAttachment?: {
+  dataBase64?: string;
+  mimeType?: string;
+  fileName?: string;
+  sendMediaAsDocument?: boolean;
+}) => {
+  if (
+    !mediaAttachment ||
+    typeof mediaAttachment.dataBase64 !== 'string' ||
+    mediaAttachment.dataBase64.length === 0 ||
+    typeof mediaAttachment.mimeType !== 'string' ||
+    mediaAttachment.mimeType.length === 0
+  ) {
+    return undefined;
+  }
+
+  const kind = classifyWhatsAppAttachmentKind(mediaAttachment.mimeType);
+  const bytes = approxBytesFromBase64(mediaAttachment.dataBase64);
+  let forceAsDocument = mediaAttachment.sendMediaAsDocument === true;
+  if (!forceAsDocument) {
+    if (kind === 'image' && bytes > WHATSAPP_IMAGE_MAX_BYTES) forceAsDocument = true;
+    else if (kind === 'audio' && bytes > WHATSAPP_AUDIO_MAX_BYTES) forceAsDocument = true;
+    else if (kind === 'video' && bytes > WHATSAPP_VIDEO_MAX_BYTES) forceAsDocument = true;
+  }
+
+  return {
+    dataBase64: mediaAttachment.dataBase64,
+    mimeType: mediaAttachment.mimeType,
+    fileName: String(mediaAttachment.fileName || 'anexo'),
+    ...(forceAsDocument ? { sendMediaAsDocument: true } : {})
+  };
+};
 
 // Origens extras em producao: lista separada por virgula (URL publica do app, com porta se precisar)
 // Ex.: ALLOWED_ORIGINS=http://2.24.210.220:3001,https://app.seudominio.com
@@ -849,19 +899,7 @@ const registerSocketHandlers = () => {
           notifyCampaignSocketError(uid, err, campaignId);
           return;
         }
-        const sanitizedMedia =
-          mediaAttachment &&
-          typeof mediaAttachment.dataBase64 === 'string' &&
-          mediaAttachment.dataBase64.length > 0 &&
-          typeof mediaAttachment.mimeType === 'string' &&
-          mediaAttachment.mimeType.length > 0
-            ? {
-                dataBase64: mediaAttachment.dataBase64,
-                mimeType: mediaAttachment.mimeType,
-                fileName: String(mediaAttachment.fileName || 'anexo'),
-                ...(mediaAttachment.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {})
-              }
-            : undefined;
+        const sanitizedMedia = normalizeCampaignMediaAttachment(mediaAttachment);
 
         const ok = await waService.startCampaign(
           numbers,
