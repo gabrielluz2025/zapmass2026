@@ -8,6 +8,8 @@ import {
   updateProfile,
   signOut as firebaseSignOut,
   signInWithCustomToken,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   FacebookAuthProvider,
   User,
   UserCredential,
@@ -23,6 +25,8 @@ interface AuthContextValue {
   signInWithGoogle: () => Promise<void>;
   signInWithFacebook: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  signInWithEmailPassword: (email: string, password: string) => Promise<void>;
+  signUpWithEmailPassword: (email: string, password: string) => Promise<void>;
   /** Login de funcionário (token emitido pelo servidor após validar e-mail do gestor + usuário + senha). */
   signInWithStaffCustomToken: (customToken: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -34,6 +38,8 @@ const AuthContext = createContext<AuthContextValue>({
   signInWithGoogle: async () => {},
   signInWithFacebook: async () => {},
   signInWithApple: async () => {},
+  signInWithEmailPassword: async () => {},
+  signUpWithEmailPassword: async () => {},
   signInWithStaffCustomToken: async () => {},
   signOut: async () => {}
 });
@@ -65,6 +71,17 @@ const mapAuthErrorMessage = (err: any): string => {
       return 'Token de acesso inválido ou expirado. Tente entrar de novo.';
     case 'auth/account-exists-with-different-credential':
       return 'Este e-mail já está ligado a outro método de login. Use o mesmo botão (Google, Apple ou Facebook) que usou na primeira vez.';
+    case 'auth/invalid-email':
+      return 'E-mail inválido. Verifique o endereço.';
+    case 'auth/missing-password':
+    case 'auth/wrong-password':
+      return 'Senha incorreta. Tente de novo.';
+    case 'auth/user-not-found':
+      return 'Não há conta com este e-mail. Crie uma em «Primeira vez» ou verifique o endereço.';
+    case 'auth/email-already-in-use':
+      return 'Este e-mail já está registado. Use «Já tenho conta» para entrar.';
+    case 'auth/weak-password':
+      return 'Senha fraca. Use pelo menos 6 caracteres (recomendamos 8 ou mais).';
     case 'auth/invalid-credential': {
       const msg = String(err?.message || '');
       if (
@@ -282,6 +299,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const signInWithEmailPassword = async (email: string, password: string) => {
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      trackLoginSuccess('email');
+      toast.success('Login realizado com sucesso.');
+    } catch (err: unknown) {
+      console.error('[AuthContext] signInWithEmailPassword:', err);
+      toast.error(mapAuthErrorMessage(err));
+      throw err;
+    }
+  };
+
+  const signUpWithEmailPassword = async (email: string, password: string) => {
+    try {
+      await createUserWithEmailAndPassword(auth, email.trim(), password);
+      trackLoginSuccess('email');
+      toast.success('Conta criada com sucesso.');
+    } catch (err: unknown) {
+      console.error('[AuthContext] signUpWithEmailPassword:', err);
+      toast.error(mapAuthErrorMessage(err));
+      throw err;
+    }
+  };
+
   const signInWithStaffCustomToken = async (customToken: string) => {
     const t = typeof customToken === 'string' ? customToken.trim() : '';
     if (!t) {
@@ -317,6 +358,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         signInWithGoogle,
         signInWithFacebook,
         signInWithApple,
+        signInWithEmailPassword,
+        signUpWithEmailPassword,
         signInWithStaffCustomToken,
         signOut
       }}
