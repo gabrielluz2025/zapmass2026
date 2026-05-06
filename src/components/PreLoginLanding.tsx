@@ -175,7 +175,7 @@ export const PreLoginLanding: React.FC = () => {
 
       <div className="relative w-full max-w-[1200px] mx-auto px-4 sm:px-6 md:px-8 pt-8 sm:pt-10 md:pt-14 lg:pt-16 pb-6 sm:pb-8">
         {/* HERO */}
-        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-8 md:gap-10 lg:gap-x-12 lg:items-start">
+        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-8 md:gap-10 lg:gap-x-12 lg:items-start">
           {/* Coluna esquerda — narrativa */}
           <div className="space-y-6 md:space-y-7 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
             <div
@@ -275,19 +275,19 @@ export const PreLoginLanding: React.FC = () => {
           {/* Coluna direita — acesso (sticky em desktop) */}
           <div
             id="acesso"
-            className="w-full max-w-[420px] mx-auto lg:max-w-none lg:mx-0 space-y-3 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-24 lg:self-start"
+            className="w-full max-w-[360px] mx-auto lg:max-w-none lg:mx-0 space-y-2 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-24 lg:self-start"
             style={{ animationDelay: '160ms' }}
           >
-            <div className="flex items-center justify-between px-1">
-              <p className="text-[10.5px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-3)' }}>
+            <div className="flex items-center justify-between px-0.5">
+              <p className="text-[9.5px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-3)' }}>
                 Acesso ao painel
               </p>
-              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold" style={{ color: 'var(--brand-600)' }}>
-                <Lock className="w-3 h-3" /> Seguro
+              <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold" style={{ color: 'var(--brand-600)' }}>
+                <Lock className="w-2.5 h-2.5" /> Seguro
               </span>
             </div>
             <LoginCard landingLayout showTrialOption title={loginCardDefaultCopy.title} subtitle={loginCardDefaultCopy.subtitle} />
-            <p className="text-[10.5px] text-center lg:text-left max-w-md mx-auto lg:mx-0 leading-snug px-1" style={{ color: 'var(--text-3)' }}>
+            <p className="text-[10px] text-center lg:text-left max-w-md mx-auto lg:mx-0 leading-snug px-0.5" style={{ color: 'var(--text-3)' }}>
               Entrar implica aceitar as políticas do ZapMass. WhatsApp e LGPD:{' '}
               <a
                 href="#faq-whatsapp-lgpd"

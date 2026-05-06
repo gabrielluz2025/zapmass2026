@@ -43,7 +43,7 @@ const fieldInputClass =
   'mt-1.5 w-full rounded-xl px-3.5 py-3 text-[13px] outline-none transition-[box-shadow,border-color] focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-500/40 disabled:opacity-60';
 
 const fieldInputClassCompact =
-  'mt-1 w-full rounded-lg px-3 py-2.5 text-[13px] outline-none transition-[box-shadow,border-color] focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-500/40 disabled:opacity-60';
+  'mt-0.5 w-full rounded-lg px-3 py-2 text-[12.5px] outline-none transition-[box-shadow,border-color] focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-500/40 disabled:opacity-60';
 
 function setTrialSessionForManager(mode: 'trial' | 'customer'): void {
   try {
@@ -225,18 +225,18 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
   return (
     <div
-      className="landing-card-glow relative w-full overflow-hidden rounded-[1.65rem] ring-1 ring-white/[0.06]"
+      className={`landing-card-glow relative w-full overflow-hidden ring-1 ring-white/[0.06] ${landingLayout ? 'rounded-2xl' : 'rounded-[1.65rem]'}`}
       style={{
         background: 'var(--surface-0)',
         border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-lg, 0 22px 55px rgba(0,0,0,0.22))'
+        boxShadow: landingLayout ? '0 12px 32px rgba(0,0,0,0.16)' : 'var(--shadow-lg, 0 22px 55px rgba(0,0,0,0.22))'
       }}
     >
       <div
-        className="h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-500 opacity-[0.92]"
+        className={`${landingLayout ? 'h-[2px]' : 'h-1'} w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-500 opacity-[0.92]`}
         aria-hidden
       />
-      <div className={`relative z-[1] ${landingLayout ? 'p-4 sm:p-5 md:p-6' : 'p-6 sm:p-8'}`}>
+      <div className={`relative z-[1] ${landingLayout ? 'p-3 sm:p-3.5' : 'p-6 sm:p-8'}`}>
         {!landingLayout && (
           <div
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border mb-3"
@@ -253,18 +253,18 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         )}
 
         <h2
-          className={`mb-2 font-extrabold leading-tight tracking-tight ${landingLayout ? 'text-[1.2rem] sm:text-[1.35rem]' : 'text-[1.35rem] sm:text-[1.45rem]'}`}
+          className={`font-extrabold leading-tight tracking-tight ${landingLayout ? 'mb-1 text-[1.05rem] sm:text-[1.1rem]' : 'mb-2 text-[1.35rem] sm:text-[1.45rem]'}`}
           style={{ color: 'var(--text-1)' }}
         >
           {title}
         </h2>
-        <p className={`${landingLayout ? 'mb-5 sm:mb-6 text-[12px] sm:text-[13px]' : 'mb-7 text-[13px]'} max-w-[42ch] leading-relaxed sm:max-w-none`} style={{ color: 'var(--text-3)' }}>
+        <p className={`${landingLayout ? 'mb-3 text-[11.5px] sm:text-[12px]' : 'mb-7 text-[13px]'} max-w-[42ch] leading-snug sm:max-w-none`} style={{ color: 'var(--text-3)' }}>
           {subtitle}
         </p>
 
         {/* Quem entra: gestor (OAuth) ou funcionário (usuário + senha criados pelo gestor) */}
         <div
-          className={`mb-5 flex gap-1.5 rounded-2xl p-1.5 sm:mb-6 ${landingLayout ? 'text-[12px]' : ''}`}
+          className={`flex gap-1 rounded-xl p-1 ${landingLayout ? 'mb-3' : 'mb-5 sm:mb-6 gap-1.5 rounded-2xl p-1.5'}`}
           style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}
           role="tablist"
           aria-label="Tipo de acesso"
@@ -274,16 +274,16 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             role="tab"
             aria-selected={entryMode === 'admin'}
             onClick={() => setEntryMode('admin')}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-[11.5px] font-bold transition-all duration-200 sm:gap-2 sm:px-3 sm:py-3 sm:text-[12.5px] ${
-              entryMode === 'admin' ? 'shadow-[0_4px_20px_rgba(0,0,0,0.07)]' : 'opacity-80 hover:opacity-100'
-            }`}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg font-bold transition-all duration-200 ${
+              landingLayout ? 'py-1.5 text-[11px]' : 'py-2.5 px-2 text-[11.5px] sm:py-3 sm:px-3 sm:text-[12.5px]'
+            } ${entryMode === 'admin' ? 'shadow-[0_2px_10px_rgba(0,0,0,0.05)]' : 'opacity-75 hover:opacity-100'}`}
             style={{
               background: entryMode === 'admin' ? 'var(--surface-0)' : 'transparent',
               color: 'var(--text-1)',
               border: entryMode === 'admin' ? '1px solid var(--border-subtle)' : '1px solid transparent'
             }}
           >
-            <Zap className="h-4 w-4 shrink-0 text-emerald-500" />
+            <Zap className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
             Responsável
           </button>
           <button
@@ -291,16 +291,16 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             role="tab"
             aria-selected={entryMode === 'staff'}
             onClick={() => setEntryMode('staff')}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-[11.5px] font-bold transition-all duration-200 sm:gap-2 sm:px-3 sm:py-3 sm:text-[12.5px] ${
-              entryMode === 'staff' ? 'shadow-[0_4px_20px_rgba(0,0,0,0.07)]' : 'opacity-80 hover:opacity-100'
-            }`}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg font-bold transition-all duration-200 ${
+              landingLayout ? 'py-1.5 text-[11px]' : 'py-2.5 px-2 text-[11.5px] sm:py-3 sm:px-3 sm:text-[12.5px]'
+            } ${entryMode === 'staff' ? 'shadow-[0_2px_10px_rgba(0,0,0,0.05)]' : 'opacity-75 hover:opacity-100'}`}
             style={{
               background: entryMode === 'staff' ? 'var(--surface-0)' : 'transparent',
               color: 'var(--text-1)',
               border: entryMode === 'staff' ? '1px solid var(--border-subtle)' : '1px solid transparent'
             }}
           >
-            <Users className="h-4 w-4 shrink-0 text-sky-500" />
+            <Users className="h-3.5 w-3.5 shrink-0 text-sky-500" />
             Funcionário
           </button>
         </div>
@@ -406,15 +406,17 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         ) : (
           <>
             <div
-              className="space-y-3 rounded-xl p-3 sm:space-y-3 sm:p-3.5"
+              className={`${landingLayout ? 'space-y-2.5 rounded-lg p-2.5' : 'space-y-3 rounded-xl p-3 sm:p-3.5'}`}
               style={{
-                background: 'linear-gradient(180deg, rgba(16,185,129,0.028) 0%, var(--surface-1) 52%)',
+                background: landingLayout
+                  ? 'var(--surface-1)'
+                  : 'linear-gradient(180deg, rgba(16,185,129,0.028) 0%, var(--surface-1) 52%)',
                 border: '1px solid var(--border-subtle)',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)'
               }}
             >
               <div
-                className="rounded-lg px-3 py-2 text-[11px] leading-snug sm:text-[11.5px]"
+                className={`rounded-md leading-snug ${landingLayout ? 'px-2.5 py-1.5 text-[10.5px]' : 'rounded-lg px-3 py-2 text-[11px] sm:text-[11.5px]'}`}
                 style={{
                   background: 'rgba(16,185,129,0.04)',
                   border: '1px solid rgba(16,185,129,0.08)',
@@ -422,13 +424,13 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 }}
               >
                 {showTrialOption
-                  ? `O sistema detecta se o e-mail já existe. Conta nova: confirme a senha. Teste grátis ${formatTrialHoursLabel(config.trialHours)} na primeira ativação.`
-                  : 'O sistema detecta se o e-mail já existe. Conta nova: preencha também a confirmação da senha.'}
+                  ? `Detectamos se o e-mail já existe. Conta nova exige confirmação. Teste grátis ${formatTrialHoursLabel(config.trialHours)}.`
+                  : 'Detectamos se o e-mail já existe. Conta nova exige a confirmação da senha.'}
               </div>
 
-              <div className="space-y-2.5">
+              <div className={landingLayout ? 'space-y-2' : 'space-y-2.5'}>
                 <div>
-                  <label className="text-[11px] font-medium" style={{ color: 'var(--text-3)' }}>
+                  <label className={`font-medium ${landingLayout ? 'text-[10.5px]' : 'text-[11px]'}`} style={{ color: 'var(--text-3)' }}>
                     E-mail
                   </label>
                   <input
@@ -447,7 +449,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-medium" style={{ color: 'var(--text-3)' }}>
+                  <label className={`font-medium ${landingLayout ? 'text-[10.5px]' : 'text-[11px]'}`} style={{ color: 'var(--text-3)' }}>
                     Senha
                   </label>
                   <input
@@ -466,8 +468,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-medium" style={{ color: 'var(--text-3)' }}>
-                    Confirmar senha <span style={{ opacity: 0.75 }}>(só conta nova)</span>
+                  <label className={`font-medium ${landingLayout ? 'text-[10.5px]' : 'text-[11px]'}`} style={{ color: 'var(--text-3)' }}>
+                    Confirmar senha <span style={{ opacity: 0.7 }}>(só conta nova)</span>
                   </label>
                   <input
                     type="password"
@@ -488,20 +490,22 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   type="button"
                   onClick={() => void runManagerEmailAuth()}
                   disabled={busy}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-semibold text-white transition-all hover:brightness-[1.03] disabled:opacity-60"
+                  className={`flex w-full items-center justify-center gap-2 rounded-lg font-semibold text-white transition-all hover:brightness-[1.04] disabled:opacity-60 ${
+                    landingLayout ? 'px-3 py-2 text-[12.5px]' : 'px-4 py-2.5 text-[13px]'
+                  }`}
                   style={{
                     background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%)',
-                    boxShadow: '0 4px 14px rgba(15,118,110,0.2)'
+                    boxShadow: landingLayout ? '0 3px 10px rgba(15,118,110,0.18)' : '0 4px 14px rgba(15,118,110,0.2)'
                   }}
                 >
                   {loading === 'email-signup' || loading === 'email-signin' ? (
                     <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className={landingLayout ? 'h-3.5 w-3.5 animate-spin' : 'h-4 w-4 animate-spin'} />
                       {loading === 'email-signup' ? 'Criando…' : 'Entrando…'}
                     </>
                   ) : (
                     <>
-                      <Mail className="h-4 w-4" />
+                      <Mail className={landingLayout ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
                       Continuar com e-mail
                     </>
                   )}
@@ -509,37 +513,39 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               </div>
 
               {landingLayout && showTrialOption && (
-                <p className="text-center text-[10px] font-medium leading-snug" style={{ color: 'var(--text-3)' }}>
-                  {formatTrialHoursLabel(config.trialHours)} com tudo liberado · sem cartão
+                <p className="text-center text-[9.5px] font-medium leading-snug -mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  {formatTrialHoursLabel(config.trialHours)} liberado · sem cartão
                 </p>
               )}
 
-              <div className="flex items-center gap-2 py-0.5">
+              <div className={`flex items-center gap-2 ${landingLayout ? '' : 'py-0.5'}`}>
                 <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
-                <span className="whitespace-nowrap px-1 text-[9.5px] font-medium" style={{ color: 'var(--text-3)' }}>
+                <span className={`whitespace-nowrap px-1 font-medium ${landingLayout ? 'text-[9px]' : 'text-[9.5px]'}`} style={{ color: 'var(--text-3)' }}>
                   ou continue com
                 </span>
                 <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
               </div>
 
-              <div className="flex items-center justify-center gap-2.5 sm:gap-3" role="group" aria-label="Entrar com rede social">
+              <div className={`flex items-center justify-center ${landingLayout ? 'gap-2' : 'gap-2.5 sm:gap-3'}`} role="group" aria-label="Entrar com rede social">
                 <button
                   type="button"
                   title="Google"
                   aria-label="Continuar com Google"
                   onClick={() => void runOAuthLogin('google')}
                   disabled={busy}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 disabled:opacity-55 disabled:hover:translate-y-0 sm:h-11 sm:w-11"
+                  className={`flex shrink-0 items-center justify-center rounded-full border transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 disabled:opacity-55 disabled:hover:translate-y-0 ${
+                    landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
+                  }`}
                   style={{
                     background: '#ffffff',
                     borderColor: 'rgba(0,0,0,0.08)',
-                    boxShadow: '0 1px 6px rgba(0,0,0,0.06)'
+                    boxShadow: '0 1px 5px rgba(0,0,0,0.05)'
                   }}
                 >
                   {oauthSpin(loading, 'google') ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-600" />
+                    <Loader2 className="h-3 w-3 animate-spin text-zinc-600" />
                   ) : (
-                    <GoogleLogo />
+                    <GoogleLogo size={landingLayout ? 14 : 18} />
                   )}
                 </button>
                 <button
@@ -548,13 +554,15 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   aria-label="Continuar com Facebook"
                   onClick={() => void runOAuthLogin('facebook')}
                   disabled={busy}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 disabled:opacity-55 disabled:hover:translate-y-0 sm:h-11 sm:w-11"
-                  style={{ background: '#1877F2', boxShadow: '0 2px 8px rgba(24,119,242,0.25)' }}
+                  className={`flex shrink-0 items-center justify-center rounded-full text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 disabled:opacity-55 disabled:hover:translate-y-0 ${
+                    landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
+                  }`}
+                  style={{ background: '#1877F2', boxShadow: '0 2px 7px rgba(24,119,242,0.22)' }}
                 >
                   {oauthSpin(loading, 'facebook') ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <FacebookLogo tone="light" />
+                    <FacebookLogo tone="light" size={landingLayout ? 14 : 18} />
                   )}
                 </button>
                 <button
@@ -563,13 +571,15 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   aria-label="Continuar com Apple"
                   onClick={() => void runOAuthLogin('apple')}
                   disabled={busy}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/35 disabled:opacity-55 disabled:hover:translate-y-0 sm:h-11 sm:w-11"
-                  style={{ background: '#0a0a0a', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}
+                  className={`flex shrink-0 items-center justify-center rounded-full border border-white/10 text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/35 disabled:opacity-55 disabled:hover:translate-y-0 ${
+                    landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
+                  }`}
+                  style={{ background: '#0a0a0a', boxShadow: '0 2px 7px rgba(0,0,0,0.18)' }}
                 >
                   {oauthSpin(loading, 'apple') ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <AppleLogo tone="light" />
+                    <AppleLogo tone="light" size={landingLayout ? 14 : 18} />
                   )}
                 </button>
               </div>
@@ -579,17 +589,17 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
         {landingLayout ? (
           <details
-            className="group mt-6 overflow-hidden rounded-2xl border"
+            className="group mt-3 overflow-hidden rounded-lg border"
             style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
           >
-            <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-3 text-[12px] font-semibold select-none transition-colors hover:bg-black/[0.04]">
-              <Lock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[10.5px] font-semibold select-none transition-colors hover:bg-black/[0.04]">
+              <Lock className="w-3 h-3 shrink-0" style={{ color: 'var(--brand-600)' }} />
               <span style={{ color: 'var(--text-2)' }}>Como funciona o acesso e a segurança</span>
-              <span className="ml-auto text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+              <span className="ml-auto text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
                 Ver
               </span>
             </summary>
-            <div className="px-3 pb-3 pt-0 space-y-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div className="px-2.5 pb-2.5 pt-0 space-y-1.5 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               {entryMode === 'admin' ? (
                 <>
                   <Feature
@@ -668,10 +678,10 @@ const Feature: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, lab
   </div>
 );
 
-const FacebookLogo: React.FC<{ tone?: 'light' | 'brand' }> = ({ tone = 'brand' }) => (
+const FacebookLogo: React.FC<{ tone?: 'light' | 'brand'; size?: number }> = ({ tone = 'brand', size = 18 }) => (
   <svg
-    width="18"
-    height="18"
+    width={size}
+    height={size}
     viewBox="0 0 24 24"
     xmlns="http://www.w3.org/2000/svg"
     aria-hidden="true"
@@ -684,10 +694,10 @@ const FacebookLogo: React.FC<{ tone?: 'light' | 'brand' }> = ({ tone = 'brand' }
   </svg>
 );
 
-const AppleLogo: React.FC<{ tone?: 'light' | 'dark' }> = ({ tone = 'dark' }) => (
+const AppleLogo: React.FC<{ tone?: 'light' | 'dark'; size?: number }> = ({ tone = 'dark', size = 18 }) => (
   <svg
-    width="18"
-    height="18"
+    width={size}
+    height={size}
     viewBox="0 0 24 24"
     xmlns="http://www.w3.org/2000/svg"
     aria-hidden="true"
@@ -700,8 +710,8 @@ const AppleLogo: React.FC<{ tone?: 'light' | 'dark' }> = ({ tone = 'dark' }) => 
   </svg>
 );
 
-const GoogleLogo: React.FC = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+const GoogleLogo: React.FC<{ size?: number }> = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <path
       fill="#4285F4"
       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
