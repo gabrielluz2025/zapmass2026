@@ -62,8 +62,28 @@ const mapAuthErrorMessage = (err: any): string => {
       return 'Token de acesso inválido ou expirado. Tente entrar de novo.';
     case 'auth/account-exists-with-different-credential':
       return 'Este e-mail já está ligado a outro método de login. Use o mesmo botão (Google, Apple ou Facebook) que usou na primeira vez.';
-    default:
-      return err?.message || 'Falha ao entrar. Tente novamente.';
+    case 'auth/invalid-credential': {
+      const msg = String(err?.message || '');
+      if (
+        msg.includes('Invalid+Scopes') ||
+        msg.includes('Invalid Scopes') ||
+        msg.includes('error_code=100')
+      ) {
+        return 'O Facebook recusou uma permissão (muitas vezes «email»). Na app Meta: Casos de uso → Login com Facebook → ative as permissões «email» e «public_profile». Depois, recarregue o site com Ctrl+Shift+R (ou teste em janela anónima) para não usar JavaScript antigo em cache.';
+      }
+      return msg || 'Falha ao entrar. Tente novamente.';
+    }
+    default: {
+      const msg = String(err?.message || '');
+      if (
+        msg.includes('Invalid+Scopes') ||
+        msg.includes('Invalid Scopes') ||
+        msg.includes('error_code=100')
+      ) {
+        return 'O Facebook recusou uma permissão (muitas vezes «email»). Na app Meta: Casos de uso → Login com Facebook → ative «email» e «public_profile». Recarregue com Ctrl+Shift+R ou teste em janela anónima.';
+      }
+      return msg || 'Falha ao entrar. Tente novamente.';
+    }
   }
 };
 
