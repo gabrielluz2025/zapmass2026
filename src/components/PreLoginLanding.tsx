@@ -6,12 +6,15 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
+  LogIn,
   Lock,
   MessageCircle,
   Send,
   ShieldCheck,
   Sparkles,
+  UserPlus,
   Users,
+  X,
   Zap
 } from 'lucide-react';
 import { LoginCard, loginCardDefaultCopy } from './auth/LoginCard';
@@ -44,6 +47,14 @@ export const PreLoginLanding: React.FC = () => {
   const { title: trialTitle, body: trialBody } = resolveLandingTrialCopy(config);
   const trialLabel = formatTrialHoursLabel(config.trialHours);
 
+  const [authOpen, setAuthOpen] = useState(false);
+
+  /** Abre o modal de autenticação e dispara o evento de marketing. */
+  const openAuth = React.useCallback((ctaId: string) => {
+    trackLandingEvent('landing_cta_click', { cta_id: ctaId });
+    setAuthOpen(true);
+  }, []);
+
   useEffect(() => {
     const FAQ_WHATSAPP_ID = 'faq-whatsapp-lgpd';
     const openIfHash = () => {
@@ -55,6 +66,21 @@ export const PreLoginLanding: React.FC = () => {
     window.addEventListener('hashchange', openIfHash);
     return () => window.removeEventListener('hashchange', openIfHash);
   }, []);
+
+  // Bloqueia scroll do body + ESC fecha enquanto o modal de acesso está aberto
+  useEffect(() => {
+    if (!authOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAuthOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [authOpen]);
 
   return (
     <div
@@ -157,18 +183,26 @@ export const PreLoginLanding: React.FC = () => {
             >
               Dúvidas
             </a>
-            <a
-              href="#acesso"
-              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_start_free' })}
-              className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-[12px] sm:text-[12.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
+            <button
+              type="button"
+              onClick={() => openAuth('header_signin')}
+              className="inline-flex items-center px-3 sm:px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors hover:bg-black/[0.04]"
+              style={{ color: 'var(--text-1)', border: '1px solid var(--border-subtle)' }}
+            >
+              Entrar
+            </button>
+            <button
+              type="button"
+              onClick={() => openAuth('header_signup')}
+              className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-full text-[12px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
               style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 8px 22px rgba(16,185,129,0.35)'
+                boxShadow: '0 6px 16px rgba(16,185,129,0.3)'
               }}
             >
-              Começar grátis
-              <ArrowRight className="w-3.5 h-3.5 opacity-90 shrink-0" />
-            </a>
+              Inscrever-se
+              <ArrowRight className="w-3 h-3 opacity-90 shrink-0" />
+            </button>
           </nav>
         </div>
       </header>
@@ -208,9 +242,9 @@ export const PreLoginLanding: React.FC = () => {
             </p>
 
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <a
-                href="#acesso"
-                onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_primary' })}
+              <button
+                type="button"
+                onClick={() => openAuth('hero_primary')}
                 className="group inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-2xl text-[13.5px] sm:text-[14.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] w-full sm:w-auto min-h-[48px]"
                 style={{
                   background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
@@ -219,7 +253,7 @@ export const PreLoginLanding: React.FC = () => {
               >
                 Começar grátis agora
                 <ArrowRight className="w-4 h-4 opacity-95 shrink-0 transition-transform group-hover:translate-x-0.5" />
-              </a>
+              </button>
               <a
                 href="#planos"
                 onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_view_plans' })}
@@ -272,31 +306,93 @@ export const PreLoginLanding: React.FC = () => {
             </div>
           </div>
 
-          {/* Coluna direita — acesso (sticky em desktop) */}
+          {/* Coluna direita — cartão compacto de acesso (abre modal) */}
           <div
-            id="acesso"
-            className="w-full max-w-[360px] mx-auto lg:max-w-none lg:mx-0 space-y-2 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-24 lg:self-start"
+            className="w-full max-w-[360px] mx-auto lg:max-w-none lg:mx-0 animate-fade-in-up lg:sticky lg:top-24 lg:self-start"
             style={{ animationDelay: '160ms' }}
           >
-            <div className="flex items-center justify-between px-0.5">
-              <p className="text-[9.5px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-3)' }}>
-                Acesso ao painel
+            <div
+              className="relative overflow-hidden rounded-2xl p-4 sm:p-5"
+              style={{
+                background: 'var(--surface-0)',
+                border: '1px solid var(--border)',
+                boxShadow: '0 12px 32px rgba(0,0,0,0.14)'
+              }}
+            >
+              <div
+                className="h-[2px] -mx-4 sm:-mx-5 -mt-4 sm:-mt-5 mb-4 bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-500 opacity-[0.92]"
+                aria-hidden
+              />
+
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[9.5px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-3)' }}>
+                  Acesso ao painel
+                </p>
+                <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold" style={{ color: 'var(--brand-600)' }}>
+                  <Lock className="w-2.5 h-2.5" /> Seguro
+                </span>
+              </div>
+
+              <h3 className="text-[1.05rem] font-extrabold leading-tight tracking-tight" style={{ color: 'var(--text-1)' }}>
+                Entre ou crie sua conta
+              </h3>
+              <p className="mt-1 mb-3.5 text-[12px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                Google, Apple, Facebook ou e-mail. {trialLabel} grátis no primeiro acesso, sem cartão.
               </p>
-              <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold" style={{ color: 'var(--brand-600)' }}>
-                <Lock className="w-2.5 h-2.5" /> Seguro
-              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openAuth('access_card_signin')}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[12.5px] font-bold text-white transition-all hover:brightness-110 active:scale-[0.98]"
+                  style={{
+                    background: 'linear-gradient(135deg, #111827 0%, #0a0f1a 100%)',
+                    boxShadow: '0 6px 16px rgba(0,0,0,0.25)'
+                  }}
+                >
+                  <LogIn className="h-3.5 w-3.5" />
+                  Entrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAuth('access_card_signup')}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[12.5px] font-semibold transition-colors hover:bg-black/[0.04]"
+                  style={{
+                    color: 'var(--text-1)',
+                    background: 'var(--surface-1)',
+                    border: '1px solid var(--border-subtle)'
+                  }}
+                >
+                  <UserPlus className="h-3.5 w-3.5" style={{ color: 'var(--brand-600)' }} />
+                  Inscrever-se
+                </button>
+              </div>
+
+              <div
+                className="mt-3 rounded-lg px-2.5 py-1.5 text-[10.5px] leading-snug flex items-start gap-2"
+                style={{
+                  background: 'rgba(16,185,129,0.06)',
+                  border: '1px solid rgba(16,185,129,0.14)',
+                  color: 'var(--text-2)'
+                }}
+              >
+                <Sparkles className="w-3 h-3 shrink-0 mt-0.5" style={{ color: 'var(--brand-600)' }} />
+                <span>
+                  Funcionário com login criado pelo gestor? Use também o botão <strong>Entrar</strong>.
+                </span>
+              </div>
             </div>
-            <LoginCard landingLayout showTrialOption title={loginCardDefaultCopy.title} subtitle={loginCardDefaultCopy.subtitle} />
-            <p className="text-[10px] text-center lg:text-left max-w-md mx-auto lg:mx-0 leading-snug px-0.5" style={{ color: 'var(--text-3)' }}>
-              Entrar implica aceitar as políticas do ZapMass. WhatsApp e LGPD:{' '}
+
+            <p className="mt-2 text-[10px] text-center lg:text-left leading-snug px-0.5" style={{ color: 'var(--text-3)' }}>
+              Ao continuar você aceita as políticas do ZapMass.{' '}
               <a
                 href="#faq-whatsapp-lgpd"
                 className="font-semibold underline underline-offset-2 hover:opacity-90"
                 style={{ color: 'var(--brand-600)' }}
               >
-                ver FAQ
+                WhatsApp e LGPD
               </a>
-              {' '}— no painel: <strong className="font-semibold" style={{ color: 'var(--text-2)' }}>Configurações → WhatsApp / LGPD</strong>.
+              .
             </p>
           </div>
         </section>
@@ -352,7 +448,7 @@ export const PreLoginLanding: React.FC = () => {
 
         {/* PLANOS */}
         <section id="planos" className="mt-14 sm:mt-16 md:mt-20 scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '260ms' }}>
-          <LandingPlanCards />
+          <LandingPlanCards onPickPlan={(id) => openAuth(id)} />
 
           <div
             className="max-w-3xl mx-auto mt-8 rounded-2xl border px-4 py-4 sm:px-6"
@@ -523,9 +619,9 @@ export const PreLoginLanding: React.FC = () => {
               <p className="text-[14px] sm:text-[15px] text-white/85 max-w-xl mx-auto mb-5 sm:mb-6">
                 Crie sua conta agora. {trialLabel} grátis, sem cartão, com tudo liberado.
               </p>
-              <a
-                href="#acesso"
-                onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'final_cta' })}
+              <button
+                type="button"
+                onClick={() => openAuth('final_cta')}
                 className="inline-flex items-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-2xl text-[14px] sm:text-[14.5px] font-bold transition-all hover:scale-[1.02] active:scale-[0.98]"
                 style={{
                   background: '#ffffff',
@@ -535,7 +631,7 @@ export const PreLoginLanding: React.FC = () => {
               >
                 Começar grátis
                 <ArrowRight className="w-4 h-4 shrink-0" />
-              </a>
+              </button>
             </div>
           </div>
         </section>
@@ -562,6 +658,54 @@ export const PreLoginLanding: React.FC = () => {
           </div>
         </footer>
       </div>
+
+      {/* Modal de autenticação (abre via botões «Entrar» / «Inscrever-se») */}
+      {authOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Acesso ao painel"
+          className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-3 py-6 sm:p-6 overflow-y-auto"
+        >
+          <div
+            aria-hidden
+            onClick={() => setAuthOpen(false)}
+            className="absolute inset-0 bg-black/65 backdrop-blur-sm animate-fade-in-up"
+            style={{ animationDuration: '160ms' }}
+          />
+          <div
+            className="relative z-10 w-full max-w-[420px] animate-fade-in-up"
+            style={{ animationDuration: '220ms' }}
+          >
+            <button
+              type="button"
+              onClick={() => setAuthOpen(false)}
+              aria-label="Fechar"
+              className="absolute -top-3 -right-3 z-20 w-9 h-9 rounded-full flex items-center justify-center transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+              style={{
+                background: 'var(--surface-0)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-1)',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.22)'
+              }}
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <LoginCard landingLayout showTrialOption title={loginCardDefaultCopy.title} subtitle={loginCardDefaultCopy.subtitle} />
+            <p className="mt-2 text-[10px] text-center leading-snug px-1" style={{ color: 'rgba(255,255,255,0.78)' }}>
+              Ao continuar você aceita as políticas do ZapMass ·{' '}
+              <a
+                href="#faq-whatsapp-lgpd"
+                onClick={() => setAuthOpen(false)}
+                className="font-semibold underline underline-offset-2 hover:opacity-90"
+                style={{ color: '#a7f3d0' }}
+              >
+                WhatsApp e LGPD
+              </a>
+            </p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -625,7 +769,7 @@ function maxAnnualSavingsPct(server: ServerBillingPrices | null): number | null 
 }
 
 /** Secção de planos estilo cartões (landing pré-login), preços do servidor quando disponível. */
-const LandingPlanCards: React.FC = () => {
+const LandingPlanCards: React.FC<{ onPickPlan: (ctaId: string) => void }> = ({ onPickPlan }) => {
   const [server, setServer] = useState<ServerBillingPrices | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'done'>('loading');
   const [cycle, setCycle] = useState<'monthly' | 'annual'>('monthly');
@@ -824,9 +968,9 @@ const LandingPlanCards: React.FC = () => {
                     ) : null}
                   </ul>
 
-                  <a
-                    href="#acesso"
-                    onClick={() => trackLandingEvent('landing_cta_click', { cta_id: `plan_card_${n}_${cycle}` })}
+                  <button
+                    type="button"
+                    onClick={() => onPickPlan(`plan_card_${n}_${cycle}`)}
                     className={`mt-5 inline-flex justify-center items-center w-full py-2.5 rounded-xl text-[12.5px] font-bold transition-all hover:brightness-110 active:scale-[0.98] ${
                       isHighlighted ? 'text-white' : ''
                     }`}
@@ -840,7 +984,7 @@ const LandingPlanCards: React.FC = () => {
                     }}
                   >
                     Começar com {n === 1 ? '1 canal' : `${n} canais`}
-                  </a>
+                  </button>
                 </article>
               );
             })}
