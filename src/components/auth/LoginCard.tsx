@@ -369,12 +369,11 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         ) : (
           <>
             <div
-              className="space-y-5 rounded-2xl p-4 sm:space-y-6 sm:p-5"
+              className="space-y-4 rounded-2xl p-4 sm:space-y-5 sm:p-5"
               style={{
-                background:
-                  'linear-gradient(155deg, rgba(16,185,129,0.08) 0%, var(--surface-1) 45%, var(--surface-0) 100%)',
-                border: '1px solid rgba(16,185,129,0.16)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
+                background: 'linear-gradient(180deg, rgba(16,185,129,0.035) 0%, var(--surface-1) 50%)',
+                border: '1px solid var(--border-subtle)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)'
               }}
             >
               <div
@@ -426,90 +425,23 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               </div>
 
               <div
-                className="rounded-xl px-3.5 py-3 text-[12px] leading-relaxed sm:px-4"
+                className="rounded-xl px-3.5 py-2.5 text-[11.5px] leading-relaxed sm:px-4 sm:text-[12px]"
                 style={{
-                  background: 'rgba(16,185,129,0.07)',
-                  border: '1px solid rgba(16,185,129,0.14)',
+                  background: 'rgba(16,185,129,0.05)',
+                  border: '1px solid rgba(16,185,129,0.1)',
                   color: 'var(--text-2)'
                 }}
               >
                 {managerJourney === 'new'
                   ? showTrialOption
-                    ? `Na primeira entrada, o teste grátis (${formatTrialHoursLabel(config.trialHours)}) é ativado com qualquer opção abaixo — rede social ou e-mail.`
-                    : 'Crie sua conta com Google, Apple, Facebook ou com e-mail e senha.'
-                  : 'Entre com a mesma conta que já usa no ZapMass.'}
+                    ? `E-mail e senha abaixo, ou um dos ícones. Na primeira entrada o teste grátis (${formatTrialHoursLabel(config.trialHours)}) ativa sozinho.`
+                    : 'Use o formulário abaixo ou entre com Google, Apple ou Facebook (ícones no final).'
+                  : 'Entre com e-mail e senha abaixo ou com a mesma rede social dos ícones.'}
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-                <button
-                  type="button"
-                  onClick={() => void runOAuthLogin('google', oauthModeForManager)}
-                  disabled={busy}
-                  className="flex min-h-[5.25rem] flex-col items-center justify-center gap-2 rounded-2xl px-1 py-3.5 text-[10px] font-bold transition-all hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:opacity-60 sm:text-[11px]"
-                  style={{
-                    background: '#fff',
-                    color: '#111',
-                    border: '1px solid #e5e7eb',
-                    boxShadow: '0 6px 20px rgba(0,0,0,0.07)'
-                  }}
-                >
-                  {oauthSpin(loading, 'google', oauthModeForManager) ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <GoogleLogo />
-                  )}
-                  Google
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void runOAuthLogin('facebook', oauthModeForManager)}
-                  disabled={busy}
-                  className="flex min-h-[5.25rem] flex-col items-center justify-center gap-2 rounded-2xl px-1 py-3.5 text-[10px] font-bold text-white transition-all hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg active:translate-y-0 disabled:opacity-60 sm:text-[11px]"
-                  style={{ background: '#1877F2', boxShadow: '0 8px 22px rgba(24,119,242,0.32)' }}
-                >
-                  {oauthSpin(loading, 'facebook', oauthModeForManager) ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <FacebookLogo tone="light" />
-                  )}
-                  Facebook
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void runOAuthLogin('apple', oauthModeForManager)}
-                  disabled={busy}
-                  className="flex min-h-[5.25rem] flex-col items-center justify-center gap-2 rounded-2xl px-1 py-3.5 text-[10px] font-bold text-white transition-all hover:-translate-y-0.5 hover:opacity-95 hover:shadow-lg active:translate-y-0 disabled:opacity-60 sm:text-[11px]"
-                  style={{ background: '#000', border: '1px solid #333', boxShadow: '0 8px 22px rgba(0,0,0,0.25)' }}
-                >
-                  {oauthSpin(loading, 'apple', oauthModeForManager) ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <AppleLogo tone="light" />
-                  )}
-                  Apple
-                </button>
-              </div>
-
-              {landingLayout && showTrialOption && managerJourney === 'new' && (
-                <p className="text-center text-[11px] font-medium sm:-mt-1" style={{ color: 'var(--text-2)' }}>
-                  {formatTrialHoursLabel(config.trialHours)} com tudo liberado · sem cartão
-                </p>
-              )}
-
-              <div className="flex items-center gap-3 py-0.5">
-                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-[var(--border-subtle)] opacity-80" />
-                <span
-                  className="whitespace-nowrap px-2 text-[9.5px] font-bold uppercase tracking-[0.14em] sm:text-[10px]"
-                  style={{ color: 'var(--text-3)' }}
-                >
-                  ou e-mail e senha
-                </span>
-                <div className="h-px flex-1 bg-gradient-to-l from-transparent to-[var(--border-subtle)] opacity-80" />
-              </div>
-
-              <div className="space-y-3.5">
+              <div className="space-y-3">
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                  <label className="text-[11px] font-semibold tracking-wide" style={{ color: 'var(--text-3)' }}>
                     E-mail
                   </label>
                   <input
@@ -521,14 +453,14 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                     placeholder="voce@email.com"
                     className={fieldInputClass}
                     style={{
-                      background: 'var(--surface-1)',
+                      background: 'var(--surface-0)',
                       border: '1px solid var(--border-subtle)',
                       color: 'var(--text-1)'
                     }}
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                  <label className="text-[11px] font-semibold tracking-wide" style={{ color: 'var(--text-3)' }}>
                     Senha
                   </label>
                   <input
@@ -540,7 +472,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                     placeholder="••••••••"
                     className={fieldInputClass}
                     style={{
-                      background: 'var(--surface-1)',
+                      background: 'var(--surface-0)',
                       border: '1px solid var(--border-subtle)',
                       color: 'var(--text-1)'
                     }}
@@ -548,7 +480,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 </div>
                 {managerJourney === 'new' && (
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                    <label className="text-[11px] font-semibold tracking-wide" style={{ color: 'var(--text-3)' }}>
                       Confirmar senha
                     </label>
                     <input
@@ -560,7 +492,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                       placeholder="••••••••"
                       className={fieldInputClass}
                       style={{
-                        background: 'var(--surface-1)',
+                        background: 'var(--surface-0)',
                         border: '1px solid var(--border-subtle)',
                         color: 'var(--text-1)'
                       }}
@@ -571,10 +503,10 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   type="button"
                   onClick={() => void runManagerEmailAuth()}
                   disabled={busy}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-[13px] font-bold text-white transition-all hover:brightness-110 disabled:opacity-60"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-[13px] font-semibold text-white transition-all hover:brightness-[1.03] disabled:opacity-60"
                   style={{
-                    background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
-                    boxShadow: '0 10px 24px rgba(13,148,136,0.28)'
+                    background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%)',
+                    boxShadow: '0 6px 18px rgba(15,118,110,0.22)'
                   }}
                 >
                   {loading === 'email-signup' || loading === 'email-signin' ? (
@@ -587,6 +519,72 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                       <Mail className="h-4 w-4" />
                       {managerJourney === 'new' ? 'Criar conta com e-mail' : 'Entrar com e-mail'}
                     </>
+                  )}
+                </button>
+              </div>
+
+              {landingLayout && showTrialOption && managerJourney === 'new' && (
+                <p className="text-center text-[10.5px] font-medium leading-snug" style={{ color: 'var(--text-3)' }}>
+                  {formatTrialHoursLabel(config.trialHours)} com tudo liberado · sem cartão
+                </p>
+              )}
+
+              <div className="flex items-center gap-3 py-1">
+                <div className="h-px flex-1 opacity-60" style={{ background: 'var(--border-subtle)' }} />
+                <span className="whitespace-nowrap px-1 text-[10px] font-medium tracking-wide" style={{ color: 'var(--text-3)' }}>
+                  ou continue com
+                </span>
+                <div className="h-px flex-1 opacity-60" style={{ background: 'var(--border-subtle)' }} />
+              </div>
+
+              <div className="flex items-center justify-center gap-3 sm:gap-4" role="group" aria-label="Entrar com rede social">
+                <button
+                  type="button"
+                  title="Google"
+                  aria-label="Continuar com Google"
+                  onClick={() => void runOAuthLogin('google', oauthModeForManager)}
+                  disabled={busy}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 disabled:opacity-55 disabled:hover:translate-y-0 sm:h-12 sm:w-12"
+                  style={{
+                    background: '#ffffff',
+                    borderColor: 'rgba(0,0,0,0.08)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                  }}
+                >
+                  {oauthSpin(loading, 'google', oauthModeForManager) ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-zinc-600" />
+                  ) : (
+                    <GoogleLogo />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  title="Facebook"
+                  aria-label="Continuar com Facebook"
+                  onClick={() => void runOAuthLogin('facebook', oauthModeForManager)}
+                  disabled={busy}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 disabled:opacity-55 disabled:hover:translate-y-0 sm:h-12 sm:w-12"
+                  style={{ background: '#1877F2', boxShadow: '0 2px 10px rgba(24,119,242,0.28)' }}
+                >
+                  {oauthSpin(loading, 'facebook', oauthModeForManager) ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FacebookLogo tone="light" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  title="Apple"
+                  aria-label="Continuar com Apple"
+                  onClick={() => void runOAuthLogin('apple', oauthModeForManager)}
+                  disabled={busy}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 text-white transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/35 disabled:opacity-55 disabled:hover:translate-y-0 sm:h-12 sm:w-12"
+                  style={{ background: '#0a0a0a', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }}
+                >
+                  {oauthSpin(loading, 'apple', oauthModeForManager) ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <AppleLogo tone="light" />
                   )}
                 </button>
               </div>
