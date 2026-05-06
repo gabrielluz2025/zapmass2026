@@ -90,14 +90,8 @@ const FacebookSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
     <path fill="#fff" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
   </svg>
 );
-const AppleSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-    <path fill="#fff" d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
-  </svg>
-);
-
 const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({ onClose, trialLabel }) => {
-  const { signInWithGoogle, signInWithFacebook, signInWithApple, signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCustomToken } = useAuth();
+  const { signInWithGoogle, signInWithFacebook, signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCustomToken } = useAuth();
 
   const [step, setStep]       = useState<QAPStep>('main');
   const [busy, setBusy]       = useState(false);
@@ -144,12 +138,11 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({
     try { await signUpWithEmailPassword(email.trim(), password); } finally { setBusy(false); }
   };
 
-  const handleOAuth = async (p: 'google' | 'facebook' | 'apple') => {
+  const handleOAuth = async (p: 'google' | 'facebook') => {
     setBusy(true);
     try {
       if (p === 'google')   await signInWithGoogle();
-      else if (p === 'facebook') await signInWithFacebook();
-      else await signInWithApple();
+      else await signInWithFacebook();
     } finally { setBusy(false); }
   };
 
@@ -296,11 +289,6 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({
               style={oauthBtn('#1877F2', '0 4px 14px rgba(24,119,242,0.3)')}>
               <FacebookSVG size={18} />
               Continuar com Facebook
-            </button>
-            <button type="button" disabled={busy} onClick={() => void handleOAuth('apple')}
-              style={oauthBtn('#0a0a0a', '0 4px 14px rgba(0,0,0,0.3)')}>
-              <AppleSVG size={18} />
-              Continuar com Apple
             </button>
           </div>
 
@@ -1115,7 +1103,7 @@ export const PreLoginLanding: React.FC = () => {
             <FaqItem q="Com quantos canais posso começar?" a="Você escolhe entre 1 e 5 canais no checkout. Se precisar crescer, upgrade pró-rata disponível a qualquer momento." />
             <FaqItem q="Como funciona cancelamento e renovação?" a="Tudo gerenciado em 'Minha assinatura'. Cancele quando quiser; acesso segue ativo até o fim do período pago." />
             <FaqItem q="Preciso pagar para testar?" a={`Não. O teste grátis de ${trialLabel} libera o sistema completo sem cartão. Se não contratar, apenas os envios ficam bloqueados.`} />
-            <FaqItem q="Meus dados e os dados dos clientes ficam seguros?" a="Sim. Cada conta opera com dados isolados, autenticação via Google/Apple/Facebook para o gestor e usuário+senha para a equipe, sempre sobre HTTPS." />
+            <FaqItem q="Meus dados e os dados dos clientes ficam seguros?" a="Sim. Cada conta opera com dados isolados, autenticação via Google/Facebook para o gestor e usuário+senha para a equipe, sempre sobre HTTPS." />
             <FaqItem q="Preciso deixar o computador ligado para disparar?" a="Não. A operação roda na nuvem 24/7. Feche o navegador e volte depois para acompanhar." />
           </div>
         </section>

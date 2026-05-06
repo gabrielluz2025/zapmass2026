@@ -24,7 +24,7 @@ interface LoginCardProps {
   landingLayout?: boolean;
 }
 
-type OauthPid = 'google' | 'facebook' | 'apple';
+type OauthPid = 'google' | 'facebook';
 type LoadingState =
   | 'idle'
   | 'staff'
@@ -32,8 +32,6 @@ type LoadingState =
   | 'oauth:google:customer'
   | 'oauth:facebook:trial'
   | 'oauth:facebook:customer'
-  | 'oauth:apple:trial'
-  | 'oauth:apple:customer'
   | 'email-signin'
   | 'email-signup';
 
@@ -68,7 +66,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   const {
     signInWithGoogle,
     signInWithFacebook,
-    signInWithApple,
     signInWithEmailPassword,
     signUpWithEmailPassword,
     signInWithStaffCustomToken
@@ -84,7 +81,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   const [passwordAuth, setPasswordAuth] = useState('');
   const [passwordConfirmAuth, setPasswordConfirmAuth] = useState('');
 
-  const runOAuthLogin = async (provider: 'google' | 'facebook' | 'apple') => {
+  const runOAuthLogin = async (provider: 'google' | 'facebook') => {
     if (landingLayout) {
       trackLandingEvent('landing_login_click', { login_kind: `${provider}_auto` });
     }
@@ -92,8 +89,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     setLoading(`oauth:${provider}:customer` as LoadingState);
     try {
       if (provider === 'google') await signInWithGoogle();
-      else if (provider === 'facebook') await signInWithFacebook();
-      else await signInWithApple();
+      else await signInWithFacebook();
     } finally {
       setLoading('idle');
     }
@@ -125,7 +121,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     if (!hasPassword && oauthOnly.length > 0) {
       const one = oauthOnly.length === 1 ? oauthOnly[0] : null;
       const label =
-        one === 'google.com' ? 'Google' : one === 'facebook.com' ? 'Facebook' : one === 'apple.com' ? 'Apple' : null;
+        one === 'google.com' ? 'Google' : one === 'facebook.com' ? 'Facebook' : null;
       toast.error(
         label
           ? `Este e-mail já está ligado a ${label}. Use o botão correspondente abaixo.`
@@ -400,7 +396,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             </button>
             <p className="pt-0.5 text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
               Este acesso usa a assinatura da conta do gestor. O teste grátis só é ativado quando o responsável entra pela
-              primeira vez (Google, Apple, Facebook ou e-mail e senha).
+              primeira vez (Google, Facebook ou e-mail e senha).
             </p>
           </div>
         ) : (
@@ -565,23 +561,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                     <FacebookLogo tone="light" size={landingLayout ? 14 : 18} />
                   )}
                 </button>
-                <button
-                  type="button"
-                  title="Apple"
-                  aria-label="Continuar com Apple"
-                  onClick={() => void runOAuthLogin('apple')}
-                  disabled={busy}
-                  className={`flex shrink-0 items-center justify-center rounded-full border border-white/10 text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/35 disabled:opacity-55 disabled:hover:translate-y-0 ${
-                    landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
-                  }`}
-                  style={{ background: '#0a0a0a', boxShadow: '0 2px 7px rgba(0,0,0,0.18)' }}
-                >
-                  {oauthSpin(loading, 'apple') ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <AppleLogo tone="light" size={landingLayout ? 14 : 18} />
-                  )}
-                </button>
               </div>
             </div>
           </>
@@ -604,7 +583,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 <>
                   <Feature
                     icon={<ShieldCheck className="w-3.5 h-3.5" />}
-                    label="Responsável: Google, Apple, Facebook ou e-mail/senha (Firebase). Funcionários: aba Funcionário."
+                    label="Responsável: Google, Facebook ou e-mail/senha (Firebase). Funcionários: aba Funcionário."
                   />
                   <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente no navegador" />
                 </>
@@ -639,7 +618,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 <>
                   <Feature
                     icon={<ShieldCheck className="w-3.5 h-3.5" />}
-                    label="Responsável: Google, Apple, Facebook ou e-mail e senha — o sistema reconhece conta nova ou existente."
+                    label="Responsável: Google, Facebook ou e-mail e senha — o sistema reconhece conta nova ou existente."
                   />
                   <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
                 </>
@@ -690,22 +669,6 @@ const FacebookLogo: React.FC<{ tone?: 'light' | 'brand'; size?: number }> = ({ t
     <path
       fill="currentColor"
       d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"
-    />
-  </svg>
-);
-
-const AppleLogo: React.FC<{ tone?: 'light' | 'dark'; size?: number }> = ({ tone = 'dark', size = 18 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-    style={{ color: tone === 'light' ? '#fff' : '#000' }}
-  >
-    <path
-      fill="currentColor"
-      d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"
     />
   </svg>
 );

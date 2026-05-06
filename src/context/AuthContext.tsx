@@ -16,7 +16,7 @@ import {
   type AuthProvider
 } from 'firebase/auth';
 import toast from 'react-hot-toast';
-import { auth, appleProvider, facebookProvider, googleProvider } from '../services/firebase';
+import { auth, facebookProvider, googleProvider } from '../services/firebase';
 import { trackLoginSuccess } from '../utils/marketingEvents';
 
 interface AuthContextValue {
@@ -24,7 +24,6 @@ interface AuthContextValue {
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithFacebook: () => Promise<void>;
-  signInWithApple: () => Promise<void>;
   signInWithEmailPassword: (email: string, password: string) => Promise<void>;
   signUpWithEmailPassword: (email: string, password: string) => Promise<void>;
   /** Login de funcionário (token emitido pelo servidor após validar e-mail do gestor + usuário + senha). */
@@ -37,7 +36,6 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   signInWithGoogle: async () => {},
   signInWithFacebook: async () => {},
-  signInWithApple: async () => {},
   signInWithEmailPassword: async () => {},
   signUpWithEmailPassword: async () => {},
   signInWithStaffCustomToken: async () => {},
@@ -70,7 +68,7 @@ const mapAuthErrorMessage = (err: any): string => {
     case 'auth/custom-token-mismatch':
       return 'Token de acesso inválido ou expirado. Tente entrar de novo.';
     case 'auth/account-exists-with-different-credential':
-      return 'Este e-mail já está ligado a outro método de login. Use o mesmo botão (Google, Apple ou Facebook) que usou na primeira vez.';
+      return 'Este e-mail já está ligado a outro método de login. Use o mesmo botão (Google ou Facebook) que usou na primeira vez.';
     case 'auth/invalid-email':
       return 'E-mail inválido. Verifique o endereço.';
     case 'auth/missing-password':
@@ -110,8 +108,7 @@ const mapAuthErrorMessage = (err: any): string => {
 const trackLoginSuccessFromCredential = (res: UserCredential) => {
   const pid = res.providerId || res.user?.providerData?.[0]?.providerId || '';
   if (pid === 'facebook.com') trackLoginSuccess('facebook');
-  else if (pid === 'apple.com') trackLoginSuccess('apple');
-  else trackLoginSuccess('google');
+  else if (pid === 'google.com') trackLoginSuccess('google');
 };
 
 /** URL direta no CDN (fbcdn); evita graph.facebook.com/.../picture (muitas vezes só silhueta). */
@@ -284,21 +281,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signInWithApple = async () => {
-    try {
-      await signInWithProviderPopupOrRedirect(appleProvider, {
-        redirectToastId: 'apple-redirect',
-        redirectMessage: 'Redirecionando para a Apple...'
-      });
-      if (!auth.currentUser) return;
-      trackLoginSuccess('apple');
-      toast.success('Login realizado com sucesso.');
-    } catch (err: any) {
-      console.error('[AuthContext] signInWithApple:', err);
-      toast.error(mapAuthErrorMessage(err));
-    }
-  };
-
   const signInWithEmailPassword = async (email: string, password: string) => {
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
@@ -357,7 +339,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         loading,
         signInWithGoogle,
         signInWithFacebook,
-        signInWithApple,
         signInWithEmailPassword,
         signUpWithEmailPassword,
         signInWithStaffCustomToken,

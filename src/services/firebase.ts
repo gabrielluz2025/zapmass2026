@@ -4,7 +4,6 @@ import {
   getAuth,
   GoogleAuthProvider,
   FacebookAuthProvider,
-  OAuthProvider,
   setPersistence,
   browserLocalPersistence
 } from 'firebase/auth';
@@ -31,13 +30,9 @@ setPersistence(auth, browserLocalPersistence).catch((err) => {
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-/** Habilitar Facebook e Apple no Firebase Console → Authentication → Sign-in method. */
+/** Habilitar Facebook no Firebase Console → Authentication → Sign-in method. */
 export const facebookProvider = new FacebookAuthProvider();
 // Só use addScope('email') depois de ativar a permissão «email» no caso de uso
 // «Login com o Facebook» na Meta (App → Casos de uso / Permissões). Sem isso: erro
 // «Invalid Scopes: email» (error_code=100).
 facebookProvider.addScope('public_profile');
-
-export const appleProvider = new OAuthProvider('apple.com');
-appleProvider.addScope('email');
-appleProvider.addScope('name');
