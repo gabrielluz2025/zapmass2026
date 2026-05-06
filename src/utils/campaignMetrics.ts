@@ -3,8 +3,8 @@ import { Campaign, CampaignStatus } from '../types';
 /** Métricas derivadas alinhando `processedCount` (Firestore) com sucesso+ falha. */
 export function getCampaignProgressMetrics(campaign: Campaign) {
   const total = Math.max(0, Math.floor(Number(campaign.totalContacts) || 0));
-  const ok = Math.max(0, Math.floor(Number(campaign.successCount) || 0));
-  const fail = Math.max(0, Math.floor(Number(campaign.failedCount) || 0));
+  let ok = Math.max(0, Math.floor(Number(campaign.successCount) || 0));
+  let fail = Math.max(0, Math.floor(Number(campaign.failedCount) || 0));
   const reported = Math.max(0, Math.floor(Number(campaign.processedCount) || 0));
   // O progresso em tempo real (`campaign-progress`) preenche `processedCount`, mas no
   // `campaign-complete` / Firestore ele às vezes fica 0 enquanto `successCount` já foi atualizado.
@@ -19,8 +19,12 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
     effectiveProcessed = total;
   }
   const pending = Math.max(0, total - effectiveProcessed);
+  // Firestore pode ficar inconsistente (ex.: successCount > totalContacts); nunca exceder o envelope.
+  ok = Math.min(ok, effectiveProcessed);
+  fail = Math.min(fail, Math.max(0, effectiveProcessed - ok));
   const progressPct = total > 0 ? Math.round((effectiveProcessed / total) * 100) : 0;
-  const successRatePct = effectiveProcessed > 0 ? Math.round((ok / effectiveProcessed) * 100) : 0;
+  const successRatePct =
+    effectiveProcessed > 0 ? Math.min(100, Math.round((ok / effectiveProcessed) * 100)) : 0;
   return {
     total,
     ok,
@@ -82,16 +86,19 @@ export function mergeCampaignMetricsWithReport(
   if (total > 0) {
     effectiveProcessed = Math.min(total, effectiveProcessed);
   }
-  const ok = Math.max(base.ok, nonFailed);
+  let ok = Math.max(base.ok, nonFailed);
   const fail = Math.max(base.fail, failedCount);
+  ok = Math.min(ok, effectiveProcessed);
+  const failAdj = Math.min(fail, Math.max(0, effectiveProcessed - ok));
   const progressDen = total > 0 ? total : Math.max(totalRows, 1);
   const pending = total > 0 ? Math.max(0, total - effectiveProcessed) : 0;
   const progressPct = Math.min(100, Math.round((effectiveProcessed / progressDen) * 100));
-  const successRatePct = effectiveProcessed > 0 ? Math.round((ok / effectiveProcessed) * 100) : 0;
+  const successRatePct =
+    effectiveProcessed > 0 ? Math.min(100, Math.round((ok / effectiveProcessed) * 100)) : 0;
   return {
     ...base,
     ok,
-    fail,
+    fail: failAdj,
     effectiveProcessed,
     pending,
     progressPct,

@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["server/**/*.ts", "shared/**/*.ts", "src/utils/connectionScope.ts", "src/utils/whatsappMediaLimits.ts", "src/utils/campaignMediaCompress.ts"],
+  "include": ["server/**/*.ts", "shared/**/*.ts", "src/utils/connectionScope.ts", "src/utils/whatsappMediaLimits.ts", "src/utils/campaignMediaCompress.ts", "src/utils/campaignReportBackfill.ts"],
   "exclude": [
       "legacy",
       "node_modules",

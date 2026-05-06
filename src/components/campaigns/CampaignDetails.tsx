@@ -37,7 +37,12 @@ import {
   WhatsAppConnection
 } from '../../types';
 import { useZapMass } from '../../context/ZapMassContext';
+import { useAuth } from '../../context/AuthContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
+import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
+import { parseFirestoreDateToIso } from '../../utils/followUp';
+import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import * as XLSX from 'xlsx';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { PerformanceFunnel } from '../PerformanceFunnel';
@@ -73,6 +78,8 @@ interface ReportRow {
   connectionId?: string;
   sentMessage?: string;
   profilePicUrl?: string;
+  /** Linha reconstruída a partir de contadores/lista (sem log por destinatário). */
+  legacyEstimate?: boolean;
 }
 
 const STATUS_META: Record<ReportStatus, { label: string; color: string; variant: 'success' | 'danger' | 'neutral' | 'info' | 'warning'; icon: React.ReactNode }> = {
@@ -287,7 +294,86 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   onBack,
   onTogglePause
 }) => {
-  const { conversations, contacts } = useZapMass();
+  const { conversations, contacts, contactLists } = useZapMass();
+  const { user } = useAuth();
+  const [persistedLogs, setPersistedLogs] = useState<SystemLog[]>([]);
+
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid) {
+      setPersistedLogs([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'users', uid, 'campaigns', campaign.id, 'logs'),
+      orderBy('createdAt', 'desc'),
+      limit(500)
+    );
+    let cancelled = false;
+    getDocs(q)
+      .then((snap) => {
+        if (cancelled) return;
+        const rows: SystemLog[] = [];
+        snap.forEach((docRef) => {
+          const d = docRef.data() as {
+            level?: string;
+            message?: string;
+            to?: string;
+            connectionId?: string;
+            error?: string;
+            createdAt?: unknown;
+          };
+          const createdRaw = d.createdAt;
+          const ts =
+            parseFirestoreDateToIso(createdRaw) ||
+            (typeof createdRaw === 'string' ? createdRaw : new Date().toISOString());
+          const lvl = String(d.level || 'info').toLowerCase();
+          const event =
+            lvl === 'error' ? 'campaign:error' : lvl === 'warn' ? 'campaign:warn' : 'campaign:info';
+          rows.push({
+            timestamp: ts,
+            event,
+            payload: {
+              message: d.message || '',
+              campaignId: campaign.id,
+              to: d.to,
+              connectionId: d.connectionId,
+              error: d.error
+            }
+          });
+        });
+        setPersistedLogs(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setPersistedLogs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, campaign.id]);
+
+  const logsForReport = useMemo(() => {
+    const dedupeKey = (l: SystemLog) => {
+      const p = (l.payload || {}) as { to?: string; message?: string };
+      return `${(l.timestamp || '').slice(0, 23)}|${cleanPhone(p.to || '')}|${p.message || ''}|${l.event}`;
+    };
+    const seen = new Set<string>();
+    const out: SystemLog[] = [];
+    for (const l of systemLogs) {
+      const k = dedupeKey(l);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(l);
+    }
+    for (const l of persistedLogs) {
+      const k = dedupeKey(l);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(l);
+    }
+    return out;
+  }, [systemLogs, persistedLogs]);
+
   const reportSectionRef = useRef<HTMLDivElement>(null);
   const [detailFilter, setDetailFilter] = useState<ReportFilter>('ALL');
   const [detailSearch, setDetailSearch] = useState('');
@@ -355,7 +441,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
     const byPhone = new Map<string, ReportRow>();
-    systemLogs.forEach((log, idx) => {
+    logsForReport.forEach((log, idx) => {
       if (!log.payload || typeof log.payload !== 'object') return;
       const p = log.payload as { campaignId?: string; to?: string; message?: string; error?: string; connectionId?: string };
       if (p.campaignId !== campaign.id || !p.to) return;
@@ -460,8 +546,27 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         mergedByPhone.set(row.phone, { ...existing, ...row });
       }
     }
-    return Array.from(mergedByPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
-  }, [systemLogs, campaign.id, campaign.selectedConnectionIds, contacts, conversations]);
+    const merged = Array.from(mergedByPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
+    if (merged.length > 0) return merged;
+
+    const legacy = buildLegacyEstimateReportRows({
+      campaign,
+      contacts,
+      contactLists
+    });
+    if (!legacy?.length) return merged;
+
+    return legacy.map((r) => ({
+      id: r.id,
+      phone: r.phone,
+      contactName: r.contactName,
+      status: r.status,
+      sentTime: r.sentTime,
+      sentTimestampMs: r.sentTimestampMs,
+      errorMessage: r.errorMessage,
+      legacyEstimate: true
+    }));
+  }, [logsForReport, campaign, campaign.selectedConnectionIds, contacts, contactLists, conversations]);
 
   const filteredReport = useMemo(() => {
     const term = detailSearch.trim().toLowerCase();
@@ -483,6 +588,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       return matchesSearch && matchesFilter;
     });
   }, [detailedReport, detailFilter, detailSearch]);
+
+  const hasLegacyEstimateRows = useMemo(
+    () => detailedReport.some((r) => r.legacyEstimate),
+    [detailedReport]
+  );
 
   const performance = useMemo(() => {
     const total = detailedReport.length;
@@ -559,6 +669,43 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }),
     [m, performance]
   );
+
+  /** Funil e score: quando não há linhas no relatório, alinha com os contadores Firestore (evita 0 entregues vs hero com N sucessos). */
+  const uiPerformance = useMemo(() => {
+    if (performance.total > 0) return performance;
+    const sent = Math.max(
+      0,
+      metrics.effectiveProcessed,
+      (campaign.successCount || 0) + (campaign.failedCount || 0)
+    );
+    if (sent <= 0) return performance;
+    const failCount = Math.max(metrics.fail, performance.counts.FAILED);
+    const delivered = Math.min(sent, Math.max(0, metrics.ok));
+    const total = sent;
+    const successPct = total > 0 ? Math.round(((total - failCount) / total) * 100) : 0;
+    const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
+    const counts: Record<ReportStatus, number> = {
+      PENDING: 0,
+      FAILED: failCount,
+      SENT: Math.max(0, total - failCount - delivered),
+      DELIVERED: delivered,
+      READ: 0,
+      REPLIED: 0
+    };
+    return {
+      ...performance,
+      total,
+      counts,
+      delivered,
+      read: 0,
+      replied: 0,
+      successPct,
+      deliveryPct,
+      readPct: 0,
+      replyPct: 0
+    };
+  }, [performance, metrics, campaign.successCount, campaign.failedCount]);
+
   const progress = metrics.progressPct;
   const successRate = metrics.successRatePct;
   const failureRate =
@@ -571,12 +718,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
 
   const campaignLogs = useMemo(() => {
-    return systemLogs.filter((log) => {
+    return logsForReport.filter((log) => {
       if (!log.payload || typeof log.payload !== 'object') return false;
       const payload = log.payload as { campaignId?: string };
       return payload.campaignId === campaign.id;
     });
-  }, [systemLogs, campaign.id]);
+  }, [logsForReport, campaign.id]);
 
   const filteredCampaignLogs = useMemo(() => {
     if (logFilter === 'ALL') return campaignLogs;
@@ -770,7 +917,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }`,
       `Total: ${campaign.totalContacts} contatos`,
       `Entregues: ${metrics.ok} (${successRate}%)`,
-      `Respostas: ${performance.replied} (${performance.replyPct}%)`,
+      `Respostas: ${uiPerformance.replied} (${uiPerformance.replyPct}%)`,
       `Falhas: ${metrics.fail}`,
       startedAt ? `Iniciada em: ${startedFmt.date} ${startedFmt.time}` : ''
     ].filter(Boolean).join('\n');
@@ -1083,8 +1230,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         />
         <KpiPill
           label="Responderam"
-          value={performance.replied.toLocaleString('pt-BR')}
-          helper={performance.replied > 0 ? `${performance.replyPct}%` : 'sem respostas'}
+          value={uiPerformance.replied.toLocaleString('pt-BR')}
+          helper={uiPerformance.replied > 0 ? `${uiPerformance.replyPct}%` : 'sem respostas'}
           color="#8b5cf6"
           onClick={() => handleFilterClick('REPLIED')}
         />
@@ -1130,10 +1277,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           </div>
         </div>
         <PerformanceFunnel
-          sent={performance.total || campaign.successCount + campaign.failedCount}
-          delivered={performance.delivered}
-          read={performance.read}
-          replied={performance.replied}
+          sent={uiPerformance.total || campaign.successCount + campaign.failedCount}
+          delivered={uiPerformance.delivered}
+          read={uiPerformance.read}
+          replied={uiPerformance.replied}
           height={340}
         />
       </div>
@@ -1143,12 +1290,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         <div className="lg:col-span-3">
           <CampaignScoreCard
             inputs={{
-              delivered: performance.delivered,
-              read: performance.read,
-              replied: performance.replied,
-              total: performance.total || campaign.totalContacts,
+              delivered: uiPerformance.delivered,
+              read: uiPerformance.read,
+              replied: uiPerformance.replied,
+              total: Math.max(uiPerformance.total || 0, campaign.totalContacts || 0, metrics.effectiveProcessed || 0) || 1,
               throughputPerMin,
-              failed: performance.counts.FAILED
+              failed: uiPerformance.counts.FAILED
             }}
           />
         </div>
@@ -1160,11 +1307,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       {/* ============================ INSIGHTS ============================ */}
       <CampaignDetailInsights
         data={{
-          total: performance.total,
-          delivered: performance.delivered,
-          read: performance.read,
-          replied: performance.replied,
-          failed: performance.counts.FAILED,
+          total: uiPerformance.total,
+          delivered: uiPerformance.delivered,
+          read: uiPerformance.read,
+          replied: uiPerformance.replied,
+          failed: uiPerformance.counts.FAILED,
           avgResponseSec: performance.avgResponseSec,
           peakHour: performance.peakHour,
           chipBreakdown: performance.chipBreakdown,
@@ -1266,6 +1413,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               <div>
                 <h3 className="ui-title text-[14px]">Relatório de envios</h3>
                 <p className="ui-subtitle text-[12px]">
+                  {hasLegacyEstimateRows && (
+                    <span className="block mb-1.5 text-[11px] leading-snug" style={{ color: '#f59e0b' }}>
+                      Parte das linhas foi reconstruída a partir dos contadores da campanha e da lista de contatos
+                      (histórico sem logs por destinatário). Telefone e status por linha são estimativas.
+                    </span>
+                  )}
                   {filteredReport.length} de {detailedReport.length} contato
                   {detailedReport.length === 1 ? '' : 's'} • status em tempo real
                 </p>
@@ -1396,11 +1549,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                               </div>
                             )}
                             <div className="min-w-0">
-                              <div
-                                className="text-[13px] font-semibold truncate leading-tight"
-                                style={{ color: 'var(--text-1)' }}
-                              >
-                                {item.contactName}
+                              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                <div
+                                  className="text-[13px] font-semibold truncate leading-tight"
+                                  style={{ color: 'var(--text-1)' }}
+                                >
+                                  {item.contactName}
+                                </div>
+                                {item.legacyEstimate && (
+                                  <Badge variant="warning" className="text-[9px] py-0 px-1.5">
+                                    estimativa
+                                  </Badge>
+                                )}
                               </div>
                               <div
                                 className="text-[11.5px] font-mono truncate"

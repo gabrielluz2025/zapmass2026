@@ -1169,6 +1169,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           }).catch(() => {});
         }
       }
+
+      if (log.level === 'INFO' && log.message === 'Mensagem enviada' && log.payload?.campaignId) {
+        const uid = currentUidRef.current;
+        const payload = log.payload as {
+          campaignId: string;
+          to?: string;
+          connectionId?: string;
+        };
+        if (uid) {
+          addDoc(collection(db, 'users', uid, 'campaigns', payload.campaignId, 'logs'), {
+            level: 'INFO',
+            message: log.message,
+            to: payload.to || '',
+            connectionId: payload.connectionId || '',
+            createdAt: new Date().toISOString()
+          }).catch(() => {});
+        }
+      }
     });
 
     socket.on('system-log', (log: SystemLog) => {
