@@ -33,7 +33,9 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 /** Habilitar Facebook e Apple no Firebase Console → Authentication → Sign-in method. */
 export const facebookProvider = new FacebookAuthProvider();
-facebookProvider.addScope('email');
+// Só use addScope('email') depois de ativar a permissão «email» no caso de uso
+// «Login com o Facebook» na Meta (App → Casos de uso / Permissões). Sem isso: erro
+// «Invalid Scopes: email» (error_code=100).
 facebookProvider.addScope('public_profile');
 
 export const appleProvider = new OAuthProvider('apple.com');
