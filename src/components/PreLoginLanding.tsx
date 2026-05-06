@@ -1328,7 +1328,7 @@ const LandingPlanCards: React.FC<{ onPickPlan: (ctaId: string) => void }> = ({ o
       {/* Plan cards */}
       <div
         className="flex lg:grid overflow-x-auto pb-4 lg:pb-0 snap-x snap-mandatory lg:snap-none -mx-6 px-6 sm:-mx-0 sm:px-0"
-        style={{ gap: 12, gridTemplateColumns: 'repeat(5,1fr)', scrollbarWidth: 'thin' }}
+        style={{ gap: 12, gridTemplateColumns: 'repeat(5,1fr)', scrollbarWidth: 'thin', paddingTop: 18 }}
       >
         {loadState === 'loading'
           ? CHANNEL_TIERS.map(n => (
