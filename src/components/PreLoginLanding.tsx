@@ -256,9 +256,13 @@ export const PreLoginLanding: React.FC = () => {
   const trialLabel = formatTrialHoursLabel(config.trialHours);
 
   const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
 
   const openAuth = useCallback((ctaId: string) => {
     trackLandingEvent('landing_cta_click', { cta_id: ctaId });
+    // CTAs de "entrar" abrem em modo login; todo o resto (inscrever, começar, planos) em signup
+    const isSignin = ctaId.includes('signin') || ctaId === 'header_signin' || ctaId === 'access_card_signin';
+    setAuthMode(isSignin ? 'signin' : 'signup');
     setAuthOpen(true);
   }, []);
 
@@ -844,14 +848,16 @@ export const PreLoginLanding: React.FC = () => {
           <div
             aria-hidden
             onClick={() => setAuthOpen(false)}
-            style={{ position: 'absolute', inset: 0, background: 'rgba(2,5,14,0.75)', backdropFilter: 'blur(6px)' }}
+            style={{ position: 'absolute', inset: 0, background: 'rgba(2,5,14,0.78)', backdropFilter: 'blur(8px)' }}
             className="animate-fade-in-up"
           />
-          {/* Card */}
+
+          {/* Modal card */}
           <div
             className="relative z-10 w-full animate-fade-in-up"
-            style={{ maxWidth: 420, animationDuration: '220ms' }}
+            style={{ maxWidth: 430, animationDuration: '220ms' }}
           >
+            {/* Fechar */}
             <button
               type="button"
               onClick={() => setAuthOpen(false)}
@@ -866,13 +872,74 @@ export const PreLoginLanding: React.FC = () => {
             >
               <X size={16} />
             </button>
+
+            {/* Toggle Entrar / Criar conta */}
+            <div style={{
+              display: 'flex', gap: 4, padding: 4, borderRadius: 14,
+              background: 'rgba(255,255,255,0.06)', border: `1px solid ${D.border}`,
+              marginBottom: 8
+            }}>
+              <button
+                type="button"
+                onClick={() => setAuthMode('signin')}
+                style={{
+                  flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  fontSize: 13.5, fontWeight: 700, transition: 'all 0.18s',
+                  background: authMode === 'signin' ? D.text1 : 'transparent',
+                  color: authMode === 'signin' ? '#030812' : D.text2,
+                  boxShadow: authMode === 'signin' ? '0 2px 10px rgba(0,0,0,0.25)' : 'none'
+                }}
+              >
+                Já tenho conta
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode('signup')}
+                style={{
+                  flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
+                  fontSize: 13.5, fontWeight: 700, transition: 'all 0.18s',
+                  background: authMode === 'signup'
+                    ? `linear-gradient(135deg, ${D.green}, #059669)`
+                    : 'transparent',
+                  color: authMode === 'signup' ? '#fff' : D.text2,
+                  boxShadow: authMode === 'signup' ? `0 4px 16px ${D.greenGlow}` : 'none'
+                }}
+              >
+                Criar conta grátis
+              </button>
+            </div>
+
+            {/* Hint contextual */}
+            <div style={{
+              marginBottom: 8, padding: '9px 14px', borderRadius: 10,
+              background: authMode === 'signup' ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${authMode === 'signup' ? 'rgba(16,185,129,0.2)' : D.border}`,
+              fontSize: 12, color: D.text2, lineHeight: 1.55
+            }}>
+              {authMode === 'signup' ? (
+                <>
+                  <strong style={{ color: D.greenLt }}>Novo por aqui?</strong> Preencha e-mail, senha e confirme a senha abaixo — sua conta é criada na hora com{' '}
+                  <strong style={{ color: D.text1 }}>{trialLabel} grátis</strong>, sem cartão. Ou entre direto com Google, Apple ou Facebook.
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: D.text1 }}>Bem-vindo de volta.</strong> Informe e-mail e senha ou use um botão social abaixo. Esqueceu a senha? Entre com Google, Apple ou Facebook e redefina pelo painel.
+                </>
+              )}
+            </div>
+
             <LoginCard
               landingLayout
               showTrialOption
-              title={loginCardDefaultCopy.title}
-              subtitle={loginCardDefaultCopy.subtitle}
+              title={authMode === 'signup' ? 'Criar sua conta' : 'Entrar na sua conta'}
+              subtitle={
+                authMode === 'signup'
+                  ? 'Responsável: rede social ou e-mail + confirmação de senha. Equipe: login criado pelo gestor.'
+                  : 'Responsável: rede social ou e-mail. Equipe: login criado pelo gestor em Funcionários.'
+              }
             />
-            <p style={{ marginTop: 8, fontSize: 10, textAlign: 'center', color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>
+
+            <p style={{ marginTop: 8, fontSize: 10, textAlign: 'center', color: 'rgba(255,255,255,0.45)', lineHeight: 1.5 }}>
               Ao continuar você aceita as políticas do ZapMass ·{' '}
               <a
                 href="#faq-whatsapp-lgpd"
@@ -1044,8 +1111,8 @@ const LandingPlanCards: React.FC<{ onPickPlan: (ctaId: string) => void }> = ({ o
                     <span style={{ fontSize: 30, fontWeight: 900, color: D.text1, letterSpacing: '-0.04em', lineHeight: 1 }}>{brl(total)}</span>
                     <span style={{ fontSize: 12, color: D.text3 }}>{cycle === 'monthly' ? '/mês' : '/ano'}</span>
                   </div>
-                  <p style={{ fontSize: 11.5, color: D.green, minHeight: 32, marginBottom: 16 }}>
-                    {equivMonthly != null ? `≈ ${brl(equivMonthly)}/mês em média` : 'Renove ou cancele quando quiser'}
+                  <p style={{ fontSize: 11.5, color: D.green, minHeight: 36, marginBottom: 14, lineHeight: 1.4 }}>
+                    {equivMonthly != null ? `≈ ${brl(equivMonthly)}/mês` : 'Cancele quando quiser'}
                   </p>
 
                   <ul style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, color: D.text2, fontSize: 12.5 }}>
@@ -1055,12 +1122,12 @@ const LandingPlanCards: React.FC<{ onPickPlan: (ctaId: string) => void }> = ({ o
                     </li>
                     <li style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
                       <CheckCircle2 size={14} style={{ color: D.green, marginTop: 2, flexShrink: 0 }} />
-                      Campanhas e base organizadas
+                      Campanhas, contatos e métricas
                     </li>
                     {n >= 2 && (
                       <li style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
                         <CheckCircle2 size={14} style={{ color: D.green, marginTop: 2, flexShrink: 0 }} />
-                        Multi-WhatsApp ({n} números)
+                        {n} números WhatsApp
                       </li>
                     )}
                   </ul>
