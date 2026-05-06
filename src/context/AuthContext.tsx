@@ -4,6 +4,8 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  getAdditionalUserInfo,
+  updateProfile,
   signOut as firebaseSignOut,
   signInWithCustomToken,
   User,
@@ -94,16 +96,51 @@ const trackLoginSuccessFromCredential = (res: UserCredential) => {
   else trackLoginSuccess('google');
 };
 
+/** Firebase muitas vezes deixa photoURL vazio no Facebook; preenchemos para a UI usar. */
+async function hydrateFacebookProfilePhotoIfNeeded(res: UserCredential): Promise<void> {
+  const u = res.user;
+  if (!u.providerData.some((p) => p.providerId === 'facebook.com')) return;
+  if (u.photoURL) return;
+
+  let url: string | null = null;
+  try {
+    const info = getAdditionalUserInfo(res);
+    const pic = info?.profile && (info.profile as { picture?: unknown }).picture;
+    if (typeof pic === 'string') url = pic;
+    else if (pic && typeof pic === 'object' && pic !== null && 'data' in pic) {
+      const d = (pic as { data?: { url?: string; is_silhouette?: boolean } }).data;
+      if (d?.url && !d?.is_silhouette) url = d.url;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const fbUid = u.providerData.find((p) => p.providerId === 'facebook.com')?.uid;
+  if (!url && fbUid) {
+    url = `https://graph.facebook.com/${encodeURIComponent(fbUid)}/picture?type=large`;
+  }
+  if (!url) return;
+
+  try {
+    await updateProfile(u, { photoURL: url });
+  } catch (e) {
+    console.warn('[AuthContext] updateProfile photoURL (Facebook):', e);
+  }
+}
+
+/** Sessão: evita repetir updateProfile a cada render. */
+const facebookPhotoBackfillTried = new Set<string>();
+
 async function signInWithProviderPopupOrRedirect(
   provider: AuthProvider,
   opts: { redirectToastId: string; redirectMessage: string }
-): Promise<void> {
+): Promise<UserCredential | null> {
   try {
-    await signInWithPopup(auth, provider);
+    return await signInWithPopup(auth, provider);
   } catch (err: any) {
     const code = err?.code || '';
     if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-      return;
+      return null;
     }
     if (
       code === 'auth/popup-blocked' ||
@@ -113,11 +150,11 @@ async function signInWithProviderPopupOrRedirect(
       try {
         toast.loading(opts.redirectMessage, { id: opts.redirectToastId, duration: 3000 });
         await signInWithRedirect(auth, provider);
-        return;
+        return null;
       } catch (redirectErr: any) {
         console.error('[AuthContext] signInWithRedirect:', redirectErr);
         toast.error(mapAuthErrorMessage(redirectErr));
-        return;
+        return null;
       }
     }
     throw err;
@@ -131,9 +168,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     // Finaliza login via redirect (fallback quando o popup foi bloqueado).
     getRedirectResult(auth)
-      .then((res) => {
+      .then(async (res) => {
         if (res?.user) {
           trackLoginSuccessFromCredential(res);
+          await hydrateFacebookProfilePhotoIfNeeded(res);
           toast.success('Login realizado com sucesso.');
         }
       })
@@ -148,6 +186,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       setUser(fbUser);
       setLoading(false);
+      if (fbUser && !fbUser.photoURL) {
+        const fb = fbUser.providerData.find((p) => p.providerId === 'facebook.com');
+        if (fb?.uid && !facebookPhotoBackfillTried.has(fbUser.uid)) {
+          facebookPhotoBackfillTried.add(fbUser.uid);
+          const url = `https://graph.facebook.com/${encodeURIComponent(fb.uid)}/picture?type=large`;
+          void updateProfile(fbUser, { photoURL: url }).catch(() => {
+            facebookPhotoBackfillTried.delete(fbUser.uid);
+          });
+        }
+      }
     });
     return () => unsub();
   }, []);
@@ -169,11 +217,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signInWithFacebook = async () => {
     try {
-      await signInWithProviderPopupOrRedirect(facebookProvider, {
+      const cred = await signInWithProviderPopupOrRedirect(facebookProvider, {
         redirectToastId: 'facebook-redirect',
         redirectMessage: 'Redirecionando para o Facebook...'
       });
       if (!auth.currentUser) return;
+      if (cred) await hydrateFacebookProfilePhotoIfNeeded(cred);
       trackLoginSuccess('facebook');
       toast.success('Login realizado com sucesso.');
     } catch (err: any) {
