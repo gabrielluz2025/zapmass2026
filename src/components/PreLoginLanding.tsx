@@ -1,13 +1,17 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
+  ArrowLeft,
   ArrowRight,
   BarChart3,
   CheckCircle2,
   ChevronDown,
   Clock,
   Database,
+  Loader2,
+  Lock,
   LogIn,
+  Mail,
   MessageCircle,
   MessageSquare,
   Send,
@@ -21,7 +25,10 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import { LoginCard, loginCardDefaultCopy } from './auth/LoginCard';
+import { fetchSignInMethodsForEmail } from 'firebase/auth';
+import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
+import { auth } from '../services/firebase';
 import { useLandingDocumentMeta } from '../hooks/useLandingDocumentMeta';
 import { useAppConfig } from '../context/AppConfigContext';
 import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
@@ -64,6 +71,370 @@ const D = {
   indigoGlow:'rgba(99,102,241,0.3)',
   amber:    '#f59e0b',
 } as const;
+
+/* ─────────────────────────────────────────────────────
+   QUICK AUTH PANEL — step-based modal (social-first)
+───────────────────────────────────────────────────── */
+type QAPStep = 'main' | 'pw-in' | 'pw-up' | 'staff';
+
+const GoogleSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+  </svg>
+);
+const FacebookSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+    <path fill="#fff" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+  </svg>
+);
+const AppleSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+    <path fill="#fff" d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+  </svg>
+);
+
+const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({ onClose, trialLabel }) => {
+  const { signInWithGoogle, signInWithFacebook, signInWithApple, signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCustomToken } = useAuth();
+
+  const [step, setStep]       = useState<QAPStep>('main');
+  const [busy, setBusy]       = useState(false);
+  const [email, setEmail]     = useState('');
+  const [password, setPass]   = useState('');
+  const [confirm, setConfirm] = useState('');
+  // staff
+  const [manEmail, setManEmail]   = useState('');
+  const [staffUser, setStaffUser] = useState('');
+  const [staffPass, setStaffPass] = useState('');
+
+  const passRef    = useRef<HTMLInputElement>(null);
+  const emailRef   = useRef<HTMLInputElement>(null);
+
+  const goBack = () => { setStep('main'); setPass(''); setConfirm(''); };
+
+  const handleEmailContinue = async () => {
+    const trimmed = email.trim();
+    if (!trimmed.includes('@')) { toast.error('Informe um e-mail válido'); return; }
+    setBusy(true);
+    try {
+      const methods = await fetchSignInMethodsForEmail(auth, trimmed);
+      const hasPassword = methods.includes('password');
+      setStep(hasPassword ? 'pw-in' : 'pw-up');
+      setTimeout(() => passRef.current?.focus(), 80);
+    } catch {
+      toast.error('E-mail inválido ou erro de rede. Tente novamente.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSignIn = async () => {
+    if (!password) { toast.error('Informe a senha'); return; }
+    setBusy(true);
+    try { await signInWithEmailPassword(email.trim(), password); } finally { setBusy(false); }
+  };
+
+  const handleSignUp = async () => {
+    if (!password || !confirm) { toast.error('Preencha a senha e a confirmação'); return; }
+    if (password !== confirm) { toast.error('As senhas não coincidem'); return; }
+    if (password.length < 6) { toast.error('Senha deve ter ao menos 6 caracteres'); return; }
+    setBusy(true);
+    try { await signUpWithEmailPassword(email.trim(), password); } finally { setBusy(false); }
+  };
+
+  const handleOAuth = async (p: 'google' | 'facebook' | 'apple') => {
+    setBusy(true);
+    try {
+      if (p === 'google')   await signInWithGoogle();
+      else if (p === 'facebook') await signInWithFacebook();
+      else await signInWithApple();
+    } finally { setBusy(false); }
+  };
+
+  const handleStaff = async () => {
+    const me = manEmail.trim().toLowerCase();
+    const slug = staffUser.trim();
+    if (!me.includes('@')) { toast.error('Informe o e-mail do responsável'); return; }
+    if (slug.length < 3)   { toast.error('Nome de usuário deve ter ao menos 3 caracteres'); return; }
+    if (staffPass.length < 8) { toast.error('Senha deve ter ao menos 8 caracteres'); return; }
+    setBusy(true);
+    try {
+      const r = await fetch('/api/workspace/staff/sign-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ managerEmail: me, loginName: slug, password: staffPass })
+      });
+      const data = (await r.json()) as { ok?: boolean; error?: string; customToken?: string };
+      if (!data?.ok || typeof data.customToken !== 'string') {
+        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível entrar.'); return;
+      }
+      await signInWithStaffCustomToken(data.customToken);
+    } finally { setBusy(false); }
+  };
+
+  /* ── shared styles ── */
+  const inp: React.CSSProperties = {
+    width: '100%', padding: '12px 14px', borderRadius: 10, fontSize: 14,
+    background: 'rgba(255,255,255,0.06)', border: `1px solid ${D.border}`,
+    color: D.text1, outline: 'none', transition: 'border-color 0.15s',
+    boxSizing: 'border-box'
+  };
+  const oauthBtn = (bg: string, shadow?: string): React.CSSProperties => ({
+    width: '100%', padding: '12px 16px', borderRadius: 12, border: 'none',
+    cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+    background: bg, color: '#fff', transition: 'opacity 0.15s, transform 0.12s',
+    boxShadow: shadow, opacity: busy ? 0.6 : 1
+  });
+  const primaryBtn: React.CSSProperties = {
+    width: '100%', padding: '13px 16px', borderRadius: 12, border: 'none',
+    cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 14.5,
+    background: `linear-gradient(135deg, #0f766e, #10b981)`,
+    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: 8, transition: 'opacity 0.15s, transform 0.12s',
+    boxShadow: '0 6px 20px rgba(16,185,129,0.3)', opacity: busy ? 0.6 : 1
+  };
+  const divider = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
+      <div style={{ flex: 1, height: 1, background: D.border }} />
+      <span style={{ fontSize: 11.5, color: D.text3, fontWeight: 500 }}>ou use seu e-mail</span>
+      <div style={{ flex: 1, height: 1, background: D.border }} />
+    </div>
+  );
+
+  /* ── email chip shown in pw-in / pw-up ── */
+  const emailChip = (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '8px 12px', borderRadius: 8,
+      background: 'rgba(255,255,255,0.05)', border: `1px solid ${D.border}`,
+      marginBottom: 16
+    }}>
+      <Mail size={14} style={{ color: D.text3, flexShrink: 0 }} />
+      <span style={{ fontSize: 13, color: D.text2, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
+      <button type="button" onClick={goBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: D.greenLt, fontSize: 12, fontWeight: 600, padding: 0 }}>
+        Trocar
+      </button>
+    </div>
+  );
+
+  const panel: React.CSSProperties = {
+    background: '#0b1629',
+    border: `1px solid ${D.border}`,
+    borderRadius: 18,
+    padding: '28px 24px 20px',
+    display: 'flex', flexDirection: 'column', gap: 12
+  };
+
+  /* ═══════════════ RENDER ═══════════════ */
+  return (
+    <div style={panel}>
+      {/* header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 2 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: `linear-gradient(135deg, ${D.green}, #059669)`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <Zap size={14} color="#fff" fill="#fff" />
+            </div>
+            <span style={{ fontSize: 15, fontWeight: 800, color: D.text1 }}>ZapMass</span>
+          </div>
+          {step === 'main' && (
+            <h2 style={{ fontSize: 20, fontWeight: 900, color: D.text1, letterSpacing: '-0.03em', margin: 0 }}>
+              Entrar ou criar conta
+            </h2>
+          )}
+          {step === 'pw-in' && (
+            <h2 style={{ fontSize: 20, fontWeight: 900, color: D.text1, letterSpacing: '-0.03em', margin: 0 }}>
+              Bem-vindo de volta!
+            </h2>
+          )}
+          {step === 'pw-up' && (
+            <h2 style={{ fontSize: 20, fontWeight: 900, color: D.text1, letterSpacing: '-0.03em', margin: 0 }}>
+              Criar sua conta
+            </h2>
+          )}
+          {step === 'staff' && (
+            <h2 style={{ fontSize: 20, fontWeight: 900, color: D.text1, letterSpacing: '-0.03em', margin: 0 }}>
+              Entrar como funcionário
+            </h2>
+          )}
+        </div>
+        <button
+          type="button" onClick={onClose} aria-label="Fechar"
+          style={{
+            background: 'rgba(255,255,255,0.06)', border: `1px solid ${D.border}`,
+            borderRadius: '50%', width: 30, height: 30, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: D.text2, flexShrink: 0
+          }}
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* ── STEP: MAIN ── */}
+      {step === 'main' && (
+        <>
+          <p style={{ fontSize: 13, color: D.text2, margin: 0 }}>
+            {trialLabel} grátis · sem cartão · sem instalação
+          </p>
+
+          {/* Social buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+            <button type="button" disabled={busy} onClick={() => void handleOAuth('google')}
+              style={{ ...oauthBtn('#fff', '0 2px 8px rgba(0,0,0,0.18)'), color: '#1f1f1f' }}>
+              <GoogleSVG size={18} />
+              Continuar com Google
+            </button>
+            <button type="button" disabled={busy} onClick={() => void handleOAuth('facebook')}
+              style={oauthBtn('#1877F2', '0 4px 14px rgba(24,119,242,0.3)')}>
+              <FacebookSVG size={18} />
+              Continuar com Facebook
+            </button>
+            <button type="button" disabled={busy} onClick={() => void handleOAuth('apple')}
+              style={oauthBtn('#0a0a0a', '0 4px 14px rgba(0,0,0,0.3)')}>
+              <AppleSVG size={18} />
+              Continuar com Apple
+            </button>
+          </div>
+
+          {divider}
+
+          {/* Email field */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input
+              ref={emailRef}
+              type="email" autoComplete="email" placeholder="voce@email.com"
+              value={email} onChange={e => setEmail(e.target.value)}
+              disabled={busy}
+              onKeyDown={e => { if (e.key === 'Enter') void handleEmailContinue(); }}
+              style={inp}
+            />
+            <button type="button" disabled={busy} onClick={() => void handleEmailContinue()} style={primaryBtn}>
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <><Mail size={15} />Continuar com e-mail<ArrowRight size={15} /></>}
+            </button>
+          </div>
+
+          {/* Funcionário link */}
+          <div style={{ textAlign: 'center', paddingTop: 4 }}>
+            <button type="button" onClick={() => setStep('staff')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, padding: 0 }}
+              onMouseEnter={e => (e.currentTarget.style.color = D.text2)}
+              onMouseLeave={e => (e.currentTarget.style.color = D.text3)}
+            >
+              <Users size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+              Sou funcionário (acesso criado pelo gestor)
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── STEP: SIGN IN ── */}
+      {step === 'pw-in' && (
+        <>
+          {emailChip}
+          <p style={{ fontSize: 13, color: D.text2, margin: '0 0 4px' }}>
+            Encontramos sua conta. Informe a senha para entrar.
+          </p>
+          <input
+            ref={passRef} type="password" autoComplete="current-password"
+            placeholder="Sua senha" value={password} onChange={e => setPass(e.target.value)}
+            disabled={busy} style={inp}
+            onKeyDown={e => { if (e.key === 'Enter') void handleSignIn(); }}
+          />
+          <button type="button" disabled={busy} onClick={() => void handleSignIn()} style={primaryBtn}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <><Lock size={15} />Entrar</>}
+          </button>
+          <button type="button" onClick={goBack}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
+            <ArrowLeft size={13} /> Usar outro e-mail
+          </button>
+        </>
+      )}
+
+      {/* ── STEP: SIGN UP ── */}
+      {step === 'pw-up' && (
+        <>
+          {emailChip}
+          <div style={{
+            padding: '7px 12px', borderRadius: 8, marginBottom: 4,
+            background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+            fontSize: 12.5, color: D.greenLt, display: 'flex', alignItems: 'center', gap: 6
+          }}>
+            <Sparkles size={13} />
+            Conta nova · {trialLabel} grátis incluído, sem cartão!
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input
+              ref={passRef} type="password" autoComplete="new-password"
+              placeholder="Crie uma senha (mín. 6 caracteres)" value={password}
+              onChange={e => setPass(e.target.value)} disabled={busy} style={inp}
+              onKeyDown={e => { if (e.key === 'Enter') void handleSignUp(); }}
+            />
+            <input
+              type="password" autoComplete="new-password"
+              placeholder="Confirme a senha" value={confirm}
+              onChange={e => setConfirm(e.target.value)} disabled={busy} style={inp}
+              onKeyDown={e => { if (e.key === 'Enter') void handleSignUp(); }}
+            />
+          </div>
+          <button type="button" disabled={busy} onClick={() => void handleSignUp()} style={primaryBtn}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <><UserPlus size={15} />Criar conta grátis</>}
+          </button>
+          <button type="button" onClick={goBack}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
+            <ArrowLeft size={13} /> Usar outro e-mail
+          </button>
+        </>
+      )}
+
+      {/* ── STEP: STAFF ── */}
+      {step === 'staff' && (
+        <>
+          <p style={{ fontSize: 13, color: D.text2, margin: '0 0 4px' }}>
+            Use o login criado pelo seu gestor no painel ZapMass.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input
+              type="email" autoComplete="off"
+              placeholder="E-mail do responsável (gestor)" value={manEmail}
+              onChange={e => setManEmail(e.target.value)} disabled={busy} style={inp}
+            />
+            <input
+              type="text" autoComplete="off"
+              placeholder="Seu nome de usuário" value={staffUser}
+              onChange={e => setStaffUser(e.target.value)} disabled={busy} style={inp}
+            />
+            <input
+              type="password" autoComplete="current-password"
+              placeholder="Sua senha" value={staffPass}
+              onChange={e => setStaffPass(e.target.value)} disabled={busy} style={inp}
+              onKeyDown={e => { if (e.key === 'Enter') void handleStaff(); }}
+            />
+          </div>
+          <button type="button" disabled={busy} onClick={() => void handleStaff()} style={primaryBtn}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <><LogIn size={15} />Entrar como funcionário</>}
+          </button>
+          <button type="button" onClick={() => setStep('main')}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
+            <ArrowLeft size={13} /> Não sou funcionário
+          </button>
+        </>
+      )}
+
+      {/* footer */}
+      <p style={{ fontSize: 10.5, textAlign: 'center', color: 'rgba(255,255,255,0.3)', margin: '4px 0 0', lineHeight: 1.5 }}>
+        Ao continuar você aceita as políticas do ZapMass
+      </p>
+    </div>
+  );
+};
 
 /* ── Mini dashboard mockup shown in the hero ── */
 const DashboardMockup: React.FC = () => {
@@ -256,13 +627,9 @@ export const PreLoginLanding: React.FC = () => {
   const trialLabel = formatTrialHoursLabel(config.trialHours);
 
   const [authOpen, setAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
 
   const openAuth = useCallback((ctaId: string) => {
     trackLandingEvent('landing_cta_click', { cta_id: ctaId });
-    // CTAs de "entrar" abrem em modo login; todo o resto (inscrever, começar, planos) em signup
-    const isSignin = ctaId.includes('signin') || ctaId === 'header_signin' || ctaId === 'access_card_signin';
-    setAuthMode(isSignin ? 'signin' : 'signup');
     setAuthOpen(true);
   }, []);
 
@@ -857,98 +1224,7 @@ export const PreLoginLanding: React.FC = () => {
             className="relative z-10 w-full animate-fade-in-up"
             style={{ maxWidth: 430, animationDuration: '220ms' }}
           >
-            {/* Fechar */}
-            <button
-              type="button"
-              onClick={() => setAuthOpen(false)}
-              aria-label="Fechar"
-              style={{
-                position: 'absolute', top: -12, right: -12, zIndex: 20,
-                width: 36, height: 36, borderRadius: '50%',
-                background: '#0d1526', border: `1px solid ${D.border}`,
-                color: D.text1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,0.35)'
-              }}
-            >
-              <X size={16} />
-            </button>
-
-            {/* Toggle Entrar / Criar conta */}
-            <div style={{
-              display: 'flex', gap: 4, padding: 4, borderRadius: 14,
-              background: 'rgba(255,255,255,0.06)', border: `1px solid ${D.border}`,
-              marginBottom: 8
-            }}>
-              <button
-                type="button"
-                onClick={() => setAuthMode('signin')}
-                style={{
-                  flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
-                  fontSize: 13.5, fontWeight: 700, transition: 'all 0.18s',
-                  background: authMode === 'signin' ? D.text1 : 'transparent',
-                  color: authMode === 'signin' ? '#030812' : D.text2,
-                  boxShadow: authMode === 'signin' ? '0 2px 10px rgba(0,0,0,0.25)' : 'none'
-                }}
-              >
-                Já tenho conta
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthMode('signup')}
-                style={{
-                  flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
-                  fontSize: 13.5, fontWeight: 700, transition: 'all 0.18s',
-                  background: authMode === 'signup'
-                    ? `linear-gradient(135deg, ${D.green}, #059669)`
-                    : 'transparent',
-                  color: authMode === 'signup' ? '#fff' : D.text2,
-                  boxShadow: authMode === 'signup' ? `0 4px 16px ${D.greenGlow}` : 'none'
-                }}
-              >
-                Criar conta grátis
-              </button>
-            </div>
-
-            {/* Hint contextual */}
-            <div style={{
-              marginBottom: 8, padding: '9px 14px', borderRadius: 10,
-              background: authMode === 'signup' ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${authMode === 'signup' ? 'rgba(16,185,129,0.2)' : D.border}`,
-              fontSize: 12, color: D.text2, lineHeight: 1.55
-            }}>
-              {authMode === 'signup' ? (
-                <>
-                  <strong style={{ color: D.greenLt }}>Novo por aqui?</strong> Preencha e-mail, senha e confirme a senha abaixo — sua conta é criada na hora com{' '}
-                  <strong style={{ color: D.text1 }}>{trialLabel} grátis</strong>, sem cartão. Ou entre direto com Google, Apple ou Facebook.
-                </>
-              ) : (
-                <>
-                  <strong style={{ color: D.text1 }}>Bem-vindo de volta.</strong> Informe e-mail e senha ou use um botão social abaixo. Esqueceu a senha? Entre com Google, Apple ou Facebook e redefina pelo painel.
-                </>
-              )}
-            </div>
-
-            <LoginCard
-              landingLayout
-              showTrialOption
-              title={authMode === 'signup' ? 'Criar sua conta' : 'Entrar na sua conta'}
-              subtitle={
-                authMode === 'signup'
-                  ? 'Responsável: rede social ou e-mail + confirmação de senha. Equipe: login criado pelo gestor.'
-                  : 'Responsável: rede social ou e-mail. Equipe: login criado pelo gestor em Funcionários.'
-              }
-            />
-
-            <p style={{ marginTop: 8, fontSize: 10, textAlign: 'center', color: 'rgba(255,255,255,0.45)', lineHeight: 1.5 }}>
-              Ao continuar você aceita as políticas do ZapMass ·{' '}
-              <a
-                href="#faq-whatsapp-lgpd"
-                onClick={() => setAuthOpen(false)}
-                style={{ color: D.greenLt, fontWeight: 600, textDecoration: 'underline' }}
-              >
-                WhatsApp e LGPD
-              </a>
-            </p>
+              <QuickAuthPanel onClose={() => setAuthOpen(false)} trialLabel={trialLabel} />
           </div>
         </div>
       ) : null}
@@ -1122,7 +1398,7 @@ const LandingPlanCards: React.FC<{ onPickPlan: (ctaId: string) => void }> = ({ o
                     </li>
                     <li style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
                       <CheckCircle2 size={14} style={{ color: D.green, marginTop: 2, flexShrink: 0 }} />
-                      Campanhas, contatos e métricas
+                      Campanhas e métricas
                     </li>
                     {n >= 2 && (
                       <li style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
