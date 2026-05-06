@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
-import { Loader2, Lock, Mail, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
+import { Loader2, Lock, LogIn, Mail, ShieldCheck, Sparkles, UserPlus, Users, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { trackLandingEvent } from '../../utils/marketingEvents';
+
+/** Título e subtítulo padrão (landing + rota de login isolada). */
+export const loginCardDefaultCopy = {
+  title: 'Comece em um passo',
+  subtitle:
+    'Responsável: rede social ou e-mail. Equipe: login criado pelo gestor em Funcionários — o formulário mostra o passo a passo.'
+} as const;
 
 interface LoginCardProps {
   title?: string;
@@ -31,6 +38,9 @@ type LoadingState =
 const oauthSpin = (loading: LoadingState, provider: OauthPid, mode: 'trial' | 'customer') =>
   loading === (`oauth:${provider}:${mode}` as LoadingState);
 
+const fieldInputClass =
+  'mt-1.5 w-full rounded-xl px-3.5 py-3 text-[13px] outline-none transition-[box-shadow,border-color] focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-500/40 disabled:opacity-60';
+
 function setTrialSessionForManager(mode: 'trial' | 'customer'): void {
   try {
     if (mode === 'trial') {
@@ -46,8 +56,8 @@ function setTrialSessionForManager(mode: 'trial' | 'customer'): void {
 }
 
 export const LoginCard: React.FC<LoginCardProps> = ({
-  title = 'Entre na sua conta',
-  subtitle = 'Acesse com Google, Apple, Facebook ou com e-mail e senha — escolha se é sua primeira vez ou se já tem conta.',
+  title = loginCardDefaultCopy.title,
+  subtitle = loginCardDefaultCopy.subtitle,
   showTrialOption = false,
   landingLayout = false
 }) => {
@@ -181,14 +191,18 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
   return (
     <div
-      className="landing-card-glow rounded-2xl p-6 sm:p-7 relative w-full"
+      className="landing-card-glow relative w-full overflow-hidden rounded-[1.65rem] ring-1 ring-white/[0.06]"
       style={{
         background: 'var(--surface-0)',
         border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-lg, 0 20px 50px rgba(0,0,0,0.18))'
+        boxShadow: 'var(--shadow-lg, 0 22px 55px rgba(0,0,0,0.22))'
       }}
     >
-      <div className="relative z-[1]">
+      <div
+        className="h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-500 opacity-[0.92]"
+        aria-hidden
+      />
+      <div className="relative z-[1] p-6 sm:p-8">
         {!landingLayout && (
           <div
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border mb-3"
@@ -204,17 +218,17 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           </div>
         )}
 
-        <h2 className="text-[22px] font-extrabold leading-tight mb-1.5" style={{ color: 'var(--text-1)' }}>
+        <h2 className="mb-2 text-[1.35rem] font-extrabold leading-tight tracking-tight sm:text-[1.45rem]" style={{ color: 'var(--text-1)' }}>
           {title}
         </h2>
-        <p className="text-[13px] leading-relaxed mb-5" style={{ color: 'var(--text-3)' }}>
+        <p className="mb-7 max-w-[42ch] text-[13px] leading-relaxed sm:max-w-none" style={{ color: 'var(--text-3)' }}>
           {subtitle}
         </p>
 
         {/* Quem entra: gestor (OAuth) ou funcionário (usuário + senha criados pelo gestor) */}
         <div
-          className="flex rounded-xl p-1 mb-5 gap-1"
-          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+          className="mb-6 flex gap-1.5 rounded-2xl p-1.5"
+          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}
           role="tablist"
           aria-label="Tipo de acesso"
         >
@@ -223,8 +237,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             role="tab"
             aria-selected={entryMode === 'admin'}
             onClick={() => setEntryMode('admin')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-[12.5px] font-bold transition-colors ${
-              entryMode === 'admin' ? 'shadow-sm' : 'opacity-85'
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[12.5px] font-bold transition-all duration-200 ${
+              entryMode === 'admin' ? 'shadow-[0_4px_20px_rgba(0,0,0,0.07)]' : 'opacity-80 hover:opacity-100'
             }`}
             style={{
               background: entryMode === 'admin' ? 'var(--surface-0)' : 'transparent',
@@ -232,7 +246,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               border: entryMode === 'admin' ? '1px solid var(--border-subtle)' : '1px solid transparent'
             }}
           >
-            <Zap className="w-4 h-4 text-emerald-600" />
+            <Zap className="h-4 w-4 shrink-0 text-emerald-500" />
             Responsável
           </button>
           <button
@@ -240,8 +254,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             role="tab"
             aria-selected={entryMode === 'staff'}
             onClick={() => setEntryMode('staff')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-[12.5px] font-bold transition-colors ${
-              entryMode === 'staff' ? 'shadow-sm' : 'opacity-85'
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[12.5px] font-bold transition-all duration-200 ${
+              entryMode === 'staff' ? 'shadow-[0_4px_20px_rgba(0,0,0,0.07)]' : 'opacity-80 hover:opacity-100'
             }`}
             style={{
               background: entryMode === 'staff' ? 'var(--surface-0)' : 'transparent',
@@ -249,17 +263,24 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               border: entryMode === 'staff' ? '1px solid var(--border-subtle)' : '1px solid transparent'
             }}
           >
-            <Users className="w-4 h-4 text-sky-600" />
+            <Users className="h-4 w-4 shrink-0 text-sky-500" />
             Funcionário
           </button>
         </div>
 
         {entryMode === 'staff' ? (
-          <div className="space-y-3 mb-2">
+          <div
+            className="mb-2 space-y-4 rounded-2xl p-4 sm:p-5 sm:space-y-5"
+            style={{
+              background:
+                'linear-gradient(165deg, rgba(14,165,233,0.07) 0%, var(--surface-1) 42%, var(--surface-0) 100%)',
+              border: '1px solid rgba(14,165,233,0.18)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
+            }}
+          >
             <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
-              O responsável cria o seu usuário e senha na área{' '}
-              <strong>Funcionários</strong> do painel. Use o <strong>e-mail principal do gestor</strong> (o mesmo da conta dele
-              no ZapMass) e o usuário que criou para você.
+              O responsável cria o seu usuário e senha na área <strong>Funcionários</strong> do painel. Use o{' '}
+              <strong>e-mail principal do gestor</strong> (o mesmo da conta dele no ZapMass) e o usuário que criou para você.
             </p>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
@@ -272,7 +293,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 onChange={(e) => setManagerEmail(e.target.value)}
                 disabled={busy}
                 placeholder="nome@empresa.com"
-                className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px]"
+                className={fieldInputClass}
                 style={{
                   background: 'var(--surface-1)',
                   border: '1px solid var(--border-subtle)',
@@ -291,7 +312,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 onChange={(e) => setStaffLoginName(e.target.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                 disabled={busy}
                 placeholder="ex.: maria_silva"
-                className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px] font-mono"
+                className={`${fieldInputClass} font-mono`}
                 style={{
                   background: 'var(--surface-1)',
                   border: '1px solid var(--border-subtle)',
@@ -310,7 +331,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 onChange={(e) => setStaffPassword(e.target.value)}
                 disabled={busy}
                 placeholder="••••••••"
-                className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px]"
+                className={fieldInputClass}
                 style={{
                   background: 'var(--surface-1)',
                   border: '1px solid var(--border-subtle)',
@@ -322,7 +343,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
               type="button"
               onClick={() => void runStaffLogin()}
               disabled={busy}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:brightness-110 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-[14px] font-bold text-white transition-all hover:brightness-110 disabled:opacity-60"
               style={{
                 background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
                 boxShadow: '0 12px 28px rgba(2,132,199,0.3)'
@@ -330,17 +351,17 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             >
               {loading === 'staff' ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Entrando…
                 </>
               ) : (
                 <>
-                  <Users className="w-4 h-4" />
+                  <Users className="h-4 w-4" />
                   Entrar como funcionário
                 </>
               )}
             </button>
-            <p className="text-[11px] leading-snug pt-1" style={{ color: 'var(--text-3)' }}>
+            <p className="pt-0.5 text-[11px] leading-snug" style={{ color: 'var(--text-3)' }}>
               Este acesso usa a assinatura da conta do gestor. O teste grátis só é ativado quando o responsável entra pela
               primeira vez (Google, Apple, Facebook ou e-mail e senha).
             </p>
@@ -348,171 +369,157 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         ) : (
           <>
             <div
-              className="flex rounded-xl p-1 mb-4 gap-1"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-              role="tablist"
-              aria-label="Primeira vez ou conta existente"
+              className="space-y-5 rounded-2xl p-4 sm:space-y-6 sm:p-5"
+              style={{
+                background:
+                  'linear-gradient(155deg, rgba(16,185,129,0.08) 0%, var(--surface-1) 45%, var(--surface-0) 100%)',
+                border: '1px solid rgba(16,185,129,0.16)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
+              }}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={managerJourney === 'new'}
-                onClick={() => setManagerJourney('new')}
-                disabled={busy}
-                className={`flex-1 py-2.5 px-2 rounded-lg text-[12px] font-bold transition-colors ${
-                  managerJourney === 'new' ? 'shadow-sm' : 'opacity-85'
-                }`}
+              <div
+                className="flex gap-1.5 rounded-2xl p-1.5"
                 style={{
-                  background: managerJourney === 'new' ? 'var(--surface-0)' : 'transparent',
-                  color: 'var(--text-1)',
-                  border: managerJourney === 'new' ? '1px solid var(--border-subtle)' : '1px solid transparent'
+                  background: 'var(--surface-0)',
+                  border: '1px solid var(--border-subtle)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)'
                 }}
+                role="tablist"
+                aria-label="Primeira vez ou conta existente"
               >
-                Primeira vez aqui
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={managerJourney === 'returning'}
-                onClick={() => setManagerJourney('returning')}
-                disabled={busy}
-                className={`flex-1 py-2.5 px-2 rounded-lg text-[12px] font-bold transition-colors ${
-                  managerJourney === 'returning' ? 'shadow-sm' : 'opacity-85'
-                }`}
-                style={{
-                  background: managerJourney === 'returning' ? 'var(--surface-0)' : 'transparent',
-                  color: 'var(--text-1)',
-                  border: managerJourney === 'returning' ? '1px solid var(--border-subtle)' : '1px solid transparent'
-                }}
-              >
-                Já tenho conta
-              </button>
-            </div>
-
-            <p className="text-[12px] leading-relaxed mb-4" style={{ color: 'var(--text-2)' }}>
-              {managerJourney === 'new'
-                ? showTrialOption
-                  ? `Na primeira entrada, o teste grátis (${formatTrialHoursLabel(config.trialHours)}) é ativado com qualquer opção abaixo — rede social ou e-mail.`
-                  : 'Crie sua conta com Google, Apple, Facebook ou com e-mail e senha.'
-                : 'Entre com a mesma conta que já usa no ZapMass.'}
-            </p>
-
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => void runOAuthLogin('google', oauthModeForManager)}
-                disabled={busy}
-                className="flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-xl font-bold text-[10px] sm:text-[11px] transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
-                style={{
-                  background: '#fff',
-                  color: '#111',
-                  border: '1px solid #e5e7eb',
-                  boxShadow: '0 4px 14px rgba(0,0,0,0.06)'
-                }}
-              >
-                {oauthSpin(loading, 'google', oauthModeForManager) ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <GoogleLogo />
-                )}
-                Google
-              </button>
-              <button
-                type="button"
-                onClick={() => void runOAuthLogin('facebook', oauthModeForManager)}
-                disabled={busy}
-                className="flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-xl font-bold text-[10px] sm:text-[11px] text-white transition-all hover:brightness-110 disabled:opacity-60"
-                style={{ background: '#1877F2', boxShadow: '0 6px 18px rgba(24,119,242,0.28)' }}
-              >
-                {oauthSpin(loading, 'facebook', oauthModeForManager) ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <FacebookLogo tone="light" />
-                )}
-                Facebook
-              </button>
-              <button
-                type="button"
-                onClick={() => void runOAuthLogin('apple', oauthModeForManager)}
-                disabled={busy}
-                className="flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-xl font-bold text-[10px] sm:text-[11px] text-white transition-all hover:opacity-95 disabled:opacity-60"
-                style={{ background: '#000', border: '1px solid #333', boxShadow: '0 6px 18px rgba(0,0,0,0.2)' }}
-              >
-                {oauthSpin(loading, 'apple', oauthModeForManager) ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <AppleLogo tone="light" />
-                )}
-                Apple
-              </button>
-            </div>
-
-            {landingLayout && showTrialOption && managerJourney === 'new' && (
-              <p className="text-[11px] mt-2 text-center font-medium" style={{ color: 'var(--text-2)' }}>
-                {formatTrialHoursLabel(config.trialHours)} com tudo liberado · sem cartão
-              </p>
-            )}
-
-            <div className="flex items-center gap-3 my-4">
-              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-              <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap px-1" style={{ color: 'var(--text-3)' }}>
-                ou e-mail e senha
-              </span>
-              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                  E-mail
-                </label>
-                <input
-                  type="email"
-                  autoComplete="email"
-                  value={emailAuth}
-                  onChange={(e) => setEmailAuth(e.target.value)}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={managerJourney === 'new'}
+                  onClick={() => setManagerJourney('new')}
                   disabled={busy}
-                  placeholder="voce@email.com"
-                  className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px]"
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 pl-2 pr-2 text-center text-[11.5px] font-bold leading-tight transition-all duration-200 sm:gap-2 sm:px-3 sm:text-[12px] ${
+                    managerJourney === 'new' ? 'shadow-[0_3px_16px_rgba(0,0,0,0.06)]' : 'opacity-75 hover:opacity-100'
+                  }`}
                   style={{
-                    background: 'var(--surface-1)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-1)'
+                    background: managerJourney === 'new' ? 'var(--surface-1)' : 'transparent',
+                    color: 'var(--text-1)',
+                    border: managerJourney === 'new' ? '1px solid var(--border-subtle)' : '1px solid transparent'
                   }}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                  Senha
-                </label>
-                <input
-                  type="password"
-                  autoComplete={managerJourney === 'new' ? 'new-password' : 'current-password'}
-                  value={passwordAuth}
-                  onChange={(e) => setPasswordAuth(e.target.value)}
+                >
+                  <UserPlus className="h-4 w-4 shrink-0 text-emerald-500" />
+                  <span className="min-w-0">Primeira vez aqui</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={managerJourney === 'returning'}
+                  onClick={() => setManagerJourney('returning')}
                   disabled={busy}
-                  placeholder="••••••••"
-                  className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px]"
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 pl-2 pr-2 text-center text-[11.5px] font-bold leading-tight transition-all duration-200 sm:gap-2 sm:px-3 sm:text-[12px] ${
+                    managerJourney === 'returning' ? 'shadow-[0_3px_16px_rgba(0,0,0,0.06)]' : 'opacity-75 hover:opacity-100'
+                  }`}
                   style={{
-                    background: 'var(--surface-1)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-1)'
+                    background: managerJourney === 'returning' ? 'var(--surface-1)' : 'transparent',
+                    color: 'var(--text-1)',
+                    border: managerJourney === 'returning' ? '1px solid var(--border-subtle)' : '1px solid transparent'
                   }}
-                />
+                >
+                  <LogIn className="h-4 w-4 shrink-0 text-teal-600" />
+                  <span className="min-w-0">Já tenho conta</span>
+                </button>
               </div>
-              {managerJourney === 'new' && (
+
+              <div
+                className="rounded-xl px-3.5 py-3 text-[12px] leading-relaxed sm:px-4"
+                style={{
+                  background: 'rgba(16,185,129,0.07)',
+                  border: '1px solid rgba(16,185,129,0.14)',
+                  color: 'var(--text-2)'
+                }}
+              >
+                {managerJourney === 'new'
+                  ? showTrialOption
+                    ? `Na primeira entrada, o teste grátis (${formatTrialHoursLabel(config.trialHours)}) é ativado com qualquer opção abaixo — rede social ou e-mail.`
+                    : 'Crie sua conta com Google, Apple, Facebook ou com e-mail e senha.'
+                  : 'Entre com a mesma conta que já usa no ZapMass.'}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => void runOAuthLogin('google', oauthModeForManager)}
+                  disabled={busy}
+                  className="flex min-h-[5.25rem] flex-col items-center justify-center gap-2 rounded-2xl px-1 py-3.5 text-[10px] font-bold transition-all hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:opacity-60 sm:text-[11px]"
+                  style={{
+                    background: '#fff',
+                    color: '#111',
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 6px 20px rgba(0,0,0,0.07)'
+                  }}
+                >
+                  {oauthSpin(loading, 'google', oauthModeForManager) ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <GoogleLogo />
+                  )}
+                  Google
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runOAuthLogin('facebook', oauthModeForManager)}
+                  disabled={busy}
+                  className="flex min-h-[5.25rem] flex-col items-center justify-center gap-2 rounded-2xl px-1 py-3.5 text-[10px] font-bold text-white transition-all hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg active:translate-y-0 disabled:opacity-60 sm:text-[11px]"
+                  style={{ background: '#1877F2', boxShadow: '0 8px 22px rgba(24,119,242,0.32)' }}
+                >
+                  {oauthSpin(loading, 'facebook', oauthModeForManager) ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <FacebookLogo tone="light" />
+                  )}
+                  Facebook
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runOAuthLogin('apple', oauthModeForManager)}
+                  disabled={busy}
+                  className="flex min-h-[5.25rem] flex-col items-center justify-center gap-2 rounded-2xl px-1 py-3.5 text-[10px] font-bold text-white transition-all hover:-translate-y-0.5 hover:opacity-95 hover:shadow-lg active:translate-y-0 disabled:opacity-60 sm:text-[11px]"
+                  style={{ background: '#000', border: '1px solid #333', boxShadow: '0 8px 22px rgba(0,0,0,0.25)' }}
+                >
+                  {oauthSpin(loading, 'apple', oauthModeForManager) ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <AppleLogo tone="light" />
+                  )}
+                  Apple
+                </button>
+              </div>
+
+              {landingLayout && showTrialOption && managerJourney === 'new' && (
+                <p className="text-center text-[11px] font-medium sm:-mt-1" style={{ color: 'var(--text-2)' }}>
+                  {formatTrialHoursLabel(config.trialHours)} com tudo liberado · sem cartão
+                </p>
+              )}
+
+              <div className="flex items-center gap-3 py-0.5">
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-[var(--border-subtle)] opacity-80" />
+                <span
+                  className="whitespace-nowrap px-2 text-[9.5px] font-bold uppercase tracking-[0.14em] sm:text-[10px]"
+                  style={{ color: 'var(--text-3)' }}
+                >
+                  ou e-mail e senha
+                </span>
+                <div className="h-px flex-1 bg-gradient-to-l from-transparent to-[var(--border-subtle)] opacity-80" />
+              </div>
+
+              <div className="space-y-3.5">
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                    Confirmar senha
+                    E-mail
                   </label>
                   <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={passwordConfirmAuth}
-                    onChange={(e) => setPasswordConfirmAuth(e.target.value)}
+                    type="email"
+                    autoComplete="email"
+                    value={emailAuth}
+                    onChange={(e) => setEmailAuth(e.target.value)}
                     disabled={busy}
-                    placeholder="••••••••"
-                    className="mt-1 w-full rounded-lg px-3 py-2.5 text-[13px]"
+                    placeholder="voce@email.com"
+                    className={fieldInputClass}
                     style={{
                       background: 'var(--surface-1)',
                       border: '1px solid var(--border-subtle)',
@@ -520,36 +527,79 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                     }}
                   />
                 </div>
-              )}
-              <button
-                type="button"
-                onClick={() => void runManagerEmailAuth()}
-                disabled={busy}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-[13px] text-white transition-all hover:brightness-110 disabled:opacity-60"
-                style={{
-                  background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
-                  boxShadow: '0 10px 24px rgba(13,148,136,0.28)'
-                }}
-              >
-                {loading === 'email-signup' || loading === 'email-signin' ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {loading === 'email-signup' ? 'Criando…' : 'Entrando…'}
-                  </>
-                ) : (
-                  <>
-                    <Mail className="w-4 h-4" />
-                    {managerJourney === 'new' ? 'Criar conta com e-mail' : 'Entrar com e-mail'}
-                  </>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                    Senha
+                  </label>
+                  <input
+                    type="password"
+                    autoComplete={managerJourney === 'new' ? 'new-password' : 'current-password'}
+                    value={passwordAuth}
+                    onChange={(e) => setPasswordAuth(e.target.value)}
+                    disabled={busy}
+                    placeholder="••••••••"
+                    className={fieldInputClass}
+                    style={{
+                      background: 'var(--surface-1)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-1)'
+                    }}
+                  />
+                </div>
+                {managerJourney === 'new' && (
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                      Confirmar senha
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={passwordConfirmAuth}
+                      onChange={(e) => setPasswordConfirmAuth(e.target.value)}
+                      disabled={busy}
+                      placeholder="••••••••"
+                      className={fieldInputClass}
+                      style={{
+                        background: 'var(--surface-1)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--text-1)'
+                      }}
+                    />
+                  </div>
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void runManagerEmailAuth()}
+                  disabled={busy}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-[13px] font-bold text-white transition-all hover:brightness-110 disabled:opacity-60"
+                  style={{
+                    background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
+                    boxShadow: '0 10px 24px rgba(13,148,136,0.28)'
+                  }}
+                >
+                  {loading === 'email-signup' || loading === 'email-signin' ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {loading === 'email-signup' ? 'Criando…' : 'Entrando…'}
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="h-4 w-4" />
+                      {managerJourney === 'new' ? 'Criar conta com e-mail' : 'Entrar com e-mail'}
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </>
         )}
 
         {landingLayout ? (
-          <details className="mt-5 rounded-xl border overflow-hidden group" style={{ borderColor: 'var(--border-subtle)' }}>
-            <summary className="flex items-center gap-2 px-3 py-2.5 cursor-pointer list-none text-[12px] font-semibold select-none hover:bg-black/[0.03]">
+          <details
+            className="group mt-6 overflow-hidden rounded-2xl border"
+            style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-3 text-[12px] font-semibold select-none transition-colors hover:bg-black/[0.04]">
               <Lock className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-600)' }} />
               <span style={{ color: 'var(--text-2)' }}>Como funciona o acesso e a segurança</span>
               <span className="ml-auto text-[10px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>

@@ -38,7 +38,7 @@ export const LoginScreen: React.FC = () => {
         </div>
         <LoginCard showTrialOption />
         <p className="text-[11px] text-center mt-5" style={{ color: 'var(--text-3)' }}>
-          Ao entrar, voce concorda em usar o ZapMass de acordo com as politicas internas.
+          Ao entrar, você concorda em usar o ZapMass de acordo com as políticas internas.
         </p>
       </div>
     </div>

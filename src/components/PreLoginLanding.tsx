@@ -11,7 +11,7 @@ import {
   Users,
   Zap
 } from 'lucide-react';
-import { LoginCard } from './auth/LoginCard';
+import { LoginCard, loginCardDefaultCopy } from './auth/LoginCard';
 import { useLandingDocumentMeta } from '../hooks/useLandingDocumentMeta';
 import { useAppConfig } from '../context/AppConfigContext';
 import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
@@ -321,14 +321,9 @@ export const PreLoginLanding: React.FC = () => {
           className="lg:col-start-2 space-y-4 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-8 lg:self-start"
           style={{ animationDelay: '160ms' }}
         >
-          <LoginCard
-            landingLayout
-            showTrialOption
-            title="Crie sua conta em um passo"
-            subtitle="Gestor: escolha «Primeira vez» ou «Já tenho conta», depois use Google, Apple, Facebook ou e-mail e senha. O teste grátis ativa na primeira entrada do responsável. Equipe: aba Funcionário."
-          />
+          <LoginCard landingLayout showTrialOption title={loginCardDefaultCopy.title} subtitle={loginCardDefaultCopy.subtitle} />
           <p className="text-[10.5px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
-            Ao entrar você aceita as políticas do ZapMass. Dúvidas sobre responsabilidades com o WhatsApp e a LGPD:{' '}
+            Entrar implica aceitar as políticas do ZapMass. WhatsApp e LGPD:{' '}
             <a
               href="#faq-whatsapp-lgpd"
               className="font-semibold underline underline-offset-2 hover:opacity-90"
@@ -336,7 +331,7 @@ export const PreLoginLanding: React.FC = () => {
             >
               ver FAQ
             </a>
-            {' '}ou <strong className="font-semibold">Configurações → WhatsApp / LGPD</strong> depois do login.
+            {' '}— no painel: <strong className="font-semibold">Configurações → WhatsApp / LGPD</strong>.
           </p>
         </div>
 
