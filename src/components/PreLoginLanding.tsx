@@ -5,8 +5,11 @@ import {
   BarChart3,
   CheckCircle2,
   ChevronDown,
+  Database,
+  Lock,
   MessageCircle,
   Send,
+  ShieldCheck,
   Sparkles,
   Users,
   Zap
@@ -39,6 +42,7 @@ export const PreLoginLanding: React.FC = () => {
   useLandingDocumentMeta();
   const { config } = useAppConfig();
   const { title: trialTitle, body: trialBody } = resolveLandingTrialCopy(config);
+  const trialLabel = formatTrialHoursLabel(config.trialHours);
 
   useEffect(() => {
     const FAQ_WHATSAPP_ID = 'faq-whatsapp-lgpd';
@@ -63,25 +67,25 @@ export const PreLoginLanding: React.FC = () => {
         className="absolute top-[-160px] left-[-160px] w-[520px] h-[520px] rounded-full pointer-events-none animate-blob"
         style={{
           background:
-            'radial-gradient(circle at 30% 30%, rgba(16,185,129,0.35), rgba(16,185,129,0) 60%)',
+            'radial-gradient(circle at 30% 30%, rgba(16,185,129,0.32), rgba(16,185,129,0) 60%)',
           filter: 'blur(40px)'
         }}
       />
       <div
         aria-hidden
-        className="absolute top-[10%] right-[-180px] w-[560px] h-[560px] rounded-full pointer-events-none animate-blob-slow"
+        className="absolute top-[8%] right-[-200px] w-[600px] h-[600px] rounded-full pointer-events-none animate-blob-slow"
         style={{
           background:
-            'radial-gradient(circle at 60% 40%, rgba(59,130,246,0.28), rgba(59,130,246,0) 60%)',
-          filter: 'blur(50px)'
+            'radial-gradient(circle at 60% 40%, rgba(59,130,246,0.26), rgba(59,130,246,0) 60%)',
+          filter: 'blur(55px)'
         }}
       />
       <div
         aria-hidden
-        className="absolute bottom-[-180px] left-[20%] w-[600px] h-[600px] rounded-full pointer-events-none animate-blob"
+        className="absolute bottom-[-200px] left-[15%] w-[640px] h-[640px] rounded-full pointer-events-none animate-blob"
         style={{
           background:
-            'radial-gradient(circle at 50% 50%, rgba(34,211,238,0.18), rgba(34,211,238,0) 60%)',
+            'radial-gradient(circle at 50% 50%, rgba(34,211,238,0.16), rgba(34,211,238,0) 60%)',
           filter: 'blur(60px)'
         }}
       />
@@ -94,248 +98,260 @@ export const PreLoginLanding: React.FC = () => {
           backgroundImage:
             'linear-gradient(var(--text-1) 1px, transparent 1px), linear-gradient(90deg, var(--text-1) 1px, transparent 1px)',
           backgroundSize: '48px 48px',
-          maskImage: 'radial-gradient(ellipse at 50% 20%, #000 40%, transparent 80%)',
-          WebkitMaskImage: 'radial-gradient(ellipse at 50% 20%, #000 40%, transparent 80%)'
+          maskImage: 'radial-gradient(ellipse at 50% 18%, #000 38%, transparent 78%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at 50% 18%, #000 38%, transparent 78%)'
         }}
       />
 
-      <div className="relative w-full max-w-[min(1180px,calc(100vw-1rem))] sm:max-w-[min(1180px,calc(100vw-2rem))] mx-auto px-3 sm:px-5 md:px-8 py-6 sm:py-8 md:py-10 lg:py-12 grid grid-cols-1 gap-8 md:gap-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-x-10 xl:gap-x-12 lg:items-start">
-        {/* Header */}
-        <header className="flex flex-wrap items-center justify-between gap-3 mb-8 md:mb-10 lg:col-span-2 lg:mb-11 animate-fade-in-up">
+      {/* Header sticky com glass */}
+      <header
+        className="sticky top-0 z-30 backdrop-blur-md border-b animate-fade-in-up"
+        style={{
+          background: 'color-mix(in srgb, var(--bg) 80%, transparent)',
+          borderColor: 'var(--border-subtle)'
+        }}
+      >
+        <div className="max-w-[1200px] mx-auto flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 md:px-8 py-3 sm:py-3.5">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div
-              className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0 animate-glow-pulse"
-              style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                boxShadow: '0 6px 20px rgba(16,185,129,0.35)'
+              }}
             >
-              <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-white fill-white" />
+              <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-white fill-white" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-[20px] font-extrabold tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
+              <p className="text-[15px] sm:text-base font-extrabold tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
                 ZapMass
-              </h1>
-              <p className="text-[10px] sm:text-[11.5px] font-semibold leading-tight line-clamp-2 sm:line-clamp-none" style={{ color: 'var(--brand-600)' }}>
-                Disparos em massa no WhatsApp, com organização
+              </p>
+              <p className="text-[10px] sm:text-[11px] font-semibold leading-tight" style={{ color: 'var(--brand-600)' }}>
+                Disparos com cabeça
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+          <nav className="flex items-center gap-1 sm:gap-1.5">
             <a
               href="#planos"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_planos' })}
-              className="hidden md:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
-              style={{
-                color: 'var(--text-2)'
-              }}
+              className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors hover:bg-black/[0.04]"
+              style={{ color: 'var(--text-2)' }}
             >
               Planos
             </a>
             <a
+              href="#como-funciona"
+              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_como' })}
+              className="hidden md:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors hover:bg-black/[0.04]"
+              style={{ color: 'var(--text-2)' }}
+            >
+              Como funciona
+            </a>
+            <a
               href="#faq"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_faq' })}
-              className="hidden md:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
-              style={{
-                color: 'var(--text-2)'
-              }}
+              className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors hover:bg-black/[0.04]"
+              style={{ color: 'var(--text-2)' }}
             >
               Dúvidas
             </a>
             <a
               href="#acesso"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_start_free' })}
-              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-[11.5px] sm:text-[12.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] shadow-lg whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full text-[12px] sm:text-[12.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
               style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 8px 24px rgba(16,185,129,0.35)'
+                boxShadow: '0 8px 22px rgba(16,185,129,0.35)'
               }}
             >
               Começar grátis
-              <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-90 shrink-0" />
+              <ArrowRight className="w-3.5 h-3.5 opacity-90 shrink-0" />
             </a>
-          </div>
-        </header>
+          </nav>
+        </div>
+      </header>
 
-        {/* Coluna esquerda — mensagem principal */}
-        <div className="space-y-5 md:space-y-6 lg:col-start-1 lg:row-start-2 mb-2 lg:mb-0 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
-          <div
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10.5px] font-bold uppercase tracking-widest"
-            style={{
-              background: 'var(--surface-0)',
-              borderColor: 'var(--border-subtle)',
-              color: 'var(--brand-600)'
-            }}
-          >
-            <Sparkles className="w-3 h-3" />
-            Operação profissional
-          </div>
-
-          <h2
-            className="text-[1.65rem] leading-[1.12] font-black tracking-tight sm:text-3xl md:text-[2.15rem] lg:text-[2.5rem] xl:text-[2.65rem] max-w-full sm:max-w-xl md:max-w-2xl lg:max-w-none"
-            style={{ color: 'var(--text-1)' }}
-          >
-            Disparos no WhatsApp{' '}
-            <span className="text-gradient-brand">organizados</span>
-            {' '}para você vender com consistência.
-          </h2>
-
-          <p className="text-[14px] sm:text-[15px] leading-relaxed max-w-xl md:max-w-2xl" style={{ color: 'var(--text-2)' }}>
-            Um painel para campanhas, base de contatos, atendimento e métricas — sem improviso na operação.
-          </p>
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-0.5">
-            <a
-              href="#acesso"
-              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_google_anchor' })}
-              className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl text-[13px] sm:text-[14px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] w-full sm:w-auto min-h-[44px]"
+      <div className="relative w-full max-w-[1200px] mx-auto px-4 sm:px-6 md:px-8 pt-8 sm:pt-10 md:pt-14 lg:pt-16 pb-6 sm:pb-8">
+        {/* HERO */}
+        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-8 md:gap-10 lg:gap-x-12 lg:items-start">
+          {/* Coluna esquerda — narrativa */}
+          <div className="space-y-6 md:space-y-7 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+            <div
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10.5px] font-bold uppercase tracking-[0.16em] badge-shimmer"
               style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 55%, #047857 100%)',
-                boxShadow: '0 14px 32px rgba(16,185,129,0.35)'
+                color: 'var(--brand-600)',
+                border: '1px solid rgba(16,185,129,0.28)'
               }}
             >
-              Começar grátis — Google, Apple ou Facebook
-              <ArrowRight className="w-4 h-4 opacity-95 shrink-0" />
-            </a>
-            <a
-              href="#planos"
-              onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_view_plans' })}
-              className="inline-flex items-center justify-center px-5 py-3 rounded-xl text-[13px] font-semibold border transition-colors hover:bg-black/[0.03] w-full sm:w-auto min-h-[44px]"
-              style={{
-                color: 'var(--text-2)',
-                borderColor: 'var(--border-subtle)',
-                background: 'var(--surface-0)'
-              }}
-            >
-              Ver planos e valores
-            </a>
-          </div>
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full rounded-full pulse-dot" style={{ background: '#10b981' }} />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: '#10b981' }} />
+              </span>
+              Novo · Operação profissional
+            </div>
 
-          {/* Teste + destaques — um único cartão, menos ruído visual */}
-          <div
-            className="rounded-2xl max-w-xl p-4 sm:p-5 border"
-            style={{
-              background: 'var(--surface-0)',
-              borderColor: 'var(--border-subtle)',
-              boxShadow: '0 4px 24px rgba(0,0,0,0.06)'
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0"
+            <h2
+              className="font-black tracking-tight leading-[1.04] text-[2rem] sm:text-[2.4rem] md:text-[2.7rem] lg:text-[3rem] xl:text-[3.25rem]"
+              style={{ color: 'var(--text-1)' }}
+            >
+              Disparos no WhatsApp{' '}
+              <span className="text-gradient-brand">organizados</span>
+              <br className="hidden sm:block" />
+              {' '}para vender com consistência.
+            </h2>
+
+            <p className="text-[14.5px] sm:text-[15.5px] leading-relaxed max-w-xl md:max-w-[42rem]" style={{ color: 'var(--text-2)' }}>
+              Um painel para campanhas, base de contatos, atendimento e métricas — sem improviso na operação.
+              Comece grátis em segundos: <span className="font-semibold" style={{ color: 'var(--text-1)' }}>{trialLabel}</span>, sem cartão.
+            </p>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <a
+                href="#acesso"
+                onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_primary' })}
+                className="group inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-2xl text-[13.5px] sm:text-[14.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] w-full sm:w-auto min-h-[48px]"
                 style={{
-                  background: 'linear-gradient(145deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))',
-                  color: 'var(--brand-600)'
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
+                  boxShadow: '0 16px 36px rgba(16,185,129,0.38)'
                 }}
               >
-                <Sparkles className="w-5 h-5" strokeWidth={2} />
-              </div>
-              <div className="min-w-0 space-y-1.5">
-                <p className="text-[14px] sm:text-[15px] font-bold leading-snug tracking-tight" style={{ color: 'var(--text-1)' }}>
-                  {trialTitle}
-                </p>
-                <p className="text-[12.5px] sm:text-[13px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  {trialBody}
-                </p>
-              </div>
+                Começar grátis agora
+                <ArrowRight className="w-4 h-4 opacity-95 shrink-0 transition-transform group-hover:translate-x-0.5" />
+              </a>
+              <a
+                href="#planos"
+                onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_view_plans' })}
+                className="inline-flex items-center justify-center px-5 py-3 rounded-2xl text-[13px] font-semibold transition-colors hover:bg-black/[0.03] w-full sm:w-auto min-h-[48px] border"
+                style={{
+                  color: 'var(--text-2)',
+                  borderColor: 'var(--border-subtle)',
+                  background: 'var(--surface-0)'
+                }}
+              >
+                Ver planos e valores
+              </a>
             </div>
 
-            <div className="flex flex-wrap gap-2 mt-4">
-              <HeroStatPill value="1 a 5 canais" hint="por plano no checkout" />
-              <HeroStatPill value="Pix −5%" hint="desconto no pagamento" />
-              <HeroStatPill value="24/7" hint="rodando na nuvem" />
+            {/* Trust strip horizontal — substitui o cartão grande de teste */}
+            <div className="flex flex-wrap items-stretch gap-2 sm:gap-3 max-w-2xl">
+              <TrustChip icon={<Sparkles className="w-3.5 h-3.5" />} label={trialLabel} hint="grátis · sem cartão" tone="emerald" />
+              <TrustChip icon={<Activity className="w-3.5 h-3.5" />} label="24/7 na nuvem" hint="sem PC ligado" tone="cyan" />
+              <TrustChip icon={<Database className="w-3.5 h-3.5" />} label="Pix −5%" hint="no pagamento" tone="emerald" />
+              <TrustChip icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Dados isolados" hint="por conta" tone="blue" />
             </div>
 
-            <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-2.5" style={{ color: 'var(--text-3)' }}>
-                Incluso na conta
+            {/* Pilares — sem caixa volumosa, só ícones inline */}
+            <div className="pt-2">
+              <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] mb-3" style={{ color: 'var(--text-3)' }}>
+                O que o painel entrega
               </p>
-              <ul className="space-y-2 text-[12.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
-                <li className="flex gap-2.5 items-start">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
-                  <span>
-                    <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-                      Gestor
-                    </span>{' '}
-                    — Google, Apple ou Facebook (ou e-mail).
-                  </span>
-                </li>
-                <li className="flex gap-2.5 items-start">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
-                  <span>
-                    <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-                      Equipe
-                    </span>{' '}
-                    — usuários criados por você no painel.
-                  </span>
-                </li>
-                <li className="flex gap-2.5 items-start">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
-                  <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-                    Dados isolados por conta.
-                  </span>
-                </li>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <BenefitTile
+                  icon={<Send className="w-3.5 h-3.5" />}
+                  title="Campanhas com ritmo seguro"
+                  text="Limites por canal, pausas e cadência."
+                />
+                <BenefitTile
+                  icon={<Users className="w-3.5 h-3.5" />}
+                  title="Base organizada"
+                  text="CSV, listas e etiquetas para segmentar."
+                />
+                <BenefitTile
+                  icon={<MessageCircle className="w-3.5 h-3.5" />}
+                  title="Atendimento centralizado"
+                  text="Conversas no mesmo lugar, com contexto."
+                />
+                <BenefitTile
+                  icon={<BarChart3 className="w-3.5 h-3.5" />}
+                  title="Indicadores na hora"
+                  text="Entrega e resposta por campanha e canal."
+                />
               </ul>
             </div>
           </div>
 
-          <div className="max-w-xl md:max-w-2xl pt-2 md:pt-4">
-            <div className="mb-3">
-              <h3 className="text-[15px] md:text-base font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
-                O que o painel entrega
-              </h3>
-              <p className="text-[11.5px] md:text-[12px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                Quatro pilares para campanhas e atendimento sem dispersão.
+          {/* Coluna direita — acesso (sticky em desktop) */}
+          <div
+            id="acesso"
+            className="w-full max-w-[420px] mx-auto lg:max-w-none lg:mx-0 space-y-3 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-24 lg:self-start"
+            style={{ animationDelay: '160ms' }}
+          >
+            <div className="flex items-center justify-between px-1">
+              <p className="text-[10.5px] font-bold uppercase tracking-[0.18em]" style={{ color: 'var(--text-3)' }}>
+                Acesso ao painel
               </p>
+              <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold" style={{ color: 'var(--brand-600)' }}>
+                <Lock className="w-3 h-3" /> Seguro
+              </span>
             </div>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:gap-3">
-              <BenefitTile
-                icon={<Send className="w-3.5 h-3.5" />}
-                title="Campanhas com ritmo seguro"
-                text="Limites por canal e pausas inteligentes."
-              />
-              <BenefitTile
-                icon={<Users className="w-3.5 h-3.5" />}
-                title="Base organizada"
-                text="CSV, listas e etiquetas para segmentar."
-              />
-              <BenefitTile
-                icon={<MessageCircle className="w-3.5 h-3.5" />}
-                title="Atendimento centralizado"
-                text="Conversas no mesmo lugar, com contexto."
-              />
-              <BenefitTile
-                icon={<BarChart3 className="w-3.5 h-3.5" />}
-                title="Indicadores na hora"
-                text="Entrega e resposta por campanha e canal."
-              />
-            </ul>
+            <LoginCard landingLayout showTrialOption title={loginCardDefaultCopy.title} subtitle={loginCardDefaultCopy.subtitle} />
+            <p className="text-[10.5px] text-center lg:text-left max-w-md mx-auto lg:mx-0 leading-snug px-1" style={{ color: 'var(--text-3)' }}>
+              Entrar implica aceitar as políticas do ZapMass. WhatsApp e LGPD:{' '}
+              <a
+                href="#faq-whatsapp-lgpd"
+                className="font-semibold underline underline-offset-2 hover:opacity-90"
+                style={{ color: 'var(--brand-600)' }}
+              >
+                ver FAQ
+              </a>
+              {' '}— no painel: <strong className="font-semibold" style={{ color: 'var(--text-2)' }}>Configurações → WhatsApp / LGPD</strong>.
+            </p>
           </div>
-        </div>
+        </section>
 
-        {/* Coluna direita — acesso */}
-        <div
-          id="acesso"
-          className="lg:col-start-2 lg:row-start-2 w-full max-w-[420px] mx-auto lg:max-w-none lg:mx-0 space-y-3 md:space-y-4 animate-fade-in-up scroll-mt-20 sm:scroll-mt-24 lg:sticky lg:top-6 xl:top-8 lg:self-start"
-          style={{ animationDelay: '160ms' }}
-        >
-          <p className="text-[11px] md:text-xs font-semibold text-center lg:text-left uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-            Acesso ao painel
-          </p>
-          <LoginCard landingLayout showTrialOption title={loginCardDefaultCopy.title} subtitle={loginCardDefaultCopy.subtitle} />
-          <p className="text-[10px] sm:text-[10.5px] text-center lg:text-left max-w-md mx-auto lg:mx-0 leading-snug px-1" style={{ color: 'var(--text-3)' }}>
-            Entrar implica aceitar as políticas do ZapMass. WhatsApp e LGPD:{' '}
-            <a
-              href="#faq-whatsapp-lgpd"
-              className="font-semibold underline underline-offset-2 hover:opacity-90"
-              style={{ color: 'var(--brand-600)' }}
-            >
-              ver FAQ
-            </a>
-            {' '}— no painel: <strong className="font-semibold">Configurações → WhatsApp / LGPD</strong>.
-          </p>
-        </div>
+        {/* TESTE / DESTAQUE EM TEXT BLOCK SUTIL */}
+        <section className="mt-14 sm:mt-16 md:mt-20 animate-fade-in-up" style={{ animationDelay: '200ms' }}>
+          <div
+            className="relative overflow-hidden rounded-3xl p-6 sm:p-8 md:p-10 border max-w-5xl mx-auto"
+            style={{
+              background: 'linear-gradient(135deg, rgba(16,185,129,0.06) 0%, var(--surface-0) 50%, rgba(59,130,246,0.05) 100%)',
+              borderColor: 'var(--border-subtle)',
+              boxShadow: '0 12px 50px rgba(0,0,0,0.07)'
+            }}
+          >
+            <div
+              aria-hidden
+              className="absolute -top-16 -right-16 w-72 h-72 rounded-full pointer-events-none"
+              style={{
+                background: 'radial-gradient(circle at 50% 50%, rgba(16,185,129,0.25), transparent 70%)',
+                filter: 'blur(30px)'
+              }}
+            />
+            <div className="relative grid md:grid-cols-[1.1fr_0.9fr] gap-6 items-center">
+              <div>
+                <h3 className="text-2xl sm:text-3xl md:text-[2rem] font-black tracking-tight leading-tight" style={{ color: 'var(--text-1)' }}>
+                  {trialTitle}
+                </h3>
+                <p className="text-[13.5px] sm:text-[14.5px] mt-2 leading-relaxed max-w-xl" style={{ color: 'var(--text-2)' }}>
+                  {trialBody}
+                </p>
+              </div>
+              <ul className="space-y-2.5 text-[13px] leading-snug md:pl-6 md:border-l" style={{ color: 'var(--text-2)', borderColor: 'var(--border-subtle)' }}>
+                <li className="flex gap-2.5 items-start">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                  <span>
+                    <strong style={{ color: 'var(--text-1)' }}>Gestor</strong> entra com Google, Apple, Facebook ou e-mail.
+                  </span>
+                </li>
+                <li className="flex gap-2.5 items-start">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                  <span>
+                    <strong style={{ color: 'var(--text-1)' }}>Equipe</strong> com usuários criados por você no painel.
+                  </span>
+                </li>
+                <li className="flex gap-2.5 items-start">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+                  <span>Operação 24/7, dados isolados por conta.</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </section>
 
-        {/* =============== PLANOS (visíveis antes do login) =============== */}
-        <section id="planos" className="lg:col-span-2 mt-12 sm:mt-14 md:mt-16 scroll-mt-20 sm:scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '240ms' }}>
+        {/* PLANOS */}
+        <section id="planos" className="mt-14 sm:mt-16 md:mt-20 scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '260ms' }}>
           <LandingPlanCards />
 
           <div
@@ -368,23 +384,16 @@ export const PreLoginLanding: React.FC = () => {
             </ul>
           </div>
 
-          <p
-            className="text-center text-[12px] mt-6 max-w-2xl mx-auto"
-            style={{ color: 'var(--text-3)' }}
-          >
-            Os valores são carregados do servidor ao abrir a página — os mesmos do checkout Mercado Pago (incluindo ajustes por
-            variáveis de ambiente no deploy). Sem taxas escondidas no produto; condições do Mercado Pago valem para o método de
-            pagamento escolhido. Se o servidor não responder, mostramos os preços base de referência.
+          <p className="text-center text-[12px] mt-6 max-w-2xl mx-auto" style={{ color: 'var(--text-3)' }}>
+            Os valores são carregados do servidor ao abrir a página — os mesmos do checkout Mercado Pago.
+            Sem taxas escondidas no produto; condições do Mercado Pago valem para o método de pagamento escolhido.
           </p>
         </section>
 
-        {/* =============== COMO FUNCIONA =============== */}
-        <section className="lg:col-span-2 mt-12 sm:mt-14 md:mt-16 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-          <div className="text-center mb-6 sm:mb-8 px-1">
-            <h3
-              className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight mb-2"
-              style={{ color: 'var(--text-1)' }}
-            >
+        {/* COMO FUNCIONA — timeline */}
+        <section id="como-funciona" className="mt-14 sm:mt-16 md:mt-20 scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '320ms' }}>
+          <div className="text-center mb-8 sm:mb-10 px-1">
+            <h3 className="text-2xl sm:text-3xl md:text-[2.2rem] font-black tracking-tight mb-2" style={{ color: 'var(--text-1)' }}>
               Do primeiro login ao 1º disparo em 5 minutos
             </h3>
             <p className="text-[13px] sm:text-[14px] max-w-xl mx-auto" style={{ color: 'var(--text-2)' }}>
@@ -392,7 +401,7 @@ export const PreLoginLanding: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:timeline-line">
             <StepCard
               n={1}
               title="Conecte seu chip"
@@ -411,13 +420,10 @@ export const PreLoginLanding: React.FC = () => {
           </div>
         </section>
 
-        {/* =============== FAQ =============== */}
-        <section id="faq" className="lg:col-span-2 mt-12 sm:mt-14 md:mt-16 mb-6 sm:mb-8 animate-fade-in-up scroll-mt-20 sm:scroll-mt-24" style={{ animationDelay: '360ms' }}>
+        {/* FAQ */}
+        <section id="faq" className="mt-14 sm:mt-16 md:mt-20 mb-8 animate-fade-in-up scroll-mt-24" style={{ animationDelay: '380ms' }}>
           <div className="text-center mb-6 sm:mb-8 px-1">
-            <h3
-              className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight mb-2"
-              style={{ color: 'var(--text-1)' }}
-            >
+            <h3 className="text-2xl sm:text-3xl md:text-[2.2rem] font-black tracking-tight mb-2" style={{ color: 'var(--text-1)' }}>
               Perguntas frequentes
             </h3>
             <p className="text-[13px] sm:text-[14px]" style={{ color: 'var(--text-2)' }}>
@@ -425,7 +431,7 @@ export const PreLoginLanding: React.FC = () => {
             </p>
           </div>
 
-          <div className="max-w-3xl mx-auto space-y-2 px-0 sm:px-0">
+          <div className="max-w-3xl mx-auto space-y-2.5">
             <FaqItem
               q="Como o ZapMass reduz risco de bloqueio?"
               a="Aplicamos limites por canal, pausas automáticas e cadência inteligente. Isso reduz risco operacional, mas não existe garantia de zero bloqueio — boas práticas de envio continuam essenciais."
@@ -480,7 +486,7 @@ export const PreLoginLanding: React.FC = () => {
             />
             <FaqItem
               q="Preciso pagar para testar?"
-              a={`Não. O teste grátis de ${formatTrialHoursLabel(config.trialHours)} libera o sistema completo sem cartão. Se você não contratar depois, apenas os envios ficam bloqueados.`}
+              a={`Não. O teste grátis de ${trialLabel} libera o sistema completo sem cartão. Se você não contratar depois, apenas os envios ficam bloqueados.`}
             />
             <FaqItem
               q="Meus dados e os dados dos clientes ficam seguros?"
@@ -493,9 +499,50 @@ export const PreLoginLanding: React.FC = () => {
           </div>
         </section>
 
+        {/* CTA FINAL */}
+        <section className="mt-12 sm:mt-14 md:mt-16 animate-fade-in-up" style={{ animationDelay: '420ms' }}>
+          <div
+            className="relative overflow-hidden rounded-3xl p-6 sm:p-8 md:p-10 text-center max-w-4xl mx-auto"
+            style={{
+              background: 'linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%)',
+              boxShadow: '0 20px 60px rgba(16,185,129,0.35)'
+            }}
+          >
+            <div
+              aria-hidden
+              className="absolute inset-0 pointer-events-none opacity-30"
+              style={{
+                backgroundImage:
+                  'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.25), transparent 50%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.18), transparent 55%)'
+              }}
+            />
+            <div className="relative">
+              <h3 className="text-2xl sm:text-3xl md:text-[2rem] font-black tracking-tight text-white mb-2 leading-tight">
+                Pronto para sair do improviso?
+              </h3>
+              <p className="text-[14px] sm:text-[15px] text-white/85 max-w-xl mx-auto mb-5 sm:mb-6">
+                Crie sua conta agora. {trialLabel} grátis, sem cartão, com tudo liberado.
+              </p>
+              <a
+                href="#acesso"
+                onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'final_cta' })}
+                className="inline-flex items-center gap-2 px-6 sm:px-7 py-3 sm:py-3.5 rounded-2xl text-[14px] sm:text-[14.5px] font-bold transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: '#ffffff',
+                  color: '#047857',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.18)'
+                }}
+              >
+                Começar grátis
+                <ArrowRight className="w-4 h-4 shrink-0" />
+              </a>
+            </div>
+          </div>
+        </section>
+
         {/* Footer mini */}
         <footer
-          className="lg:col-span-2 pt-6 sm:pt-8 pb-5 sm:pb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] sm:text-[11.5px] text-center sm:text-left"
+          className="pt-8 pb-6 mt-10 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11.5px] text-center sm:text-left"
           style={{ color: 'var(--text-3)', borderTop: '1px solid var(--border-subtle)' }}
         >
           <div className="flex items-center gap-2">
@@ -521,22 +568,43 @@ export const PreLoginLanding: React.FC = () => {
 
 const CHANNEL_TIERS = [1, 2, 3, 4, 5] as const;
 
-const HeroStatPill: React.FC<{ value: string; hint: string }> = ({ value, hint }) => (
-  <div
-    className="rounded-xl px-3 py-2 sm:px-3.5 sm:py-2.5 border flex-1 min-w-[calc(50%-4px)] sm:min-w-[120px] sm:flex-none"
-    style={{
-      background: 'var(--surface-1)',
-      borderColor: 'var(--border-subtle)'
-    }}
-  >
-    <p className="text-[13px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
-      {value}
-    </p>
-    <p className="text-[10.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
-      {hint}
-    </p>
-  </div>
-);
+const TrustChip: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  tone: 'emerald' | 'blue' | 'cyan';
+}> = ({ icon, label, hint, tone }) => {
+  const palette =
+    tone === 'emerald'
+      ? { iconBg: 'rgba(16,185,129,0.16)', iconColor: '#059669' }
+      : tone === 'cyan'
+        ? { iconBg: 'rgba(34,211,238,0.18)', iconColor: '#0891b2' }
+        : { iconBg: 'rgba(59,130,246,0.18)', iconColor: '#2563eb' };
+  return (
+    <div
+      className="flex items-center gap-2.5 rounded-2xl px-3 py-2 sm:px-3.5 sm:py-2.5 border flex-1 min-w-[140px] sm:min-w-[150px] sm:flex-none transition-shadow hover:shadow-sm"
+      style={{
+        background: 'var(--surface-0)',
+        borderColor: 'var(--border-subtle)'
+      }}
+    >
+      <div
+        className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0"
+        style={{ background: palette.iconBg, color: palette.iconColor }}
+      >
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-[12.5px] sm:text-[13px] font-bold leading-tight tracking-tight" style={{ color: 'var(--text-1)' }}>
+          {label}
+        </p>
+        <p className="text-[10px] sm:text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+          {hint}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 function tierMoney(n: (typeof CHANNEL_TIERS)[number], server: ServerBillingPrices | null): { monthly: number; annual: number } {
   const row = server?.channelTiers?.[String(n)];
@@ -582,19 +650,22 @@ const LandingPlanCards: React.FC = () => {
 
   return (
     <div className="max-w-[1200px] mx-auto">
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5 md:gap-6 mb-6 sm:mb-8 lg:mb-10 px-0.5 sm:px-0">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 md:gap-6 mb-6 sm:mb-8 lg:mb-10 px-0.5 sm:px-0">
         <div className="max-w-xl">
-          <h3 className="text-2xl sm:text-3xl lg:text-[2rem] font-black tracking-tight" style={{ color: 'var(--text-1)' }}>
+          <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] mb-2" style={{ color: 'var(--brand-600)' }}>
+            Planos
+          </p>
+          <h3 className="text-2xl sm:text-3xl md:text-[2.2rem] font-black tracking-tight leading-tight" style={{ color: 'var(--text-1)' }}>
             Escolha seu plano
           </h3>
           <p className="text-[14px] sm:text-[15px] mt-2 leading-relaxed" style={{ color: 'var(--text-3)' }}>
             Quanto mais canais, menor o custo por canal.{' '}
-            <span style={{ color: 'var(--text-2)' }}>Valores iguais ao checkout Mercado Pago após o login.</span>
+            <span style={{ color: 'var(--text-2)' }}>Valores iguais ao checkout Mercado Pago.</span>
           </p>
         </div>
 
         <div
-          className="inline-flex items-center gap-1 p-1 rounded-full shrink-0 self-start lg:self-center border"
+          className="inline-flex items-center gap-1 p-1 rounded-full shrink-0 self-start md:self-end border"
           style={{
             background: 'var(--surface-1)',
             borderColor: 'var(--border-subtle)'
@@ -647,12 +718,12 @@ const LandingPlanCards: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex lg:grid lg:grid-cols-5 gap-3 sm:gap-4 overflow-x-auto pb-3 lg:pb-0 snap-x snap-mandatory lg:snap-none -mx-1 px-1 sm:-mx-0 sm:px-0 [scrollbar-width:thin] [touch-pan-x]">
+      <div className="flex lg:grid lg:grid-cols-5 gap-3 sm:gap-4 overflow-x-auto pb-4 lg:pb-0 snap-x snap-mandatory lg:snap-none -mx-1 px-1 sm:-mx-0 sm:px-0 [scrollbar-width:thin] [touch-pan-x]">
         {loadState === 'loading'
           ? CHANNEL_TIERS.map((n) => (
               <div
                 key={n}
-                className="min-w-[min(280px,calc(100vw-2.5rem))] sm:min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl h-[280px] animate-pulse border"
+                className="min-w-[min(280px,calc(100vw-2.5rem))] sm:min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl h-[320px] animate-pulse border"
                 style={{
                   background: 'var(--surface-1)',
                   borderColor: 'var(--border-subtle)'
@@ -668,68 +739,68 @@ const LandingPlanCards: React.FC = () => {
 
               const highlightStarter = n === 2;
               const highlightPopular = n === 3;
+              const isHighlighted = highlightPopular || highlightStarter;
 
               return (
                 <article
                   key={n}
-                  className="relative min-w-[min(280px,calc(100vw-2.5rem))] sm:min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl p-4 sm:p-5 flex flex-col border transition-shadow hover:shadow-lg"
+                  className={`relative min-w-[min(280px,calc(100vw-2.5rem))] sm:min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl p-5 flex flex-col border transition-all hover:-translate-y-0.5 hover:shadow-xl ${
+                    highlightPopular ? 'plan-halo-emerald' : ''
+                  }`}
                   style={{
-                    background:
-                      highlightPopular || highlightStarter
-                        ? 'linear-gradient(180deg, var(--surface-0) 0%, rgba(15,23,42,0.45) 100%)'
-                        : 'var(--surface-0)',
+                    background: isHighlighted
+                      ? 'linear-gradient(180deg, var(--surface-0) 0%, color-mix(in srgb, var(--surface-1) 80%, transparent) 100%)'
+                      : 'var(--surface-0)',
                     borderColor: highlightPopular
-                      ? 'rgba(16,185,129,0.55)'
+                      ? 'rgba(16,185,129,0.45)'
                       : highlightStarter
-                        ? 'rgba(59,130,246,0.65)'
+                        ? 'rgba(59,130,246,0.45)'
                         : 'var(--border-subtle)',
-                    borderWidth: highlightPopular || highlightStarter ? 2 : 1,
-                    boxShadow:
-                      highlightPopular || highlightStarter ? '0 12px 40px rgba(0,0,0,0.2)' : 'var(--shadow-xs)'
+                    boxShadow: isHighlighted ? '0 14px 44px rgba(0,0,0,0.18)' : 'var(--shadow-sm)'
                   }}
                 >
                   {highlightStarter ? (
-                    <div className="absolute -top-px left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1]">
-                      <span
-                        className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full whitespace-nowrap text-white shadow-md"
-                        style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' }}
-                      >
-                        Indicado para começar
-                      </span>
-                    </div>
+                    <span
+                      className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap text-white"
+                      style={{
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                        boxShadow: '0 6px 16px rgba(37,99,235,0.35)'
+                      }}
+                    >
+                      Indicado
+                    </span>
                   ) : null}
                   {highlightPopular ? (
-                    <div className="absolute -top-px left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1]">
-                      <span
-                        className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full whitespace-nowrap text-white shadow-md"
-                        style={{
-                          background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)'
-                        }}
-                      >
-                        Mais popular
-                      </span>
-                    </div>
+                    <span
+                      className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9.5px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap text-white"
+                      style={{
+                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        boxShadow: '0 6px 16px rgba(16,185,129,0.4)'
+                      }}
+                    >
+                      Mais popular
+                    </span>
                   ) : null}
 
-                  <p className="text-[11px] font-bold uppercase tracking-widest mb-4 mt-2" style={{ color: 'var(--text-3)' }}>
+                  <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] mb-3 mt-1" style={{ color: 'var(--text-3)' }}>
                     {n === 1 ? '1 canal' : `${n} canais`}
                   </p>
 
-                  <div className="mb-1">
-                    <span className="text-[1.65rem] sm:text-[1.85rem] font-black tabular-nums tracking-tight" style={{ color: 'var(--text-1)' }}>
+                  <div className="mb-1 flex items-baseline gap-1.5">
+                    <span className="text-[1.75rem] sm:text-[2rem] font-black tabular-nums tracking-tight leading-none" style={{ color: 'var(--text-1)' }}>
                       {brl(total)}
                     </span>
-                    <span className="text-[13px] font-medium ml-1" style={{ color: 'var(--text-3)' }}>
+                    <span className="text-[12px] font-medium" style={{ color: 'var(--text-3)' }}>
                       {cycle === 'monthly' ? '/mês' : '/ano'}
                     </span>
                   </div>
                   {equivMonthly != null ? (
-                    <p className="text-[11.5px] mb-4 min-h-[2.5rem]" style={{ color: 'var(--brand-600)' }}>
-                      Equivale a {brl(equivMonthly)}/mês em média
+                    <p className="text-[11.5px] mb-4 min-h-[2.25rem]" style={{ color: 'var(--brand-600)' }}>
+                      ≈ {brl(equivMonthly)}/mês em média
                     </p>
                   ) : (
-                    <p className="text-[11.5px] mb-4 min-h-[2.5rem]" style={{ color: 'var(--text-3)' }}>
-                      Renovação mensal · cancele quando quiser
+                    <p className="text-[11.5px] mb-4 min-h-[2.25rem]" style={{ color: 'var(--text-3)' }}>
+                      Renove ou cancele quando quiser
                     </p>
                   )}
 
@@ -738,12 +809,12 @@ const LandingPlanCards: React.FC = () => {
                       <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
                       <span>
                         <strong style={{ color: 'var(--text-1)' }}>{brl(perChannel)}</strong>{' '}
-                        {cycle === 'monthly' ? 'por canal no mês' : 'por canal no ano'}
+                        {cycle === 'monthly' ? 'por canal/mês' : 'por canal/ano'}
                       </span>
                     </li>
                     <li className="flex gap-2 items-start">
                       <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
-                      Campanhas e base organizadas no painel
+                      Campanhas e base organizadas
                     </li>
                     {n >= 2 ? (
                       <li className="flex gap-2 items-start">
@@ -756,14 +827,19 @@ const LandingPlanCards: React.FC = () => {
                   <a
                     href="#acesso"
                     onClick={() => trackLandingEvent('landing_cta_click', { cta_id: `plan_card_${n}_${cycle}` })}
-                    className="mt-5 inline-flex justify-center items-center w-full py-2.5 rounded-xl text-[12px] font-bold transition-colors border"
+                    className={`mt-5 inline-flex justify-center items-center w-full py-2.5 rounded-xl text-[12.5px] font-bold transition-all hover:brightness-110 active:scale-[0.98] ${
+                      isHighlighted ? 'text-white' : ''
+                    }`}
                     style={{
-                      borderColor: 'rgba(16,185,129,0.35)',
-                      color: 'var(--brand-600)',
-                      background: 'rgba(16,185,129,0.08)'
+                      background: isHighlighted
+                        ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                        : 'var(--surface-1)',
+                      color: isHighlighted ? '#fff' : 'var(--brand-600)',
+                      border: isHighlighted ? 'none' : '1px solid rgba(16,185,129,0.3)',
+                      boxShadow: isHighlighted ? '0 8px 22px rgba(16,185,129,0.32)' : undefined
                     }}
                   >
-                    Começar com este plano
+                    Começar com {n === 1 ? '1 canal' : `${n} canais`}
                   </a>
                 </article>
               );
@@ -787,26 +863,27 @@ const LandingPlanCards: React.FC = () => {
 
 const BenefitTile: React.FC<{ icon: React.ReactNode; title: string; text: string }> = ({ icon, title, text }) => (
   <li
-    className="flex gap-3 rounded-xl px-3 py-2.5 sm:py-3 border"
+    className="flex gap-3 rounded-xl px-3 py-3 border transition-all hover:-translate-y-0.5 hover:shadow-sm"
     style={{
       background: 'var(--surface-0)',
       borderColor: 'var(--border-subtle)'
     }}
   >
     <div
-      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+      className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
       style={{
-        background: 'rgba(16,185,129,0.1)',
-        color: 'var(--brand-600)'
+        background: 'linear-gradient(145deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))',
+        color: 'var(--brand-600)',
+        border: '1px solid rgba(16,185,129,0.18)'
       }}
     >
       {icon}
     </div>
     <div className="min-w-0">
-      <p className="text-[12.5px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
+      <p className="text-[13px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
         {title}
       </p>
-      <p className="text-[11px] leading-snug mt-1" style={{ color: 'var(--text-3)' }}>
+      <p className="text-[11.5px] leading-snug mt-1" style={{ color: 'var(--text-3)' }}>
         {text}
       </p>
     </div>
@@ -815,53 +892,43 @@ const BenefitTile: React.FC<{ icon: React.ReactNode; title: string; text: string
 
 const StepCard: React.FC<{ n: number; title: string; text: string }> = ({ n, title, text }) => (
   <div
-    className="rounded-2xl p-5 relative overflow-hidden"
+    className="relative rounded-2xl p-5 sm:p-6 transition-all hover:-translate-y-0.5 hover:shadow-lg"
     style={{
       background: 'var(--surface-0)',
-      border: '1px solid var(--border-subtle)'
+      border: '1px solid var(--border-subtle)',
+      boxShadow: 'var(--shadow-xs)'
     }}
   >
     <div
-      className="absolute -top-6 -right-6 text-[100px] font-black leading-none pointer-events-none select-none"
+      className="relative z-[1] w-12 h-12 rounded-2xl flex items-center justify-center mb-4 text-[15px] font-extrabold"
       style={{
-        color: 'var(--surface-2)',
-        opacity: 0.5
+        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+        color: '#fff',
+        boxShadow: '0 8px 22px rgba(16,185,129,0.32)'
       }}
     >
       {n}
     </div>
-    <div className="relative">
-      <div
-        className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-[13px] font-extrabold"
-        style={{
-          background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.08))',
-          color: 'var(--brand-600)',
-          border: '1px solid rgba(16,185,129,0.3)'
-        }}
-      >
-        {n}
-      </div>
-      <p className="text-[14px] font-extrabold mb-1" style={{ color: 'var(--text-1)' }}>
-        {title}
-      </p>
-      <p className="text-[12.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
-        {text}
-      </p>
-    </div>
+    <p className="text-[15px] sm:text-[16px] font-extrabold mb-1.5 tracking-tight" style={{ color: 'var(--text-1)' }}>
+      {title}
+    </p>
+    <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+      {text}
+    </p>
   </div>
 );
 
 const FaqItem: React.FC<{ q: string; a: React.ReactNode; id?: string }> = ({ q, a, id }) => (
   <details
     id={id}
-    className="group rounded-xl overflow-hidden transition-colors scroll-mt-24"
+    className="group rounded-2xl overflow-hidden transition-colors scroll-mt-24"
     style={{
       background: 'var(--surface-0)',
       border: '1px solid var(--border-subtle)'
     }}
   >
     <summary
-      className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer list-none select-none"
+      className="flex items-center justify-between gap-3 px-4 py-3.5 cursor-pointer list-none select-none transition-colors hover:bg-black/[0.02]"
       style={{ color: 'var(--text-1)' }}
     >
       <span className="text-[13.5px] font-bold">{q}</span>
