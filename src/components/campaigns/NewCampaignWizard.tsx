@@ -1049,64 +1049,119 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto pb-10">
-      <SectionHeader
-        title="Nova Campanha"
-        description="Configure passo a passo: publico, mensagem, canais e revisao."
-        actions={
-          <Button variant="ghost" leftIcon={<ArrowLeft className="w-4 h-4" />} onClick={onCancel}>
-            Voltar
-          </Button>
-        }
-      />
 
-      {/* Stepper */}
-      <div className="flex items-center gap-2 mb-5 overflow-x-auto">
-        {STEPS.map((s, i) => {
-          const isActive = step === s.id;
-          const isDone = step > s.id;
-          return (
-            <React.Fragment key={s.id}>
+      {/* ── Cabeçalho do wizard ── */}
+      <div
+        className="rounded-2xl px-5 py-4 mb-5 flex items-center justify-between gap-4"
+        style={{
+          background: 'var(--surface-1)',
+          border: '1px solid var(--border-subtle)',
+          boxShadow: '0 1px 6px rgba(0,0,0,0.06)'
+        }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex items-center justify-center w-8 h-8 rounded-xl flex-shrink-0 transition-colors hover:bg-[var(--surface-2)]"
+            style={{ border: '1px solid var(--border-subtle)', color: 'var(--text-2)' }}
+            aria-label="Cancelar e voltar"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-[16px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+              Nova Campanha
+            </h1>
+            <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+              Configure passo a passo: público, mensagem, canais e revisão
+            </p>
+          </div>
+        </div>
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg flex-shrink-0"
+          style={{ background: 'var(--brand-50)', border: '1px solid rgba(16,185,129,0.2)' }}
+        >
+          <span className="text-[11px] font-bold" style={{ color: 'var(--brand-700)' }}>
+            Passo {step} de 4
+          </span>
+        </div>
+      </div>
+
+      {/* ── Stepper com linha de progresso ── */}
+      <div className="mb-5 relative">
+        {/* Linha base */}
+        <div
+          className="absolute"
+          style={{ top: 20, left: '12.5%', right: '12.5%', height: 2, background: 'var(--border-subtle)', zIndex: 0 }}
+          aria-hidden
+        />
+        {/* Linha de progresso preenchida */}
+        <div
+          className="absolute"
+          style={{
+            top: 20,
+            left: '12.5%',
+            width: `${((step - 1) / 3) * 75}%`,
+            height: 2,
+            background: 'var(--brand-500)',
+            zIndex: 0,
+            transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)'
+          }}
+          aria-hidden
+        />
+        <div className="relative z-10 grid grid-cols-4 gap-2">
+          {STEPS.map((s) => {
+            const isActive = step === s.id;
+            const isDone = step > s.id;
+            const canJump =
+              s.id <= step ||
+              (s.id === 2 && canGoFromAudience) ||
+              (s.id === 3 && canGoFromAudience && canGoFromMessage) ||
+              (s.id === 4 && canGoFromAudience && canGoFromMessage && canGoFromChannels);
+            return (
               <button
-                onClick={() => {
-                  if (s.id <= step || (s.id === 2 && canGoFromAudience) || (s.id === 3 && canGoFromAudience && canGoFromMessage) || (s.id === 4 && canGoFromAudience && canGoFromMessage && canGoFromChannels)) {
-                    setStep(s.id);
-                  }
-                }}
-                className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl transition-all flex-shrink-0"
+                key={s.id}
+                type="button"
+                onClick={() => { if (canJump) setStep(s.id); }}
+                disabled={!canJump}
+                className="flex flex-col items-center gap-2 py-2 px-1 rounded-xl transition-all"
                 style={{
-                  background: isActive
-                    ? 'var(--brand-50)'
-                    : isDone
-                    ? 'var(--surface-1)'
-                    : 'transparent',
-                  border: isActive ? '1px solid rgba(16,185,129,0.25)' : '1px solid var(--border-subtle)'
+                  background: isActive ? 'var(--brand-50)' : 'transparent',
+                  border: isActive ? '1.5px solid rgba(16,185,129,0.3)' : '1.5px solid transparent',
+                  cursor: canJump ? 'pointer' : 'default',
+                  opacity: !canJump && !isDone && !isActive ? 0.45 : 1
                 }}
               >
-                <span
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-[12px] font-bold transition-all"
                   style={{
-                    background: isActive || isDone ? 'var(--brand-500)' : 'var(--surface-2)',
-                    color: isActive || isDone ? '#fff' : 'var(--text-3)'
+                    background: isDone
+                      ? 'var(--brand-500)'
+                      : isActive
+                      ? 'var(--brand-500)'
+                      : 'var(--surface-2)',
+                    color: isDone || isActive ? '#fff' : 'var(--text-3)',
+                    boxShadow: isActive ? '0 0 0 4px rgba(16,185,129,0.18)' : isDone ? '0 2px 6px rgba(16,185,129,0.25)' : 'none'
                   }}
                 >
-                  {isDone ? <CheckCircle2 className="w-3.5 h-3.5" /> : s.id}
-                </span>
-                <div className="text-left hidden sm:block">
+                  {isDone ? <CheckCircle2 className="w-4.5 h-4.5" /> : s.id}
+                </div>
+                <div className="text-center hidden sm:block">
                   <p
-                    className="text-[12px] font-semibold"
-                    style={{ color: isActive ? 'var(--brand-700)' : 'var(--text-1)' }}
+                    className="text-[12px] font-semibold leading-tight"
+                    style={{ color: isActive ? 'var(--brand-700)' : isDone ? 'var(--text-2)' : 'var(--text-3)' }}
                   >
                     {s.label}
                   </p>
-                  <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                  <p className="text-[10px] mt-0.5 leading-tight" style={{ color: 'var(--text-3)' }}>
                     {s.description}
                   </p>
                 </div>
               </button>
-              {i < STEPS.length - 1 && <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-3)' }} />}
-            </React.Fragment>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1114,14 +1169,60 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           {/* STEP 1: Audience */}
           {step === 1 && (
             <Card>
-              <h3 className="ui-title text-[15px] mb-1">Para quem vamos enviar?</h3>
-              <p className="ui-subtitle text-[12.5px] mb-4">Selecione uma lista existente ou informe numeros manualmente.</p>
+              {/* Título da etapa */}
+              <div className="flex items-center gap-3 mb-5 pb-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'var(--brand-500)', boxShadow: '0 4px 12px rgba(16,185,129,0.28)' }}
+                >
+                  <Users className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-[15px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
+                    Para quem vamos enviar?
+                  </h3>
+                  <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                    Escolha a estratégia de público para esta campanha
+                  </p>
+                </div>
+              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+              {/* Cards de modo */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
                 {[
-                  { id: 'list' as const, label: 'Lista de contatos', icon: FileSpreadsheet, desc: 'Use uma lista salva' },
-                  { id: 'filter' as const, label: 'Por filtros', icon: Filter, desc: 'Cidade, igreja, cargo' },
-                  { id: 'manual' as const, label: 'Numeros manuais', icon: Users, desc: 'Cole numeros avulsos' }
+                  {
+                    id: 'list' as const,
+                    label: 'Lista de contatos',
+                    icon: FileSpreadsheet,
+                    desc: 'Use uma lista já criada e organizada na sua base',
+                    badge: 'Recomendado',
+                    badgeColor: '#10b981',
+                    badgeBg: 'rgba(16,185,129,0.12)',
+                    iconBg: '#10b981',
+                    accent: 'rgba(16,185,129,0.28)'
+                  },
+                  {
+                    id: 'filter' as const,
+                    label: 'Por filtros',
+                    icon: Filter,
+                    desc: 'Segmente por cidade, DDD, cargo ou outro critério',
+                    badge: 'Avançado',
+                    badgeColor: '#6366f1',
+                    badgeBg: 'rgba(99,102,241,0.12)',
+                    iconBg: '#6366f1',
+                    accent: 'rgba(99,102,241,0.28)'
+                  },
+                  {
+                    id: 'manual' as const,
+                    label: 'Números manuais',
+                    icon: Phone,
+                    desc: 'Cole uma lista de números avulsos diretamente',
+                    badge: 'Rápido',
+                    badgeColor: '#f59e0b',
+                    badgeBg: 'rgba(245,158,11,0.12)',
+                    iconBg: '#f59e0b',
+                    accent: 'rgba(245,158,11,0.28)'
+                  }
                 ].map((m) => {
                   const isSel = sendMode === m.id;
                   return (
@@ -1129,26 +1230,50 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       key={m.id}
                       type="button"
                       onClick={() => setSendMode(m.id)}
-                      className="flex items-start gap-3 p-3.5 rounded-xl text-left transition-all"
+                      className="flex flex-col gap-3 p-4 rounded-xl text-left transition-all relative"
                       style={{
                         background: isSel ? 'var(--brand-50)' : 'var(--surface-1)',
-                        border: isSel ? '1.5px solid rgba(16,185,129,0.25)' : '1.5px solid var(--border-subtle)'
+                        border: isSel ? `2px solid ${m.iconBg}` : '2px solid var(--border-subtle)',
+                        boxShadow: isSel ? `0 4px 18px ${m.accent}` : 'none',
+                        transform: isSel ? 'translateY(-1px)' : 'none'
                       }}
                     >
-                      <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ background: isSel ? 'var(--brand-500)' : 'var(--surface-2)' }}
+                      {/* Badge de tipo */}
+                      <span
+                        className="self-start text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                        style={{ background: m.badgeBg, color: m.badgeColor }}
                       >
-                        <m.icon className="w-4 h-4" style={{ color: isSel ? '#fff' : 'var(--text-2)' }} />
+                        {m.badge}
+                      </span>
+                      {/* Ícone */}
+                      <div
+                        className="w-11 h-11 rounded-xl flex items-center justify-center"
+                        style={{
+                          background: isSel ? m.iconBg : 'var(--surface-2)',
+                          boxShadow: isSel ? `0 4px 12px ${m.accent}` : 'none'
+                        }}
+                      >
+                        <m.icon
+                          className="w-5 h-5"
+                          style={{ color: isSel ? '#fff' : 'var(--text-2)' }}
+                        />
                       </div>
+                      {/* Texto */}
                       <div>
-                        <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                        <p className="text-[13.5px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
                           {m.label}
                         </p>
-                        <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                        <p className="text-[12px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
                           {m.desc}
                         </p>
                       </div>
+                      {/* Checkmark selecionado */}
+                      {isSel && (
+                        <CheckCircle2
+                          className="w-4 h-4 absolute top-3 right-3"
+                          style={{ color: m.iconBg }}
+                        />
+                      )}
                     </button>
                   );
                 })}
@@ -2483,109 +2608,161 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             </Card>
           )}
 
-          {/* Navigation */}
-          <div className="flex items-center justify-between gap-2">
+          {/* ── Barra de navegação ── */}
+          <div
+            className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 mt-2"
+            style={{
+              background: 'var(--surface-1)',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: '0 -1px 8px rgba(0,0,0,0.04)'
+            }}
+          >
             <Button
               variant="secondary"
+              leftIcon={step > 1 ? <ArrowLeft className="w-4 h-4" /> : undefined}
               onClick={() => (step > 1 ? setStep((step - 1) as 1 | 2 | 3 | 4) : onCancel())}
               disabled={isSubmitting}
             >
               {step > 1 ? 'Voltar' : 'Cancelar'}
             </Button>
 
-            {step < 4 ? (
-              <Button
-                variant="primary"
-                rightIcon={<ChevronRight className="w-4 h-4" />}
-                disabled={
-                  (step === 1 && !canGoFromAudience) ||
-                  (step === 2 && !canGoFromMessage) ||
-                  (step === 3 && !canGoFromChannels)
-                }
-                onClick={() => setStep((step + 1) as 1 | 2 | 3 | 4)}
-              >
-                Avancar
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                leftIcon={<Send className="w-4 h-4" />}
-                onClick={handleSubmit}
-                loading={isSubmitting}
-                disabled={!canSubmit}
-              >
-                {abLabEnabled
-                  ? 'Iniciar laboratório (2 campanhas)'
-                  : launchMode === 'schedule'
-                    ? 'Agendar campanha'
-                    : 'Iniciar disparo'}
-              </Button>
-            )}
+            <div className="flex items-center gap-3">
+              {/* Dots de progresso */}
+              <div className="hidden sm:flex items-center gap-1.5">
+                {STEPS.map((s) => (
+                  <div
+                    key={s.id}
+                    className="rounded-full transition-all"
+                    style={{
+                      width: step === s.id ? 20 : 6,
+                      height: 6,
+                      background: step > s.id
+                        ? 'var(--brand-500)'
+                        : step === s.id
+                        ? 'var(--brand-500)'
+                        : 'var(--border-subtle)'
+                    }}
+                  />
+                ))}
+              </div>
+
+              {step < 4 ? (
+                <Button
+                  variant="primary"
+                  rightIcon={<ChevronRight className="w-4 h-4" />}
+                  disabled={
+                    (step === 1 && !canGoFromAudience) ||
+                    (step === 2 && !canGoFromMessage) ||
+                    (step === 3 && !canGoFromChannels)
+                  }
+                  onClick={() => setStep((step + 1) as 1 | 2 | 3 | 4)}
+                >
+                  Avançar
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  leftIcon={<Send className="w-4 h-4" />}
+                  onClick={handleSubmit}
+                  loading={isSubmitting}
+                  disabled={!canSubmit}
+                >
+                  {abLabEnabled
+                    ? 'Iniciar laboratório (2 campanhas)'
+                    : launchMode === 'schedule'
+                      ? 'Agendar campanha'
+                      : 'Iniciar disparo'}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Preview */}
+        {/* ── Painel de prévia ao vivo ── */}
         <div className="hidden lg:block">
-          <Card className="sticky top-4">
-            <p
-              className="text-[10.5px] font-bold uppercase tracking-wider mb-3"
-              style={{ color: 'var(--text-3)' }}
+          <div className="sticky top-4 space-y-3">
+            {/* Header do painel */}
+            <div
+              className="rounded-xl px-4 py-3 flex items-center gap-2"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
             >
-              Previa ao vivo
-            </p>
-            <div className="rounded-lg overflow-hidden" style={{ background: '#0b141a' }}>
               <div
-                className="px-3 py-2 flex items-center gap-2"
-                style={{ background: '#1a2228' }}
+                className="w-2 h-2 rounded-full animate-pulse"
+                style={{ background: '#10b981', boxShadow: '0 0 6px #10b981' }}
+              />
+              <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>
+                Prévia ao vivo
+              </p>
+            </div>
+
+            {/* Simulador WhatsApp */}
+            <div className="rounded-2xl overflow-hidden" style={{ background: '#0b141a', border: '1px solid rgba(255,255,255,0.06)' }}>
+              {/* Header contato */}
+              <div
+                className="px-4 py-3 flex items-center gap-3"
+                style={{ background: '#1a2228', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
               >
                 <div
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold"
-                  style={{ background: '#10b981', color: '#fff' }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
                 >
                   Z
                 </div>
                 <div>
-                  <p className="text-[11px] font-semibold" style={{ color: '#e9edef' }}>
-                    Contato
-                  </p>
-                  <p className="text-[9px]" style={{ color: '#10b981' }}>
-                    online
-                  </p>
+                  <p className="text-[12px] font-semibold" style={{ color: '#e9edef' }}>Contato</p>
+                  <div className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#10b981' }} />
+                    <p className="text-[10px]" style={{ color: '#10b981' }}>online</p>
+                  </div>
                 </div>
               </div>
-              <div className="p-3 min-h-[160px] flex flex-col justify-end gap-2">
+
+              {/* Mensagens */}
+              <div className="p-4 min-h-[180px] flex flex-col justify-end gap-2.5">
                 {stagePreviewBodies.length > 0 ? (
                   stagePreviewBodies.map((body, idx) => (
-                    <div key={`pv-${idx}`} className="self-end max-w-[90%]">
-                      <p className="text-[9px] font-semibold mb-0.5 text-right" style={{ color: '#8696a0' }}>
+                    <div key={`pv-${idx}`} className="self-end max-w-[92%]">
+                      <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
                         Etapa {idx + 1}
                       </p>
                       <div
-                        className="rounded-lg rounded-tr-none px-2.5 py-2 text-[12px] leading-[17px] whitespace-pre-wrap"
-                        style={{ background: '#005c4b', color: '#e9edef' }}
+                        className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
+                        style={{
+                          background: 'linear-gradient(135deg,#005c4b,#006b58)',
+                          color: '#e9edef',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                        }}
                       >
                         {body}
                       </div>
-                      <div className="flex items-center justify-end gap-1 mt-0.5">
+                      <div className="flex items-center justify-end gap-1 mt-1">
                         <span className="text-[9px]" style={{ color: '#8696a0' }}>
                           {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        <span className="text-[9px]" style={{ color: '#53bdeb' }}>
-                          ✓✓
-                        </span>
+                        <span className="text-[10px]" style={{ color: '#53bdeb' }}>✓✓</span>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <p className="text-center text-[11px] py-6" style={{ color: '#667781' }}>
-                    As mensagens aparecerao aqui...
-                  </p>
+                  <div className="flex flex-col items-center justify-center py-8 gap-2 opacity-50">
+                    <Smartphone className="w-8 h-8" style={{ color: '#667781' }} />
+                    <p className="text-center text-[11px]" style={{ color: '#667781' }}>
+                      As mensagens aparecem aqui
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
 
-            <div className="mt-4 space-y-2">
-              <SummaryRow label="Numeros" value={numbers.length.toLocaleString()} accent="var(--text-1)" />
+            {/* Resumo de configuração */}
+            <div
+              className="rounded-xl p-4 space-y-2.5"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+            >
+              <p className="text-[10.5px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
+                Resumo
+              </p>
+              <SummaryRow label="Números" value={numbers.length.toLocaleString()} accent="var(--text-1)" />
               <SummaryRow
                 label="Chips"
                 value={String(connectedIds.length)}
@@ -2596,7 +2773,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <SummaryRow label="Estimativa" value={estimateLabel} accent="#3b82f6" />
               )}
             </div>
-          </Card>
+          </div>
         </div>
       </div>
     </div>
