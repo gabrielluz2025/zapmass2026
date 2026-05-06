@@ -580,7 +580,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors"
               style={{
                 borderColor: on ? 'rgba(16,185,129,0.45)' : 'var(--border-subtle)',
-                background: on ? 'var(--brand-50)' : 'var(--surface-0)',
+                background: on ? 'var(--surface-selected-brand)' : 'var(--surface-0)',
                 color: 'var(--text-1)'
               }}
             >
@@ -1097,7 +1097,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         </div>
         <div
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg flex-shrink-0"
-          style={{ background: 'var(--brand-50)', border: '1px solid rgba(16,185,129,0.2)' }}
+          style={{ background: 'var(--surface-selected-brand)', border: '1px solid rgba(16,185,129,0.2)' }}
         >
           <span className="text-[11px] font-bold" style={{ color: 'var(--brand-700)' }}>
             Passo {step} de 4
@@ -1144,7 +1144,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 disabled={!canJump}
                 className="flex flex-col items-center gap-2 py-2 px-1 rounded-xl transition-all"
                 style={{
-                  background: isActive ? 'var(--brand-50)' : 'transparent',
+                  background: isActive ? 'var(--surface-selected-brand)' : 'transparent',
                   border: isActive ? '1.5px solid rgba(16,185,129,0.3)' : '1.5px solid transparent',
                   cursor: canJump ? 'pointer' : 'default',
                   opacity: !canJump && !isDone && !isActive ? 0.45 : 1
@@ -1249,7 +1249,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       onClick={() => setSendMode(m.id)}
                       className="flex flex-col gap-3 p-4 rounded-xl text-left transition-all relative"
                       style={{
-                        background: isSel ? 'var(--brand-50)' : 'var(--surface-1)',
+                        background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                         border: isSel ? `2px solid ${m.iconBg}` : '2px solid var(--border-subtle)',
                         boxShadow: isSel ? `0 4px 18px ${m.accent}` : 'none',
                         transform: isSel ? 'translateY(-1px)' : 'none'
@@ -1308,7 +1308,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         onClick={() => setSelectedListId(list.id)}
                         className="text-left p-3.5 rounded-xl transition-all"
                         style={{
-                          background: isSel ? 'var(--brand-50)' : 'var(--surface-1)',
+                          background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                           border: isSel ? '1.5px solid rgba(16,185,129,0.25)' : '1.5px solid var(--border-subtle)'
                         }}
                       >
@@ -1370,7 +1370,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <div
                     className="flex items-center justify-between gap-3 p-3 rounded-xl"
                     style={{
-                      background: finalContacts.length > 0 ? 'var(--brand-50)' : 'var(--surface-1)',
+                      background: finalContacts.length > 0 ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                       border: finalContacts.length > 0
                         ? '1.5px solid rgba(16,185,129,0.25)'
                         : '1.5px solid var(--border-subtle)'
@@ -1635,7 +1635,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       onClick={() => setFlowMode(opt.id)}
                       className="text-left p-3 rounded-xl transition-all"
                       style={{
-                        background: sel ? 'var(--brand-50)' : 'var(--surface-1)',
+                        background: sel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                         border: sel ? '1.5px solid rgba(16,185,129,0.25)' : '1.5px solid var(--border-subtle)'
                       }}
                     >
@@ -2055,7 +2055,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           key={conn.id}
                           className="flex items-center gap-2.5 p-2.5 rounded-lg transition-all"
                           style={{
-                            background: isSel ? 'var(--brand-50)' : 'var(--surface-1)',
+                            background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                             border: isSel ? '1.5px solid rgba(16,185,129,0.25)' : '1.5px solid var(--border-subtle)',
                             cursor: isOnline ? 'pointer' : 'not-allowed',
                             opacity: isOnline ? 1 : 0.6
@@ -2123,7 +2123,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           className="text-[12px] font-semibold px-3 py-2 rounded-lg border transition-colors"
                           style={{
                             borderColor: sel ? 'rgba(16,185,129,0.45)' : 'var(--border-subtle)',
-                            background: sel ? 'var(--brand-50)' : 'var(--surface-1)',
+                            background: sel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                             color: 'var(--text-1)'
                           }}
                         >

@@ -93,6 +93,12 @@
   --sidebar-w: 260px;
   --sidebar-w-collapsed: 72px;
   --topbar-h: 56px;
+
+  /**
+   * Superfície de seleção / destaque com cor da marca.
+   * Em modo escuro, --brand-50 (mint claro) conflita com --text-1 claro: usamos mistura com surface escura.
+   */
+  --surface-selected-brand: var(--brand-50);
 }
 
 html[data-mode='dark'] {
@@ -135,6 +141,8 @@ html[data-mode='dark'] {
   --shadow-md: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.35);
   --shadow-lg: 0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.5);
   --shadow-glow: 0 0 0 1px rgba(16, 185, 129, 0.25), 0 0 32px rgba(16, 185, 129, 0.2);
+
+  --surface-selected-brand: color-mix(in srgb, var(--brand-500) 22%, var(--surface-1));
 }
 
 /* ─── Base ─────────────────────────────────── */

@@ -317,7 +317,7 @@ export const SettingsTab: React.FC = () => {
               onClick={() => setSection(s.id)}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl transition-all"
               style={{
-                background: active ? 'var(--brand-50)' : 'var(--surface-1)',
+                background: active ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                 border: active ? '1.5px solid color-mix(in srgb, var(--brand-500) 35%, transparent)' : '1.5px solid var(--border-subtle)',
                 color: active ? 'var(--brand-700)' : 'var(--text-2)',
                 boxShadow: active ? '0 2px 10px color-mix(in srgb, var(--brand-500) 14%, transparent)' : 'none'
@@ -335,7 +335,7 @@ export const SettingsTab: React.FC = () => {
         <div className="space-y-4">
           <Card className="p-0 overflow-hidden">
             <div className="px-6 py-5 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-1)' }}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--brand-50)' }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-selected-brand)' }}>
                 <Zap className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />
               </div>
               <div>
@@ -431,7 +431,7 @@ export const SettingsTab: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--brand-50)' }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-selected-brand)' }}>
                 <Palette className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />
               </div>
               <div>
@@ -448,7 +448,7 @@ export const SettingsTab: React.FC = () => {
                     onClick={() => { setThemeId(theme.id); applyTheme(theme.id); }}
                     className="flex items-center gap-2 px-3.5 py-2 rounded-xl transition-all"
                     style={{
-                      background: isSel ? 'var(--brand-50)' : 'var(--surface-1)',
+                      background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                       border: isSel ? '1.5px solid color-mix(in srgb, var(--brand-500) 35%, transparent)' : '1.5px solid var(--border-subtle)',
                       color: isSel ? 'var(--brand-700)' : 'var(--text-2)'
                     }}
@@ -487,7 +487,7 @@ export const SettingsTab: React.FC = () => {
                     onClick={() => handleModeChange(m.id)}
                     className="flex items-center gap-2.5 px-4 py-3 rounded-xl transition-all"
                     style={{
-                      background: isSel ? 'var(--brand-50)' : 'var(--surface-1)',
+                      background: isSel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
                       border: isSel ? '1.5px solid color-mix(in srgb, var(--brand-500) 35%, transparent)' : '1.5px solid var(--border-subtle)'
                     }}
                   >

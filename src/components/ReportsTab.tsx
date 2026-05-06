@@ -535,7 +535,7 @@ interface KpiCardProps {
 }
 
 const ACCENT_BG: Record<KpiCardProps['accent'], string> = {
-  brand: 'var(--brand-50)',
+  brand: 'var(--surface-selected-brand)',
   success: 'rgba(16,185,129,0.12)',
   warning: 'rgba(245,158,11,0.12)',
   danger: 'rgba(239,68,68,0.12)',

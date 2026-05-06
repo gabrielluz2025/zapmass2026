@@ -34,7 +34,7 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({ onInsert, densit
             type="button"
             onClick={() => onInsert(v)}
             className="text-[10.5px] font-mono font-semibold px-2 py-0.5 rounded-md transition-all hover:brightness-110"
-            style={{ background: 'var(--brand-50)', color: 'var(--brand-700)' }}
+            style={{ background: 'var(--surface-selected-brand)', color: 'var(--text-1)' }}
           >
             {v}
           </button>

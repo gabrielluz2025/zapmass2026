@@ -80,7 +80,7 @@ export const CampaignMissionStickyBar: React.FC<Props> = ({ campaigns, onOpenDet
           type="button"
           onClick={() => onOpenDetails(first.id)}
           className="shrink-0 p-2 rounded-xl"
-          style={{ background: 'var(--brand-50)', border: '1px solid rgba(16,185,129,0.25)' }}
+          style={{ background: 'var(--surface-selected-brand)', border: '1px solid rgba(16,185,129,0.25)' }}
           aria-label="Abrir detalhes"
         >
           <ChevronRight className="w-4 h-4 text-emerald-600" />
