@@ -8,6 +8,7 @@ import {
   updateProfile,
   signOut as firebaseSignOut,
   signInWithCustomToken,
+  FacebookAuthProvider,
   User,
   UserCredential,
   type AuthProvider
@@ -96,40 +97,74 @@ const trackLoginSuccessFromCredential = (res: UserCredential) => {
   else trackLoginSuccess('google');
 };
 
-/** Firebase muitas vezes deixa photoURL vazio no Facebook; preenchemos para a UI usar. */
-async function hydrateFacebookProfilePhotoIfNeeded(res: UserCredential): Promise<void> {
-  const u = res.user;
-  if (!u.providerData.some((p) => p.providerId === 'facebook.com')) return;
-  if (u.photoURL) return;
-
-  let url: string | null = null;
+/** URL direta no CDN (fbcdn); evita graph.facebook.com/.../picture (muitas vezes só silhueta). */
+async function fetchFacebookProfilePictureUrl(accessToken: string | null | undefined): Promise<string | null> {
+  if (!accessToken) return null;
   try {
-    const info = getAdditionalUserInfo(res);
-    const pic = info?.profile && (info.profile as { picture?: unknown }).picture;
-    if (typeof pic === 'string') url = pic;
-    else if (pic && typeof pic === 'object' && pic !== null && 'data' in pic) {
-      const d = (pic as { data?: { url?: string; is_silhouette?: boolean } }).data;
-      if (d?.url && !d?.is_silhouette) url = d.url;
-    }
+    const params = new URLSearchParams({
+      fields: 'picture.type(large){url,is_silhouette}',
+      access_token: accessToken
+    });
+    const r = await fetch(`https://graph.facebook.com/v18.0/me?${params.toString()}`);
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      picture?: { data?: { url?: string; is_silhouette?: boolean } };
+    };
+    const d = j?.picture?.data;
+    if (!d?.url || d.is_silhouette) return null;
+    return d.url;
   } catch {
-    /* ignore */
-  }
-
-  const fbUid = u.providerData.find((p) => p.providerId === 'facebook.com')?.uid;
-  if (!url && fbUid) {
-    url = `https://graph.facebook.com/${encodeURIComponent(fbUid)}/picture?type=large`;
-  }
-  if (!url) return;
-
-  try {
-    await updateProfile(u, { photoURL: url });
-  } catch (e) {
-    console.warn('[AuthContext] updateProfile photoURL (Facebook):', e);
+    return null;
   }
 }
 
-/** Sessão: evita repetir updateProfile a cada render. */
-const facebookPhotoBackfillTried = new Set<string>();
+function isGraphPicturePlaceholderUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return url.includes('graph.facebook.com') && url.includes('/picture');
+}
+
+/** Firebase muitas vezes deixa photoURL vazio ou genérico no Facebook; preenchemos com URL real do Graph. */
+async function hydrateFacebookProfilePhotoIfNeeded(res: UserCredential): Promise<void> {
+  const u = res.user;
+  if (!u.providerData.some((p) => p.providerId === 'facebook.com')) return;
+
+  const oauth = FacebookAuthProvider.credentialFromResult(res);
+  let url: string | null = await fetchFacebookProfilePictureUrl(oauth?.accessToken ?? null);
+
+  if (!url) {
+    try {
+      const info = getAdditionalUserInfo(res);
+      const pic = info?.profile && (info.profile as { picture?: unknown }).picture;
+      if (typeof pic === 'string') url = pic;
+      else if (pic && typeof pic === 'object' && pic !== null && 'data' in pic) {
+        const d = (pic as { data?: { url?: string; is_silhouette?: boolean } }).data;
+        if (d?.url && !d?.is_silhouette) url = d.url;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (url && u.photoURL !== url) {
+    try {
+      await updateProfile(u, { photoURL: url });
+    } catch (e) {
+      console.warn('[AuthContext] updateProfile photoURL (Facebook):', e);
+    }
+    return;
+  }
+
+  if (!url && isGraphPicturePlaceholderUrl(u.photoURL ?? null)) {
+    try {
+      await updateProfile(u, { photoURL: null });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Evita repetir limpeza de photoURL placeholder na mesma sessão. */
+const facebookGraphPlaceholderCleared = new Set<string>();
 
 async function signInWithProviderPopupOrRedirect(
   provider: AuthProvider,
@@ -186,13 +221,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       setUser(fbUser);
       setLoading(false);
-      if (fbUser && !fbUser.photoURL) {
-        const fb = fbUser.providerData.find((p) => p.providerId === 'facebook.com');
-        if (fb?.uid && !facebookPhotoBackfillTried.has(fbUser.uid)) {
-          facebookPhotoBackfillTried.add(fbUser.uid);
-          const url = `https://graph.facebook.com/${encodeURIComponent(fb.uid)}/picture?type=large`;
-          void updateProfile(fbUser, { photoURL: url }).catch(() => {
-            facebookPhotoBackfillTried.delete(fbUser.uid);
+      if (fbUser && fbUser.providerData.some((p) => p.providerId === 'facebook.com')) {
+        if (
+          isGraphPicturePlaceholderUrl(fbUser.photoURL) &&
+          !facebookGraphPlaceholderCleared.has(fbUser.uid)
+        ) {
+          facebookGraphPlaceholderCleared.add(fbUser.uid);
+          void updateProfile(fbUser, { photoURL: null }).catch(() => {
+            facebookGraphPlaceholderCleared.delete(fbUser.uid);
           });
         }
       }
