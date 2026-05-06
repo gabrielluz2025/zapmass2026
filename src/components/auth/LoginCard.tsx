@@ -236,7 +236,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         className="h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-500 opacity-[0.92]"
         aria-hidden
       />
-      <div className="relative z-[1] p-6 sm:p-8">
+      <div className={`relative z-[1] ${landingLayout ? 'p-4 sm:p-5 md:p-6' : 'p-6 sm:p-8'}`}>
         {!landingLayout && (
           <div
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border mb-3"
@@ -252,16 +252,19 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           </div>
         )}
 
-        <h2 className="mb-2 text-[1.35rem] font-extrabold leading-tight tracking-tight sm:text-[1.45rem]" style={{ color: 'var(--text-1)' }}>
+        <h2
+          className={`mb-2 font-extrabold leading-tight tracking-tight ${landingLayout ? 'text-[1.2rem] sm:text-[1.35rem]' : 'text-[1.35rem] sm:text-[1.45rem]'}`}
+          style={{ color: 'var(--text-1)' }}
+        >
           {title}
         </h2>
-        <p className="mb-7 max-w-[42ch] text-[13px] leading-relaxed sm:max-w-none" style={{ color: 'var(--text-3)' }}>
+        <p className={`${landingLayout ? 'mb-5 sm:mb-6 text-[12px] sm:text-[13px]' : 'mb-7 text-[13px]'} max-w-[42ch] leading-relaxed sm:max-w-none`} style={{ color: 'var(--text-3)' }}>
           {subtitle}
         </p>
 
         {/* Quem entra: gestor (OAuth) ou funcionário (usuário + senha criados pelo gestor) */}
         <div
-          className="mb-6 flex gap-1.5 rounded-2xl p-1.5"
+          className={`mb-5 flex gap-1.5 rounded-2xl p-1.5 sm:mb-6 ${landingLayout ? 'text-[12px]' : ''}`}
           style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}
           role="tablist"
           aria-label="Tipo de acesso"
@@ -271,7 +274,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             role="tab"
             aria-selected={entryMode === 'admin'}
             onClick={() => setEntryMode('admin')}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[12.5px] font-bold transition-all duration-200 ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-[11.5px] font-bold transition-all duration-200 sm:gap-2 sm:px-3 sm:py-3 sm:text-[12.5px] ${
               entryMode === 'admin' ? 'shadow-[0_4px_20px_rgba(0,0,0,0.07)]' : 'opacity-80 hover:opacity-100'
             }`}
             style={{
@@ -288,7 +291,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             role="tab"
             aria-selected={entryMode === 'staff'}
             onClick={() => setEntryMode('staff')}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-[12.5px] font-bold transition-all duration-200 ${
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-[11.5px] font-bold transition-all duration-200 sm:gap-2 sm:px-3 sm:py-3 sm:text-[12.5px] ${
               entryMode === 'staff' ? 'shadow-[0_4px_20px_rgba(0,0,0,0.07)]' : 'opacity-80 hover:opacity-100'
             }`}
             style={{

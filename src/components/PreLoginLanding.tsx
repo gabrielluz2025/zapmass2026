@@ -99,31 +99,31 @@ export const PreLoginLanding: React.FC = () => {
         }}
       />
 
-      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-8 lg:py-14 lg:grid lg:grid-cols-[1.05fr_0.92fr] lg:gap-10 lg:items-start">
+      <div className="relative w-full max-w-[min(1180px,calc(100vw-1rem))] sm:max-w-[min(1180px,calc(100vw-2rem))] mx-auto px-3 sm:px-5 md:px-8 py-6 sm:py-8 md:py-10 lg:py-12 grid grid-cols-1 gap-8 md:gap-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-x-10 xl:gap-x-12 lg:items-start">
         {/* Header */}
-        <header className="flex items-center justify-between mb-10 lg:mb-12 lg:col-span-2 animate-fade-in-up">
-          <div className="flex items-center gap-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 mb-8 md:mb-10 lg:col-span-2 lg:mb-11 animate-fade-in-up">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center animate-glow-pulse"
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0 animate-glow-pulse"
               style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}
             >
-              <Zap className="w-6 h-6 text-white fill-white" />
+              <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-white fill-white" />
             </div>
-            <div>
-              <h1 className="text-[20px] font-extrabold tracking-tight" style={{ color: 'var(--text-1)' }}>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-[20px] font-extrabold tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
                 ZapMass
               </h1>
-              <p className="text-[11.5px] font-semibold" style={{ color: 'var(--brand-600)' }}>
+              <p className="text-[10px] sm:text-[11.5px] font-semibold leading-tight line-clamp-2 sm:line-clamp-none" style={{ color: 'var(--brand-600)' }}>
                 Disparos em massa no WhatsApp, com organização
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
             <a
               href="#planos"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_planos' })}
-              className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
+              className="hidden md:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
               style={{
                 color: 'var(--text-2)'
               }}
@@ -133,7 +133,7 @@ export const PreLoginLanding: React.FC = () => {
             <a
               href="#faq"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_faq' })}
-              className="hidden sm:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
+              className="hidden md:inline-flex text-[12px] font-semibold px-3 py-1.5 rounded-full transition-colors"
               style={{
                 color: 'var(--text-2)'
               }}
@@ -143,20 +143,20 @@ export const PreLoginLanding: React.FC = () => {
             <a
               href="#acesso"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'header_start_free' })}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[12.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] shadow-lg"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-[11.5px] sm:text-[12.5px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] shadow-lg whitespace-nowrap"
               style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                 boxShadow: '0 8px 24px rgba(16,185,129,0.35)'
               }}
             >
               Começar grátis
-              <ArrowRight className="w-4 h-4 opacity-90" />
+              <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 opacity-90 shrink-0" />
             </a>
           </div>
         </header>
 
         {/* Coluna esquerda — mensagem principal */}
-        <div className="lg:col-start-1 space-y-6 mb-10 lg:mb-0 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
+        <div className="space-y-5 md:space-y-6 lg:col-start-1 lg:row-start-2 mb-2 lg:mb-0 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
           <div
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10.5px] font-bold uppercase tracking-widest"
             style={{
@@ -170,7 +170,7 @@ export const PreLoginLanding: React.FC = () => {
           </div>
 
           <h2
-            className="text-3xl sm:text-[2.65rem] font-black leading-[1.08] tracking-tight max-w-[22rem] sm:max-w-xl"
+            className="text-[1.65rem] leading-[1.12] font-black tracking-tight sm:text-3xl md:text-[2.15rem] lg:text-[2.5rem] xl:text-[2.65rem] max-w-full sm:max-w-xl md:max-w-2xl lg:max-w-none"
             style={{ color: 'var(--text-1)' }}
           >
             Disparos no WhatsApp{' '}
@@ -178,27 +178,27 @@ export const PreLoginLanding: React.FC = () => {
             {' '}para você vender com consistência.
           </h2>
 
-          <p className="text-[15px] leading-relaxed max-w-lg" style={{ color: 'var(--text-2)' }}>
+          <p className="text-[14px] sm:text-[15px] leading-relaxed max-w-xl md:max-w-2xl" style={{ color: 'var(--text-2)' }}>
             Um painel para campanhas, base de contatos, atendimento e métricas — sem improviso na operação.
           </p>
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-0.5">
             <a
               href="#acesso"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_google_anchor' })}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl text-[14px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98]"
+              className="inline-flex items-center justify-center gap-2 px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl text-[13px] sm:text-[14px] font-bold text-white transition-all hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] w-full sm:w-auto min-h-[44px]"
               style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 55%, #047857 100%)',
                 boxShadow: '0 14px 32px rgba(16,185,129,0.35)'
               }}
             >
               Começar grátis — Google, Apple ou Facebook
-              <ArrowRight className="w-4 h-4 opacity-95" />
+              <ArrowRight className="w-4 h-4 opacity-95 shrink-0" />
             </a>
             <a
               href="#planos"
               onClick={() => trackLandingEvent('landing_cta_click', { cta_id: 'hero_view_plans' })}
-              className="inline-flex items-center justify-center px-5 py-3 rounded-xl text-[13px] font-semibold border transition-colors hover:bg-black/[0.03]"
+              className="inline-flex items-center justify-center px-5 py-3 rounded-xl text-[13px] font-semibold border transition-colors hover:bg-black/[0.03] w-full sm:w-auto min-h-[44px]"
               style={{
                 color: 'var(--text-2)',
                 borderColor: 'var(--border-subtle)',
@@ -209,60 +209,56 @@ export const PreLoginLanding: React.FC = () => {
             </a>
           </div>
 
-          {/* Teste grátis + destaques — cartão mais suave (sem grelha rígida) */}
+          {/* Teste + destaques — um único cartão, menos ruído visual */}
           <div
-            className="rounded-3xl max-w-xl p-5 sm:p-6"
+            className="rounded-2xl max-w-xl p-4 sm:p-5 border"
             style={{
-              background:
-                'linear-gradient(165deg, var(--surface-0) 0%, rgba(16,185,129,0.06) 42%, var(--surface-0) 100%)',
-              border: '1px solid rgba(16,185,129,0.18)',
-              boxShadow: '0 12px 48px rgba(0,0,0,0.14)'
+              background: 'var(--surface-0)',
+              borderColor: 'var(--border-subtle)',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.06)'
             }}
           >
-            <div className="flex items-start gap-4">
+            <div className="flex items-start gap-3">
               <div
-                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ring-1 ring-emerald-500/25"
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0"
                 style={{
-                  background: 'linear-gradient(145deg, rgba(16,185,129,0.25), rgba(16,185,129,0.06))',
+                  background: 'linear-gradient(145deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))',
                   color: 'var(--brand-600)'
                 }}
               >
                 <Sparkles className="w-5 h-5" strokeWidth={2} />
               </div>
-              <div className="min-w-0 space-y-2">
-                <p className="text-[15px] sm:text-[16px] font-bold leading-snug tracking-tight" style={{ color: 'var(--text-1)' }}>
+              <div className="min-w-0 space-y-1.5">
+                <p className="text-[14px] sm:text-[15px] font-bold leading-snug tracking-tight" style={{ color: 'var(--text-1)' }}>
                   {trialTitle}
                 </p>
-                <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                <p className="text-[12.5px] sm:text-[13px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
                   {trialBody}
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 mt-5">
+            <div className="flex flex-wrap gap-2 mt-4">
               <HeroStatPill value="1 a 5 canais" hint="por plano no checkout" />
               <HeroStatPill value="Pix −5%" hint="desconto no pagamento" />
               <HeroStatPill value="24/7" hint="rodando na nuvem" />
             </div>
 
-            <div
-              className="mt-5 rounded-2xl px-4 py-4 space-y-3"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
+            <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <p className="text-[10px] font-bold uppercase tracking-widest mb-2.5" style={{ color: 'var(--text-3)' }}>
                 Incluso na conta
               </p>
-              <ul className="space-y-2.5 text-[13px] leading-snug" style={{ color: 'var(--text-2)' }}>
-                <li className="flex gap-3 items-start">
+              <ul className="space-y-2 text-[12.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
+                <li className="flex gap-2.5 items-start">
                   <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
                   <span>
                     <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
                       Gestor
                     </span>{' '}
-                    — login com Google, Apple ou Facebook.
+                    — Google, Apple ou Facebook (ou e-mail).
                   </span>
                 </li>
-                <li className="flex gap-3 items-start">
+                <li className="flex gap-2.5 items-start">
                   <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
                   <span>
                     <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
@@ -271,7 +267,7 @@ export const PreLoginLanding: React.FC = () => {
                     — usuários criados por você no painel.
                   </span>
                 </li>
-                <li className="flex gap-3 items-start">
+                <li className="flex gap-2.5 items-start">
                   <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" aria-hidden />
                   <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
                     Dados isolados por conta.
@@ -281,16 +277,16 @@ export const PreLoginLanding: React.FC = () => {
             </div>
           </div>
 
-          <div className="max-w-xl pt-1">
+          <div className="max-w-xl md:max-w-2xl pt-2 md:pt-4">
             <div className="mb-3">
-              <h3 className="text-[15px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
+              <h3 className="text-[15px] md:text-base font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
                 O que o painel entrega
               </h3>
-              <p className="text-[12px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+              <p className="text-[11.5px] md:text-[12px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
                 Quatro pilares para campanhas e atendimento sem dispersão.
               </p>
             </div>
-            <ul className="grid sm:grid-cols-2 gap-2.5">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:gap-3">
               <BenefitTile
                 icon={<Send className="w-3.5 h-3.5" />}
                 title="Campanhas com ritmo seguro"
@@ -318,11 +314,14 @@ export const PreLoginLanding: React.FC = () => {
         {/* Coluna direita — acesso */}
         <div
           id="acesso"
-          className="lg:col-start-2 space-y-4 animate-fade-in-up scroll-mt-24 lg:sticky lg:top-8 lg:self-start"
+          className="lg:col-start-2 lg:row-start-2 w-full max-w-[420px] mx-auto lg:max-w-none lg:mx-0 space-y-3 md:space-y-4 animate-fade-in-up scroll-mt-20 sm:scroll-mt-24 lg:sticky lg:top-6 xl:top-8 lg:self-start"
           style={{ animationDelay: '160ms' }}
         >
+          <p className="text-[11px] md:text-xs font-semibold text-center lg:text-left uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+            Acesso ao painel
+          </p>
           <LoginCard landingLayout showTrialOption title={loginCardDefaultCopy.title} subtitle={loginCardDefaultCopy.subtitle} />
-          <p className="text-[10.5px] text-center max-w-md mx-auto leading-snug" style={{ color: 'var(--text-3)' }}>
+          <p className="text-[10px] sm:text-[10.5px] text-center lg:text-left max-w-md mx-auto lg:mx-0 leading-snug px-1" style={{ color: 'var(--text-3)' }}>
             Entrar implica aceitar as políticas do ZapMass. WhatsApp e LGPD:{' '}
             <a
               href="#faq-whatsapp-lgpd"
@@ -336,7 +335,7 @@ export const PreLoginLanding: React.FC = () => {
         </div>
 
         {/* =============== PLANOS (visíveis antes do login) =============== */}
-        <section id="planos" className="lg:col-span-2 mt-16 scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '240ms' }}>
+        <section id="planos" className="lg:col-span-2 mt-12 sm:mt-14 md:mt-16 scroll-mt-20 sm:scroll-mt-24 animate-fade-in-up" style={{ animationDelay: '240ms' }}>
           <LandingPlanCards />
 
           <div
@@ -380,20 +379,20 @@ export const PreLoginLanding: React.FC = () => {
         </section>
 
         {/* =============== COMO FUNCIONA =============== */}
-        <section className="lg:col-span-2 mt-16 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-          <div className="text-center mb-8">
+        <section className="lg:col-span-2 mt-12 sm:mt-14 md:mt-16 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
+          <div className="text-center mb-6 sm:mb-8 px-1">
             <h3
-              className="text-3xl sm:text-4xl font-black tracking-tight mb-2"
+              className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight mb-2"
               style={{ color: 'var(--text-1)' }}
             >
               Do primeiro login ao 1º disparo em 5 minutos
             </h3>
-            <p className="text-[14px] max-w-xl mx-auto" style={{ color: 'var(--text-2)' }}>
+            <p className="text-[13px] sm:text-[14px] max-w-xl mx-auto" style={{ color: 'var(--text-2)' }}>
               Sem instalação, sem servidor próprio. Abre no navegador e já começa.
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             <StepCard
               n={1}
               title="Conecte seu chip"
@@ -413,20 +412,20 @@ export const PreLoginLanding: React.FC = () => {
         </section>
 
         {/* =============== FAQ =============== */}
-        <section id="faq" className="lg:col-span-2 mt-16 mb-8 animate-fade-in-up" style={{ animationDelay: '360ms' }}>
-          <div className="text-center mb-8">
+        <section id="faq" className="lg:col-span-2 mt-12 sm:mt-14 md:mt-16 mb-6 sm:mb-8 animate-fade-in-up scroll-mt-20 sm:scroll-mt-24" style={{ animationDelay: '360ms' }}>
+          <div className="text-center mb-6 sm:mb-8 px-1">
             <h3
-              className="text-3xl sm:text-4xl font-black tracking-tight mb-2"
+              className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight mb-2"
               style={{ color: 'var(--text-1)' }}
             >
               Perguntas frequentes
             </h3>
-            <p className="text-[14px]" style={{ color: 'var(--text-2)' }}>
+            <p className="text-[13px] sm:text-[14px]" style={{ color: 'var(--text-2)' }}>
               Tudo o que você precisa para começar sem dúvidas.
             </p>
           </div>
 
-          <div className="max-w-3xl mx-auto space-y-2">
+          <div className="max-w-3xl mx-auto space-y-2 px-0 sm:px-0">
             <FaqItem
               q="Como o ZapMass reduz risco de bloqueio?"
               a="Aplicamos limites por canal, pausas automáticas e cadência inteligente. Isso reduz risco operacional, mas não existe garantia de zero bloqueio — boas práticas de envio continuam essenciais."
@@ -496,7 +495,7 @@ export const PreLoginLanding: React.FC = () => {
 
         {/* Footer mini */}
         <footer
-          className="lg:col-span-2 pt-8 pb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11.5px]"
+          className="lg:col-span-2 pt-6 sm:pt-8 pb-5 sm:pb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] sm:text-[11.5px] text-center sm:text-left"
           style={{ color: 'var(--text-3)', borderTop: '1px solid var(--border-subtle)' }}
         >
           <div className="flex items-center gap-2">
@@ -524,10 +523,10 @@ const CHANNEL_TIERS = [1, 2, 3, 4, 5] as const;
 
 const HeroStatPill: React.FC<{ value: string; hint: string }> = ({ value, hint }) => (
   <div
-    className="rounded-2xl px-3.5 py-2.5 sm:px-4 border flex-1 min-w-[140px] sm:min-w-0 sm:flex-none"
+    className="rounded-xl px-3 py-2 sm:px-3.5 sm:py-2.5 border flex-1 min-w-[calc(50%-4px)] sm:min-w-[120px] sm:flex-none"
     style={{
       background: 'var(--surface-1)',
-      borderColor: 'rgba(16,185,129,0.22)'
+      borderColor: 'var(--border-subtle)'
     }}
   >
     <p className="text-[13px] font-bold tracking-tight" style={{ color: 'var(--text-1)' }}>
@@ -583,7 +582,7 @@ const LandingPlanCards: React.FC = () => {
 
   return (
     <div className="max-w-[1200px] mx-auto">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-8 lg:mb-10">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5 md:gap-6 mb-6 sm:mb-8 lg:mb-10 px-0.5 sm:px-0">
         <div className="max-w-xl">
           <h3 className="text-2xl sm:text-3xl lg:text-[2rem] font-black tracking-tight" style={{ color: 'var(--text-1)' }}>
             Escolha seu plano
@@ -648,12 +647,12 @@ const LandingPlanCards: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex lg:grid lg:grid-cols-5 gap-4 overflow-x-auto pb-3 lg:pb-0 snap-x snap-mandatory lg:snap-none -mx-1 px-1 [scrollbar-width:thin]">
+      <div className="flex lg:grid lg:grid-cols-5 gap-3 sm:gap-4 overflow-x-auto pb-3 lg:pb-0 snap-x snap-mandatory lg:snap-none -mx-1 px-1 sm:-mx-0 sm:px-0 [scrollbar-width:thin] [touch-pan-x]">
         {loadState === 'loading'
           ? CHANNEL_TIERS.map((n) => (
               <div
                 key={n}
-                className="min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl h-[280px] animate-pulse border"
+                className="min-w-[min(280px,calc(100vw-2.5rem))] sm:min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl h-[280px] animate-pulse border"
                 style={{
                   background: 'var(--surface-1)',
                   borderColor: 'var(--border-subtle)'
@@ -673,7 +672,7 @@ const LandingPlanCards: React.FC = () => {
               return (
                 <article
                   key={n}
-                  className="relative min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl p-5 flex flex-col border transition-shadow hover:shadow-lg"
+                  className="relative min-w-[min(280px,calc(100vw-2.5rem))] sm:min-w-[260px] lg:min-w-0 snap-center shrink-0 rounded-2xl p-4 sm:p-5 flex flex-col border transition-shadow hover:shadow-lg"
                   style={{
                     background:
                       highlightPopular || highlightStarter
@@ -788,7 +787,7 @@ const LandingPlanCards: React.FC = () => {
 
 const BenefitTile: React.FC<{ icon: React.ReactNode; title: string; text: string }> = ({ icon, title, text }) => (
   <li
-    className="flex gap-3 rounded-xl px-3 py-3 border"
+    className="flex gap-3 rounded-xl px-3 py-2.5 sm:py-3 border"
     style={{
       background: 'var(--surface-0)',
       borderColor: 'var(--border-subtle)'
