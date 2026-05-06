@@ -77,9 +77,9 @@ const mapAuthErrorMessage = (err: any): string => {
     case 'auth/wrong-password':
       return 'Senha incorreta. Tente de novo.';
     case 'auth/user-not-found':
-      return 'Não há conta com este e-mail. Crie uma em «Primeira vez» ou verifique o endereço.';
+      return 'Não há conta com este e-mail. Verifique o endereço ou confirme a nova senha para cadastrar.';
     case 'auth/email-already-in-use':
-      return 'Este e-mail já está registado. Use «Já tenho conta» para entrar.';
+      return 'Este e-mail já está registado. Entre com a senha.';
     case 'auth/weak-password':
       return 'Senha fraca. Use pelo menos 6 caracteres (recomendamos 8 ou mais).';
     case 'auth/invalid-credential': {

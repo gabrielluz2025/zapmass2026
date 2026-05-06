@@ -53,7 +53,8 @@ export const TrialAutoStart: React.FC = () => {
           if (forceIfNeeded) {
             const silenced = [
               'Voce ja possui assinatura ativa.',
-              'Seu teste gratuito ainda esta em andamento.'
+              'Seu teste gratuito ainda esta em andamento.',
+              'O teste gratuito desta conta ja foi utilizado.'
             ];
             if (silenced.includes(msg)) return;
           }
