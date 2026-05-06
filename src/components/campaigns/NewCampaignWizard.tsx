@@ -52,7 +52,11 @@ import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
-import { videoShouldSendAsDocument } from '../../utils/whatsappMediaLimits';
+import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
+import {
+  explainWhatsAppMediaFallback,
+  mediaShouldSendAsDocument
+} from '../../utils/whatsappMediaLimits';
 
 type CampaignFlowMode = 'sequential' | 'reply';
 
@@ -108,7 +112,7 @@ interface NewCampaignWizardProps {
     /** Peso por chip (somente uso real no servidor no modo sequencial; 1 = igual em todos). */
     channelWeights?: Record<string, number>;
     /**
-     * Anexo unico (foto, video ou arquivo) que segue junto com a 1a etapa,
+     * Anexo unico (foto, video, audio ou arquivo) que segue junto com a 1a etapa,
      * com o texto da 1a etapa como legenda. Disponivel apenas em "disparar
      * agora" — agendamento ainda nao suporta anexo.
      */
@@ -116,7 +120,7 @@ interface NewCampaignWizardProps {
       dataBase64: string;
       mimeType: string;
       fileName: string;
-      /** Vídeo > ~100 MB: enviar como documento no WhatsApp. */
+      /** Quando true, força envio como documento para aumentar a entregabilidade. */
       sendMediaAsDocument?: boolean;
     };
   }) => Promise<void>;
@@ -198,11 +202,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
   /**
    * Anexo unico da campanha — vai junto com a 1a etapa de cada destinatario,
-   * com o texto da 1a etapa funcionando como legenda. Suporta foto, video
-   * ou arquivo (PDF/DOC/etc). Para enviar links, basta colar a URL no texto.
+   * com o texto da 1a etapa funcionando como legenda. Suporta foto, video,
+   * audio ou arquivo (PDF/DOC/etc). Para enviar links, basta colar a URL no texto.
    *
-   * Limite: alinhado ao chat (200 MB padrao). Para evitar inflar o snapshot
-   * agendado com base64, anexos so funcionam em "disparar agora".
+   * Limite tecnico do app: alinhado ao chat (200 MB padrao). Para evitar inflar
+   * o snapshot agendado com base64, anexos so funcionam em "disparar agora".
    */
   const CAMPAIGN_ATTACHMENT_LIMIT_MB = Math.max(
     1,
@@ -212,6 +216,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [campaignAttachment, setCampaignAttachment] = useState<{
     file: File;
     previewUrl: string | null;
+    sendAsDocument: boolean;
   } | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
@@ -232,11 +237,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       if (attachmentInputRef.current) attachmentInputRef.current.value = '';
       return;
     }
+    const sendAsDocument = mediaShouldSendAsDocument(file);
+    const fallbackHint = explainWhatsAppMediaFallback(file);
+    if (fallbackHint) {
+      toast(fallbackHint, { duration: 7000 });
+    }
     if (campaignAttachment?.previewUrl) URL.revokeObjectURL(campaignAttachment.previewUrl);
     const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
     setCampaignAttachment({
       file,
-      previewUrl: isMedia ? URL.createObjectURL(file) : null
+      previewUrl: isMedia ? URL.createObjectURL(file) : null,
+      sendAsDocument
     });
     if (attachmentInputRef.current) attachmentInputRef.current.value = '';
   };
@@ -896,15 +907,21 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
       | undefined;
     if (campaignAttachment?.file) {
+      const prepToast = 'campaign-attachment-prep';
       try {
-        const read = await readAttachmentAsBase64(campaignAttachment.file);
+        toast.loading('A preparar anexo…', { id: prepToast, duration: 60000 });
+        const prep = await prepareCampaignAttachmentForSend(campaignAttachment.file);
+        toast.dismiss(prepToast);
+        for (const h of prep.hints) {
+          toast(h, { duration: 6000 });
+        }
+        const read = await readAttachmentAsBase64(prep.file);
         mediaPayload = {
           ...read,
-          ...(videoShouldSendAsDocument(campaignAttachment.file)
-            ? { sendMediaAsDocument: true }
-            : {})
+          ...(prep.sendMediaAsDocument ? { sendMediaAsDocument: true } : {})
         };
       } catch (err) {
+        toast.dismiss(prepToast);
         const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
         toast.error(m);
         return;
@@ -1727,7 +1744,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               />
 
               {/* ============================ ANEXO DA CAMPANHA ============================
-                  Foto / video / arquivo enviado JUNTO com a 1a etapa, com o texto da 1a
+                  Foto / video / audio / arquivo enviado JUNTO com a 1a etapa, com o texto da 1a
                   etapa funcionando como legenda. Para enviar links, basta colar a URL no
                   texto — o WhatsApp gera o preview automaticamente. */}
               {activeStageIdx === 0 && (
@@ -1744,7 +1761,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         Anexo da campanha
                       </p>
                       <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                        Foto, video ou arquivo enviado junto com a 1a etapa. O texto acima vira a legenda.
+                        Foto, video, audio ou arquivo enviado junto com a 1a etapa. O texto acima vira a legenda.
                       </p>
                     </div>
                     {!campaignAttachment && (
@@ -1753,7 +1770,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           ref={attachmentInputRef}
                           type="file"
                           className="hidden"
-                          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,application/*"
+                          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,application/*"
                           onChange={(e) => onPickAttachment(e.target.files?.[0] || null)}
                         />
                         <Button
@@ -1834,6 +1851,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                               style={{ color: '#f59e0b' }}
                             >
                               Anexos so funcionam em disparo imediato
+                            </span>
+                          )}
+                          {campaignAttachment.sendAsDocument && (
+                            <span
+                              className="text-[10.5px] font-semibold"
+                              style={{ color: '#0ea5e9' }}
+                            >
+                              Sera enviado como documento para maior entrega
                             </span>
                           )}
                         </div>

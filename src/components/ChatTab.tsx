@@ -51,7 +51,7 @@ import { useClientCrm, STATUS_META, hashTagColor } from './chat/useClientCrm';
 import { WaBubble } from './chat/wa/WaBubble';
 import { WaContactDrawer } from './chat/wa/WaContactDrawer';
 import { Conversation, ChatMessage } from '../types';
-import { videoShouldSendAsDocument } from '../utils/whatsappMediaLimits';
+import { prepareCampaignAttachmentForSend } from '../utils/campaignMediaCompress';
 import {
   CHAT_QUICK_REPLIES_MAX_ITEMS,
   CHAT_QUICK_REPLY_TEXT_MAX,
@@ -1024,6 +1024,11 @@ export const ChatTab: React.FC = () => {
     setUploadStartedAt(Date.now());
     let sentOk = false;
     try {
+      const prep = await prepareCampaignAttachmentForSend(file);
+      for (const h of prep.hints) {
+        toast(h, { duration: 6000 });
+      }
+      const fileToSend = prep.file;
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
@@ -1033,11 +1038,11 @@ export const ChatTab: React.FC = () => {
           const pct = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
           setUploadProgress(pct);
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(fileToSend);
       });
       const commaIdx = dataUrl.indexOf(',');
       const dataBase64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
-      const mimeType = file.type || 'application/octet-stream';
+      const mimeType = fileToSend.type || 'application/octet-stream';
       if (!dataBase64) throw new Error('Nao foi possivel processar o arquivo.');
       // Leitura local concluída → começa o upload pelo socket. A barra com %
       // não pode mais subir (não há progresso real do socket emit).
@@ -1047,17 +1052,11 @@ export const ChatTab: React.FC = () => {
       // servidor já recebeu e está encaminhando ao WhatsApp. É só feedback
       // visual: o socket pode resolver antes ou depois sem mudar nada lógico.
       const transitionTimer = setTimeout(() => setUploadStage('sending'), 3000);
-      const sendMediaAsDocument = videoShouldSendAsDocument(file);
-      if (sendMediaAsDocument) {
-        toast(
-          'Vídeo grande: a enviar como ficheiro (documento), como o WhatsApp recomenda acima de ~100 MB.',
-          { duration: 5000 }
-        );
-      }
+      const sendMediaAsDocument = prep.sendMediaAsDocument;
       const resp = await sendMedia(targetConversationId, {
         dataBase64,
         mimeType,
-        fileName: file.name || 'arquivo',
+        fileName: fileToSend.name || 'arquivo',
         caption: caption || undefined,
         sendMediaAsDocument
       });
