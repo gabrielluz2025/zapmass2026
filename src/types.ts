@@ -551,4 +551,6 @@ export interface ZapMassContextType {
     campaignLogs: number;
     errors: number;
   }>;
+  /** Actualização optimista da reivindicação de inbox (claim/transfer) antes ou além do `conversations-update`. */
+  patchConversationInboxClaim: (conversationId: string, inboxClaimedByAuthUid: string | undefined) => void;
 }

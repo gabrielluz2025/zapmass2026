@@ -55,6 +55,7 @@ services:
       SUGGESTION_NOTIFY_EMAIL: ${SUGGESTION_NOTIFY_EMAIL:-}
       NEW_CLIENT_NOTIFY_EMAIL: ${NEW_CLIENT_NOTIFY_EMAIL:-}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       # Credenciais Firebase Admin (service account). Coloca o JSON em
       # /opt/zapmass/secrets/firebase-admin.json no host (chmod 600).
       # Se o ficheiro nao existir, o servidor sobe na mesma mas rotas que

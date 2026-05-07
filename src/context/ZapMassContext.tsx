@@ -207,7 +207,8 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   warmupActive: false,
   warmupNextRound: 0,
   startWarmupTimer: () => {},
-  stopWarmupTimer: () => {}
+  stopWarmupTimer: () => {},
+  patchConversationInboxClaim: () => {}
 };
 
 const ZapMassContext = createContext<ZapMassContextWithSocket>(EMPTY_CONTEXT);
@@ -1964,6 +1965,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socketRef.current?.emit('mark-as-read', { conversationId });
   };
 
+  const patchConversationInboxClaim = (conversationId: string, inboxClaimedByAuthUid: string | undefined) => {
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== conversationId) return c;
+        if (inboxClaimedByAuthUid == null || inboxClaimedByAuthUid === '') {
+          const { inboxClaimedByAuthUid: _drop, ...rest } = c;
+          return rest as Conversation;
+        }
+        return { ...c, inboxClaimedByAuthUid };
+      })
+    );
+  };
+
   const fetchConversationPicture = (conversationId: string) => {
     socketRef.current?.emit('fetch-conversation-picture', { conversationId });
   };
@@ -2397,6 +2411,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       sendMedia,
       markAsRead,
       fetchConversationPicture,
+      patchConversationInboxClaim,
       deleteLocalConversations,
       loadChatHistory,
       loadMessageMedia,

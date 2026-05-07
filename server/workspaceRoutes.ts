@@ -636,7 +636,7 @@ export function registerWorkspaceRoutes(app: Express): void {
         const origin = getSurveyLinksBaseOrigin();
         if (!origin) {
           clientSurveyError =
-            'Link ao cliente não enviado: defina PUBLIC_APP_URL no servidor (URL pública do site, ex. https://app.seudominio.com).';
+            'Link ao cliente não enviado: defina PUBLIC_APP_URL na API ou inclua a URL pública do site em ALLOWED_ORIGINS (ex.: https://app.seudominio.com); no Docker Swarm reponha o stack após editar .env.';
         } else {
           try {
             const db = adminApp.firestore();

@@ -63,6 +63,8 @@ services:
       SUGGESTION_NOTIFY_EMAIL: ${SUGGESTION_NOTIFY_EMAIL:-}
       NEW_CLIENT_NOTIFY_EMAIL: ${NEW_CLIENT_NOTIFY_EMAIL:-}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      # CORS + fallback do link /avaliacao se PUBLIC_APP_URL vazio — exportado por deployment/vps-deploy.sh.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       # WhatsApp Web bundle (getChat / LID / markedUnread); mesmo valor no .env da VPS — Swarm não usa env_file como Compose.
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
     env_file:

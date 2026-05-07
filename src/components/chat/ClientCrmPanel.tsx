@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Conversation } from '../../types';
-import { Button } from '../ui';
 import {
   ClientCrmData,
   ClientStatus,
@@ -48,7 +47,7 @@ export const ClientCrmPanel: React.FC<Props> = ({
   avatar,
   crmData,
   pipelineAgg,
-  onClose,
+  onClose: _closeFromParent,
   onUpdate,
   onClear
 }) => {
@@ -135,49 +134,33 @@ export const ClientCrmPanel: React.FC<Props> = ({
   const statusMeta = crmData.status ? STATUS_META[crmData.status] : null;
 
   return (
-    <div
-      className="hidden lg:flex w-[340px] flex-col flex-shrink-0 overflow-hidden"
-      style={{ background: 'var(--surface-0)', borderLeft: '1px solid var(--border-subtle)' }}
-    >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-        style={{ borderBottom: '1px solid var(--border-subtle)' }}
-      >
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={onClose} title="Fechar">
-            <X className="w-4 h-4" />
-          </Button>
-          <span className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-            Ficha do cliente
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onUpdate({ pinned: !crmData.pinned })}
-            className="p-1.5 rounded-lg transition-all"
-            style={{
-              background: crmData.pinned ? 'rgba(245,158,11,0.15)' : 'transparent',
-              color: crmData.pinned ? '#f59e0b' : 'var(--text-3)'
-            }}
-            title={crmData.pinned ? 'Desafixar' : 'Fixar no topo'}
-          >
-            {crmData.pinned ? <Pin className="w-4 h-4 fill-current" /> : <PinOff className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => onUpdate({ favoriteAt: crmData.favoriteAt ? undefined : Date.now() })}
-            className="p-1.5 rounded-lg transition-all"
-            style={{
-              background: crmData.favoriteAt ? 'rgba(245,158,11,0.15)' : 'transparent',
-              color: crmData.favoriteAt ? '#f59e0b' : 'var(--text-3)'
-            }}
-            title={crmData.favoriteAt ? 'Remover favorito' : 'Favoritar'}
-          >
-            <Star className={`w-4 h-4 ${crmData.favoriteAt ? 'fill-current' : ''}`} />
-          </button>
-        </div>
+    <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden" style={{ background: 'var(--wa-panel)' }}>
+      {/* Ações rápidas (drawer já tem botão Fechar no cabeçalho) */}
+      <div className="flex items-center justify-end gap-1 px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <button
+          type="button"
+          onClick={() => onUpdate({ pinned: !crmData.pinned })}
+          className="p-1.5 rounded-lg transition-all"
+          style={{
+            background: crmData.pinned ? 'rgba(245,158,11,0.15)' : 'transparent',
+            color: crmData.pinned ? '#f59e0b' : 'var(--text-3)'
+          }}
+          title={crmData.pinned ? 'Desafixar' : 'Fixar no topo'}
+        >
+          {crmData.pinned ? <Pin className="w-4 h-4 fill-current" /> : <PinOff className="w-4 h-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => onUpdate({ favoriteAt: crmData.favoriteAt ? undefined : Date.now() })}
+          className="p-1.5 rounded-lg transition-all"
+          style={{
+            background: crmData.favoriteAt ? 'rgba(245,158,11,0.15)' : 'transparent',
+            color: crmData.favoriteAt ? '#f59e0b' : 'var(--text-3)'
+          }}
+          title={crmData.favoriteAt ? 'Remover favorito' : 'Favoritar'}
+        >
+          <Star className={`w-4 h-4 ${crmData.favoriteAt ? 'fill-current' : ''}`} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto">

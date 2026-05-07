@@ -25,7 +25,6 @@ import {
   Workflow,
   ChevronLeft,
   ChevronRight,
-  Package,
   Eye,
   CornerDownLeft,
   LayoutGrid,
@@ -86,6 +85,49 @@ const phonesMatchDigits = (a: string, b: string): boolean => {
 };
 
 const normalizeDigits = (raw: string): string => (raw || '').replace(/\D/g, '');
+
+/** Índices para cruzar telefone da conversa ↔ base de contactos (BR: com/sem 55; últimos 10/11). */
+function buildPhoneDigitLookupKeys(digits: string): string[] {
+  const keys: string[] = [];
+  const push = (k: string) => {
+    if (k.length >= 8 && !keys.includes(k)) keys.push(k);
+  };
+  const d = (digits || '').replace(/\D/g, '');
+  if (!d) return keys;
+  push(d);
+  if (d.length >= 10) push(d.slice(-10));
+  if (d.length >= 11) push(d.slice(-11));
+  if (d.startsWith('55') && d.length >= 12) {
+    const noCc = d.slice(2);
+    push(noCc);
+    if (noCc.length >= 10) push(noCc.slice(-10));
+    if (noCc.length >= 11) push(noCc.slice(-11));
+  }
+  return keys;
+}
+
+/** Extrai apenas dígitos do utilizador WhatsApp em `...@c.us` (e variants `lid:` / `chip:...@c.us`). */
+function extractWaUserDigitsFromConvId(convId: string): string {
+  const tail = convId.includes(':') ? convId.slice(convId.lastIndexOf(':') + 1) : convId;
+  const m = /^(\d+)@(?:c\.us|s\.whatsapp\.net|lid)$/i.exec(tail.trim());
+  return m ? normalizeDigits(m[1]) : '';
+}
+
+/** Dígitos canónicos para bater na agenda: campo da conversa ou ID do chat. */
+function digitsForContactMatch(conv: Conversation): string {
+  const fromPhone = normalizeDigits(conv.contactPhone || '');
+  if (fromPhone.length >= 8) return fromPhone;
+  const fromId = extractWaUserDigitsFromConvId(conv.id);
+  return fromId || fromPhone;
+}
+
+/** String passada ao cruzamento com contactos — mantém "+" se vier do WA; senão reconstrói a partir do id. */
+function phoneRawForContactLookup(conv: Conversation): string {
+  const p = (conv.contactPhone || '').trim();
+  if (p) return p;
+  const d = digitsForContactMatch(conv);
+  return d.length >= 8 ? `+${d}` : '';
+}
 
 const classifyConversation = (conv: Conversation): ConversationOrigin => {
   const msgs = conv.messages || [];
@@ -182,61 +224,6 @@ const getConversationPipelineAgg = (conv: Conversation | undefined) => {
   };
 };
 
-const MessagePipelineStrip: React.FC<{
-  agg: NonNullable<ReturnType<typeof getConversationPipelineAgg>>;
-}> = ({ agg }) => {
-  const stages = [
-    { key: 'sent', label: 'Enviadas', value: agg.sent, Icon: Send },
-    { key: 'delivered', label: 'Entregues', value: agg.delivered, Icon: Package },
-    { key: 'read', label: 'Lidas', value: agg.read, Icon: Eye },
-    { key: 'replies', label: 'Respostas', value: agg.replies, Icon: CornerDownLeft }
-  ] as const;
-  return (
-    <div
-      className="px-3 py-2.5 flex-shrink-0 overflow-x-auto"
-      style={{
-        background: 'var(--surface-0)',
-        borderBottom: '1px solid var(--border-subtle)'
-      }}
-    >
-      <div className="flex items-stretch gap-0.5 min-w-max md:min-w-0 md:justify-between md:max-w-3xl md:mx-auto">
-        {stages.map((s, i) => (
-          <React.Fragment key={s.key}>
-            {i > 0 && (
-              <div className="flex items-center px-0.5 flex-shrink-0" style={{ color: 'var(--text-3)' }}>
-                <ChevronRight className="w-4 h-4 opacity-50" />
-              </div>
-            )}
-            <div
-              className="flex items-center gap-2 rounded-xl px-3 py-2 min-w-[100px] flex-1 md:flex-none"
-              style={{
-                background: 'var(--surface-1)',
-                border: '1px solid var(--border-subtle)'
-              }}
-              title={`${s.label}: mensagens neste estagio nesta conversa`}
-            >
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--brand-600)' }}
-              >
-                <s.Icon className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[16px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-                  {s.value.toLocaleString('pt-BR')}
-                </p>
-                <p className="text-[10px] font-medium mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>
-                  {s.label}
-                </p>
-              </div>
-            </div>
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 /** Barra compacta por mensagem enviada: enviado / entregue / lido. */
 const OutboundPipelineBar: React.FC<{ status: ChatMessage['status'] }> = ({ status }) => {
   const filled = status === 'read' ? 3 : status === 'delivered' ? 2 : 1;
@@ -322,9 +309,11 @@ export const ChatTab: React.FC = () => {
     sendMedia,
     markAsRead,
     fetchConversationPicture,
+    patchConversationInboxClaim,
     deleteLocalConversations,
     loadChatHistory,
-    loadMessageMedia
+    loadMessageMedia,
+    socket
   } = useZapMass();
   const { user } = useAuth();
   const {
@@ -454,8 +443,8 @@ export const ChatTab: React.FC = () => {
   const resolveProfilePic = useCallback(
     (conv: Conversation): string | undefined => {
       if (conv.profilePicUrl) return conv.profilePicUrl;
-      const dConv = (conv.contactPhone || '').replace(/\D/g, '');
-      if (!dConv) return undefined;
+      const dConv = digitsForContactMatch(conv);
+      if (!dConv || dConv.length < 8) return undefined;
       for (const ct of contacts) {
         if (!ct.profilePicUrl) continue;
         if (phonesMatchDigits(ct.phone || '', dConv)) return ct.profilePicUrl;
@@ -496,10 +485,8 @@ export const ChatTab: React.FC = () => {
       const name = (ct.name || '').trim();
       const digits = normalizeDigits(ct.phone || '');
       if (!name || !digits) continue;
-      if (!map.has(digits)) map.set(digits, name);
-      if (digits.length >= 10) {
-        const tail10 = digits.slice(-10);
-        if (!map.has(tail10)) map.set(tail10, name);
+      for (const key of buildPhoneDigitLookupKeys(digits)) {
+        if (!map.has(key)) map.set(key, name);
       }
     }
     return map;
@@ -509,12 +496,18 @@ export const ChatTab: React.FC = () => {
     (phoneRaw: string): string | undefined => {
       const digits = normalizeDigits(phoneRaw);
       if (!digits) return undefined;
-      const byFull = systemContactNameByDigits.get(digits);
-      if (byFull) return byFull;
-      if (digits.length >= 10) return systemContactNameByDigits.get(digits.slice(-10));
+      for (const key of buildPhoneDigitLookupKeys(digits)) {
+        const hit = systemContactNameByDigits.get(key);
+        if (hit) return hit;
+      }
+      for (const ct of contacts) {
+        const name = (ct.name || '').trim();
+        if (!name) continue;
+        if (phonesMatchDigits(ct.phone || '', phoneRaw)) return name;
+      }
       return undefined;
     },
-    [systemContactNameByDigits]
+    [systemContactNameByDigits, contacts]
   );
 
   const pipelineViewStorageKey = useMemo(
@@ -687,7 +680,7 @@ export const ChatTab: React.FC = () => {
   const effectiveConversations = useMemo(
     () =>
       mergedConversations.map((conv) => {
-        const preferredName = getSystemNameForPhone(conv.contactPhone || '');
+        const preferredName = getSystemNameForPhone(phoneRawForContactLookup(conv));
         if (!preferredName || preferredName === conv.contactName) return conv;
         return { ...conv, contactName: preferredName };
       }),
@@ -730,8 +723,9 @@ export const ChatTab: React.FC = () => {
       conv: Conversation
     ): { primary: string; whatsappSubtitle?: string; phoneSecondary?: string } => {
       const waName = (waPushNameByConvId.get(conv.id) || '').trim();
-      const systemName = getSystemNameForPhone(conv.contactPhone || '')?.trim();
-      const digits = normalizeDigits(conv.contactPhone || '');
+      const lookupRaw = phoneRawForContactLookup(conv);
+      const systemName = getSystemNameForPhone(lookupRaw)?.trim();
+      const digits = normalizeDigits(lookupRaw || digitsForContactMatch(conv));
       const phoneLabel = digits ? `+${digits}` : '';
       const primary = systemName || waName || phoneLabel || 'Contato';
 
@@ -819,6 +813,7 @@ export const ChatTab: React.FC = () => {
     if (chatFilter === 'empty') list = list.filter((c) => originByConv.get(c.id) === 'empty');
     if (chatFilter === 'pinned') list = list.filter((c) => crm.get(c.id).pinned);
     const q = searchTerm.toLowerCase().trim();
+    const qDigits = q.replace(/\D/g, '');
     return list
       .filter((c) => {
         if (!q) return true;
@@ -827,7 +822,8 @@ export const ChatTab: React.FC = () => {
           primary.toLowerCase().includes(q) ||
           !!whatsappSubtitle?.toLowerCase().includes(q) ||
           c.contactName.toLowerCase().includes(q) ||
-          (c.contactPhone || '').includes(searchTerm)
+          (c.contactPhone || '').includes(searchTerm) ||
+          (qDigits.length >= 3 && digitsForContactMatch(c).includes(qDigits))
         );
       })
       .sort((a, b) => {
@@ -1827,230 +1823,239 @@ export const ChatTab: React.FC = () => {
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <button
-                type="button"
-                className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                onClick={() => setShowContactInfo(!showContactInfo)}
-              >
-                <div className="relative flex-shrink-0">
-                  <img
-                    src={getConvAvatar(selectedConversation)}
-                    loading="eager"
-                    decoding="async"
-                    referrerPolicy="no-referrer"
-                    className="w-10 h-10 rounded-full object-cover"
-                    alt=""
-                    style={{ background: 'var(--wa-divider)' }}
-                  />
-                  {crm.get(selectedConversation.id).pinned && (
-                    <div
-                      className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                      style={{ background: '#f59e0b' }}
-                      title="Fixado"
-                    >
-                      <Pin className="w-2 h-2 text-white fill-white" />
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3
-                      className="text-[17px] font-semibold truncate leading-tight"
-                      style={{ color: 'var(--wa-text)' }}
-                      title={
-                        selectedDisplay?.primary ??
-                        selectedConversation.contactName ??
-                        ''
-                      }
-                    >
-                      {selectedDisplay?.primary ?? selectedConversation.contactName}
-                    </h3>
-                    {(() => {
-                      const s = crm.get(selectedConversation.id).status;
-                      if (!s) return null;
-                      const m = STATUS_META[s];
-                      return (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"
-                          style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}55` }}
-                        >
-                          <span>{m.emoji}</span>
-                          {m.label}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                  <p className="text-[11px] truncate mt-0.5 leading-snug" style={{ color: 'var(--wa-text-3)' }}>
-                    {selectedDisplay?.whatsappSubtitle && (
-                      <span title="Nome salvo no WhatsApp / celular">{selectedDisplay.whatsappSubtitle}</span>
-                    )}
-                    {selectedDisplay?.whatsappSubtitle &&
-                      (selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
-                        <span> · </span>
-                      )}
-                    {(selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
-                      <span className="font-mono tabular-nums">
-                        {selectedDisplay?.phoneSecondary || selectedConversation.contactPhone}
-                      </span>
-                    )}
-                    {selectedConnection && (
-                      <span className="opacity-90">{` · ${selectedConnection.name}`}</span>
-                    )}
-                  </p>
-                  {!workspaceLoading &&
-                    workspaceAuthUid &&
-                    effectiveWorkspaceUid &&
-                    !isSelectedDraft &&
-                    selectedConversation?.id &&
-                    (isTeamMember || isWorkspaceOwner) && (
+              <div className="flex flex-col flex-1 min-w-0 gap-1.5">
+                <button
+                  type="button"
+                  className="flex items-center gap-3 w-full min-w-0 text-left rounded-xl -mx-1 px-1 py-0.5 transition-colors"
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'color-mix(in srgb, var(--wa-text) 6%, transparent)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                  }}
+                  onClick={() => setShowContactInfo(!showContactInfo)}
+                >
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={getConvAvatar(selectedConversation)}
+                      loading="eager"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      className="w-10 h-10 rounded-full object-cover"
+                      alt=""
+                      style={{ background: 'var(--wa-divider)' }}
+                    />
+                    {crm.get(selectedConversation.id).pinned && (
                       <div
-                        className="flex flex-wrap items-center gap-2 mt-1.5"
-                        onClick={(e) => e.stopPropagation()}
-                        role="presentation"
+                        className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                        style={{ background: '#f59e0b' }}
+                        title="Fixado"
                       >
-                        {(() => {
-                          const claimedBy = selectedConversation.inboxClaimedByAuthUid;
-                          const shortClaim = claimedBy
-                            ? claimedBy.length > 10
-                              ? `${claimedBy.slice(0, 6)}…${claimedBy.slice(-4)}`
-                              : claimedBy
-                            : '';
-                          const isMineClaim = Boolean(claimedBy && claimedBy === workspaceAuthUid);
-                          const canClaim = !claimedBy;
-                          const ownerCanPull =
-                            Boolean(claimedBy) && isWorkspaceOwner && claimedBy !== workspaceAuthUid;
-                          const canManageClaim =
-                            Boolean(claimedBy) && (isWorkspaceOwner || isMineClaim);
-
-                          return (
-                            <>
-                              {claimedBy && (
-                                <span
-                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1"
-                                  style={{ background: 'var(--wa-search)', color: 'var(--wa-text-2)' }}
-                                  title={`Atribuída a UID: ${claimedBy}`}
-                                >
-                                  <UserRound className="w-3 h-3 flex-shrink-0" aria-hidden />
-                                  {isMineClaim
-                                    ? isWorkspaceOwner
-                                      ? 'Você (responsável)'
-                                      : 'Com você'
-                                    : `Atribuída (${shortClaim})`}
-                                </span>
-                              )}
-                              {canClaim && (
-                                <button
-                                  type="button"
-                                  disabled={inboxActionBusy}
-                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
-                                  style={{
-                                    background: 'color-mix(in srgb, #10b981 16%, transparent)',
-                                    color: 'var(--wa-green-strong)',
-                                    border: '1px solid color-mix(in srgb, #10b981 38%, transparent)'
-                                  }}
-                                  onClick={() => {
-                                    void (async () => {
-                                      const id = selectedConversation.id;
-                                      setInboxActionBusy(true);
-                                      try {
-                                        await inboxWorkspaceApi('/api/workspace/inbox-claim', {
-                                          method: 'POST',
-                                          body: JSON.stringify({ conversationId: id })
-                                        });
-                                        toast.success('Atendimento assumido por você.');
-                                      } catch (err) {
-                                        toast.error(err instanceof Error ? err.message : 'Falha ao assumir.');
-                                      } finally {
-                                        setInboxActionBusy(false);
-                                      }
-                                    })();
-                                  }}
-                                >
-                                  <UserRound className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
-                                  Assumir atendimento
-                                </button>
-                              )}
-                              {ownerCanPull && (
-                                <button
-                                  type="button"
-                                  disabled={inboxActionBusy}
-                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
-                                  style={{
-                                    background: 'color-mix(in srgb, #10b981 16%, transparent)',
-                                    color: 'var(--wa-green-strong)',
-                                    border: '1px solid color-mix(in srgb, #10b981 38%, transparent)'
-                                  }}
-                                  title="Passa a conversa para o seu atendimento (substitui quem a tinha assumido)."
-                                  onClick={() => {
-                                    void (async () => {
-                                      const id = selectedConversation.id;
-                                      setInboxActionBusy(true);
-                                      try {
-                                        await inboxWorkspaceApi('/api/workspace/inbox-claim', {
-                                          method: 'POST',
-                                          body: JSON.stringify({ conversationId: id })
-                                        });
-                                        toast.success('Atendimento assumido por você.');
-                                      } catch (err) {
-                                        toast.error(err instanceof Error ? err.message : 'Falha ao assumir.');
-                                      } finally {
-                                        setInboxActionBusy(false);
-                                      }
-                                    })();
-                                  }}
-                                >
-                                  <UserRound className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
-                                  Assumir para mim
-                                </button>
-                              )}
-                              {canManageClaim && (
-                                <>
-                                  <button
-                                    type="button"
-                                    disabled={inboxActionBusy}
-                                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
-                                    style={{
-                                      background: 'color-mix(in srgb, #6366f1 14%, transparent)',
-                                      color: '#4f46e5',
-                                      border: '1px solid color-mix(in srgb, #6366f1 38%, transparent)'
-                                    }}
-                                    title="Envia esta conversa para outro utilizador ligado ao mesmo workspace."
-                                    onClick={() => {
-                                      setTransferTargetUid('');
-                                      setInboxTransferOpen(true);
-                                    }}
-                                  >
-                                    <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                                    Transferir
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={inboxActionBusy}
-                                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-50"
-                                    style={{
-                                      background: 'color-mix(in srgb, #64748b 14%, transparent)',
-                                      color: 'var(--wa-text-2)',
-                                      border: '1px solid var(--wa-divider)'
-                                    }}
-                                    title="Opcionalmente preencher uma rápida pesquisa de satisfação antes de libertar para a equipa."
-                                    onClick={() => {
-                                      setInboxSurveyRating(null);
-                                      setInboxSurveyComment('');
-                                      setSendClientSurveyToClient(true);
-                                      setInboxSurveyOpen(true);
-                                    }}
-                                  >
-                                    Finalizar libertação…
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          );
-                        })()}
+                        <Pin className="w-2 h-2 text-white fill-white" />
                       </div>
                     )}
-                </div>
-              </button>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3
+                        className="text-[17px] font-semibold truncate leading-tight"
+                        style={{ color: 'var(--wa-text)' }}
+                        title={
+                          selectedDisplay?.primary ??
+                          selectedConversation.contactName ??
+                          ''
+                        }
+                      >
+                        {selectedDisplay?.primary ?? selectedConversation.contactName}
+                      </h3>
+                      {(() => {
+                        const s = crm.get(selectedConversation.id).status;
+                        if (!s) return null;
+                        const m = STATUS_META[s];
+                        return (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"
+                            style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}55` }}
+                          >
+                            <span>{m.emoji}</span>
+                            {m.label}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    <p className="text-[11px] truncate mt-0.5 leading-snug" style={{ color: 'var(--wa-text-3)' }}>
+                      {selectedDisplay?.whatsappSubtitle && (
+                        <span title="Nome salvo no WhatsApp / celular">{selectedDisplay.whatsappSubtitle}</span>
+                      )}
+                      {selectedDisplay?.whatsappSubtitle &&
+                        (selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
+                          <span> · </span>
+                        )}
+                      {(selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
+                        <span className="font-mono tabular-nums">
+                          {selectedDisplay?.phoneSecondary || selectedConversation.contactPhone}
+                        </span>
+                      )}
+                      {selectedConnection && (
+                        <span className="opacity-90">{` · ${selectedConnection.name}`}</span>
+                      )}
+                    </p>
+                  </div>
+                </button>
+                {!workspaceLoading &&
+                  workspaceAuthUid &&
+                  effectiveWorkspaceUid &&
+                  !isSelectedDraft &&
+                  selectedConversation?.id &&
+                  (isTeamMember || isWorkspaceOwner) && (
+                    <div className="flex flex-wrap items-center gap-2 pl-[3px] md:pl-0" role="toolbar" aria-label="Inbox e transferência">
+                      {(() => {
+                        const claimedBy = selectedConversation.inboxClaimedByAuthUid;
+                        const shortClaim = claimedBy
+                          ? claimedBy.length > 10
+                            ? `${claimedBy.slice(0, 6)}…${claimedBy.slice(-4)}`
+                            : claimedBy
+                          : '';
+                        const isMineClaim = Boolean(claimedBy && claimedBy === workspaceAuthUid);
+                        const canClaim = !claimedBy;
+                        const ownerCanPull =
+                          Boolean(claimedBy) && isWorkspaceOwner && claimedBy !== workspaceAuthUid;
+                        const canManageClaim =
+                          Boolean(claimedBy) && (isWorkspaceOwner || isMineClaim);
+
+                        return (
+                          <>
+                            {claimedBy && (
+                              <span
+                                className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1"
+                                style={{ background: 'var(--wa-search)', color: 'var(--wa-text-2)' }}
+                                title={`Atribuída a UID: ${claimedBy}`}
+                              >
+                                <UserRound className="w-3 h-3 flex-shrink-0" aria-hidden />
+                                {isMineClaim
+                                  ? isWorkspaceOwner
+                                    ? 'Você (responsável)'
+                                    : 'Com você'
+                                  : `Atribuída (${shortClaim})`}
+                              </span>
+                            )}
+                            {canClaim && (
+                              <button
+                                type="button"
+                                disabled={inboxActionBusy}
+                                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
+                                style={{
+                                  background: 'color-mix(in srgb, #10b981 16%, transparent)',
+                                  color: 'var(--wa-green-strong)',
+                                  border: '1px solid color-mix(in srgb, #10b981 38%, transparent)'
+                                }}
+                                onClick={() => {
+                                  void (async () => {
+                                    const id = selectedConversation.id;
+                                    setInboxActionBusy(true);
+                                    try {
+                                      await inboxWorkspaceApi('/api/workspace/inbox-claim', {
+                                        method: 'POST',
+                                        body: JSON.stringify({ conversationId: id })
+                                      });
+                                      if (workspaceAuthUid) patchConversationInboxClaim(id, workspaceAuthUid);
+                                      socket?.emit('request-conversations-sync');
+                                      toast.success('Atendimento assumido por você.');
+                                    } catch (err) {
+                                      toast.error(err instanceof Error ? err.message : 'Falha ao assumir.');
+                                    } finally {
+                                      setInboxActionBusy(false);
+                                    }
+                                  })();
+                                }}
+                              >
+                                <UserRound className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                                Assumir atendimento
+                              </button>
+                            )}
+                            {ownerCanPull && (
+                              <button
+                                type="button"
+                                disabled={inboxActionBusy}
+                                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
+                                style={{
+                                  background: 'color-mix(in srgb, #10b981 16%, transparent)',
+                                  color: 'var(--wa-green-strong)',
+                                  border: '1px solid color-mix(in srgb, #10b981 38%, transparent)'
+                                }}
+                                title="Passa a conversa para o seu atendimento (substitui quem a tinha assumido)."
+                                onClick={() => {
+                                  void (async () => {
+                                    const id = selectedConversation.id;
+                                    setInboxActionBusy(true);
+                                    try {
+                                      await inboxWorkspaceApi('/api/workspace/inbox-claim', {
+                                        method: 'POST',
+                                        body: JSON.stringify({ conversationId: id })
+                                      });
+                                      if (workspaceAuthUid) patchConversationInboxClaim(id, workspaceAuthUid);
+                                      socket?.emit('request-conversations-sync');
+                                      toast.success('Atendimento assumido por você.');
+                                    } catch (err) {
+                                      toast.error(err instanceof Error ? err.message : 'Falha ao assumir.');
+                                    } finally {
+                                      setInboxActionBusy(false);
+                                    }
+                                  })();
+                                }}
+                              >
+                                <UserRound className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                                Assumir para mim
+                              </button>
+                            )}
+                            {canManageClaim && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={inboxActionBusy}
+                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
+                                  style={{
+                                    background: 'color-mix(in srgb, #6366f1 14%, transparent)',
+                                    color: '#4f46e5',
+                                    border: '1px solid color-mix(in srgb, #6366f1 38%, transparent)'
+                                  }}
+                                  title="Envia esta conversa para outro utilizador ligado ao mesmo workspace."
+                                  onClick={() => {
+                                    setTransferTargetUid('');
+                                    setInboxTransferOpen(true);
+                                  }}
+                                >
+                                  <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                                  Transferir
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={inboxActionBusy}
+                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-50"
+                                  style={{
+                                    background: 'color-mix(in srgb, #64748b 14%, transparent)',
+                                    color: 'var(--wa-text-2)',
+                                    border: '1px solid var(--wa-divider)'
+                                  }}
+                                  title="Opcionalmente preencher uma rápida pesquisa de satisfação antes de libertar para a equipa."
+                                  onClick={() => {
+                                    setInboxSurveyRating(null);
+                                    setInboxSurveyComment('');
+                                    setSendClientSurveyToClient(true);
+                                    setInboxSurveyOpen(true);
+                                  }}
+                                >
+                                  Finalizar libertação…
+                                </button>
+                              </>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+              </div>
               <div className="flex items-center gap-0.5">
                 <button
                   type="button"
@@ -2106,6 +2111,28 @@ export const ChatTab: React.FC = () => {
                           setShowChatMenu(false);
                         }}
                       />
+                      {(isTeamMember || isWorkspaceOwner) && !isSelectedDraft && selectedConversation?.id && (
+                        <ChatMenuItem
+                          icon={<ArrowRightLeft className="w-3.5 h-3.5" />}
+                          label="Transferir para outro funcionário"
+                          onClick={() => {
+                            const claimed = selectedConversation.inboxClaimedByAuthUid;
+                            if (!claimed) {
+                              toast.error('Assuma o atendimento primeiro; depois use Transferir.', { duration: 5000 });
+                              setShowChatMenu(false);
+                              return;
+                            }
+                            if (!isWorkspaceOwner && claimed !== workspaceAuthUid) {
+                              toast.error('Só quem assumiu ou o responsável pode transferir.');
+                              setShowChatMenu(false);
+                              return;
+                            }
+                            setTransferTargetUid('');
+                            setInboxTransferOpen(true);
+                            setShowChatMenu(false);
+                          }}
+                        />
+                      )}
                       <ChatMenuItem
                         icon={<Search className="w-3.5 h-3.5" />}
                         label="Buscar nesta conversa"
@@ -2643,11 +2670,10 @@ export const ChatTab: React.FC = () => {
       {selectedConversation && (
         <WaContactDrawer
           open={showContactInfo}
-          title="Dados do contato"
+          title="Ficha do cliente"
           subtitle={selectedDisplay?.primary ?? selectedConversation.contactName}
           onClose={() => setShowContactInfo(false)}
         >
-          {pipelineAgg && <MessagePipelineStrip agg={pipelineAgg} />}
           <ClientCrmPanel
             conversation={selectedConversation}
             connectionName={selectedConnection?.name}
@@ -2998,6 +3024,8 @@ export const ChatTab: React.FC = () => {
                     });
                     setInboxSurveyOpen(false);
                     toast.success('Conversa libertada para a equipa.');
+                    if (selectedChatId) patchConversationInboxClaim(selectedChatId, undefined);
+                    socket?.emit('request-conversations-sync');
                     if (sendClientSurveyToClient) {
                       if (res.clientSurveySent) toast.success('Mensagem com link de avaliação enviada ao cliente.');
                       else if (res.clientSurveyError) toast(res.clientSurveyError, { icon: '⚠️', duration: 6000 });
@@ -3031,6 +3059,8 @@ export const ChatTab: React.FC = () => {
                     });
                     setInboxSurveyOpen(false);
                     toast.success('Avaliação guardada e conversa libertada.');
+                    if (selectedChatId) patchConversationInboxClaim(selectedChatId, undefined);
+                    socket?.emit('request-conversations-sync');
                     if (sendClientSurveyToClient) {
                       if (res.clientSurveySent) toast.success('Mensagem com link de avaliação enviada ao cliente.');
                       else if (res.clientSurveyError) toast(res.clientSurveyError, { icon: '⚠️', duration: 6000 });
@@ -3141,6 +3171,9 @@ export const ChatTab: React.FC = () => {
                       body: JSON.stringify({ conversationId: id, targetAuthUid: tgt })
                     });
                     setInboxTransferOpen(false);
+                    if (isWorkspaceOwner) patchConversationInboxClaim(id, tgt);
+                    else patchConversationInboxClaim(id, undefined);
+                    socket?.emit('request-conversations-sync');
                     toast.success('Atendimento transferido.');
                   } catch (err) {
                     toast.error(err instanceof Error ? err.message : 'Falha ao transferir.');
