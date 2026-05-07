@@ -40,7 +40,8 @@ import {
   Image as ImageIcon,
   Film,
   FileText,
-  UserRound
+  UserRound,
+  ArrowRightLeft
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAuth } from 'firebase/auth';
@@ -56,6 +57,7 @@ import { WaBubble } from './chat/wa/WaBubble';
 import { WaContactDrawer } from './chat/wa/WaContactDrawer';
 import { Conversation, ChatMessage } from '../types';
 import { prepareCampaignAttachmentForSend } from '../utils/campaignMediaCompress';
+import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../utils/openChatByConversationIdNav';
 import {
   CHAT_QUICK_REPLIES_MAX_ITEMS,
   CHAT_QUICK_REPLY_TEXT_MAX,
@@ -64,7 +66,7 @@ import {
   saveChatQuickReplies,
   type ChatQuickReply
 } from '../utils/chatQuickReplies';
-import { Input, Modal, Select, Button } from './ui';
+import { Input, Modal, Select, Button, Textarea } from './ui';
 
 // =====================================================================
 // Origem de uma conversa — usada para separar o que veio do celular
@@ -257,6 +259,8 @@ const OutboundPipelineBar: React.FC<{ status: ChatMessage['status'] }> = ({ stat
   );
 };
 
+type InboxTeammateRow = { uid: string; displayName: string | null; email: string | null; role: 'owner' | 'staff' };
+
 async function inboxWorkspaceApi(path: string, init?: RequestInit): Promise<void> {
   const u = getAuth().currentUser;
   if (!u) throw new Error('Sessão expirada. Entre novamente.');
@@ -271,6 +275,42 @@ async function inboxWorkspaceApi(path: string, init?: RequestInit): Promise<void
   });
   const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
   if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
+}
+
+async function inboxWorkspaceGetJson<T>(path: string): Promise<T> {
+  const u = getAuth().currentUser;
+  if (!u) throw new Error('Sessão expirada. Entre novamente.');
+  const token = await u.getIdToken();
+  const r = await fetch(apiUrl(path), {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const j = (await r.json().catch(() => ({}))) as T & { error?: string };
+  if (!r.ok) throw new Error((j as { error?: string }).error || `Erro HTTP ${r.status}`);
+  return j as T;
+}
+
+type InboxFinishResponse = {
+  ok?: boolean;
+  clientSurveySent?: boolean;
+  clientSurveyError?: string;
+  error?: string;
+};
+
+async function inboxWorkspacePostFinish(body: Record<string, unknown>): Promise<InboxFinishResponse> {
+  const u = getAuth().currentUser;
+  if (!u) throw new Error('Sessão expirada. Entre novamente.');
+  const token = await u.getIdToken();
+  const r = await fetch(apiUrl('/api/workspace/inbox-finish'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(body)
+  });
+  const j = (await r.json().catch(() => ({}))) as InboxFinishResponse;
+  if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
+  return j;
 }
 
 export const ChatTab: React.FC = () => {
@@ -326,6 +366,14 @@ export const ChatTab: React.FC = () => {
   const [auditSelection, setAuditSelection] = useState<Set<string>>(new Set());
   const [auditCategory, setAuditCategory] = useState<ConversationOrigin>('system');
   const [inboxActionBusy, setInboxActionBusy] = useState(false);
+  const [inboxSurveyOpen, setInboxSurveyOpen] = useState(false);
+  const [inboxTransferOpen, setInboxTransferOpen] = useState(false);
+  const [inboxSurveyRating, setInboxSurveyRating] = useState<number | null>(null);
+  const [inboxSurveyComment, setInboxSurveyComment] = useState('');
+  const [inboxTeammates, setInboxTeammates] = useState<InboxTeammateRow[]>([]);
+  const [inboxTeammatesLoad, setInboxTeammatesLoad] = useState(false);
+  const [transferTargetUid, setTransferTargetUid] = useState('');
+  const [sendClientSurveyToClient, setSendClientSurveyToClient] = useState(true);
   // Historico: rastreia por chat qual o ultimo limite solicitado + se esta carregando.
   // Isso permite carregamento progressivo tipo "WhatsApp Web" ao rolar para o topo.
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
@@ -375,6 +423,26 @@ export const ChatTab: React.FC = () => {
       if (pendingMediaPreviewUrl) URL.revokeObjectURL(pendingMediaPreviewUrl);
     };
   }, [pendingMediaPreviewUrl]);
+
+  useEffect(() => {
+    if (!inboxTransferOpen || !workspaceAuthUid) return;
+    let cancelled = false;
+    void (async () => {
+      setInboxTeammatesLoad(true);
+      try {
+        const j = await inboxWorkspaceGetJson<{ ok?: boolean; items?: InboxTeammateRow[] }>('/api/workspace/teammates');
+        if (!cancelled) setInboxTeammates(Array.isArray(j.items) ? j.items : []);
+      } catch {
+        toast.error('Não foi possível carregar a equipa.');
+        if (!cancelled) setInboxTeammates([]);
+      } finally {
+        if (!cancelled) setInboxTeammatesLoad(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inboxTransferOpen, workspaceAuthUid]);
 
   // Evita flood ao backend: controla quando cada avatar foi requisitado.
   const avatarFetchAtRef = useRef<Map<string, number>>(new Map());
@@ -625,6 +693,26 @@ export const ChatTab: React.FC = () => {
       }),
     [mergedConversations, getSystemNameForPhone]
   );
+
+  // Relatórios / outras abas: abrir conversa por id (ex.: avaliação do cliente).
+  useEffect(() => {
+    let id = '';
+    try {
+      id = sessionStorage.getItem(OPEN_CHAT_BY_CONVERSATION_ID_KEY)?.trim() || '';
+    } catch {
+      /* ignore */
+    }
+    if (!id) return;
+    if (effectiveConversations.some((c) => c.id === id)) {
+      try {
+        sessionStorage.removeItem(OPEN_CHAT_BY_CONVERSATION_ID_KEY);
+      } catch {
+        /* ignore */
+      }
+      setSelectedChatId(id);
+      setShowMobileChat(true);
+    }
+  }, [effectiveConversations]);
 
   /** Pushname/original antes do override pela agenda (lista efetiva). */
   const waPushNameByConvId = useMemo(() => {
@@ -1827,50 +1915,30 @@ export const ChatTab: React.FC = () => {
                               ? `${claimedBy.slice(0, 6)}…${claimedBy.slice(-4)}`
                               : claimedBy
                             : '';
-                          if (isWorkspaceOwner && claimedBy) {
-                            return (
-                              <>
+                          const isMineClaim = Boolean(claimedBy && claimedBy === workspaceAuthUid);
+                          const canClaim = !claimedBy;
+                          const ownerCanPull =
+                            Boolean(claimedBy) && isWorkspaceOwner && claimedBy !== workspaceAuthUid;
+                          const canManageClaim =
+                            Boolean(claimedBy) && (isWorkspaceOwner || isMineClaim);
+
+                          return (
+                            <>
+                              {claimedBy && (
                                 <span
                                   className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1"
                                   style={{ background: 'var(--wa-search)', color: 'var(--wa-text-2)' }}
+                                  title={`Atribuída a UID: ${claimedBy}`}
                                 >
                                   <UserRound className="w-3 h-3 flex-shrink-0" aria-hidden />
-                                  Atribuída ({shortClaim})
+                                  {isMineClaim
+                                    ? isWorkspaceOwner
+                                      ? 'Você (responsável)'
+                                      : 'Com você'
+                                    : `Atribuída (${shortClaim})`}
                                 </span>
-                                <button
-                                  type="button"
-                                  disabled={inboxActionBusy}
-                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-50"
-                                  style={{
-                                    background: 'color-mix(in srgb, #f97316 18%, transparent)',
-                                    color: '#ea580c',
-                                    border: '1px solid color-mix(in srgb, #f97316 35%, transparent)'
-                                  }}
-                                  onClick={() => {
-                                    void (async () => {
-                                      setInboxActionBusy(true);
-                                      try {
-                                        await inboxWorkspaceApi(
-                                          `/api/workspace/inbox-claim/${encodeURIComponent(selectedConversation.id)}`,
-                                          { method: 'DELETE' }
-                                        );
-                                        toast.success('Conversa libertada para a equipa.');
-                                      } catch (err) {
-                                        toast.error(err instanceof Error ? err.message : 'Falha ao libertar.');
-                                      } finally {
-                                        setInboxActionBusy(false);
-                                      }
-                                    })();
-                                  }}
-                                >
-                                  Libertar para a equipa
-                                </button>
-                              </>
-                            );
-                          }
-                          if (isTeamMember) {
-                            if (!claimedBy) {
-                              return (
+                              )}
+                              {canClaim && (
                                 <button
                                   type="button"
                                   disabled={inboxActionBusy}
@@ -1882,13 +1950,14 @@ export const ChatTab: React.FC = () => {
                                   }}
                                   onClick={() => {
                                     void (async () => {
+                                      const id = selectedConversation.id;
                                       setInboxActionBusy(true);
                                       try {
                                         await inboxWorkspaceApi('/api/workspace/inbox-claim', {
                                           method: 'POST',
-                                          body: JSON.stringify({ conversationId: selectedConversation.id })
+                                          body: JSON.stringify({ conversationId: id })
                                         });
-                                        toast.success('Você assumiu este atendimento.');
+                                        toast.success('Atendimento assumido por você.');
                                       } catch (err) {
                                         toast.error(err instanceof Error ? err.message : 'Falha ao assumir.');
                                       } finally {
@@ -1900,42 +1969,83 @@ export const ChatTab: React.FC = () => {
                                   <UserRound className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
                                   Assumir atendimento
                                 </button>
-                              );
-                            }
-                            if (claimedBy === workspaceAuthUid) {
-                              return (
+                              )}
+                              {ownerCanPull && (
                                 <button
                                   type="button"
                                   disabled={inboxActionBusy}
-                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-50"
+                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
                                   style={{
-                                    background: 'color-mix(in srgb, #64748b 14%, transparent)',
-                                    color: 'var(--wa-text-2)',
-                                    border: '1px solid var(--wa-divider)'
+                                    background: 'color-mix(in srgb, #10b981 16%, transparent)',
+                                    color: 'var(--wa-green-strong)',
+                                    border: '1px solid color-mix(in srgb, #10b981 38%, transparent)'
                                   }}
+                                  title="Passa a conversa para o seu atendimento (substitui quem a tinha assumido)."
                                   onClick={() => {
                                     void (async () => {
+                                      const id = selectedConversation.id;
                                       setInboxActionBusy(true);
                                       try {
-                                        await inboxWorkspaceApi(
-                                          `/api/workspace/inbox-claim/${encodeURIComponent(selectedConversation.id)}`,
-                                          { method: 'DELETE' }
-                                        );
-                                        toast.success('Atendimento libertado.');
+                                        await inboxWorkspaceApi('/api/workspace/inbox-claim', {
+                                          method: 'POST',
+                                          body: JSON.stringify({ conversationId: id })
+                                        });
+                                        toast.success('Atendimento assumido por você.');
                                       } catch (err) {
-                                        toast.error(err instanceof Error ? err.message : 'Falha ao libertar.');
+                                        toast.error(err instanceof Error ? err.message : 'Falha ao assumir.');
                                       } finally {
                                         setInboxActionBusy(false);
                                       }
                                     })();
                                   }}
                                 >
-                                  Libertar conversa
+                                  <UserRound className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                                  Assumir para mim
                                 </button>
-                              );
-                            }
-                          }
-                          return null;
+                              )}
+                              {canManageClaim && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={inboxActionBusy}
+                                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
+                                    style={{
+                                      background: 'color-mix(in srgb, #6366f1 14%, transparent)',
+                                      color: '#4f46e5',
+                                      border: '1px solid color-mix(in srgb, #6366f1 38%, transparent)'
+                                    }}
+                                    title="Envia esta conversa para outro utilizador ligado ao mesmo workspace."
+                                    onClick={() => {
+                                      setTransferTargetUid('');
+                                      setInboxTransferOpen(true);
+                                    }}
+                                  >
+                                    <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                                    Transferir
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={inboxActionBusy}
+                                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-50"
+                                    style={{
+                                      background: 'color-mix(in srgb, #64748b 14%, transparent)',
+                                      color: 'var(--wa-text-2)',
+                                      border: '1px solid var(--wa-divider)'
+                                    }}
+                                    title="Opcionalmente preencher uma rápida pesquisa de satisfação antes de libertar para a equipa."
+                                    onClick={() => {
+                                      setInboxSurveyRating(null);
+                                      setInboxSurveyComment('');
+                                      setSendClientSurveyToClient(true);
+                                      setInboxSurveyOpen(true);
+                                    }}
+                                  >
+                                    Finalizar libertação…
+                                  </button>
+                                </>
+                              )}
+                            </>
+                          );
                         })()}
                       </div>
                     )}
@@ -2849,6 +2959,229 @@ export const ChatTab: React.FC = () => {
             )}
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={inboxSurveyOpen}
+        onClose={() => {
+          if (!inboxActionBusy) setInboxSurveyOpen(false);
+        }}
+        title="Finalizar libertação"
+        subtitle="Opcional: nota interna para a sua conta. Pode enviar ao mesmo tempo um link ao cliente no WhatsApp (caixa abaixo)."
+        icon={<Star className="w-5 h-5" />}
+        size="sm"
+        footer={
+          <div className="flex flex-wrap gap-2 justify-end w-full">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={inboxActionBusy}
+              onClick={() => setInboxSurveyOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={inboxActionBusy}
+              onClick={() => {
+                void (async () => {
+                  if (!selectedChatId) return;
+                  setInboxActionBusy(true);
+                  try {
+                    const res = await inboxWorkspacePostFinish({
+                      conversationId: selectedChatId,
+                      skipSurvey: true,
+                      sendClientSurvey: sendClientSurveyToClient
+                    });
+                    setInboxSurveyOpen(false);
+                    toast.success('Conversa libertada para a equipa.');
+                    if (sendClientSurveyToClient) {
+                      if (res.clientSurveySent) toast.success('Mensagem com link de avaliação enviada ao cliente.');
+                      else if (res.clientSurveyError) toast(res.clientSurveyError, { icon: '⚠️', duration: 6000 });
+                    }
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Falha ao libertar.');
+                  } finally {
+                    setInboxActionBusy(false);
+                  }
+                })();
+              }}
+            >
+              Libertar sem pesquisa
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={inboxActionBusy}
+              onClick={() => {
+                void (async () => {
+                  if (!selectedChatId) return;
+                  setInboxActionBusy(true);
+                  try {
+                    const res = await inboxWorkspacePostFinish({
+                      conversationId: selectedChatId,
+                      skipSurvey: false,
+                      rating: inboxSurveyRating ?? undefined,
+                      comment: inboxSurveyComment.trim() || undefined,
+                      sendClientSurvey: sendClientSurveyToClient
+                    });
+                    setInboxSurveyOpen(false);
+                    toast.success('Avaliação guardada e conversa libertada.');
+                    if (sendClientSurveyToClient) {
+                      if (res.clientSurveySent) toast.success('Mensagem com link de avaliação enviada ao cliente.');
+                      else if (res.clientSurveyError) toast(res.clientSurveyError, { icon: '⚠️', duration: 6000 });
+                    }
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Falha ao finalizar.');
+                  } finally {
+                    setInboxActionBusy(false);
+                  }
+                })();
+              }}
+            >
+              Guardar e libertar
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-[11.5px] font-medium mb-2" style={{ color: 'var(--text-2)' }}>
+              Nota de 1 a 5 (opcional)
+            </p>
+            <div className="flex items-center gap-1.5">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className="p-1.5 rounded-lg transition-opacity"
+                  style={{
+                    background:
+                      inboxSurveyRating != null && n <= inboxSurveyRating
+                        ? 'rgba(245,158,11,0.25)'
+                        : 'var(--surface-1)',
+                    border: '1px solid var(--border-subtle)',
+                    color: inboxSurveyRating != null && n <= inboxSurveyRating ? '#d97706' : 'var(--text-3)'
+                  }}
+                  title={`${n} estrelas`}
+                  onClick={() => setInboxSurveyRating(n)}
+                >
+                  <Star
+                    className={`w-5 h-5 ${inboxSurveyRating != null && n <= inboxSurveyRating ? 'fill-current' : ''}`}
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-[11.5px] font-medium block mb-1.5" style={{ color: 'var(--text-2)' }}>
+              Comentário (opcional)
+            </label>
+            <Textarea
+              value={inboxSurveyComment}
+              onChange={(e) => setInboxSurveyComment(e.target.value)}
+              rows={3}
+              maxLength={2000}
+              placeholder="Ex.: cliente satisfeito, pediu orçamento…"
+              className="w-full text-[13px]"
+            />
+          </div>
+          <label className="flex items-start gap-2.5 cursor-pointer select-none text-[12.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
+            <input
+              type="checkbox"
+              className="mt-0.5 rounded border flex-shrink-0"
+              style={{ borderColor: 'var(--border)' }}
+              checked={sendClientSurveyToClient}
+              onChange={(e) => setSendClientSurveyToClient(e.target.checked)}
+              disabled={inboxActionBusy}
+            />
+            <span>Enviar ao cliente no WhatsApp um link para avaliar este atendimento (página rápida, sem login).</span>
+          </label>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={inboxTransferOpen}
+        onClose={() => {
+          if (!inboxActionBusy) setInboxTransferOpen(false);
+        }}
+        title="Transferir atendimento"
+        subtitle="A conversa fica assumida pelo utilizador escolhido (mesmo workspace)."
+        icon={<ArrowRightLeft className="w-5 h-5" />}
+        size="sm"
+        footer={
+          <div className="flex flex-wrap gap-2 justify-end w-full">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={inboxActionBusy}
+              onClick={() => setInboxTransferOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={inboxActionBusy || !transferTargetUid.trim()}
+              onClick={() => {
+                void (async () => {
+                  const id = selectedChatId;
+                  const tgt = transferTargetUid.trim();
+                  if (!id || !tgt) return;
+                  setInboxActionBusy(true);
+                  try {
+                    await inboxWorkspaceApi('/api/workspace/inbox-transfer', {
+                      method: 'POST',
+                      body: JSON.stringify({ conversationId: id, targetAuthUid: tgt })
+                    });
+                    setInboxTransferOpen(false);
+                    toast.success('Atendimento transferido.');
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : 'Falha ao transferir.');
+                  } finally {
+                    setInboxActionBusy(false);
+                  }
+                })();
+              }}
+            >
+              Transferir
+            </Button>
+          </div>
+        }
+      >
+        {inboxTeammatesLoad ? (
+          <div className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--text-2)' }}>
+            <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+            A carregar equipa…
+          </div>
+        ) : inboxTeammates.filter((t) => t.uid !== workspaceAuthUid).length === 0 ? (
+          <p className="text-[13px]" style={{ color: 'var(--text-2)' }}>
+            Não há outros membros ligados ao workspace para receber esta conversa (convite em Definições).
+          </p>
+        ) : (
+          <Select
+            value={transferTargetUid}
+            onChange={(e) => setTransferTargetUid(e.target.value)}
+            className="w-full text-[13px]"
+            aria-label="Destinatário da transferência"
+          >
+            <option value="">Escolha quem recebe…</option>
+            {inboxTeammates
+              .filter((t) => t.uid !== workspaceAuthUid)
+              .map((t) => (
+                <option key={t.uid} value={t.uid}>
+                  {t.role === 'owner' ? 'Responsável · ' : ''}
+                  {t.displayName || t.email || `${t.uid.slice(0, 6)}…${t.uid.slice(-4)}`}
+                </option>
+              ))}
+          </Select>
+        )}
       </Modal>
     </div>
   );

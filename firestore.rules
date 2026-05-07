@@ -21,6 +21,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /** Convites públicos avaliação pós-atendimento (link WhatsApp) — só Admin SDK. */
+    match /publicInboxSurveyInvites/{token} {
+      allow read, write: if false;
+    }
+
     // Coleções legadas na raiz (pré users/{uid}/...). FECHADAS em produção multi-tenant:
     // evita que qualquer utilizador autenticado leia documentos de outras contas.
     // Migração/limpeza: usar Firebase Admin SDK (ignora estas regras) ou consola.
@@ -62,6 +67,16 @@ service cloud.firestore {
 
     /** Quem assumiu qual conversa no inbox (API + Admin SDK). Cliente não acede directamente. */
     match /users/{uid}/inboxAssignments/{docId} {
+      allow read, write: if false;
+    }
+
+    /** Avaliações internas após libertação de inbox (API + Admin SDK). */
+    match /users/{uid}/inboxAttendanceFeedback/{docId} {
+      allow read, write: if false;
+    }
+
+    /** Avaliações dos clientes (link público após libertação inbox) — só Admin SDK. */
+    match /users/{uid}/inboxClientAttendanceFeedback/{docId} {
       allow read, write: if false;
     }
 

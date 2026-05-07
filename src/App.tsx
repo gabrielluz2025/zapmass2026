@@ -41,6 +41,7 @@ import { SegmentOnboardingScreen } from './components/onboarding/SegmentOnboardi
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
+import { ClientSatisfactionSurveyPage, readClientSurveyTokenFromWindow } from './components/ClientSatisfactionSurveyPage';
 
 const SessionSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div
@@ -315,6 +316,8 @@ const AuthGate: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  const [clientSurveyToken] = useState(() => readClientSurveyTokenFromWindow());
+
   useEffect(() => {
     if (!localStorage.getItem('zapmass.ui.v2')) {
       localStorage.removeItem('zapmass.mode');
@@ -325,8 +328,7 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <AuthProvider>
-      <AppConfigProvider>
+    <>
       <Toaster
         position="top-right"
         toastOptions={{
@@ -340,9 +342,18 @@ const App: React.FC = () => {
           }
         }}
       />
-      <AuthGate />
-      </AppConfigProvider>
-    </AuthProvider>
+      {clientSurveyToken ? (
+        <AppConfigProvider>
+          <ClientSatisfactionSurveyPage token={clientSurveyToken} />
+        </AppConfigProvider>
+      ) : (
+        <AuthProvider>
+          <AppConfigProvider>
+            <AuthGate />
+          </AppConfigProvider>
+        </AuthProvider>
+      )}
+    </>
   );
 };
 

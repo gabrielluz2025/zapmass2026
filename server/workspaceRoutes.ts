@@ -9,9 +9,18 @@ import {
   assignmentsSnapshotForTenant,
   ensureAssignmentsLoaded,
   inboxClaimConversation,
+  inboxFinishConversation,
+  inboxTransferConversation,
   inboxReleaseConversation
 } from './inboxAssignments.js';
 import { getConversations, broadcastConversationsUpdate } from './whatsappService.js';
+import { submitSendMessage } from './sessionControlPlane.js';
+import {
+  buildClientSurveyUrl,
+  createPublicSurveyInvite,
+  whatsappSurveyMessageBody
+} from './inboxClientSurvey.js';
+import { getSurveyLinksBaseOrigin } from './publicSurveyAppOrigin.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -324,6 +333,78 @@ export function registerWorkspaceRoutes(app: Express): void {
     }
   });
 
+  /** Dono ou equipa na mesma workspace: lista UID + nomes para transferência de inbox. */
+  app.get('/api/workspace/teammates', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    try {
+      const { tenantUid } = await resolveWorkspaceParticipant(adminApp, token);
+      type Row = { uid: string; displayName: string | null; email: string | null; role: 'owner' | 'staff' };
+      const items: Row[] = [];
+      const auth = getAuth(adminApp);
+      try {
+        const ou = await auth.getUser(tenantUid);
+        items.push({
+          uid: tenantUid,
+          displayName: ou.displayName ?? 'Responsável',
+          email: ou.email ?? null,
+          role: 'owner'
+        });
+      } catch {
+        items.push({ uid: tenantUid, displayName: 'Responsável', email: null, role: 'owner' });
+      }
+
+      const snap = await adminApp
+        .firestore()
+        .collection('userWorkspaceLinks')
+        .where('ownerUid', '==', tenantUid)
+        .get();
+
+      const staffDraft: Array<{ uid: string; linkedAtIso: string }> = [];
+      snap.forEach((docSnap) => {
+        const id = docSnap.id;
+        if (id === tenantUid) return;
+        const d = docSnap.data();
+        const linkedAtIso =
+          d.linkedAt instanceof Timestamp ? d.linkedAt.toDate().toISOString() : typeof d.linkedAt === 'string' ? d.linkedAt : '';
+        staffDraft.push({ uid: id, linkedAtIso });
+      });
+
+      staffDraft.sort((a, b) => {
+        const la = a.linkedAtIso.slice(0, 19);
+        const lb = b.linkedAtIso.slice(0, 19);
+        return lb.localeCompare(la);
+      });
+
+      staffDraft.forEach((s) => {
+        items.push({ uid: s.uid, displayName: null, email: null, role: 'staff' });
+      });
+
+      await Promise.all(
+        items.slice(1).map(async (row) => {
+          try {
+            const u = await auth.getUser(row.uid);
+            row.displayName = row.displayName || u.displayName || null;
+            row.email = u.email ?? row.email ?? null;
+          } catch {
+            /* conta apagada */
+          }
+        })
+      );
+
+      return res.json({ ok: true, items });
+    } catch (e) {
+      console.error('[workspace/teammates]', e);
+      return res.status(400).json({ ok: false, error: 'Token inválido.' });
+    }
+  });
+
   /** Mapa conversa → UID de quem assumiu (para o dono na UI). Membro da equipa pode ler o próprio snapshot filtrado já vem no socket. */
   app.get('/api/workspace/inbox-assignments', async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
@@ -344,6 +425,55 @@ export function registerWorkspaceRoutes(app: Express): void {
     } catch (e) {
       console.error('[workspace/inbox-assignments]', e);
       return res.status(400).json({ ok: false, error: 'Token inválido.' });
+    }
+  });
+
+  /** Avaliações enviadas pelos clientes (link público WhatsApp after inbox finish). Dono ou equipa. */
+  app.get('/api/workspace/inbox-client-feedback', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    const limitRaw = Number(req.query.limit ?? 80);
+    const limit = Math.max(1, Math.min(200, Number.isFinite(limitRaw) ? limitRaw : 80));
+    try {
+      const { tenantUid } = await resolveWorkspaceParticipant(adminApp, token);
+      const snap = await adminApp
+        .firestore()
+        .collection('users')
+        .doc(tenantUid)
+        .collection('inboxClientAttendanceFeedback')
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+
+      const items = snap.docs.map((d) => {
+        const data = d.data();
+        const createdAtRaw = data.createdAt as Timestamp | undefined;
+        let createdAtIso: string | null = null;
+        if (createdAtRaw instanceof Timestamp) {
+          createdAtIso = createdAtRaw.toDate().toISOString();
+        }
+        return {
+          id: d.id,
+          conversationId: typeof data.conversationId === 'string' ? data.conversationId : '',
+          rating: typeof data.rating === 'number' ? data.rating : null,
+          comment: typeof data.comment === 'string' ? data.comment : null,
+          source:
+            typeof data.source === 'string' && data.source.trim().length > 0
+              ? String(data.source).trim()
+              : 'whatsapp_link',
+          createdAt: createdAtIso
+        };
+      });
+      return res.json({ ok: true, items });
+    } catch (e) {
+      console.error('[workspace/inbox-client-feedback]', e);
+      return res.status(400).json({ ok: false, error: 'Token inválido ou falha ao ler avaliações.' });
     }
   });
 
@@ -385,7 +515,152 @@ export function registerWorkspaceRoutes(app: Express): void {
     }
   });
 
-  /** Libertar conversa para a equipa. Dono pode libertar qualquer uma. */
+  /** Direcionar atendimento a outro membro (responsável ou quem já tem a conversa assumida). */
+  app.post('/api/workspace/inbox-transfer', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    const conversationId =
+      typeof (req.body as { conversationId?: unknown })?.conversationId === 'string'
+        ? String((req.body as { conversationId?: string }).conversationId).trim()
+        : '';
+    const targetAuthUid =
+      typeof (req.body as { targetAuthUid?: unknown })?.targetAuthUid === 'string'
+        ? String((req.body as { targetAuthUid?: string }).targetAuthUid).trim()
+        : '';
+    if (!conversationId || !targetAuthUid) {
+      return res.status(400).json({ ok: false, error: 'conversationId e targetAuthUid são obrigatórios.' });
+    }
+    try {
+      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
+      const conv = getConversations().find((c) => c.id === conversationId);
+      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+        return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
+      }
+      const isOwner = authUid === tenantUid;
+      const r = await inboxTransferConversation(
+        tenantUid,
+        authUid,
+        isOwner,
+        conversationId,
+        targetAuthUid,
+        conv
+      );
+      if (r.ok === false) {
+        const map403: Record<string, string> = {
+          TARGET_NOT_IN_WORKSPACE: 'O destinatário não pertence a esta workspace.',
+          NOT_YOUR_CLAIM: 'Só pode transferir conversas que você assumiu.',
+          NOT_CLAIMED: 'Ninguém assumiu esta conversa.'
+        };
+        if (map403[r.code]) {
+          return res.status(r.code === 'NOT_CLAIMED' ? 409 : 403).json({ ok: false, error: map403[r.code] });
+        }
+        if (r.code === 'INVALID_TARGET') {
+          return res.status(400).json({ ok: false, error: 'Destinatário inválido.' });
+        }
+        return res.status(500).json({ ok: false, error: 'Serviço temporariamente indisponível.' });
+      }
+      broadcastConversationsUpdate();
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[workspace/inbox-transfer]', e);
+      return res.status(400).json({ ok: false, error: 'Falha ao transferir.' });
+    }
+  });
+
+  /** Libertação + pesquisa interna opcional + envio opcional ao cliente (WhatsApp com link público). */
+  app.post('/api/workspace/inbox-finish', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    const body = req.body as {
+      conversationId?: unknown;
+      skipSurvey?: unknown;
+      rating?: unknown;
+      comment?: unknown;
+      sendClientSurvey?: unknown;
+    };
+    const conversationId = typeof body.conversationId === 'string' ? String(body.conversationId).trim() : '';
+    const skipSurvey = Boolean(body.skipSurvey === true || body.skipSurvey === 'true' || body.skipSurvey === 1);
+    let ratingNum: number | null = null;
+    if (typeof body.rating === 'number' && body.rating >= 1 && body.rating <= 5) ratingNum = body.rating;
+    if (typeof body.rating === 'string' && /^\d$/.test(body.rating)) {
+      const n = Number(body.rating);
+      if (n >= 1 && n <= 5) ratingNum = n;
+    }
+    const comment = typeof body.comment === 'string' ? body.comment : '';
+    const sendClientSurvey = Boolean(
+      body.sendClientSurvey === true ||
+        body.sendClientSurvey === 'true' ||
+        body.sendClientSurvey === 1
+    );
+    if (!conversationId) {
+      return res.status(400).json({ ok: false, error: 'conversationId é obrigatório.' });
+    }
+    try {
+      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
+      const conv = getConversations().find((c) => c.id === conversationId);
+      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+        return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
+      }
+      const isOwner = authUid === tenantUid;
+      const r = await inboxFinishConversation(tenantUid, authUid, conversationId, isOwner, {
+        skipped: skipSurvey,
+        rating: ratingNum,
+        comment
+      });
+      if (r.ok === false) {
+        if (r.code === 'NOT_CLAIMED') {
+          return res.status(409).json({ ok: false, error: 'Ninguém está com esta conversa assumida.' });
+        }
+        if (r.code === 'NOT_YOUR_CLAIM') {
+          return res.status(403).json({ ok: false, error: 'Só pode finalizar libertação das conversas que você assumiu.' });
+        }
+        return res.status(500).json({ ok: false, error: 'Serviço temporariamente indisponível.' });
+      }
+      broadcastConversationsUpdate();
+
+      let clientSurveySent = false;
+      let clientSurveyError: string | undefined;
+      if (sendClientSurvey) {
+        const origin = getSurveyLinksBaseOrigin();
+        if (!origin) {
+          clientSurveyError =
+            'Link ao cliente não enviado: defina PUBLIC_APP_URL no servidor (URL pública do site, ex. https://app.seudominio.com).';
+        } else {
+          try {
+            const db = adminApp.firestore();
+            const token = await createPublicSurveyInvite(db, tenantUid, conversationId, conv.connectionId);
+            const url = buildClientSurveyUrl(origin, token);
+            const text = whatsappSurveyMessageBody(url);
+            await submitSendMessage(conversationId, text, tenantUid);
+            clientSurveySent = true;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error('[workspace/inbox-finish] sendClientSurvey', msg);
+            clientSurveyError = 'Não foi possível enviar a mensagem ao cliente (WhatsApp). A conversa foi libertada.';
+          }
+        }
+      }
+
+      return res.json({ ok: true, clientSurveySent, ...(clientSurveyError ? { clientSurveyError } : {}) });
+    } catch (e) {
+      console.error('[workspace/inbox-finish]', e);
+      return res.status(400).json({ ok: false, error: 'Falha ao finalizar.' });
+    }
+  });
+
+  /** Libertar conversa para a equipa (sem fluxo da pesquisa). Dono pode libertar qualquer uma. */
   app.delete('/api/workspace/inbox-claim/:conversationId', async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {

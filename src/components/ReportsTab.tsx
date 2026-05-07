@@ -23,6 +23,7 @@ import { Badge, Button, Card, EmptyState, SectionHeader, Tabs } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import type { Campaign } from '../types';
 import { getCampaignDeliverySuccessRatePct, getCampaignPlannedSendTotal } from '../utils/campaignMetrics';
+import { ClientAttendanceFeedbackSection } from './reports/ClientAttendanceFeedbackSection';
 
 type PeriodFilter = '7d' | '30d' | '90d';
 
@@ -371,6 +372,8 @@ export const ReportsTab: React.FC = () => {
           />
         </Card>
       </div>
+
+      <ClientAttendanceFeedbackSection />
 
       {/* Volume diário */}
       <Card className="p-6">

@@ -123,7 +123,8 @@ export async function inboxClaimConversation(
         cur.exists && typeof cur.data()?.claimedByAuthUid === 'string'
           ? String(cur.data()?.claimedByAuthUid).trim()
           : '';
-      if (existing && existing !== staffAuthUid) {
+      const tenantOwnerTakingOver = staffAuthUid === tenantUid;
+      if (existing && existing !== staffAuthUid && !tenantOwnerTakingOver) {
         throw new Error('ALREADY_CLAIMED');
       }
       if (existing === staffAuthUid) {
@@ -132,7 +133,13 @@ export async function inboxClaimConversation(
       tx.set(ref, {
         claimedByAuthUid: staffAuthUid,
         claimedAt: FieldValue.serverTimestamp(),
-        connectionId: conversation.connectionId
+        connectionId: conversation.connectionId,
+        ...(tenantOwnerTakingOver && existing && existing !== staffAuthUid
+          ? {
+              transferredFromAuthUid: existing,
+              transferredAt: FieldValue.serverTimestamp()
+            }
+          : {})
       });
     });
     rememberClaim(tenantUid, conversationId, staffAuthUid);
@@ -142,6 +149,141 @@ export async function inboxClaimConversation(
     if (msg === 'ALREADY_CLAIMED') return { ok: false, code: 'ALREADY_CLAIMED' };
     throw e;
   }
+}
+
+/** Dono ou membro ligado a este tenant (uid do dono nas links). */
+export async function isUidMemberOfTenant(
+  admin: NonNullable<ReturnType<typeof getFirebaseAdmin>>,
+  tenantUid: string,
+  candidateAuthUid: string
+): Promise<boolean> {
+  if (candidateAuthUid === tenantUid) return true;
+  const snap = await admin.firestore().collection('userWorkspaceLinks').doc(candidateAuthUid).get();
+  const ou = snap.exists ? snap.data()?.ownerUid : null;
+  return typeof ou === 'string' && ou === tenantUid;
+}
+
+export async function inboxTransferConversation(
+  tenantUid: string,
+  actingAuthUid: string,
+  isOwnerActor: boolean,
+  conversationId: string,
+  targetAuthUid: string,
+  conversation: Conversation
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  const admin = getFirebaseAdmin();
+  if (!admin) return { ok: false, code: 'NO_ADMIN' };
+  const t = String(targetAuthUid || '').trim();
+  if (!t) return { ok: false, code: 'INVALID_TARGET' };
+  if (!(await isUidMemberOfTenant(admin, tenantUid, t))) {
+    return { ok: false, code: 'TARGET_NOT_IN_WORKSPACE' };
+  }
+
+  const ref = admin
+    .firestore()
+    .collection('users')
+    .doc(tenantUid)
+    .collection('inboxAssignments')
+    .doc(conversationId);
+
+  try {
+    await admin.firestore().runTransaction(async (tx) => {
+      const cur = await tx.get(ref);
+      const existing =
+        cur.exists && typeof cur.data()?.claimedByAuthUid === 'string'
+          ? String(cur.data()?.claimedByAuthUid).trim()
+          : '';
+      if (!existing) {
+        throw new Error('NOT_CLAIMED');
+      }
+      if (!isOwnerActor && existing !== actingAuthUid) {
+        throw new Error('NOT_YOUR_CLAIM');
+      }
+      if (existing === t) {
+        return;
+      }
+      tx.set(ref, {
+        claimedByAuthUid: t,
+        claimedAt: FieldValue.serverTimestamp(),
+        connectionId: conversation.connectionId,
+        transferredFromAuthUid: actingAuthUid,
+        transferredAt: FieldValue.serverTimestamp()
+      });
+    });
+    rememberClaim(tenantUid, conversationId, t);
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'NOT_CLAIMED') return { ok: false, code: 'NOT_CLAIMED' };
+    if (msg === 'NOT_YOUR_CLAIM') return { ok: false, code: 'NOT_YOUR_CLAIM' };
+    throw e;
+  }
+}
+
+export type InboxFinishSatisfaction = {
+  skipped: boolean;
+  rating?: number | null;
+  comment?: string | null;
+};
+
+/** Liberta a conversa e grava pesquisa opcional (interna, operador/equipa). */
+export async function inboxFinishConversation(
+  tenantUid: string,
+  authUid: string,
+  conversationId: string,
+  isOwner: boolean,
+  satisfaction: InboxFinishSatisfaction
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  const admin = getFirebaseAdmin();
+  if (!admin) return { ok: false, code: 'NO_ADMIN' };
+
+  const ref = admin
+    .firestore()
+    .collection('users')
+    .doc(tenantUid)
+    .collection('inboxAssignments')
+    .doc(conversationId);
+
+  const snap = await ref.get();
+  const claimer =
+    snap.exists && typeof snap.data()?.claimedByAuthUid === 'string'
+      ? String(snap.data()?.claimedByAuthUid).trim()
+      : '';
+
+  if (!claimer) {
+    return { ok: false, code: 'NOT_CLAIMED' };
+  }
+  if (!isOwner && claimer !== authUid) {
+    return { ok: false, code: 'NOT_YOUR_CLAIM' };
+  }
+
+  const db = admin.firestore();
+  const batch = db.batch();
+  const skipped = Boolean(satisfaction.skipped);
+  let rating: number | null = null;
+  if (!skipped && typeof satisfaction.rating === 'number' && satisfaction.rating >= 1 && satisfaction.rating <= 5) {
+    rating = satisfaction.rating;
+  }
+  const commentRaw = typeof satisfaction.comment === 'string' ? satisfaction.comment.trim() : '';
+
+  if (!skipped) {
+    const fbRef = db.collection('users').doc(tenantUid).collection('inboxAttendanceFeedback').doc();
+    const hasContent = rating != null || commentRaw.length > 0;
+    batch.set(fbRef, {
+      conversationId,
+      actorAuthUid: authUid,
+      assignedToAuthUidBeforeFinish: claimer,
+      rating,
+      comment: commentRaw.length > 0 ? commentRaw : null,
+      skippedSurvey: !hasContent,
+      createdAt: FieldValue.serverTimestamp()
+    });
+  }
+
+  batch.delete(ref);
+  await batch.commit();
+  rememberRelease(tenantUid, conversationId);
+  return { ok: true };
 }
 
 /** Dono pode libertar sempre; funcionário só a sua própria reivindicação. */
