@@ -5,8 +5,6 @@ import { Button, Textarea } from './ui';
 import { apiUrl } from '../utils/apiBase';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from '../theme';
 
-const TOKEN_RE = /^[a-f0-9]{40}$/i;
-
 type MetaState = 'loading' | 'open' | 'expired' | 'already_used' | 'invalid';
 
 async function fetchMeta(token: string): Promise<Exclude<MetaState, 'loading'>> {
@@ -28,18 +26,6 @@ async function postSubmit(token: string, rating: number, comment: string): Promi
   });
   const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
   if (!r.ok) throw new Error(j.error || `Erro ${r.status}`);
-}
-
-export function readClientSurveyTokenFromWindow(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const path = window.location.pathname.replace(/\/+$/, '') || '/';
-    if (path !== '/avaliacao') return null;
-    const t = (new URLSearchParams(window.location.search).get('t') || '').trim();
-    return TOKEN_RE.test(t) ? t : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Página sem login — link enviado por WhatsApp após libertação do inbox. */

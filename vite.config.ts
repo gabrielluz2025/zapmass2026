@@ -47,7 +47,23 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         outDir: 'dist',
-        emptyOutDir: true
+        emptyOutDir: true,
+        rollupOptions: {
+          output: {
+            /** Separa libs pesadas: cache estável entre deploys + downloads em paralelo. */
+            manualChunks(id) {
+              if (!id.includes('node_modules')) return;
+              const norm = id.replace(/\\/g, '/');
+              if (norm.includes('/firebase/')) return 'vendor-firebase';
+              if (norm.includes('socket.io-client')) return 'vendor-socket';
+              if (norm.includes('/xlsx/')) return 'vendor-xlsx';
+              if (norm.includes('/marked/')) return 'vendor-marked';
+              if (norm.includes('@tanstack')) return 'vendor-tanstack';
+              if (norm.includes('lucide-react')) return 'vendor-lucide';
+              return undefined;
+            }
+          }
+        }
       },
       define: {
         'import.meta.env.VITE_GIT_REF': JSON.stringify(vitGitRef)

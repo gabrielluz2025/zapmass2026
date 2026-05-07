@@ -1,17 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Crown, Loader2, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
-import { CampaignsTab } from './components/CampaignsTab';
-import { DashboardTab } from './components/DashboardTab';
-import { AdminServerTab } from './components/AdminServerTab';
-import { ContactsTab } from './components/ContactsTab';
-import { ReportsTab } from './components/ReportsTab';
-import { SettingsTab } from './components/SettingsTab';
-import { MySubscriptionTab } from './components/billing/MySubscriptionTab';
-import { ChatTab } from './components/ChatTab';
-import { WarmupTab } from './components/WarmupTab';
 import { PreLoginLanding } from './components/PreLoginLanding';
 import { HardGateScreen } from './components/billing/HardGateScreen';
 import { TrialAutoStart } from './components/billing/TrialAutoStart';
@@ -26,12 +17,6 @@ import { ZapMassProvider, useZapMass } from './context/ZapMassContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppConfigProvider } from './context/AppConfigContext';
 import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext';
-import { AdminPanel } from './components/admin/AdminPanel';
-import { CreatorStudio } from './components/creator/CreatorStudio';
-import { TutorialPage } from './components/help/TutorialPage';
-import { WorkspaceTeamPage } from './pages/WorkspaceTeamPage';
-import { ReligiousNewMemberTab } from './components/religious/ReligiousNewMemberTab';
-import { PastoralVisitsTab } from './components/religious/PastoralVisitsTab';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
 import { isAdminUserEmail } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
@@ -41,7 +26,47 @@ import { SegmentOnboardingScreen } from './components/onboarding/SegmentOnboardi
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
-import { ClientSatisfactionSurveyPage, readClientSurveyTokenFromWindow } from './components/ClientSatisfactionSurveyPage';
+import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
+
+/** Rota pública `/avaliacao` — não entra no bundle principal. */
+const ClientSatisfactionSurveyPage = lazy(() =>
+  import('./components/ClientSatisfactionSurveyPage').then((m) => ({ default: m.ClientSatisfactionSurveyPage }))
+);
+
+/** Painéis autenticados — primeiro paint mais rápido; carrega sob demanda. */
+const DashboardTab = lazy(() => import('./components/DashboardTab').then((m) => ({ default: m.DashboardTab })));
+const ChatTab = lazy(() => import('./components/ChatTab').then((m) => ({ default: m.ChatTab })));
+const CampaignsTab = lazy(() => import('./components/CampaignsTab').then((m) => ({ default: m.CampaignsTab })));
+const ContactsTab = lazy(() => import('./components/ContactsTab').then((m) => ({ default: m.ContactsTab })));
+const ReportsTab = lazy(() => import('./components/ReportsTab').then((m) => ({ default: m.ReportsTab })));
+const SettingsTab = lazy(() => import('./components/SettingsTab').then((m) => ({ default: m.SettingsTab })));
+const MySubscriptionTab = lazy(() => import('./components/billing/MySubscriptionTab').then((m) => ({ default: m.MySubscriptionTab })));
+const WarmupTab = lazy(() => import('./components/WarmupTab').then((m) => ({ default: m.WarmupTab })));
+const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then((m) => ({ default: m.AdminPanel })));
+const AdminServerTab = lazy(() => import('./components/AdminServerTab').then((m) => ({ default: m.AdminServerTab })));
+const CreatorStudio = lazy(() => import('./components/creator/CreatorStudio').then((m) => ({ default: m.CreatorStudio })));
+const TutorialPage = lazy(() => import('./components/help/TutorialPage').then((m) => ({ default: m.TutorialPage })));
+const WorkspaceTeamPage = lazy(() => import('./pages/WorkspaceTeamPage').then((m) => ({ default: m.WorkspaceTeamPage })));
+const ReligiousNewMemberTab = lazy(() =>
+  import('./components/religious/ReligiousNewMemberTab').then((m) => ({ default: m.ReligiousNewMemberTab }))
+);
+const PastoralVisitsTab = lazy(() =>
+  import('./components/religious/PastoralVisitsTab').then((m) => ({ default: m.PastoralVisitsTab }))
+);
+
+/** Spinner leve quando um chunk de vista ainda está a carregar */
+const LazyViewSpinner: React.FC = () => (
+  <div
+    className="flex flex-1 min-h-[36vh] w-full flex-col items-center justify-center gap-3"
+    aria-busy="true"
+    aria-label="A carregar"
+  >
+    <Loader2 className="w-7 h-7 animate-spin" style={{ color: 'var(--brand-600)' }} />
+    <span className="text-[13px] font-medium" style={{ color: 'var(--text-2)' }}>
+      A carregar painel…
+    </span>
+  </div>
+);
 
 const SessionSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div
@@ -189,7 +214,7 @@ const MainLayout: React.FC = () => {
     return () => window.removeEventListener(EVENT_OPEN_CHANNEL_EXTRAS, go);
   }, [setCurrentView]);
 
-  const renderContent = () => {
+  const renderContentInner = (): React.ReactNode => {
     switch (currentView) {
       case 'dashboard':
         return <DashboardTab />;
@@ -235,6 +260,10 @@ const MainLayout: React.FC = () => {
         return <ConnectionsTab />;
     }
   };
+
+  const renderContent = () => (
+    <Suspense fallback={<LazyViewSpinner />}>{renderContentInner()}</Suspense>
+  );
 
   return (
     <>
@@ -344,7 +373,9 @@ const App: React.FC = () => {
       />
       {clientSurveyToken ? (
         <AppConfigProvider>
-          <ClientSatisfactionSurveyPage token={clientSurveyToken} />
+          <Suspense fallback={<LazyViewSpinner />}>
+            <ClientSatisfactionSurveyPage token={clientSurveyToken} />
+          </Suspense>
         </AppConfigProvider>
       ) : (
         <AuthProvider>
