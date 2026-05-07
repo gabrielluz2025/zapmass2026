@@ -112,7 +112,12 @@ fi
 
 if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
   echo "==> deploy em Docker Swarm (stack: zapmass)"
-  docker build -t zapmass:latest \
+  _build_extra=()
+  if [ "${ZAPMASS_DOCKER_BUILD_NO_CACHE:-0}" = "1" ]; then
+    _build_extra+=(--no-cache)
+    echo "==> ZAPMASS_DOCKER_BUILD_NO_CACHE=1 — build completo sem cache de camadas"
+  fi
+  docker build "${_build_extra[@]}" -t zapmass:latest \
     --build-arg VITE_ADMIN_EMAILS="${VITE_ADMIN_EMAILS:-}" \
     --build-arg VITE_MARKETING_PRICE_MONTHLY="${VITE_MARKETING_PRICE_MONTHLY:-}" \
     --build-arg VITE_MARKETING_PRICE_ANNUAL="${VITE_MARKETING_PRICE_ANNUAL:-}" \
@@ -161,7 +166,13 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
   fi
 else
   echo "==> docker compose build + up"
-  docker compose up -d --build
+  if [ "${ZAPMASS_DOCKER_BUILD_NO_CACHE:-0}" = "1" ]; then
+    echo "==> ZAPMASS_DOCKER_BUILD_NO_CACHE=1 — compose build --no-cache"
+    docker compose build --no-cache
+    docker compose up -d
+  else
+    docker compose up -d --build
+  fi
   if docker compose ps --services 2>/dev/null | grep -q '^zapmass$'; then
     echo "==> (compose) forçar recriação do serviço zapmass"
     docker compose up -d --no-deps --build --force-recreate zapmass

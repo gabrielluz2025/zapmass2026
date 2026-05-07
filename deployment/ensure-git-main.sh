@@ -9,6 +9,7 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 1
 fi
 git fetch origin
+echo "==> origin/main apos fetch: $(git rev-parse --short refs/remotes/origin/main 2>/dev/null) $(git log -1 --pretty=format:%s refs/remotes/origin/main 2>/dev/null | head -c 80)"
 if ! git show-ref -q --verify refs/remotes/origin/main; then
   echo "Erro: origin/main nao encontrado. Confira: git remote -v" >&2
   exit 1
