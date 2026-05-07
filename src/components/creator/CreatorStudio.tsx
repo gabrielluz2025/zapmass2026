@@ -18,7 +18,12 @@ const actionSeverity = (action: string): Severity => {
   if (normalized.includes('pause-campaign') || normalized.includes('resume-campaign') || normalized.includes('reconnect-connection')) {
     return 'high';
   }
-  if (normalized.includes('load-chat-history') || normalized.includes('fetch-conversation-picture') || normalized.includes('load-message-media')) {
+  if (
+    normalized.includes('load-chat-history') ||
+    normalized.includes('hydrate-firestore-chat-archive') ||
+    normalized.includes('fetch-conversation-picture') ||
+    normalized.includes('load-message-media')
+  ) {
     return 'medium';
   }
   return 'low';

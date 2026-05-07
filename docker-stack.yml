@@ -67,6 +67,12 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       # WhatsApp Web bundle (getChat / LID / markedUnread); mesmo valor no .env da VPS — Swarm não usa env_file como Compose.
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
+      # Sync Pipeline: emitir lista parcial durante getChats/Store — exportado em deployment/vps-deploy.sh antes do stack deploy.
+      WA_SYNC_CONV_EMIT_EVERY: ${WA_SYNC_CONV_EMIT_EVERY:-}
+      # 1 = puxar inbox do telefone ao conectar; 0 = só tempo real (campanhas, envios, mensagens recebidas).
+      WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-1}
+      # 1 (default): arquivar mensagens no Firestore (users/{uid}/waChatThreads) — Firebase Admin obrigatório.
+      WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
     env_file:
       - .env
     volumes:
@@ -110,6 +116,9 @@ services:
       WORKER_ID: "{{.Task.Name}}"
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
+      WA_SYNC_CONV_EMIT_EVERY: ${WA_SYNC_CONV_EMIT_EVERY:-}
+      WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-1}
+      WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
     deploy:
       # Com API em monolith: 0. Com ZAPMASS_API_SESSION_MODE=api: use 1 ou mais (Chromium no worker).
       replicas: ${WA_WORKER_REPLICAS:-0}

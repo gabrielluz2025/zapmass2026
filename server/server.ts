@@ -53,6 +53,7 @@ import {
 } from './sessionControlPlane.js';
 import {
   fetchConversationPictureViaRedis,
+  hydrateFirestoreChatArchiveViaRedis,
   loadChatHistoryViaRedis,
   loadMessageMediaViaRedis
 } from './waWorkerRedisRpc.js';
@@ -657,6 +658,34 @@ const registerSocketHandlers = () => {
         socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, waService.getConversations()));
       })();
     });
+
+    /** Arquivo Firestore → estado da conversa (sem fetch WhatsApp); ao abrir o chat. */
+    socket.on(
+      'hydrate-firestore-chat-archive',
+      async (
+        { conversationId, limit }: { conversationId?: string; limit?: number },
+        callback?: (resp: { ok: boolean; total: number; error?: string }) => void
+      ) => {
+        if (!conversationId) {
+          callback?.({ ok: false, total: 0, error: 'conversationId ausente.' });
+          return;
+        }
+        if (!ownsConnectionId(conversationId.split(':')[0] || '')) {
+          denyCrossTenant('hydrate-firestore-chat-archive', { conversationId });
+          callback?.({ ok: false, total: 0, error: 'Conversa nao pertence a esta conta.' });
+          return;
+        }
+        userLog('ui:hydrate-firestore-chat-archive', { conversationId, limit });
+        const redisUrl = process.env.REDIS_URL?.trim();
+        const useWorkerRpc =
+          (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(redisUrl);
+        const cap = Math.min(1500, Math.max(80, Number(limit) || 400));
+        const resp = useWorkerRpc
+          ? await hydrateFirestoreChatArchiveViaRedis(redisUrl!, conversationId, cap)
+          : await waService.hydrateFirestoreChatArchiveForConversation(conversationId, cap);
+        callback?.(resp);
+      }
+    );
     
     socket.on('create-connection', ({ name }: { name?: string }) => {
       const queueKey = uid;

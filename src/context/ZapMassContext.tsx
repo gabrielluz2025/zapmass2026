@@ -62,6 +62,7 @@ import {
 } from '../utils/campaignIssueToast';
 import { normPhoneKey } from '../utils/brPhoneNormalize';
 import { getCampaignStageTotal } from '../utils/campaignStageCount';
+import { mergeConversationsFromSocketUpdate } from '../utils/conversationInboxTrim';
 
 const FIRESTORE_BATCH_CHUNK = 280;
 
@@ -109,18 +110,30 @@ async function yieldToUiThread(): Promise<void> {
   });
 }
 
+/** Mensagem quando o ACK da campanha ultrapassa o tempo — o servidor pode já ter iniciado mesmo assim. */
+const START_CAMPAIGN_ACK_TIMEOUT_MESSAGE =
+  'Demoramos a confirmar no servidor; a campanha pode já ter iniciado — veja a lista de campanhas antes de repetir o disparo.';
+
 /**
  * Tempo máximo até ack da campanha (callback / campaign-started / campaign-error).
- * Anexos em base64 atravessam o WebSocket e podem demorar bem mais que 20s.
+ * Backend faz ping nos canais, opcional reconnect e espera (~10s) antes de responder — vários chips somam esse tempo.
+ * Anexos em base64 atravessam o WebSocket e precisam de ainda mais margem.
  */
-function startCampaignAckTimeoutMs(media?: { dataBase64?: string }): number {
+function startCampaignAckTimeoutMs(
+  media?: { dataBase64?: string },
+  connectionIdsCount: number = 1
+): number {
   const b64 = media?.dataBase64;
-  if (!b64) return 25_000;
-  const approxBytes = (b64.length * 3) / 4;
-  if (approxBytes < 50_000) return 25_000;
-  // ~100 KB/s efectivo + margem; mín. 90s com anexo pesado; teto 15 min
-  const ms = 40_000 + (approxBytes / 100_000) * 1_000;
-  return Math.min(900_000, Math.max(90_000, Math.ceil(ms)));
+  if (b64) {
+    const approxBytes = (b64.length * 3) / 4;
+    if (approxBytes < 50_000) return 45_000;
+    const ms = 40_000 + (approxBytes / 100_000) * 1_000;
+    return Math.min(900_000, Math.max(90_000, Math.ceil(ms)));
+  }
+  /** ~ping/reconnect/handshake por canal (worst-case no servidor). */
+  const n = Math.max(1, Math.min(24, Number(connectionIdsCount) || 1));
+  const serverHandshakeMs = Math.min(540_000, 42_000 + n * 54_000);
+  return Math.max(serverHandshakeMs, 75_000);
 }
 
 const INITIAL_METRICS: DashboardMetrics = {
@@ -190,6 +203,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   fetchConversationPicture: () => {},
   deleteLocalConversations: async () => 0,
   loadChatHistory: async () => ({ ok: false, total: 0 }),
+  hydrateFirestoreChatArchive: async () => ({ ok: false, total: 0 }),
   loadMessageMedia: async () => ({ ok: false }),
   markWarmupReady: () => {},
   pauseCampaign: () => {},
@@ -918,7 +932,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('conversations-update', (updatedConversations: Conversation[]) => {
-      setConversations((Array.isArray(updatedConversations) ? updatedConversations : []).filter((c) => ownsConnectionId(c.connectionId)));
+      if (!Array.isArray(updatedConversations)) return;
+      setConversations((prev) => mergeConversationsFromSocketUpdate(prev, updatedConversations, ownsConnectionId));
     });
 
     socket.on('conversation-picture', ({ conversationId, profilePicUrl }: { conversationId: string; profilePicUrl?: string | null }) => {
@@ -2003,6 +2018,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   };
 
+  const hydrateFirestoreChatArchive = (
+    conversationId: string,
+    limit: number = 400
+  ): Promise<{ ok: boolean; total: number; error?: string }> => {
+    return new Promise((resolve) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        resolve({ ok: false, total: 0, error: 'Sem conexao com servidor.' });
+        return;
+      }
+      socket.emit(
+        'hydrate-firestore-chat-archive',
+        { conversationId, limit },
+        (resp?: { ok: boolean; total: number; error?: string }) => {
+          resolve(resp || { ok: false, total: 0, error: 'Sem resposta.' });
+        }
+      );
+    });
+  };
+
   const loadMessageMedia = (
     conversationId: string,
     messageId: string
@@ -2175,7 +2210,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     try {
-      const ackTimeoutMs = startCampaignAckTimeoutMs(options?.mediaAttachment);
+      const ackTimeoutMs = startCampaignAckTimeoutMs(
+        options?.mediaAttachment,
+        targetConnections.length
+      );
       const response = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
         let done = false;
         const finish = (payload: { ok: boolean; error?: string }) => {
@@ -2200,7 +2238,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         };
 
         const timeoutId = setTimeout(() => {
-          finish({ ok: false, error: 'Tempo esgotado ao iniciar campanha. Tente novamente.' });
+          finish({ ok: false, error: START_CAMPAIGN_ACK_TIMEOUT_MESSAGE });
         }, ackTimeoutMs);
 
         socket.on('campaign-started', onStarted);
@@ -2251,7 +2289,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
       return campaignRef.id;
     } catch (error) {
-      await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignRef.id)).catch(() => {});
+      const msg = error instanceof Error ? error.message : String(error);
+      const likelyStillRunning = msg.includes('Demoramos a confirmar no servidor');
+      if (!likelyStillRunning) {
+        await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignRef.id)).catch(() => {});
+      }
       throw error;
     }
   };
@@ -2414,6 +2456,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       patchConversationInboxClaim,
       deleteLocalConversations,
       loadChatHistory,
+      hydrateFirestoreChatArchive,
       loadMessageMedia,
       markWarmupReady,
       pauseCampaign,

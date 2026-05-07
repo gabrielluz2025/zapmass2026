@@ -15,6 +15,12 @@ import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/conn
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
+import {
+    appendChatArchiveMessages,
+    isWaChatArchiveEnabled,
+    loadChatArchiveMessages,
+    threadIdFromConversationId
+} from './chatArchiveFirestore.js';
 
 import crypto from 'node:crypto';
 
@@ -307,6 +313,8 @@ const startPuppeteerMonitor = () => {
 let connectionsInfo: WhatsAppConnection[] = [];
 const clients = new Map<string, WhatsAppClient>();
 let conversations: Conversation[] = [];
+/** >0 durante getChats/Store/contacts sync — evita escritas repetidas no Firestore. */
+let bulkConversationSyncDepth = 0;
 let io: SocketIOServer;
 
 /** Worker publica no Redis; processo API com Socket.IO real emite para o browser. */
@@ -318,6 +326,12 @@ export const setOwnerEmitRedisBridge = (fn: OwnerEmitFn | null) => {
 
 const MAX_MESSAGES = 10000; // cap generoso para permitir historico completo quando carregado sob demanda
 const MAX_CONVERSATIONS = 200;
+/** Durante sync inicial (getChats), emitir lista parcial ao browser a cada N conversas — evita 5min “vazio”. */
+const SYNC_CONV_EMIT_EVERY = Math.max(12, Number(process.env.WA_SYNC_CONV_EMIT_EVERY || '28'));
+/** 1 (default): após `ready`, corre sync completo (getChats/Store) — pesado. 0: omite — Pipeline só com tempo real (campanhas, envios, mensagens recebidas). */
+const WA_FULL_INBOX_SYNC = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.WA_FULL_INBOX_SYNC ?? '1').trim().toLowerCase()
+);
 const MAX_RECONNECT_ATTEMPTS = 10;
 const reconnectState = new Map<string, { attempts: number; timeout?: NodeJS.Timeout }>();
 /**
@@ -2602,7 +2616,34 @@ const toChatMessage = async (msg: any, opts?: { skipMedia?: boolean }): Promise<
     return baseMsg;
 };
 
-const upsertConversation = (next: Conversation) => {
+const persistConversationDeltaArchive = (
+    prev: Conversation | null | undefined,
+    next: Conversation
+): void => {
+    if (!isWaChatArchiveEnabled()) return;
+    if (bulkConversationSyncDepth > 0) return;
+    if (!next?.connectionId || deletedConversationIds.has(next.id)) return;
+    const ownerUid =
+        resolveConnectionOwnerUid(next.connectionId) || ownerUidFromConnectionId(next.connectionId);
+    if (!ownerUid || ownerUid === 'anonymous') return;
+    const threadId = threadIdFromConversationId(next.id, next.contactPhone);
+    if (!threadId) return;
+    const prevIds = new Set((prev?.messages || []).map((m) => m.id));
+    const delta = (next.messages || []).filter((m) => m?.id && !prevIds.has(m.id));
+    if (delta.length === 0) return;
+    void appendChatArchiveMessages(
+        ownerUid,
+        threadId,
+        {
+            contactName: next.contactName || 'Contato',
+            contactPhone: next.contactPhone || '',
+            connectionId: next.connectionId
+        },
+        delta
+    ).catch(() => undefined);
+};
+
+const upsertConversation = (next: Conversation, opts?: { skipArchive?: boolean }) => {
     // Conversa na blocklist (foi apagada pelo usuario): nunca recriar em sync.
     // Somente o handler de mensagens ao vivo (client.on('message')) ou um
     // disparo de campanha podem reabri-la, chamando `allowDeletedConversation()`
@@ -2611,10 +2652,14 @@ const upsertConversation = (next: Conversation) => {
         return;
     }
     const index = conversations.findIndex(conv => conv.id === next.id);
+    const prev = index >= 0 ? conversations[index] : null;
     if (index >= 0) {
         conversations[index] = next;
     } else {
         conversations.unshift(next);
+    }
+    if (!opts?.skipArchive) {
+        persistConversationDeltaArchive(prev ?? undefined, next);
     }
     // Ordenar: grupos (@g.us) fixos no topo, depois por timestamp decrescente (mais recente no topo)
     conversations.sort((a, b) => {
@@ -2851,6 +2896,7 @@ export const fetchConversationPicture = async (conversationId: string): Promise<
 const syncConversationsViaStore = async (client: any, connectionId: string): Promise<boolean> => {
     const pupPage = (client as any).pupPage;
     if (!pupPage) return false;
+    bulkConversationSyncDepth++;
     console.log(`[SyncConv] Tentando sync via Store.Chat (Puppeteer) para ${connectionId}...`);
     try {
         const jsCode = `(async () => {
@@ -2902,6 +2948,7 @@ const syncConversationsViaStore = async (client: any, connectionId: string): Pro
         rawChats.sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
 
         let processed = 0;
+        let sinceEmit = 0;
         for (const rc of rawChats) {
             const chatId: string = rc.id;
             const conversationId = getConversationKey(connectionId, chatId);
@@ -2928,6 +2975,11 @@ const syncConversationsViaStore = async (client: any, connectionId: string): Pro
                 enqueueConversationPicture(connectionId, chatId, conversationId);
             }
             processed++;
+            sinceEmit++;
+            if (sinceEmit >= SYNC_CONV_EMIT_EVERY) {
+                emitConversationsUpdate();
+                sinceEmit = 0;
+            }
         }
         console.log(`[SyncConv] Store.Chat: ${processed} conversas processadas.`);
         emitConversationsUpdate();
@@ -2935,27 +2987,30 @@ const syncConversationsViaStore = async (client: any, connectionId: string): Pro
     } catch (e: any) {
         console.error('[SyncConv] Erro no sync via Store.Chat:', e?.message || e);
         return false;
+    } finally {
+        bulkConversationSyncDepth--;
     }
 };
 
 // Sync alternativo usando getContacts — ultimo recurso quando getChats E Store falham
 const syncConversationsFromContacts = async (client: any, connectionId: string) => {
     console.log(`[SyncConv] Iniciando sync via getContacts para ${connectionId}...`);
+    bulkConversationSyncDepth++;
     try {
         const contacts = await client.getContacts();
         console.log(`[SyncConv] Total de contatos: ${contacts.length}`);
-        
+
         let processed = 0;
         for (const contact of contacts) {
             // Pegar apenas contatos que são usuários (não grupos) e têm número
             if (!contact.number || contact.isGroup) continue;
-            
+
             const chatId = `${contact.number}@c.us`;
             const conversationId = getConversationKey(connectionId, chatId);
-            
+
             // Verificar se já existe
             if (conversations.find(c => c.id === conversationId)) continue;
-            
+
             const contactName = contact.name || contact.pushname || `+${contact.number}`;
             const contactPhone = `+${contact.number}`;
 
@@ -2975,17 +3030,20 @@ const syncConversationsFromContacts = async (client: any, connectionId: string) 
             enqueueConversationPicture(connectionId, chatId, conversationId);
             processed++;
         }
-        
+
         console.log(`[SyncConv] Processados ${processed} contatos para ${connectionId}`);
         emitConversationsUpdate();
     } catch (error: any) {
         console.error('[SyncConv] Erro no sync via getContacts:', error.message);
         throw error;
+    } finally {
+        bulkConversationSyncDepth--;
     }
 };
 
 const syncConversationsFromClient = async (client: any, connectionId: string) => {
     console.log(`[SyncConv] Iniciando sync para ${connectionId}...`);
+    bulkConversationSyncDepth++;
     try {
         // Retry ate 3x — logo apos o 'ready' o Store do WhatsApp Web as vezes ainda
         // nao esta pronto, e a primeira chamada de getChats() pode lancar ou retornar 0.
@@ -3014,6 +3072,7 @@ const syncConversationsFromClient = async (client: any, connectionId: string) =>
         // getChats() já retorna ordenado por recência — preservar essa ordem
         console.log(`[SyncConv] Total de chats obtidos: ${chats.length}`);
         let processed = 0;
+        let sinceEmit = 0;
         for (const chat of chats) {
             // Pular broadcasts e status
             if (chat.isStatus || chat.id?._serialized === 'status@broadcast') continue;
@@ -3027,11 +3086,16 @@ const syncConversationsFromClient = async (client: any, connectionId: string) =>
             const lastMessageTime = lastMsgTs ? normalizeTimestamp(lastMsgTs) : '';
             const lastMessageTimestamp = lastMsgTs ? lastMsgTs * 1000 : Date.now();
             const fetchedMessages = await chat.fetchMessages({ limit: 25 }).catch(() => []);
-            const messages: ChatMessage[] = (await Promise.all(
-                fetchedMessages
-                    .filter((msg: any) => !msg.isStatus)
-                    .map(toChatMessage)
-            )).reverse().slice(-MAX_MESSAGES);
+            /** Sem skipMedia cada anexo faz download durante o sync → minutos até o Pipeline aparecer. */
+            const messages: ChatMessage[] = (
+                await Promise.all(
+                    fetchedMessages
+                        .filter((msg: any) => !msg.isStatus)
+                        .map((msg: any) => toChatMessage(msg, { skipMedia: true }))
+                )
+            )
+                .reverse()
+                .slice(-MAX_MESSAGES);
 
             const conversationId = getConversationKey(connectionId, chat.id._serialized);
             upsertConversation({
@@ -3051,6 +3115,11 @@ const syncConversationsFromClient = async (client: any, connectionId: string) =>
                 enqueueConversationPicture(connectionId, chat.id._serialized, conversationId);
             }
             processed++;
+            sinceEmit++;
+            if (sinceEmit >= SYNC_CONV_EMIT_EVERY) {
+                emitConversationsUpdate();
+                sinceEmit = 0;
+            }
         }
         console.log(`[SyncConv] Processados ${processed} conversas para ${connectionId}`);
         console.log(`[SyncConv] Total no array: ${conversations.length}`);
@@ -3058,6 +3127,8 @@ const syncConversationsFromClient = async (client: any, connectionId: string) =>
         console.log(`[SyncConv] Emittiu conversas-update com ${conversations.length} total`);
     } catch (error) {
         console.error('[SyncConv] Erro ao sincronizar conversas:', error);
+    } finally {
+        bulkConversationSyncDepth--;
     }
 };
 
@@ -3261,30 +3332,36 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     reconnectState.delete(id);
     resumeQueueIfNeeded(id);
     
-    // Sync de conversas de forma assíncrona e não-bloqueante
-    console.log(`[handleClientReady] ✅ Conexão estabelecida - sincronizando conversas em background...`);
-    setImmediate(() => {
-        syncConversationsFromClient(client, id)
-            .catch(async (err) => {
-                console.warn('[handleClientReady] getChats falhou, tentando Store.Chat direto:', err?.message || err);
-                const ok = await syncConversationsViaStore(client, id).catch(e => {
-                    console.warn('[handleClientReady] Store.Chat falhou:', e?.message || e);
-                    return false;
+    // Sync completo opcional (pesado). Sem ele, o Pipeline monta com eventos em tempo real + campanhas/envios.
+    const runPictureCatchup = () => {
+        setTimeout(() => enqueueMissingPicturesForConnection(id), 3000);
+        setTimeout(() => enqueueMissingPicturesForConnection(id), 30000);
+        setTimeout(() => enqueueMissingPicturesForConnection(id), 90000);
+    };
+    if (!WA_FULL_INBOX_SYNC) {
+        console.log(`[handleClientReady] WA_FULL_INBOX_SYNC=0 — sem puxar inbox do telefone; só tempo real + ações do ZapMass.`);
+        runPictureCatchup();
+    } else {
+        console.log(`[handleClientReady] ✅ Conexão estabelecida - sincronizando conversas em background...`);
+        setImmediate(() => {
+            syncConversationsFromClient(client, id)
+                .catch(async (err) => {
+                    console.warn('[handleClientReady] getChats falhou, tentando Store.Chat direto:', err?.message || err);
+                    const ok = await syncConversationsViaStore(client, id).catch(e => {
+                        console.warn('[handleClientReady] Store.Chat falhou:', e?.message || e);
+                        return false;
+                    });
+                    if (ok) return;
+                    console.warn('[handleClientReady] Fallback final via getContacts...');
+                    return syncConversationsFromContacts(client, id).catch(e => {
+                        console.warn('[handleClientReady] Sync de contatos também falhou:', e?.message || e);
+                    });
+                })
+                .finally(() => {
+                    runPictureCatchup();
                 });
-                if (ok) return;
-                console.warn('[handleClientReady] Fallback final via getContacts...');
-                return syncConversationsFromContacts(client, id).catch(e => {
-                    console.warn('[handleClientReady] Sync de contatos também falhou:', e?.message || e);
-                });
-            })
-            .finally(() => {
-                // Foto de perfil: primeiro passo rapido (3s) e depois mais um (30s)
-                // para pegar contatos que so apareceram apos scroll/sincronizacao do WA Web.
-                setTimeout(() => enqueueMissingPicturesForConnection(id), 3000);
-                setTimeout(() => enqueueMissingPicturesForConnection(id), 30000);
-                setTimeout(() => enqueueMissingPicturesForConnection(id), 90000);
-            });
-    });
+        });
+    }
     emitConversationsUpdate();
     
     // Iniciar health check e métricas
@@ -5522,6 +5599,109 @@ export const markAsRead = async (conversationId: string) => {
     }
 };
 
+/**
+ * Une mensagens arquivadas em Firestore (mesmo telefone / grupo, independente da sessão atual).
+ * Chamado antes de `fetchMessages` para recuperar histórico após ban ou novo canal.
+ */
+const mergeFirestoreArchiveIntoConversation = async (
+    conversationId: string,
+    historyLimit: number
+): Promise<void> => {
+    if (!isWaChatArchiveEnabled()) return;
+    const [connectionId, ...chatParts] = conversationId.split(':');
+    if (!connectionId || chatParts.length === 0) return;
+    const jid = chatParts.join(':');
+    const ownerUid =
+        resolveConnectionOwnerUid(connectionId) || ownerUidFromConnectionId(connectionId);
+    if (!ownerUid) return;
+    const digitsOnly = jid.split('@')[0]?.replace(/\D/g, '') || '';
+    const cpGuess = digitsOnly.length >= 10 ? `+${digitsOnly}` : '';
+    const threadId = threadIdFromConversationId(conversationId, cpGuess);
+    if (!threadId) return;
+
+    const archived = await loadChatArchiveMessages(
+        ownerUid,
+        threadId,
+        Math.max(80, Math.min(historyLimit, 1500))
+    );
+    if (archived.length === 0) return;
+
+    let conv = conversations.find((c) => c.id === conversationId);
+    if (!conv) {
+        allowDeletedConversation(conversationId);
+        const last = archived[archived.length - 1];
+        const contactPhone =
+            cpGuess || (threadId.startsWith('p_') ? `+${threadId.slice(2)}` : '') || '';
+        const stub: Conversation = {
+            id: conversationId,
+            contactName:
+                (contactPhone.replace(/\D/g, '') || jid.replace(/@.*/, '') || 'Contato').slice(
+                    0,
+                    120
+                ),
+            contactPhone,
+            connectionId,
+            unreadCount: 0,
+            lastMessage: last?.text || '',
+            lastMessageTime: last?.timestamp || '',
+            lastMessageTimestamp: last?.timestampMs,
+            messages: archived.slice(-MAX_MESSAGES),
+            tags: ['Arquivo']
+        };
+        upsertConversation(stub, { skipArchive: true });
+        emitConversationsUpdate();
+        return;
+    }
+
+    const byId = new Map<string, ChatMessage>();
+    for (const m of archived) {
+        byId.set(m.id, m);
+    }
+    for (const m of conv.messages) {
+        const existing = byId.get(m.id);
+        if (!existing) {
+            byId.set(m.id, m);
+        } else {
+            if (m.fromCampaign) existing.fromCampaign = true;
+            if (m.campaignId) existing.campaignId = m.campaignId;
+            if (m.mediaUrl && !existing.mediaUrl) existing.mediaUrl = m.mediaUrl;
+        }
+    }
+    const merged = Array.from(byId.values()).sort(
+        (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+    );
+    const lastM = merged[merged.length - 1];
+    const nextConv: Conversation = {
+        ...conv,
+        messages: merged.slice(-MAX_MESSAGES),
+        lastMessage: lastM?.text ?? conv.lastMessage,
+        lastMessageTime: lastM?.timestamp ?? conv.lastMessageTime,
+        lastMessageTimestamp: lastM?.timestampMs ?? conv.lastMessageTimestamp
+    };
+    upsertConversation(nextConv, { skipArchive: true });
+    emitConversationsUpdate();
+};
+
+/**
+ * Só Firestore → RAM (sem fetch no WhatsApp). Usado ao abrir o chat para trazer arquivo sem depender do scroll.
+ */
+export const hydrateFirestoreChatArchiveForConversation = async (
+    conversationId: string,
+    historyLimit: number = 400
+): Promise<{ ok: boolean; total: number; error?: string }> => {
+    try {
+        await mergeFirestoreArchiveIntoConversation(conversationId, historyLimit);
+        const conv = conversations.find((c) => c.id === conversationId);
+        return { ok: true, total: conv?.messages?.length ?? 0 };
+    } catch (e: any) {
+        return {
+            ok: false,
+            total: conversations.find((c) => c.id === conversationId)?.messages?.length ?? 0,
+            error: e?.message || String(e)
+        };
+    }
+};
+
 // Carrega historico expandido de uma conversa direto do WhatsApp. Usa `chat.fetchMessages`
 // com um limite grande e substitui o array local da conversa, preservando quaisquer
 // mensagens locais que nao estejam no retorno (ex: envios recentes em andamento).
@@ -5532,14 +5712,21 @@ export const loadChatHistory = async (
     skipMedia: boolean = true
 ): Promise<{ ok: boolean; total: number; error?: string }> => {
     try {
+        const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
+        await mergeFirestoreArchiveIntoConversation(conversationId, requested);
+
         const [connectionId, ...chatParts] = conversationId.split(':');
         const chatId = chatParts.length > 0 ? chatParts.join(':') : '';
         const client: any = clients.get(connectionId);
         if (!client) {
             const conv0 = conversations.find((c) => c.id === conversationId);
+            const total = conv0?.messages.length || 0;
+            if (total > 0) {
+                return { ok: true, total };
+            }
             return {
                 ok: false,
-                total: conv0?.messages.length || 0,
+                total: 0,
                 error: 'Canal desconectado.'
             };
         }
@@ -5547,15 +5734,18 @@ export const loadChatHistory = async (
         const chat: any = await client.getChatById(chatId).catch(() => null);
         if (!chat) {
             const conv0 = conversations.find((c) => c.id === conversationId);
+            const total = conv0?.messages.length || 0;
+            if (total > 0) {
+                return { ok: true, total };
+            }
             return {
                 ok: false,
-                total: conv0?.messages.length || 0,
+                total: 0,
                 error: 'Chat nao encontrado no cliente.'
             };
         }
 
         let conv = conversations.find((c) => c.id === conversationId);
-        const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
         const have = conv?.messages?.length ?? 0;
         /** fetchMessages(limit) devolve as N mensagens mais recentes; se já temos mais que N
          *  em cache local, o resultado não inclui mensagens mais antigas sem pedir N maior. */

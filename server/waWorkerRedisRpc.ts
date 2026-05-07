@@ -28,12 +28,20 @@ type RpcLoadMessageMedia = {
   messageId: string;
 };
 
-type RpcWire = RpcLoadChatHistory | RpcFetchConversationPicture | RpcLoadMessageMedia;
+type RpcHydrateFirestoreArchive = {
+  replyChannel: string;
+  kind: 'hydrateFirestoreArchive';
+  conversationId: string;
+  limit: number;
+};
+
+type RpcWire = RpcLoadChatHistory | RpcFetchConversationPicture | RpcLoadMessageMedia | RpcHydrateFirestoreArchive;
 
 type RpcPayload =
   | { kind: 'loadChatHistory'; conversationId: string; limit: number; skipMedia: boolean }
   | { kind: 'fetchConversationPicture'; conversationId: string }
-  | { kind: 'loadMessageMedia'; conversationId: string; messageId: string };
+  | { kind: 'loadMessageMedia'; conversationId: string; messageId: string }
+  | { kind: 'hydrateFirestoreArchive'; conversationId: string; limit: number };
 
 export const startWaWorkerRpcListener = (redisUrl: string): (() => void) | null => {
   if (!redisUrl?.trim()) return null;
@@ -59,6 +67,12 @@ export const startWaWorkerRpcListener = (redisUrl: string): (() => void) | null 
 
         if (msg.kind === 'loadChatHistory') {
           const resp = await wa.loadChatHistory(msg.conversationId, msg.limit ?? 500, msg.skipMedia);
+          await pub.publish(msg.replyChannel, JSON.stringify(resp));
+        } else if (msg.kind === 'hydrateFirestoreArchive') {
+          const resp = await wa.hydrateFirestoreChatArchiveForConversation(
+            msg.conversationId,
+            msg.limit ?? 400
+          );
           await pub.publish(msg.replyChannel, JSON.stringify(resp));
         } else if (msg.kind === 'fetchConversationPicture') {
           const profilePicUrl = await wa.fetchConversationPicture(msg.conversationId);
@@ -92,6 +106,14 @@ function buildWire(replyChannel: string, payload: RpcPayload): RpcWire {
       conversationId: payload.conversationId,
       limit: payload.limit,
       skipMedia: payload.skipMedia
+    };
+  }
+  if (payload.kind === 'hydrateFirestoreArchive') {
+    return {
+      replyChannel,
+      kind: 'hydrateFirestoreArchive',
+      conversationId: payload.conversationId,
+      limit: payload.limit
     };
   }
   if (payload.kind === 'fetchConversationPicture') {
@@ -134,6 +156,26 @@ async function rpcReply<T>(redisUrl: string, payload: RpcPayload): Promise<T> {
     sub.disconnect();
     pub.disconnect();
   }
+}
+
+export async function hydrateFirestoreChatArchiveViaRedis(
+  redisUrl: string,
+  conversationId: string,
+  limit: number = 400
+): Promise<{ ok: boolean; total: number; error?: string }> {
+  const r = await rpcReply<{ ok?: boolean; total?: number; error?: string }>(redisUrl, {
+    kind: 'hydrateFirestoreArchive',
+    conversationId,
+    limit
+  });
+  if (r && typeof r === 'object' && 'error' in r && (r as { error: string }).error) {
+    return { ok: false, total: 0, error: (r as { error: string }).error };
+  }
+  return {
+    ok: Boolean((r as { ok?: boolean }).ok),
+    total: typeof (r as { total?: number }).total === 'number' ? (r as { total: number }).total : 0,
+    ...((r as { error?: string }).error ? { error: (r as { error: string }).error } : {})
+  };
 }
 
 export async function loadChatHistoryViaRedis(

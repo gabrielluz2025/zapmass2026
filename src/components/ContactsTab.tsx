@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -45,6 +45,7 @@ import {
 import { storedDateToBrDisplay } from '../utils/brDateMask';
 import {
   computeContactTemperatures,
+  CONTACT_TEMP_DEFAULT,
   CONTACT_TEMP_LABEL,
   type ContactTemperature,
   type TempStats
@@ -708,17 +709,23 @@ export const ContactsTab: React.FC = () => {
   const deferredConversations = useDeferredValue(conversations);
 
   /** Telefones que aparecem mais de uma vez — O(n), usado em filtros e segmentos (antes era O(n²) no segmento duplicados). */
-  const phoneDupKeys = useMemo(() => {
+  const phoneDupMeta = useMemo(() => {
     const cnt: Record<string, number> = {};
     for (const c of contacts) {
       const k = normPhoneKey(c.phone);
       if (!k) continue;
       cnt[k] = (cnt[k] || 0) + 1;
     }
-    const dup = new Set<string>();
-    for (const k in cnt) if (cnt[k] > 1) dup.add(k);
-    return dup;
+    const phoneDupKeys = new Set<string>();
+    for (const k in cnt) if (cnt[k] > 1) phoneDupKeys.add(k);
+    let duplicateContactsCount = 0;
+    for (const c of contacts) {
+      const k = normPhoneKey(c.phone);
+      if (k && phoneDupKeys.has(k)) duplicateContactsCount++;
+    }
+    return { phoneDupKeys, duplicateContactsCount };
   }, [contacts]);
+  const { phoneDupKeys, duplicateContactsCount } = phoneDupMeta;
 
   const contactByPhoneKey = useMemo(() => {
     const map = new Map<string, Contact>();
@@ -1399,8 +1406,7 @@ export const ContactsTab: React.FC = () => {
   };
 
   const ITEMS_PER_PAGE = 15;
-  const { validCount, topTags, recentContacts } = useMemo(() => {
-    const validCount = contacts.filter((c) => c.status === 'VALID').length;
+  const { topTags, recentContacts } = useMemo(() => {
     const tagCounts = contacts.reduce<Record<string, number>>((acc, contact) => {
       contact.tags.forEach((tag) => {
         acc[tag] = (acc[tag] || 0) + 1;
@@ -1411,14 +1417,43 @@ export const ContactsTab: React.FC = () => {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6);
     const recentContacts = contacts.slice(0, 5);
-    return { validCount, topTags, recentContacts };
+    return { topTags, recentContacts };
   }, [contacts]);
 
-  // Indice de temperatura: Map<contactId, TempStats> (mesma regra que campanhas — `computeContactTemperatures`).
-  const contactTemps = useMemo(
-    () => computeContactTemperatures(contacts, deferredConversations),
-    [contacts, deferredConversations]
-  );
+  /**
+   * Temperatura por contato — cálculo pesado: roda após o 1º paint (idle) para não travar ao abrir a aba.
+   * Enquanto vazio, contagens quente/morno/frio e filtros por temp assumem “ainda não calculado” (sem tratar todos como “novo”).
+   */
+  const [contactTemps, setContactTemps] = useState<Record<string, TempStats>>({});
+  const computeTempsGenRef = useRef(0);
+
+  useEffect(() => {
+    const gen = ++computeTempsGenRef.current;
+    const c = contacts;
+    const conv = deferredConversations;
+
+    const run = () => {
+      if (gen !== computeTempsGenRef.current) return;
+      const next = computeContactTemperatures(c, conv);
+      if (gen !== computeTempsGenRef.current) return;
+      startTransition(() => setContactTemps(next));
+    };
+
+    let idleId: ReturnType<typeof requestIdleCallback> | ReturnType<typeof setTimeout>;
+    if (typeof requestIdleCallback !== 'undefined') {
+      idleId = requestIdleCallback(run, { timeout: 1200 });
+    } else {
+      idleId = setTimeout(run, 0);
+    }
+
+    return () => {
+      if (typeof cancelIdleCallback !== 'undefined' && typeof requestIdleCallback !== 'undefined') {
+        cancelIdleCallback(idleId as number);
+      } else {
+        clearTimeout(idleId as ReturnType<typeof setTimeout>);
+      }
+    };
+  }, [contacts, deferredConversations]);
 
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
@@ -1440,13 +1475,11 @@ export const ContactsTab: React.FC = () => {
     return buckets;
   }, [contacts]);
 
+  /** Uma passagem sobre `contacts`: stats do hero/sidebar que antes faziam ~15 filtros/reduces completos. */
   const smartStats = useMemo(() => {
     const today = new Date();
     const todayMD = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const in7 = new Date(today);
-    in7.setDate(in7.getDate() + 7);
 
-    // Aniversariantes hoje + próximos 7 dias
     const parseBirthday = (raw: string): { m: number; d: number } | null => {
       if (!raw) return null;
       const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -1456,83 +1489,101 @@ export const ContactsTab: React.FC = () => {
       return null;
     };
 
+    const DAY = 86400000;
+    const now = Date.now();
+    const startTodayMs = localStartOfTodayMs();
+
+    let hot = 0;
+    let warm = 0;
+    let coldCount = 0;
+    let newOnes = 0;
+    let dormant = 0;
     let bdayToday = 0;
     let bdayWeek = 0;
+    let weddingToday = 0;
+    let weddingWeek = 0;
+    let addressComplete = 0;
+    let noCity = 0;
+    let noTag = 0;
+    let invalid = 0;
+    let last7 = 0;
+    let no_address = 0;
+    let retorno_todos = 0;
+    let retorno_atrasados = 0;
+    let retorno_hoje = 0;
+    let retorno_semana = 0;
+
     for (const c of contacts) {
       const b = parseBirthday(c.birthday || '');
-      if (!b) continue;
-      const mm = String(b.m).padStart(2, '0');
-      const dd = String(b.d).padStart(2, '0');
-      if (`${mm}-${dd}` === todayMD) bdayToday++;
-      for (let i = 0; i < 7; i++) {
-        const dt = new Date(today);
-        dt.setDate(dt.getDate() + i);
-        if (b.m === dt.getMonth() + 1 && b.d === dt.getDate()) {
-          bdayWeek++;
-          break;
+      if (b) {
+        const mm = String(b.m).padStart(2, '0');
+        const dd = String(b.d).padStart(2, '0');
+        if (`${mm}-${dd}` === todayMD) bdayToday++;
+        let inWeek = false;
+        for (let i = 0; i < 7; i++) {
+          const dt = new Date(today);
+          dt.setDate(dt.getDate() + i);
+          if (b.m === dt.getMonth() + 1 && b.d === dt.getDate()) {
+            inWeek = true;
+            break;
+          }
         }
+        if (inWeek) bdayWeek++;
+      }
+
+      const clean = (c.phone || '').replace(/\D/g, '');
+      if (clean.length >= 10) {
+        if (contactWeddingMatchesToday(c, today)) weddingToday++;
+        if (contactWeddingMatchesNextDays(c, 7, today)) weddingWeek++;
+      }
+
+      const t = contactTemps[c.id];
+      const tp = t?.temp;
+      if (tp === 'hot') hot++;
+      else if (tp === 'warm') warm++;
+      else if (tp === 'cold') coldCount++;
+      else if (tp === 'new') newOnes++;
+
+      if (t && t.sent > 0) {
+        if (!t.lastReplyTs) {
+          if (t.sent >= 2 && (now - t.lastSentTs) / DAY > 60) dormant++;
+        } else {
+          const dSinceReply = (now - t.lastReplyTs) / DAY;
+          if (dSinceReply > 30 && dSinceReply <= 180) dormant++;
+        }
+      }
+
+      if (c.street && c.number && c.neighborhood && c.city && c.state && c.zipCode) addressComplete++;
+
+      if (!(c.city || '').trim()) noCity++;
+      if ((c.tags || []).length === 0) noTag++;
+      if (c.status !== 'VALID') invalid++;
+
+      const idM = (c.id || '').match(/_(\d{13})_/);
+      if (idM) {
+        const ts = parseInt(idM[1], 10);
+        if (Number.isFinite(ts) && now - ts < 7 * DAY) last7++;
+      }
+
+      if (!c.street || !c.city || !c.zipCode) no_address++;
+
+      const fu = parseFollowUpMs(c.followUpAt);
+      if (fu != null) {
+        retorno_todos++;
+        if (fu < startTodayMs) retorno_atrasados++;
+        if (matchesRetornoFilter(fu, 'retorno_hoje')) retorno_hoje++;
+        if (matchesRetornoFilter(fu, 'retorno_semana')) retorno_semana++;
       }
     }
 
-    let weddingToday = 0;
-    let weddingWeek = 0;
-    for (const c of contacts) {
-      const clean = (c.phone || '').replace(/\D/g, '');
-      if (clean.length < 10) continue;
-      if (contactWeddingMatchesToday(c, today)) weddingToday++;
-      if (contactWeddingMatchesNextDays(c, 7, today)) weddingWeek++;
-    }
-
-    const hot = contacts.filter((c) => contactTemps[c.id]?.temp === 'hot').length;
-    const warm = contacts.filter((c) => contactTemps[c.id]?.temp === 'warm').length;
-    const cold = contacts.filter((c) => contactTemps[c.id]?.temp === 'cold').length;
-    const newOnes = contacts.filter((c) => contactTemps[c.id]?.temp === 'new').length;
-
-    // Dormentes: já foi quente/morno mas sem resposta há mais de 30 dias
-    const DAY = 86400000;
-    const now = Date.now();
-    const dormant = contacts.filter((c) => {
-      const t = contactTemps[c.id];
-      if (!t) return false;
-      if (t.sent === 0) return false;
-      if (!t.lastReplyTs) return t.sent >= 2 && (now - t.lastSentTs) / DAY > 60;
-      return (now - t.lastReplyTs) / DAY > 30 && (now - t.lastReplyTs) / DAY <= 180;
-    }).length;
-
-    // Completude: % de contatos com endereço completo
-    const addressComplete = contacts.filter(
-      (c) => c.street && c.number && c.neighborhood && c.city && c.state && c.zipCode
-    ).length;
-    const addressPct = contacts.length === 0 ? 0 : Math.round((addressComplete / contacts.length) * 100);
-
-    const noCity = contacts.filter((c) => !(c.city || '').trim()).length;
-    const noTag = contacts.filter((c) => (c.tags || []).length === 0).length;
-    const invalid = contacts.filter((c) => c.status !== 'VALID').length;
-
-    // Detecta duplicatas de telefone
-    const phoneCount: Record<string, number> = {};
-    for (const c of contacts) {
-      const k = normPhoneKey(c.phone);
-      if (!k) continue;
-      phoneCount[k] = (phoneCount[k] || 0) + 1;
-    }
-    const duplicates = contacts.filter((c) => (phoneCount[normPhoneKey(c.phone)] || 0) > 1).length;
-
-    // Novos últimos 7 dias (precisa parsear ID se tiver timestamp)
-    // Como fallback, conta contatos cuja tag inclui "Novo"/"Importado" criados recentemente.
-    const last7 = contacts.filter((c) => {
-      // ids smart_/import_/etc. têm timestamp embutido
-      const m = (c.id || '').match(/_(\d{13})_/);
-      if (!m) return false;
-      const ts = parseInt(m[1], 10);
-      return Number.isFinite(ts) && now - ts < 7 * DAY;
-    }).length;
+    const addressPct =
+      contacts.length === 0 ? 0 : Math.round((addressComplete / contacts.length) * 100);
 
     return {
       total: contacts.length,
       hot,
       warm,
-      cold,
+      cold: coldCount,
       newOnes,
       dormant,
       bdayToday,
@@ -1544,10 +1595,15 @@ export const ContactsTab: React.FC = () => {
       noCity,
       noTag,
       invalid,
-      duplicates,
-      last7
+      duplicates: duplicateContactsCount,
+      last7,
+      no_address,
+      retorno_todos,
+      retorno_atrasados,
+      retorno_hoje,
+      retorno_semana
     };
-  }, [contacts, contactTemps]);
+  }, [contacts, contactTemps, duplicateContactsCount]);
 
   // ============================================================
   //  SEGMENTOS INTELIGENTES — chips que aplicam filtros prontos
@@ -1625,23 +1681,28 @@ export const ContactsTab: React.FC = () => {
     color: string;
     hint: string;
   }> = useMemo(() => {
-    const list: Array<{ id: SmartSegmentId; label: string; icon: React.ElementType; color: string; hint: string }> = [
-      { id: 'birthday-week',      label: 'Aniversários (7d)',    icon: Cake,        color: 'amber',   hint: 'Faça um envio personalizado' },
-      ...(segment === 'religious'
-        ? []
-        : [{ id: 'wedding-week' as const, label: 'Bodas de casamento (7d)', icon: Heart, color: 'rose', hint: 'Data na ficha de membro' }]),
-      { id: 'hot-inactive',       label: 'Quentes sem contato',  icon: Flame,       color: 'red',     hint: 'Não perca o engajamento' },
-      { id: 'cold-reactivation',  label: 'Reativar frios',       icon: Snowflake,   color: 'sky',     hint: 'Campanha de win-back' },
-      { id: 'last-7-days',        label: 'Novos (7d)',           icon: Sparkles,    color: 'emerald', hint: 'Acolhida para novatos' },
-      { id: 'no-tag',             label: 'Sem tag',              icon: Tag,         color: 'slate',   hint: 'Organize sua base' },
-      { id: 'no-address',         label: 'Sem endereço',         icon: MapPinOff,   color: 'slate',   hint: 'Complete os dados' },
-      { id: 'duplicates',         label: 'Duplicados',           icon: Layers,      color: 'violet',  hint: 'Mescle ou exclua' },
-      { id: 'invalid',            label: 'Inválidos',            icon: AlertCircle, color: 'rose',    hint: 'Corrija os telefones' }
-    ];
-    return list.map((s) => ({
-      ...s,
-      count: contacts.filter((c) => getSmartSegmentMatches(s.id, c)).length
-    }));
+    const defs: Array<{ id: SmartSegmentId; label: string; icon: React.ElementType; color: string; hint: string }> =
+      [
+        { id: 'birthday-week', label: 'Aniversários (7d)', icon: Cake, color: 'amber', hint: 'Faça um envio personalizado' },
+        ...(segment === 'religious'
+          ? []
+          : [{ id: 'wedding-week' as const, label: 'Bodas de casamento (7d)', icon: Heart, color: 'rose', hint: 'Data na ficha de membro' }]),
+        { id: 'hot-inactive', label: 'Quentes sem contato', icon: Flame, color: 'red', hint: 'Não perca o engajamento' },
+        { id: 'cold-reactivation', label: 'Reativar frios', icon: Snowflake, color: 'sky', hint: 'Campanha de win-back' },
+        { id: 'last-7-days', label: 'Novos (7d)', icon: Sparkles, color: 'emerald', hint: 'Acolhida para novatos' },
+        { id: 'no-tag', label: 'Sem tag', icon: Tag, color: 'slate', hint: 'Organize sua base' },
+        { id: 'no-address', label: 'Sem endereço', icon: MapPinOff, color: 'slate', hint: 'Complete os dados' },
+        { id: 'duplicates', label: 'Duplicados', icon: Layers, color: 'violet', hint: 'Mescle ou exclua' },
+        { id: 'invalid', label: 'Inválidos', icon: AlertCircle, color: 'rose', hint: 'Corrija os telefones' }
+      ];
+    const counts: Partial<Record<SmartSegmentId, number>> = {};
+    for (const d of defs) counts[d.id] = 0;
+    for (const c of contacts) {
+      for (const d of defs) {
+        if (getSmartSegmentMatches(d.id, c)) counts[d.id]!++;
+      }
+    }
+    return defs.map((s) => ({ ...s, count: counts[s.id] ?? 0 }));
   }, [contacts, getSmartSegmentMatches, segment]);
 
   const fileImportRowsView = useMemo(() => {
@@ -1787,7 +1848,7 @@ export const ContactsTab: React.FC = () => {
       case 'hot': return t?.temp === 'hot';
       case 'warm': return t?.temp === 'warm';
       case 'cold': return t?.temp === 'cold';
-      case 'new': return !t || t.temp === 'new';
+      case 'new': return t?.temp === 'new';
       case 'invalid': return c.status !== 'VALID';
       case 'no_address': return !c.street || !c.city || !c.zipCode;
       case 'duplicates': return phoneDupKeys.has(normPhoneKey(c.phone));
@@ -1836,6 +1897,17 @@ export const ContactsTab: React.FC = () => {
   // Filter Logic — memoizado: antes rodava filtro completo em todo re-render (digitar, modal, etc.).
   const filteredContacts = useMemo(() => {
     const q = searchTerm.toLowerCase();
+    // Caminho rápido: sem busca nem critérios — evita uma passagem de O(n) em bases enormes ao abrir a aba.
+    if (
+      !q &&
+      filterStatus === 'ALL' &&
+      !filterTag &&
+      filterTemp === 'ALL' &&
+      !activeSegment &&
+      activeFilter === 'all'
+    ) {
+      return contacts;
+    }
     return contacts.filter((c) => {
       const matchesSearch =
         !q ||
@@ -2839,48 +2911,47 @@ export const ContactsTab: React.FC = () => {
     launchCampaignWithDraft(draft);
   }, [buildDraftFromContacts, launchCampaignWithDraft, filteredContacts]);
 
-  /** Contadores para a sidebar (memoizado — recalcula só quando a base ou temps mudam). */
-  const sidebarCounts: SidebarCounts = useMemo(() => ({
-    all: contacts.length,
-    hot: smartStats.hot,
-    warm: smartStats.warm,
-    cold: smartStats.cold,
-    new: smartStats.newOnes,
-    bday_today: smartStats.bdayToday,
-    bday_week: smartStats.bdayWeek,
-    wedding_today: smartStats.weddingToday,
-    wedding_week: smartStats.weddingWeek,
-    dormant: smartStats.dormant,
-    invalid: smartStats.invalid,
-    no_address: contacts.filter((c) => !c.street || !c.city || !c.zipCode).length,
-    duplicates: smartStats.duplicates,
-    retorno_todos: contacts.reduce((n, c) => n + (parseFollowUpMs(c.followUpAt) != null ? 1 : 0), 0),
-    retorno_atrasados: contacts.reduce((n, c) => {
-      const ms = parseFollowUpMs(c.followUpAt);
-      return n + (ms != null && ms < localStartOfTodayMs() ? 1 : 0);
-    }, 0),
-    retorno_hoje: contacts.reduce((n, c) => {
-      const ms = parseFollowUpMs(c.followUpAt);
-      return n + (ms != null && matchesRetornoFilter(ms, 'retorno_hoje') ? 1 : 0);
-    }, 0),
-    retorno_semana: contacts.reduce((n, c) => {
-      const ms = parseFollowUpMs(c.followUpAt);
-      return n + (ms != null && matchesRetornoFilter(ms, 'retorno_semana') ? 1 : 0);
-    }, 0)
-  }), [contacts, smartStats]);
+  /** Contadores da sidebar — agregados em `smartStats` (uma passagem sobre a base). */
+  const sidebarCounts: SidebarCounts = useMemo(
+    () => ({
+      all: smartStats.total,
+      hot: smartStats.hot,
+      warm: smartStats.warm,
+      cold: smartStats.cold,
+      new: smartStats.newOnes,
+      bday_today: smartStats.bdayToday,
+      bday_week: smartStats.bdayWeek,
+      wedding_today: smartStats.weddingToday,
+      wedding_week: smartStats.weddingWeek,
+      dormant: smartStats.dormant,
+      invalid: smartStats.invalid,
+      no_address: smartStats.no_address,
+      duplicates: smartStats.duplicates,
+      retorno_todos: smartStats.retorno_todos,
+      retorno_atrasados: smartStats.retorno_atrasados,
+      retorno_hoje: smartStats.retorno_hoje,
+      retorno_semana: smartStats.retorno_semana
+    }),
+    [smartStats]
+  );
 
   /** Stats enxutas para o HeaderBar (sem sparklines, sem grids pesados). */
-  const headerStats = useMemo(() => ({
-    total: smartStats.total,
-    valid: validCount,
-    newLast7: smartStats.last7,
-    hot: smartStats.hot,
-    bdayToday: smartStats.bdayToday,
-    weddingWeek: smartStats.weddingWeek
-  }), [smartStats, validCount]);
+  const headerStats = useMemo(
+    () => ({
+      total: smartStats.total,
+      valid: smartStats.total - smartStats.invalid,
+      newLast7: smartStats.last7,
+      hot: smartStats.hot,
+      bdayToday: smartStats.bdayToday,
+      weddingWeek: smartStats.weddingWeek
+    }),
+    [smartStats]
+  );
 
   /** Contato em destaque (drawer) — tempStats equivalente. */
-  const selectedContactTemps = selectedContact ? contactTemps[selectedContact.id] : undefined;
+  const selectedContactTemps = selectedContact
+    ? (contactTemps[selectedContact.id] ?? CONTACT_TEMP_DEFAULT)
+    : undefined;
 
   useEffect(() => {
     if (!selectedContact) return;

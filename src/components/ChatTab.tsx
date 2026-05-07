@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   AlertTriangle,
   Search,
@@ -312,6 +313,7 @@ export const ChatTab: React.FC = () => {
     patchConversationInboxClaim,
     deleteLocalConversations,
     loadChatHistory,
+    hydrateFirestoreChatArchive,
     loadMessageMedia,
     socket
   } = useZapMass();
@@ -370,6 +372,8 @@ export const ChatTab: React.FC = () => {
   const [historyExhausted, setHistoryExhausted] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  /** Scroll apenas da lista de conversas (vista Lista) — usado pela virtualização. */
+  const conversationListScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sendingMedia, setSendingMedia] = useState(false);
@@ -835,6 +839,61 @@ export const ChatTab: React.FC = () => {
       });
   }, [filteredByConnection, chatFilter, searchTerm, originByConv, crm, getConversationDisplay]);
 
+  /** Contagens por canal (evita `.filter` em O(canais × conversas) no `<Select>`). */
+  const conversationCountByConnectionId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const cv of conversations) {
+      const id = cv.connectionId || '__none__';
+      m.set(id, (m.get(id) ?? 0) + 1);
+    }
+    return m;
+  }, [conversations]);
+
+  const filteredByConnTotals = useMemo(() => {
+    let unread = 0;
+    let groups = 0;
+    let system = 0;
+    let empty = 0;
+    for (const c of filteredByConnection) {
+      unread += c.unreadCount;
+      if (c.id.endsWith('@g.us')) groups++;
+      const o = originByConv.get(c.id);
+      if (o === 'system') system++;
+      else if (o === 'empty') empty++;
+    }
+    return { unread, groups, system, empty };
+  }, [filteredByConnection, originByConv]);
+
+  const totalUnread = filteredByConnTotals.unread;
+  const totalGroups = filteredByConnTotals.groups;
+  const totalSystem = filteredByConnTotals.system;
+  const totalEmpty = filteredByConnTotals.empty;
+
+  const convListVirtualizer = useVirtualizer({
+    count: pipelineView === 'lista' ? filteredConversations.length : 0,
+    getScrollElement: () => conversationListScrollRef.current,
+    estimateSize: () => 94,
+    overscan: 12,
+    getItemKey: (index) => filteredConversations[index]?.id ?? index
+  });
+
+  const listaScrollAnchorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedChatId) {
+      listaScrollAnchorRef.current = null;
+      return;
+    }
+    if (pipelineView !== 'lista') return;
+    const idx = filteredConversations.findIndex((c) => c.id === selectedChatId);
+    if (idx < 0) return;
+    const key = `${selectedChatId}:${idx}`;
+    if (listaScrollAnchorRef.current === key) return;
+    listaScrollAnchorRef.current = key;
+    requestAnimationFrame(() => {
+      convListVirtualizer.scrollToIndex(idx, { align: 'nearest' });
+    });
+  }, [pipelineView, selectedChatId, filteredConversations, convListVirtualizer]);
+
   // Traz foto do WhatsApp para a lista (inclui conversas de disparo, onde antes nao pedia — sem foto de API).
   // Com agenda: `resolveProfilePic` ja usa a foto do contato; aqui so complementa via servidor.
   useEffect(() => {
@@ -852,11 +911,14 @@ export const ChatTab: React.FC = () => {
     }
   }, [filteredConversations, fetchConversationPicture, resolveProfilePic]);
 
-  const totalUnread = filteredByConnection.reduce((a, c) => a + c.unreadCount, 0);
-  const totalGroups = filteredByConnection.filter((c) => c.id.endsWith('@g.us')).length;
-  const totalSystem = filteredByConnection.filter((c) => originByConv.get(c.id) === 'system').length;
-  const totalEmpty = filteredByConnection.filter((c) => originByConv.get(c.id) === 'empty').length;
-  const totalPhone = filteredByConnection.filter((c) => originByConv.get(c.id) === 'phone').length;
+  /** Ao selecionar conversa real: hidratar arquivo Firestore já (antes do scroll / load-chat-history pesado). */
+  useEffect(() => {
+    if (!selectedChatId || isSelectedDraft) return;
+    const t = window.setTimeout(() => {
+      void hydrateFirestoreChatArchive(selectedChatId, 500);
+    }, 70);
+    return () => window.clearTimeout(t);
+  }, [selectedChatId, isSelectedDraft, hydrateFirestoreChatArchive]);
 
   // Listas usadas no modal de auditoria
   const systemConvs = useMemo(
@@ -1508,18 +1570,14 @@ export const ChatTab: React.FC = () => {
               <option value="ALL">Todos os canais ({conversations.length})</option>
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({conversations.filter((cv) => cv.connectionId === c.id).length})
+                  {c.name} ({conversationCountByConnectionId.get(c.id) ?? 0})
                 </option>
               ))}
             </Select>
           </div>
         )}
 
-        <div
-          className={`flex-1 min-h-0 ${
-            pipelineView === 'quadro' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'
-          }`}
-        >
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {pipelineView === 'quadro' ? (
             <ClientPipelineBoard
               userUid={user?.uid}
@@ -1530,217 +1588,8 @@ export const ChatTab: React.FC = () => {
               formatConversationTitles={getConversationDisplay}
               connectionName={(id) => connections.find((c) => c.id === id)?.name}
             />
-          ) : (
-            <>
-          {filteredConversations.map((conv) => {
-            const isActive = selectedChatId === conv.id;
-            const isGroup = conv.id.endsWith('@g.us');
-            const origin = originByConv.get(conv.id) || 'phone';
-            const lastMsgPreview = getLastMsgPreview(conv);
-            const lastIcon = getLastMsgIcon(conv);
-            const connection = connections.find((c) => c.id === conv.connectionId);
-            const crmData = crm.get(conv.id);
-            const crmStatus = crmData.status ? STATUS_META[crmData.status] : null;
-            const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
-            const hasNotes = !!(crmData.notes && crmData.notes.trim());
-            const disp = getConversationDisplay(conv);
-            const { whatsappSubtitle: convWaSub, phoneSecondary: convPhoneSmall } = disp;
-            return (
-              <button
-                key={conv.id}
-                type="button"
-                onClick={() => selectChat(conv.id)}
-                className="wa-conv-row group"
-                data-active={isActive ? 'true' : 'false'}
-              >
-                <div className="relative flex-shrink-0">
-                  <img
-                    src={getConvAvatar(conv)}
-                    loading="lazy"
-                    decoding="async"
-                    className="wa-conv-avatar"
-                    alt=""
-                    referrerPolicy="no-referrer"
-                  />
-                  {isGroup && (
-                    <div
-                      className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                      style={{ background: 'var(--wa-panel)', border: '1.5px solid var(--wa-divider)' }}
-                    >
-                      <Users className="w-2.5 h-2.5" style={{ color: 'var(--wa-text-2)' }} />
-                    </div>
-                  )}
-                  {crmData.pinned && (
-                    <div
-                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
-                      style={{ background: '#f59e0b', boxShadow: '0 2px 6px rgba(245,158,11,0.5)' }}
-                      title="Contato fixado"
-                    >
-                      <Pin className="w-2.5 h-2.5 text-white fill-white" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 min-w-0 flex-1">
-                      <span className="wa-conv-name truncate" title={disp.primary}>
-                        {disp.primary}
-                      </span>
-                      {crmData.favoriteAt && (
-                        <Star className="w-3 h-3 flex-shrink-0 fill-current" style={{ color: '#f59e0b' }} />
-                      )}
-                      {hasNotes && (
-                        <StickyNote className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--wa-green-strong)' }} />
-                      )}
-                      {hasReminder && (
-                        <Bell className="w-3 h-3 flex-shrink-0" style={{ color: '#ef4444' }} />
-                      )}
-                    </div>
-                    <span className="wa-conv-time tabular-nums" data-unread={conv.unreadCount > 0 ? 'true' : 'false'}>
-                      {conv.lastMessageTime}
-                    </span>
-                  </div>
-                  {(convWaSub || convPhoneSmall) && (
-                    <p
-                      className="text-[11px] truncate leading-snug mt-0.5"
-                      style={{ color: 'var(--wa-text-3)', opacity: 0.92 }}
-                    >
-                      {convWaSub && <span title="Nome no WhatsApp / agenda do celular">{convWaSub}</span>}
-                      {convWaSub && convPhoneSmall && <span> · </span>}
-                      {convPhoneSmall && (
-                        <span className="font-mono tabular-nums" title="Telefone">
-                          {convPhoneSmall}
-                        </span>
-                      )}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <div className="flex items-center gap-1 min-w-0 flex-1">
-                      {lastIcon}
-                      <p className="wa-conv-preview truncate">{lastMsgPreview}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {crmStatus && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-0.5"
-                          style={{ background: crmStatus.bg, color: crmStatus.color }}
-                          title={`Status: ${crmStatus.label}`}
-                        >
-                          {crmStatus.emoji}
-                        </span>
-                      )}
-                      {origin === 'system' && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 font-semibold"
-                          style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
-                          title="Conversa criada pelo disparo"
-                        >
-                          <Zap className="w-2.5 h-2.5" /> Disparo
-                        </span>
-                      )}
-                      {origin === 'empty' && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center"
-                          style={{ background: 'var(--wa-search)', color: 'var(--wa-text-3)' }}
-                          title="Contato sincronizado, sem mensagens"
-                        >
-                          vazia
-                        </span>
-                      )}
-                      {connections.length > 1 && connection && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded truncate max-w-[80px]"
-                          style={{ background: 'var(--wa-search)', color: 'var(--wa-text-3)' }}
-                        >
-                          {connection.name}
-                        </span>
-                      )}
-                      {conv.unreadCount > 0 && (
-                        <span className="wa-unread-badge">
-                          {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {(crmData.tags && crmData.tags.length > 0) && (
-                    <div className="flex items-center gap-1 mt-1 overflow-hidden">
-                      {crmData.tags.slice(0, 3).map((tag) => {
-                        const color = hashTagColor(tag);
-                        return (
-                          <span
-                            key={tag}
-                            className="text-[10px] px-1.5 py-[1px] rounded-full font-semibold truncate"
-                            style={{
-                              background: `${color}1a`,
-                              color,
-                              border: `1px solid ${color}33`,
-                              maxWidth: 80
-                            }}
-                          >
-                            {tag}
-                          </span>
-                        );
-                      })}
-                      {crmData.tags.length > 3 && (
-                        <span className="text-[10px]" style={{ color: 'var(--wa-text-3)' }}>
-                          +{crmData.tags.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    crm.togglePin(conv.id);
-                    toast.success(crmData.pinned ? 'Desafixado' : 'Fixado no topo');
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.stopPropagation();
-                      crm.togglePin(conv.id);
-                    }
-                  }}
-                  className={`absolute right-9 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-opacity cursor-pointer ${
-                    crmData.pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                  }`}
-                  style={{
-                    background: crmData.pinned ? 'rgba(245,158,11,0.15)' : 'var(--wa-search)',
-                    color: crmData.pinned ? '#f59e0b' : 'var(--wa-text-3)'
-                  }}
-                  title={crmData.pinned ? 'Desafixar' : 'Fixar'}
-                >
-                  <Pin className={`w-3.5 h-3.5 ${crmData.pinned ? 'fill-current' : ''}`} />
-                </span>
-                {origin !== 'phone' && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteSingle(conv.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.stopPropagation();
-                        handleDeleteSingle(conv.id);
-                      }
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md transition-opacity cursor-pointer"
-                    style={{ background: 'var(--wa-search)', color: '#ef4444' }}
-                    title="Remover do painel"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </span>
-                )}
-              </button>
-            );
-          })}
-
-          {filteredConversations.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 px-6">
+          ) : filteredConversations.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center py-16 px-6 min-h-0 overflow-y-auto">
               <div
                 className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
                 style={{ background: 'var(--wa-search)' }}
@@ -1754,12 +1603,248 @@ export const ChatTab: React.FC = () => {
                 {chatFilter === 'unread'
                   ? 'Você leu todas as mensagens.'
                   : searchTerm
-                  ? `Sem resultados para "${searchTerm}".`
-                  : 'Nenhuma conversa disponível.'}
+                    ? `Sem resultados para "${searchTerm}".`
+                    : 'Nenhuma conversa disponível.'}
               </p>
             </div>
-          )}
-            </>
+          ) : (
+            <div
+              ref={conversationListScrollRef}
+              className="flex-1 min-h-0 overflow-y-auto"
+              style={{ contain: 'strict' }}
+            >
+              <div
+                style={{
+                  height: convListVirtualizer.getTotalSize(),
+                  width: '100%',
+                  position: 'relative'
+                }}
+              >
+                {convListVirtualizer.getVirtualItems().map((vRow) => {
+                  const conv = filteredConversations[vRow.index];
+                  if (!conv) return null;
+                  const isActive = selectedChatId === conv.id;
+                  const isGroup = conv.id.endsWith('@g.us');
+                  const origin = originByConv.get(conv.id) || 'phone';
+                  const lastMsgPreview = getLastMsgPreview(conv);
+                  const lastIcon = getLastMsgIcon(conv);
+                  const connection = connections.find((c) => c.id === conv.connectionId);
+                  const crmData = crm.get(conv.id);
+                  const crmStatus = crmData.status ? STATUS_META[crmData.status] : null;
+                  const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
+                  const hasNotes = !!(crmData.notes && crmData.notes.trim());
+                  const disp = getConversationDisplay(conv);
+                  const { whatsappSubtitle: convWaSub, phoneSecondary: convPhoneSmall } = disp;
+                  return (
+                    <div
+                      key={conv.id}
+                      data-index={vRow.index}
+                      ref={convListVirtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${vRow.start}px)`
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => selectChat(conv.id)}
+                        className="wa-conv-row group"
+                        data-active={isActive ? 'true' : 'false'}
+                      >
+                        <div className="relative flex-shrink-0">
+                          <img
+                            src={getConvAvatar(conv)}
+                            loading="lazy"
+                            decoding="async"
+                            className="wa-conv-avatar"
+                            alt=""
+                            referrerPolicy="no-referrer"
+                          />
+                          {isGroup && (
+                            <div
+                              className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                              style={{
+                                background: 'var(--wa-panel)',
+                                border: '1.5px solid var(--wa-divider)'
+                              }}
+                            >
+                              <Users className="w-2.5 h-2.5" style={{ color: 'var(--wa-text-2)' }} />
+                            </div>
+                          )}
+                          {crmData.pinned && (
+                            <div
+                              className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                              style={{ background: '#f59e0b', boxShadow: '0 2px 6px rgba(245,158,11,0.5)' }}
+                              title="Contato fixado"
+                            >
+                              <Pin className="w-2.5 h-2.5 text-white fill-white" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1 min-w-0 flex-1">
+                              <span className="wa-conv-name truncate" title={disp.primary}>
+                                {disp.primary}
+                              </span>
+                              {crmData.favoriteAt && (
+                                <Star className="w-3 h-3 flex-shrink-0 fill-current" style={{ color: '#f59e0b' }} />
+                              )}
+                              {hasNotes && (
+                                <StickyNote className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--wa-green-strong)' }} />
+                              )}
+                              {hasReminder && (
+                                <Bell className="w-3 h-3 flex-shrink-0" style={{ color: '#ef4444' }} />
+                              )}
+                            </div>
+                            <span className="wa-conv-time tabular-nums" data-unread={conv.unreadCount > 0 ? 'true' : 'false'}>
+                              {conv.lastMessageTime}
+                            </span>
+                          </div>
+                          {(convWaSub || convPhoneSmall) && (
+                            <p
+                              className="text-[11px] truncate leading-snug mt-0.5"
+                              style={{ color: 'var(--wa-text-3)', opacity: 0.92 }}
+                            >
+                              {convWaSub && <span title="Nome no WhatsApp / agenda do celular">{convWaSub}</span>}
+                              {convWaSub && convPhoneSmall && <span> · </span>}
+                              {convPhoneSmall && (
+                                <span className="font-mono tabular-nums" title="Telefone">
+                                  {convPhoneSmall}
+                                </span>
+                              )}
+                            </p>
+                          )}
+                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                            <div className="flex items-center gap-1 min-w-0 flex-1">
+                              {lastIcon}
+                              <p className="wa-conv-preview truncate">{lastMsgPreview}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              {crmStatus && (
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded font-semibold inline-flex items-center gap-0.5"
+                                  style={{ background: crmStatus.bg, color: crmStatus.color }}
+                                  title={`Status: ${crmStatus.label}`}
+                                >
+                                  {crmStatus.emoji}
+                                </span>
+                              )}
+                              {origin === 'system' && (
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 font-semibold"
+                                  style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
+                                  title="Conversa criada pelo disparo"
+                                >
+                                  <Zap className="w-2.5 h-2.5" /> Disparo
+                                </span>
+                              )}
+                              {origin === 'empty' && (
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded inline-flex items-center"
+                                  style={{ background: 'var(--wa-search)', color: 'var(--wa-text-3)' }}
+                                  title="Contato sincronizado, sem mensagens"
+                                >
+                                  vazia
+                                </span>
+                              )}
+                              {connections.length > 1 && connection && (
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded truncate max-w-[80px]"
+                                  style={{ background: 'var(--wa-search)', color: 'var(--wa-text-3)' }}
+                                >
+                                  {connection.name}
+                                </span>
+                              )}
+                              {conv.unreadCount > 0 && (
+                                <span className="wa-unread-badge">
+                                  {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {crmData.tags && crmData.tags.length > 0 && (
+                            <div className="flex items-center gap-1 mt-1 overflow-hidden">
+                              {crmData.tags.slice(0, 3).map((tag) => {
+                                const color = hashTagColor(tag);
+                                return (
+                                  <span
+                                    key={tag}
+                                    className="text-[10px] px-1.5 py-[1px] rounded-full font-semibold truncate"
+                                    style={{
+                                      background: `${color}1a`,
+                                      color,
+                                      border: `1px solid ${color}33`,
+                                      maxWidth: 80
+                                    }}
+                                  >
+                                    {tag}
+                                  </span>
+                                );
+                              })}
+                              {crmData.tags.length > 3 && (
+                                <span className="text-[10px]" style={{ color: 'var(--wa-text-3)' }}>
+                                  +{crmData.tags.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            crm.togglePin(conv.id);
+                            toast.success(crmData.pinned ? 'Desafixado' : 'Fixado no topo');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation();
+                              crm.togglePin(conv.id);
+                            }
+                          }}
+                          className={`absolute right-9 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-opacity cursor-pointer ${
+                            crmData.pinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                          style={{
+                            background: crmData.pinned ? 'rgba(245,158,11,0.15)' : 'var(--wa-search)',
+                            color: crmData.pinned ? '#f59e0b' : 'var(--wa-text-3)'
+                          }}
+                          title={crmData.pinned ? 'Desafixar' : 'Fixar'}
+                        >
+                          <Pin className={`w-3.5 h-3.5 ${crmData.pinned ? 'fill-current' : ''}`} />
+                        </span>
+                        {origin !== 'phone' && (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteSingle(conv.id);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.stopPropagation();
+                                handleDeleteSingle(conv.id);
+                              }
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md transition-opacity cursor-pointer"
+                            style={{ background: 'var(--wa-search)', color: '#ef4444' }}
+                            title="Remover do painel"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 

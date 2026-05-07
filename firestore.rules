@@ -80,6 +80,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /** Arquivo de conversas WhatsApp (API servidor / Admin SDK; contém conversas privadas — não exponha ao browser). */
+    match /users/{uid}/waChatThreads/{threadId} {
+      allow read, write: if false;
+      match /messages/{messageId} {
+        allow read, write: if false;
+      }
+    }
+
     match /users/{uid}/suggestions/{docId} {
       allow create: if request.auth != null && request.auth.uid == uid;
       allow read: if request.auth != null && request.auth.uid == uid;

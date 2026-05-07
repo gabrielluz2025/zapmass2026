@@ -50,7 +50,21 @@ export function classifyTemperature(stats: Omit<TempStats, 'temp' | 'score'>): {
   return { temp: 'cold', score };
 }
 
-const MAX_MESSAGES_SCAN_PER_CONV = 500;
+/** Últimas N mensagens por conversa (500 era pesado com muitas threads). */
+const MAX_MESSAGES_SCAN_PER_CONV = 150;
+
+/** Mesmo resultado que `classifyTemperature` sobre base vazia — útil enquanto o mapa por id ainda não carregou. */
+export const CONTACT_TEMP_DEFAULT: TempStats = {
+  sent: 0,
+  delivered: 0,
+  read: 0,
+  replied: 0,
+  lastSentTs: 0,
+  lastReplyTs: 0,
+  lastReadTs: 0,
+  temp: 'new',
+  score: 0
+};
 
 /**
  * Mapa contactId -> temperatura a partir do histórico de conversas globais.
@@ -59,6 +73,12 @@ export function computeContactTemperatures(
   contacts: Contact[],
   conversations: Conversation[]
 ): Record<string, TempStats> {
+  const knownPhones = new Set<string>();
+  for (const c of contacts) {
+    const p = normPhoneKey(c.phone);
+    if (p && p.length >= 11) knownPhones.add(p);
+  }
+
   const byPhone: Record<string, Omit<TempStats, 'temp' | 'score'>> = {};
   const stripDigits = (p: string) => (p || '').replace(/\D/g, '');
   const convPrimaryDigits = (conv: Conversation) => {
@@ -87,7 +107,7 @@ export function computeContactTemperatures(
 
   for (const conv of conversations) {
     const phoneKey = normPhoneKey(convPrimaryDigits(conv));
-    if (!phoneKey || phoneKey.length < 11) continue;
+    if (!phoneKey || phoneKey.length < 11 || !knownPhones.has(phoneKey)) continue;
     const s = accum(phoneKey);
     const all = conv.messages || [];
     const msgs = all.length > MAX_MESSAGES_SCAN_PER_CONV ? all.slice(all.length - MAX_MESSAGES_SCAN_PER_CONV) : all;

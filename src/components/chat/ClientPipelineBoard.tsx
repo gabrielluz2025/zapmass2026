@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { GripVertical, Inbox, Layers, Pencil, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Conversation } from '../../types';
 import type { ClientPipelineBoardPersisted, PipelineColumnDef } from '../../utils/clientPipelineBoardStorage';
@@ -29,6 +30,139 @@ function truncateText(s: string, max: number): string {
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
 }
+
+/** Lista vertical dentro de cada coluna do quadro — evita montar milhares de cartões ao mesmo tempo. */
+const KanbanColumnBody: React.FC<{
+  list: Conversation[];
+  selectedChatId: string | null;
+  onSelectChat: (id: string) => void;
+  getConvAvatar: (conv: Conversation) => string;
+  connectionName?: (connectionId: string) => string | undefined;
+  formatConversationTitles?: (conv: Conversation) => { primary: string; whatsappSubtitle?: string };
+  onDragStartNative: (e: React.DragEvent, conversationId: string) => void;
+  onDragEndNative: () => void;
+}> = ({
+  list,
+  selectedChatId,
+  onSelectChat,
+  getConvAvatar,
+  connectionName,
+  formatConversationTitles,
+  onDragStartNative,
+  onDragEndNative
+}) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: list.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 100,
+    overscan: 8,
+    getItemKey: (index) => list[index]?.id ?? index
+  });
+
+  return (
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-2.5 pb-2.5 pt-0.5" style={{ contain: 'strict' }}>
+      <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((vRow) => {
+          const conv = list[vRow.index];
+          if (!conv) return null;
+          const active = selectedChatId === conv.id;
+          const conn = connectionName?.(conv.connectionId);
+          const titles = formatConversationTitles?.(conv);
+          const primary = titles?.primary ?? conv.contactName;
+          const waSub = titles?.whatsappSubtitle;
+          const preview =
+            conv.lastMessage && conv.lastMessage !== '[Mídia]'
+              ? truncateText(conv.lastMessage, 72)
+              : conv.lastMessageTime
+                ? conv.lastMessageTime
+                : '';
+          return (
+            <div
+              key={conv.id}
+              data-index={vRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${vRow.start}px)`
+              }}
+              className="pb-2"
+            >
+              <button
+                type="button"
+                draggable
+                onDragStart={(e) => onDragStartNative(e, conv.id)}
+                onDragEnd={onDragEndNative}
+                onClick={() => onSelectChat(conv.id)}
+                className="w-full text-left rounded-xl px-2.5 py-2.5 transition-all duration-200 border group"
+                style={{
+                  background: active
+                    ? 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 14%, var(--surface-0)) 0%, var(--surface-0) 100%)'
+                    : 'var(--surface-0)',
+                  borderColor: active
+                    ? 'color-mix(in srgb, var(--brand-500) 45%, transparent)'
+                    : 'var(--border-subtle)',
+                  boxShadow: active
+                    ? '0 6px 20px -8px color-mix(in srgb, var(--brand-500) 25%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent)'
+                    : '0 4px 14px -10px rgba(0,0,0,0.25), inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent)'
+                }}
+              >
+                <div className="flex items-start gap-2">
+                  <GripVertical
+                    className="w-3.5 h-3.5 flex-shrink-0 mt-2 opacity-35 group-hover:opacity-70 cursor-grab active:cursor-grabbing"
+                    style={{ color: 'var(--text-3)' }}
+                    aria-hidden
+                  />
+                  <img
+                    src={getConvAvatar(conv)}
+                    className="w-10 h-10 rounded-xl object-cover flex-shrink-0 ring-1 ring-black/5"
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12.5px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                      {primary}
+                    </p>
+                    {waSub && (
+                      <p className="text-[10px] truncate opacity-90 mt-0.5" style={{ color: 'var(--text-3)' }} title="Nome no WhatsApp">
+                        {waSub}
+                      </p>
+                    )}
+                    {preview && (
+                      <p className="text-[10px] leading-snug mt-1 line-clamp-2" style={{ color: 'var(--text-3)' }}>
+                        {preview}
+                      </p>
+                    )}
+                    <p className="text-[9.5px] truncate mt-1 font-medium" style={{ color: 'var(--text-3)', opacity: 0.85 }}>
+                      {conn ? `${conn} · ` : ''}
+                      {conv.contactPhone}
+                    </p>
+                    {conv.unreadCount > 0 && (
+                      <span
+                        className="inline-block mt-1 text-[9.5px] font-bold px-2 py-0.5 rounded-full"
+                        style={{
+                          background: 'linear-gradient(135deg, var(--brand-500), var(--brand-600))',
+                          color: '#fff',
+                          boxShadow: '0 2px 8px -2px color-mix(in srgb, var(--brand-500) 50%, transparent)'
+                        }}
+                      >
+                        {conv.unreadCount} nova{conv.unreadCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 interface ClientPipelineBoardProps {
   userUid: string | null | undefined;
@@ -387,104 +521,34 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
                     </button>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto space-y-2.5 p-2.5 min-h-0">
-                  {list.map((conv) => {
-                    const active = selectedChatId === conv.id;
-                    const conn = connectionName?.(conv.connectionId);
-                    const titles = formatConversationTitles?.(conv);
-                    const primary = titles?.primary ?? conv.contactName;
-                    const waSub = titles?.whatsappSubtitle;
-                    const preview =
-                      conv.lastMessage && conv.lastMessage !== '[Mídia]'
-                        ? truncateText(conv.lastMessage, 72)
-                        : conv.lastMessageTime
-                          ? conv.lastMessageTime
-                          : '';
-                    return (
-                      <button
-                        key={conv.id}
-                        type="button"
-                        draggable
-                        onDragStart={(e) => onDragStart(e, conv.id)}
-                        onDragEnd={() => setDragOverColumn(null)}
-                        onClick={() => onSelectChat(conv.id)}
-                        className="w-full text-left rounded-xl px-2.5 py-2.5 transition-all duration-200 border group"
-                        style={{
-                          background: active
-                            ? 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 14%, var(--surface-0)) 0%, var(--surface-0) 100%)'
-                            : 'var(--surface-0)',
-                          borderColor: active
-                            ? 'color-mix(in srgb, var(--brand-500) 45%, transparent)'
-                            : 'var(--border-subtle)',
-                          boxShadow: active
-                            ? '0 6px 20px -8px color-mix(in srgb, var(--brand-500) 25%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent)'
-                            : '0 4px 14px -10px rgba(0,0,0,0.25), inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent)'
-                        }}
-                      >
-                        <div className="flex items-start gap-2">
-                          <GripVertical
-                            className="w-3.5 h-3.5 flex-shrink-0 mt-2 opacity-35 group-hover:opacity-70 cursor-grab active:cursor-grabbing"
-                            style={{ color: 'var(--text-3)' }}
-                            aria-hidden
-                          />
-                          <img
-                            src={getConvAvatar(conv)}
-                            className="w-10 h-10 rounded-xl object-cover flex-shrink-0 ring-1 ring-black/5"
-                            alt=""
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[12.5px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
-                              {primary}
-                            </p>
-                            {waSub && (
-                              <p className="text-[10px] truncate opacity-90 mt-0.5" style={{ color: 'var(--text-3)' }} title="Nome no WhatsApp">
-                                {waSub}
-                              </p>
-                            )}
-                            {preview && (
-                              <p className="text-[10px] leading-snug mt-1 line-clamp-2" style={{ color: 'var(--text-3)' }}>
-                                {preview}
-                              </p>
-                            )}
-                            <p className="text-[9.5px] truncate mt-1 font-medium" style={{ color: 'var(--text-3)', opacity: 0.85 }}>
-                              {conn ? `${conn} · ` : ''}
-                              {conv.contactPhone}
-                            </p>
-                            {conv.unreadCount > 0 && (
-                              <span
-                                className="inline-block mt-1 text-[9.5px] font-bold px-2 py-0.5 rounded-full"
-                                style={{
-                                  background: 'linear-gradient(135deg, var(--brand-500), var(--brand-600))',
-                                  color: '#fff',
-                                  boxShadow: '0 2px 8px -2px color-mix(in srgb, var(--brand-500) 50%, transparent)'
-                                }}
-                              >
-                                {conv.unreadCount} nova{conv.unreadCount === 1 ? '' : 's'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {list.length === 0 && (
-                    <div
-                      className="flex flex-col items-center justify-center text-center py-10 px-3 rounded-xl mx-0.5"
-                      style={{
-                        border: '2px dashed color-mix(in srgb, var(--border-subtle) 85%, var(--brand-500))',
-                        background: 'color-mix(in srgb, var(--surface-0) 70%, transparent)'
-                      }}
-                    >
-                      <Inbox className="w-8 h-8 mb-2 opacity-40" style={{ color: 'var(--text-3)' }} aria-hidden />
-                      <p className="text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                        Nada nesta etapa
-                      </p>
-                      <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                        Arraste um contacto da lista ou aguarde novas mensagens neste canal.
-                      </p>
-                    </div>
-                  )}
-                </div>
+                {list.length === 0 ? (
+                  <div
+                    className="flex flex-1 flex-col items-center justify-center text-center py-10 px-3 rounded-xl mx-2.5 mb-2.5 mt-2 min-h-0"
+                    style={{
+                      border: '2px dashed color-mix(in srgb, var(--border-subtle) 85%, var(--brand-500))',
+                      background: 'color-mix(in srgb, var(--surface-0) 70%, transparent)'
+                    }}
+                  >
+                    <Inbox className="w-8 h-8 mb-2 opacity-40" style={{ color: 'var(--text-3)' }} aria-hidden />
+                    <p className="text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                      Nada nesta etapa
+                    </p>
+                    <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                      Arraste um contacto da lista ou aguarde novas mensagens neste canal.
+                    </p>
+                  </div>
+                ) : (
+                  <KanbanColumnBody
+                    list={list}
+                    selectedChatId={selectedChatId}
+                    onSelectChat={onSelectChat}
+                    getConvAvatar={getConvAvatar}
+                    connectionName={connectionName}
+                    formatConversationTitles={formatConversationTitles}
+                    onDragStartNative={onDragStart}
+                    onDragEndNative={() => setDragOverColumn(null)}
+                  />
+                )}
               </div>
             );
           })}
