@@ -1,32 +1,55 @@
 import { Campaign, CampaignStatus } from '../types';
+import { resolveCampaignEffectiveStageCount } from './campaignStageCount';
 
-/** Métricas derivadas alinhando `processedCount` (Firestore) com sucesso+ falha. */
+/** Planejamento de envios: contactos × etapas (metadata ou inferido dos contadores). */
+export function getCampaignPlannedSendTotal(
+  campaign: Pick<
+    Campaign,
+    'totalContacts' | 'message' | 'messageStages' | 'replyFlow' | 'successCount' | 'failedCount'
+  >
+): number {
+  const contacts = Math.max(0, Math.floor(Number(campaign.totalContacts) || 0));
+  const stages = resolveCampaignEffectiveStageCount(campaign);
+  return contacts * stages;
+}
+
+/**
+ * Taxa de entregas bem-sucedidas vs planejado (evita >100% em campanhas multi-etapa:
+ * `successCount` soma um ponto por envio concluído, não por contacto).
+ */
+export function getCampaignDeliverySuccessRatePct(campaign: Campaign): number {
+  const denom = getCampaignPlannedSendTotal(campaign);
+  const ok = Math.max(0, Math.floor(Number(campaign.successCount) || 0));
+  if (denom <= 0) return 0;
+  return Math.min(100, Math.round((ok / denom) * 100));
+}
+
+/** Métricas derivadas: contadores do Firestore referem-se a envios por etapa; o envelope é contactos × etapas. */
 export function getCampaignProgressMetrics(campaign: Campaign) {
   const total = Math.max(0, Math.floor(Number(campaign.totalContacts) || 0));
+  const plannedSendTotal = Math.max(0, getCampaignPlannedSendTotal(campaign));
   let ok = Math.max(0, Math.floor(Number(campaign.successCount) || 0));
   let fail = Math.max(0, Math.floor(Number(campaign.failedCount) || 0));
   const reported = Math.max(0, Math.floor(Number(campaign.processedCount) || 0));
-  // O progresso em tempo real (`campaign-progress`) preenche `processedCount`, mas no
-  // `campaign-complete` / Firestore ele às vezes fica 0 enquanto `successCount` já foi atualizado.
-  let effectiveProcessed = Math.min(total, Math.max(reported, ok + fail));
-  // Legado / falha de persistencia: status concluido no Firestore sem nenhum contador salvo
-  // (tudo 0) — para a UI, trata como fila 100% processada.
+  let effectiveProcessed =
+    plannedSendTotal <= 0 ? 0 : Math.min(plannedSendTotal, Math.max(reported, ok + fail));
   if (
     campaign.status === CampaignStatus.COMPLETED &&
-    total > 0 &&
+    plannedSendTotal > 0 &&
     effectiveProcessed === 0
   ) {
-    effectiveProcessed = total;
+    effectiveProcessed = plannedSendTotal;
   }
-  const pending = Math.max(0, total - effectiveProcessed);
-  // Firestore pode ficar inconsistente (ex.: successCount > totalContacts); nunca exceder o envelope.
-  ok = Math.min(ok, effectiveProcessed);
+  const pending = Math.max(0, plannedSendTotal - effectiveProcessed);
+  ok = Math.min(ok, plannedSendTotal, effectiveProcessed);
   fail = Math.min(fail, Math.max(0, effectiveProcessed - ok));
-  const progressPct = total > 0 ? Math.round((effectiveProcessed / total) * 100) : 0;
+  const progressPct =
+    plannedSendTotal > 0 ? Math.min(100, Math.round((effectiveProcessed / plannedSendTotal) * 100)) : 0;
   const successRatePct =
     effectiveProcessed > 0 ? Math.min(100, Math.round((ok / effectiveProcessed) * 100)) : 0;
   return {
     total,
+    plannedSendTotal,
     ok,
     fail,
     reported,
@@ -45,7 +68,7 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
 export function isRunningStatusButWorkComplete(c: Campaign): boolean {
   if (c.status !== CampaignStatus.RUNNING) return false;
   const m = getCampaignProgressMetrics(c);
-  if (m.total <= 0) return false;
+  if (m.plannedSendTotal <= 0) return false;
   return m.pending === 0;
 }
 
@@ -81,17 +104,17 @@ export function mergeCampaignMetricsWithReport(
   const { totalRows, failedCount } = report;
   if (totalRows <= 0) return base;
   const nonFailed = Math.max(0, totalRows - failedCount);
-  const total = base.total;
+  const planned = base.plannedSendTotal;
   let effectiveProcessed = Math.max(base.effectiveProcessed, totalRows);
-  if (total > 0) {
-    effectiveProcessed = Math.min(total, effectiveProcessed);
+  if (planned > 0) {
+    effectiveProcessed = Math.min(planned, effectiveProcessed);
   }
   let ok = Math.max(base.ok, nonFailed);
   const fail = Math.max(base.fail, failedCount);
   ok = Math.min(ok, effectiveProcessed);
   const failAdj = Math.min(fail, Math.max(0, effectiveProcessed - ok));
-  const progressDen = total > 0 ? total : Math.max(totalRows, 1);
-  const pending = total > 0 ? Math.max(0, total - effectiveProcessed) : 0;
+  const progressDen = planned > 0 ? planned : Math.max(totalRows, 1);
+  const pending = planned > 0 ? Math.max(0, planned - effectiveProcessed) : 0;
   const progressPct = Math.min(100, Math.round((effectiveProcessed / progressDen) * 100));
   const successRatePct =
     effectiveProcessed > 0 ? Math.min(100, Math.round((ok / effectiveProcessed) * 100)) : 0;

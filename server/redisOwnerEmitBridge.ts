@@ -1,22 +1,47 @@
 import IORedis from 'ioredis';
 import type { Server } from 'socket.io';
+import type { Conversation } from './types.js';
 
 const CHANNEL = 'zapmass:owner-socket-emit';
 
 type OwnerEmit = (uid: string, event: string, payload: Record<string, unknown>) => void;
 
 type OwnerEmitSubscriberDeps = {
-    onBridged?: (msg: { uid: string; event: string; payload: Record<string, unknown> }) => void;
+  onBridged?: (msg: { uid: string; event: string; payload: Record<string, unknown> }) => void;
 };
+
+async function emitConversationsFilteredPerSocket(io: Server, tenantUid: string, payload: unknown): Promise<void> {
+  const convs = Array.isArray(payload) ? (payload as Conversation[]) : [];
+  try {
+    const socks = await io.in(`user:${tenantUid}`).fetchSockets();
+    const { ensureAssignmentsLoaded } = await import('./inboxAssignments.js');
+    const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+    if (tenantUid !== 'anonymous') {
+      await ensureAssignmentsLoaded(tenantUid).catch(() => undefined);
+    }
+    for (const remoteSocket of socks) {
+      const authUid = String((remoteSocket.data as { authUid?: string }).authUid ?? tenantUid);
+      const list = conversationsPayloadForViewer(tenantUid, authUid, convs);
+      remoteSocket.emit('conversations-update', list);
+    }
+  } catch (e) {
+    console.warn('[owner-emit-redis] conversations-update por socket falhou:', (e as Error)?.message);
+    try {
+      io.to(`user:${tenantUid}`).emit('conversations-update', payload);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 /**
  * No arranque da API (processo com Socket.IO real): subscreve Redis para o worker
  * publicar eventos (qr-code, etc.) que devem chegar ao `user:uid` no browser.
  */
 export const startOwnerEmitRedisSubscriber = (
-    io: Server,
-    redisUrl: string,
-    deps?: OwnerEmitSubscriberDeps
+  io: Server,
+  redisUrl: string,
+  deps?: OwnerEmitSubscriberDeps
 ): (() => void) | null => {
   if (!redisUrl?.trim()) return null;
   const sub = new IORedis(redisUrl, { maxRetriesPerRequest: 1 });
@@ -39,6 +64,11 @@ export const startOwnerEmitRedisSubscriber = (
         event: String(parsed.event),
         payload: parsed.payload ?? {}
       });
+      if (parsed.event === 'conversations-update') {
+        const tenantUid = String(parsed.uid);
+        void emitConversationsFilteredPerSocket(io, tenantUid, parsed.payload);
+        return;
+      }
       io.to(`user:${parsed.uid}`).emit(parsed.event, parsed.payload ?? {});
     } catch (e) {
       console.warn('[owner-emit-redis] mensagem inválida:', (e as Error)?.message);

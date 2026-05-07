@@ -77,6 +77,67 @@ const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: s
   { key: 'status', label: 'Status', width: 10 }
 ];
 
+/** Colunas extras só na exportação XLSX (disparos / CRM) — não fazem parte do modelo de importação. */
+const CAMPAIGN_EXPORT_COLUMNS: Array<{ label: string; width: number; get: (c: Contact) => string }> = [
+  {
+    label: 'Msg campanha (total)',
+    width: 14,
+    get: (c) => (c.campaignMessagesReceived != null ? String(c.campaignMessagesReceived) : '')
+  },
+  { label: 'Ultima campanha (nome)', width: 28, get: (c) => (c.campaignTablePreview?.campaignName || '').trim() },
+  {
+    label: 'Ultima campanha (recebidas / etapas)',
+    width: 20,
+    get: (c) => {
+      const p = c.campaignTablePreview;
+      if (!p?.campaignId) return '';
+      return `${p.sent}/${p.totalStages}`;
+    }
+  },
+  {
+    label: 'Ultima campanha (etapas pendentes)',
+    width: 18,
+    get: (c) => {
+      const p = c.campaignTablePreview;
+      if (!p?.campaignId) return '';
+      return String(p.pending);
+    }
+  },
+  { label: 'Ultima campanha (id)', width: 28, get: (c) => (c.campaignTablePreview?.campaignId || '') }
+];
+
+/** Linhas de exportação XLSX: colunas fixas + disparos + opcional religioso. */
+function buildContactExportRow(
+  c: Contact,
+  religiousExtras: ReturnType<typeof religiousExportColumns>
+): string[] {
+  const base = TEMPLATE_COLUMNS.map((col) => {
+    if (col.key === 'tags') return (c.tags || []).join(';');
+    if (col.key === 'status') return c.status;
+    const v = (c as Record<string, unknown>)[col.key as string];
+    return v == null ? '' : String(v);
+  });
+  const campaign = CAMPAIGN_EXPORT_COLUMNS.map((col) => col.get(c));
+  const rel = religiousExtras.map((col) => col.get(c));
+  return [...base, ...campaign, ...rel];
+}
+
+function buildContactExportHeaderLabels(religiousExtras: ReturnType<typeof religiousExportColumns>): string[] {
+  return [
+    ...TEMPLATE_COLUMNS.map((c) => c.label),
+    ...CAMPAIGN_EXPORT_COLUMNS.map((c) => c.label),
+    ...religiousExtras.map((c) => c.label)
+  ];
+}
+
+function buildContactExportColWidths(religiousExtras: ReturnType<typeof religiousExportColumns>): { wch: number }[] {
+  return [
+    ...TEMPLATE_COLUMNS.map((c) => ({ wch: c.width })),
+    ...CAMPAIGN_EXPORT_COLUMNS.map((c) => ({ wch: c.width })),
+    ...religiousExtras.map((c) => ({ wch: c.width }))
+  ];
+}
+
 type FileImportPreviewFilter = 'all' | 'problem' | 'duplicate' | 'ready';
 
 type FileImportRow = {
@@ -610,7 +671,8 @@ const emptyCampaignDraft = (): CampaignWizardDraft => {
         body: '',
         acceptAnyReply: true,
         validTokensText: '1, 2, sim, nao',
-        invalidReplyBody: 'Não entendi. Responda com uma das opções acima.'
+        invalidReplyBody: 'Não entendi. Responda com uma das opções acima.',
+        marketingEffect: 'none'
       }
     ],
     filterCities: [],
@@ -913,15 +975,11 @@ export const ContactsTab: React.FC = () => {
   const handleBulkExport = () => {
     if (selectedIds.length === 0) return;
     const selected = contacts.filter((c) => selectedIds.includes(c.id));
-    const header = TEMPLATE_COLUMNS.map(c => c.label);
-    const rows = selected.map(c => TEMPLATE_COLUMNS.map(col => {
-      if (col.key === 'tags') return (c.tags || []).join(';');
-      if (col.key === 'status') return c.status;
-      const v = (c as any)[col.key];
-      return v == null ? '' : String(v);
-    }));
+    const religiousExtras = segment === 'religious' ? religiousExportColumns() : [];
+    const header = buildContactExportHeaderLabels(religiousExtras);
+    const rows = selected.map((c) => buildContactExportRow(c, religiousExtras));
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    ws['!cols'] = TEMPLATE_COLUMNS.map(c => ({ wch: c.width }));
+    ws['!cols'] = buildContactExportColWidths(religiousExtras);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'SeleÃ§Ã£o');
     XLSX.writeFile(wb, `contatos_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -2041,6 +2099,17 @@ export const ContactsTab: React.FC = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Contatos');
 
+    const crmRefSheet = [
+      ['Coluna (apenas na exportacao)', 'Descricao'],
+      ...CAMPAIGN_EXPORT_COLUMNS.map((col) => [
+        col.label,
+        'Gerado pelo ZapMass ao exportar base, selecao ou lista. Na importacao, o cabecalho nao e mapeado — a coluna e ignorada. Voce pode apagar essas colunas se reutilizar um arquivo exportado.'
+      ])
+    ];
+    const wsCrmRef = XLSX.utils.aoa_to_sheet(crmRefSheet);
+    wsCrmRef['!cols'] = [{ wch: 36 }, { wch: 72 }];
+    XLSX.utils.book_append_sheet(wb, wsCrmRef, 'Referencia_CRM');
+
     // Aba com instrucoes
     const notes = [
       ['INSTRUCOES DE IMPORTACAO'],
@@ -2055,35 +2124,33 @@ export const ContactsTab: React.FC = () => {
       ['8. Data retorno (opcional): ISO 8601 (ex.: 2026-05-15T18:00:00.000Z), numero de data do Excel, ou texto dd/mm/aaaa com hora opcional.'],
       ['9. Nota retorno: texto curto; opcional.'],
       ['10. Campos vazios sao permitidos, basta deixar a celula em branco.'],
+      [''],
+      [
+        '11. A folha «Contatos» deste arquivo contem so colunas importaveis. Ja a exportacao completa (ou selecao/lista) no app pode acrescentar colunas de CRM/disparos — veja a folha «Referencia_CRM». Se voltar a importar um arquivo exportado, o ZapMass ignora colunas nao reconhecidas; opcionalmente apague-as antes.'
+      ],
       ...(segment === 'religious'
         ? [
             [''],
-            ['11. Segmento religioso: ao exportar a base em Contatos, o XLSX inclui colunas extra (RG, ficha eclesiastica, etc.). Este modelo continua so com as colunas padrao — preencha a ficha no app ou importe e depois complete em Contatos / Ficha membro.']
+            [
+              '12. Segmento religioso: a exportacao da base pode incluir colunas da ficha (RG, dados eclesiasticos, etc.). Na importacao, so entram colunas que o mapa reconhece — o resto e ignorado, como as de CRM.'
+            ]
           ]
         : [])
     ];
     const wsNotes = XLSX.utils.aoa_to_sheet(notes);
-    wsNotes['!cols'] = [{ wch: 80 }];
+    wsNotes['!cols'] = [{ wch: 88 }];
     XLSX.utils.book_append_sheet(wb, wsNotes, 'Instrucoes');
 
     XLSX.writeFile(wb, 'modelo_importacao_zapmass.xlsx');
-    toast.success('Modelo XLSX baixado. Cada campo e uma coluna propria.');
+    toast.success('Modelo XLSX baixado (folha Contatos + Referencia_CRM + Instrucoes).');
   };
 
   const handleExport = () => {
     const religiousExtras = segment === 'religious' ? religiousExportColumns() : [];
-    const header = [...TEMPLATE_COLUMNS.map((c) => c.label), ...religiousExtras.map((c) => c.label)];
-    const rows = contacts.map((c) => [
-      ...TEMPLATE_COLUMNS.map((col) => {
-        if (col.key === 'tags') return (c.tags || []).join(';');
-        if (col.key === 'status') return c.status;
-        const v = (c as Record<string, unknown>)[col.key as string];
-        return v == null ? '' : String(v);
-      }),
-      ...religiousExtras.map((col) => col.get(c))
-    ]);
+    const header = buildContactExportHeaderLabels(religiousExtras);
+    const rows = contacts.map((c) => buildContactExportRow(c, religiousExtras));
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    ws['!cols'] = [...TEMPLATE_COLUMNS.map((c) => ({ wch: c.width })), ...religiousExtras.map((c) => ({ wch: c.width }))];
+    ws['!cols'] = buildContactExportColWidths(religiousExtras);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Contatos');
     XLSX.writeFile(wb, `base_contatos_zapmass_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -2638,18 +2705,10 @@ export const ContactsTab: React.FC = () => {
       const day = new Date().toISOString().slice(0, 10);
       if (fmt === 'xlsx') {
         const religiousExtras = segment === 'religious' ? religiousExportColumns() : [];
-        const header = [...TEMPLATE_COLUMNS.map((c) => c.label), ...religiousExtras.map((c) => c.label)];
-        const rows = withPhone.map((c) => [
-          ...TEMPLATE_COLUMNS.map((col) => {
-            if (col.key === 'tags') return (c.tags || []).join(';');
-            if (col.key === 'status') return c.status;
-            const v = (c as Record<string, unknown>)[col.key];
-            return v == null ? '' : String(v);
-          }),
-          ...religiousExtras.map((col) => col.get(c))
-        ]);
+        const header = buildContactExportHeaderLabels(religiousExtras);
+        const rows = withPhone.map((c) => buildContactExportRow(c, religiousExtras));
         const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-        ws['!cols'] = [...TEMPLATE_COLUMNS.map((c) => ({ wch: c.width })), ...religiousExtras.map((c) => ({ wch: c.width }))];
+        ws['!cols'] = buildContactExportColWidths(religiousExtras);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Lista');
         XLSX.writeFile(wb, `lista_${slug}_${day}.xlsx`);
@@ -2822,6 +2881,16 @@ export const ContactsTab: React.FC = () => {
 
   /** Contato em destaque (drawer) — tempStats equivalente. */
   const selectedContactTemps = selectedContact ? contactTemps[selectedContact.id] : undefined;
+
+  useEffect(() => {
+    if (!selectedContact) return;
+    const fresh = contacts.find((c) => c.id === selectedContact.id);
+    if (!fresh) {
+      setSelectedContact(null);
+      return;
+    }
+    setSelectedContact(fresh);
+  }, [contacts, selectedContact?.id]);
 
   const handleCreateListQuick = useCallback(async (name: string) => {
     try {

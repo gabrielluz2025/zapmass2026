@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { Activity, AlertTriangle, Cpu, HardDrive, Radio, RefreshCw, Server, Shield, Wifi } from 'lucide-react';
 import { Card, CardHeader, Badge, Button, RingGauge } from './ui';
+import { apiUrl } from '../utils/apiBase';
 
 type AdminOpsSnapshot = {
   ok: boolean;
@@ -118,7 +119,7 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
     setErr(null);
     try {
       const token = await user.getIdToken();
-      const r = await fetch('/api/admin/ops-snapshot', {
+      const r = await fetch(apiUrl('/api/admin/ops-snapshot'), {
         headers: { Authorization: `Bearer ${token}` }
       });
       const j = (await r.json()) as AdminOpsSnapshot & { error?: string };

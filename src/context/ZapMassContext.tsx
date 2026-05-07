@@ -37,12 +37,14 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
+  increment
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { useAppView } from './AppViewContext';
 import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
+import { getSocketIoOrigin } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import { mergeCampaigns, mergeContactLists, mergeContacts } from '../utils/mergeLegacyUserDocs';
@@ -58,13 +60,67 @@ import {
   scheduleCampaignRecipientErrorDigest,
   type CampaignErrorBurstState
 } from '../utils/campaignIssueToast';
+import { normPhoneKey } from '../utils/brPhoneNormalize';
+import { getCampaignStageTotal } from '../utils/campaignStageCount';
 
 const FIRESTORE_BATCH_CHUNK = 280;
+
+/** Persiste subcoleção campaignDeliveries + resumo no documento do contato (coluna da lista). */
+async function persistCampaignDeliveryAndPreview(
+  uid: string,
+  contactId: string,
+  campaignId: string,
+  campaignsSnapshot: Campaign[]
+): Promise<void> {
+  const campaignDoc = campaignsSnapshot.find((x) => x.id === campaignId);
+  const totalStages = getCampaignStageTotal(campaignDoc);
+  const cname = String(campaignDoc?.name || 'Campanha').slice(0, 200);
+  const delRef = doc(db, 'users', uid, 'contacts', contactId, 'campaignDeliveries', campaignId);
+  await setDoc(
+    delRef,
+    {
+      sentCount: increment(1),
+      totalStages,
+      campaignName: cname,
+      updatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
+  const snap = await getDoc(delRef);
+  const sent = Math.max(0, Math.floor(Number(snap.data()?.sentCount) || 0));
+  const pending = Math.max(0, totalStages - sent);
+  const contactRef = doc(db, 'users', uid, 'contacts', contactId);
+  await updateDoc(contactRef, {
+    campaignMessagesReceived: increment(1),
+    campaignTablePreview: {
+      campaignId,
+      campaignName: cname.slice(0, 120),
+      sent,
+      totalStages,
+      pending,
+      updatedAt: new Date().toISOString()
+    }
+  } as Record<string, unknown>);
+}
 
 async function yieldToUiThread(): Promise<void> {
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => setTimeout(resolve, 0));
   });
+}
+
+/**
+ * Tempo máximo até ack da campanha (callback / campaign-started / campaign-error).
+ * Anexos em base64 atravessam o WebSocket e podem demorar bem mais que 20s.
+ */
+function startCampaignAckTimeoutMs(media?: { dataBase64?: string }): number {
+  const b64 = media?.dataBase64;
+  if (!b64) return 25_000;
+  const approxBytes = (b64.length * 3) / 4;
+  if (approxBytes < 50_000) return 25_000;
+  // ~100 KB/s efectivo + margem; mín. 90s com anexo pesado; teto 15 min
+  const ms = 40_000 + (approxBytes / 100_000) * 1_000;
+  return Math.min(900_000, Math.max(90_000, Math.ceil(ms)));
 }
 
 const INITIAL_METRICS: DashboardMetrics = {
@@ -186,6 +242,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactLists, setContactLists] = useState<ContactList[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const campaignsRef = useRef<Campaign[]>([]);
   const [birthdays, setBirthdays] = useState<BirthdayContact[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
@@ -352,6 +409,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     setCampaignStatus((s) => (s.isRunning ? { ...s, isRunning: false } : s));
   }, [campaigns]);
 
+  useEffect(() => {
+    campaignsRef.current = campaigns;
+  }, [campaigns]);
+
   // Mantem `metrics` alinhado ao funil acumulado do servidor.
   // Nao usamos mais `campaigns` para recalcular funil, pois isso apagava leitura/resposta
   // e criava divergencia na home/relatorios quando havia historico persistido.
@@ -395,6 +456,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         rmpRaw && typeof rmpRaw === 'object' && !Array.isArray(rmpRaw)
           ? (rmpRaw as ReligiousMemberProfile)
           : undefined;
+      const rawCtp = raw.campaignTablePreview;
+      const campaignTablePreview =
+        rawCtp && typeof rawCtp === 'object' && !Array.isArray(rawCtp) && String((rawCtp as Record<string, unknown>).campaignId || '').trim()
+          ? (() => {
+              const o = rawCtp as Record<string, unknown>;
+              const cid = String(o.campaignId || '').trim().slice(0, 64);
+              return {
+                campaignId: cid,
+                campaignName: String(o.campaignName || '').slice(0, 120),
+                sent: Math.max(0, Math.floor(Number(o.sent) || 0)),
+                totalStages: Math.max(1, Math.floor(Number(o.totalStages) || 1)),
+                pending: Math.max(0, Math.floor(Number(o.pending) || 0)),
+                updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : ''
+              };
+            })()
+          : undefined;
       return {
         id,
         name: raw.name || raw.nome || 'Sem Nome',
@@ -419,7 +496,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(aliasContactIds.length > 0 ? { aliasContactIds } : {}),
         ...(religiousMemberProfile && Object.keys(religiousMemberProfile).length > 0
           ? { religiousMemberProfile }
-          : {})
+          : {}),
+        ...(raw.marketingOptOut === true ? { marketingOptOut: true } : {}),
+        ...(raw.marketingOptIn === true ? { marketingOptIn: true } : {}),
+        ...(typeof raw.marketingConsentAt === 'string' && raw.marketingConsentAt.trim()
+          ? { marketingConsentAt: raw.marketingConsentAt.trim() }
+          : {}),
+        ...(typeof raw.marketingConsentText === 'string' && raw.marketingConsentText.trim()
+          ? { marketingConsentText: raw.marketingConsentText.trim().slice(0, 500) }
+          : {}),
+        ...(raw.campaignMessagesReceived != null && raw.campaignMessagesReceived !== ''
+          ? { campaignMessagesReceived: Math.max(0, Math.floor(Number(raw.campaignMessagesReceived) || 0)) }
+          : {}),
+        ...(campaignTablePreview ? { campaignTablePreview } : {})
       };
     };
 
@@ -649,9 +738,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
-    // LÓGICA DE CONEXÃO DINÂMICA
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const BACKEND_URL = isLocalhost ? "http://localhost:3001" : undefined;
+    const BACKEND_URL = getSocketIoOrigin();
     /** Evita corrida Firebase vs ref: o primeiro connections-update vinha antes do ref estar alinhado e esvaziava a lista (modo estrito uid__). */
     const getOwnerUidForConnectionScope = (): string =>
       currentUidRef.current ?? auth.currentUser?.uid ?? 'anonymous';
@@ -660,7 +747,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     console.log(`Iniciando conexão Socket.IO com: ${BACKEND_URL || 'origem relativa'}`);
 
-    socketRef.current = io(BACKEND_URL || undefined, {
+    socketRef.current = io(BACKEND_URL, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -1185,9 +1272,87 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             connectionId: payload.connectionId || '',
             createdAt: new Date().toISOString()
           }).catch(() => {});
+          const toRaw = payload.to;
+          if (typeof toRaw === 'string' && toRaw.trim()) {
+            const pkey = normPhoneKey(toRaw);
+            setContacts((prev) => {
+              const idx = prev.findIndex((c) => normPhoneKey(c.phone) === pkey);
+              if (idx < 0) return prev;
+              const row = prev[idx];
+              void persistCampaignDeliveryAndPreview(uid, row.id, payload.campaignId, campaignsRef.current).catch(
+                () => {}
+              );
+              const campaignDoc = campaignsRef.current.find((x) => x.id === payload.campaignId);
+              const totalStages = getCampaignStageTotal(campaignDoc);
+              const cname = String(campaignDoc?.name || 'Campanha').slice(0, 120);
+              const prevP = row.campaignTablePreview;
+              const same = prevP?.campaignId === payload.campaignId;
+              const optimisticSent = same ? (prevP?.sent ?? 0) + 1 : 1;
+              const optimisticPending = Math.max(0, totalStages - optimisticSent);
+              const at = new Date().toISOString();
+              const next = [...prev];
+              next[idx] = {
+                ...row,
+                campaignMessagesReceived: (row.campaignMessagesReceived || 0) + 1,
+                campaignTablePreview: {
+                  campaignId: payload.campaignId,
+                  campaignName: cname,
+                  sent: optimisticSent,
+                  totalStages,
+                  pending: optimisticPending,
+                  updatedAt: at
+                }
+              };
+              return next;
+            });
+          }
         }
       }
     });
+
+    socket.on(
+      'contact-marketing-consent',
+      (p: {
+        campaignId: string;
+        phoneDigits: string;
+        effect: 'opt_in' | 'opt_out';
+        replyText?: string;
+        at: string;
+      }) => {
+        const uid = currentUidRef.current;
+        if (!uid) return;
+        const key = normPhoneKey(p.phoneDigits);
+        setContacts((prev) => {
+          const idx = prev.findIndex((c) => normPhoneKey(c.phone) === key);
+          if (idx < 0) return prev;
+          const c = prev[idx];
+          const updates: Partial<Contact> =
+            p.effect === 'opt_in'
+              ? {
+                  marketingConsentAt: p.at,
+                  marketingConsentText: (p.replyText || '').slice(0, 500),
+                  marketingOptIn: true,
+                  marketingOptOut: false
+                }
+              : {
+                  marketingConsentAt: p.at,
+                  marketingConsentText: (p.replyText || '').slice(0, 500),
+                  marketingOptOut: true,
+                  marketingOptIn: false
+                };
+          const ref = doc(db, 'users', uid, 'contacts', c.id);
+          void updateDoc(ref, updates as Record<string, unknown>).catch(() => {});
+          const next = [...prev];
+          next[idx] = { ...c, ...updates };
+          return next;
+        });
+        if (p.effect === 'opt_in') {
+          toast.success('Autorização de marketing registrada (lead quente).', { duration: 5000 });
+        } else {
+          toast('Contato na lista negra de marketing.', { icon: '🚫', duration: 6000 });
+        }
+      }
+    );
 
     socket.on('system-log', (log: SystemLog) => {
       setSystemLogs(prev => [log, ...prev].slice(0, 200));
@@ -1221,7 +1386,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast('Campanha retomada!', { icon: '▶️' });
     });
 
+    /** Ao voltar ao separador/desktop, pede lista actuala — complementa pushes em tempo real. */
+    let lastConvResyncMs = 0;
+    const onVisibilityOrFocus = () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      if (!socket.connected) return;
+      const now = Date.now();
+      if (now - lastConvResyncMs < 4500) return;
+      lastConvResyncMs = now;
+      socket.emit('request-conversations-sync');
+    };
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('focus', onVisibilityOrFocus);
+
     return () => {
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      window.removeEventListener('focus', onVisibilityOrFocus);
       resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
       Object.values(campaignProgressPersistRef.current).forEach((entry) => {
         if (entry.timer) clearTimeout(entry.timer);
@@ -1981,6 +2161,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     try {
+      const ackTimeoutMs = startCampaignAckTimeoutMs(options?.mediaAttachment);
       const response = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
         let done = false;
         const finish = (payload: { ok: boolean; error?: string }) => {
@@ -2006,7 +2187,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         const timeoutId = setTimeout(() => {
           finish({ ok: false, error: 'Tempo esgotado ao iniciar campanha. Tente novamente.' });
-        }, 20000);
+        }, ackTimeoutMs);
 
         socket.on('campaign-started', onStarted);
         socket.on('campaign-error', onError);

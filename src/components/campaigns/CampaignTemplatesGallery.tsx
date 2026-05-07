@@ -45,13 +45,19 @@ const emptyDraft = (overrides: Partial<CampaignWizardDraft>): CampaignWizardDraf
 
 const stage = (
   body: string,
-  opts?: { acceptAnyReply?: boolean; validTokens?: string; invalidReplyBody?: string }
+  opts?: {
+    acceptAnyReply?: boolean;
+    validTokens?: string;
+    invalidReplyBody?: string;
+    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+  }
 ) => ({
   id: `stage-${Math.random().toString(36).slice(2, 10)}`,
   body,
   acceptAnyReply: opts?.acceptAnyReply ?? true,
   validTokensText: opts?.validTokens ?? '',
-  invalidReplyBody: opts?.invalidReplyBody ?? ''
+  invalidReplyBody: opts?.invalidReplyBody ?? '',
+  marketingEffect: opts?.marketingEffect ?? 'none'
 });
 
 const TEMPLATES: CampaignTemplate[] = [

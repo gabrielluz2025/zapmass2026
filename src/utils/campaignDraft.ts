@@ -15,14 +15,16 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
           body: step.body,
           acceptAnyReply: step.acceptAnyReply,
           validTokensText: (step.validTokens || []).join(', '),
-          invalidReplyBody: step.invalidReplyBody || ''
+          invalidReplyBody: step.invalidReplyBody || '',
+          marketingEffect: step.marketingEffect ?? 'none'
         }))
       : (c.messageStages?.length ? c.messageStages : [c.message]).map((body) => ({
           id: rid(),
           body,
           acceptAnyReply: true,
           validTokensText: '1, 2, sim, nao',
-          invalidReplyBody: 'Nao entendi. Responda com uma das opcoes indicadas acima.'
+          invalidReplyBody: 'Nao entendi. Responda com uma das opcoes indicadas acima.',
+          marketingEffect: 'none' as const
         }));
 
   return {
@@ -64,7 +66,8 @@ export function templateToWizardDraft(t: SavedCampaignTemplate): CampaignWizardD
       body: s.body,
       acceptAnyReply: s.acceptAnyReply,
       validTokensText: s.validTokensText,
-      invalidReplyBody: s.invalidReplyBody
+      invalidReplyBody: s.invalidReplyBody,
+      marketingEffect: s.marketingEffect ?? 'none'
     })),
     filterCities: [],
     filterChurches: [],

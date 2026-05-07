@@ -192,7 +192,7 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
 
 .wa-conv-name {
   font-size: 17px;
-  font-weight: 400;
+  font-weight: 600;
   color: var(--wa-text);
   letter-spacing: -0.005em;
 }

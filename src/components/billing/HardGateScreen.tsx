@@ -7,6 +7,7 @@ import { formatTrialDurationPhrase, formatTrialHoursLabel } from '../../utils/tr
 import { persistTrialEndFromServer } from '../../utils/trialLocalEnd';
 import { Button } from '../ui';
 import { UpgradeProModal } from './UpgradeProModal';
+import { apiUrl } from '../../utils/apiBase';
 
 /**
  * Primeiro acesso pós-login: oferece teste gratuito OU assinatura Pro.
@@ -25,7 +26,7 @@ export const HardGateScreen: React.FC = () => {
     setTrialLoading(true);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/trial/start', {
+      const res = await fetch(apiUrl('/api/billing/trial/start'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${idToken}` }
       });

@@ -36,6 +36,7 @@ import {
   getWhatsAppRiskAck,
   saveWhatsAppRiskAck
 } from '../utils/whatsappRiskStorage';
+import { apiUrl } from '../utils/apiBase';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, Input, SectionHeader } from './ui';
 import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
@@ -194,7 +195,7 @@ export const SettingsTab: React.FC = () => {
     if (section !== 'conta') return;
     let cancelled = false;
     setApiVersion(null);
-    fetch('/api/version')
+    fetch(apiUrl('/api/version'))
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: { version: string; startedAt: string }) => {
         if (!cancelled) setApiVersion({ version: d.version, startedAt: d.startedAt });

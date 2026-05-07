@@ -22,6 +22,8 @@ import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
+import { conversationsPayloadForViewer } from './conversationsEmit.js';
+import { ensureAssignmentsLoaded } from './inboxAssignments.js';
 import {
   WHATSAPP_AUDIO_MAX_BYTES,
   WHATSAPP_IMAGE_MAX_BYTES,
@@ -405,6 +407,11 @@ if (process.env.NODE_ENV === 'production') {
     // Se o ficheiro estatico nao existir, o catch-all nao deve servir index.html
     // (o browser trataria HTML como JS/CSS → falha silenciosa / tela preta).
     const p = req.path || '';
+    // Rotas /api devem estar registadas antes; se cair aqui, e 404 explicito — nunca index.html com 200.
+    if (p.startsWith('/api/')) {
+      res.status(404).type('application/json').json({ error: 'Not found', path: p });
+      return;
+    }
     if (p.startsWith('/assets/')) {
       res.status(404).type('text/plain').send('Not found');
       return;
@@ -611,7 +618,12 @@ const registerSocketHandlers = () => {
 
     socket.emit('connections-update', filterByConnectionScope(uid, waService.getConnections()));
     socket.emit('metrics-update', emptyMetrics);
-    socket.emit('conversations-update', waService.getConversations().filter((c) => ownsConnectionId(c.connectionId)));
+    void (async () => {
+      if (uid && uid !== 'anonymous') {
+        await ensureAssignmentsLoaded(uid).catch(() => undefined);
+      }
+      socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, waService.getConversations()));
+    })();
     socket.emit('warmup-update', getWarmupStateForUid());
     socket.emit('system-metrics', getSystemMetrics());
     // Envia funil por usuario autenticado para manter dashboard consistente
@@ -632,6 +644,16 @@ const registerSocketHandlers = () => {
     // Ping/pong para medir latência real no cliente
     socket.on('ping-latency', (ts: number) => {
       socket.emit('pong-latency', ts);
+    });
+
+    /** Re-sincroniza conversas ao voltar ao separador (evita sensação de “não é tempo real”). */
+    socket.on('request-conversations-sync', () => {
+      void (async () => {
+        if (uid && uid !== 'anonymous') {
+          await ensureAssignmentsLoaded(uid).catch(() => undefined);
+        }
+        socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, waService.getConversations()));
+      })();
     });
     
     socket.on('create-connection', ({ name }: { name?: string }) => {
@@ -1311,6 +1333,9 @@ const startServer = async (port: number): Promise<boolean> => {
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Servidor rodando na porta ${port}`);
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
+    console.log(
+      `[Socket.IO] maxHttpBufferSize=${socketMaxHttpBufferMb} MB (SOCKET_MAX_HTTP_BUFFER_MB; campanhas/chat em base64)`
+    );
     const mpOkListen = isMercadoPagoAccessTokenConfigured();
     if (mpOkListen) {
       console.log(`💳 Mercado Pago: token OK (configurado)`);

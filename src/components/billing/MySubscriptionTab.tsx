@@ -31,6 +31,7 @@ import {
   brl
 } from '../../constants/channelTierPricing';
 import type { UserSubscription } from '../../types';
+import { apiUrl } from '../../utils/apiBase';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
@@ -217,7 +218,7 @@ export const MySubscriptionTab: React.FC = () => {
     setBusy('cancel');
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/cancel-subscription', {
+      const res = await fetch(apiUrl('/api/billing/mercadopago/cancel-subscription'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` }
       });
@@ -240,7 +241,7 @@ export const MySubscriptionTab: React.FC = () => {
     setTierBusy(method);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/channel-plan', {
+      const res = await fetch(apiUrl('/api/billing/mercadopago/channel-plan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ method, channels, plan })
@@ -321,7 +322,7 @@ export const MySubscriptionTab: React.FC = () => {
     setBusy('pix');
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/billing/mercadopago/channel-plan', {
+      const res = await fetch(apiUrl('/api/billing/mercadopago/channel-plan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ plan: 'annual', method: 'pix', channels: contractedChannels })

@@ -4,11 +4,32 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { workspaceInviteLimiter } from './httpRateLimit.js';
+import { ownsConnectionForUid } from '../src/utils/connectionScope.js';
+import {
+  assignmentsSnapshotForTenant,
+  ensureAssignmentsLoaded,
+  inboxClaimConversation,
+  inboxReleaseConversation
+} from './inboxAssignments.js';
+import { getConversations, broadcastConversationsUpdate } from './whatsappService.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
   const m = /^Bearer\s+(.+)$/i.exec(h);
   return m ? m[1].trim() : null;
+}
+
+/** Dono ou membro da equipa (mesmo tenant em `users/{ownerUid}/...`). */
+async function resolveWorkspaceParticipant(
+  adminApp: NonNullable<ReturnType<typeof getFirebaseAdmin>>,
+  token: string
+): Promise<{ tenantUid: string; authUid: string }> {
+  const decoded = await getAuth(adminApp).verifyIdToken(token);
+  const authUid = decoded.uid;
+  const linkSnap = await adminApp.firestore().collection('userWorkspaceLinks').doc(authUid).get();
+  const ou = linkSnap.exists ? linkSnap.data()?.ownerUid : null;
+  const tenantUid = typeof ou === 'string' && ou.trim() ? ou.trim() : authUid;
+  return { tenantUid, authUid };
 }
 
 /** Só o dono da conta (sem estar ligado a workspace de terceiros) pode usar rotas administrativas. */
@@ -300,6 +321,103 @@ export function registerWorkspaceRoutes(app: Express): void {
       }
       console.error('[workspace/members]', e);
       return res.status(400).json({ ok: false, error: 'Falha ao listar a equipa.' });
+    }
+  });
+
+  /** Mapa conversa → UID de quem assumiu (para o dono na UI). Membro da equipa pode ler o próprio snapshot filtrado já vem no socket. */
+  app.get('/api/workspace/inbox-assignments', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    try {
+      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
+      if (authUid !== tenantUid) {
+        return res.status(403).json({ ok: false, error: 'Apenas o responsável pode ver todas as atribuições.' });
+      }
+      await ensureAssignmentsLoaded(tenantUid).catch(() => undefined);
+      return res.json({ ok: true, assignments: assignmentsSnapshotForTenant(tenantUid) });
+    } catch (e) {
+      console.error('[workspace/inbox-assignments]', e);
+      return res.status(400).json({ ok: false, error: 'Token inválido.' });
+    }
+  });
+
+  /** Funcionário (ou dono) assume uma conversa; persiste em Firestore e reemite lista. */
+  app.post('/api/workspace/inbox-claim', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    const conversationId =
+      typeof (req.body as { conversationId?: unknown })?.conversationId === 'string'
+        ? String((req.body as { conversationId?: string }).conversationId).trim()
+        : '';
+    if (!conversationId) {
+      return res.status(400).json({ ok: false, error: 'conversationId é obrigatório.' });
+    }
+    try {
+      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
+      const conv = getConversations().find((c) => c.id === conversationId);
+      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+        return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
+      }
+      const r = await inboxClaimConversation(tenantUid, authUid, conversationId, conv);
+      if (r.ok === false) {
+        if (r.code === 'ALREADY_CLAIMED') {
+          return res.status(409).json({ ok: false, error: 'Outro utilizador já assumiu esta conversa.' });
+        }
+        return res.status(500).json({ ok: false, error: 'Serviço temporariamente indisponível.' });
+      }
+      broadcastConversationsUpdate();
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[workspace/inbox-claim]', e);
+      return res.status(400).json({ ok: false, error: 'Falha ao assumir conversa.' });
+    }
+  });
+
+  /** Libertar conversa para a equipa. Dono pode libertar qualquer uma. */
+  app.delete('/api/workspace/inbox-claim/:conversationId', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    const conversationId = String(req.params.conversationId || '').trim();
+    if (!conversationId) {
+      return res.status(400).json({ ok: false, error: 'conversationId inválido.' });
+    }
+    try {
+      const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
+      const conv = getConversations().find((c) => c.id === conversationId);
+      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+        return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
+      }
+      const isOwner = authUid === tenantUid;
+      const r = await inboxReleaseConversation(tenantUid, authUid, conversationId, isOwner);
+      if (r.ok === false) {
+        if (r.code === 'NOT_YOUR_CLAIM') {
+          return res.status(403).json({ ok: false, error: 'Só pode libertar conversas que você assumiu.' });
+        }
+        return res.status(500).json({ ok: false, error: 'Serviço temporariamente indisponível.' });
+      }
+      broadcastConversationsUpdate();
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[workspace/inbox-claim DELETE]', e);
+      return res.status(400).json({ ok: false, error: 'Falha ao libertar conversa.' });
     }
   });
 }

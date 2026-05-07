@@ -33,6 +33,7 @@ import { useLandingDocumentMeta } from '../hooks/useLandingDocumentMeta';
 import { useAppConfig } from '../context/AppConfigContext';
 import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
+import { apiUrl } from '../utils/apiBase';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
 import {
   WHATSAPP_META_CLOUD_OVERVIEW,
@@ -154,7 +155,7 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({
     if (staffPass.length < 8) { toast.error('Senha deve ter ao menos 8 caracteres'); return; }
     setBusy(true);
     try {
-      const r = await fetch('/api/workspace/staff/sign-in', {
+      const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ managerEmail: me, loginName: slug, password: staffPass })

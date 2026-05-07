@@ -4,6 +4,7 @@ import { Copy, Info, Mail, RefreshCw, Shield, Unplug, Users } from 'lucide-react
 import toast from 'react-hot-toast';
 import { Card, CardHeader, Badge, Button } from '../ui';
 import { ConnectionStatus } from '../../types';
+import { apiUrl } from '../../utils/apiBase';
 
 type Row = {
   id: string;
@@ -97,7 +98,7 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
     setLoadError(null);
     try {
       const token = await user.getIdToken();
-      const r = await fetch('/api/admin/connections-overview', {
+      const r = await fetch(apiUrl('/api/admin/connections-overview'), {
         headers: { Authorization: `Bearer ${token}` }
       });
       const j = (await r.json()) as { ok?: boolean; error?: string; connections?: Row[] };
@@ -175,7 +176,7 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
     setActionId(id);
     try {
       const token = await user.getIdToken();
-      const r = await fetch('/api/admin/connections/revoke-pending', {
+      const r = await fetch(apiUrl('/api/admin/connections/revoke-pending'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
@@ -206,7 +207,7 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
     setActionId('__bulk__');
     try {
       const token = await user.getIdToken();
-      const r = await fetch('/api/admin/connections/revoke-pending-bulk', {
+      const r = await fetch(apiUrl('/api/admin/connections/revoke-pending-bulk'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });

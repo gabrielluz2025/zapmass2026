@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { clampLandingTrialBody, clampLandingTrialTitle } from '../constants/landingTrialLimits';
 import type { AppConfigGlobal } from '../types/appConfig';
 import { DEFAULT_APP_CONFIG } from '../types/appConfig';
+import { apiUrl } from '../utils/apiBase';
 
 interface AppConfigContextValue {
   config: AppConfigGlobal;
@@ -40,7 +41,7 @@ export const AppConfigProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   const reload = useCallback(async () => {
     try {
-      const res = await fetch('/api/app-config');
+      const res = await fetch(apiUrl('/api/app-config'));
       const data = await res.json().catch(() => ({}));
       if (data?.ok && data?.config) {
         setConfig(normalizePayload(data.config));

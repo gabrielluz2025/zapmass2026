@@ -7,6 +7,7 @@ import { auth } from '../../services/firebase';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { trackLandingEvent } from '../../utils/marketingEvents';
+import { apiUrl } from '../../utils/apiBase';
 
 /** Título e subtítulo padrão (landing + rota de login isolada). */
 export const loginCardDefaultCopy = {
@@ -194,7 +195,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     }
     setLoading('staff');
     try {
-      const r = await fetch('/api/workspace/staff/sign-in', {
+      const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

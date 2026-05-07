@@ -1,8 +1,6 @@
 import type { Contact, Conversation } from '../types';
 import { normPhoneKey } from './brPhoneNormalize';
 
-export { normPhoneKey };
-
 export type ContactTemperature = 'hot' | 'warm' | 'cold' | 'new';
 
 export interface TempStats {
@@ -39,7 +37,11 @@ export function classifyTemperature(stats: Omit<TempStats, 'temp' | 'score'>): {
   const recencyBonus = daysSinceReply < 30 ? 30 : daysSinceReply < 90 ? 15 : 0;
   const readBonus = daysSinceRead < 30 ? 10 : daysSinceRead < 90 ? 5 : 0;
   const score = Math.round(
-    stats.replied * 25 + stats.read * 4 + stats.delivered * 1.5 + recencyBonus + readBonus
+    Math.min(stats.replied, 10) * 25 +
+      stats.read * 4 +
+      stats.delivered * 1.5 +
+      recencyBonus +
+      readBonus
   );
 
   if (daysSinceReply <= 30 || stats.replied >= 2) return { temp: 'hot', score };
@@ -85,7 +87,7 @@ export function computeContactTemperatures(
 
   for (const conv of conversations) {
     const phoneKey = normPhoneKey(convPrimaryDigits(conv));
-    if (!phoneKey || phoneKey.length < 12) continue;
+    if (!phoneKey || phoneKey.length < 11) continue;
     const s = accum(phoneKey);
     const all = conv.messages || [];
     const msgs = all.length > MAX_MESSAGES_SCAN_PER_CONV ? all.slice(all.length - MAX_MESSAGES_SCAN_PER_CONV) : all;
@@ -106,14 +108,16 @@ export function computeContactTemperatures(
       }
     }
     if (maxOutTs > 0) {
+      let bestReplyTs = 0;
       for (let i = 0; i < msgs.length; i++) {
         const m = msgs[i];
         if (m.sender !== 'them') continue;
         const ts = m.timestampMs || (m.timestamp ? Date.parse(m.timestamp) : 0) || 0;
-        if (ts > maxOutTs) {
-          s.replied++;
-          if (ts > s.lastReplyTs) s.lastReplyTs = ts;
-        }
+        if (ts > maxOutTs && ts > bestReplyTs) bestReplyTs = ts;
+      }
+      if (bestReplyTs > 0) {
+        s.replied++;
+        if (bestReplyTs > s.lastReplyTs) s.lastReplyTs = bestReplyTs;
       }
     }
   }

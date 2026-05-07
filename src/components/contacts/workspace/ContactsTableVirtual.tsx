@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   CheckSquare, Square, Flame, Sparkles, Snowflake, Clock, MapPin, Phone,
   MoreHorizontal, MessageCircle, Rocket, Edit3, Trash2, Copy, AlertCircle,
-  ListPlus, Users
+  ListPlus, Users, Megaphone
 } from 'lucide-react';
 import type { Contact } from '../../../types';
 import { formatFollowUpLabel, localStartOfTodayMs, parseFollowUpMs } from '../../../utils/followUp';
@@ -46,8 +46,8 @@ const tempMeta: Record<Temperature, { icon: React.ReactNode; color: string; labe
   new: { icon: <Clock className="w-3 h-3" />, color: 'text-slate-400', label: 'Sem hist.' }
 };
 
-/** Altura suficiente para nome + tags + linha opcional de retorno. */
-const ROW_HEIGHT = 72;
+/** Altura suficiente para nome + tags + linha opcional de retorno + coluna disparos. */
+const ROW_HEIGHT = 76;
 
 const formatPhone = (raw: string): string => {
   const d = (raw || '').replace(/\D/g, '');
@@ -56,6 +56,43 @@ const formatPhone = (raw: string): string => {
   if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
   return raw || '';
+};
+
+/** Coluna Disparos: última campanha com etapas ou contador global legado. */
+const DispatchSummary: React.FC<{ contact: Contact }> = ({ contact }) => {
+  const p = contact.campaignTablePreview;
+  const legacyTotal = contact.campaignMessagesReceived ?? 0;
+  if (p && p.campaignId) {
+    return (
+      <div className="min-w-0">
+        <div className="flex items-center gap-1 font-mono text-[11px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+          <Megaphone className="w-3 h-3 text-slate-400 shrink-0" aria-hidden />
+          <span>
+            {p.sent}/{p.totalStages}
+          </span>
+          {p.pending > 0 && (
+            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400" title="Etapas pendentes nesta campanha">
+              ({p.pending} falta{p.pending !== 1 ? 'm' : ''})
+            </span>
+          )}
+        </div>
+        <div
+          className="truncate text-[10px] text-slate-500 dark:text-slate-400 mt-0.5"
+          title={p.campaignName || undefined}
+        >
+          {p.campaignName || 'Campanha'}
+        </div>
+      </div>
+    );
+  }
+  if (legacyTotal > 0) {
+    return (
+      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+        {legacyTotal} msg (total)
+      </span>
+    );
+  }
+  return <span className="text-slate-400 dark:text-slate-500">—</span>;
 };
 
 /**
@@ -96,7 +133,7 @@ export const ContactsTableVirtual: React.FC<Props> = ({
   return (
     <div className="ui-card flex flex-col overflow-hidden">
       {/* Cabeçalho da tabela */}
-      <div className="grid grid-cols-[36px_1.8fr_1.2fr_1fr_100px_80px] items-center gap-3 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 shrink-0">
+      <div className="grid grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] items-center gap-3 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 shrink-0">
         <button
           onClick={onToggleSelectAll}
           className="flex items-center justify-center text-slate-500 hover:text-[var(--brand-600)] transition"
@@ -107,6 +144,7 @@ export const ContactsTableVirtual: React.FC<Props> = ({
         <span>Contato</span>
         <span>Telefone</span>
         <span className="hidden md:inline">Cidade</span>
+        <span className="hidden lg:inline">Disparos</span>
         <span className="hidden md:inline">Temp.</span>
         <span className="text-right">Ações</span>
       </div>
@@ -216,7 +254,7 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
     <div
       role="row"
       onClick={() => onRowClick(contact)}
-      className={`grid grid-cols-[36px_1.8fr_1.2fr_1fr_100px_80px] items-center gap-3 px-4 border-b border-slate-100 dark:border-slate-800/70 cursor-pointer transition group ${
+      className={`grid grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] items-center gap-3 px-4 border-b border-slate-100 dark:border-slate-800/70 cursor-pointer transition group ${
         highlighted
           ? 'bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]'
           : selected
@@ -282,6 +320,11 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
       <div className="hidden md:flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400 min-w-0">
         <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
         <span className="truncate">{cityState}</span>
+      </div>
+
+      {/* disparos / etapas por campanha */}
+      <div className="hidden lg:flex flex-col justify-center min-w-0 pr-1">
+        <DispatchSummary contact={contact} />
       </div>
 
       {/* temperatura */}

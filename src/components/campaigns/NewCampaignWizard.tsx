@@ -57,6 +57,7 @@ import {
   explainWhatsAppMediaFallback,
   mediaShouldSendAsDocument
 } from '../../utils/whatsappMediaLimits';
+import { normPhoneKey } from '../../utils/brPhoneNormalize';
 
 type CampaignFlowMode = 'sequential' | 'reply';
 
@@ -66,6 +67,8 @@ type MessageStageDraft = {
   acceptAnyReply: boolean;
   validTokensText: string;
   invalidReplyBody: string;
+  /** Quando a resposta for válida nesta etapa (fluxo por respostas). */
+  marketingEffect: 'none' | 'opt_in' | 'opt_out';
 };
 
 const newMessageStage = (): MessageStageDraft => ({
@@ -76,7 +79,8 @@ const newMessageStage = (): MessageStageDraft => ({
   body: '',
   acceptAnyReply: true,
   validTokensText: '1, 2, sim, nao',
-  invalidReplyBody: 'Nao entendi. Responda com uma das opcoes indicadas acima.'
+  invalidReplyBody: 'Nao entendi. Responda com uma das opcoes indicadas acima.',
+  marketingEffect: 'none'
 });
 
 const parseValidTokensText = (s: string) =>
@@ -328,12 +332,23 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     return out;
   }, [contacts, selectedList]);
 
+  const marketingOptOutPhoneKeys = useMemo(
+    () => new Set(contacts.filter((c) => c.marketingOptOut).map((c) => normPhoneKey(c.phone))),
+    [contacts]
+  );
+
   const selectedListContactsForSend = useMemo(() => {
-    if (filterTemps.size === 0) return selectedListContacts;
-    return selectedListContacts.filter((c) =>
+    const withoutOptOut = selectedListContacts.filter((c) => !c.marketingOptOut);
+    if (filterTemps.size === 0) return withoutOptOut;
+    return withoutOptOut.filter((c) =>
       filterTemps.has((contactTemps[c.id]?.temp ?? 'new') as ContactTemperature)
     );
   }, [selectedListContacts, filterTemps, contactTemps]);
+
+  const listOptOutExcludedCount = useMemo(
+    () => selectedListContacts.filter((c) => c.marketingOptOut).length,
+    [selectedListContacts]
+  );
 
   const selectedListNumbers = useMemo(
     () => selectedListContactsForSend.map((c) => c.phone),
@@ -344,15 +359,23 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     ? Math.max(selectedList.contactIds.length - selectedListNumbers.length, 0)
     : 0;
 
-  const parseManualNumbers = () =>
-    Array.from(
-      new Set(
-        manualNumbers
-          .split(/[\n,;]/)
-          .map((item) => item.replace(/\D/g, ''))
-          .filter((item) => item.length >= 10)
-      )
-    );
+  const rawManualNumbers = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          manualNumbers
+            .split(/[\n,;]/)
+            .map((item) => item.replace(/\D/g, ''))
+            .filter((item) => item.length >= 10)
+        )
+      ),
+    [manualNumbers]
+  );
+
+  const manualNumbersForSend = useMemo(
+    () => rawManualNumbers.filter((n) => !marketingOptOutPhoneKeys.has(normPhoneKey(n))),
+    [rawManualNumbers, marketingOptOutPhoneKeys]
+  );
 
   // ============================================================
   // FILTRO POR ATRIBUTO (cidade / igreja / cargo)
@@ -432,6 +455,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     for (const c of contacts) {
       const phone = (c.phone || '').replace(/\D/g, '');
       if (phone.length < 10 || seen.has(phone)) continue;
+      if (c.marketingOptOut) continue;
       if (filterCities.size > 0 && !filterCities.has(normalize(c.city))) continue;
       if (filterChurches.size > 0 && !filterChurches.has(normalize(c.church))) continue;
       if (filterRoles.size > 0 && !filterRoles.has(normalize(c.role))) continue;
@@ -624,7 +648,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setSelectedConnectionIds(initialDraft.selectedConnectionIds);
     setDelaySeconds(initialDraft.delaySeconds);
     setCampaignFlowMode(initialDraft.campaignFlowMode);
-    setMessageStages(initialDraft.messageStages.map((s) => ({ ...s, id: s.id || newMessageStage().id })));
+    setMessageStages(
+      initialDraft.messageStages.map((s) => ({
+        ...newMessageStage(),
+        ...s,
+        id: s.id || newMessageStage().id,
+        marketingEffect: s.marketingEffect ?? 'none'
+      }))
+    );
     setFilterCities(new Set(initialDraft.filterCities));
     setFilterChurches(new Set(initialDraft.filterChurches));
     setFilterRoles(new Set(initialDraft.filterRoles));
@@ -709,7 +740,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     sendMode === 'list'
       ? selectedListNumbers
       : sendMode === 'manual'
-      ? parseManualNumbers()
+      ? manualNumbersForSend
       : filteredNumbers;
   const connectedIds = getConnectedSelectedIds();
 
@@ -717,7 +748,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     sendMode === 'list'
       ? selectedListNumbers.length > 0
       : sendMode === 'manual'
-      ? parseManualNumbers().length > 0
+      ? manualNumbersForSend.length > 0
       : filteredNumbers.length > 0;
   const replyFlowGatesOk =
     campaignFlowMode !== 'reply' ||
@@ -936,7 +967,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               body: s.body.trim(),
               acceptAnyReply: s.acceptAnyReply,
               validTokens: parseValidTokensText(s.validTokensText),
-              invalidReplyBody: s.invalidReplyBody.trim()
+              invalidReplyBody: s.invalidReplyBody.trim(),
+              marketingEffect: s.marketingEffect ?? 'none'
             }))
           }
         : undefined;
@@ -1353,12 +1385,19 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
                     DDI + DDD + numero - separar por linha, virgula ou ponto e virgula
                   </p>
-                  {parseManualNumbers().length > 0 && (
+                  {rawManualNumbers.length > 0 && (
                     <p
                       className="text-[11.5px] mt-1 font-semibold"
                       style={{ color: 'var(--brand-600)' }}
                     >
-                      ✓ {parseManualNumbers().length} numero{parseManualNumbers().length > 1 ? 's' : ''} validos
+                      ✓ {manualNumbersForSend.length} número{manualNumbersForSend.length !== 1 ? 's' : ''} para
+                      envio
+                      {rawManualNumbers.length > manualNumbersForSend.length && (
+                        <span style={{ color: 'var(--text-3)' }}>
+                          {' '}
+                          ({rawManualNumbers.length - manualNumbersForSend.length} na lista negra de marketing, ignorados)
+                        </span>
+                      )}
                     </p>
                   )}
                 </div>
@@ -1579,6 +1618,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       </span>
                     </div>
                   )}
+                  {listOptOutExcludedCount > 0 && (
+                    <div className="flex items-center justify-between text-[12px] mt-1">
+                      <span style={{ color: 'var(--text-3)' }}>Lista negra de marketing (não recebem disparo)</span>
+                      <span className="font-semibold" style={{ color: '#64748b' }}>
+                        {listOptOutExcludedCount}
+                      </span>
+                    </div>
+                  )}
                   {selectedListNumbers.length === 0 && selectedList.contactIds.length > 0 && (
                     <p className="text-[11.5px] mt-2 leading-relaxed" style={{ color: 'var(--text-2)' }}>
                       Nenhum número válido (mín. 10 dígitos) ou os IDs da lista não existem mais na sua base — por
@@ -1672,6 +1719,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     seguintes só saem <strong style={{ color: 'var(--text-1)' }}>depois que o contato responder</strong>{' '}
                     e passar pela regra da etapa em espera (aceitar qualquer resposta ou palavras definidas em cada etapa).
                     Se parecer que “travou na primeira mensagem”, confira estas regras ou troque para sequência automática.
+                    Em cada etapa você pode marcar efeito de CRM: quando a resposta for válida, registrar{' '}
+                    <strong style={{ color: 'var(--text-1)' }}>autorização de marketing</strong> (lead quente) ou{' '}
+                    <strong style={{ color: 'var(--text-1)' }}>lista negra</strong>, gravando o texto que a pessoa enviou.
                   </p>
                 )}
               </div>
@@ -1893,7 +1943,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             body: s.body,
                             acceptAnyReply: s.acceptAnyReply,
                             validTokensText: s.validTokensText,
-                            invalidReplyBody: s.invalidReplyBody
+                            invalidReplyBody: s.invalidReplyBody,
+                            marketingEffect: s.marketingEffect
                           }))
                         })
                       );
@@ -1998,6 +2049,32 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       </div>
                     </div>
                   )}
+                  <div className="pt-3 mt-2 border-t border-[var(--border-subtle)] space-y-1.5">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider block" style={{ color: 'var(--text-3)' }}>
+                      Se a resposta for válida nesta etapa (CRM)
+                    </label>
+                    <select
+                      className="w-full rounded-lg border px-3 py-2 text-[12.5px]"
+                      style={{
+                        borderColor: 'var(--border)',
+                        background: 'var(--surface-0)',
+                        color: 'var(--text-1)'
+                      }}
+                      value={messageStages[activeStageIdx].marketingEffect}
+                      onChange={(e) =>
+                        patchActiveStage({
+                          marketingEffect: e.target.value as 'none' | 'opt_in' | 'opt_out'
+                        })
+                      }
+                    >
+                      <option value="none">Nenhum efeito extra</option>
+                      <option value="opt_in">Autorizou marketing (lead quente) — grava o texto da resposta</option>
+                      <option value="opt_out">Lista negra — não autorizou disparos (grava o texto da resposta)</option>
+                    </select>
+                    <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                      Combina com “Respostas aceitas” quando você usa opções numeradas (ex.: 1 = sim, 2 = não).
+                    </p>
+                  </div>
                 </div>
               )}
             </Card>

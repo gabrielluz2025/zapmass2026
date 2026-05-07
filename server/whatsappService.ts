@@ -12,6 +12,7 @@ import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import * as advancedFeatures from './advancedFeatures.js';
 import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/connectionScope.js';
+import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 
@@ -1293,6 +1294,10 @@ let campaignGeoEmitPendingId: string | null = null;
 // Para cada conversa, lista de timestamps de disparos de campanha que ainda
 // nao receberam reply contabilizado. Quando chega um msg incoming 'them',
 // pega o disparo mais recente <= ts, marca como contabilizado e incrementa replied.
+
+/** Evita inflar "Respostas" no funil: uma unica contagem por campanha + contacto (+ canal), mesmo com varias etapas. */
+const funnelRepliedOnceByOwnerCampaignContact = new Set<string>();
+
 interface PendingCampaignSend {
     ts: number;
     counted: boolean;          // contabilizada como reply
@@ -1675,11 +1680,29 @@ const handleIncomingForFunnel = (conversationId: string, incomingTs: number, pho
         if (!candidate || send.ts > candidate.ts) candidate = send;
     }
     if (candidate) {
+        const cid = candidate.campaignId;
+        const ownerUid = candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined);
+        const phoneNorm =
+            (hint.length >= 10 ? hint : '') || (chatPart ? toPhoneKey(chatPart) : '');
+        const dedupKey =
+            cid && connId && phoneNorm.length >= 10
+                ? `${ownerUid || 'unknown'}__${cid}__${connId}__${phoneNorm}`
+                : '';
+
+        if (dedupKey && funnelRepliedOnceByOwnerCampaignContact.has(dedupKey)) {
+            candidate.counted = true;
+            for (const send of list) {
+                if (send.campaignId === cid && !send.counted) send.counted = true;
+            }
+            return;
+        }
+
+        if (dedupKey) funnelRepliedOnceByOwnerCampaignContact.add(dedupKey);
         candidate.counted = true;
+
         funnelStats.totalReplied++;
         funnelStats.updatedAt = Date.now();
-        const cid = candidate.campaignId;
-        const ownerForFunnel = candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined);
+        const ownerForFunnel = ownerUid;
         incrementOwnerFunnel(ownerForFunnel, { totalReplied: 1 });
         const uf = phoneDigitsToUf(toPhoneKey(chatPart || '')) || GEO_UNKNOWN_UF;
         if (cid) bumpCampaignGeo(cid, uf, 'replied');
@@ -2623,14 +2646,20 @@ const emitConversationsUpdate = () => {
 
         if (!io) return;
         for (const socket of getConnectedSocketsSafe()) {
-            const uid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
-            socket.emit('conversations-update', filterByConnectionScope(uid, payload));
+            const tenantUid = String((socket.data as { uid?: string }).uid ?? 'anonymous');
+            const authUid = String((socket.data as { authUid?: string }).authUid ?? tenantUid);
+            socket.emit('conversations-update', conversationsPayloadForViewer(tenantUid, authUid, conversations));
         }
         console.log(`[emitConversations] Emitiu com sucesso`);
     } catch (e: any) {
         console.error('[CRASH] Erro ao emitir conversations-update:', e?.message || e, e?.stack?.split('\n')[1] || '');
         // Em worker sem Socket.IO real, so registramos e seguimos.
     }
+};
+
+/** Reemitir lista após claim/release de inbox (REST). */
+export const broadcastConversationsUpdate = (): void => {
+    emitConversationsUpdate();
 };
 
 // --- PROFILE PICTURE PROGRESSIVE LOADER ---
@@ -3859,10 +3888,13 @@ type ReplyFlowStepDef = {
     acceptAnyReply: boolean;
     validTokens: string[];
     invalidReplyBody: string;
+    /** CRM: opt_in / opt_out quando resposta valida nesta etapa */
+    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
 };
 
 type ReplyFlowSession = {
     campaignId: string;
+    ownerUid?: string;
     /** Indice da etapa ja enviada; aguardamos resposta conforme o gate desta etapa antes de enviar a proxima. */
     awaitingAfterStep: number;
     vars: Record<string, string>;
@@ -3906,18 +3938,48 @@ const disposeReplyFlowSession = (canonicalKey: string, session: ReplyFlowSession
     maybeClearReplyFlowDef(session.campaignId);
 };
 
+const emitReplyFlowMarketingConsent = (
+    ownerUid: string | undefined,
+    campaignId: string,
+    effect: 'opt_in' | 'opt_out',
+    phoneDigits: string,
+    replyText: string
+) => {
+    if (!ownerUid || !campaignId) return;
+    const digits = String(phoneDigits || '').replace(/\D/g, '');
+    emitToOwnerUid('contact-marketing-consent', ownerUid, {
+        campaignId,
+        phoneDigits: digits,
+        effect,
+        replyText: String(replyText || '').slice(0, 500),
+        at: new Date().toISOString()
+    });
+};
+
 const sanitizeReplyFlowSteps = (
-    raw: Array<{ body?: string; acceptAnyReply?: boolean; validTokens?: string[]; invalidReplyBody?: string }>
+    raw: Array<{
+        body?: string;
+        acceptAnyReply?: boolean;
+        validTokens?: string[];
+        invalidReplyBody?: string;
+        marketingEffect?: string;
+    }>
 ): ReplyFlowStepDef[] => {
     return raw
-        .map((s) => ({
-            body: String(s.body || '').trim(),
-            acceptAnyReply: Boolean(s.acceptAnyReply),
-            validTokens: Array.isArray(s.validTokens)
-                ? s.validTokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
-                : [],
-            invalidReplyBody: String(s.invalidReplyBody || '').trim()
-        }))
+        .map((s) => {
+            const me = String(s.marketingEffect || 'none').toLowerCase();
+            const marketingEffect: 'none' | 'opt_in' | 'opt_out' =
+                me === 'opt_in' || me === 'opt_out' ? me : 'none';
+            return {
+                body: String(s.body || '').trim(),
+                acceptAnyReply: Boolean(s.acceptAnyReply),
+                validTokens: Array.isArray(s.validTokens)
+                    ? s.validTokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
+                    : [],
+                invalidReplyBody: String(s.invalidReplyBody || '').trim(),
+                marketingEffect
+            };
+        })
         .filter((s) => s.body.length > 0);
 };
 
@@ -4100,7 +4162,8 @@ const handleReplyFlowIncoming = (
 
     if (awaiting >= steps.length - 1) {
         const gate = steps[steps.length - 1];
-        if (!replyMatchesGate(gate, bodyText, { nonTextReply }) && gate.invalidReplyBody) {
+        const gateOk = replyMatchesGate(gate, bodyText, { nonTextReply });
+        if (!gateOk && gate.invalidReplyBody) {
             const inv = applyMessageVars(gate.invalidReplyBody, phoneDigits, session.vars);
             void enqueueReplyFlowOutbound({
                 to: session.toRaw,
@@ -4110,6 +4173,11 @@ const handleReplyFlowIncoming = (
                 queueCampaignId: session.campaignId
             });
             return;
+        }
+        if (gateOk && gate.marketingEffect === 'opt_in') {
+            emitReplyFlowMarketingConsent(session.ownerUid, session.campaignId, 'opt_in', phoneDigits, bodyText);
+        } else if (gateOk && gate.marketingEffect === 'opt_out') {
+            emitReplyFlowMarketingConsent(session.ownerUid, session.campaignId, 'opt_out', phoneDigits, bodyText);
         }
         disposeReplyFlowSession(key, session);
         return;
@@ -4128,6 +4196,12 @@ const handleReplyFlowIncoming = (
             });
         }
         return;
+    }
+
+    if (gateStep.marketingEffect === 'opt_in') {
+        emitReplyFlowMarketingConsent(session.ownerUid, session.campaignId, 'opt_in', phoneDigits, bodyText);
+    } else if (gateStep.marketingEffect === 'opt_out') {
+        emitReplyFlowMarketingConsent(session.ownerUid, session.campaignId, 'opt_out', phoneDigits, bodyText);
     }
 
     const nextIdx = awaiting + 1;
@@ -4191,6 +4265,7 @@ export const startCampaign = async (
             acceptAnyReply?: boolean;
             validTokens?: string[];
             invalidReplyBody?: string;
+            marketingEffect?: string;
         }>;
     },
     ownerUidHint?: string,
@@ -4848,6 +4923,7 @@ const processQueue = async () => {
                 const convKey = getConversationKey(item.connectionId, finalChatId);
                 replyFlowSessions.set(sessKey, {
                     campaignId: item.replyFlowOpen.campaignId,
+                    ownerUid: currentCampaign.ownerUid,
                     awaitingAfterStep: 0,
                     vars: item.replyFlowOpen.vars,
                     toRaw: item.to,
@@ -5468,9 +5544,6 @@ export const loadChatHistory = async (
             };
         }
 
-        const effectiveLimit = Math.max(50, Math.min(limit, MAX_MESSAGES));
-        console.log(`[loadChatHistory] ${conversationId} → fetching ${effectiveLimit} (skipMedia=${skipMedia})`);
-
         const chat: any = await client.getChatById(chatId).catch(() => null);
         if (!chat) {
             const conv0 = conversations.find((c) => c.id === conversationId);
@@ -5481,6 +5554,16 @@ export const loadChatHistory = async (
             };
         }
 
+        let conv = conversations.find((c) => c.id === conversationId);
+        const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
+        const have = conv?.messages?.length ?? 0;
+        /** fetchMessages(limit) devolve as N mensagens mais recentes; se já temos mais que N
+         *  em cache local, o resultado não inclui mensagens mais antigas sem pedir N maior. */
+        const effectiveLimit = Math.min(MAX_MESSAGES, Math.max(requested, have > 0 ? have + 80 : requested));
+        console.log(
+            `[loadChatHistory] ${conversationId} → fetching ${effectiveLimit} (skipMedia=${skipMedia}, requested=${requested}, localMsgs=${have})`
+        );
+
         const fetched = await chat.fetchMessages({ limit: effectiveLimit }).catch(() => []);
         // Converte em ordem cronologica (fetchMessages retorna do mais novo ao mais antigo)
         const converted: ChatMessage[] = await Promise.all(
@@ -5489,8 +5572,6 @@ export const loadChatHistory = async (
                 .map((m: any) => toChatMessage(m, { skipMedia }))
         );
         converted.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
-
-        let conv = conversations.find((c) => c.id === conversationId);
 
         // Conversa nao existia em memoria — cria uma entry a partir do chat do WhatsApp
         // para poder manter o fluxo de historico sem jogar um erro na cara do usuario.

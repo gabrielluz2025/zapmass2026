@@ -6,6 +6,7 @@ import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { persistTrialEndFromServer } from '../../utils/trialLocalEnd';
 import { trackTrialStarted } from '../../utils/marketingEvents';
 import { isAdminUserEmail } from '../../utils/adminAccess';
+import { apiUrl } from '../../utils/apiBase';
 
 /** Se a landing marcou sessionStorage, inicia o teste de 1h uma vez apos o login. */
 export const TrialAutoStart: React.FC = () => {
@@ -36,7 +37,7 @@ export const TrialAutoStart: React.FC = () => {
     (async () => {
       try {
         const idToken = await user.getIdToken();
-        const res = await fetch('/api/billing/trial/start', {
+        const res = await fetch(apiUrl('/api/billing/trial/start'), {
           method: 'POST',
           headers: { Authorization: `Bearer ${idToken}` }
         });

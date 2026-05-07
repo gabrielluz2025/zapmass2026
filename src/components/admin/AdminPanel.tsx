@@ -12,6 +12,7 @@ import {
   LANDING_TRIAL_TITLE_MAX_CHARS
 } from '../../constants/landingTrialLimits';
 import { resolveLandingTrialCopy } from '../../utils/landingTrialResolved';
+import { apiUrl } from '../../utils/apiBase';
 
 type AdminTab = 'config' | 'access' | 'suggestions';
 
@@ -247,7 +248,7 @@ export const AdminPanel: React.FC = () => {
     setSaving(true);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/admin/app-config', {
+      const res = await fetch(apiUrl('/api/admin/app-config'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -291,7 +292,7 @@ export const AdminPanel: React.FC = () => {
     try {
       const idToken = await user.getIdToken();
       const qs = searchTerm.trim() ? `?search=${encodeURIComponent(searchTerm.trim())}` : '';
-      const res = await fetch(`/api/admin/access-users${qs}`, {
+      const res = await fetch(apiUrl(`/api/admin/access-users${qs}`), {
         headers: { Authorization: `Bearer ${idToken}` }
       });
       const data = await res.json().catch(() => ({}));
@@ -318,7 +319,7 @@ export const AdminPanel: React.FC = () => {
     setSuggestionsLoading(true);
     try {
       const h = await authHeaders();
-      const res = await fetch('/api/admin/product-suggestions?limit=120', {
+      const res = await fetch(apiUrl('/api/admin/product-suggestions?limit=120'), {
         headers: { Authorization: h.Authorization || '' }
       });
       const data = await res.json().catch(() => ({}));
@@ -348,7 +349,9 @@ export const AdminPanel: React.FC = () => {
     try {
       const h = await authHeaders();
       const res = await fetch(
-        `/api/admin/product-suggestions/${encodeURIComponent(s.uid)}/${encodeURIComponent(s.id)}/replies`,
+        apiUrl(
+          `/api/admin/product-suggestions/${encodeURIComponent(s.uid)}/${encodeURIComponent(s.id)}/replies`
+        ),
         { headers: { Authorization: h.Authorization || '' } }
       );
       const data = await res.json().catch(() => ({}));
@@ -395,7 +398,9 @@ export const AdminPanel: React.FC = () => {
     try {
       const h = await authHeaders();
       const res = await fetch(
-        `/api/admin/product-suggestions/${encodeURIComponent(replyTarget.uid)}/${encodeURIComponent(replyTarget.id)}/reply`,
+        apiUrl(
+          `/api/admin/product-suggestions/${encodeURIComponent(replyTarget.uid)}/${encodeURIComponent(replyTarget.id)}/reply`
+        ),
         {
           method: 'POST',
           headers: h,
@@ -501,7 +506,7 @@ export const AdminPanel: React.FC = () => {
       channelGrantMode?: 'set' | 'extend';
     }
   ) => {
-    const res = await fetch('/api/admin/access-user', {
+    const res = await fetch(apiUrl('/api/admin/access-user'), {
       method: 'PUT',
       headers: await authHeaders(),
       body: JSON.stringify(payload)
@@ -518,7 +523,7 @@ export const AdminPanel: React.FC = () => {
     setAuditLoading(true);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch('/api/admin/access-audit?limit=80', {
+      const res = await fetch(apiUrl('/api/admin/access-audit?limit=80'), {
         headers: { Authorization: `Bearer ${idToken}` }
       });
       const data = await res.json().catch(() => ({}));
@@ -659,7 +664,7 @@ export const AdminPanel: React.FC = () => {
     setInsightsLoading(true);
     try {
       const idToken = await user.getIdToken();
-      const res = await fetch(`/api/admin/access-user-insights?uid=${encodeURIComponent(uid)}`, {
+      const res = await fetch(apiUrl(`/api/admin/access-user-insights?uid=${encodeURIComponent(uid)}`), {
         headers: { Authorization: `Bearer ${idToken}` }
       });
       const data = await res.json().catch(() => ({}));

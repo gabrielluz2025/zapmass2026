@@ -3,6 +3,7 @@ import { Code2, ExternalLink, RefreshCw, Shield, Wrench, AlertTriangle, Lock } f
 import { Button, Card } from '../ui';
 import { useMainLayoutNav } from '../../context/MainLayoutNavContext';
 import { useZapMass } from '../../context/ZapMassContext';
+import { apiUrl } from '../../utils/apiBase';
 
 type HealthJson = { status?: string; serverTime?: string; version?: string } | null;
 type VersionJson = { version?: string; startedAt?: string; environment?: string } | null;
@@ -60,8 +61,8 @@ export const CreatorStudio: React.FC = () => {
     setErr(null);
     try {
       const [h, v] = await Promise.all([
-        fetch('/api/health').then((r) => r.json()),
-        fetch('/api/version').then((r) => r.json())
+        fetch(apiUrl('/api/health')).then((r) => r.json()),
+        fetch(apiUrl('/api/version')).then((r) => r.json())
       ]);
       setHealth(h);
       setVersion(v);
@@ -208,7 +209,7 @@ export const CreatorStudio: React.FC = () => {
               {health ? JSON.stringify(health, null, 2) : loading ? '...' : '—'}
             </pre>
             <a
-              href="/api/health"
+              href={apiUrl('/api/health')}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[11px] mt-2 font-semibold text-emerald-600 hover:underline"
@@ -227,7 +228,7 @@ export const CreatorStudio: React.FC = () => {
               {version ? JSON.stringify(version, null, 2) : loading ? '...' : '—'}
             </pre>
             <a
-              href="/api/version"
+              href={apiUrl('/api/version')}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-[11px] mt-2 font-semibold text-emerald-600 hover:underline"

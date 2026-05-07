@@ -1,13 +1,18 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   X, Phone, Mail, MapPin, Church, Briefcase, Cake, Tag, Edit3, Trash2,
   MessageCircle, Rocket, Copy, Flame, Snowflake, Clock, User as UserIcon,
-  Sparkles, ListPlus, CalendarClock, Printer, ScrollText
+  Sparkles, ListPlus, CalendarClock, Printer, ScrollText, Ban, ShieldCheck
 } from 'lucide-react';
 import { formatFollowUpLabel, parseFollowUpMs, localStartOfTodayMs } from '../../../utils/followUp';
-import type { Contact, ReligiousMemberProfile } from '../../../types';
+import type { Contact, ContactCampaignDelivery, ReligiousMemberProfile } from '../../../types';
 import { useAppProfile } from '../../../context/AppProfileContext';
+import { useWorkspace } from '../../../context/WorkspaceContext';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../../utils/weddingAnniversary';
+import { useZapMass } from '../../../context/ZapMassContext';
+import toast from 'react-hot-toast';
+import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { db } from '../../../services/firebase';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -45,6 +50,19 @@ const formatDate = (ts: number): string => {
   if (!ts) return '—';
   const d = new Date(ts);
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' });
+};
+
+const formatConsentIso = (iso?: string): string => {
+  if (!iso || !iso.trim()) return '—';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '—';
+  return new Date(t).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 };
 
 const formatPhone = (raw: string): string => {
@@ -131,6 +149,10 @@ export const ContactDetailDrawer: React.FC<Props> = ({
   onAddToList
 }) => {
   const { segment } = useAppProfile();
+  const { effectiveWorkspaceUid } = useWorkspace();
+  const { updateContact } = useZapMass();
+  const [marketingBusy, setMarketingBusy] = useState(false);
+  const [campaignDeliveries, setCampaignDeliveries] = useState<ContactCampaignDelivery[]>([]);
 
   const fichaRows = useMemo(() => religiousFichaRows(contact?.religiousMemberProfile), [contact?.religiousMemberProfile]);
 
@@ -187,6 +209,89 @@ export const ContactDetailDrawer: React.FC<Props> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [contact, onClose]);
+
+  const putMarketingOptOut = useCallback(async () => {
+    if (!contact) return;
+    setMarketingBusy(true);
+    try {
+      await updateContact(contact.id, {
+        marketingOptOut: true,
+        marketingOptIn: false,
+        marketingConsentAt: new Date().toISOString(),
+        marketingConsentText: 'Lista negra (manual)'
+      });
+      toast.success('Marcado na lista negra de marketing.');
+    } catch {
+      toast.error('Não foi possível atualizar.');
+    } finally {
+      setMarketingBusy(false);
+    }
+  }, [contact, updateContact]);
+
+  const removeMarketingOptOut = useCallback(async () => {
+    if (!contact) return;
+    setMarketingBusy(true);
+    try {
+      await updateContact(contact.id, { marketingOptOut: false });
+      toast.success('Removido da lista negra de marketing.');
+    } catch {
+      toast.error('Não foi possível atualizar.');
+    } finally {
+      setMarketingBusy(false);
+    }
+  }, [contact, updateContact]);
+
+  const putMarketingOptIn = useCallback(async () => {
+    if (!contact) return;
+    setMarketingBusy(true);
+    try {
+      const at = new Date().toISOString();
+      await updateContact(contact.id, {
+        marketingOptOut: false,
+        marketingOptIn: true,
+        marketingConsentAt: at,
+        marketingConsentText: 'Autorização registrada manualmente no CRM.'
+      });
+      toast.success('Autorização de marketing registrada.');
+    } catch {
+      toast.error('Não foi possível atualizar.');
+    } finally {
+      setMarketingBusy(false);
+    }
+  }, [contact, updateContact]);
+
+  useEffect(() => {
+    if (!contact?.id || !effectiveWorkspaceUid) {
+      setCampaignDeliveries([]);
+      return;
+    }
+    const uid = effectiveWorkspaceUid;
+    const snapQuery = query(
+      collection(db, 'users', uid, 'contacts', contact.id, 'campaignDeliveries'),
+      orderBy('updatedAt', 'desc')
+    );
+    const unsub = onSnapshot(
+      snapQuery,
+      (snap) => {
+        const rows: ContactCampaignDelivery[] = [];
+        snap.forEach((docSnap) => {
+          const raw = docSnap.data() as Record<string, unknown>;
+          rows.push({
+            campaignId: docSnap.id,
+            campaignName: typeof raw.campaignName === 'string' ? raw.campaignName : '',
+            sentCount: Math.max(0, Math.floor(Number(raw.sentCount) || 0)),
+            totalStages: Math.max(1, Math.floor(Number(raw.totalStages) || 1)),
+            updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined
+          });
+        });
+        setCampaignDeliveries(rows);
+      },
+      () => {
+        setCampaignDeliveries([]);
+      }
+    );
+    return () => unsub();
+  }, [contact?.id, effectiveWorkspaceUid]);
 
   if (!contact) return null;
 
@@ -410,6 +515,138 @@ export const ContactDetailDrawer: React.FC<Props> = ({
               </div>
             </Section>
           )}
+
+          <Section title="Marketing e campanhas">
+            <div className="flex flex-wrap gap-2 mb-2">
+              {contact.marketingOptOut ? (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-semibold bg-slate-800/10 text-slate-800 border-slate-500/25 dark:text-slate-200">
+                  <Ban className="w-3.5 h-3.5" />
+                  Lista negra de disparos
+                </span>
+              ) : contact.marketingOptIn ? (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-semibold bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-300">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Autorizou marketing
+                </span>
+              ) : (
+                <span className="text-sm text-slate-500 dark:text-slate-400 px-1">
+                  Sem registro de autorização ou bloqueio.
+                </span>
+              )}
+            </div>
+            <div className="space-y-1.5 text-[12.5px] text-slate-600 dark:text-slate-300 px-1 mb-3">
+              <div className="flex justify-between gap-2">
+                <span className="text-slate-500 dark:text-slate-400">Registrado em</span>
+                <span className="font-medium text-slate-800 dark:text-slate-100">
+                  {formatConsentIso(contact.marketingConsentAt)}
+                </span>
+              </div>
+              {(contact.marketingConsentText || '').trim().length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-bold mb-0.5">
+                    Texto da resposta / observação
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2">
+                    {contact.marketingConsentText}
+                  </p>
+                </div>
+              )}
+              <div className="flex justify-between gap-2 pt-1">
+                <span className="text-slate-500 dark:text-slate-400">Mensagens de campanha recebidas (total, todas as campanhas)</span>
+                <span className="font-bold tabular-nums text-slate-900 dark:text-white">
+                  {contact.campaignMessagesReceived ?? 0}
+                </span>
+              </div>
+              {campaignDeliveries.length > 0 && (
+                <div className="pt-3 mt-1 border-t border-slate-200 dark:border-slate-700">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 dark:text-slate-400 mb-2">
+                    Por campanha (etapas)
+                  </div>
+                  <div className="space-y-2 max-h-[min(40vh,280px)] overflow-y-auto pr-0.5">
+                    {campaignDeliveries.map((row) => {
+                      const total = Math.max(1, row.totalStages);
+                      const sent = row.sentCount;
+                      const pending = Math.max(0, total - sent);
+                      const doneAll = sent >= total;
+                      return (
+                        <div
+                          key={row.campaignId}
+                          className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 px-2.5 py-2 text-[12px]"
+                        >
+                          <div className="font-semibold text-slate-900 dark:text-white leading-snug">
+                            {(row.campaignName || '').trim() || 'Campanha'}
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-2 gap-y-0.5 mt-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                            <span className="text-slate-500 dark:text-slate-400">Recebidas</span>
+                            <span className="font-mono font-semibold text-right tabular-nums col-span-2">{sent}</span>
+                            <span className="text-slate-500 dark:text-slate-400">Etapas previstas</span>
+                            <span className="font-mono font-semibold text-right tabular-nums col-span-2">{total}</span>
+                            <span className="text-slate-500 dark:text-slate-400">Pendentes</span>
+                            <span
+                              className={`font-mono font-semibold text-right tabular-nums col-span-2 ${
+                                doneAll ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
+                              }`}
+                            >
+                              {doneAll ? '0' : pending}
+                            </span>
+                          </div>
+                          {sent > total && (
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                              Entregues acima do plano ({sent} &gt; {total}): campanha pode ter sido alterada ou houve
+                              reenvio.
+                            </p>
+                          )}
+                          {row.updatedAt && (
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
+                              Atual.: {formatConsentIso(row.updatedAt)}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <p className="text-[10.5px] text-slate-500 dark:text-slate-400 leading-snug pt-1">
+                O total geral sobe a cada envio. Por campanha, comparamos com o número de etapas da campanha (fluxo
+                por respostas ou sequência) no momento do envio.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              {!contact.marketingOptOut && (
+                <button
+                  type="button"
+                  disabled={marketingBusy}
+                  onClick={() => void putMarketingOptOut()}
+                  className="w-full py-2 rounded-lg text-sm font-semibold border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <Ban className="w-4 h-4" />
+                  Colocar na lista negra
+                </button>
+              )}
+              {contact.marketingOptOut && (
+                <button
+                  type="button"
+                  disabled={marketingBusy}
+                  onClick={() => void removeMarketingOptOut()}
+                  className="w-full py-2 rounded-lg text-sm font-semibold border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/10 transition disabled:opacity-50"
+                >
+                  Remover da lista negra
+                </button>
+              )}
+              {!contact.marketingOptIn && !contact.marketingOptOut && (
+                <button
+                  type="button"
+                  disabled={marketingBusy}
+                  onClick={() => void putMarketingOptIn()}
+                  className="w-full py-2 rounded-lg text-sm font-semibold border border-emerald-600/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/15 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  Registrar autorização manual (lead quente)
+                </button>
+              )}
+            </div>
+          </Section>
 
           {/* Notas */}
           {contact.notes && (

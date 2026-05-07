@@ -66,4 +66,6 @@ export interface Conversation {
   lastMessageTimestamp?: number; // Unix ms — usado para ordenação real
   messages: ChatMessage[];
   tags: string[];
+  /** Preenchido pelo servidor: UID Firebase de quem assumiu a conversa (inbox da equipa). */
+  inboxClaimedByAuthUid?: string;
 }

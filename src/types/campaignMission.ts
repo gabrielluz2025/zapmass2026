@@ -19,6 +19,8 @@ export interface CampaignWizardDraft {
     acceptAnyReply: boolean;
     validTokensText: string;
     invalidReplyBody: string;
+    /** Efeito CRM quando o contato responde válido nesta etapa (fluxo por respostas). */
+    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
   }>;
   filterCities: string[];
   filterChurches: string[];
@@ -44,6 +46,7 @@ export interface SavedCampaignTemplate {
     acceptAnyReply: boolean;
     validTokensText: string;
     invalidReplyBody: string;
+    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
   }>;
   replyFlowSnapshot?: CampaignReplyFlow;
 }

@@ -17,6 +17,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../ui/Button';
 import { Modal, Textarea } from '../ui';
+import { apiUrl } from '../../utils/apiBase';
 
 interface ImprovementSuggestionButtonProps {
   /** Tela atual (para contextualizar feedback no painel administrativo). */
@@ -155,7 +156,7 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
     setSending(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch('/api/product-suggestion', {
+      const res = await fetch(apiUrl('/api/product-suggestion'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

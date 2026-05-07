@@ -1,3 +1,6 @@
+# Cache local do Firebase CLI (hosting/rules)
+.firebase/
+
 # Logs
 logs
 *.log

@@ -39,14 +39,18 @@ import {
   Pencil,
   Image as ImageIcon,
   Film,
-  FileText
+  FileText,
+  UserRound
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
+import { useWorkspace } from '../context/WorkspaceContext';
 import { useZapMass } from '../context/ZapMassContext';
 import { ClientPipelineBoard } from './chat/ClientPipelineBoard';
 import { ClientCrmPanel } from './chat/ClientCrmPanel';
 import { ChatEmptyShowcase } from './chat/ChatEmptyShowcase';
+import { apiUrl } from '../utils/apiBase';
 import { useClientCrm, STATUS_META, hashTagColor } from './chat/useClientCrm';
 import { WaBubble } from './chat/wa/WaBubble';
 import { WaContactDrawer } from './chat/wa/WaContactDrawer';
@@ -253,6 +257,22 @@ const OutboundPipelineBar: React.FC<{ status: ChatMessage['status'] }> = ({ stat
   );
 };
 
+async function inboxWorkspaceApi(path: string, init?: RequestInit): Promise<void> {
+  const u = getAuth().currentUser;
+  if (!u) throw new Error('Sessão expirada. Entre novamente.');
+  const token = await u.getIdToken();
+  const r = await fetch(apiUrl(path), {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers || {})
+    }
+  });
+  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
+}
+
 export const ChatTab: React.FC = () => {
   const {
     conversations,
@@ -267,6 +287,15 @@ export const ChatTab: React.FC = () => {
     loadMessageMedia
   } = useZapMass();
   const { user } = useAuth();
+  const {
+    isTeamMember,
+    authUid: workspaceAuthUid,
+    effectiveWorkspaceUid,
+    loading: workspaceLoading
+  } = useWorkspace();
+  const isWorkspaceOwner = Boolean(
+    workspaceAuthUid && effectiveWorkspaceUid && workspaceAuthUid === effectiveWorkspaceUid
+  );
   const crm = useClientCrm(user?.uid);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   // Conversas "rascunho" criadas localmente para contatos sem histórico real.
@@ -296,6 +325,7 @@ export const ChatTab: React.FC = () => {
   const [showAudit, setShowAudit] = useState(false);
   const [auditSelection, setAuditSelection] = useState<Set<string>>(new Set());
   const [auditCategory, setAuditCategory] = useState<ConversationOrigin>('system');
+  const [inboxActionBusy, setInboxActionBusy] = useState(false);
   // Historico: rastreia por chat qual o ultimo limite solicitado + se esta carregando.
   // Isso permite carregamento progressivo tipo "WhatsApp Web" ao rolar para o topo.
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
@@ -606,9 +636,11 @@ export const ChatTab: React.FC = () => {
     return m;
   }, [mergedConversations]);
 
-  /** Título forte = sistema; subtítulo menor = nome WhatsApp quando for diferente. */
+  /** Título forte = nome na base CRM; subtítulo menor = WhatsApp/celular/telefone. */
   const getConversationDisplay = useCallback(
-    (conv: Conversation): { primary: string; whatsappSubtitle?: string } => {
+    (
+      conv: Conversation
+    ): { primary: string; whatsappSubtitle?: string; phoneSecondary?: string } => {
       const waName = (waPushNameByConvId.get(conv.id) || '').trim();
       const systemName = getSystemNameForPhone(conv.contactPhone || '')?.trim();
       const digits = normalizeDigits(conv.contactPhone || '');
@@ -620,7 +652,11 @@ export const ChatTab: React.FC = () => {
       let whatsappSubtitle: string | undefined;
       if (systemName && waName && !same(systemName, waName)) whatsappSubtitle = waName;
 
-      return { primary, whatsappSubtitle };
+      /** Telefone em linha pequena sempre que o título não for só o número. */
+      let phoneSecondary: string | undefined;
+      if (phoneLabel && primary !== phoneLabel) phoneSecondary = phoneLabel;
+
+      return { primary, whatsappSubtitle, phoneSecondary };
     },
     [waPushNameByConvId, getSystemNameForPhone]
   );
@@ -806,7 +842,11 @@ export const ChatTab: React.FC = () => {
       setHistoryLoading(conversationId);
       const prevCount =
         conversations.find((c) => c.id === conversationId)?.messages.length || 0;
-      const res = await loadChatHistory(conversationId, nextLevel, false);
+      const res = await loadChatHistory(
+        conversationId,
+        Math.max(nextLevel, prevCount + 50),
+        false
+      );
       setHistoryLoading((prev) => (prev === conversationId ? null : prev));
       if (!res.ok) {
         // Erros esperados em conversas vazias/criadas por sistema — nao incomodar o usuario.
@@ -1419,7 +1459,8 @@ export const ChatTab: React.FC = () => {
             const crmStatus = crmData.status ? STATUS_META[crmData.status] : null;
             const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
             const hasNotes = !!(crmData.notes && crmData.notes.trim());
-            const { whatsappSubtitle: convWaSub } = getConversationDisplay(conv);
+            const disp = getConversationDisplay(conv);
+            const { whatsappSubtitle: convWaSub, phoneSecondary: convPhoneSmall } = disp;
             return (
               <button
                 key={conv.id}
@@ -1458,7 +1499,9 @@ export const ChatTab: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 min-w-0 flex-1">
-                      <span className="wa-conv-name truncate">{conv.contactName}</span>
+                      <span className="wa-conv-name truncate" title={disp.primary}>
+                        {disp.primary}
+                      </span>
                       {crmData.favoriteAt && (
                         <Star className="w-3 h-3 flex-shrink-0 fill-current" style={{ color: '#f59e0b' }} />
                       )}
@@ -1473,9 +1516,18 @@ export const ChatTab: React.FC = () => {
                       {conv.lastMessageTime}
                     </span>
                   </div>
-                  {convWaSub && (
-                    <p className="text-[12.5px] truncate" style={{ color: 'var(--wa-text-3)', opacity: 0.85 }}>
-                      {convWaSub}
+                  {(convWaSub || convPhoneSmall) && (
+                    <p
+                      className="text-[11px] truncate leading-snug mt-0.5"
+                      style={{ color: 'var(--wa-text-3)', opacity: 0.92 }}
+                    >
+                      {convWaSub && <span title="Nome no WhatsApp / agenda do celular">{convWaSub}</span>}
+                      {convWaSub && convPhoneSmall && <span> · </span>}
+                      {convPhoneSmall && (
+                        <span className="font-mono tabular-nums" title="Telefone">
+                          {convPhoneSmall}
+                        </span>
+                      )}
                     </p>
                   )}
                   <div className="flex items-center justify-between gap-2 mt-0.5">
@@ -1715,8 +1767,13 @@ export const ChatTab: React.FC = () => {
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <h3
-                      className="text-[16px] font-medium truncate leading-tight"
+                      className="text-[17px] font-semibold truncate leading-tight"
                       style={{ color: 'var(--wa-text)' }}
+                      title={
+                        selectedDisplay?.primary ??
+                        selectedConversation.contactName ??
+                        ''
+                      }
                     >
                       {selectedDisplay?.primary ?? selectedConversation.contactName}
                     </h3>
@@ -1735,14 +1792,153 @@ export const ChatTab: React.FC = () => {
                       );
                     })()}
                   </div>
-                  <p
-                    className="text-[12.5px] truncate mt-0.5"
-                    style={{ color: 'var(--wa-text-3)' }}
-                  >
-                    {selectedConversation.contactPhone}
-                    {selectedConnection && <span> · {selectedConnection.name}</span>}
-                    {selectedDisplay?.whatsappSubtitle && <span> · {selectedDisplay.whatsappSubtitle}</span>}
+                  <p className="text-[11px] truncate mt-0.5 leading-snug" style={{ color: 'var(--wa-text-3)' }}>
+                    {selectedDisplay?.whatsappSubtitle && (
+                      <span title="Nome salvo no WhatsApp / celular">{selectedDisplay.whatsappSubtitle}</span>
+                    )}
+                    {selectedDisplay?.whatsappSubtitle &&
+                      (selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
+                        <span> · </span>
+                      )}
+                    {(selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
+                      <span className="font-mono tabular-nums">
+                        {selectedDisplay?.phoneSecondary || selectedConversation.contactPhone}
+                      </span>
+                    )}
+                    {selectedConnection && (
+                      <span className="opacity-90">{` · ${selectedConnection.name}`}</span>
+                    )}
                   </p>
+                  {!workspaceLoading &&
+                    workspaceAuthUid &&
+                    effectiveWorkspaceUid &&
+                    !isSelectedDraft &&
+                    selectedConversation?.id &&
+                    (isTeamMember || isWorkspaceOwner) && (
+                      <div
+                        className="flex flex-wrap items-center gap-2 mt-1.5"
+                        onClick={(e) => e.stopPropagation()}
+                        role="presentation"
+                      >
+                        {(() => {
+                          const claimedBy = selectedConversation.inboxClaimedByAuthUid;
+                          const shortClaim = claimedBy
+                            ? claimedBy.length > 10
+                              ? `${claimedBy.slice(0, 6)}…${claimedBy.slice(-4)}`
+                              : claimedBy
+                            : '';
+                          if (isWorkspaceOwner && claimedBy) {
+                            return (
+                              <>
+                                <span
+                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-flex items-center gap-1"
+                                  style={{ background: 'var(--wa-search)', color: 'var(--wa-text-2)' }}
+                                >
+                                  <UserRound className="w-3 h-3 flex-shrink-0" aria-hidden />
+                                  Atribuída ({shortClaim})
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={inboxActionBusy}
+                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-50"
+                                  style={{
+                                    background: 'color-mix(in srgb, #f97316 18%, transparent)',
+                                    color: '#ea580c',
+                                    border: '1px solid color-mix(in srgb, #f97316 35%, transparent)'
+                                  }}
+                                  onClick={() => {
+                                    void (async () => {
+                                      setInboxActionBusy(true);
+                                      try {
+                                        await inboxWorkspaceApi(
+                                          `/api/workspace/inbox-claim/${encodeURIComponent(selectedConversation.id)}`,
+                                          { method: 'DELETE' }
+                                        );
+                                        toast.success('Conversa libertada para a equipa.');
+                                      } catch (err) {
+                                        toast.error(err instanceof Error ? err.message : 'Falha ao libertar.');
+                                      } finally {
+                                        setInboxActionBusy(false);
+                                      }
+                                    })();
+                                  }}
+                                >
+                                  Libertar para a equipa
+                                </button>
+                              </>
+                            );
+                          }
+                          if (isTeamMember) {
+                            if (!claimedBy) {
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={inboxActionBusy}
+                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
+                                  style={{
+                                    background: 'color-mix(in srgb, #10b981 16%, transparent)',
+                                    color: 'var(--wa-green-strong)',
+                                    border: '1px solid color-mix(in srgb, #10b981 38%, transparent)'
+                                  }}
+                                  onClick={() => {
+                                    void (async () => {
+                                      setInboxActionBusy(true);
+                                      try {
+                                        await inboxWorkspaceApi('/api/workspace/inbox-claim', {
+                                          method: 'POST',
+                                          body: JSON.stringify({ conversationId: selectedConversation.id })
+                                        });
+                                        toast.success('Você assumiu este atendimento.');
+                                      } catch (err) {
+                                        toast.error(err instanceof Error ? err.message : 'Falha ao assumir.');
+                                      } finally {
+                                        setInboxActionBusy(false);
+                                      }
+                                    })();
+                                  }}
+                                >
+                                  <UserRound className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                                  Assumir atendimento
+                                </button>
+                              );
+                            }
+                            if (claimedBy === workspaceAuthUid) {
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={inboxActionBusy}
+                                  className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-50"
+                                  style={{
+                                    background: 'color-mix(in srgb, #64748b 14%, transparent)',
+                                    color: 'var(--wa-text-2)',
+                                    border: '1px solid var(--wa-divider)'
+                                  }}
+                                  onClick={() => {
+                                    void (async () => {
+                                      setInboxActionBusy(true);
+                                      try {
+                                        await inboxWorkspaceApi(
+                                          `/api/workspace/inbox-claim/${encodeURIComponent(selectedConversation.id)}`,
+                                          { method: 'DELETE' }
+                                        );
+                                        toast.success('Atendimento libertado.');
+                                      } catch (err) {
+                                        toast.error(err instanceof Error ? err.message : 'Falha ao libertar.');
+                                      } finally {
+                                        setInboxActionBusy(false);
+                                      }
+                                    })();
+                                  }}
+                                >
+                                  Libertar conversa
+                                </button>
+                              );
+                            }
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
                 </div>
               </button>
               <div className="flex items-center gap-0.5">
@@ -1823,10 +2019,14 @@ export const ChatTab: React.FC = () => {
                         icon={<RotateCcw className="w-3.5 h-3.5" />}
                         label="Recarregar histórico"
                         onClick={() => {
-                          const limit = (historyRequestedRef.current.get(selectedConversation.id) || 100) + 100;
+                          const cur = historyRequestedRef.current.get(selectedConversation.id) || 100;
+                          const n = selectedConversation.messages?.length || 0;
+                          const limit = Math.min(10000, Math.max(cur + 200, n + 100));
                           historyRequestedRef.current.set(selectedConversation.id, limit);
                           setHistoryLoading(selectedConversation.id);
-                          loadChatHistory(selectedConversation.id, limit);
+                          void loadChatHistory(selectedConversation.id, limit, false).then(() =>
+                            setHistoryLoading((prev) => (prev === selectedConversation.id ? null : prev))
+                          );
                           setShowChatMenu(false);
                           toast.success('Buscando mensagens…');
                         }}

@@ -110,6 +110,11 @@ export interface CampaignReplyFlowStep {
   validTokens?: string[];
   /** Enviado quando acceptAnyReply e false e a resposta nao for aceita; nao avanca de etapa. */
   invalidReplyBody?: string;
+  /**
+   * Quando o contato responde valido nesta etapa, aplica consentimento de marketing no CRM.
+   * Nao enviado = sem efeito (equivalente a `none`).
+   */
+  marketingEffect?: 'none' | 'opt_in' | 'opt_out';
 }
 
 /** Fluxo conversacional: etapa 1 enviada na abertura; proximas apos resposta do contato. */
@@ -317,6 +322,18 @@ export interface Contact {
   notes?: string;
   tags: string[];
   status: 'VALID' | 'INVALID';
+  /** Lista negra de marketing: nao recebe disparos em massa. */
+  marketingOptOut?: boolean;
+  /** Lead autorizou marketing (opt-in positivo ou manual). */
+  marketingOptIn?: boolean;
+  /** Quando o consentimento ou bloqueio foi registrado. */
+  marketingConsentAt?: string;
+  /** Ultima mensagem do contato ligada a autorizacao/negativa. */
+  marketingConsentText?: string;
+  /** Quantas mensagens de campanha ja foram enviadas a este numero (incrementado pelo app). */
+  campaignMessagesReceived?: number;
+  /** Resumo para lista: última campanha tocada + etapas (denormalizado no envio). */
+  campaignTablePreview?: ContactCampaignTablePreview;
   lastMsg?: string;
   /** Data/hora (ISO UTC) agendada para retorno/contato de seguimento. */
   followUpAt?: string;
@@ -324,6 +341,28 @@ export interface Contact {
   followUpNote?: string;
   /** Ficha de membro (cadastro religioso alargado). */
   religiousMemberProfile?: ReligiousMemberProfile;
+}
+
+/** Uma linha em `users/{uid}/contacts/{id}/campaignDeliveries/{campaignId}` — envios por campanha. */
+export interface ContactCampaignDelivery {
+  campaignId: string;
+  /** Nome da campanha (cache para o cartao do contato). */
+  campaignName?: string;
+  /** Mensagens desta campanha já entregues neste contato (Socket «Mensagem enviada»). */
+  sentCount: number;
+  /** Etapas previstas na campanha quando o resumo foi atualizado. */
+  totalStages: number;
+  updatedAt?: string;
+}
+
+/** Resumo denormalizado no documento do contato (coluna da tabela + sync com drawer). */
+export interface ContactCampaignTablePreview {
+  campaignId: string;
+  campaignName: string;
+  sent: number;
+  totalStages: number;
+  pending: number;
+  updatedAt: string;
 }
 
 // --- CHAT TYPES ---
@@ -352,6 +391,8 @@ export interface Conversation {
   lastMessageTimestamp?: number; // Unix ms — ordenação real
   messages: ChatMessage[];
   tags: string[];
+  /** Quem assumiu o atendimento (UID Firebase); definido pelo servidor na lista do inbox. */
+  inboxClaimedByAuthUid?: string;
 }
 
 export interface SystemLog {

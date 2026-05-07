@@ -20,6 +20,11 @@ interface ImportMetaEnv {
   readonly VITE_GIT_REF?: string;
   /** Google Analytics 4 — Measurement ID (ex.: G-XXXXXXXXXX). Opcional; sem isto os eventos só vigoram se outro snippet definir gtag/dataLayer. */
   readonly VITE_GA_MEASUREMENT_ID?: string;
+  /**
+   * Origem do backend Node (REST + Socket.IO), sem barra final — ex.: https://api.seudominio.com
+   * Obrigatório se o front estiver noutro domínio (Firebase Hosting, CDN) que não sirva /api.
+   */
+  readonly VITE_API_ORIGIN?: string;
 }
 
 interface ImportMeta {

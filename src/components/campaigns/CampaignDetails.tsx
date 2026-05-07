@@ -937,8 +937,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const donutStroke = 18;
   const donutR = (donutSize - donutStroke) / 2;
   const donutC = 2 * Math.PI * donutR;
-  const successArc = (metrics.ok / Math.max(1, campaign.totalContacts)) * donutC;
-  const failArc = (metrics.fail / Math.max(1, campaign.totalContacts)) * donutC;
+  const successArc = (metrics.ok / Math.max(1, metrics.plannedSendTotal)) * donutC;
+  const failArc = (metrics.fail / Math.max(1, metrics.plannedSendTotal)) * donutC;
 
   return (
     <div className="space-y-5 pb-20">
@@ -1196,7 +1196,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   </span>
                   <span className="text-[11px] mt-0.5 tabular-nums" style={{ color: 'var(--text-3)' }}>
                     {metrics.effectiveProcessed.toLocaleString('pt-BR')} /{' '}
-                    {campaign.totalContacts.toLocaleString('pt-BR')}
+                    {metrics.plannedSendTotal.toLocaleString('pt-BR')}
                   </span>
                   {isRunning && (
                     <div className="mt-1 flex items-center gap-1">
@@ -1293,7 +1293,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               delivered: uiPerformance.delivered,
               read: uiPerformance.read,
               replied: uiPerformance.replied,
-              total: Math.max(uiPerformance.total || 0, campaign.totalContacts || 0, metrics.effectiveProcessed || 0) || 1,
+              total:
+                Math.max(
+                  uiPerformance.total || 0,
+                  campaign.totalContacts || 0,
+                  metrics.plannedSendTotal || 0,
+                  metrics.effectiveProcessed || 0
+                ) || 1,
               throughputPerMin,
               failed: uiPerformance.counts.FAILED
             }}

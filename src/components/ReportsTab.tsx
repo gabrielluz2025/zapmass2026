@@ -22,6 +22,7 @@ import { useZapMass } from '../context/ZapMassContext';
 import { Badge, Button, Card, EmptyState, SectionHeader, Tabs } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import type { Campaign } from '../types';
+import { getCampaignDeliverySuccessRatePct, getCampaignPlannedSendTotal } from '../utils/campaignMetrics';
 
 type PeriodFilter = '7d' | '30d' | '90d';
 
@@ -95,8 +96,13 @@ export const ReportsTab: React.FC = () => {
   const prevSent = sumField(previous, 'totalContacts');
   const prevSuccess = sumField(previous, 'successCount');
 
-  const healthRate = pct(totalSuccess, totalSent);
-  const prevHealthRate = pct(prevSuccess, prevSent);
+  const plannedSlotsCurrent = current.reduce((a, c) => a + getCampaignPlannedSendTotal(c), 0);
+  const plannedSlotsPrev = previous.reduce((a, c) => a + getCampaignPlannedSendTotal(c), 0);
+
+  const healthRate =
+    plannedSlotsCurrent > 0 ? Math.min(100, Math.round((totalSuccess / plannedSlotsCurrent) * 100)) : 0;
+  const prevHealthRate =
+    plannedSlotsPrev > 0 ? Math.min(100, Math.round((prevSuccess / plannedSlotsPrev) * 100)) : 0;
 
   // Funil real vem do servidor (funnelStats é cumulativo, então mostramos proporção).
   // Garante coerência logica: enviada >= entregue >= lida >= respondida — protege
@@ -177,7 +183,8 @@ export const ReportsTab: React.FC = () => {
     const byChannel = new Map<string, { name: string; sent: number; success: number; failed: number; campaigns: number }>();
     current.forEach((campaign) => {
       const ids = campaign.selectedConnectionIds?.length ? campaign.selectedConnectionIds : ['unassigned'];
-      const shareTotal = campaign.totalContacts ? campaign.totalContacts / ids.length : 0;
+      const plannedUnits = getCampaignPlannedSendTotal(campaign);
+      const shareTotal = ids.length ? plannedUnits / ids.length : plannedUnits;
       const shareSuccess = campaign.successCount ? campaign.successCount / ids.length : 0;
       const shareFailed = campaign.failedCount ? campaign.failedCount / ids.length : 0;
       ids.forEach((connId) => {
@@ -198,7 +205,7 @@ export const ReportsTab: React.FC = () => {
         success: Math.round(s.success),
         failed: Math.round(s.failed),
         campaigns: s.campaigns,
-        efficiency: pct(Math.round(s.success), Math.round(s.sent))
+        efficiency: Math.min(100, pct(Math.round(s.success), Math.round(s.sent)))
       }))
       .sort((a, b) => b.sent - a.sent);
   }, [current, connections]);
@@ -214,7 +221,7 @@ export const ReportsTab: React.FC = () => {
         total: c.totalContacts || 0,
         success: c.successCount || 0,
         failed: c.failedCount || 0,
-        rate: pct(c.successCount || 0, c.totalContacts || 0),
+        rate: getCampaignDeliverySuccessRatePct(c),
         createdAt: c.createdAt
       }));
   }, [current]);
@@ -231,7 +238,7 @@ export const ReportsTab: React.FC = () => {
         c.totalContacts,
         c.successCount,
         c.failedCount,
-        pct(c.successCount || 0, c.totalContacts || 0)
+        getCampaignDeliverySuccessRatePct(c)
       ])
     ];
     const csv = '\uFEFF' + rows.map((r) => r.map(csvEscape).join(',')).join('\n');

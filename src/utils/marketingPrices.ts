@@ -1,3 +1,5 @@
+import { apiUrl } from './apiBase';
+
 export type ChannelTierPriceRow = {
   monthly: number;
   annual: number;
@@ -111,7 +113,7 @@ function parseChannelTiers(raw: unknown): Record<string, ChannelTierPriceRow> | 
 
 export async function fetchServerBillingPrices(): Promise<ServerBillingPrices | null> {
   try {
-    const res = await fetch('/api/billing/mercadopago/prices', { method: 'GET' });
+    const res = await fetch(apiUrl('/api/billing/mercadopago/prices'), { method: 'GET' });
     if (!res.ok) return null;
     const data = (await res.json()) as Record<string, unknown>;
     if (data?.ok !== true) return null;
