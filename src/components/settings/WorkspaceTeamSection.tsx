@@ -11,11 +11,12 @@ import {
   ChevronDown,
   Sparkles
 } from 'lucide-react';
-import { getAuth } from 'firebase/auth';
 import { Badge, Button, Card, CardHeader, Input } from '../ui';
 import { StaffPasswordAccountsPanel } from './StaffPasswordAccountsPanel';
+import { WorkspaceActiveMembersCard } from './WorkspaceActiveMembersCard';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { auth } from '../../services/firebase';
+import { getAuth } from 'firebase/auth';
 
 const apiFetch = async (path: string, init?: RequestInit) => {
   const u = getAuth().currentUser;
@@ -29,7 +30,7 @@ const apiFetch = async (path: string, init?: RequestInit) => {
       ...(init?.headers || {})
     }
   });
-  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string; expiresAt?: string };
+  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
   if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
   return j;
 };
@@ -50,6 +51,9 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
   const [staffToRevoke, setStaffToRevoke] = useState('');
   const [ownerTab, setOwnerTab] = useState<OwnerTab>('invite');
   const [audience, setAudience] = useState<Audience>('owner');
+  const [teamReload, setTeamReload] = useState(0);
+
+  const bumpTeamOverview = () => setTeamReload((n) => n + 1);
 
   const isOwnerPerspective = Boolean(authUid && !isTeamMember);
 
@@ -281,6 +285,12 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
 
               {audience === 'owner' && isOwnerPerspective && (
                 <>
+                  <WorkspaceActiveMembersCard
+                    enabled
+                    reloadToken={teamReload}
+                    onRevoked={bumpTeamOverview}
+                  />
+
                   <div
                     className="flex flex-wrap gap-1 p-1 rounded-xl mb-5"
                     style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -360,7 +370,9 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
                     </div>
                   )}
 
-                  {ownerTab === 'password' && <StaffPasswordAccountsPanel noTopMargin />}
+                  {ownerTab === 'password' && (
+                    <StaffPasswordAccountsPanel noTopMargin onMutation={bumpTeamOverview} />
+                  )}
                 </>
               )}
 

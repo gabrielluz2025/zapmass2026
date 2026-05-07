@@ -405,6 +405,50 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
   });
 
   /**
+   * Redefine senha de um funcionário ativo (dono da conta).
+   */
+  app.patch('/api/workspace/staff-password-users/:staffAuthUid', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    const staffAuthUid = String(req.params.staffAuthUid || '').trim();
+    const body = req.body as { password?: unknown };
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!staffAuthUid || staffAuthUid.length < 8) {
+      return res.status(400).json({ ok: false, error: 'Identificador inválido.' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ ok: false, error: 'A nova senha deve ter pelo menos 8 caracteres.' });
+    }
+    try {
+      const { uid: ownerUid, db } = await assertOwnerBearer(adminApp, token);
+      const col = db.collection('users').doc(ownerUid).collection('staffPasswordUsers');
+      const qs = await col.where('staffAuthUid', '==', staffAuthUid).limit(1).get();
+      if (qs.empty) {
+        return res.status(404).json({ ok: false, error: 'Funcionário não encontrado neste workspace.' });
+      }
+      const meta = qs.docs[0];
+      if (meta.data()?.revokedAt != null) {
+        return res.status(400).json({ ok: false, error: 'Acesso revogado — não é possível redefinir a senha.' });
+      }
+      const authAdmin = getAuth(adminApp);
+      await authAdmin.updateUser(staffAuthUid, { password, disabled: false });
+      return res.json({ ok: true });
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message === 'NOT_OWNER') {
+        return res.status(403).json({ ok: false, error: 'Apenas o administrador pode redefinir senhas.' });
+      }
+      console.error('[workspace/staff-password-users PATCH]', e);
+      return res.status(400).json({ ok: false, error: 'Não foi possível atualizar a senha.' });
+    }
+  });
+
+  /**
    * Revoga acesso por senha, ou remove permanentemente da lista se já revogado (?purge=true).
    */
   app.delete('/api/workspace/staff-password-users/:staffAuthUid', async (req: Request, res: Response) => {

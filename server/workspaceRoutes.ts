@@ -11,6 +11,20 @@ function parseBearer(req: Request): string | null {
   return m ? m[1].trim() : null;
 }
 
+/** Só o dono da conta (sem estar ligado a workspace de terceiros) pode usar rotas administrativas. */
+async function assertWorkspaceOwner(adminApp: NonNullable<ReturnType<typeof getFirebaseAdmin>>, token: string) {
+  const decoded = await getAuth(adminApp).verifyIdToken(token);
+  const uid = decoded.uid;
+  const db = adminApp.firestore();
+  const linkSnap = await db.collection('userWorkspaceLinks').doc(uid).get();
+  const ou = linkSnap.exists ? linkSnap.data()?.ownerUid : null;
+  const isStaff = typeof ou === 'string' && ou.trim().length > 0 && ou !== uid;
+  if (isStaff) {
+    throw new Error('NOT_OWNER');
+  }
+  return { uid, db };
+}
+
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function registerWorkspaceRoutes(app: Express): void {
@@ -183,11 +197,109 @@ export function registerWorkspaceRoutes(app: Express): void {
       if (ou !== ownerUid) {
         return res.status(403).json({ ok: false, error: 'Sem permissão para revogar este vínculo.' });
       }
+      const linkData = snap.data()!;
+      const staffSlug =
+        typeof linkData.staffLoginSlug === 'string' && linkData.staffLoginSlug.trim()
+          ? linkData.staffLoginSlug.trim()
+          : '';
+
       await linkRef.delete();
+
+      if (staffSlug) {
+        const metaRef = db.collection('users').doc(ownerUid).collection('staffPasswordUsers').doc(staffSlug);
+        const metaSnap = await metaRef.get();
+        if (metaSnap.exists && metaSnap.data()?.staffAuthUid === staffUid && metaSnap.data()?.revokedAt == null) {
+          try {
+            await getAuth(adminApp).updateUser(staffUid, { disabled: true });
+          } catch {
+            /* possivelmente já apagado */
+          }
+          await metaRef.update({ revokedAt: FieldValue.serverTimestamp() });
+        }
+      }
+
       return res.json({ ok: true });
     } catch (e) {
       console.error('[workspace/member]', e);
       return res.status(400).json({ ok: false, error: 'Falha ao revogar acesso.' });
+    }
+  });
+
+  /**
+   * Lista membros da equipa com vínculo ativo (convite Google ou login por senha).
+   */
+  app.get('/api/workspace/members', async (req: Request, res: Response) => {
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
+    }
+    const token = parseBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+    }
+    try {
+      const { uid: ownerUid } = await assertWorkspaceOwner(adminApp, token);
+      const snap = await adminApp
+        .firestore()
+        .collection('userWorkspaceLinks')
+        .where('ownerUid', '==', ownerUid)
+        .get();
+
+      type Row = {
+        uid: string;
+        source: 'invite' | 'password';
+        loginSlug: string | null;
+        email: string | null;
+        displayName: string | null;
+        linkedAt: string | null;
+      };
+
+      const items: Row[] = [];
+      const auth = getAuth(adminApp);
+
+      snap.forEach((docSnap) => {
+        const membershipUid = docSnap.id;
+        if (membershipUid === ownerUid) return;
+        const d = docSnap.data();
+        const staffLoginSlug = typeof d.staffLoginSlug === 'string' && d.staffLoginSlug.trim() ? d.staffLoginSlug.trim() : null;
+        const linkedAtIso =
+          d.linkedAt instanceof Timestamp ? d.linkedAt.toDate().toISOString() : typeof d.linkedAt === 'string' ? d.linkedAt : null;
+
+        items.push({
+          uid: membershipUid,
+          source: staffLoginSlug ? 'password' : 'invite',
+          loginSlug: staffLoginSlug,
+          email: null,
+          displayName: null,
+          linkedAt: linkedAtIso
+        });
+      });
+
+      await Promise.all(
+        items.map(async (row) => {
+          try {
+            const u = await auth.getUser(row.uid);
+            row.email = u.email ?? null;
+            row.displayName = u.displayName ?? null;
+          } catch {
+            /* conta apagada */
+          }
+        })
+      );
+
+      items.sort((a, b) => {
+        const la = (a.linkedAt ?? '').slice(0, 19);
+        const lb = (b.linkedAt ?? '').slice(0, 19);
+        return lb.localeCompare(la);
+      });
+
+      return res.json({ ok: true, items });
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message === 'NOT_OWNER') {
+        return res.status(403).json({ ok: false, error: 'Apenas o responsável pela conta pode ver a equipa.' });
+      }
+      console.error('[workspace/members]', e);
+      return res.status(400).json({ ok: false, error: 'Falha ao listar a equipa.' });
     }
   });
 }
