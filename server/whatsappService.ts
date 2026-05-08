@@ -1134,6 +1134,100 @@ const maybeResolveUserJidForSend = async (client: WhatsAppClient, chatId: string
     return resolveBestUserJidForSend(client, raw);
 };
 
+/** PN real quando o chat está só como @lid mas o WA já mapeou LID↔número (Utils.enforceLidAndPnRetrieval). */
+const resolvePnDigitsFromLidSerialized = async (
+    client: WhatsAppClient,
+    lidSerialized: string
+): Promise<string> => {
+    const raw = String(lidSerialized || '').trim();
+    if (!raw.endsWith('@lid')) return '';
+    const pupPage = (client as { pupPage?: { evaluate: <T>(fn: (...args: unknown[]) => T | Promise<T>, ...args: unknown[]) => Promise<T> } }).pupPage;
+    if (!pupPage) return '';
+    try {
+        const fromBrowser = await pupPage.evaluate(async (cid: string) => {
+            const W = (window as unknown as { WWebJS?: { enforceLidAndPnRetrieval?: (id: string) => Promise<{ phone?: { _serialized?: string } }> } }).WWebJS;
+            if (!W || typeof W.enforceLidAndPnRetrieval !== 'function') return '';
+            try {
+                const out = await W.enforceLidAndPnRetrieval(cid);
+                const ser = (w?: { _serialized?: string }) =>
+                    w && typeof w._serialized === 'string' ? w._serialized : '';
+                const phoneSer = ser(out?.phone);
+                if (phoneSer && phoneSer.includes('@c.us')) {
+                    return phoneSer.split('@')[0].replace(/\D/g, '');
+                }
+            } catch {
+                /* ignore */
+            }
+            return '';
+        }, raw);
+        return typeof fromBrowser === 'string' ? fromBrowser : '';
+    } catch {
+        return '';
+    }
+};
+
+/** contactPhone gravado na conversa + socket: PN humano sempre que disponível (evita id interno @lid só no Pipeline). */
+const buildConversationContactPhone = async (
+    client: WhatsAppClient,
+    chatSerialized: string,
+    contact: { number?: unknown } | null
+): Promise<string> => {
+    const fromContact =
+        contact != null && contact.number != null ? String(contact.number).replace(/\D/g, '') : '';
+    if (fromContact.length >= 10) return `+${fromContact}`;
+    const ser = String(chatSerialized || '').trim();
+    if (ser.endsWith('@lid')) {
+        const pn = await resolvePnDigitsFromLidSerialized(client, ser);
+        if (pn.length >= 10) return `+${pn}`;
+    }
+    const user = ser.split('@')[0]?.replace(/\D/g, '') || '';
+    if (user) return `+${user}`;
+    return '';
+};
+
+/**
+ * Após o canal estabilizar: conversas @lid com id interno em `contactPhone` passam a usar o PN (E.164)
+ * quando o WA expõe LID↔PN — o Pipeline cruza nome com a base.
+ */
+const backfillLidContactPhonesForConnection = async (client: WhatsAppClient, connectionId: string) => {
+    const pauseMs = Math.max(80, Number(process.env.WA_LID_BACKFILL_PAUSE_MS || 320));
+    const toFix = conversations.filter((c) => {
+        if (c.connectionId !== connectionId || c.id.endsWith('@g.us')) return false;
+        const colon = c.id.indexOf(':');
+        const jid = colon >= 0 ? c.id.slice(colon + 1) : '';
+        if (!jid.endsWith('@lid')) return false;
+        const prevD = (c.contactPhone || '').replace(/\D/g, '');
+        if (prevD.startsWith('55') && prevD.length >= 12 && prevD.length <= 13) return false;
+        return true;
+    });
+    if (toFix.length === 0) return;
+    console.log(
+        `[LID backfill] ${toFix.length} conversa(s) @lid a corrigir (${connectionId.slice(0, 28)}…)`
+    );
+    let updated = 0;
+    for (const conv of toFix) {
+        const colon = conv.id.indexOf(':');
+        const jid = colon >= 0 ? conv.id.slice(colon + 1) : '';
+        const prevD = (conv.contactPhone || '').replace(/\D/g, '');
+        const jidUser = jid.split('@')[0]?.replace(/\D/g, '') || '';
+        try {
+            const pn = await resolvePnDigitsFromLidSerialized(client, jid);
+            if (pn.length >= 10 && pn !== prevD && pn !== jidUser) {
+                conv.contactPhone = `+${pn}`;
+                updated++;
+                upsertConversation(conv);
+            }
+        } catch {
+            /* ignore */
+        }
+        await new Promise((r) => setTimeout(r, pauseMs));
+    }
+    if (updated > 0) {
+        console.log(`[LID backfill] contactPhone atualizado em ${updated} conversa(s).`);
+        emitConversationsUpdate();
+    }
+};
+
 /**
  * getNumberId() às vezes devolve null por instabilidade do WhatsApp Web, não porque o número seja inválido.
  * Várias rodadas curtas reduzem falso positivo de "numero não registrado".
@@ -3078,7 +3172,7 @@ const syncConversationsFromClient = async (client: any, connectionId: string) =>
             if (chat.isStatus || chat.id?._serialized === 'status@broadcast') continue;
             const contact = await chat.getContact().catch(() => null);
             const contactName = chat.name || contact?.name || contact?.pushname || contact?.number || 'Contato';
-            const contactPhone = contact?.number ? `+${contact.number}` : chat.id?.user ? `+${chat.id.user}` : '';
+            const contactPhone = await buildConversationContactPhone(client, chat.id._serialized, contact);
             // Usar apenas fallback ui-avatars para contatos (foto real causa crash no sync de 428 chats)
             const profilePicUrl = undefined;
             const lastMessage = chat.lastMessage?.body || '';
@@ -3362,6 +3456,19 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
                 });
         });
     }
+
+    /** ~8s após ready: re-resolve PN em chats @lid legados (não depende do utilizador dar refresh no browser). */
+    setTimeout(() => {
+        if (isShuttingDown) return;
+        const conn = connectionsInfo.find((c) => c.id === id);
+        if (!conn || conn.status !== ConnectionStatus.CONNECTED) return;
+        const cl = clients.get(id);
+        if (!cl) return;
+        backfillLidContactPhonesForConnection(cl, id).catch((e: unknown) =>
+            console.warn('[LID backfill]', (e as Error)?.message || e)
+        );
+    }, 8000);
+
     emitConversationsUpdate();
     
     // Iniciar health check e métricas
@@ -3805,10 +3912,29 @@ const initializeClient = async (id: string, name: string) => {
                 existing.lastMessageTime = newMsg.timestamp;
                 existing.lastMessageTimestamp = msgTs;
                 existing.unreadCount = (existing.unreadCount || 0) + 1;
+                try {
+                    const ser = String(chat?.id?._serialized || '').trim();
+                    const pnResolved = await buildConversationContactPhone(client, ser, contact);
+                    const pnD = pnResolved.replace(/\D/g, '');
+                    const prevD = (existing.contactPhone || '').replace(/\D/g, '');
+                    const jidD = ser.split('@')[0]?.replace(/\D/g, '') || '';
+                    if (
+                        pnResolved &&
+                        pnD.length >= 10 &&
+                        ser.endsWith('@lid') &&
+                        jidD.length >= 10 &&
+                        prevD === jidD &&
+                        pnD !== prevD
+                    ) {
+                        existing.contactPhone = pnResolved;
+                    }
+                } catch {
+                    /* ignore */
+                }
                 upsertConversation(existing);
             } else {
                 const contactName = contact?.name || contact?.pushname || chat.name || chat.id?.user || 'Contato';
-                const contactPhone = contact?.number ? `+${contact.number}` : chat.id?.user ? `+${chat.id.user}` : '';
+                const contactPhone = await buildConversationContactPhone(client, chat.id._serialized, contact);
                 const profilePicUrl = contact ? await contact.getProfilePicUrl().catch(() => undefined) : undefined;
                 upsertConversation({
                     id: convId,

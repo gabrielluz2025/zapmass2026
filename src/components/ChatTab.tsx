@@ -67,6 +67,7 @@ import {
   type ChatQuickReply
 } from '../utils/chatQuickReplies';
 import { Input, Modal, Select, Button, Textarea } from './ui';
+import { normPhoneKey } from '../utils/brPhoneNormalize';
 
 // =====================================================================
 // Origem de uma conversa — usada para separar o que veio do celular
@@ -74,7 +75,69 @@ import { Input, Modal, Select, Button, Textarea } from './ui';
 // =====================================================================
 type ConversationOrigin = 'phone' | 'system' | 'empty';
 
-/** Mesma logica de match que ao abrir chat por contato (BR, com/sem 55, ultimos digitos). */
+const normalizeDigits = (raw: string): string => (raw || '').replace(/\D/g, '');
+
+/**
+ * Índices para cruzar telefone da conversa ↔ base de contactos
+ * (BR: com/sem 55; últimos 10/11; celular com/sem 9 após DDD).
+ */
+function buildPhoneDigitLookupKeys(digits: string): string[] {
+  const set = new Set<string>();
+  const pushBrMobileVariants = (x: string) => {
+    if (x.length < 8) return;
+    set.add(x);
+    if (x.startsWith('55') && x.length >= 12) {
+      const nat = x.slice(2);
+      if (nat.length === 10) {
+        const ddd = nat.slice(0, 2);
+        const sub = nat.slice(2);
+        if (sub.length === 8) set.add(`55${ddd}9${sub}`);
+      } else if (nat.length === 11) {
+        const ddd = nat.slice(0, 2);
+        const sub = nat.slice(2);
+        if (sub.startsWith('9') && sub.length === 9) set.add(`55${ddd}${sub.slice(1)}`);
+      }
+    }
+    if (!x.startsWith('55')) {
+      if (x.length === 10) {
+        const ddd = x.slice(0, 2);
+        const sub = x.slice(2);
+        if (sub.length === 8) {
+          set.add(`${ddd}9${sub}`);
+          set.add(`55${ddd}9${sub}`);
+          set.add(`55${ddd}${sub}`);
+        }
+      } else if (x.length === 11) {
+        const ddd = x.slice(0, 2);
+        const sub = x.slice(2);
+        if (sub.startsWith('9') && sub.length === 9) {
+          set.add(`${ddd}${sub.slice(1)}`);
+          set.add(`55${ddd}${sub.slice(1)}`);
+          set.add(`55${ddd}${sub}`);
+        }
+      }
+    }
+  };
+  const addCore = (raw: string) => {
+    const d = normalizeDigits(raw);
+    if (!d || d.length < 8) return;
+    pushBrMobileVariants(d);
+    if (d.length >= 10) pushBrMobileVariants(d.slice(-10));
+    if (d.length >= 11) pushBrMobileVariants(d.slice(-11));
+    if (d.startsWith('55') && d.length >= 12) {
+      const noCc = d.slice(2);
+      pushBrMobileVariants(noCc);
+      if (noCc.length >= 10) pushBrMobileVariants(noCc.slice(-10));
+      if (noCc.length >= 11) pushBrMobileVariants(noCc.slice(-11));
+    }
+  };
+  const d = normalizeDigits(digits);
+  if (!d) return [];
+  addCore(d);
+  return Array.from(set);
+}
+
+/** Mesma logica de match que ao abrir chat por contato (BR, com/sem 55, 9º digito). */
 const phonesMatchDigits = (a: string, b: string): boolean => {
   const ca = a.replace(/\D/g, '');
   const cb = b.replace(/\D/g, '');
@@ -82,30 +145,16 @@ const phonesMatchDigits = (a: string, b: string): boolean => {
   if (ca === cb) return true;
   if (ca.endsWith(cb) || cb.endsWith(ca)) return true;
   if (ca.length >= 10 && cb.length >= 10 && ca.slice(-10) === cb.slice(-10)) return true;
+  const ka = normPhoneKey(a);
+  const kb = normPhoneKey(b);
+  if (ka && kb && ka === kb) return true;
+  const keysA = buildPhoneDigitLookupKeys(ca);
+  const keysB = new Set(buildPhoneDigitLookupKeys(cb));
+  for (const k of keysA) {
+    if (keysB.has(k)) return true;
+  }
   return false;
 };
-
-const normalizeDigits = (raw: string): string => (raw || '').replace(/\D/g, '');
-
-/** Índices para cruzar telefone da conversa ↔ base de contactos (BR: com/sem 55; últimos 10/11). */
-function buildPhoneDigitLookupKeys(digits: string): string[] {
-  const keys: string[] = [];
-  const push = (k: string) => {
-    if (k.length >= 8 && !keys.includes(k)) keys.push(k);
-  };
-  const d = (digits || '').replace(/\D/g, '');
-  if (!d) return keys;
-  push(d);
-  if (d.length >= 10) push(d.slice(-10));
-  if (d.length >= 11) push(d.slice(-11));
-  if (d.startsWith('55') && d.length >= 12) {
-    const noCc = d.slice(2);
-    push(noCc);
-    if (noCc.length >= 10) push(noCc.slice(-10));
-    if (noCc.length >= 11) push(noCc.slice(-11));
-  }
-  return keys;
-}
 
 /** Extrai apenas dígitos do utilizador WhatsApp em `...@c.us` (e variants `lid:` / `chip:...@c.us`). */
 function extractWaUserDigitsFromConvId(convId: string): string {
@@ -114,20 +163,42 @@ function extractWaUserDigitsFromConvId(convId: string): string {
   return m ? normalizeDigits(m[1]) : '';
 }
 
-/** Dígitos canónicos para bater na agenda: campo da conversa ou ID do chat. */
-function digitsForContactMatch(conv: Conversation): string {
-  const fromPhone = normalizeDigits(conv.contactPhone || '');
-  if (fromPhone.length >= 8) return fromPhone;
-  const fromId = extractWaUserDigitsFromConvId(conv.id);
-  return fromId || fromPhone;
+/** Filtra LID longo / id interno: só aceita dígitos que podem ser PN BR na agenda. */
+function plausiblyBrazilPhoneDigits(d: string): boolean {
+  const x = normalizeDigits(d);
+  if (x.length < 10 || x.length > 13) return false;
+  if (x.startsWith('55')) return x.length >= 12 && x.length <= 13;
+  return x.length === 10 || x.length === 11;
 }
 
-/** String passada ao cruzamento com contactos — mantém "+" se vier do WA; senão reconstrói a partir do id. */
+/**
+ * O WhatsApp às vezes grava em `contactPhone` o id LID (+676…) mas o JID ainda é `…@c.us` com o 55….
+ * Para cruzar com a base, priorizar sempre um PN BR reconhecível.
+ */
+function bestPhoneDigitsForAgenda(conv: Conversation): string {
+  const phoneD = normalizeDigits(conv.contactPhone || '');
+  const fromId = extractWaUserDigitsFromConvId(conv.id);
+  if (plausiblyBrazilPhoneDigits(phoneD)) return phoneD;
+  if (plausiblyBrazilPhoneDigits(fromId)) return fromId;
+  return phoneD || fromId;
+}
+
+/** Dígitos canónicos para bater na agenda: campo da conversa ou ID do chat. */
+function digitsForContactMatch(conv: Conversation): string {
+  return bestPhoneDigitsForAgenda(conv);
+}
+
+/** String passada ao cruzamento com contactos — prioriza PN BR (ver `bestPhoneDigitsForAgenda`). */
 function phoneRawForContactLookup(conv: Conversation): string {
-  const p = (conv.contactPhone || '').trim();
-  if (p) return p;
-  const d = digitsForContactMatch(conv);
+  const d = bestPhoneDigitsForAgenda(conv);
   return d.length >= 8 ? `+${d}` : '';
+}
+
+/** Título já veio como telefone/normalizado pelo WA — não tratar como «nome» legível para exibição. */
+function looksLikeDigitsOnlyContactLabel(raw: string): boolean {
+  const t = raw.trim().replace(/\u00a0/g, ' ');
+  if (!t) return true;
+  return /^[+()\d\s.\-]+$/.test(t) && /\d{7,}/.test(t.replace(/\D/g, ''));
 }
 
 const classifyConversation = (conv: Conversation): ConversationOrigin => {
@@ -487,8 +558,11 @@ export const ChatTab: React.FC = () => {
     const map = new Map<string, string>();
     for (const ct of contacts) {
       const name = (ct.name || '').trim();
-      const digits = normalizeDigits(ct.phone || '');
+      const rawPhone = ct.phone || '';
+      const digits = normalizeDigits(rawPhone);
       if (!name || !digits) continue;
+      const nk = normPhoneKey(rawPhone);
+      if (nk && !map.has(nk)) map.set(nk, name);
       for (const key of buildPhoneDigitLookupKeys(digits)) {
         if (!map.has(key)) map.set(key, name);
       }
@@ -498,6 +572,13 @@ export const ChatTab: React.FC = () => {
 
   const getSystemNameForPhone = useCallback(
     (phoneRaw: string): string | undefined => {
+      const trimmed = (phoneRaw || '').trim();
+      if (!trimmed) return undefined;
+      const nkHit = normPhoneKey(trimmed);
+      if (nkHit) {
+        const a = systemContactNameByDigits.get(nkHit);
+        if (a) return a;
+      }
       const digits = normalizeDigits(phoneRaw);
       if (!digits) return undefined;
       for (const key of buildPhoneDigitLookupKeys(digits)) {
@@ -729,9 +810,16 @@ export const ChatTab: React.FC = () => {
       const waName = (waPushNameByConvId.get(conv.id) || '').trim();
       const lookupRaw = phoneRawForContactLookup(conv);
       const systemName = getSystemNameForPhone(lookupRaw)?.trim();
+      const storedName = (conv.contactName || '').trim();
+      const friendlyStored =
+        storedName &&
+        !looksLikeDigitsOnlyContactLabel(storedName) &&
+        storedName.toLowerCase() !== 'contato'
+          ? storedName
+          : '';
       const digits = normalizeDigits(lookupRaw || digitsForContactMatch(conv));
       const phoneLabel = digits ? `+${digits}` : '';
-      const primary = systemName || waName || phoneLabel || 'Contato';
+      const primary = systemName || friendlyStored || waName || phoneLabel || 'Contato';
 
       const same = (a: string, b: string) =>
         a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ');

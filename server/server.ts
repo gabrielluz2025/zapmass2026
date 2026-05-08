@@ -174,6 +174,15 @@ const normalizeCampaignMediaAttachment = (mediaAttachment?: {
 // Origens extras em producao: lista separada por virgula (URL publica do app, com porta se precisar)
 // Ex.: ALLOWED_ORIGINS=http://2.24.210.220:3001,https://app.seudominio.com
 const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+/** Hosting Firebase ZapMass — lista fechada (sem wildcard). Acrescente URL se criar outro site Firebase do produto. */
+const KNOWN_FIREBASE_PANEL_ORIGINS: readonly string[] = [
+  'https://zapflow25.web.app',
+  'https://zapflow25.firebaseapp.com',
+  'https://zapmass25.web.app',
+  'https://zapmass25.firebaseapp.com'
+];
+
 const parseExtraOrigins = (): string[] =>
   (process.env.ALLOWED_ORIGINS || '')
     .split(',')
@@ -216,9 +225,24 @@ function originMatchesRequestHost(origin: string, headers: IncomingHttpHeaders):
   }
 }
 
+/** Domínios padrão do Hosting Firebase (HTTPS). O handshake Socket.IO ainda exige JWT Firebase válido. */
+function isFirebaseDefaultHostingOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== 'https:') return false;
+    const h = u.hostname.toLowerCase();
+    if (h.includes('..')) return false;
+    return h.endsWith('.web.app') || h.endsWith('.firebaseapp.com');
+  } catch {
+    return false;
+  }
+}
+
 function isOriginAllowed(origin: string | undefined, req: { headers: IncomingHttpHeaders }): boolean {
   if (!origin) return true;
   if (LOCAL_ORIGIN_RE.test(origin)) return true;
+  if (KNOWN_FIREBASE_PANEL_ORIGINS.some((allowed) => origin === allowed)) return true;
+  if (isFirebaseDefaultHostingOrigin(origin)) return true;
   if (extraOrigins.some((allowed) => origin === allowed || origin.startsWith(`${allowed}/`))) return true;
   if (originMatchesRequestHost(origin, req.headers)) return true;
   return false;
@@ -234,7 +258,8 @@ function corsResolve(
     return;
   }
   console.warn(`[CORS] Origem bloqueada: ${origin}`);
-  callback(new Error('Not allowed by CORS'));
+  // Não passar Error ao callback: o pacote `cors` encaminha para next() e vira 500 em rotas simples (ex.: /api/health).
+  callback(null, false);
 }
 
 app.use((req, res, next) => {
@@ -270,9 +295,9 @@ const io = new Server(httpServer, {
   transports: ['websocket', 'polling'], // Garante suporte a ambos
   // Upload de mídia base64 via socket exige buffer maior que o padrão.
   maxHttpBufferSize: socketMaxHttpBufferMb * 1024 * 1024,
-  // Heartbeat mais tolerante para evitar quedas falsas sob carga/rede instavel.
-  pingInterval: 25000,
-  pingTimeout: 60000
+  // Heartbeat mais tolerante: separador em fundo / CPU sleep / proxies fecham WS cedo demais.
+  pingInterval: 20000,
+  pingTimeout: 120000
 });
 
 app.use(express.json({ limit: `${jsonBodyLimitMb}mb` }) as any);

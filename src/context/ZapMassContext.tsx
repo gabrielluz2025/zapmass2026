@@ -44,7 +44,7 @@ import { auth, db } from '../services/firebase';
 import { useAppView } from './AppViewContext';
 import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
-import { getSocketIoOrigin } from '../utils/apiBase';
+import { getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import { mergeCampaigns, mergeContactLists, mergeContacts } from '../utils/mergeLegacyUserDocs';
@@ -316,6 +316,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Atraso antes de marcar UI como offline — evita OFFLINE a piscar em quedas < ~3s (sleep da CPU / troca de aba). */
+  const offlineBadgeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasConnectedOnceRef = useRef(false);
   const currentUidRef = useRef<string | null>(auth.currentUser?.uid ?? null);
   const prevAuthUserRef = useRef<string | null>(auth.currentUser?.uid ?? null);
@@ -490,7 +492,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       return {
         id,
         name: raw.name || raw.nome || 'Sem Nome',
-        phone: raw.phone || raw.telefone || '',
+        phone:
+          raw.phone ||
+          raw.telefone ||
+          raw.celular ||
+          raw.mobile ||
+          raw.whatsapp ||
+          raw.numero ||
+          raw.Numero ||
+          '',
         city: raw.city || raw.cidade || '',
         state: raw.state || raw.uf || raw.estado || '',
         street: raw.street || raw.rua || raw.logradouro || raw.endereco || '',
@@ -534,7 +544,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       cleanupFirestore = [];
     };
 
-    const needContacts = ['dashboard', 'contacts', 'campaigns'].includes(currentView);
+    /**
+     * Sempre com sessão ativa: Pipeline, campanhas e relatórios cruzam `users/{uid}/contacts`.
+     * Subscrever só em algumas abas deixava `contacts[]` vazio na vista `chat` → nomes nunca batiam.
+     */
+    const needContacts = true;
     const needLists = ['contacts', 'campaigns'].includes(currentView);
     const needCampaigns =
       ['dashboard', 'campaigns', 'reports'].includes(currentView) || campaignStatus.isRunning;
@@ -762,14 +776,27 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     console.log(`Iniciando conexão Socket.IO com: ${BACKEND_URL || 'origem relativa'}`);
 
+    /** Firebase só serve HTML/JS — sem Node na mesma URL; ligar Socket à mesma origem falha sempre. */
+    if (isLikelySplitStaticFrontend()) {
+      const hint =
+        'O site em Firebase precisa saber onde está a API Node. Nas próximas vezes uses `scripts/deploy-hosting.ps1 -ApiOrigin "https://…"` ou defina `VITE_API_ORIGIN` antes do build (`env.production.template`). Na VPS, acrescente este domínio a `ALLOWED_ORIGINS`.';
+      console.error(`[ZapMass] ${hint}`);
+      toast.error(`${hint}`, { duration: 22_000, icon: '🔗' });
+      setIsBackendConnected(false);
+      return () => {
+        resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
+      };
+    }
+
     socketRef.current = io(BACKEND_URL, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 10000,
-      timeout: 20000,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 15000,
+      /** Handshake inicial: redes lentas / TLS; não confundir com ping do motor (servidor). */
+      timeout: 45000,
       autoConnect: false,
       auth: {},
       extraHeaders: {
@@ -791,6 +818,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     socket.on('connect', () => {
+      if (offlineBadgeDelayRef.current) {
+        clearTimeout(offlineBadgeDelayRef.current);
+        offlineBadgeDelayRef.current = null;
+      }
       if (disconnectToastTimerRef.current) {
         clearTimeout(disconnectToastTimerRef.current);
         disconnectToastTimerRef.current = null;
@@ -809,14 +840,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('disconnect', (reason) => {
-      setIsBackendConnected(false);
+      if (offlineBadgeDelayRef.current) {
+        clearTimeout(offlineBadgeDelayRef.current);
+        offlineBadgeDelayRef.current = null;
+      }
       if (disconnectToastTimerRef.current) {
         clearTimeout(disconnectToastTimerRef.current);
         disconnectToastTimerRef.current = null;
       }
       if (reason === 'io client disconnect') {
+        setIsBackendConnected(false);
         return; // logout / socket.disconnect() intencional — sem aviso de falha
       }
+      // Badge “Offline”: só após ~3s sem reconectar (troca de aba / throttle costuma recuperar antes).
+      offlineBadgeDelayRef.current = setTimeout(() => {
+        offlineBadgeDelayRef.current = null;
+        if (!socket.connected) setIsBackendConnected(false);
+      }, 3000);
       // Evita falso positivo em quedas rapidas: so avisa erro apos 6s offline continuo
       // (reconexao comum nao dispara: connect() limpa este timer).
       disconnectToastTimerRef.current = setTimeout(() => {
@@ -981,9 +1021,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setWarmedCount(Number.isFinite(data?.warmedCount) ? data.warmedCount : 0);
     });
 
-    socket.on('initial-data', (data: { contacts: Contact[], birthdays: BirthdayContact[] }) => {
-      setContacts(data.contacts);
-      setBirthdays(data.birthdays);
+    socket.on('initial-data', (data: { contacts?: Contact[]; birthdays?: BirthdayContact[] }) => {
+      if (Array.isArray(data?.birthdays)) setBirthdays(data.birthdays);
+      // Contactos vêm do Firestore (`onSnapshot`); não substituir por [] se algum payload legado vier vazio.
+      if (Array.isArray(data?.contacts) && data.contacts.length > 0) {
+        setContacts((prev) => {
+          const byId = new Map(prev.map((c) => [c.id, c]));
+          for (const c of data.contacts!) {
+            if (c?.id) byId.set(c.id, { ...(byId.get(c.id) || ({} as Contact)), ...c });
+          }
+          return Array.from(byId.values()).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+        });
+      }
     });
 
     socket.on('qr-code', (data: { connectionId: string; qrCode: string }) => {
@@ -1402,12 +1451,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast('Campanha retomada!', { icon: '▶️' });
     });
 
-    /** Ao voltar ao separador/desktop, pede lista actuala — complementa pushes em tempo real. */
+    /** Ao voltar ao separador/desktop: reconectar se o browser suspendeu o WS; depois pedir sync. */
     let lastConvResyncMs = 0;
+    let lastReconnectNudgeMs = 0;
     const onVisibilityOrFocus = () => {
       if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
-      if (!socket.connected) return;
       const now = Date.now();
+      if (!socket.connected) {
+        if (now - lastReconnectNudgeMs < 1200) return;
+        lastReconnectNudgeMs = now;
+        const u = auth.currentUser;
+        if (u) {
+          u.getIdToken(false)
+            .then((token) => {
+              (socket as Socket & { auth: { token?: string } }).auth = { token };
+              if (!socket.connected) socket.connect();
+            })
+            .catch(() => {
+              if (!socket.connected) socket.connect();
+            });
+        } else {
+          socket.connect();
+        }
+        return;
+      }
       if (now - lastConvResyncMs < 4500) return;
       lastConvResyncMs = now;
       socket.emit('request-conversations-sync');
@@ -1426,6 +1493,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (disconnectToastTimerRef.current) {
         clearTimeout(disconnectToastTimerRef.current);
         disconnectToastTimerRef.current = null;
+      }
+      if (offlineBadgeDelayRef.current) {
+        clearTimeout(offlineBadgeDelayRef.current);
+        offlineBadgeDelayRef.current = null;
       }
       clearInterval(pingInterval);
       socket.io.off('reconnect', onManagerReconnect);
