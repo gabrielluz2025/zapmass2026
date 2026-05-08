@@ -523,19 +523,45 @@ export const ChatTab: React.FC = () => {
   const getAvatar = (name: string, pic?: string) =>
     pic || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=059669&color=fff&size=200`;
 
-  /** Foto do WhatsApp (quando veio) ou `profilePicUrl` da agenda em Contatos. */
+  /**
+   * Index reverso de fotos de perfil por chave de telefone — evita O(C) por conversa
+   * em `resolveProfilePic`. Recriado só quando `contacts` muda.
+   */
+  const profilePicByPhoneKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ct of contacts) {
+      const pic = ct.profilePicUrl;
+      if (!pic) continue;
+      const rawPhone = ct.phone || '';
+      const nk = normPhoneKey(rawPhone);
+      if (nk && !map.has(nk)) map.set(nk, pic);
+      const digits = normalizeDigits(rawPhone);
+      if (!digits) continue;
+      for (const key of buildPhoneDigitLookupKeys(digits)) {
+        if (!map.has(key)) map.set(key, pic);
+      }
+    }
+    return map;
+  }, [contacts]);
+
+  /** Foto do WhatsApp (quando veio) ou `profilePicUrl` da agenda em Contatos — agora O(1). */
   const resolveProfilePic = useCallback(
     (conv: Conversation): string | undefined => {
       if (conv.profilePicUrl) return conv.profilePicUrl;
       const dConv = digitsForContactMatch(conv);
       if (!dConv || dConv.length < 8) return undefined;
-      for (const ct of contacts) {
-        if (!ct.profilePicUrl) continue;
-        if (phonesMatchDigits(ct.phone || '', dConv)) return ct.profilePicUrl;
+      const nk = normPhoneKey(dConv);
+      if (nk) {
+        const a = profilePicByPhoneKey.get(nk);
+        if (a) return a;
+      }
+      for (const key of buildPhoneDigitLookupKeys(dConv)) {
+        const hit = profilePicByPhoneKey.get(key);
+        if (hit) return hit;
       }
       return undefined;
     },
-    [contacts]
+    [profilePicByPhoneKey]
   );
 
   const openQuickRepliesEditor = useCallback(() => {
@@ -864,44 +890,82 @@ export const ChatTab: React.FC = () => {
     return m;
   }, [mergedConversations]);
 
-  /** Título forte = nome na base CRM; subtítulo menor = WhatsApp/celular/telefone. */
-  const getConversationDisplay = useCallback(
-    (
-      conv: Conversation
-    ): { primary: string; whatsappSubtitle?: string; phoneSecondary?: string } => {
-      const waName = (waPushNameByConvId.get(conv.id) || '').trim();
+  /**
+   * Cache de exibição por conversa.
+   *
+   * MOTIVO: o virtualizer (lista do Chat e colunas do Kanban) chama `getConversationDisplay` e
+   * `getConvAvatar` para CADA card visível a cada frame de scroll (60Hz). Sem cache, cada chamada
+   * percorre `phoneRawForContactLookup`, `normalizeDigits`, `buildPhoneDigitLookupKeys` e cria
+   * Set/Map novos — durante o scroll a CPU bate 100% e a UI trava ("não consigo mexer em mais nada").
+   *
+   * Pré-computamos tudo uma única vez quando muda `mergedConversations` ou `systemContactNameByDigits`.
+   * Os callbacks abaixo viram lookups O(1) no Map.
+   */
+  const displayInfoByConvId = useMemo(() => {
+    const map = new Map<string, { primary: string; whatsappSubtitle?: string; phoneSecondary?: string }>();
+    const same = (a: string, b: string) =>
+      a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ');
+    for (const conv of mergedConversations) {
+      const waName = (conv.contactName || '').trim();
       const systemName = resolveSystemNameForConv(conv);
-      const storedName = (conv.contactName || '').trim();
       const friendlyStored =
-        storedName &&
-        !looksLikeDigitsOnlyContactLabel(storedName) &&
-        storedName.toLowerCase() !== 'contato'
-          ? storedName
+        waName &&
+        !looksLikeDigitsOnlyContactLabel(waName) &&
+        waName.toLowerCase() !== 'contato'
+          ? waName
           : '';
       const digits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
       const phoneLabel = digits ? `+${digits}` : '';
       const primary = systemName || friendlyStored || waName || phoneLabel || 'Contato';
 
-      const same = (a: string, b: string) =>
-        a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ');
       let whatsappSubtitle: string | undefined;
       if (systemName && waName && !same(systemName, waName)) whatsappSubtitle = waName;
 
-      /** Telefone em linha pequena sempre que o título não for só o número. */
       let phoneSecondary: string | undefined;
       if (phoneLabel && primary !== phoneLabel) phoneSecondary = phoneLabel;
 
-      return { primary, whatsappSubtitle, phoneSecondary };
+      map.set(conv.id, { primary, whatsappSubtitle, phoneSecondary });
+    }
+    return map;
+  }, [mergedConversations, resolveSystemNameForConv]);
+
+  /** Título forte = nome na base CRM; subtítulo menor = WhatsApp/celular/telefone. */
+  const getConversationDisplay = useCallback(
+    (
+      conv: Conversation
+    ): { primary: string; whatsappSubtitle?: string; phoneSecondary?: string } => {
+      const cached = displayInfoByConvId.get(conv.id);
+      if (cached) return cached;
+      // Fallback raríssimo (conversa veio de fora de mergedConversations, ex.: id sintético).
+      const waName = (conv.contactName || '').trim();
+      const phoneLabel = (() => {
+        const d = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
+        return d ? `+${d}` : '';
+      })();
+      const primary = waName || phoneLabel || 'Contato';
+      return { primary };
     },
-    [waPushNameByConvId, resolveSystemNameForConv]
+    [displayInfoByConvId]
   );
+
+  /** Cache de avatar por id — usa diretamente o `primary` já calculado em `displayInfoByConvId`. */
+  const avatarByConvId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const conv of mergedConversations) {
+      const primary = displayInfoByConvId.get(conv.id)?.primary ?? (conv.contactName || 'Contato');
+      map.set(conv.id, getAvatar(primary, resolveProfilePic(conv)));
+    }
+    return map;
+  }, [mergedConversations, displayInfoByConvId, resolveProfilePic]);
 
   const getConvAvatar = useCallback(
     (conv: Conversation) => {
+      const cached = avatarByConvId.get(conv.id);
+      if (cached) return cached;
       const { primary } = getConversationDisplay(conv);
       return getAvatar(primary, resolveProfilePic(conv));
     },
-    [getConversationDisplay, resolveProfilePic]
+    [avatarByConvId, getConversationDisplay, resolveProfilePic]
   );
 
   // Limpa rascunhos cujos ids já existem entre as conversas reais.
