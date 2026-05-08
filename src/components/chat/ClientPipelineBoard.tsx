@@ -31,8 +31,12 @@ function truncateText(s: string, max: number): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
-/** Lista vertical dentro de cada coluna do quadro — evita montar milhares de cartões ao mesmo tempo. */
-const KanbanColumnBody: React.FC<{
+/**
+ * Lista vertical dentro de cada coluna do quadro — evita montar milhares de cartões ao mesmo tempo.
+ * Memoizado para que o re-render do board (ex.: troca de `dragOverColumn`) só rerenderize a coluna
+ * cujos `props` realmente mudaram.
+ */
+type KanbanColumnBodyProps = {
   list: Conversation[];
   selectedChatId: string | null;
   onSelectChat: (id: string) => void;
@@ -41,7 +45,8 @@ const KanbanColumnBody: React.FC<{
   formatConversationTitles?: (conv: Conversation) => { primary: string; whatsappSubtitle?: string };
   onDragStartNative: (e: React.DragEvent, conversationId: string) => void;
   onDragEndNative: () => void;
-}> = ({
+};
+const KanbanColumnBody: React.FC<KanbanColumnBodyProps> = memo(function KanbanColumnBodyInner({
   list,
   selectedChatId,
   onSelectChat,
@@ -50,7 +55,7 @@ const KanbanColumnBody: React.FC<{
   formatConversationTitles,
   onDragStartNative,
   onDragEndNative
-}) => {
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: list.length,
@@ -162,7 +167,7 @@ const KanbanColumnBody: React.FC<{
       </div>
     </div>
   );
-};
+});
 
 interface ClientPipelineBoardProps {
   userUid: string | null | undefined;
@@ -270,16 +275,20 @@ export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
     el.scrollBy({ left: dir === 'right' ? step : -step, behavior: 'smooth' });
   }, []);
 
-  const moveCard = (conversationId: string, columnId: string) => {
-    setState((prev) => {
-      const next = {
-        ...prev,
-        cardColumn: { ...prev.cardColumn, [conversationId]: columnId }
-      };
-      scheduleSave(next);
-      return next;
-    });
-  };
+  const moveCard = useCallback(
+    (conversationId: string, columnId: string) => {
+      setState((prev) => {
+        if (prev.cardColumn[conversationId] === columnId) return prev;
+        const next = {
+          ...prev,
+          cardColumn: { ...prev.cardColumn, [conversationId]: columnId }
+        };
+        scheduleSave(next);
+        return next;
+      });
+    },
+    [scheduleSave]
+  );
 
   const submitNewColumn = (keepModalOpen: boolean) => {
     const name = newColName.trim() || 'Nova coluna';
@@ -338,31 +347,48 @@ export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
     setDeleteAsk(null);
   };
 
-  const onDragStart = (e: React.DragEvent, conversationId: string) => {
+  const onDragStart = useCallback((e: React.DragEvent, conversationId: string) => {
     e.dataTransfer.setData(DND_TYPE, conversationId);
     e.dataTransfer.setData('text/plain', conversationId);
     e.dataTransfer.effectAllowed = 'move';
-  };
+  }, []);
 
-  const onDragOverCol = (e: React.DragEvent, columnId: string) => {
+  /**
+   * `dragover` dispara ~60Hz enquanto o cursor está sobre a coluna; sem o guard, cada frame causa
+   * `setState` → re-render do board inteiro → re-render de cada KanbanColumnBody → recomputo do
+   * virtualizer (CPU 80-95% durante o arrasto). Lemos o id da coluna do `data-col-id` para que o
+   * handler seja referência estável (não cria nova função por coluna a cada render).
+   */
+  const onDragOverCol = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDragOverColumn(columnId);
-  };
+    const columnId = e.currentTarget.getAttribute('data-col-id');
+    if (!columnId) return;
+    setDragOverColumn((prev) => (prev === columnId ? prev : columnId));
+  }, []);
 
-  const onDragLeaveCol = (e: React.DragEvent) => {
+  const onDragLeaveCol = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     const related = e.relatedTarget as Node | null;
     if (related && e.currentTarget.contains(related)) return;
-    setDragOverColumn(null);
-  };
+    setDragOverColumn((prev) => (prev === null ? prev : null));
+  }, []);
 
-  const onDropCol = (e: React.DragEvent, columnId: string) => {
-    e.preventDefault();
-    setDragOverColumn(null);
-    const id = e.dataTransfer.getData(DND_TYPE) || e.dataTransfer.getData('text/plain');
-    if (!id) return;
-    moveCard(id, columnId);
-  };
+  const onDropCol = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setDragOverColumn(null);
+      const columnId = e.currentTarget.getAttribute('data-col-id');
+      if (!columnId) return;
+      const id = e.dataTransfer.getData(DND_TYPE) || e.dataTransfer.getData('text/plain');
+      if (!id) return;
+      moveCard(id, columnId);
+    },
+    [moveCard]
+  );
+
+  const onDragEndNative = useCallback(() => {
+    setDragOverColumn((prev) => (prev === null ? prev : null));
+  }, []);
 
   return (
     <>
@@ -481,9 +507,10 @@ export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
                     ? '0 0 0 2px color-mix(in srgb, var(--brand-500) 35%, transparent), 0 12px 40px -12px rgba(0,0,0,0.35)'
                     : '0 8px 30px -12px rgba(0,0,0,0.2), inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent)'
                 }}
-                onDragOver={(e) => onDragOverCol(e, col.id)}
+                data-col-id={col.id}
+                onDragOver={onDragOverCol}
                 onDragLeave={onDragLeaveCol}
-                onDrop={(e) => onDropCol(e, col.id)}
+                onDrop={onDropCol}
               >
                 <div className="h-[3px] w-full flex-shrink-0 rounded-t-[13px] overflow-hidden" style={{ background: accent }} aria-hidden />
                 <div
@@ -551,7 +578,7 @@ export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
                     connectionName={connectionName}
                     formatConversationTitles={formatConversationTitles}
                     onDragStartNative={onDragStart}
-                    onDragEndNative={() => setDragOverColumn(null)}
+                    onDragEndNative={onDragEndNative}
                   />
                 )}
               </div>
