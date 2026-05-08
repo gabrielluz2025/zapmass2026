@@ -1,3 +1,5 @@
+import { campaignClockVars } from './campaignClockVars';
+
 /** Variáveis inseríveis no texto de campanha (substituição no servidor via `applyMessageVars`). */
 export const WIZARD_CAMPAIGN_VARS_PRIMARY: string[] = [
   '{nome}',
@@ -6,7 +8,9 @@ export const WIZARD_CAMPAIGN_VARS_PRIMARY: string[] = [
   '{igreja}',
   '{cargo}',
   '{profissao}',
-  '{data}'
+  '{data}',
+  '{horario}',
+  '{saudacao}'
 ];
 
 export const WIZARD_CAMPAIGN_VARS_FICHA: string[] = [
@@ -18,8 +22,9 @@ export const WIZARD_CAMPAIGN_VARS_FICHA: string[] = [
   '{anos_casamento}'
 ];
 
-/** Pré-visualização local no assistente (valores fictícios). */
+/** Pré-visualização local no assistente (contato fictício + relógio de Brasília agora para data/hora/saudação). */
 export function applyCampaignMessagePreviewVars(text: string): string {
+  const { data, horario, saudacao } = campaignClockVars();
   return text
     .replace(/\{nome_completo\}/g, 'Maria Silva Santos')
     .replace(/\{nome\}/g, 'Maria')
@@ -33,7 +38,9 @@ export function applyCampaignMessagePreviewVars(text: string): string {
     .replace(/\{conjuge\}/g, 'Joao Silva')
     .replace(/\{data_bodas\}/g, '12/06/2018')
     .replace(/\{anos_casamento\}/g, '8')
-    .replace(/\{data\}/g, new Date().toLocaleDateString('pt-BR'));
+    .replace(/\{data\}/g, data)
+    .replace(/\{horario\}/g, horario)
+    .replace(/\{saudacao\}/g, saudacao);
 }
 
 export function insertCampaignTokenIntoTextarea(

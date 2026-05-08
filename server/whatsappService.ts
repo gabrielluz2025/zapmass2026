@@ -14,6 +14,7 @@ import * as advancedFeatures from './advancedFeatures.js';
 import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
+import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 import {
     appendChatArchiveMessages,
@@ -4102,7 +4103,10 @@ const buildRecipientVarsMap = (recipients?: CampaignRecipient[]): Map<string, Re
 };
 
 const applyMessageVars = (template: string, phone: string, vars: Record<string, string> = {}): string => {
+    /** Data/hora/saudação em Brasília no instante da personalização (filas/disparos). Recipient pode sobrescrever via vars explícitos. */
+    const clock = campaignClockVars();
     const safeVars: Record<string, string> = {
+        ...clock,
         ...vars,
         telefone: vars.telefone || phone
     };

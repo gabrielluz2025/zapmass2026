@@ -32,6 +32,15 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({ onInsert, densit
           <button
             key={v}
             type="button"
+            title={
+              v === '{saudacao}'
+                ? 'Saudação conforme o horário em Brasília: Bom dia / Boa tarde / Boa noite'
+                : v === '{horario}'
+                  ? 'Horário atual em Brasília (HH:mm) quando a mensagem é gerada na fila'
+                  : v === '{data}'
+                    ? 'Data em Brasília quando a mensagem é gerada na fila'
+                    : undefined
+            }
             onClick={() => onInsert(v)}
             className="text-[10.5px] font-mono font-semibold px-2 py-0.5 rounded-md transition-all hover:brightness-110"
             style={{ background: 'var(--surface-selected-brand)', color: 'var(--text-1)' }}

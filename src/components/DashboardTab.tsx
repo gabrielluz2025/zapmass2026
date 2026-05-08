@@ -48,6 +48,7 @@ import {
   yearsCelebratingAtNextAnniversary
 } from '../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
+import { campaignClockVars } from '../utils/campaignClockVars';
 import { SegmentExperiencePanel } from './segment/SegmentExperiencePanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
@@ -524,7 +525,9 @@ export const DashboardTab: React.FC = () => {
   // Substitui variaveis {nome}, {idade}, etc. igual ao backend
   const renderTemplate = (tpl: string, b: UpcomingBirthday): string => {
     const nv = campaignRecipientNameVars(b.name || '');
+    const clock = campaignClockVars();
     const vars: Record<string, string> = {
+      ...clock,
       nome: nv.nome,
       nome_completo: nv.nome_completo,
       telefone: b.phone,
