@@ -109,6 +109,8 @@ const DEFAULT_BIRTHDAY_TEMPLATE = `Ola {nome}! 🎉🎂\n\nParabens pelo seu dia
 const WEDDING_BULK_DEFAULT = `Ola {nome}! 💍\n\nParabens pelo aniversario de casamento! Que Deus abencoe voce e {conjuge}.\n{anos_line}\n\nFeliz bodas!`;
 
 const BIRTHDAY_RANGE_DAYS = 30;
+/** Quantos itens das listas do hero (aniversariantes/casamentos/visitas) renderizam por padrão; o restante carrega sob demanda. */
+const DASHBOARD_LIST_PAGE = 10;
 
 const parseBirthdayDate = (raw: string): Date | null => {
   if (!raw) return null;
@@ -443,6 +445,24 @@ export const DashboardTab: React.FC = () => {
   const weekBirthdays = upcomingBirthdays.filter((b) => b.daysRemaining <= 7);
   const todaysWeddings = upcomingWeddings.filter((w) => w.daysRemaining === 0);
   const weekWeddings = upcomingWeddings.filter((w) => w.daysRemaining <= 7);
+
+  /**
+   * Paginação progressiva nos hero-cards do Dashboard — sem isto, em bases grandes (centenas de
+   * aniversariantes nos próximos 30 dias) o painel sozinho monta milhares de nós no DOM.
+   */
+  const [birthdaysVisible, setBirthdaysVisible] = useState(DASHBOARD_LIST_PAGE);
+  const [weddingsVisible, setWeddingsVisible] = useState(DASHBOARD_LIST_PAGE);
+  const [pastoralVisible, setPastoralVisible] = useState(DASHBOARD_LIST_PAGE);
+  useEffect(() => setBirthdaysVisible(DASHBOARD_LIST_PAGE), [upcomingBirthdays]);
+  useEffect(() => setWeddingsVisible(DASHBOARD_LIST_PAGE), [upcomingWeddings]);
+  const upcomingBirthdaysVisible = useMemo(
+    () => upcomingBirthdays.slice(0, birthdaysVisible),
+    [upcomingBirthdays, birthdaysVisible]
+  );
+  const upcomingWeddingsVisible = useMemo(
+    () => upcomingWeddings.slice(0, weddingsVisible),
+    [upcomingWeddings, weddingsVisible]
+  );
 
   const bulkCandidates = useMemo(
     () => upcomingBirthdays.filter((b) => b.daysRemaining <= bulkDaysRange),
@@ -1251,7 +1271,7 @@ export const DashboardTab: React.FC = () => {
                   </Button>
                 </div>
               ) : (
-                upcomingBirthdays.map((contact) => (
+                upcomingBirthdaysVisible.map((contact) => (
                   <div
                     key={contact.id}
                     className={`p-2.5 rounded-xl transition-all flex items-center justify-between group border ${
@@ -1312,6 +1332,16 @@ export const DashboardTab: React.FC = () => {
                     </Button>
                   </div>
                 ))
+              )}
+              {upcomingBirthdays.length > birthdaysVisible && (
+                <button
+                  type="button"
+                  onClick={() => setBirthdaysVisible((n) => n + DASHBOARD_LIST_PAGE)}
+                  className="w-full text-[12px] font-bold py-1.5 rounded-lg transition-colors hover:bg-[var(--surface-2)]"
+                  style={{ color: 'var(--brand-600)' }}
+                >
+                  Mostrar mais ({upcomingBirthdays.length - birthdaysVisible} restantes)
+                </button>
               )}
             </div>
           </div>
@@ -1404,7 +1434,7 @@ export const DashboardTab: React.FC = () => {
                   </Button>
                 </div>
               ) : (
-                upcomingWeddings.map((w) => (
+                upcomingWeddingsVisible.map((w) => (
                   <div
                     key={w.id}
                     className={`p-2.5 rounded-xl transition-all flex items-center justify-between group border ${
@@ -1461,6 +1491,16 @@ export const DashboardTab: React.FC = () => {
                   </div>
                 ))
               )}
+              {upcomingWeddings.length > weddingsVisible && (
+                <button
+                  type="button"
+                  onClick={() => setWeddingsVisible((n) => n + DASHBOARD_LIST_PAGE)}
+                  className="w-full text-[12px] font-bold py-1.5 rounded-lg transition-colors hover:bg-[var(--surface-2)]"
+                  style={{ color: 'var(--brand-600)' }}
+                >
+                  Mostrar mais ({upcomingWeddings.length - weddingsVisible} restantes)
+                </button>
+              )}
             </div>
           </div>
         </Card>
@@ -1512,7 +1552,7 @@ export const DashboardTab: React.FC = () => {
                     planear.
                   </p>
                 ) : (
-                  upcomingPastoralVisits.map((v) => {
+                  upcomingPastoralVisits.slice(0, pastoralVisible).map((v) => {
                     const a = new Date(v.scheduledStartMs);
                     const label = `${a.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })} · ${a.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
                     return (
@@ -1557,6 +1597,16 @@ export const DashboardTab: React.FC = () => {
                       </div>
                     );
                   })
+                )}
+                {upcomingPastoralVisits.length > pastoralVisible && (
+                  <button
+                    type="button"
+                    onClick={() => setPastoralVisible((n) => n + DASHBOARD_LIST_PAGE)}
+                    className="w-full text-[12px] font-bold py-1.5 rounded-lg transition-colors hover:bg-[var(--surface-2)]"
+                    style={{ color: 'var(--brand-600)' }}
+                  >
+                    Mostrar mais ({upcomingPastoralVisits.length - pastoralVisible} restantes)
+                  </button>
                 )}
               </div>
             </div>

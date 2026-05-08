@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   CheckSquare,
@@ -38,6 +38,8 @@ type SortKey = 'recent' | 'name' | 'progress' | 'success' | 'volume';
 
 const LS_VIEW = 'zapmass.campaigns.list.view';
 const LS_SORT = 'zapmass.campaigns.list.sort';
+/** Lote de cards renderizados — cada CampaignCardExtended pesa ~60 nós no DOM, então paginamos. */
+const CAMPAIGNS_PAGE_SIZE = 24;
 
 function downloadCampaignsCsv(rows: Campaign[], filename: string) {
   const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
@@ -136,6 +138,8 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
   onClone
 }) => {
   const [search, setSearch] = useState('');
+  /** Defer search: digitação não dispara filtro/sort em listas grandes, mantém o input fluido. */
+  const deferredSearch = useDeferredValue(search);
   const [status, setStatus] = useState<StatusFilter>('ALL');
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -177,12 +181,14 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
   const filtered = useMemo(() => {
     let list = campaigns;
     if (status !== 'ALL') list = list.filter((c) => c.status === status);
-    if (search)
+    if (deferredSearch) {
+      const q = deferredSearch.toLowerCase();
       list = list.filter(
         (c) =>
-          c.name.toLowerCase().includes(search.toLowerCase()) ||
-          (c.contactListName || '').toLowerCase().includes(search.toLowerCase())
+          c.name.toLowerCase().includes(q) ||
+          (c.contactListName || '').toLowerCase().includes(q)
       );
+    }
 
     const sortFn = (a: Campaign, b: Campaign) => {
       if (sort === 'name') return a.name.localeCompare(b.name, 'pt-BR');
@@ -203,7 +209,21 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     };
     return list.slice().sort(sortFn);
-  }, [campaigns, status, search, sort]);
+  }, [campaigns, status, deferredSearch, sort]);
+
+  /**
+   * Paginação client-side (em vez de virtualizer) — funciona com os 3 modos (cards/compacto/tabela)
+   * sem mexer no layout existente. Cada lote adiciona ~24 cards ≈ ~1500 nós no DOM.
+   */
+  const [visibleCount, setVisibleCount] = useState(CAMPAIGNS_PAGE_SIZE);
+  /** Reset paginação ao mudar filtros/ordenação/aba — evita exibir página vazia. */
+  useEffect(() => {
+    setVisibleCount(CAMPAIGNS_PAGE_SIZE);
+  }, [status, deferredSearch, sort, view]);
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hasMore = visible.length < filtered.length;
+  const loadMore = () =>
+    setVisibleCount((n) => Math.min(filtered.length, n + CAMPAIGNS_PAGE_SIZE));
 
   const allSelected = filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id));
   const someSelected = filtered.some((c) => selectedIds.has(c.id));
@@ -435,7 +455,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
         />
       ) : view === 'cards' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {filtered.map((camp) => (
+          {visible.map((camp) => (
             <CampaignCardExtended
               key={camp.id}
               campaign={camp}
@@ -454,7 +474,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
         </div>
       ) : view === 'compact' ? (
         <div className="space-y-1.5">
-          {filtered.map((camp) => (
+          {visible.map((camp) => (
             <CampaignCompactRow
               key={camp.id}
               campaign={camp}
@@ -495,7 +515,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((camp) => {
+                {visible.map((camp) => {
                   const m = getCampaignProgressMetrics(camp);
                   const progress = m.progressPct;
                   const rate = m.successRatePct;
@@ -622,6 +642,18 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
         </Card>
       )}
 
+      {/* Carregar mais — paginação client-side: cada lote = 24 cards (~1500 nós no DOM). */}
+      {filtered.length > 0 && hasMore && (
+        <div className="flex flex-col items-center gap-1.5 py-2">
+          <Button variant="secondary" onClick={loadMore}>
+            Carregar mais ({filtered.length - visible.length} restantes)
+          </Button>
+          <span className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+            Mostrando {visible.length} de {filtered.length}
+          </span>
+        </div>
+      )}
+
       {/* Modal confirmar deleção */}
       {confirmState.open && (
         <Modal
@@ -672,7 +704,7 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
 };
 
 // ─── Card estendido (view=cards) ───
-const CampaignCardExtended: React.FC<{
+type CampaignCardExtendedProps = {
   campaign: Campaign;
   selected: boolean;
   selectionMode: boolean;
@@ -681,7 +713,18 @@ const CampaignCardExtended: React.FC<{
   onTogglePause: () => void;
   onClone?: () => void;
   onDelete?: () => void;
-}> = ({ campaign, selected, selectionMode, onToggleSelect, onOpen, onTogglePause, onClone, onDelete }) => {
+};
+/** Memo evita rerender de TODOS os cards quando muda só o input de busca / filtro / outra campanha. */
+const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function CampaignCardExtendedInner({
+  campaign,
+  selected,
+  selectionMode,
+  onToggleSelect,
+  onOpen,
+  onTogglePause,
+  onClone,
+  onDelete
+}) {
   const m = getCampaignProgressMetrics(campaign);
   const progress = m.progressPct;
   const rate = m.successRatePct;
@@ -916,9 +959,10 @@ const CampaignCardExtended: React.FC<{
       </div>
     </div>
   );
-};
+});
 
-const Metric: React.FC<{ label: string; value: string; tone: string }> = ({ label, value, tone }) => (
+const Metric: React.FC<{ label: string; value: string; tone: string }> = memo(function MetricInner({ label, value, tone }) {
+  return (
   <div className="rounded-md px-1.5 py-1 text-center" style={{ background: 'var(--surface-0)' }}>
     <p className="text-[13px] font-black tabular-nums leading-none" style={{ color: tone }}>
       {value}
@@ -930,10 +974,11 @@ const Metric: React.FC<{ label: string; value: string; tone: string }> = ({ labe
       {label}
     </p>
   </div>
-);
+  );
+});
 
 // ─── Linha compacta (view=compact) ───
-const CampaignCompactRow: React.FC<{
+type CampaignCompactRowProps = {
   campaign: Campaign;
   selected: boolean;
   selectionMode: boolean;
@@ -942,7 +987,17 @@ const CampaignCompactRow: React.FC<{
   onTogglePause: () => void;
   onClone?: () => void;
   onDelete?: () => void;
-}> = ({ campaign, selected, selectionMode, onToggleSelect, onOpen, onTogglePause, onClone, onDelete }) => {
+};
+const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function CampaignCompactRowInner({
+  campaign,
+  selected,
+  selectionMode,
+  onToggleSelect,
+  onOpen,
+  onTogglePause,
+  onClone,
+  onDelete
+}) {
   const m = getCampaignProgressMetrics(campaign);
   const progress = m.progressPct;
   const rate = m.successRatePct;
@@ -1049,4 +1104,4 @@ const CampaignCompactRow: React.FC<{
       )}
     </div>
   );
-};
+});
