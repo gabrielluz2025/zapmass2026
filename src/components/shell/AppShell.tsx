@@ -85,7 +85,16 @@ export const AppShell: React.FC<AppShellProps> = ({
         onToggleCollapsed={() => setCollapsed((v) => !v)}
       />
 
-      <main className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen transition-all duration-300`}>
+      {/*
+        Antes: `transition-all duration-300` aplicado ao <main> rolante. Como `transition-all`
+        engloba TODA propriedade, qualquer mudanca implicita (layout, scroll) virava transicao
+        animada e tornava o scroll lento. Trocamos por transicao apenas em margin-left, que e o
+        unico valor que muda de fato (collapse/expand do sidebar).
+      */}
+      <main
+        className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen`}
+        style={{ transition: 'margin-left 200ms ease' }}
+      >
         <TopBar
           currentView={currentView}
           onOpenMobileNav={() => setIsMobileNavOpen(true)}

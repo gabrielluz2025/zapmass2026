@@ -71,9 +71,11 @@ export const TopBar: React.FC<TopBarProps> = ({
     <div
       className="sticky top-0 z-20 border-b px-3 sm:px-5 py-2 sm:py-2.5"
       style={{
-        background: 'color-mix(in srgb, var(--bg) 85%, transparent)',
-        borderColor: 'var(--border-subtle)',
-        backdropFilter: 'blur(16px)'
+        // Background opaco em vez de translucido + backdrop-filter blur(16px) — o blur de 16px no
+        // header global obrigava o navegador a recompor todo o conteudo atras do header a cada
+        // pixel de scroll, derrubando 60fps e travando a UI em qualquer aba.
+        background: 'var(--bg)',
+        borderColor: 'var(--border-subtle)'
       }}
     >
       <div className="mx-auto grid w-full max-w-[1800px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-2 sm:gap-x-3 gap-y-1.5 min-h-[40px] sm:min-h-[44px]">

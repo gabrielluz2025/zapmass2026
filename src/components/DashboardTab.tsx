@@ -848,8 +848,7 @@ export const DashboardTab: React.FC = () => {
                   style={{
                     background: 'rgba(16,185,129,0.16)',
                     color: '#10b981',
-                    border: '1px solid rgba(16,185,129,0.35)',
-                    backdropFilter: 'blur(4px)'
+                    border: '1px solid rgba(16,185,129,0.35)'
                   }}
                 >
                   <span className="relative flex w-1.5 h-1.5">
@@ -930,8 +929,7 @@ export const DashboardTab: React.FC = () => {
               style={{
                 background: 'var(--surface-0)',
                 color: 'var(--text-1)',
-                border: '1px solid var(--border)',
-                backdropFilter: 'blur(6px)'
+                border: '1px solid var(--border)'
               }}
             >
               <Smartphone className="w-4 h-4 shrink-0" style={{ color: '#10b981' }} />

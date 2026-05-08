@@ -240,16 +240,20 @@ html[data-mode='dark'] {
     box-shadow: var(--shadow-md);
   }
 
+  /*
+   * `.glass-panel`: antes usava `backdrop-filter: blur(20px)` — extremamente caro,
+   * pois reforca a composicao de tudo atras do painel a cada pixel de scroll.
+   * Trocamos por fundo opaco; o efeito visual permanece similar e o scroll fica fluido.
+   */
   .glass-panel {
-    background: rgba(255,255,255,0.72);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255,255,255,0.5);
+    background: var(--surface-0);
+    border: 1px solid var(--border-subtle);
     box-shadow: var(--shadow-sm);
   }
 
   html[data-mode='dark'] .glass-panel {
-    background: rgba(13, 21, 38, 0.72);
-    border-color: rgba(255,255,255,0.07);
+    background: var(--surface-0);
+    border-color: var(--border-subtle);
   }
 
   /* ── Typography ── */
