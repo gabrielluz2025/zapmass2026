@@ -52,6 +52,7 @@ import {
 } from '../utils/contactTemperature';
 import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
 import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
+import { validateImportRow } from '../utils/contactImportSchema';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -1295,10 +1296,20 @@ export const ContactsTab: React.FC = () => {
         for (let i = start; i < end; i++) {
           const contact = mapHeaderRowToContact(headerIndex, rows[i], i);
           const problems: string[] = [];
-          if (!contact.name.trim()) problems.push('Nome ausente');
-          const d = contact.phone.replace(/\D/g, '');
-          if (!d) problems.push('Telefone ausente');
-          else if (d.length < 10) problems.push('Telefone incompleto (min. 10 digitos)');
+          // Validação via schema Zod — captura erros de formato em campos opcionais
+          const zodResult = validateImportRow({
+            name: contact.name,
+            phone: contact.phone,
+            email: contact.email ?? '',
+            birthday: contact.birthday ?? '',
+            state: contact.state ?? '',
+            tags: contact.tags,
+          });
+          if (!zodResult.ok && 'errors' in zodResult) {
+            for (const err of zodResult.errors) {
+              if (!problems.includes(err)) problems.push(err);
+            }
+          }
 
           const k = normPhoneKey(contact.phone);
           const duplicateAgainstBase = !!(k && existingKeys.has(k));

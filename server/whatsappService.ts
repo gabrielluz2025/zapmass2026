@@ -1,4 +1,8 @@
 
+/** Extrai mensagem de erro de um valor desconhecido (substitui `(e: any).message`). */
+const errMsg = (e: unknown): string =>
+    e instanceof Error ? e.message : String(e ?? 'erro desconhecido');
+
 // --- whatsapp-web.js ---
 import whatsapp from 'whatsapp-web.js';
 const { Client, LocalAuth, MessageMedia } = whatsapp;
@@ -174,44 +178,13 @@ const canRestartForMarkedUnread = (connectionId: string): boolean => {
     return true;
 };
 
-// Cache de contatos: evita consultar getNumberId() repetidamente
-// Chave composta "connectionId:phone" para evitar colisão entre chips/tenants.
-const contactCache = new Map<string, { numberId: string; timestamp: number }>();
-const CONTACT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 horas
-
-const contactCacheKey = (connectionId: string, phoneNumber: string) =>
-    `${connectionId}:${phoneNumber}`;
-
-const getCachedNumberId = (connectionId: string, phoneNumber: string): string | null => {
-    const cached = contactCache.get(contactCacheKey(connectionId, phoneNumber));
-    if (cached && (Date.now() - cached.timestamp) < CONTACT_CACHE_TTL) {
-        return cached.numberId;
-    }
-    return null;
-};
-
-const setCachedNumberId = (connectionId: string, phoneNumber: string, numberId: string) => {
-    contactCache.set(contactCacheKey(connectionId, phoneNumber), { numberId, timestamp: Date.now() });
-};
-
-const invalidateCachedNumber = (connectionId: string, phoneNumber: string) => {
-    contactCache.delete(contactCacheKey(connectionId, phoneNumber));
-};
-
-// Limpar cache apenas do canal especificado
-const clearCacheForConnection = (connectionId: string) => {
-    const prefix = `${connectionId}:`;
-    let cleared = 0;
-    for (const key of [...contactCache.keys()]) {
-        if (key.startsWith(prefix)) {
-            contactCache.delete(key);
-            cleared++;
-        }
-    }
-    if (cleared > 0) {
-        console.log(`[ContactCache] 🧹 Limpou ${cleared} entradas (canal ${connectionId} reiniciado)`);
-    }
-};
+// Cache de contatos extraído para módulo dedicado (server/contactCache.ts)
+import {
+    getCachedNumberId,
+    setCachedNumberId,
+    invalidateCachedNumber,
+    clearCacheForConnection,
+} from './contactCache';
 
 /** Remove pasta Chromium + backup — necessário ao apagar canal (senão reinício recria entrada vinda de sessão em disco). */
 const removeSessionDir = async (connectionId: string) => {
@@ -312,9 +285,9 @@ const startPuppeteerMonitor = () => {
                         emitCampaignLog('WARN', 'Puppeteer travado, executando restart', {
                             connectionId: conn.id
                         });
-                        await reconnectConnection(conn.id).catch(err => {
-                            console.error('[PuppeteerMonitor] Falha no restart:', err);
-                        });
+                    await reconnectConnection(conn.id).catch((err: unknown) => {
+                        console.error('[PuppeteerMonitor] Falha no restart:', errMsg(err));
+                    });
                     }
                 }
             }
@@ -1484,7 +1457,7 @@ const scheduleFunnelSave = () => {
                 JSON.stringify({ version: 2, global: funnelStats, byOwner } satisfies PersistedFunnelStatsFileV2, null, 2),
                 'utf-8'
             )
-            .catch((err) => console.error('[FunnelStats] Falha ao persistir:', err?.message || err));
+            .catch((err) => console.error('[FunnelStats] Falha ao persistir:', errMsg(err)));
     }, 1500);
 };
 
@@ -1554,7 +1527,7 @@ const loadFunnelStats = async () => {
         }
         console.log('[FunnelStats] 📊 Carregado:', funnelStats);
     } catch (err: any) {
-        console.error('[FunnelStats] Falha ao carregar arquivo:', err?.message || err);
+        console.error('[FunnelStats] Falha ao carregar arquivo:', errMsg(err));
     }
 };
 
@@ -1578,7 +1551,7 @@ const scheduleCampaignGeoSave = () => {
         }
         fs.promises
             .writeFile(campaignGeoFile, JSON.stringify({ version: 1, entries }, null, 2), 'utf-8')
-            .catch((err) => console.error('[CampaignGeo] Falha ao persistir:', err?.message || err));
+            .catch((err) => console.error('[CampaignGeo] Falha ao persistir:', errMsg(err)));
     }, 1500);
 };
 
@@ -1597,7 +1570,7 @@ const loadCampaignGeoState = async () => {
         }
         if (n > 0) console.log(`[CampaignGeo] Restaurado(s) ${n} campanha(s) em disco`);
     } catch (err: any) {
-        console.log('[CampaignGeo] Falha ao carregar:', err?.message || err);
+        console.log('[CampaignGeo] Falha ao carregar:', errMsg(err));
     }
 };
 
@@ -1617,7 +1590,7 @@ const scheduleDeletedIdsSave = () => {
         deletedIdsSaveTimer = null;
         fs.promises
             .writeFile(deletedConversationIdsFile, JSON.stringify(Array.from(deletedConversationIds), null, 2), 'utf-8')
-            .catch((err) => console.error('[DeletedConvs] Falha ao persistir:', err?.message || err));
+            .catch((err) => console.error('[DeletedConvs] Falha ao persistir:', errMsg(err)));
     }, 500);
 };
 // Remove um id da blocklist quando uma acao do usuario ou mensagem real justifica
@@ -1641,7 +1614,7 @@ const loadDeletedConversationIds = async () => {
             console.log(`[DeletedConvs] 🗑️  Carregado blocklist com ${deletedConversationIds.size} conversa(s).`);
         }
     } catch (err: any) {
-        console.log('[DeletedConvs] Falha ao carregar blocklist:', err?.message || err);
+        console.log('[DeletedConvs] Falha ao carregar blocklist:', errMsg(err));
     }
 };
 
@@ -2228,7 +2201,7 @@ const startHealthCheck = (connectionId: string, aggressive = false) => {
             }
         } catch (error: any) {
             // Erros fora do getState tratados como falha soft (mesma tolerancia de timeout)
-            console.error(`[HealthCheck] Falha na verificacao do canal ${connectionId}:`, error?.message || error);
+            console.error(`[HealthCheck] Falha na verificacao do canal ${connectionId}:`, errMsg(error));
             const currentStrikes = healthStrikes.get(connectionId) || 0;
             const nextStrikes = currentStrikes + 1;
             healthStrikes.set(connectionId, nextStrikes);
@@ -2712,12 +2685,23 @@ const checkCircuitBreaker = (connectionId: string): boolean => {
             cb.state = 'HALF_OPEN';
             cb.failures = 0;
             console.log(`[CircuitBreaker] 🟡 Canal ${connectionId} MEIO-ABERTO (testando recuperação)`);
-            return true; // Permite uma tentativa
+            return true;
         }
-        return false; // Bloqueado
+        return false;
     }
-    
-    return true; // CLOSED ou HALF_OPEN permite
+    return true;
+};
+
+/** Reseta o circuit-breaker de um canal (ex.: reconexão bem-sucedida). */
+const resetCircuitBreaker = (connectionId: string) => {
+    const cb = getCircuitBreaker(connectionId);
+    if (cb.state !== 'CLOSED' || cb.failures > 0) {
+        cb.state = 'CLOSED';
+        cb.failures = 0;
+        cb.openUntil = undefined;
+        console.log(`[CircuitBreaker] 🔵 Canal ${connectionId} resetado (reconexão detectada)`);
+        if (io) io.emit('circuit-breaker-closed', { connectionId });
+    }
 };
 
 // --- DEAD LETTER QUEUE ---
@@ -3040,7 +3024,7 @@ const runPictureFetcher = async () => {
             }
         }
     } catch (err: any) {
-        console.error('[PicFetcher] erro:', err?.message || err);
+        console.error('[PicFetcher] erro:', errMsg(err));
     } finally {
         pictureFetcherRunning = false;
         console.log(`[PicFetcher] concluido. ${totalProcessed} processadas, ${totalFetched} com foto real.`);
@@ -3451,6 +3435,7 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
     }
 
     console.log(`[handleClientReady] Atualizando estado para CONNECTED...`);
+    resetCircuitBreaker(id);
     const existingConn = connectionsInfo.find(c => c.id === id);
     // Preservar connectedSince salvo (sobrevive a reiniínios do servidor)
     // Só define novo timestamp se não houver um salvo
@@ -3572,7 +3557,7 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
         setImmediate(() => {
             syncConversationsFromClient(client, id)
                 .catch(async (err) => {
-                    console.warn('[handleClientReady] getChats falhou, tentando Store.Chat direto:', err?.message || err);
+                    console.warn('[handleClientReady] getChats falhou, tentando Store.Chat direto:', errMsg(err));
                     const ok = await syncConversationsViaStore(client, id).catch(e => {
                         console.warn('[handleClientReady] Store.Chat falhou:', e?.message || e);
                         return false;
@@ -4123,7 +4108,7 @@ const initializeClient = async (id: string, name: string) => {
         await writeLogicalIdMarkerToSessionDir(id, waSessionDirPair(id).sessionPath);
 
     } catch (err: any) {
-        console.error(`Erro ao inicializar cliente whatsapp-web.js ${name}:`, err?.message || err);
+        console.error(`Erro ao inicializar cliente whatsapp-web.js ${name}:`, errMsg(err));
         updateConnectionState(id, {
             status: ConnectionStatus.DISCONNECTED,
             lastActivity: 'Erro ao iniciar',
@@ -5300,8 +5285,8 @@ const processQueue = async () => {
 
             console.log(`[Queue] Enviado para ${formattedNum} via ${connInfo?.name || item.connectionId}`);
 
-        } catch (error: any) {
-            const rawMsg = String(error?.message || '');
+        } catch (error: unknown) {
+            const rawMsg = errMsg(error);
             
             // Erro markedUnread: incompatibilidade com versão do WhatsApp Web
             // SIMPLIFICADO: registra falha e continua (sem loop de restarts infinitos)
@@ -5372,16 +5357,16 @@ const processQueue = async () => {
 
             // Para outros erros, incrementa attempts normalmente
             item.attempts = (item.attempts || 0) + 1;
-            item.lastError = formatSendError(error?.message || 'Falha ao enviar');
+            item.lastError = formatSendError(errMsg(error) || 'Falha ao enviar');
             const isMediaItem = isMediaQueueItem(item);
             const maxAttemptsForItem = getAttemptsLimitForItem(item);
-            console.error(`[Queue] Falha ao enviar para ${item.to}:`, error);
+            console.error(`[Queue] Falha ao enviar para ${item.to}:`, errMsg(error));
 
             if (item.attempts >= maxAttemptsForItem) {
                 emitCampaignLog('ERROR', item.lastError || 'Falha ao enviar mensagem', {
                     to: item.to,
                     connectionId: item.connectionId,
-                    error: error?.message || item.lastError
+                    error: errMsg(error) || item.lastError
                 });
                 currentCampaign.failCount++;
                 updateChannelMetrics(item.connectionId, false);

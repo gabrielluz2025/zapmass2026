@@ -42,7 +42,15 @@ import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../.
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
-import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
+import {
+  collection,
+  DocumentSnapshot,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  startAfter,
+} from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import * as XLSX from 'xlsx';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
@@ -301,60 +309,77 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const { contacts, contactLists } = useZapMassCore();
   const { user } = useAuth();
   const [persistedLogs, setPersistedLogs] = useState<SystemLog[]>([]);
+  const [logsLastDoc, setLogsLastDoc] = useState<DocumentSnapshot | null>(null);
+  const [logsHasMore, setLogsHasMore] = useState(false);
+  const [logsLoadingMore, setLogsLoadingMore] = useState(false);
+  const LOGS_PAGE = 200;
+
+  const parseLogSnap = (snap: ReturnType<typeof getDocs> extends Promise<infer S> ? S : never): SystemLog[] => {
+    const rows: SystemLog[] = [];
+    snap.forEach((docRef) => {
+      const d = docRef.data() as {
+        level?: string; message?: string; to?: string;
+        connectionId?: string; error?: string; createdAt?: unknown;
+      };
+      const createdRaw = d.createdAt;
+      const ts =
+        parseFirestoreDateToIso(createdRaw) ||
+        (typeof createdRaw === 'string' ? createdRaw : new Date().toISOString());
+      const lvl = String(d.level || 'info').toLowerCase();
+      const event =
+        lvl === 'error' ? 'campaign:error' : lvl === 'warn' ? 'campaign:warn' : 'campaign:info';
+      rows.push({
+        timestamp: ts, event,
+        payload: { message: d.message || '', campaignId: campaign.id, to: d.to, connectionId: d.connectionId, error: d.error }
+      });
+    });
+    return rows;
+  };
 
   useEffect(() => {
     const uid = user?.uid;
-    if (!uid) {
-      setPersistedLogs([]);
-      return;
-    }
+    if (!uid) { setPersistedLogs([]); return; }
+    let cancelled = false;
     const q = query(
       collection(db, 'users', uid, 'campaigns', campaign.id, 'logs'),
       orderBy('createdAt', 'desc'),
-      limit(500)
+      limit(LOGS_PAGE)
     );
-    let cancelled = false;
     getDocs(q)
       .then((snap) => {
         if (cancelled) return;
-        const rows: SystemLog[] = [];
-        snap.forEach((docRef) => {
-          const d = docRef.data() as {
-            level?: string;
-            message?: string;
-            to?: string;
-            connectionId?: string;
-            error?: string;
-            createdAt?: unknown;
-          };
-          const createdRaw = d.createdAt;
-          const ts =
-            parseFirestoreDateToIso(createdRaw) ||
-            (typeof createdRaw === 'string' ? createdRaw : new Date().toISOString());
-          const lvl = String(d.level || 'info').toLowerCase();
-          const event =
-            lvl === 'error' ? 'campaign:error' : lvl === 'warn' ? 'campaign:warn' : 'campaign:info';
-          rows.push({
-            timestamp: ts,
-            event,
-            payload: {
-              message: d.message || '',
-              campaignId: campaign.id,
-              to: d.to,
-              connectionId: d.connectionId,
-              error: d.error
-            }
-          });
-        });
-        setPersistedLogs(rows);
+        setPersistedLogs(parseLogSnap(snap));
+        const last = snap.docs[snap.docs.length - 1] ?? null;
+        setLogsLastDoc(last);
+        setLogsHasMore(snap.docs.length === LOGS_PAGE);
       })
-      .catch(() => {
-        if (!cancelled) setPersistedLogs([]);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => { if (!cancelled) setPersistedLogs([]); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, campaign.id]);
+
+  const loadMoreLogs = async () => {
+    const uid = user?.uid;
+    if (!uid || !logsLastDoc || logsLoadingMore) return;
+    setLogsLoadingMore(true);
+    try {
+      const q = query(
+        collection(db, 'users', uid, 'campaigns', campaign.id, 'logs'),
+        orderBy('createdAt', 'desc'),
+        startAfter(logsLastDoc),
+        limit(LOGS_PAGE)
+      );
+      const snap = await getDocs(q);
+      setPersistedLogs((prev) => [...prev, ...parseLogSnap(snap)]);
+      const last = snap.docs[snap.docs.length - 1] ?? null;
+      setLogsLastDoc(last);
+      setLogsHasMore(snap.docs.length === LOGS_PAGE);
+    } catch {
+      toast.error('Falha ao carregar mais logs.');
+    } finally {
+      setLogsLoadingMore(false);
+    }
+  };
 
   const logsForReport = useMemo(() => {
     const dedupeKey = (l: SystemLog) => {
@@ -1437,6 +1462,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   )}
                   {filteredReport.length} de {detailedReport.length} contato
                   {detailedReport.length === 1 ? '' : 's'} • status em tempo real
+                  {logsHasMore && (
+                    <button
+                      className="ml-2 underline text-[11px]"
+                      style={{ color: 'var(--accent)' }}
+                      onClick={loadMoreLogs}
+                      disabled={logsLoadingMore}
+                    >
+                      {logsLoadingMore ? 'Carregando…' : `Carregar mais logs`}
+                    </button>
+                  )}
                 </p>
               </div>
             </div>
