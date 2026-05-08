@@ -82,11 +82,28 @@ interface UpcomingWedding {
   yearsCelebrating: number | null;
 }
 
+/**
+ * Conta de N→target em `duration`ms.
+ *
+ * Estratégia anti-CPU:
+ *  - Anima a partir do valor atual (e não do zero) — o painel não regride visualmente a cada `metrics-update`.
+ *  - Pula a animação se a variação for irrisória (≤ 2 unidades ou ≤ 1%) — evita reanimar a 60fps a cada socket.
+ *  - Cancela animação anterior antes de iniciar nova; para mudanças grandes a animação ainda acontece, mas
+ *    deltas pequenos (caso comum em rajadas de socket) não disparam loop de `requestAnimationFrame` algum.
+ */
 const useCountUp = (target: number, duration = 1100) => {
-  const [val, setVal] = useState(0);
+  const [val, setVal] = useState(target);
+  const valRef = useRef(target);
   useEffect(() => {
-    if (!target) {
-      setVal(0);
+    const from = valRef.current;
+    const to = target;
+    const delta = Math.abs(to - from);
+    // Sem mudança ou mudança trivial — atualiza direto, sem RAF.
+    if (delta === 0) return;
+    const trivial = delta <= 2 || (from > 0 && delta / Math.max(from, to) < 0.01);
+    if (trivial) {
+      valRef.current = to;
+      setVal(to);
       return;
     }
     let startTs: number | null = null;
@@ -95,7 +112,9 @@ const useCountUp = (target: number, duration = 1100) => {
       if (!startTs) startTs = ts;
       const p = Math.min((ts - startTs) / duration, 1);
       const ease = 1 - Math.pow(1 - p, 3);
-      setVal(Math.round(ease * target));
+      const v = Math.round(from + (to - from) * ease);
+      valRef.current = v;
+      setVal(v);
       if (p < 1) raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -779,9 +798,13 @@ export const DashboardTab: React.FC = () => {
           boxShadow: '0 24px 80px -40px rgba(16,185,129,0.45), 0 8px 24px -12px rgba(0,0,0,0.15)'
         }}
       >
-        {/* Orbs mesh */}
+        {/*
+          Orbs mesh — DECORATIVO (estático). Antes usavam `animate-blob` infinito + `filter: blur(40px)`
+          em áreas de até 448px², o que forçava o navegador a re-renderizar um blur enorme a cada frame
+          (CPU constante ~40–50% sustentado mesmo sem interação). Mantemos o visual sem a animação.
+        */}
         <div
-          className="absolute -top-28 -right-16 w-[28rem] h-[28rem] rounded-full animate-blob pointer-events-none"
+          className="absolute -top-28 -right-16 w-[28rem] h-[28rem] rounded-full pointer-events-none"
           style={{
             background: 'radial-gradient(circle, rgba(16,185,129,0.45), transparent 60%)',
             filter: 'blur(40px)'
@@ -789,7 +812,7 @@ export const DashboardTab: React.FC = () => {
           aria-hidden
         />
         <div
-          className="absolute top-10 left-1/3 w-72 h-72 rounded-full animate-blob-slow pointer-events-none"
+          className="absolute top-10 left-1/3 w-72 h-72 rounded-full pointer-events-none"
           style={{
             background: 'radial-gradient(circle, rgba(139,92,246,0.35), transparent 60%)',
             filter: 'blur(36px)'
@@ -797,11 +820,10 @@ export const DashboardTab: React.FC = () => {
           aria-hidden
         />
         <div
-          className="absolute -bottom-24 -left-20 w-80 h-80 rounded-full animate-blob pointer-events-none"
+          className="absolute -bottom-24 -left-20 w-80 h-80 rounded-full pointer-events-none"
           style={{
             background: 'radial-gradient(circle, rgba(59,130,246,0.35), transparent 60%)',
-            filter: 'blur(42px)',
-            animationDelay: '6s'
+            filter: 'blur(42px)'
           }}
           aria-hidden
         />
@@ -809,10 +831,10 @@ export const DashboardTab: React.FC = () => {
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div className="flex items-start gap-4 min-w-0">
             <div
-              className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl flex items-center justify-center shrink-0 relative animate-glow-pulse text-[32px]"
+              className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl flex items-center justify-center shrink-0 relative text-[32px]"
               style={{
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 16px 40px -10px rgba(16,185,129,0.6)'
+                boxShadow: '0 18px 50px -8px rgba(16,185,129,0.55), 0 0 0 1px rgba(16,185,129,0.3)'
               }}
             >
               <span className="drop-shadow-[0_2px_6px_rgba(0,0,0,0.3)]">
