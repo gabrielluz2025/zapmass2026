@@ -246,15 +246,17 @@ html[data-mode='dark'] .wa-chat-wallpaper {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='560' height='560' viewBox='0 0 560 560'><g fill='none' stroke='%23303d44' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.55'><path d='M40 90c12-20 28-26 44-14s12 36-6 42-30-6-38-28'/><path d='M120 230c8 18 24 22 40 12s14-30-2-38-30 4-38 26'/><path d='M260 80c14-12 32-12 44 4s8 32-8 38-32-4-36-22'/><path d='M420 150c22-2 32 14 28 32s-22 24-36 14-12-30 8-46'/><path d='M70 380c20-2 28 14 22 28s-26 16-36 4 0-30 14-32'/><path d='M260 370c14-10 30-6 36 8s0 28-16 32-30-12-20-40'/><path d='M430 320c14-2 26 10 22 22s-22 16-30 6-2-28 8-28'/><path d='M120 470c14 10 12 26-2 32s-32-2-30-18 16-22 32-14'/><path d='M340 480c12-4 28 4 26 18s-22 20-32 12-4-26 6-30'/><path d='M460 460c10-12 28-10 32 4s-12 30-26 24-12-22-6-28'/><circle cx='200' cy='160' r='10'/><circle cx='340' cy='220' r='12'/><circle cx='90' cy='260' r='8'/><circle cx='480' cy='240' r='10'/><circle cx='200' cy='420' r='10'/><circle cx='400' cy='420' r='8'/></g></svg>");
 }
 
-/* Header da conversa */
+/* Header da conversa (nome + linha extra + inbox “Assumir atendimento” — altura mínima, sem corte) */
 .wa-chat-header {
   background: var(--wa-header);
   border-bottom: 1px solid var(--wa-divider);
-  height: 60px;
+  min-height: 60px;
   display: flex;
   align-items: center;
   padding: 10px 16px;
   gap: 14px;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
 /* Bolhas de mensagem */

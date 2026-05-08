@@ -1,4 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  ReactNode,
+  useRef
+} from 'react';
 import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import {
@@ -159,7 +168,6 @@ interface ZapMassContextWithSocket extends ZapMassContextType {
   socket: Socket | null;
   systemMetrics: SystemMetrics;
   warmupActive: boolean;
-  warmupNextRound: number;
   startWarmupTimer: (intervalMinutes: number, runRound: () => void) => void;
   stopWarmupTimer: () => void;
 }
@@ -219,7 +227,6 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   clearWarmupChipStats: () => {},
   clearAllUserData: async () => ({ contacts: 0, contactLists: 0, campaigns: 0, campaignLogs: 0, errors: 0 }),
   warmupActive: false,
-  warmupNextRound: 0,
   startWarmupTimer: () => {},
   stopWarmupTimer: () => {},
   patchConversationInboxClaim: () => {}
@@ -249,6 +256,13 @@ const belongsToUidCampaign = (
   return connIds.some((id) => ownsConnectionForUid(uid, id));
 };
 
+/** Referência estável: o corpo da função actualiza-se a cada render sem invalidar `useMemo` do Provider. */
+function useStableCallback<T extends (...args: any[]) => any>(fn: T): T {
+  const r = useRef(fn);
+  r.current = fn;
+  return useCallback(((...a: Parameters<T>) => r.current(...a)) as T, []);
+}
+
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentView } = useAppView();
   const { effectiveWorkspaceUid, loading: workspaceLoading } = useWorkspace();
@@ -277,30 +291,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     busRemote: boolean;
   } | null>(null);
   
-  // Warmup Timer State (lives in context so it persists across tab switches)
+  // Warmup: estado mínimo no context — o countdown visual fica só na WarmupTab (evita rerender global 1/s).
   const [warmupActive, setWarmupActive] = useState(false);
-  const [warmupNextRound, setWarmupNextRound] = useState(0);
   const warmupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const warmupCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startWarmupTimer = (intervalMinutes: number, runRound: () => void) => {
     stopWarmupTimer();
     setWarmupActive(true);
     runRound();
     warmupTimerRef.current = setInterval(runRound, intervalMinutes * 60 * 1000);
-    setWarmupNextRound(intervalMinutes * 60);
-    warmupCountdownRef.current = setInterval(() => {
-      setWarmupNextRound(prev => prev <= 1 ? intervalMinutes * 60 : prev - 1);
-    }, 1000);
   };
 
   const stopWarmupTimer = () => {
     setWarmupActive(false);
     if (warmupTimerRef.current) clearInterval(warmupTimerRef.current);
-    if (warmupCountdownRef.current) clearInterval(warmupCountdownRef.current);
     warmupTimerRef.current = null;
-    warmupCountdownRef.current = null;
-    setWarmupNextRound(0);
   };
 
   // Campaign State
@@ -313,6 +318,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   });
   
   const socketRef = useRef<Socket | null>(null);
+  /** Agrupa `conversations-update` no mesmo frame (menos trabalho no main thread com rajadas do socket). */
+  const conversationsSocketBatchRef = useRef<Conversation[]>([]);
+  const conversationsSocketRafRef = useRef<number | null>(null);
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -972,8 +980,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('conversations-update', (updatedConversations: Conversation[]) => {
-      if (!Array.isArray(updatedConversations)) return;
-      setConversations((prev) => mergeConversationsFromSocketUpdate(prev, updatedConversations, ownsConnectionId));
+      if (!Array.isArray(updatedConversations) || updatedConversations.length === 0) return;
+      conversationsSocketBatchRef.current.push(...updatedConversations);
+      if (conversationsSocketRafRef.current != null) return;
+      conversationsSocketRafRef.current = requestAnimationFrame(() => {
+        conversationsSocketRafRef.current = null;
+        const batch = conversationsSocketBatchRef.current;
+        conversationsSocketBatchRef.current = [];
+        if (batch.length === 0) return;
+        setConversations((prev) => mergeConversationsFromSocketUpdate(prev, batch, ownsConnectionId));
+      });
     });
 
     socket.on('conversation-picture', ({ conversationId, profilePicUrl }: { conversationId: string; profilePicUrl?: string | null }) => {
@@ -1012,8 +1028,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socket.emit('ping-latency', t0);
     }, 5000);
     socket.on('pong-latency', (t0: number) => {
-      const lat = Date.now() - t0;
-      setSystemMetrics(prev => ({ ...prev, latency: lat }));
+      const lat = Math.max(0, Date.now() - t0);
+      setSystemMetrics((prev) => {
+        const prevLat = Number(prev.latency) || 0;
+        if (prevLat > 0 && Math.abs(prevLat - lat) < 25) return prev;
+        return { ...prev, latency: lat };
+      });
     });
 
     socket.on('warmup-update', (data: { pending: WarmupItem[]; warmedCount: number }) => {
@@ -1486,6 +1506,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       document.removeEventListener('visibilitychange', onVisibilityOrFocus);
       window.removeEventListener('focus', onVisibilityOrFocus);
       resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
+      if (conversationsSocketRafRef.current != null) {
+        cancelAnimationFrame(conversationsSocketRafRef.current);
+        conversationsSocketRafRef.current = null;
+      }
+      conversationsSocketBatchRef.current = [];
       Object.values(campaignProgressPersistRef.current).forEach((entry) => {
         if (entry.timer) clearTimeout(entry.timer);
       });
@@ -1851,7 +1876,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     setCampaignGeo(INITIAL_CAMPAIGN_GEO);
     setWarmupChipStats({});
     setWarmupActive(false);
-    setWarmupNextRound(0);
 
     // Limpa preferências locais ligadas ao workspace atual do usuário.
     const storageKeys = [
@@ -2488,8 +2512,45 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return campaignRef.id;
   };
 
-  return (
-    <ZapMassContext.Provider value={{
+  const stableAddConnection = useStableCallback(addConnection);
+  const stableRemoveConnection = useStableCallback(removeConnection);
+  const stableUpdateConnectionStatus = useStableCallback(updateConnectionStatus);
+  const stableReconnectConnection = useStableCallback(reconnectConnection);
+  const stableForceQr = useStableCallback(forceQr);
+  const stableRenameConnection = useStableCallback(renameConnection);
+  const stableAddContact = useStableCallback(addContact);
+  const stableBulkAddContacts = useStableCallback(bulkAddContacts);
+  const stableRemoveContact = useStableCallback(removeContact);
+  const stableUpdateContact = useStableCallback(updateContact);
+  const stableBulkUpdateContacts = useStableCallback(bulkUpdateContacts);
+  const stableCreateContactList = useStableCallback(createContactList);
+  const stableAppendContactIdsToContactList = useStableCallback(appendContactIdsToContactList);
+  const stableDeleteContactList = useStableCallback(deleteContactList);
+  const stableUpdateContactList = useStableCallback(updateContactList);
+  const stableSendMessage = useStableCallback(sendMessage);
+  const stableSendMedia = useStableCallback(sendMedia);
+  const stableMarkAsRead = useStableCallback(markAsRead);
+  const stableFetchConversationPicture = useStableCallback(fetchConversationPicture);
+  const stablePatchConversationInboxClaim = useStableCallback(patchConversationInboxClaim);
+  const stableDeleteLocalConversations = useStableCallback(deleteLocalConversations);
+  const stableLoadChatHistory = useStableCallback(loadChatHistory);
+  const stableHydrateFirestoreChatArchive = useStableCallback(hydrateFirestoreChatArchive);
+  const stableLoadMessageMedia = useStableCallback(loadMessageMedia);
+  const stableMarkWarmupReady = useStableCallback(markWarmupReady);
+  const stablePauseCampaign = useStableCallback(pauseCampaign);
+  const stableResumeCampaign = useStableCallback(resumeCampaign);
+  const stableDeleteCampaign = useStableCallback(deleteCampaign);
+  const stableDeleteCampaigns = useStableCallback(deleteCampaigns);
+  const stableStartCampaign = useStableCallback(startCampaign);
+  const stableScheduleCampaign = useStableCallback(scheduleCampaign);
+  const stableClearFunnelStats = useStableCallback(clearFunnelStats);
+  const stableClearWarmupChipStats = useStableCallback(clearWarmupChipStats);
+  const stableClearAllUserData = useStableCallback(clearAllUserData);
+  const stableStartWarmupTimer = useStableCallback(startWarmupTimer);
+  const stableStopWarmupTimer = useStableCallback(stopWarmupTimer);
+
+  const zapMassContextValue = useMemo<ZapMassContextType>(
+    () => ({
       socket: socketRef.current,
       connections,
       campaigns,
@@ -2505,51 +2566,70 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       sessionLiveStats,
       campaignStatus,
       systemMetrics,
-      addConnection,
-      removeConnection,
-      updateConnectionStatus,
-      reconnectConnection,
-      forceQr,
-      renameConnection,
-      addContact,
-      bulkAddContacts,
-      removeContact,
-      updateContact,
-      bulkUpdateContacts,
-      createContactList,
-      appendContactIdsToContactList,
-      deleteContactList,
-      updateContactList,
-      sendMessage,
-      sendMedia,
-      markAsRead,
-      fetchConversationPicture,
-      patchConversationInboxClaim,
-      deleteLocalConversations,
-      loadChatHistory,
-      hydrateFirestoreChatArchive,
-      loadMessageMedia,
-      markWarmupReady,
-      pauseCampaign,
-      resumeCampaign,
-      deleteCampaign,
-      deleteCampaigns,
-      startCampaign,
-      scheduleCampaign,
+      addConnection: stableAddConnection,
+      removeConnection: stableRemoveConnection,
+      updateConnectionStatus: stableUpdateConnectionStatus,
+      reconnectConnection: stableReconnectConnection,
+      forceQr: stableForceQr,
+      renameConnection: stableRenameConnection,
+      addContact: stableAddContact,
+      bulkAddContacts: stableBulkAddContacts,
+      removeContact: stableRemoveContact,
+      updateContact: stableUpdateContact,
+      bulkUpdateContacts: stableBulkUpdateContacts,
+      createContactList: stableCreateContactList,
+      appendContactIdsToContactList: stableAppendContactIdsToContactList,
+      deleteContactList: stableDeleteContactList,
+      updateContactList: stableUpdateContactList,
+      sendMessage: stableSendMessage,
+      sendMedia: stableSendMedia,
+      markAsRead: stableMarkAsRead,
+      fetchConversationPicture: stableFetchConversationPicture,
+      patchConversationInboxClaim: stablePatchConversationInboxClaim,
+      deleteLocalConversations: stableDeleteLocalConversations,
+      loadChatHistory: stableLoadChatHistory,
+      hydrateFirestoreChatArchive: stableHydrateFirestoreChatArchive,
+      loadMessageMedia: stableLoadMessageMedia,
+      markWarmupReady: stableMarkWarmupReady,
+      pauseCampaign: stablePauseCampaign,
+      resumeCampaign: stableResumeCampaign,
+      deleteCampaign: stableDeleteCampaign,
+      deleteCampaigns: stableDeleteCampaigns,
+      startCampaign: stableStartCampaign,
+      scheduleCampaign: stableScheduleCampaign,
       funnelStats,
-      clearFunnelStats,
+      clearFunnelStats: stableClearFunnelStats,
       campaignGeo,
       warmupChipStats,
-      clearWarmupChipStats,
-      clearAllUserData,
+      clearWarmupChipStats: stableClearWarmupChipStats,
+      clearAllUserData: stableClearAllUserData,
       warmupActive,
-      warmupNextRound,
-      startWarmupTimer,
-      stopWarmupTimer
-    }}>
-      {children}
-    </ZapMassContext.Provider>
+      startWarmupTimer: stableStartWarmupTimer,
+      stopWarmupTimer: stableStopWarmupTimer
+    }),
+    [
+      connections,
+      campaigns,
+      contacts,
+      contactLists,
+      metrics,
+      birthdays,
+      conversations,
+      systemLogs,
+      warmupQueue,
+      warmedCount,
+      isBackendConnected,
+      sessionLiveStats,
+      campaignStatus,
+      systemMetrics,
+      funnelStats,
+      campaignGeo,
+      warmupChipStats,
+      warmupActive
+    ]
   );
+
+  return <ZapMassContext.Provider value={zapMassContextValue}>{children}</ZapMassContext.Provider>;
 };
 
 export const useZapMass = () => {

@@ -109,7 +109,11 @@ export function useClientCrm(userUid: string | undefined) {
     };
   }, [data]);
 
-  return { data, get, update, clear, togglePin, stats };
+  // Referência estável quando `data`/callbacks não mudam — evita invalidar memos grandes (ex.: `filteredConversations` no Pipeline).
+  return useMemo(
+    () => ({ data, get, update, clear, togglePin, stats }),
+    [data, get, update, clear, togglePin, stats]
+  );
 }
 
 export const STATUS_META: Record<ClientStatus, { label: string; color: string; bg: string; emoji: string }> = {

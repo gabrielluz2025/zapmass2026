@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   AlertTriangle,
@@ -399,6 +399,14 @@ export const ChatTab: React.FC = () => {
     workspaceAuthUid && effectiveWorkspaceUid && workspaceAuthUid === effectiveWorkspaceUid
   );
   const crm = useClientCrm(user?.uid);
+  const connectionById = useMemo(
+    () => new Map(connections.map((c) => [c.id, c])),
+    [connections]
+  );
+  const pipelineBoardConnectionName = useCallback(
+    (id: string) => connectionById.get(id)?.name,
+    [connectionById]
+  );
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   // Conversas "rascunho" criadas localmente para contatos sem histórico real.
   // Permitem abrir o chat e enviar a primeira mensagem sem depender de campanha.
@@ -410,6 +418,7 @@ export const ChatTab: React.FC = () => {
   const [pipelineView, setPipelineView] = useState<'lista' | 'quadro'>('lista');
   const [inputText, setInputText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | 'ALL'>('ALL');
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
@@ -861,8 +870,15 @@ export const ChatTab: React.FC = () => {
     }
   }, [conversations, draftConversations]);
 
-  const selectedConversation = effectiveConversations.find((c) => c.id === selectedChatId);
-  const selectedConnection = connections.find((c) => c.id === selectedConversation?.connectionId);
+  const selectedConversation = useMemo(
+    () => effectiveConversations.find((c) => c.id === selectedChatId),
+    [effectiveConversations, selectedChatId]
+  );
+  const selectedConnection = useMemo(() => {
+    const cid = selectedConversation?.connectionId;
+    if (!cid) return undefined;
+    return connectionById.get(cid);
+  }, [connectionById, selectedConversation?.connectionId]);
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selectedConversation), [selectedConversation]);
   const selectedDisplay = useMemo(
     () => (selectedConversation ? getConversationDisplay(selectedConversation) : null),
@@ -885,10 +901,10 @@ export const ChatTab: React.FC = () => {
     return !!selectedDraftChannelId;
   }, [selectedChatId, inputText, isSelectedDraft, selectedDraftChannelId]);
 
-  const filteredByConnection =
-    selectedConnectionId === 'ALL'
-      ? effectiveConversations
-      : effectiveConversations.filter((c) => c.connectionId === selectedConnectionId);
+  const filteredByConnection = useMemo(() => {
+    if (selectedConnectionId === 'ALL') return effectiveConversations;
+    return effectiveConversations.filter((c) => c.connectionId === selectedConnectionId);
+  }, [effectiveConversations, selectedConnectionId]);
 
   // Classifica uma unica vez e reusa em filtros + contadores
   const originByConv = useMemo(() => {
@@ -903,8 +919,8 @@ export const ChatTab: React.FC = () => {
     if (chatFilter === 'groups') list = list.filter((c) => c.id.endsWith('@g.us'));
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');
     if (chatFilter === 'empty') list = list.filter((c) => originByConv.get(c.id) === 'empty');
-    if (chatFilter === 'pinned') list = list.filter((c) => crm.get(c.id).pinned);
-    const q = searchTerm.toLowerCase().trim();
+    if (chatFilter === 'pinned') list = list.filter((c) => Boolean(crm.data[c.id]?.pinned));
+    const q = deferredSearchTerm.toLowerCase().trim();
     const qDigits = q.replace(/\D/g, '');
     return list
       .filter((c) => {
@@ -914,18 +930,24 @@ export const ChatTab: React.FC = () => {
           primary.toLowerCase().includes(q) ||
           !!whatsappSubtitle?.toLowerCase().includes(q) ||
           c.contactName.toLowerCase().includes(q) ||
-          (c.contactPhone || '').includes(searchTerm) ||
+          (c.contactPhone || '').includes(deferredSearchTerm) ||
           (qDigits.length >= 3 && digitsForContactMatch(c).includes(qDigits))
         );
       })
       .sort((a, b) => {
-        // Fixados sempre no topo
-        const pa = crm.get(a.id).pinned ? 1 : 0;
-        const pb = crm.get(b.id).pinned ? 1 : 0;
+        const pa = crm.data[a.id]?.pinned ? 1 : 0;
+        const pb = crm.data[b.id]?.pinned ? 1 : 0;
         if (pa !== pb) return pb - pa;
         return (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0);
       });
-  }, [filteredByConnection, chatFilter, searchTerm, originByConv, crm, getConversationDisplay]);
+  }, [
+    filteredByConnection,
+    chatFilter,
+    deferredSearchTerm,
+    originByConv,
+    crm.data,
+    getConversationDisplay
+  ]);
 
   /** Contagens por canal (evita `.filter` em O(canais × conversas) no `<Select>`). */
   const conversationCountByConnectionId = useMemo(() => {
@@ -961,7 +983,7 @@ export const ChatTab: React.FC = () => {
     count: pipelineView === 'lista' ? filteredConversations.length : 0,
     getScrollElement: () => conversationListScrollRef.current,
     estimateSize: () => 94,
-    overscan: 12,
+    overscan: 6,
     getItemKey: (index) => filteredConversations[index]?.id ?? index
   });
 
@@ -1187,14 +1209,14 @@ export const ChatTab: React.FC = () => {
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
-  const selectChat = (id: string) => {
+  const selectChat = useCallback((id: string) => {
     setSelectedChatId(id);
     setShowMobileChat(true);
     setShowContactInfo(false);
     setShowEmojiPicker(false);
     setShowChatSearch(false);
     setTimeout(() => inputRef.current?.focus(), 100);
-  };
+  }, []);
 
   const handleSendMessage = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -1370,7 +1392,7 @@ export const ChatTab: React.FC = () => {
     inputRef.current?.focus();
   };
 
-  const getLastMsgPreview = (conv: Conversation) => {
+  const getLastMsgPreview = useCallback((conv: Conversation) => {
     const last = conv.messages[conv.messages.length - 1];
     if (!last) return conv.lastMessage || '';
     if (last.type === 'image') return 'Foto';
@@ -1379,9 +1401,9 @@ export const ChatTab: React.FC = () => {
     if (last.type === 'sticker') return 'Figurinha';
     if (last.type === 'document') return 'Documento';
     return conv.lastMessage || last.text || '';
-  };
+  }, []);
 
-  const getLastMsgIcon = (conv: Conversation) => {
+  const getLastMsgIcon = useCallback((conv: Conversation) => {
     const last = conv.messages[conv.messages.length - 1];
     if (!last || last.sender !== 'me') return null;
     if (last.status === 'read')
@@ -1389,7 +1411,7 @@ export const ChatTab: React.FC = () => {
     if (last.status === 'delivered')
       return <CheckCheck className="w-[14px] h-[14px] flex-shrink-0" style={{ color: 'var(--text-3)' }} />;
     return <Check className="w-[14px] h-[14px] flex-shrink-0" style={{ color: 'var(--text-3)' }} />;
-  };
+  }, []);
 
   const highlightMatch = (text: string, highlight: string) => {
     if (!highlight.trim()) return text;
@@ -1674,7 +1696,7 @@ export const ChatTab: React.FC = () => {
               onSelectChat={selectChat}
               getConvAvatar={getConvAvatar}
               formatConversationTitles={getConversationDisplay}
-              connectionName={(id) => connections.find((c) => c.id === id)?.name}
+              connectionName={pipelineBoardConnectionName}
             />
           ) : filteredConversations.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center py-16 px-6 min-h-0 overflow-y-auto">
@@ -1699,7 +1721,6 @@ export const ChatTab: React.FC = () => {
             <div
               ref={conversationListScrollRef}
               className="flex-1 min-h-0 overflow-y-auto"
-              style={{ contain: 'strict' }}
             >
               <div
                 style={{
@@ -1716,7 +1737,10 @@ export const ChatTab: React.FC = () => {
                   const origin = originByConv.get(conv.id) || 'phone';
                   const lastMsgPreview = getLastMsgPreview(conv);
                   const lastIcon = getLastMsgIcon(conv);
-                  const connection = connections.find((c) => c.id === conv.connectionId);
+                  const connection =
+                    connections.length > 1 && conv.connectionId
+                      ? connectionById.get(conv.connectionId)
+                      : undefined;
                   const crmData = crm.get(conv.id);
                   const crmStatus = crmData.status ? STATUS_META[crmData.status] : null;
                   const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
@@ -1988,7 +2012,7 @@ export const ChatTab: React.FC = () => {
       >
         {selectedConversation ? (
           <>
-            <div className="wa-chat-header flex-shrink-0">
+            <div className="wa-chat-header flex-shrink-0 overflow-visible">
               <button
                 onClick={() => setShowMobileChat(false)}
                 className="wa-icon-btn md:hidden -ml-1"

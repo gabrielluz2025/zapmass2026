@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { GripVertical, Inbox, Layers, Pencil, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Conversation } from '../../types';
@@ -56,12 +56,12 @@ const KanbanColumnBody: React.FC<{
     count: list.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 100,
-    overscan: 8,
+    overscan: 5,
     getItemKey: (index) => list[index]?.id ?? index
   });
 
   return (
-    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-2.5 pb-2.5 pt-0.5" style={{ contain: 'strict' }}>
+    <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-2.5 pb-2.5 pt-0.5">
       <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
         {virtualizer.getVirtualItems().map((vRow) => {
           const conv = list[vRow.index];
@@ -176,7 +176,8 @@ interface ClientPipelineBoardProps {
   ) => { primary: string; whatsappSubtitle?: string };
 }
 
-export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
+/** Quadro Kanban: memoizado para não rerender ao digitar na caixa de mensagem / estados só do painel direito. */
+export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
   userUid,
   conversations,
   selectedChatId,
@@ -184,7 +185,7 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
   getConvAvatar,
   connectionName,
   formatConversationTitles
-}) => {
+}: ClientPipelineBoardProps) {
   const [state, setState] = useState<ClientPipelineBoardPersisted>(() => defaultPipelineState());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [renameOpen, setRenameOpen] = useState<{ id: string; name: string } | null>(null);
@@ -200,9 +201,13 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
     const el = columnsScrollRef.current;
     if (!el) return;
     const { scrollLeft, clientWidth, scrollWidth } = el;
-    setCanScrollBoardX({
-      left: scrollLeft > 6,
-      right: scrollLeft + clientWidth < scrollWidth - 6
+    setCanScrollBoardX((prev) => {
+      const next = {
+        left: scrollLeft > 6,
+        right: scrollLeft + clientWidth < scrollWidth - 6
+      };
+      if (prev.left === next.left && prev.right === next.right) return prev;
+      return next;
     });
   }, []);
 
@@ -256,7 +261,7 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
       el.removeEventListener('scroll', onScroll);
       ro.disconnect();
     };
-  }, [updateBoardScrollHints, state.columns.length, conversations.length, state.cardColumn]);
+  }, [updateBoardScrollHints, state.columns.length, conversations.length]);
 
   const scrollBoardBy = useCallback((dir: 'left' | 'right') => {
     const el = columnsScrollRef.current;
@@ -680,4 +685,4 @@ export const ClientPipelineBoard: React.FC<ClientPipelineBoardProps> = ({
       </Modal>
     </>
   );
-};
+});

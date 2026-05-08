@@ -157,10 +157,12 @@ const Sparkline: React.FC<{ values: number[]; color?: string; width?: number; he
 
 export const WarmupTab: React.FC = () => {
   const {
-    connections, socket, warmupActive, warmupNextRound, startWarmupTimer, stopWarmupTimer,
+    connections, socket, warmupActive, startWarmupTimer, stopWarmupTimer,
     warmupQueue, warmedCount, warmupChipStats, clearWarmupChipStats
   } = useZapMass();
   const [channels, setChannels] = useState<WarmupChannel[]>([]);
+  /** Countdown apenas nesta aba — evita atualizar ZapMassProvider a cada segundo. */
+  const [warmupCountdownUi, setWarmupCountdownUi] = useState(0);
   const [intervalMinutes, setIntervalMinutes] = useState(5);
   const [totalMessagesSent, setTotalMessagesSent] = useState(0);
   const [lastRoundTime, setLastRoundTime] = useState<string>('');
@@ -170,6 +172,19 @@ export const WarmupTab: React.FC = () => {
 
   // Keep ref in sync so context timer callback can access latest channels
   useEffect(() => { channelsRef.current = channels; }, [channels]);
+
+  useEffect(() => {
+    if (!warmupActive) {
+      setWarmupCountdownUi(0);
+      return;
+    }
+    const period = Math.max(60, intervalMinutes * 60);
+    setWarmupCountdownUi(period);
+    const id = window.setInterval(() => {
+      setWarmupCountdownUi((prev) => (prev <= 1 ? period : prev - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [warmupActive, intervalMinutes]);
 
   // Sincronizar canais com conexões disponíveis
   useEffect(() => {
@@ -383,7 +398,7 @@ export const WarmupTab: React.FC = () => {
         />
         <StatCard
           label="Proxima rodada"
-          value={warmupActive ? formatCountdown(warmupNextRound) : '--:--'}
+          value={warmupActive ? formatCountdown(warmupCountdownUi) : '--:--'}
           icon={<Clock className="w-4 h-4" />}
           helper={`Fila: ${warmupQueue.length} | Prontos: ${warmedCount}`}
         />
