@@ -177,7 +177,7 @@ export const ImprovementSuggestionButton: React.FC<ImprovementSuggestionButtonPr
       setText('');
       setArea('usability');
       setPhase('success');
-      closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
         closeTimerRef.current = null;
         setOpen(false);
         setPhase('form');

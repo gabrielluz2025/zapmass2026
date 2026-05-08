@@ -341,6 +341,8 @@ export interface Contact {
   followUpNote?: string;
   /** Ficha de membro (cadastro religioso alargado). */
   religiousMemberProfile?: ReligiousMemberProfile;
+  /** URL da foto de perfil do WhatsApp (populada em runtime, não persiste). */
+  profilePicUrl?: string;
 }
 
 /** Uma linha em `users/{uid}/contacts/{id}/campaignDeliveries/{campaignId}` — envios por campanha. */

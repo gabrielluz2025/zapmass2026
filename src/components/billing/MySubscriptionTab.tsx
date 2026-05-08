@@ -208,7 +208,7 @@ export const MySubscriptionTab: React.FC = () => {
     const prev = contractedChannelsBumpRef.current;
     contractedChannelsBumpRef.current = cc;
     if (prev === null || cc > prev) {
-      setUpgradeTarget((t) => Math.max(t, cc));
+      setUpgradeTarget((t) => Math.max(t, cc) as ChannelTier);
     }
   }, [loading, contractedChannels]);
 
@@ -615,7 +615,7 @@ export const MySubscriptionTab: React.FC = () => {
 
         {/* Grid de planos */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mt-4">
-          {(Object.keys(CHANNEL_TIER_PRICES_MONTHLY) as Array<keyof typeof CHANNEL_TIER_PRICES_MONTHLY>).map((n) => {
+          {(Object.keys(CHANNEL_TIER_PRICES_MONTHLY) as unknown as Array<keyof typeof CHANNEL_TIER_PRICES_MONTHLY>).map((n) => {
             const tier = Number(n) as ChannelTier;
             const price = tierPrice(tier, tierPlanMode);
             const monthly = tierPlanMode === 'annual' ? price / 12 : price;

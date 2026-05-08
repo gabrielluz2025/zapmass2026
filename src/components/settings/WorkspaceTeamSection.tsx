@@ -30,7 +30,7 @@ const apiFetch = async (path: string, init?: RequestInit) => {
       ...(init?.headers || {})
     }
   });
-  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string };
   if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
   return j;
 };

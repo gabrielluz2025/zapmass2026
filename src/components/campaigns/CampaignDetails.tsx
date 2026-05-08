@@ -39,6 +39,7 @@ import {
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
+import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
@@ -120,9 +121,11 @@ const findCampaignMessage = (
   let campaignMsg: ChatMessage | null = null;
   let campaignConv: Conversation | null = null;
   for (const conv of matches) {
-    const msg = (conv.messages || []).find(
+    const list = (conv.messages || []).filter(
       (m) => m.sender === 'me' && m.fromCampaign && m.campaignId === campaignId
     );
+    if (list.length === 0) continue;
+    const msg = list.slice().sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0))[0];
     if (msg) {
       campaignMsg = msg;
       campaignConv = conv;
@@ -174,7 +177,7 @@ const buildRowsFromConversations = (
     else if (sent.status === 'read') status = 'READ';
     else if (sent.status === 'delivered') status = 'DELIVERED';
 
-    const phone = cleanPhone(conv.contactPhone || '');
+    const phone = recipientKeyForCampaignReport(conv.contactPhone || '');
     if (!phone) continue;
     const existing = byPhone.get(phone);
     // Se já existe para o mesmo telefone, preferimos o mais recente.
@@ -451,7 +454,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       const isSent = p.message === 'Mensagem enviada';
       if (!isError && !isSent) return;
 
-      const phone = cleanPhone(p.to);
+      const phone = recipientKeyForCampaignReport(p.to);
       const existing = byPhone.get(phone);
       const ts = new Date(log.timestamp).getTime();
 
@@ -530,24 +533,28 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const rowsFromLogs = rows.sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
     const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations);
     const mergedByPhone = new Map<string, ReportRow>();
-    for (const row of rowsFromConversations) mergedByPhone.set(row.phone, row);
+    for (const row of rowsFromConversations)
+      mergedByPhone.set(recipientKeyForCampaignReport(row.phone), row);
     for (const row of rowsFromLogs) {
-      const existing = mergedByPhone.get(row.phone);
+      const rk = recipientKeyForCampaignReport(row.phone);
+      const existing = mergedByPhone.get(rk);
       if (!existing) {
-        mergedByPhone.set(row.phone, row);
+        mergedByPhone.set(rk, row);
         continue;
       }
       // Log de falha tem prioridade para não mascarar erro.
       if (row.status === 'FAILED' && existing.status !== 'FAILED') {
-        mergedByPhone.set(row.phone, { ...existing, ...row });
+        mergedByPhone.set(rk, { ...existing, ...row });
         continue;
       }
       // Caso contrário, mantemos o registro mais novo.
       if ((row.sentTimestampMs || 0) > (existing.sentTimestampMs || 0)) {
-        mergedByPhone.set(row.phone, { ...existing, ...row });
+        mergedByPhone.set(rk, { ...existing, ...row });
       }
     }
-    const merged = Array.from(mergedByPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
+    const merged = dedupeCampaignReportRowsByRecipient(
+      Array.from(mergedByPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
+    );
     if (merged.length > 0) return merged;
 
     const legacy = buildLegacyEstimateReportRows({
@@ -557,16 +564,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     });
     if (!legacy?.length) return merged;
 
-    return legacy.map((r) => ({
-      id: r.id,
-      phone: r.phone,
-      contactName: r.contactName,
-      status: r.status,
-      sentTime: r.sentTime,
-      sentTimestampMs: r.sentTimestampMs,
-      errorMessage: r.errorMessage,
-      legacyEstimate: true
-    }));
+    return dedupeCampaignReportRowsByRecipient(
+      legacy.map((r) => ({
+        id: r.id,
+        phone: r.phone,
+        contactName: r.contactName,
+        status: r.status,
+        sentTime: r.sentTime,
+        sentTimestampMs: r.sentTimestampMs,
+        errorMessage: r.errorMessage,
+        legacyEstimate: true
+      }))
+    );
   }, [logsForReport, campaign, campaign.selectedConnectionIds, contacts, contactLists, conversations]);
 
   const filteredReport = useMemo(() => {

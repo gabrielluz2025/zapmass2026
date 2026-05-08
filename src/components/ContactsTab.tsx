@@ -115,7 +115,7 @@ function buildContactExportRow(
   const base = TEMPLATE_COLUMNS.map((col) => {
     if (col.key === 'tags') return (c.tags || []).join(';');
     if (col.key === 'status') return c.status;
-    const v = (c as Record<string, unknown>)[col.key as string];
+    const v = (c as unknown as Record<string, unknown>)[col.key as string];
     return v == null ? '' : String(v);
   });
   const campaign = CAMPAIGN_EXPORT_COLUMNS.map((col) => col.get(c));
@@ -2286,7 +2286,7 @@ export const ContactsTab: React.FC = () => {
         }
       }
       if (tweaked === 0 && beforeStrictProb === afterStrictProb && beforeDup === afterDup) {
-        toast.info(
+        toast(
           'Nada mudou nos dados guardados. «Na base» não some sozinho: é o mesmo telefone do CRM (a correção só unifica formato, ex. 048… → 55…). Repetidos no arquivo não são apagados.'
         );
       } else {
@@ -3126,7 +3126,7 @@ export const ContactsTab: React.FC = () => {
       items.push({ id: c.id, updates: { name: after } });
     }
     if (items.length === 0) {
-      toast.info('Nenhum nome precisou de alteração com estes critérios.');
+      toast('Nenhum nome precisou de alteração com estes critérios.');
       return;
     }
     if (!window.confirm(`Atualizar ${items.length.toLocaleString('pt-BR')} contato(s) na base?`)) return;

@@ -1,7 +1,7 @@
 import React from 'react';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
-type Size = 'sm' | 'md' | 'lg' | 'icon';
+type Size = 'xs' | 'sm' | 'md' | 'lg' | 'icon';
 
 interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'className'> {
   variant?: Variant;
@@ -21,6 +21,7 @@ const variantClass: Record<Variant, string> = {
 };
 
 const sizeClass: Record<Size, string> = {
+  xs: 'ui-btn-xs',
   sm: 'ui-btn-sm',
   md: '',
   lg: 'ui-btn-lg',

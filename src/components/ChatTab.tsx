@@ -1116,7 +1116,7 @@ export const ChatTab: React.FC = () => {
     if (listaScrollAnchorRef.current === key) return;
     listaScrollAnchorRef.current = key;
     requestAnimationFrame(() => {
-      convListVirtualizer.scrollToIndex(idx, { align: 'nearest' });
+      convListVirtualizer.scrollToIndex(idx, { align: 'auto' });
     });
   }, [pipelineView, selectedChatId, filteredConversations, convListVirtualizer]);
 

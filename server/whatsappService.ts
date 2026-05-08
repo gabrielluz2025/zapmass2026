@@ -175,32 +175,38 @@ const canRestartForMarkedUnread = (connectionId: string): boolean => {
 };
 
 // Cache de contatos: evita consultar getNumberId() repetidamente
+// Chave composta "connectionId:phone" para evitar colisão entre chips/tenants.
 const contactCache = new Map<string, { numberId: string; timestamp: number }>();
 const CONTACT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 horas
 
-const getCachedNumberId = (phoneNumber: string): string | null => {
-    const cached = contactCache.get(phoneNumber);
+const contactCacheKey = (connectionId: string, phoneNumber: string) =>
+    `${connectionId}:${phoneNumber}`;
+
+const getCachedNumberId = (connectionId: string, phoneNumber: string): string | null => {
+    const cached = contactCache.get(contactCacheKey(connectionId, phoneNumber));
     if (cached && (Date.now() - cached.timestamp) < CONTACT_CACHE_TTL) {
         return cached.numberId;
     }
     return null;
 };
 
-const setCachedNumberId = (phoneNumber: string, numberId: string) => {
-    contactCache.set(phoneNumber, { numberId, timestamp: Date.now() });
+const setCachedNumberId = (connectionId: string, phoneNumber: string, numberId: string) => {
+    contactCache.set(contactCacheKey(connectionId, phoneNumber), { numberId, timestamp: Date.now() });
 };
 
-const invalidateCachedNumber = (phoneNumber: string) => {
-    contactCache.delete(phoneNumber);
+const invalidateCachedNumber = (connectionId: string, phoneNumber: string) => {
+    contactCache.delete(contactCacheKey(connectionId, phoneNumber));
 };
 
-// Limpar todo o cache de um canal
+// Limpar cache apenas do canal especificado
 const clearCacheForConnection = (connectionId: string) => {
+    const prefix = `${connectionId}:`;
     let cleared = 0;
-    for (const [phone, cached] of contactCache.entries()) {
-        // Se o cache pertence a este canal, limpar
-        contactCache.delete(phone);
-        cleared++;
+    for (const key of [...contactCache.keys()]) {
+        if (key.startsWith(prefix)) {
+            contactCache.delete(key);
+            cleared++;
+        }
     }
     if (cleared > 0) {
         console.log(`[ContactCache] 🧹 Limpou ${cleared} entradas (canal ${connectionId} reiniciado)`);
@@ -285,25 +291,35 @@ const checkPuppeteerHealth = async (connectionId: string): Promise<boolean> => {
 
 // Monitor de Puppeteer (roda a cada 60s para canais conectados)
 let puppeteerMonitorInterval: NodeJS.Timeout | null = null;
+let puppeteerMonitorRunning = false; // evita sobreposição de execuções longas
 
 const startPuppeteerMonitor = () => {
     if (process.env.SESSION_PROCESS_MODE === 'api') return;
     if (puppeteerMonitorInterval) return;
     
     puppeteerMonitorInterval = setInterval(async () => {
-        for (const conn of connectionsInfo) {
-            if (conn.status === ConnectionStatus.CONNECTED) {
-                const isHealthy = await checkPuppeteerHealth(conn.id);
-                if (!isHealthy) {
-                    console.warn(`[PuppeteerMonitor] 🔄 Reiniciando canal ${conn.id} (Puppeteer travado)`);
-                    emitCampaignLog('WARN', 'Puppeteer travado, executando restart', {
-                        connectionId: conn.id
-                    });
-                    await reconnectConnection(conn.id).catch(err => {
-                        console.error('[PuppeteerMonitor] Falha no restart:', err);
-                    });
+        if (puppeteerMonitorRunning) {
+            console.warn('[PuppeteerMonitor] ⏭ Ciclo anterior ainda em execução, pulando.');
+            return;
+        }
+        puppeteerMonitorRunning = true;
+        try {
+            for (const conn of connectionsInfo) {
+                if (conn.status === ConnectionStatus.CONNECTED) {
+                    const isHealthy = await checkPuppeteerHealth(conn.id);
+                    if (!isHealthy) {
+                        console.warn(`[PuppeteerMonitor] 🔄 Reiniciando canal ${conn.id} (Puppeteer travado)`);
+                        emitCampaignLog('WARN', 'Puppeteer travado, executando restart', {
+                            connectionId: conn.id
+                        });
+                        await reconnectConnection(conn.id).catch(err => {
+                            console.error('[PuppeteerMonitor] Falha no restart:', err);
+                        });
+                    }
                 }
             }
+        } finally {
+            puppeteerMonitorRunning = false;
         }
     }, 60000); // A cada 60s
     
@@ -1391,8 +1407,8 @@ const hasAnyFunnelData = (stats: PersistedFunnelStats): boolean =>
 // varios acks para o mesmo msg id. 0=nenhum, 1=delivered, 2=read.
 const campaignAckLevel = new Map<string, 0 | 1 | 2>();
 
-/** msgId -> campanha + UF (ou OUT) para ack no mapa */
-const campaignMsgMeta = new Map<string, { campaignId: string; uf: string }>();
+/** msgId -> campanha + UF + canal + telefone (dedup funil multi-etapa) */
+const campaignMsgMeta = new Map<string, { campaignId: string; uf: string; connId: string; phoneNorm: string }>();
 
 type CampaignGeoUf = { delivered: number; read: number; replied: number };
 const campaignGeoById = new Map<string, Record<string, CampaignGeoUf>>();
@@ -1406,6 +1422,43 @@ let campaignGeoEmitPendingId: string | null = null;
 
 /** Evita inflar "Respostas" no funil: uma unica contagem por campanha + contacto (+ canal), mesmo com varias etapas. */
 const funnelRepliedOnceByOwnerCampaignContact = new Set<string>();
+
+/** Mesma regra para enviadas / entregues / lidas no painel geral (uma linha no funil por destinatário por campanha). */
+const funnelSentOnceByOwnerCampaignContact = new Set<string>();
+const funnelDeliveredOnceByOwnerCampaignContact = new Set<string>();
+const funnelReadOnceByOwnerCampaignContact = new Set<string>();
+
+const funnelRecipientDedupKey = (
+    ownerUid: string | undefined,
+    campaignId: string | undefined,
+    connId: string,
+    phoneNorm: string
+): string => {
+    const o = ownerUid || 'unknown';
+    if (!campaignId || !connId || phoneNorm.length < 10) return '';
+    return `${o}__${campaignId}__${connId}__${phoneNorm}`;
+};
+
+const clearFunnelRecipientDedupForOwner = (ownerUid: string) => {
+    const prefix = `${ownerUid}__`;
+    for (const s of [
+        funnelSentOnceByOwnerCampaignContact,
+        funnelDeliveredOnceByOwnerCampaignContact,
+        funnelReadOnceByOwnerCampaignContact,
+        funnelRepliedOnceByOwnerCampaignContact
+    ]) {
+        for (const k of [...s]) {
+            if (k.startsWith(prefix)) s.delete(k);
+        }
+    }
+};
+
+const clearAllFunnelRecipientDedup = () => {
+    funnelSentOnceByOwnerCampaignContact.clear();
+    funnelDeliveredOnceByOwnerCampaignContact.clear();
+    funnelReadOnceByOwnerCampaignContact.clear();
+    funnelRepliedOnceByOwnerCampaignContact.clear();
+};
 
 interface PendingCampaignSend {
     ts: number;
@@ -1614,6 +1667,7 @@ export const clearFunnelStats = (ownerUid?: string) => {
             if (filtered.length > 0) pendingCampaignSendsByConv.set(key, filtered);
             else pendingCampaignSendsByConv.delete(key);
         }
+        clearFunnelRecipientDedupForOwner(ownerUid);
         scheduleFunnelSave();
         emitFunnelStats(ownerUid);
         console.log(`[FunnelStats] 🧹 Contadores zerados pelo usuario ${ownerUid}`);
@@ -1624,6 +1678,7 @@ export const clearFunnelStats = (ownerUid?: string) => {
     campaignAckLevel.clear();
     campaignMsgMeta.clear();
     pendingCampaignSendsByConv.clear();
+    clearAllFunnelRecipientDedup();
     scheduleFunnelSave();
     emitFunnelStats();
     console.log('[FunnelStats] 🧹 Contadores globais zerados');
@@ -1653,22 +1708,37 @@ const normalizeWwebMessageId = (raw: unknown): string => {
 };
 
 const trackCampaignSend = (msgId: string, conversationId: string, ts: number, phoneDigits: string, explicitCampaignId?: string) => {
-    funnelStats.totalSent++;
-    funnelStats.updatedAt = Date.now();
     const normId = normalizeWwebMessageId(msgId);
     const cidForMeta = explicitCampaignId || currentCampaign.campaignId;
-    if (normId) {
-        campaignAckLevel.set(normId, 0);
-        if (cidForMeta) {
-            const uf = phoneDigitsToUf(phoneDigits) || GEO_UNKNOWN_UF;
-            campaignMsgMeta.set(normId, { campaignId: cidForMeta, uf });
-        }
-    }
     // conversationId = "connectionId:JID" — indexa por JID normalizado e tambem por E.164
     // para bater com @lid / @c.us / @s.whatsapp.net na resposta.
     const [connId, chatPart] = conversationId.split(':');
     const ownerUid = currentCampaign.ownerUid || (cidForMeta ? campaignGeoOwnerById.get(cidForMeta) : undefined) || undefined;
-    incrementOwnerFunnel(ownerUid, { totalSent: 1 });
+    const digits = toPhoneKey(phoneDigits || '');
+    const phoneNorm = digits.length >= 10 ? digits : toPhoneKey(chatPart || '');
+    const sentKey = funnelRecipientDedupKey(ownerUid, cidForMeta, connId || '', phoneNorm);
+    let countFunnelSent = true;
+    if (sentKey) {
+        if (funnelSentOnceByOwnerCampaignContact.has(sentKey)) countFunnelSent = false;
+        else funnelSentOnceByOwnerCampaignContact.add(sentKey);
+    }
+    if (countFunnelSent) {
+        funnelStats.totalSent++;
+        incrementOwnerFunnel(ownerUid, { totalSent: 1 });
+    }
+    funnelStats.updatedAt = Date.now();
+    if (normId) {
+        campaignAckLevel.set(normId, 0);
+        if (cidForMeta) {
+            const uf = phoneDigitsToUf(phoneDigits) || GEO_UNKNOWN_UF;
+            campaignMsgMeta.set(normId, {
+                campaignId: cidForMeta,
+                uf,
+                connId: connId || '',
+                phoneNorm
+            });
+        }
+    }
     const entry: PendingCampaignSend = {
         ts,
         counted: false,
@@ -1683,7 +1753,6 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
         pendingCampaignSendsByConv.set(key, list);
     };
     const jidKey = getFunnelConvKey(connId || '', chatPart || '');
-    const digits = toPhoneKey(phoneDigits || '');
     const phoneKey = digits.length >= 10 ? getFunnelConvKey(connId || '', digits) : '';
     pushKey(jidKey);
     if (phoneKey && phoneKey !== jidKey) pushKey(phoneKey);
@@ -1746,25 +1815,41 @@ const handleCampaignAck = (msgId: string, ack: number) => {
     if (!campaignAckLevel.has(msgId)) return;
     const current = campaignAckLevel.get(msgId) || 0;
     const meta = campaignMsgMeta.get(msgId);
+    const ownerForMeta = meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined;
+    const dk = funnelRecipientDedupKey(ownerForMeta, meta?.campaignId, meta?.connId || '', meta?.phoneNorm || '');
     let changed = false;
     if (ack >= 2 && current < 1) {
-        funnelStats.totalDelivered++;
+        let countDel = true;
+        if (dk) {
+            if (funnelDeliveredOnceByOwnerCampaignContact.has(dk)) countDel = false;
+            else funnelDeliveredOnceByOwnerCampaignContact.add(dk);
+        }
+        if (countDel) {
+            funnelStats.totalDelivered++;
+            incrementOwnerFunnel(ownerForMeta, { totalDelivered: 1 });
+            if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'delivered');
+        }
         campaignAckLevel.set(msgId, 1);
         changed = true;
-        incrementOwnerFunnel(meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined, { totalDelivered: 1 });
-        if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'delivered');
     }
     if (ack >= 3 && (campaignAckLevel.get(msgId) || 0) < 2) {
-        funnelStats.totalRead++;
+        let countRead = true;
+        if (dk) {
+            if (funnelReadOnceByOwnerCampaignContact.has(dk)) countRead = false;
+            else funnelReadOnceByOwnerCampaignContact.add(dk);
+        }
+        if (countRead) {
+            funnelStats.totalRead++;
+            incrementOwnerFunnel(ownerForMeta, { totalRead: 1 });
+            if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'read');
+        }
         campaignAckLevel.set(msgId, 2);
         changed = true;
-        incrementOwnerFunnel(meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined, { totalRead: 1 });
-        if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'read');
     }
     if (changed) {
         funnelStats.updatedAt = Date.now();
         scheduleFunnelSave();
-        emitFunnelStats(meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined);
+        emitFunnelStats(ownerForMeta);
     }
 };
 
@@ -1827,15 +1912,30 @@ const handleIncomingForFunnel = (conversationId: string, incomingTs: number, pho
          */
         if (candidate.msgId) {
             const currentAck = campaignAckLevel.get(candidate.msgId) || 0;
+            const dkPromo = funnelRecipientDedupKey(ownerForFunnel, cid, connId || '', phoneNorm);
             if (currentAck < 1) {
-                funnelStats.totalDelivered++;
-                incrementOwnerFunnel(ownerForFunnel, { totalDelivered: 1 });
-                if (cid) bumpCampaignGeo(cid, uf, 'delivered');
+                let countDel = true;
+                if (dkPromo) {
+                    if (funnelDeliveredOnceByOwnerCampaignContact.has(dkPromo)) countDel = false;
+                    else funnelDeliveredOnceByOwnerCampaignContact.add(dkPromo);
+                }
+                if (countDel) {
+                    funnelStats.totalDelivered++;
+                    incrementOwnerFunnel(ownerForFunnel, { totalDelivered: 1 });
+                    if (cid) bumpCampaignGeo(cid, uf, 'delivered');
+                }
             }
             if (currentAck < 2) {
-                funnelStats.totalRead++;
-                incrementOwnerFunnel(ownerForFunnel, { totalRead: 1 });
-                if (cid) bumpCampaignGeo(cid, uf, 'read');
+                let countRead = true;
+                if (dkPromo) {
+                    if (funnelReadOnceByOwnerCampaignContact.has(dkPromo)) countRead = false;
+                    else funnelReadOnceByOwnerCampaignContact.add(dkPromo);
+                }
+                if (countRead) {
+                    funnelStats.totalRead++;
+                    incrementOwnerFunnel(ownerForFunnel, { totalRead: 1 });
+                    if (cid) bumpCampaignGeo(cid, uf, 'read');
+                }
             }
             campaignAckLevel.set(candidate.msgId, 2);
         }
@@ -4796,8 +4896,6 @@ const processQueue = async () => {
         }
 
         const connInfo = connectionsInfo.find(c => c.id === item.connectionId);
-        if (connInfo) connInfo.queueSize = Math.max(0, (connInfo.queueSize || 1) - 1);
-        emitConnectionsUpdate();
 
         const client = clients.get(item.connectionId);
         
@@ -4857,6 +4955,10 @@ const processQueue = async () => {
             continue;
         }
 
+        // Decrementa queueSize apenas agora que vamos de fato tentar o envio
+        if (connInfo) connInfo.queueSize = Math.max(0, (connInfo.queueSize || 1) - 1);
+        emitConnectionsUpdate();
+
         // Re-fetch client after isReady check (safety against race conditions)
         const activeClient = clients.get(item.connectionId);
         if (!activeClient) {
@@ -4890,14 +4992,14 @@ const processQueue = async () => {
 
             // Resolve o chatId: cache → getNumberId (com retries) → fallback @{número}@c.us (envio ainda pode resolver LID/JID).
             let targetChatId: string | null = null;
-            const cachedId = getCachedNumberId(formattedNum);
+            const cachedId = getCachedNumberId(item.connectionId, formattedNum);
             if (cachedId) {
                 targetChatId = cachedId;
                 console.log(`[ContactCache] ✅ Hit para ${formattedNum} → ${cachedId}`);
             } else {
                 targetChatId = await resolveNumberIdsWithRetries(activeClient, variants, 3, 900);
                 if (targetChatId) {
-                    setCachedNumberId(formattedNum, targetChatId);
+                    setCachedNumberId(item.connectionId, formattedNum, targetChatId);
                     console.log(`[ContactCache] ✅ Número resolvido após retries → ${targetChatId}`);
                 }
                 if (!targetChatId) {
@@ -5009,7 +5111,7 @@ const processQueue = async () => {
                 let fallbackOk = false;
 
                 if (shouldRunSendFallbacks) {
-                    invalidateCachedNumber(formattedNum);
+                    invalidateCachedNumber(item.connectionId, formattedNum);
                     const warnMsg = hasNoLid
                         ? 'Contato sem LID mapeado — tentando variantes e envio direto'
                         : hasMarkedUnread
@@ -5026,7 +5128,7 @@ const processQueue = async () => {
                             const fb = await sendRawJidNoResolve(`${variant}@c.us`, payloadToSend);
                             sentResult = fb.result;
                             finalChatId = fb.jidUsed;
-                            setCachedNumberId(formattedNum, fb.jidUsed);
+                            setCachedNumberId(item.connectionId, formattedNum, fb.jidUsed);
                             fallbackOk = true;
                             emitCampaignLog('INFO', 'Reenvio ok via @c.us direto (prioritário)', {
                                 variant
@@ -5048,7 +5150,7 @@ const processQueue = async () => {
                                 });
                                 sentResult = fb.result;
                                 finalChatId = fb.jidUsed;
-                                setCachedNumberId(formattedNum, wid._serialized);
+                                setCachedNumberId(item.connectionId, formattedNum, wid._serialized);
                                 fallbackOk = true;
                                 emitCampaignLog('INFO', 'Reenvio ok apos novo getNumberId', {
                                     variant,
@@ -5076,7 +5178,7 @@ const processQueue = async () => {
                                     ]);
                                     sentResult = result;
                                     finalChatId = jid;
-                                    setCachedNumberId(formattedNum, jid);
+                                    setCachedNumberId(item.connectionId, formattedNum, jid);
                                     fallbackOk = true;
                                     emitCampaignLog('INFO', 'Reenvio ok via getChatById.sendMessage', { variant });
                                     break;
@@ -5099,7 +5201,7 @@ const processQueue = async () => {
             }
 
             // Garante cache alinhado ao JID que de fato enviou (ex.: @lid após resolve)
-            setCachedNumberId(formattedNum, finalChatId);
+            setCachedNumberId(item.connectionId, formattedNum, finalChatId);
 
             // Registrar a mensagem na conversa para rastrear entrega/leitura via message_ack
             try {

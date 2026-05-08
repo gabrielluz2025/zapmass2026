@@ -13,7 +13,7 @@ import {
   FacebookAuthProvider,
   User,
   UserCredential,
-  type AuthProvider
+  type AuthProvider as FirebaseAuthProvider
 } from 'firebase/auth';
 import toast from 'react-hot-toast';
 import { auth, facebookProvider, googleProvider } from '../services/firebase';
@@ -181,7 +181,7 @@ async function hydrateFacebookProfilePhotoIfNeeded(res: UserCredential): Promise
 const facebookGraphPlaceholderCleared = new Set<string>();
 
 async function signInWithProviderPopupOrRedirect(
-  provider: AuthProvider,
+  provider: FirebaseAuthProvider,
   opts: { redirectToastId: string; redirectMessage: string }
 ): Promise<UserCredential | null> {
   try {

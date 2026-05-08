@@ -11,7 +11,7 @@ function hourInTimeZone(d: Date, timeZone: string): number {
     hour12: false
   }).formatToParts(d);
   const v = parts.find((p) => p.type === 'hour')?.value;
-  const n = v != null ? parseInt(v, 10, 10) : NaN;
+  const n = v != null ? parseInt(v, 10) : NaN;
   return Number.isFinite(n) ? n : 12;
 }
 
