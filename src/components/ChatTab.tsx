@@ -604,6 +604,59 @@ export const ChatTab: React.FC = () => {
     [systemContactNameByDigits]
   );
 
+  /**
+   * Resolve nome cadastrado tentando múltiplas fontes de telefone da conversa:
+   * 1) `phoneRawForContactLookup` — melhor PN BR detectado em `contactPhone` ou no `id` do chat;
+   * 2) Quando o WhatsApp guarda o número formatado em `contactName` (sem agenda local) — extrai dígitos dali;
+   * 3) `contactPhone` cru, mesmo que tenha falhado no `plausiblyBrazilPhoneDigits` (alguns dispositivos usam DDI estrangeiro / formato sem 9º dígito);
+   * 4) Dígitos extraídos do próprio `id` do chat.
+   *
+   * Isso resolve o caso em que o `contactPhone` do socket vem como LID do WhatsApp (ex.: `+676587…`),
+   * mas o número real (que existe na aba Contatos) aparece formatado no `contactName`.
+   */
+  const resolveSystemNameForConv = useCallback(
+    (conv: Conversation): string | undefined => {
+      const tryName = (raw: string): string | undefined => {
+        const t = (raw || '').trim();
+        if (!t) return undefined;
+        return getSystemNameForPhone(t);
+      };
+
+      const candidates: string[] = [];
+      const seen = new Set<string>();
+      const push = (raw: string) => {
+        const t = (raw || '').trim();
+        if (!t || seen.has(t)) return;
+        seen.add(t);
+        candidates.push(t);
+      };
+
+      push(phoneRawForContactLookup(conv));
+
+      const storedName = (conv.contactName || '').trim();
+      if (storedName && looksLikeDigitsOnlyContactLabel(storedName)) {
+        const d = normalizeDigits(storedName);
+        if (d.length >= 10 && d.length <= 13) push(`+${d}`);
+      }
+
+      const cp = (conv.contactPhone || '').trim();
+      if (cp) {
+        const d = normalizeDigits(cp);
+        if (d.length >= 10 && d.length <= 13) push(`+${d}`);
+      }
+
+      const fromId = extractWaUserDigitsFromConvId(conv.id);
+      if (fromId && fromId.length >= 10 && fromId.length <= 13) push(`+${fromId}`);
+
+      for (const cand of candidates) {
+        const hit = tryName(cand);
+        if (hit) return hit.trim();
+      }
+      return undefined;
+    },
+    [getSystemNameForPhone]
+  );
+
   const pipelineViewStorageKey = useMemo(
     () => `zapmass-pipeline-tab-view:v1:${user?.uid || 'anon'}`,
     [user?.uid]
@@ -774,11 +827,11 @@ export const ChatTab: React.FC = () => {
   const effectiveConversations = useMemo(
     () =>
       mergedConversations.map((conv) => {
-        const preferredName = getSystemNameForPhone(phoneRawForContactLookup(conv));
+        const preferredName = resolveSystemNameForConv(conv);
         if (!preferredName || preferredName === conv.contactName) return conv;
         return { ...conv, contactName: preferredName };
       }),
-    [mergedConversations, getSystemNameForPhone]
+    [mergedConversations, resolveSystemNameForConv]
   );
 
   // Relatórios / outras abas: abrir conversa por id (ex.: avaliação do cliente).
@@ -817,8 +870,7 @@ export const ChatTab: React.FC = () => {
       conv: Conversation
     ): { primary: string; whatsappSubtitle?: string; phoneSecondary?: string } => {
       const waName = (waPushNameByConvId.get(conv.id) || '').trim();
-      const lookupRaw = phoneRawForContactLookup(conv);
-      const systemName = getSystemNameForPhone(lookupRaw)?.trim();
+      const systemName = resolveSystemNameForConv(conv);
       const storedName = (conv.contactName || '').trim();
       const friendlyStored =
         storedName &&
@@ -826,7 +878,7 @@ export const ChatTab: React.FC = () => {
         storedName.toLowerCase() !== 'contato'
           ? storedName
           : '';
-      const digits = normalizeDigits(lookupRaw || digitsForContactMatch(conv));
+      const digits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
       const phoneLabel = digits ? `+${digits}` : '';
       const primary = systemName || friendlyStored || waName || phoneLabel || 'Contato';
 
@@ -841,7 +893,7 @@ export const ChatTab: React.FC = () => {
 
       return { primary, whatsappSubtitle, phoneSecondary };
     },
-    [waPushNameByConvId, getSystemNameForPhone]
+    [waPushNameByConvId, resolveSystemNameForConv]
   );
 
   const getConvAvatar = useCallback(
