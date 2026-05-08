@@ -1686,7 +1686,7 @@ export const ContactsTab: React.FC = () => {
     const defs: Array<{ id: SmartSegmentId; label: string; icon: React.ElementType; color: string; hint: string }> =
       [
         { id: 'birthday-week', label: 'Aniversários (7d)', icon: Cake, color: 'amber', hint: 'Faça um envio personalizado' },
-        ...(segment === 'religious'
+        ...(segment !== 'religious'
           ? []
           : [{ id: 'wedding-week' as const, label: 'Bodas de casamento (7d)', icon: Heart, color: 'rose', hint: 'Data na ficha de membro' }]),
         { id: 'hot-inactive', label: 'Quentes sem contato', icon: Flame, color: 'red', hint: 'Não perca o engajamento' },
@@ -3174,7 +3174,7 @@ export const ContactsTab: React.FC = () => {
       {!listManageId && (
         <ContactsHeaderBar
           stats={headerStats}
-          hideWeddingWeekPill={segment === 'religious'}
+          hideWeddingWeekPill={segment !== 'religious'}
           onNewContact={openNewContactModal}
           onImportXLSX={openImportXLSX}
           onImportVcf={openImportVcf}
@@ -3409,7 +3409,7 @@ export const ContactsTab: React.FC = () => {
           onDeleteList={(id, name) => void handleDeleteList(id, name)}
           query={searchTerm}
           onQueryChange={setSearchTerm}
-          hideWeddingFilters={segment === 'religious'}
+          hideWeddingFilters={segment !== 'religious'}
         />
         <div className="flex flex-col gap-3 min-w-0">
           {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (

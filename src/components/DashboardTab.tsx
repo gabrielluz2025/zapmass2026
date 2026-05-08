@@ -426,7 +426,7 @@ export const DashboardTab: React.FC = () => {
   }, [contacts]);
 
   const upcomingWeddings = useMemo<UpcomingWedding[]>(() => {
-    if (segment === 'religious') return [];
+    if (segment !== 'religious') return [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const result: UpcomingWedding[] = [];
@@ -455,7 +455,7 @@ export const DashboardTab: React.FC = () => {
   }, [contacts, segment]);
 
   useEffect(() => {
-    if (segment !== 'religious') return;
+    if (segment === 'religious') return;
     setSelectedWedding(null);
     setWeddingBulkOpen(false);
     setWeddingMessageText('');
@@ -1370,7 +1370,7 @@ export const DashboardTab: React.FC = () => {
           </div>
         </Card>
 
-        {segment !== 'religious' && (
+        {segment === 'religious' && (
         <Card className="overflow-hidden p-0">
           <div
             className="px-4 pt-4 pb-3 flex items-start justify-between gap-3"
