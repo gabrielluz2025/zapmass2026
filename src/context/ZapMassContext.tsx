@@ -980,6 +980,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               : qrCodeByConnectionId.current[conn.id] ?? previous?.qrCode
           };
         });
+        /** Ignorar update sem mudanças relevantes — evita rerender em cascata pela referência nova. */
+        if (
+          prev.length === result.length &&
+          prev.every((p, i) => {
+            const r = result[i];
+            return (
+              p.id === r.id &&
+              p.status === r.status &&
+              p.qrCode === r.qrCode &&
+              p.name === r.name &&
+              p.phoneNumber === r.phoneNumber &&
+              (p.healthScore ?? 100) === (r.healthScore ?? 100)
+            );
+          })
+        ) {
+          return prev;
+        }
         connectionsRef.current = result;
         return result;
       });
@@ -1014,17 +1031,41 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('metrics-update', (newMetrics: DashboardMetrics) => {
-      setMetrics(newMetrics);
+      setMetrics((prev) => {
+        if (
+          prev &&
+          prev.totalSent === newMetrics.totalSent &&
+          prev.totalDelivered === newMetrics.totalDelivered &&
+          prev.totalRead === newMetrics.totalRead &&
+          prev.totalReplied === newMetrics.totalReplied
+        ) {
+          return prev;
+        }
+        return newMetrics;
+      });
     });
 
     socket.on('funnel-stats-update', (newFunnel: FunnelStats) => {
-      setFunnelStats({
-        totalSent: Number(newFunnel?.totalSent) || 0,
-        totalDelivered: Number(newFunnel?.totalDelivered) || 0,
-        totalRead: Number(newFunnel?.totalRead) || 0,
-        totalReplied: Number(newFunnel?.totalReplied) || 0,
-        updatedAt: Number(newFunnel?.updatedAt) || Date.now(),
-        clearedAt: newFunnel?.clearedAt
+      setFunnelStats((prev) => {
+        const next = {
+          totalSent: Number(newFunnel?.totalSent) || 0,
+          totalDelivered: Number(newFunnel?.totalDelivered) || 0,
+          totalRead: Number(newFunnel?.totalRead) || 0,
+          totalReplied: Number(newFunnel?.totalReplied) || 0,
+          updatedAt: Number(newFunnel?.updatedAt) || Date.now(),
+          clearedAt: newFunnel?.clearedAt
+        };
+        if (
+          prev &&
+          prev.totalSent === next.totalSent &&
+          prev.totalDelivered === next.totalDelivered &&
+          prev.totalRead === next.totalRead &&
+          prev.totalReplied === next.totalReplied &&
+          prev.clearedAt === next.clearedAt
+        ) {
+          return prev;
+        }
+        return next;
       });
     });
 
@@ -2133,9 +2174,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
      * Evita o caso "abro a conversa mas o nao-lido continua" enquanto o
      * `conversations-update` nao chega de volta.
      */
-    setConversations((prev) =>
-      prev.map((c) => (c.id === conversationId && c.unreadCount > 0 ? { ...c, unreadCount: 0 } : c))
-    );
+    setConversations((prev) => {
+      let touched = false;
+      const next = prev.map((c) => {
+        if (c.id === conversationId && c.unreadCount > 0) {
+          touched = true;
+          return { ...c, unreadCount: 0 };
+        }
+        return c;
+      });
+      return touched ? next : prev;
+    });
     socketRef.current?.emit('ui-log', { action: 'mark-as-read', conversationId });
     socketRef.current?.emit('mark-as-read', { conversationId });
   };

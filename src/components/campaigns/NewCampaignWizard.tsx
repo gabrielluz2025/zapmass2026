@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -29,7 +29,6 @@ import {
   Contact,
   ContactList,
   ConnectionStatus,
-  Conversation,
   WhatsAppConnection
 } from '../../types';
 import type { CampaignWizardDraft } from '../../types/campaignMission';
@@ -45,9 +44,10 @@ import {
 import {
   computeContactTemperatures,
   CONTACT_TEMP_LABEL,
-  type ContactTemperature
+  type ContactTemperature,
+  type TempStats
 } from '../../utils/contactTemperature';
-import { useZapMassCore } from '../../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
@@ -92,8 +92,6 @@ interface NewCampaignWizardProps {
   connections: WhatsAppConnection[];
   contactLists: ContactList[];
   contacts: Contact[];
-  /** Conversas globais (socket) — usadas só para calcular temperatura quente/morno/frio. */
-  conversations: Conversation[];
   onCancel: () => void;
   onSubmit: (payload: {
     name: string;
@@ -144,12 +142,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   connections,
   contactLists,
   contacts,
-  conversations,
   onCancel,
   onSubmit,
   initialDraft,
   onDraftConsumed
 }) => {
+  /** Conversas globais (socket) — usadas só para calcular temperatura. Tomadas via contexto isolado para evitar prop-drilling pesado e caching deferred. */
+  const conversations = useZapMassConversations();
+  const deferredConversations = useDeferredValue(conversations);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [sendMode, setSendMode] = useState<SendMode>('list');
   const [manualNumbers, setManualNumbers] = useState('');
@@ -300,10 +300,36 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     [connections]
   );
 
-  const contactTemps = useMemo(
-    () => computeContactTemperatures(contacts, conversations || []),
-    [contacts, conversations]
-  );
+  /**
+   * Temperatura por contato: cálculo pesado roda em `requestIdleCallback` para não travar o passo do assistente
+   * a cada `conversations-update` recebido pelo socket.
+   */
+  const [contactTemps, setContactTemps] = useState<Record<string, TempStats>>({});
+  const contactTempsGenRef = useRef(0);
+  useEffect(() => {
+    const gen = ++contactTempsGenRef.current;
+    const c = contacts;
+    const conv = deferredConversations;
+    const run = () => {
+      if (gen !== contactTempsGenRef.current) return;
+      const next = computeContactTemperatures(c, conv || []);
+      if (gen !== contactTempsGenRef.current) return;
+      startTransition(() => setContactTemps(next));
+    };
+    let idleId: ReturnType<typeof requestIdleCallback> | ReturnType<typeof setTimeout>;
+    if (typeof requestIdleCallback !== 'undefined') {
+      idleId = requestIdleCallback(run, { timeout: 1500 });
+    } else {
+      idleId = setTimeout(run, 0);
+    }
+    return () => {
+      if (typeof cancelIdleCallback !== 'undefined' && typeof requestIdleCallback !== 'undefined') {
+        cancelIdleCallback(idleId as number);
+      } else {
+        clearTimeout(idleId as ReturnType<typeof setTimeout>);
+      }
+    };
+  }, [contacts, deferredConversations]);
 
   const selectedList = useMemo(
     () => contactLists.find((list) => list.id === selectedListId),

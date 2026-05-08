@@ -579,6 +579,11 @@ export const ChatTab: React.FC = () => {
     return map;
   }, [contacts]);
 
+  /**
+   * Lookup do nome cadastrado por telefone usando apenas o map precomputado (`buildPhoneDigitLookupKeys` já cobre BR
+   * com/sem 55 e 9º dígito). O fallback antigo sobre `contacts` era O(C) por conversa e travava o `effectiveConversations.map`
+   * em bases grandes — agora é lookup direto.
+   */
   const getSystemNameForPhone = useCallback(
     (phoneRaw: string): string | undefined => {
       const trimmed = (phoneRaw || '').trim();
@@ -594,14 +599,9 @@ export const ChatTab: React.FC = () => {
         const hit = systemContactNameByDigits.get(key);
         if (hit) return hit;
       }
-      for (const ct of contacts) {
-        const name = (ct.name || '').trim();
-        if (!name) continue;
-        if (phonesMatchDigits(ct.phone || '', phoneRaw)) return name;
-      }
       return undefined;
     },
-    [systemContactNameByDigits, contacts]
+    [systemContactNameByDigits]
   );
 
   const pipelineViewStorageKey = useMemo(

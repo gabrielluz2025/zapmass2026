@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, type ReactNode } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Send,
   CheckCheck,
@@ -235,6 +235,8 @@ const QuickAction: React.FC<{
 
 export const DashboardTab: React.FC = () => {
   const conversations = useZapMassConversations();
+  /** Conversas defer-iadas: usadas só nas agregações pesadas (best window, etc.) — evita recalcular a cada socket. */
+  const deferredConversations = useDeferredValue(conversations);
   const {
     connections,
     sendMessage,
@@ -291,7 +293,7 @@ export const DashboardTab: React.FC = () => {
     const cutoff = Date.now() - 28 * 86_400_000;
     const byHour = new Array(24).fill(0);
     let total = 0;
-    conversations.forEach((conv) => {
+    deferredConversations.forEach((conv) => {
       conv.messages?.forEach((m) => {
         const ts = m.timestampMs || (m.timestamp ? new Date(m.timestamp).getTime() : 0);
         if (!ts || ts < cutoff) return;
@@ -308,7 +310,7 @@ export const DashboardTab: React.FC = () => {
       label: `${String(start).padStart(2, '0')}h–${String(endH).padStart(2, '0')}h30`,
       count: byHour[peak]
     };
-  }, [conversations]);
+  }, [deferredConversations]);
 
   const [confirmClearFunnel, setConfirmClearFunnel] = useState(false);
 

@@ -756,6 +756,8 @@ export const ContactsTab: React.FC = () => {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  /** Defer `searchTerm` para o filtro pesado (varre 14+ campos por contato) — digitação não trava o input em bases grandes. */
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
@@ -1896,7 +1898,7 @@ export const ContactsTab: React.FC = () => {
 
   // Filter Logic — memoizado: antes rodava filtro completo em todo re-render (digitar, modal, etc.).
   const filteredContacts = useMemo(() => {
-    const q = searchTerm.toLowerCase();
+    const q = deferredSearchTerm.toLowerCase();
     // Caminho rápido: sem busca nem critérios — evita uma passagem de O(n) em bases enormes ao abrir a aba.
     if (
       !q &&
@@ -1912,7 +1914,7 @@ export const ContactsTab: React.FC = () => {
       const matchesSearch =
         !q ||
         c.name.toLowerCase().includes(q) ||
-        c.phone.includes(searchTerm) ||
+        c.phone.includes(deferredSearchTerm) ||
         c.tags.some((t) => t.toLowerCase().includes(q)) ||
         (c.city?.toLowerCase().includes(q) ?? false) ||
         (c.state?.toLowerCase().includes(q) ?? false) ||
@@ -1934,7 +1936,7 @@ export const ContactsTab: React.FC = () => {
     });
   }, [
     contacts,
-    searchTerm,
+    deferredSearchTerm,
     filterStatus,
     filterTag,
     filterTemp,

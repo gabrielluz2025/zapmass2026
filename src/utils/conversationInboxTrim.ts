@@ -22,11 +22,26 @@ export function trimConversationMessagesTail(conv: Conversation, maxTail: number
   return { ...conv, messages: msgs.slice(-maxTail) };
 }
 
+/** Hash leve da lista incoming para evitar refazer o merge do mesmo payload (servidor pode reemitir igual). */
+function hashIncoming(list: Conversation[]): string {
+  let s = `${list.length}|`;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    s += `${c.id}:${c.lastMessageTimestamp || 0}:${c.unreadCount || 0}:${c.messages?.length || 0};`;
+  }
+  return s;
+}
+
+let lastIncomingHash = '';
+let lastResult: Conversation[] | null = null;
+
 /**
  * Combina atualização socket com estado anterior:
  * - Aplica tail em cada conversa nova (peso menor na RAM / clone).
  * - Se o cliente já tinha mais mensagens para o mesmo id e parece igual ou mais recente
  *   que o sync, mantém o buffer maior (histórico aberto antes do próximo broadcast).
+ * - Cache de hash: se o mesmo payload chegar 2x (sync + reemit), devolve a referência anterior
+ *   para evitar re-render desnecessário em todos os assinantes do contexto.
  */
 export function mergeConversationsFromSocketUpdate(
   prev: Conversation[],
@@ -34,10 +49,12 @@ export function mergeConversationsFromSocketUpdate(
   ownsConnectionId: (connectionId: string) => boolean,
   maxTail: number = SYNC_MSG_TAIL
 ): Conversation[] {
+  const h = hashIncoming(incoming);
+  if (h === lastIncomingHash && lastResult && prev === lastResult) return prev;
   const filtered = incoming.filter((c) => ownsConnectionId(c.connectionId));
   const trimmedIncoming = filtered.map((c) => trimConversationMessagesTail(c, maxTail));
   const prevById = new Map(prev.map((c) => [c.id, c]));
-  return trimmedIncoming.map((inc) => {
+  const out = trimmedIncoming.map((inc) => {
     const p = prevById.get(inc.id);
     if (!p || !Array.isArray(p.messages) || p.messages.length <= inc.messages.length) return inc;
     const tPrev = newestActivityMs(p);
@@ -45,6 +62,9 @@ export function mergeConversationsFromSocketUpdate(
     if (tPrev >= tInc) return { ...inc, messages: p.messages };
     return inc;
   });
+  lastIncomingHash = h;
+  lastResult = out;
+  return out;
 }
 
 export const conversationSyncTailLimit = SYNC_MSG_TAIL;

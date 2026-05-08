@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -65,6 +65,8 @@ function deltaBadge(current: number, previous: number) {
 
 export const ReportsTab: React.FC = () => {
   const conversations = useZapMassConversations();
+  /** Heatmap pesado (conversas × mensagens) corre sobre versão diferida — não trava ao receber atualização. */
+  const deferredConversations = useDeferredValue(conversations);
   const { campaigns, connections, funnelStats } = useZapMassCore();
   const [period, setPeriod] = useState<PeriodFilter>('30d');
 
@@ -156,7 +158,7 @@ export const ReportsTab: React.FC = () => {
     const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
     const cutoff = Date.now() - rangeDays * 86_400_000;
     let total = 0;
-    conversations.forEach((conv) => {
+    deferredConversations.forEach((conv) => {
       conv.messages?.forEach((msg) => {
         const ts = msg.timestampMs || (msg.timestamp ? new Date(msg.timestamp).getTime() : 0);
         if (!ts || ts < cutoff) return;
@@ -168,7 +170,7 @@ export const ReportsTab: React.FC = () => {
     });
     const max = Math.max(1, ...grid.flat());
     return { grid, max, total };
-  }, [conversations, rangeDays]);
+  }, [deferredConversations, rangeDays]);
 
   // Best hour insight
   const bestHourInsight = useMemo(() => {

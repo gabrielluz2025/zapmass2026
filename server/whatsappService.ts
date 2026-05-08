@@ -2765,9 +2765,18 @@ const upsertConversation = (next: Conversation, opts?: { skipArchive?: boolean }
     conversations = conversations.slice(0, MAX_CONVERSATIONS);
 };
 
-const emitConversationsUpdate = () => {
+/** Janela mínima entre `conversations-update` reais (ms) — em rajada (sync, mensagens em massa) coalescemos. */
+const CONVERSATIONS_EMIT_MIN_INTERVAL_MS = Math.max(
+    50,
+    Number(process.env.WA_CONVERSATIONS_EMIT_MIN_MS || '200')
+);
+
+let conversationsEmitLastAt = 0;
+let conversationsEmitTimer: NodeJS.Timeout | null = null;
+
+const performConversationsEmit = () => {
     try {
-        console.log(`[emitConversations] Emitindo ${conversations.length} conversas...`);
+        conversationsEmitLastAt = Date.now();
         const payload = conversations.map((c) => ({ ...c, connectionId: c.connectionId }));
 
         /** No wa-worker o `io` e noop: sem sockets; o bridge Redis entrega aos browsers ligados aa API. */
@@ -2789,11 +2798,33 @@ const emitConversationsUpdate = () => {
             const authUid = String((socket.data as { authUid?: string }).authUid ?? tenantUid);
             socket.emit('conversations-update', conversationsPayloadForViewer(tenantUid, authUid, conversations));
         }
-        console.log(`[emitConversations] Emitiu com sucesso`);
     } catch (e: any) {
         console.error('[CRASH] Erro ao emitir conversations-update:', e?.message || e, e?.stack?.split('\n')[1] || '');
-        // Em worker sem Socket.IO real, so registramos e seguimos.
     }
+};
+
+/**
+ * Coalesce chamadas seguidas em `CONVERSATIONS_EMIT_MIN_INTERVAL_MS` — durante sync/respostas em rajada
+ * o array é mexido várias vezes e cada `emit` envia >100 KB para todos os sockets. O viewer ainda
+ * agrupa em `requestAnimationFrame`, mas reduzir a origem evita horas de RAM/CPU.
+ */
+const emitConversationsUpdate = () => {
+    const now = Date.now();
+    const sinceLast = now - conversationsEmitLastAt;
+    if (sinceLast >= CONVERSATIONS_EMIT_MIN_INTERVAL_MS) {
+        if (conversationsEmitTimer) {
+            clearTimeout(conversationsEmitTimer);
+            conversationsEmitTimer = null;
+        }
+        performConversationsEmit();
+        return;
+    }
+    if (conversationsEmitTimer) return; // já há flush agendado
+    const wait = Math.max(20, CONVERSATIONS_EMIT_MIN_INTERVAL_MS - sinceLast);
+    conversationsEmitTimer = setTimeout(() => {
+        conversationsEmitTimer = null;
+        performConversationsEmit();
+    }, wait);
 };
 
 /** Reemitir lista após claim/release de inbox (REST). */
