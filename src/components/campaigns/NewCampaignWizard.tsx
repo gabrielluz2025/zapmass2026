@@ -47,7 +47,7 @@ import {
   CONTACT_TEMP_LABEL,
   type ContactTemperature
 } from '../../utils/contactTemperature';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassCore } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
@@ -173,7 +173,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [quickTestPhone, setQuickTestPhone] = useState('');
   const [quickTestBusy, setQuickTestBusy] = useState(false);
   const [quickTestSentOk, setQuickTestSentOk] = useState(false);
-  const { socket } = useZapMass();
+  const { socket } = useZapMassCore();
   /** Laboratório A/B: duas campanhas com 1ª mensagem diferente (apenas sequencial). */
   const [abLabEnabled, setAbLabEnabled] = useState(false);
   const [abFirstBodyB, setAbFirstBodyB] = useState('');

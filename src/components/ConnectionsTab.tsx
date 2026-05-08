@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus, WhatsAppConnection } from '../types';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore } from '../context/ZapMassContext';
 import { ConnectionCardNew as ConnectionCard } from './ConnectionCardNew';
 import { ConnectionListRow } from './ConnectionListRow';
 import { AddConnectionModal } from './AddConnectionModal';
@@ -93,7 +93,7 @@ const loadSort = (): SortKey => {
 
 export const ConnectionsTab: React.FC = () => {
   const { connections, addConnection, removeConnection, reconnectConnection, forceQr, renameConnection } =
-    useZapMass();
+    useZapMassCore();
   const { user } = useAuth();
   const { subscription, readOnlyMode, enforce: subEnforce } = useSubscription();
   const goToView = useMainLayoutNav();

@@ -47,7 +47,7 @@ import toast from 'react-hot-toast';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { ClientPipelineBoard } from './chat/ClientPipelineBoard';
 import { ClientCrmPanel } from './chat/ClientCrmPanel';
 import { ChatEmptyShowcase } from './chat/ChatEmptyShowcase';
@@ -373,8 +373,8 @@ async function inboxWorkspacePostFinish(body: Record<string, unknown>): Promise<
 }
 
 export const ChatTab: React.FC = () => {
+  const conversations = useZapMassConversations();
   const {
-    conversations,
     contacts,
     connections,
     sendMessage,
@@ -387,7 +387,7 @@ export const ChatTab: React.FC = () => {
     hydrateFirestoreChatArchive,
     loadMessageMedia,
     socket
-  } = useZapMass();
+  } = useZapMassCore();
   const { user } = useAuth();
   const {
     isTeamMember,

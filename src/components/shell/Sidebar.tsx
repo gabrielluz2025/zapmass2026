@@ -24,7 +24,7 @@ import {
   Church,
   MapPin
 } from 'lucide-react';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 import { getSavedMode, toggleMode } from '../../theme';
 import { isAdminUserEmail } from '../../utils/adminAccess';
@@ -130,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   collapsed = false,
   onToggleCollapsed
 }) => {
-  const { isBackendConnected } = useZapMass();
+  const { isBackendConnected } = useZapMassUiSnapshot();
   const { user, signOut } = useAuth();
   const { segment } = useAppProfile();
   const [mode, setMode] = useState(getSavedMode());

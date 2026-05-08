@@ -174,6 +174,54 @@ interface ZapMassContextWithSocket extends ZapMassContextType {
 
 const INITIAL_SYS_METRICS: SystemMetrics = { cpu: 0, ram: 0, uptime: '0m', latency: 0 };
 
+/** Snapshot enxuto para shell (TopBar, Sidebar, banners): não herda atualizações de `conversations`. */
+export type ZapMassUiSnapshot = {
+  isBackendConnected: boolean;
+  systemMetrics: SystemMetrics;
+  sessionLiveStats: {
+    workersAlive: number;
+    inFlight: number;
+    waiting: number;
+    maxConcurrent: number;
+    pendingAssignments: number;
+    busRemote: boolean;
+  } | null;
+};
+
+function sessionLiveStatsEqual(
+  a: NonNullable<ZapMassUiSnapshot['sessionLiveStats']>,
+  b: NonNullable<ZapMassUiSnapshot['sessionLiveStats']>
+): boolean {
+  return (
+    a.workersAlive === b.workersAlive &&
+    a.pendingAssignments === b.pendingAssignments &&
+    a.inFlight === b.inFlight &&
+    a.waiting === b.waiting &&
+    a.maxConcurrent === b.maxConcurrent &&
+    a.busRemote === b.busRemote
+  );
+}
+
+function mergedSystemMetricsUnchanged(prev: SystemMetrics, patch: Partial<SystemMetrics>): boolean {
+  const next = { ...prev, ...patch };
+  return (
+    prev.cpu === next.cpu &&
+    prev.ram === next.ram &&
+    prev.uptime === next.uptime &&
+    (prev.latency ?? 0) === (next.latency ?? 0) &&
+    (prev.ramTotalGb ?? 0) === (next.ramTotalGb ?? 0) &&
+    (prev.ramFreeGb ?? 0) === (next.ramFreeGb ?? 0) &&
+    (prev.ramUsedGb ?? 0) === (next.ramUsedGb ?? 0) &&
+    (prev.platform || '') === (next.platform || '')
+  );
+}
+
+const ZapMassUiSnapshotContext = createContext<ZapMassUiSnapshot | null>(null);
+
+const ZapMassConnectionsSliceContext = createContext<{ connections: WhatsAppConnection[] } | null>(
+  null
+);
+
 const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   socket: null,
   systemMetrics: INITIAL_SYS_METRICS,
@@ -232,7 +280,17 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   patchConversationInboxClaim: () => {}
 };
 
-const ZapMassContext = createContext<ZapMassContextWithSocket>(EMPTY_CONTEXT);
+export type ZapMassCoreContextValue = Omit<ZapMassContextWithSocket, 'conversations'>;
+
+const EMPTY_CORE: ZapMassCoreContextValue = (() => {
+  const { conversations: _omitConv, ...core } = EMPTY_CONTEXT;
+  return core;
+})();
+
+const ZAP_MASS_CONVERSATIONS_DEFAULT = { conversations: [] as Conversation[] };
+const ZapMassConversationsContext = createContext(ZAP_MASS_CONVERSATIONS_DEFAULT);
+
+const ZapMassCoreContext = createContext<ZapMassCoreContextValue>(EMPTY_CORE);
 const legacyIgnoreKey = (uid: string) => `zapmass.ignoreLegacyData:${uid}`;
 const allowLegacyMerge = (): boolean => {
   // Segurança multi-tenant: desabilitado por padrão de forma rígida
@@ -318,8 +376,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   });
   
   const socketRef = useRef<Socket | null>(null);
-  /** Agrupa `conversations-update` no mesmo frame (menos trabalho no main thread com rajadas do socket). */
-  const conversationsSocketBatchRef = useRef<Conversation[]>([]);
+  /** Último payload completo de `conversations-update` pendente até o próximo paint (vários emits no mesmo frame = só o último). */
+  const conversationsSocketPendingRef = useRef<Conversation[] | null>(null);
   const conversationsSocketRafRef = useRef<number | null>(null);
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
@@ -981,14 +1039,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('conversations-update', (updatedConversations: Conversation[]) => {
       if (!Array.isArray(updatedConversations) || updatedConversations.length === 0) return;
-      conversationsSocketBatchRef.current.push(...updatedConversations);
+      /** Lista completa do servidor por evento; substituir preserva último estado no frame (concatenar quebraria o merge). */
+      conversationsSocketPendingRef.current = updatedConversations;
       if (conversationsSocketRafRef.current != null) return;
       conversationsSocketRafRef.current = requestAnimationFrame(() => {
         conversationsSocketRafRef.current = null;
-        const batch = conversationsSocketBatchRef.current;
-        conversationsSocketBatchRef.current = [];
-        if (batch.length === 0) return;
-        setConversations((prev) => mergeConversationsFromSocketUpdate(prev, batch, ownsConnectionId));
+        const pending = conversationsSocketPendingRef.current;
+        conversationsSocketPendingRef.current = null;
+        if (!pending?.length) return;
+        setConversations((prev) => mergeConversationsFromSocketUpdate(prev, pending, ownsConnectionId));
       });
     });
 
@@ -1002,8 +1061,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     // Real system metrics
-    socket.on('system-metrics', (data: SystemMetrics) => {
-      setSystemMetrics(prev => ({ ...prev, ...data }));
+    socket.on('system-metrics', (data: Partial<SystemMetrics>) => {
+      setSystemMetrics((prev) => {
+        if (mergedSystemMetricsUnchanged(prev, data)) return prev;
+        return { ...prev, ...data };
+      });
     });
 
     socket.on('session-live-stats', (data: {
@@ -1011,14 +1073,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       concurrency?: { inFlight?: number; waiting?: number; max?: number };
       bus?: { remote?: boolean };
     }) => {
-      setSessionLiveStats({
+      const next = {
         workersAlive: Number(data?.router?.aliveWorkers || 0),
         pendingAssignments: Number(data?.router?.pendingAssignments || 0),
         inFlight: Number(data?.concurrency?.inFlight || 0),
         waiting: Number(data?.concurrency?.waiting || 0),
         maxConcurrent: Number(data?.concurrency?.max || 0),
         busRemote: Boolean(data?.bus?.remote)
-      });
+      };
+      setSessionLiveStats((prev) =>
+        prev && sessionLiveStatsEqual(prev, next) ? prev : next
+      );
     });
 
     // Real latency via ping/pong (a cada 5s)
@@ -1510,7 +1575,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         cancelAnimationFrame(conversationsSocketRafRef.current);
         conversationsSocketRafRef.current = null;
       }
-      conversationsSocketBatchRef.current = [];
+      conversationsSocketPendingRef.current = null;
       Object.values(campaignProgressPersistRef.current).forEach((entry) => {
         if (entry.timer) clearTimeout(entry.timer);
       });
@@ -2549,7 +2614,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableStartWarmupTimer = useStableCallback(startWarmupTimer);
   const stableStopWarmupTimer = useStableCallback(stopWarmupTimer);
 
-  const zapMassContextValue = useMemo<ZapMassContextType>(
+  const zapMassUiSnapshot = useMemo<ZapMassUiSnapshot>(
+    () => ({
+      isBackendConnected,
+      systemMetrics,
+      sessionLiveStats
+    }),
+    [isBackendConnected, systemMetrics, sessionLiveStats]
+  );
+
+  const connectionsSlice = useMemo(() => ({ connections }), [connections]);
+
+  const zapMassConversationsSlice = useMemo(() => ({ conversations }), [conversations]);
+
+  const zapMassCoreValue = useMemo<ZapMassCoreContextValue>(
     () => ({
       socket: socketRef.current,
       connections,
@@ -2558,7 +2636,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactLists,
       metrics,
       birthdays,
-      conversations,
       systemLogs,
       warmupQueue,
       warmedCount,
@@ -2614,7 +2691,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactLists,
       metrics,
       birthdays,
-      conversations,
       systemLogs,
       warmupQueue,
       warmedCount,
@@ -2629,13 +2705,57 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     ]
   );
 
-  return <ZapMassContext.Provider value={zapMassContextValue}>{children}</ZapMassContext.Provider>;
+  return (
+    <ZapMassConnectionsSliceContext.Provider value={connectionsSlice}>
+      <ZapMassUiSnapshotContext.Provider value={zapMassUiSnapshot}>
+        <ZapMassConversationsContext.Provider value={zapMassConversationsSlice}>
+          <ZapMassCoreContext.Provider value={zapMassCoreValue}>{children}</ZapMassCoreContext.Provider>
+        </ZapMassConversationsContext.Provider>
+      </ZapMassUiSnapshotContext.Provider>
+    </ZapMassConnectionsSliceContext.Provider>
+  );
 };
 
-export const useZapMass = () => {
-  const context = useContext(ZapMassContext);
-  if (context === EMPTY_CONTEXT) {
-    console.warn('useZapMass usado fora do ZapMassProvider. Retornando contexto vazio.');
+/** Sidebar, TopBar, banners: ignoram atualizações de conversas/contactos — menos “travar” ao sync. */
+export function useZapMassUiSnapshot(): ZapMassUiSnapshot {
+  const v = useContext(ZapMassUiSnapshotContext);
+  if (v) return v;
+  return {
+    isBackendConnected: false,
+    systemMetrics: INITIAL_SYS_METRICS,
+    sessionLiveStats: null
+  };
+}
+
+/** Lista de conversas/inbox isolada — `useZapMassCore()` não dispara quando o socket sincroniza o pipeline. */
+export function useZapMassConversations(): Conversation[] {
+  return useContext(ZapMassConversationsContext).conversations;
+}
+
+/** Resto do ZapMass sem `conversations` — usar em abas que não leem inbox (Warmup, Conexões, etc.). */
+export function useZapMassCore(): ZapMassCoreContextValue {
+  const core = useContext(ZapMassCoreContext);
+  if (core === EMPTY_CORE) {
+    console.warn('useZapMassCore usado fora do ZapMassProvider. Retornando núcleo vazio.');
   }
-  return context;
+  return core;
+}
+
+/** Lista de chips (`connections`) sem subscrever o restante do ZapMass — para layout que só passa chips às Campanhas. */
+export function useZapMassConnectionsSlice(): WhatsAppConnection[] {
+  const v = useContext(ZapMassConnectionsSliceContext);
+  return v?.connections ?? EMPTY_CONTEXT.connections;
+}
+
+export const useZapMass = (): ZapMassContextWithSocket => {
+  const core = useContext(ZapMassCoreContext);
+  const { conversations } = useContext(ZapMassConversationsContext);
+  if (core === EMPTY_CORE) {
+    console.warn('useZapMass usado fora do ZapMassProvider. Retornando contexto vazio.');
+    return EMPTY_CONTEXT;
+  }
+  return useMemo(
+    () => ({ ...core, conversations }),
+    [core, conversations]
+  );
 };

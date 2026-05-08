@@ -18,7 +18,7 @@ import {
   TrendingUp,
   Trophy
 } from 'lucide-react';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { Badge, Button, Card, EmptyState, SectionHeader, Tabs } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import type { Campaign } from '../types';
@@ -64,7 +64,8 @@ function deltaBadge(current: number, previous: number) {
 }
 
 export const ReportsTab: React.FC = () => {
-  const { campaigns, connections, conversations, funnelStats } = useZapMass();
+  const conversations = useZapMassConversations();
+  const { campaigns, connections, funnelStats } = useZapMassCore();
   const [period, setPeriod] = useState<PeriodFilter>('30d');
 
   const { current, previous, rangeDays } = useMemo(() => {

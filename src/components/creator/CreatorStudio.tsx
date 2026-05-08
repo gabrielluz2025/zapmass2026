@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Code2, ExternalLink, RefreshCw, Shield, Wrench, AlertTriangle, Lock } from 'lucide-react';
 import { Button, Card } from '../ui';
 import { useMainLayoutNav } from '../../context/MainLayoutNavContext';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassCore } from '../../context/ZapMassContext';
 import { apiUrl } from '../../utils/apiBase';
 
 type HealthJson = { status?: string; serverTime?: string; version?: string } | null;
@@ -54,7 +54,7 @@ const severityStyles: Record<Severity, { chipBg: string; chipColor: string; bar:
 
 export const CreatorStudio: React.FC = () => {
   const goTo = useMainLayoutNav();
-  const { systemLogs } = useZapMass();
+  const { systemLogs } = useZapMassCore();
   const [health, setHealth] = useState<HealthJson>(null);
   const [version, setVersion] = useState<VersionJson>(null);
   const [loading, setLoading] = useState(false);

@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { WifiOff, Loader2 } from 'lucide-react';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 
 /**
  * Faixa abaixo da TopBar quando o socket cai por mais de 1.5s.
  * Não aparece em quedas instantâneas, para evitar piscar em renavegação.
  */
 export const ReconnectingBanner: React.FC = () => {
-  const { isBackendConnected } = useZapMass();
+  const { isBackendConnected } = useZapMassUiSnapshot();
   const [show, setShow] = useState(false);
   const [secondsOffline, setSecondsOffline] = useState(0);
 

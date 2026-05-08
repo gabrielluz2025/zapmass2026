@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, QrCode, Smartphone, Loader2, CheckCircle2, KeyRound, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore } from '../context/ZapMassContext';
 import { ConnectionStatus } from '../types';
 import { QRCodeModal } from './QRCodeModal';
 import { QrCanvas } from './QrCanvas';
@@ -36,7 +36,7 @@ const phaseLabels: Record<InitPhase, { title: string; sub: string }> = {
 };
 
 export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { socket, connections, isBackendConnected } = useZapMass();
+  const { socket, connections, isBackendConnected } = useZapMassCore();
   const [step, setStep] = useState<'naming' | 'loading_qr' | 'scanning' | 'success'>('naming');
   const [connectionName, setConnectionName] = useState('');
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);

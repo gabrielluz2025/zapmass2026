@@ -15,7 +15,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAppProfile } from '../../context/AppProfileContext';
 import { useAppView } from '../../context/AppViewContext';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassCore } from '../../context/ZapMassContext';
 import { usePastoralVisits } from '../../hooks/usePastoralVisits';
 import type { Contact } from '../../types';
 import type { PastoralVisit } from '../../types/pastoralVisit';
@@ -53,7 +53,7 @@ type ListFilter = 'all' | 'scheduled' | 'done' | 'communion' | 'stale_contacts';
 export const PastoralVisitsTab: React.FC = () => {
   const { segment, loading: profileLoading } = useAppProfile();
   const { setCurrentView } = useAppView();
-  const { contacts } = useZapMass();
+  const { contacts } = useZapMassCore();
   const { visits, loading, error, addVisit, updateVisit, deleteVisit } = usePastoralVisits();
 
   const [filter, setFilter] = useState<ListFilter>('scheduled');

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Activity, Cpu, Clock } from 'lucide-react';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassUiSnapshot } from '../context/ZapMassContext';
 
 /**
  * Indicador discreto da carga de sessão no servidor:
@@ -10,7 +10,7 @@ import { useZapMass } from '../context/ZapMassContext';
  * Não aparece quando ainda não chegou o primeiro evento.
  */
 export const SessionLoadIndicator: React.FC<{ compact?: boolean }> = ({ compact }) => {
-  const { sessionLiveStats } = useZapMass();
+  const { sessionLiveStats } = useZapMassUiSnapshot();
   if (!sessionLiveStats) return null;
   const { workersAlive, inFlight, waiting, maxConcurrent, busRemote } = sessionLiveStats;
 

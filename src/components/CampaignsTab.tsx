@@ -12,7 +12,7 @@ import {
 import toast from 'react-hot-toast';
 import { CampaignReplyFlow, CampaignScheduleSlot, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../types';
 import type { CampaignWizardDraft } from '../types/campaignMission';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
 import { isWhatsAppRiskAcknowledged, saveWhatsAppRiskAck } from '../utils/whatsappRiskStorage';
 import { appendAudit } from '../utils/campaignMissionStorage';
@@ -53,11 +53,11 @@ const loadDismissed = (): string[] => {
 
 export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const { user } = useAuth();
+  const conversations = useZapMassConversations();
   const {
     campaigns,
     contactLists,
     contacts,
-    conversations,
     socket,
     startCampaign,
     scheduleCampaign,
@@ -66,7 +66,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     deleteCampaign,
     deleteCampaigns,
     systemLogs
-  } = useZapMass();
+  } = useZapMassCore();
 
   const [subTab, setSubTab] = useState<SubTab>('overview');
   const [viewState, setViewState] = useState<'list' | 'create' | 'details'>('list');

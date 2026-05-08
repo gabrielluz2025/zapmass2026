@@ -21,7 +21,7 @@ import {
   Zap
 } from 'lucide-react';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme, ModeId, themes, ThemeId } from '../theme';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore } from '../context/ZapMassContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useAuth } from '../context/AuthContext';
 import { useMainLayoutNav } from '../context/MainLayoutNavContext';
@@ -122,7 +122,7 @@ function serializeServerSettings(s: SystemSettings): string {
 }
 
 export const SettingsTab: React.FC = () => {
-  const { socket, clearAllUserData } = useZapMass();
+  const { socket, clearAllUserData } = useZapMassCore();
   const { user, signOut } = useAuth();
   const goToView = useMainLayoutNav();
   const { subscription, loading: subLoading } = useSubscription();

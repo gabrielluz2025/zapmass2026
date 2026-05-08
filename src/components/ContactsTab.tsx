@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import { useAppProfile } from '../context/AppProfileContext';
 import { ReligiousMemberProfileModalFields } from './religious/ReligiousMemberProfileModalFields';
@@ -689,10 +689,10 @@ const emptyCampaignDraft = (): CampaignWizardDraft => {
 };
 
 export const ContactsTab: React.FC = () => {
+  const conversations = useZapMassConversations();
   const {
     contacts,
     contactLists,
-    conversations,
     addContact,
     bulkAddContacts,
     removeContact,
@@ -702,7 +702,7 @@ export const ContactsTab: React.FC = () => {
     appendContactIdsToContactList,
     deleteContactList,
     updateContactList,
-  } = useZapMass();
+  } = useZapMassCore();
   const { setCurrentView } = useAppView();
   const { segment } = useAppProfile();
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */

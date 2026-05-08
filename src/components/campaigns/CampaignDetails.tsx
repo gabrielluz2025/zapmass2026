@@ -36,7 +36,7 @@ import {
   SystemLog,
   WhatsAppConnection
 } from '../../types';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
@@ -294,7 +294,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   onBack,
   onTogglePause
 }) => {
-  const { conversations, contacts, contactLists } = useZapMass();
+  const conversations = useZapMassConversations();
+  const { contacts, contactLists } = useZapMassCore();
   const { user } = useAuth();
   const [persistedLogs, setPersistedLogs] = useState<SystemLog[]>([]);
 

@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -234,19 +234,19 @@ const QuickAction: React.FC<{
 );
 
 export const DashboardTab: React.FC = () => {
+  const conversations = useZapMassConversations();
   const {
     connections,
     sendMessage,
     campaigns,
     contacts,
-    conversations,
     socket,
     startCampaign,
     systemMetrics,
     funnelStats,
     clearFunnelStats,
     isBackendConnected
-  } = useZapMass();
+  } = useZapMassCore();
   const { setCurrentView } = useAppView();
   const { user } = useAuth();
   const { subscription } = useSubscription();

@@ -9,7 +9,7 @@ import type { Contact, ContactCampaignDelivery, ReligiousMemberProfile } from '.
 import { useAppProfile } from '../../../context/AppProfileContext';
 import { useWorkspace } from '../../../context/WorkspaceContext';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../../utils/weddingAnniversary';
-import { useZapMass } from '../../../context/ZapMassContext';
+import { useZapMassCore } from '../../../context/ZapMassContext';
 import toast from 'react-hot-toast';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { db } from '../../../services/firebase';
@@ -150,7 +150,7 @@ export const ContactDetailDrawer: React.FC<Props> = ({
 }) => {
   const { segment } = useAppProfile();
   const { effectiveWorkspaceUid } = useWorkspace();
-  const { updateContact } = useZapMass();
+  const { updateContact } = useZapMassCore();
   const [marketingBusy, setMarketingBusy] = useState(false);
   const [campaignDeliveries, setCampaignDeliveries] = useState<ContactCampaignDelivery[]>([]);
 

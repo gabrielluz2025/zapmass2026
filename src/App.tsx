@@ -13,7 +13,7 @@ import { ImprovementSuggestionButton } from './components/shell/ImprovementSugge
 import { NotificationBell } from './components/shell/NotificationBell';
 import { NotificationProvider } from './context/NotificationContext';
 import { firestoreTimeToMs } from './utils/firestoreTime';
-import { ZapMassProvider, useZapMass } from './context/ZapMassContext';
+import { ZapMassProvider, useZapMassConnectionsSlice } from './context/ZapMassContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppConfigProvider } from './context/AppConfigContext';
 import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext';
@@ -100,7 +100,7 @@ function formatAccessEndPtBR(v: unknown): string | null {
 }
 
 const MainLayout: React.FC = () => {
-  const { connections } = useZapMass();
+  const connections = useZapMassConnectionsSlice();
   const { user } = useAuth();
   const { readOnlyMode, readOnlyMessage, subscription, enforce, hasFullAccess } = useSubscription();
   const { currentView, setCurrentView } = useAppView();

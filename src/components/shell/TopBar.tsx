@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Menu, Activity, Zap, Wifi, WifiOff, LogOut, User as UserIcon } from 'lucide-react';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 
 interface TopBarProps {
@@ -39,7 +39,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   centerSlot,
   nearLatencySlot
 }) => {
-  const { isBackendConnected, systemMetrics } = useZapMass();
+  const { isBackendConnected, systemMetrics } = useZapMassUiSnapshot();
   const { user, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);

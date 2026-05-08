@@ -3,7 +3,7 @@ import {
   Flame, Play, Pause, ToggleLeft, ToggleRight, TrendingUp, MessageCircle, Clock, Zap, RefreshCw, AlertTriangle,
   BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2, AlertCircle
 } from 'lucide-react';
-import { useZapMass } from '../context/ZapMassContext';
+import { useZapMassCore } from '../context/ZapMassContext';
 import { ConnectionStatus, WarmupChipStats } from '../types';
 import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
 
@@ -159,7 +159,7 @@ export const WarmupTab: React.FC = () => {
   const {
     connections, socket, warmupActive, startWarmupTimer, stopWarmupTimer,
     warmupQueue, warmedCount, warmupChipStats, clearWarmupChipStats
-  } = useZapMass();
+  } = useZapMassCore();
   const [channels, setChannels] = useState<WarmupChannel[]>([]);
   /** Countdown apenas nesta aba — evita atualizar ZapMassProvider a cada segundo. */
   const [warmupCountdownUi, setWarmupCountdownUi] = useState(0);

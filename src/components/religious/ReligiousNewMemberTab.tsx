@@ -3,7 +3,7 @@ import { Church, Loader2, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppProfile } from '../../context/AppProfileContext';
 import { useAppView } from '../../context/AppViewContext';
-import { useZapMass } from '../../context/ZapMassContext';
+import { useZapMassCore } from '../../context/ZapMassContext';
 import type { Contact } from '../../types';
 import { BrDateInput, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import {
@@ -67,7 +67,7 @@ function CheckboxChip({
 export const ReligiousNewMemberTab: React.FC = () => {
   const { segment, loading: profileLoading } = useAppProfile();
   const { setCurrentView } = useAppView();
-  const { addContact, updateContact, contacts } = useZapMass();
+  const { addContact, updateContact, contacts } = useZapMassCore();
   const [f, setF] = useState<MemberFormState>(() => emptyForm());
   const [saving, setSaving] = useState(false);
 
