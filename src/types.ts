@@ -560,4 +560,6 @@ export interface ZapMassContextType {
   }>;
   /** Actualização optimista da reivindicação de inbox (claim/transfer) antes ou além do `conversations-update`. */
   patchConversationInboxClaim: (conversationId: string, inboxClaimedByAuthUid: string | undefined) => void;
+  /** Conexões com circuit-breaker aberto no servidor (envios temporariamente bloqueados). */
+  circuitBreakerOpenConnectionIds: string[];
 }

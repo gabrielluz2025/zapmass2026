@@ -61,6 +61,7 @@ import {
 } from '../utils/connectionLimitPolicy';
 import { Card, CardHeader, Button, Badge, Modal, Textarea, Select } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
+import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
   id: string;
@@ -269,7 +270,9 @@ export const DashboardTab: React.FC = () => {
     systemMetrics,
     funnelStats,
     clearFunnelStats,
-    isBackendConnected
+    isBackendConnected,
+    systemLogs,
+    circuitBreakerOpenConnectionIds
   } = useZapMassCore();
   const { setCurrentView } = useAppView();
   const { user } = useAuth();
@@ -1100,6 +1103,22 @@ export const DashboardTab: React.FC = () => {
           progress={replyRate}
         />
       </div>
+
+      <DashboardIntelPanel
+        campaigns={campaigns}
+        contacts={contacts}
+        connections={connections}
+        conversations={deferredConversations}
+        systemLogs={systemLogs}
+        funnelStatsTotalSent={funnelStats.totalSent}
+        funnelUpdatedAt={funnelStats.updatedAt || 0}
+        userUid={user?.uid}
+        circuitBreakerOpenIds={circuitBreakerOpenConnectionIds}
+        onOpenCampaigns={() => setCurrentView('campaigns')}
+        onOpenConnections={() => setCurrentView('connections')}
+        onOpenContacts={() => setCurrentView('contacts')}
+        onNavigateToChat={(phone, name) => openChatNavigate(setCurrentView, phone, name)}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
         <Card className="lg:col-span-2">

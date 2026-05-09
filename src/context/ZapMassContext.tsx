@@ -277,7 +277,8 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   warmupActive: false,
   startWarmupTimer: () => {},
   stopWarmupTimer: () => {},
-  patchConversationInboxClaim: () => {}
+  patchConversationInboxClaim: () => {},
+  circuitBreakerOpenConnectionIds: []
 };
 
 export type ZapMassCoreContextValue = Omit<ZapMassContextWithSocket, 'conversations'>;
@@ -340,6 +341,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [funnelStats, setFunnelStats] = useState<FunnelStats>(INITIAL_FUNNEL);
   const [campaignGeo, setCampaignGeo] = useState<CampaignGeoState>(INITIAL_CAMPAIGN_GEO);
   const [warmupChipStats, setWarmupChipStats] = useState<Record<string, WarmupChipStats>>({});
+  const [circuitBreakerOpenIds, setCircuitBreakerOpenIds] = useState<Set<string>>(new Set());
   const [sessionLiveStats, setSessionLiveStats] = useState<{
     workersAlive: number;
     inFlight: number;
@@ -621,6 +623,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const bindUser = (uid: string) => {
       stopAll();
+      setCircuitBreakerOpenIds(new Set());
       const b = fbMergeRef.current;
       const ignoreLegacy = !allowLegacyMerge() || (() => {
         try {
@@ -1547,6 +1550,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('system-log', (log: SystemLog) => {
       setSystemLogs(prev => [log, ...prev].slice(0, 200));
+    });
+
+    socket.on('circuit-breaker-open', (p: { connectionId?: string }) => {
+      const id = String(p?.connectionId || '');
+      if (!id) return;
+      setCircuitBreakerOpenIds((prev) => new Set(prev).add(id));
+    });
+
+    socket.on('circuit-breaker-closed', (p: { connectionId?: string }) => {
+      const id = String(p?.connectionId || '');
+      if (!id) return;
+      setCircuitBreakerOpenIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     });
 
     socket.on('campaign-paused', ({ campaignId }: { campaignId: string }) => {
@@ -2731,7 +2750,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       clearAllUserData: stableClearAllUserData,
       warmupActive,
       startWarmupTimer: stableStartWarmupTimer,
-      stopWarmupTimer: stableStopWarmupTimer
+      stopWarmupTimer: stableStopWarmupTimer,
+      circuitBreakerOpenConnectionIds: [...circuitBreakerOpenIds].sort()
     }),
     [
       connections,
@@ -2750,7 +2770,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       funnelStats,
       campaignGeo,
       warmupChipStats,
-      warmupActive
+      warmupActive,
+      circuitBreakerOpenIds
     ]
   );
 
