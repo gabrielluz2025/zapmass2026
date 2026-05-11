@@ -2072,14 +2072,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     setFunnelStats(INITIAL_FUNNEL);
     setCampaignGeo(INITIAL_CAMPAIGN_GEO);
     setWarmupChipStats({});
-    setWarmupActive(false);
+    stopWarmupTimer();
 
     // Limpa preferências locais ligadas ao workspace atual do usuário.
     const storageKeys = [
       'zapmass_settings',
       'zapmass.contactsFilter',
       'zapmass.pendingCampaignDraft',
-      'zapmass.openChatByPhone'
+      'zapmass.openChatByPhone',
+      'zapmass.warmup.state'
     ];
     for (const key of storageKeys) {
       try {

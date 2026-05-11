@@ -4,6 +4,7 @@ import {
   BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { useZapMassCore } from '../context/ZapMassContext';
+import { auth } from '../services/firebase';
 import { ConnectionStatus, WarmupChipStats } from '../types';
 import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
 
@@ -155,6 +156,8 @@ const Sparkline: React.FC<{ values: number[]; color?: string; width?: number; he
   );
 };
 
+const WARMUP_STATE_KEY = 'zapmass.warmup.state';
+
 export const WarmupTab: React.FC = () => {
   const {
     connections, socket, warmupActive, startWarmupTimer, stopWarmupTimer,
@@ -169,6 +172,7 @@ export const WarmupTab: React.FC = () => {
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
   const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
   const channelsRef = useRef<WarmupChannel[]>([]);
+  const runWarmupRoundRef = useRef<() => Promise<void>>(async () => {});
 
   // Keep ref in sync so context timer callback can access latest channels
   useEffect(() => { channelsRef.current = channels; }, [channels]);
@@ -208,12 +212,16 @@ export const WarmupTab: React.FC = () => {
     });
   }, [connections]);
 
-  // Carregar estado salvo
+  // Carregar estado salvo (canais + intervalo + flag de timer para retomar após fechar aba)
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('zapmass.warmup.state');
+      const saved = localStorage.getItem(WARMUP_STATE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        const uid = auth.currentUser?.uid || '';
+        if (parsed.savedForUid && uid && parsed.savedForUid !== uid) {
+          return;
+        }
         if (parsed.channels) {
           setChannels(prev => prev.map(ch => {
             const savedCh = parsed.channels.find((s: WarmupChannel) => s.connectionId === ch.connectionId);
@@ -229,19 +237,25 @@ export const WarmupTab: React.FC = () => {
   // Salvar estado
   useEffect(() => {
     try {
-      localStorage.setItem('zapmass.warmup.state', JSON.stringify({
-        channels: channels.map(ch => ({
-          connectionId: ch.connectionId,
-          enabled: ch.enabled,
-          score: ch.score,
-          messagesSent: ch.messagesSent,
-          messagesReceived: ch.messagesReceived,
-        })),
-        totalMessagesSent,
-        intervalMinutes
-      }));
+      const uid = auth.currentUser?.uid || '';
+      localStorage.setItem(
+        WARMUP_STATE_KEY,
+        JSON.stringify({
+          savedForUid: uid || undefined,
+          warmupTimerActive: warmupActive,
+          channels: channels.map((ch) => ({
+            connectionId: ch.connectionId,
+            enabled: ch.enabled,
+            score: ch.score,
+            messagesSent: ch.messagesSent,
+            messagesReceived: ch.messagesReceived
+          })),
+          totalMessagesSent,
+          intervalMinutes
+        })
+      );
     } catch {}
-  }, [channels, totalMessagesSent, intervalMinutes]);
+  }, [channels, totalMessagesSent, intervalMinutes, warmupActive]);
 
   const toggleChannel = (connectionId: string) => {
     setChannels(prev => prev.map(ch =>
@@ -250,7 +264,7 @@ export const WarmupTab: React.FC = () => {
   };
 
   const getEnabledPairs = (): [WarmupChannel, WarmupChannel][] => {
-    const enabled = channels.filter(ch => ch.enabled);
+    const enabled = channelsRef.current.filter((ch) => ch.enabled);
     const pairs: [WarmupChannel, WarmupChannel][] = [];
     for (let i = 0; i < enabled.length; i++) {
       for (let j = i + 1; j < enabled.length; j++) {
@@ -302,11 +316,43 @@ export const WarmupTab: React.FC = () => {
     setLastRoundTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
   };
 
+  runWarmupRoundRef.current = runWarmupRound;
+
+  /** Retoma o intervalo de aquecimento se estava ativo antes de fechar/recarregar a aba. */
+  useEffect(() => {
+    if (!socket?.connected || warmupActive) return;
+    const uid = auth.currentUser?.uid || '';
+    let wantResume = false;
+    try {
+      const raw = localStorage.getItem(WARMUP_STATE_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p.savedForUid && uid && p.savedForUid !== uid) return;
+        wantResume = p.warmupTimerActive === true;
+      }
+    } catch {
+      return;
+    }
+    if (!wantResume) return;
+    const enabled = channelsRef.current.filter((c) => c.enabled);
+    if (enabled.length < 2) return;
+    let pairCount = 0;
+    for (let i = 0; i < enabled.length; i++) {
+      for (let j = i + 1; j < enabled.length; j++) pairCount++;
+    }
+    if (pairCount === 0) return;
+    startWarmupTimer(intervalMinutes, () => {
+      void runWarmupRoundRef.current();
+    });
+  }, [socket?.connected, warmupActive, intervalMinutes, channels, startWarmupTimer]);
+
   const startGlobalWarmup = () => {
     const pairs = getEnabledPairs();
     if (pairs.length === 0) return;
-    // Use context timer so it persists across tab switches
-    startWarmupTimer(intervalMinutes, runWarmupRound);
+    // Ref no callback: o intervalo do contexto mantém uma referência estável; o corpo lê canais/socket atuais.
+    startWarmupTimer(intervalMinutes, () => {
+      void runWarmupRoundRef.current();
+    });
   };
 
   const stopGlobalWarmup = () => {
@@ -370,7 +416,9 @@ export const WarmupTab: React.FC = () => {
         <div>
           <strong style={{ color: 'var(--text-1)' }}>Precisa do 2º canal em diante.</strong>{' '}
           O aquecimento só faz efeito quando há <strong>pelo menos dois números</strong> ligados — as conversas cruzadas
-          acontecem <em>entre</em> canais. Com um único canal o botão &quot;Iniciar aquecimento&quot; fica bloqueado.
+          acontecem <em>entre</em> canais. Com um único canal o botão &quot;Iniciar aquecimento&quot; fica bloqueado.{' '}
+          Depois de iniciar, ele continua <strong>neste navegador</strong> mesmo se fechar ou recarregar a aba, até
+          clicar em <strong>Parar aquecimento</strong>.
         </div>
       </div>
 
