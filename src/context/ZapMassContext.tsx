@@ -376,11 +376,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     success: 0,
     failed: 0
   });
-  
+
+  /** Evita reexecutar o efeito do Firebase Auth + `stopAll` a cada troca de aba ou campanha — isso derrubava todos os `onSnapshot` e travava a UI com muitos contatos. */
+  const currentViewForFirestoreRef = useRef(currentView);
+  currentViewForFirestoreRef.current = currentView;
+  const campaignRunningForFirestoreRef = useRef(campaignStatus.isRunning);
+  campaignRunningForFirestoreRef.current = campaignStatus.isRunning;
+
   const socketRef = useRef<Socket | null>(null);
   /** Último payload completo de `conversations-update` pendente até o próximo paint (vários emits no mesmo frame = só o último). */
   const conversationsSocketPendingRef = useRef<Conversation[] | null>(null);
   const conversationsSocketRafRef = useRef<number | null>(null);
+  /** Vários `campaign-progress` no mesmo intervalo: um `setCampaigns` por frame (evita travar a aba Campanhas). */
+  const campaignProgressSocketPendingRef = useRef<
+    Record<string, { processedCount: number; successCount: number; failedCount: number }>
+  >({});
+  const campaignProgressBarPendingRef = useRef<{
+    total: number;
+    processed: number;
+    successCount: number;
+    failCount: number;
+  } | null>(null);
+  const campaignProgressSocketRafRef = useRef<number | null>(null);
+  /** Último flush definido no `useEffect` do socket (desmontagem aplica pendentes sem duplicar lógica). */
+  const flushCampaignProgressSocketFromRefsRef = useRef<() => void>(() => {});
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -615,13 +634,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     /**
      * Sempre com sessão ativa: Pipeline, campanhas e relatórios cruzam `users/{uid}/contacts`.
      * Subscrever só em algumas abas deixava `contacts[]` vazio na vista `chat` → nomes nunca batiam.
+     * `needLists` / `needCampaigns` devem ser lidos **dentro** de `bindUser`: o segundo `useEffect`
+     * chama `bindUserRef` sem rerodar este efeito — refs garantem vista/campanha atuais a cada chamada.
      */
-    const needContacts = true;
-    const needLists = ['contacts', 'campaigns'].includes(currentView);
-    const needCampaigns =
-      ['dashboard', 'campaigns', 'reports'].includes(currentView) || campaignStatus.isRunning;
-
     const bindUser = (uid: string) => {
+      const view = currentViewForFirestoreRef.current;
+      const needContacts = true;
+      const needLists = ['contacts', 'campaigns'].includes(view);
+      const needCampaigns =
+        ['dashboard', 'campaigns', 'reports'].includes(view) ||
+        campaignRunningForFirestoreRef.current;
+
       stopAll();
       setCircuitBreakerOpenIds(new Set());
       const b = fbMergeRef.current;
@@ -811,13 +834,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       unsubAuth();
       stopAll();
     };
-  }, [
-    currentView,
-    campaignStatus.isRunning,
-    syncStuckCampaignsToFirestore,
-    effectiveWorkspaceUid,
-    workspaceLoading
-  ]);
+  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading]);
 
   useEffect(() => {
     const u = auth.currentUser;
@@ -1226,38 +1243,83 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     );
 
-    socket.on('campaign-progress', (data) => {
-      setCampaignStatus({
-        isRunning: true,
-        total: data.total,
-        processed: data.processed,
-        success: data.successCount,
-        failed: data.failCount
-      });
-      // Atualizar campaigns localmente para dados em tempo real na UI
-      if (data.campaignId) {
+    const flushCampaignProgressSocketFromRefs = () => {
+      const pendingMap = campaignProgressSocketPendingRef.current;
+      campaignProgressSocketPendingRef.current = {};
+      const bar = campaignProgressBarPendingRef.current;
+      campaignProgressBarPendingRef.current = null;
+
+      const ids = Object.keys(pendingMap);
+      if (ids.length > 0) {
         setCampaigns((prev) => {
-          const next = prev.map((c) =>
-            c.id === data.campaignId
-              ? {
-                  ...c,
-                  processedCount: data.processed,
-                  successCount: data.successCount,
-                  failedCount: data.failCount,
-                  status: CampaignStatus.RUNNING
-                }
-              : c
-          );
+          const merged = prev.map((c) => {
+            const d = pendingMap[c.id];
+            if (!d) return c;
+            return {
+              ...c,
+              processedCount: d.processedCount,
+              successCount: d.successCount,
+              failedCount: d.failedCount,
+              status: CampaignStatus.RUNNING
+            };
+          });
           const u = currentUidRef.current;
-          if (u) syncStuckCampaignsToFirestore(next, u);
-          return healStuckRunningCampaignsList(next);
+          if (u) syncStuckCampaignsToFirestore(merged, u);
+          return healStuckRunningCampaignsList(merged);
         });
-        queueCampaignProgressPersist(data.campaignId, {
-          processedCount: data.processed,
-          successCount: data.successCount,
-          failedCount: data.failCount
+        for (const campaignId of ids) {
+          const payload = pendingMap[campaignId];
+          queueCampaignProgressPersist(campaignId, {
+            processedCount: payload.processedCount,
+            successCount: payload.successCount,
+            failedCount: payload.failedCount
+          });
+        }
+      }
+
+      if (bar) {
+        setCampaignStatus({
+          isRunning: true,
+          total: bar.total,
+          processed: bar.processed,
+          success: bar.successCount,
+          failed: bar.failCount
         });
       }
+    };
+
+    const scheduleCampaignProgressSocketFlush = () => {
+      if (campaignProgressSocketRafRef.current != null) return;
+      campaignProgressSocketRafRef.current = requestAnimationFrame(() => {
+        campaignProgressSocketRafRef.current = null;
+        flushCampaignProgressSocketFromRefs();
+        if (
+          Object.keys(campaignProgressSocketPendingRef.current).length > 0 ||
+          campaignProgressBarPendingRef.current != null
+        ) {
+          scheduleCampaignProgressSocketFlush();
+        }
+      });
+    };
+
+    flushCampaignProgressSocketFromRefsRef.current = flushCampaignProgressSocketFromRefs;
+
+    socket.on('campaign-progress', (data) => {
+      campaignProgressBarPendingRef.current = {
+        total: Number(data?.total) || 0,
+        processed: Number(data?.processed) || 0,
+        successCount: Number(data?.successCount) || 0,
+        failCount: Number(data?.failCount) || 0
+      };
+      const cid = typeof data?.campaignId === 'string' ? data.campaignId : '';
+      if (cid) {
+        campaignProgressSocketPendingRef.current[cid] = {
+          processedCount: Number(data?.processed) || 0,
+          successCount: Number(data?.successCount) || 0,
+          failedCount: Number(data?.failCount) || 0
+        };
+      }
+      scheduleCampaignProgressSocketFlush();
     });
 
     socket.on(
@@ -1636,6 +1698,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         conversationsSocketRafRef.current = null;
       }
       conversationsSocketPendingRef.current = null;
+      if (campaignProgressSocketRafRef.current != null) {
+        cancelAnimationFrame(campaignProgressSocketRafRef.current);
+        campaignProgressSocketRafRef.current = null;
+      }
+      if (
+        Object.keys(campaignProgressSocketPendingRef.current).length > 0 ||
+        campaignProgressBarPendingRef.current != null
+      ) {
+        flushCampaignProgressSocketFromRefsRef.current();
+      }
       Object.values(campaignProgressPersistRef.current).forEach((entry) => {
         if (entry.timer) clearTimeout(entry.timer);
       });
