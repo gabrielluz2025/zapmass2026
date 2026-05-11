@@ -3558,20 +3558,59 @@ export const ContactsTab: React.FC = () => {
       {/* ========================================================
            NOVO LAYOUT: WORKSPACE (sidebar + tabela virtualizada)
          ======================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
-        <ContactsSidebar
-          active={activeFilter}
-          onChange={(id) => { setActiveFilter(id); setSelectedIds([]); }}
-          counts={sidebarCounts}
-          lists={contactLists}
-          onCreateList={(name) => void handleCreateListQuick(name)}
-          onManageList={handleManageList}
-          onDeleteList={(id, name) => void handleDeleteList(id, name)}
-          query={searchTerm}
-          onQueryChange={setSearchTerm}
-          hideWeddingFilters={segment !== 'religious'}
-        />
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+        <div className="lg:sticky lg:top-4 lg:self-start">
+          <ContactsSidebar
+            active={activeFilter}
+            onChange={(id) => {
+              setActiveFilter(id);
+              setSelectedIds([]);
+            }}
+            counts={sidebarCounts}
+            lists={contactLists}
+            onCreateList={(name) => void handleCreateListQuick(name)}
+            onManageList={handleManageList}
+            onDeleteList={(id, name) => void handleDeleteList(id, name)}
+            query={searchTerm}
+            onQueryChange={setSearchTerm}
+            hideWeddingFilters={segment !== 'religious'}
+          />
+        </div>
+
         <div className="flex flex-col gap-3 min-w-0">
+          <div className="ui-card px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                  {activeFilter.startsWith('list:') ? 'Lista' : 'Contatos'}
+                </span>
+                <span className="text-xs font-semibold text-slate-500">
+                  {listFilteredContacts.length.toLocaleString('pt-BR')} no filtro
+                </span>
+                {searchTerm.trim() && (
+                  <span className="text-xs text-slate-500 truncate">
+                    · buscando por <b>{searchTerm.trim()}</b>
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                Use a lateral para navegar por temperatura, retornos e listas. A tabela é virtualizada para manter o scroll leve.
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {(contactsHasMore || contactsLoadingMore) && (
+                <button
+                  type="button"
+                  onClick={() => void loadMoreContacts?.()}
+                  disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
+                  className="ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Carrega mais contatos da base (paginação)"
+                >
+                  {contactsLoadingMore ? 'Carregando…' : contactsHasMore ? 'Carregar mais' : 'Tudo carregado'}
+                </button>
+              )}
+            </div>
+          </div>
           {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
               <span className="text-[12px] text-amber-900 dark:text-amber-200 font-medium">
@@ -3634,19 +3673,6 @@ export const ContactsTab: React.FC = () => {
                       : 'Ajuste o filtro na lateral ou tente outra busca.'
             }
           />
-          {(contactsHasMore || contactsLoadingMore) && (
-            <div className="mt-3 flex items-center justify-center">
-              <button
-                type="button"
-                onClick={() => void loadMoreContacts?.()}
-                disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
-                className="ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Carrega mais contatos da base (paginação)"
-              >
-                {contactsLoadingMore ? 'Carregando…' : contactsHasMore ? 'Carregar mais contatos' : 'Tudo carregado'}
-              </button>
-            </div>
-          )}
           </div>
       </div>
       <ContactsBulkBar
