@@ -95,7 +95,7 @@ export const ClientAttendanceFeedbackSection: React.FC = () => {
     a.download = `avaliacoes_clientes_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     URL.revokeObjectURL(url);
     toast.success('CSV exportado.');
   };

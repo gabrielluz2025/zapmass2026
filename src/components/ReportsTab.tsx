@@ -253,7 +253,7 @@ export const ReportsTab: React.FC = () => {
     a.download = `relatorio_zapmass_${period}.csv`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     URL.revokeObjectURL(url);
   };
 

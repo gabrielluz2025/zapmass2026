@@ -67,6 +67,6 @@ export function downloadPastoralVisitIcs(v: PastoralVisit): void {
   a.rel = 'noopener';
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
   URL.revokeObjectURL(url);
 }

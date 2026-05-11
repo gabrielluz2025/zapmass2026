@@ -29,7 +29,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
     link.download = `qrcode-${connectionName.replace(/\s+/g, '-').toLowerCase()}.png`;
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    link.remove();
   };
 
   const handleCopyCode = async () => {

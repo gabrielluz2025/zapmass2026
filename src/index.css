@@ -8,6 +8,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Montagem: #root > #app-mount + #portal-root (ver index.html). Mantém altura em tela cheia. */
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+#app-mount {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* ─── Design Tokens ────────────────────────── */
 :root {
   /* Brand scale (overridden by theme.ts) */

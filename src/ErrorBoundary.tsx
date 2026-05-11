@@ -27,7 +27,7 @@ export class ErrorBoundary extends Component<Props, State> {
         className="min-h-screen p-6 font-sans"
         style={{ background: '#0a0a0a', color: '#e5e5e5' }}
       >
-        <h1 className="text-lg font-semibold text-white mb-2">Erro ao carregar a aplicação</h1>
+        <h1 className="text-lg font-semibold text-white mb-2">Erro ao carregar o aplicativo</h1>
         <p className="text-sm text-neutral-300 mb-4" style={{ maxWidth: 560 }}>
           {message}
         </p>

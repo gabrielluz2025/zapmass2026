@@ -5,9 +5,9 @@ import App from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import './index.css';
 
-const rootElement = document.getElementById('root');
+const rootElement = document.getElementById('app-mount') ?? document.getElementById('root');
 if (!rootElement) {
-  throw new Error("Could not find root element to mount to");
+  throw new Error('Não foi encontrado #app-mount nem #root para montar a aplicação.');
 }
 
 const root = ReactDOM.createRoot(rootElement);

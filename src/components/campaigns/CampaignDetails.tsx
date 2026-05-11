@@ -806,7 +806,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     link.download = `relatorio-${campaign.name.replace(/\W+/g, '-')}-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    link.remove();
     URL.revokeObjectURL(url);
     toast.success(`Ficheiro gerado (${filteredReport.length} linhas) — UTF-8 para Excel.`);
   };
@@ -881,7 +881,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     link.download = `relatorio-${campaign.name.replace(/\W+/g, '-')}-${campaign.id.slice(0, 8)}.json`;
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    link.remove();
     URL.revokeObjectURL(url);
     toast.success(`JSON com ${filteredReport.length} linhas.`);
   };

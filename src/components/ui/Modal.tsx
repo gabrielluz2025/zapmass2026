@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { getModalPortalContainer } from '../../utils/domPortal';
 
 interface ModalProps {
   isOpen: boolean;
@@ -83,6 +84,6 @@ export const Modal: React.FC<ModalProps> = ({
         )}
       </div>
     </div>,
-    document.body
+    getModalPortalContainer()
   );
 };
