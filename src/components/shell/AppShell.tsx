@@ -119,7 +119,6 @@ export const AppShell: React.FC<AppShellProps> = ({
         <div className="p-3 sm:p-5 lg:p-6 relative">
           <div
             className={`max-w-[1500px] mx-auto page-enter ${readOnlyBlockMain ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
-            key={currentView}
             aria-disabled={readOnlyBlockMain}
           >
             {children}

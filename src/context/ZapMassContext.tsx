@@ -50,7 +50,6 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
-import { useAppView } from './AppViewContext';
 import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
 import { getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
@@ -323,7 +322,6 @@ function useStableCallback<T extends (...args: any[]) => any>(fn: T): T {
 }
 
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { currentView } = useAppView();
   const { effectiveWorkspaceUid, loading: workspaceLoading } = useWorkspace();
   const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>(INITIAL_METRICS);
@@ -376,12 +374,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     success: 0,
     failed: 0
   });
-
-  /** Evita reexecutar o efeito do Firebase Auth + `stopAll` a cada troca de aba ou campanha — isso derrubava todos os `onSnapshot` e travava a UI com muitos contatos. */
-  const currentViewForFirestoreRef = useRef(currentView);
-  currentViewForFirestoreRef.current = currentView;
-  const campaignRunningForFirestoreRef = useRef(campaignStatus.isRunning);
-  campaignRunningForFirestoreRef.current = campaignStatus.isRunning;
 
   const socketRef = useRef<Socket | null>(null);
   /** Último payload completo de `conversations-update` pendente até o próximo paint (vários emits no mesmo frame = só o último). */
@@ -632,18 +624,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
 
     /**
-     * Sempre com sessão ativa: Pipeline, campanhas e relatórios cruzam `users/{uid}/contacts`.
-     * Subscrever só em algumas abas deixava `contacts[]` vazio na vista `chat` → nomes nunca batiam.
-     * `needLists` / `needCampaigns` devem ser lidos **dentro** de `bindUser`: o segundo `useEffect`
-     * chama `bindUserRef` sem rerodar este efeito — refs garantem vista/campanha atuais a cada chamada.
+     * Com sessão ativa mantemos contactos, listas e campanhas sincronizados com Firestore.
+     * Não dependemos da aba visível: re-subscrever só em algumas vistas + `stopAll` a cada troca
+     * de aba derrubava os listeners de `contacts` e voltava a descarregar milhares de docs → UI travava.
      */
     const bindUser = (uid: string) => {
-      const view = currentViewForFirestoreRef.current;
       const needContacts = true;
-      const needLists = ['contacts', 'campaigns'].includes(view);
-      const needCampaigns =
-        ['dashboard', 'campaigns', 'reports'].includes(view) ||
-        campaignRunningForFirestoreRef.current;
+      const needLists = true;
+      const needCampaigns = true;
 
       stopAll();
       setCircuitBreakerOpenIds(new Set());
@@ -849,7 +837,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
     currentUidRef.current = dataUid;
     bindUserRef.current(dataUid);
-  }, [effectiveWorkspaceUid, workspaceLoading, currentView, campaignStatus.isRunning]);
+  }, [effectiveWorkspaceUid, workspaceLoading]);
 
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
