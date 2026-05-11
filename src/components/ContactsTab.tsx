@@ -1861,6 +1861,39 @@ export const ContactsTab: React.FC = () => {
     return v;
   }, [fileImportRowsView, fileImportFilter]);
 
+  const canSelectFileImportRow = useCallback(
+    (r: FileImportRowView) => r.problems.length === 0 && !r.duplicateRepeatedInFile,
+    []
+  );
+
+  const fileImportEligibleInFilter = useMemo(() => {
+    if (filteredFileImportRows.length === 0) return { ids: [] as string[], total: 0 };
+    const ids: string[] = [];
+    for (const r of filteredFileImportRows) {
+      if (!canSelectFileImportRow(r)) continue;
+      ids.push(r.id);
+    }
+    return { ids, total: ids.length };
+  }, [filteredFileImportRows, canSelectFileImportRow]);
+
+  const fileImportAllEligibleSelected = useMemo(() => {
+    if (fileImportEligibleInFilter.total === 0) return false;
+    for (const r of filteredFileImportRows) {
+      if (!canSelectFileImportRow(r)) continue;
+      if (!r.include) return false;
+    }
+    return true;
+  }, [filteredFileImportRows, canSelectFileImportRow, fileImportEligibleInFilter.total]);
+
+  const toggleFileImportSelectAllEligible = useCallback(() => {
+    const ids = fileImportEligibleInFilter.ids;
+    if (ids.length === 0) return;
+    const set = new Set(ids);
+    setFileImportRows((prev) =>
+      prev.map((row) => (set.has(row.id) ? { ...row, include: !fileImportAllEligibleSelected } : row))
+    );
+  }, [fileImportEligibleInFilter.ids, fileImportAllEligibleSelected]);
+
   const fileImportRowVirtualizer = useVirtualizer({
     count: filteredFileImportRows.length,
     getScrollElement: () => fileImportTableScrollRef.current,
@@ -2304,10 +2337,31 @@ export const ContactsTab: React.FC = () => {
     if (contactIds.length === 0 || mode === 'none') return { attached: 0 };
     if (mode === 'existing') {
       const target = contactLists.find((l) => l.id === selectedListId);
-      await appendContactIdsToContactList(selectedListId, contactIds, {
-        notesLine: `Atualizada por ${originLabel} em ${new Date().toLocaleString()}`,
-      });
-      return { attached: contactIds.length, listName: target?.name || 'Lista' };
+      try {
+        await appendContactIdsToContactList(selectedListId, contactIds, {
+          notesLine: `Atualizada por ${originLabel} em ${new Date().toLocaleString()}`,
+        });
+        return { attached: contactIds.length, listName: target?.name || 'Lista' };
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        // Se a lista escolhida for "legada" (raiz) ela pode existir no UI mas não em `users/{uid}/contact_lists`.
+        // Neste caso criamos uma cópia no escopo do usuário e vinculamos nela (evita "importou mas não foi pra lista").
+        if (msg.toLowerCase().includes('lista não encontrada')) {
+          const legacyName = (target?.name || '').trim() || 'Lista';
+          const createdId = await createContactList(
+            legacyName,
+            [],
+            `Lista migrada automaticamente durante ${originLabel} em ${new Date().toLocaleString()}`
+          );
+          await appendContactIdsToContactList(createdId, contactIds, {
+            notesLine: `Atualizada por ${originLabel} em ${new Date().toLocaleString()}`,
+          });
+          setFileImportTargetListId(createdId);
+          toast.success(`Lista "${legacyName}" foi migrada e atualizada.`);
+          return { attached: contactIds.length, listName: legacyName };
+        }
+        throw e;
+      }
     }
     const listName = newListName.trim();
     if (!listName) throw new Error('Informe o nome da nova lista.');
@@ -4240,25 +4294,47 @@ export const ContactsTab: React.FC = () => {
             </div>
 
             <div className="shrink-0 px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 flex flex-col gap-2">
-              <div className="flex flex-wrap gap-1.5 items-center">
-                <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">Mostrar</span>
-                {([
-                  ['all', 'Todas', fileImportUiCounts.total],
-                  ['problem', 'Com problema', fileImportUiCounts.prob],
-                  ['duplicate', 'Duplicados', fileImportUiCounts.dup],
-                  ['ready', 'Prontos', fileImportUiCounts.ready],
-                ] as const).map(([key, label, count]) => (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">Mostrar</span>
+                  {([
+                    ['all', 'Todas', fileImportUiCounts.total],
+                    ['problem', 'Com problema', fileImportUiCounts.prob],
+                    ['duplicate', 'Duplicados', fileImportUiCounts.dup],
+                    ['ready', 'Prontos', fileImportUiCounts.ready],
+                  ] as const).map(([key, label, count]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFileImportFilter(key as FileImportPreviewFilter)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+                        fileImportFilter === key
+                          ? 'brand-soft brand-text brand-border'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      {label} <span className="opacity-60 tabular-nums">{count}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex-1" />
+
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <span className="text-[11px] text-slate-500">
+                    Selecionados: <span className="font-bold tabular-nums">{fileImportUiCounts.includedReady}</span>
+                  </span>
                   <button
-                    key={key}
                     type="button"
-                    onClick={() => setFileImportFilter(key as FileImportPreviewFilter)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
-                      fileImportFilter === key ? 'brand-soft brand-text brand-border' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                    }`}
+                    disabled={autoFixProgress !== null || fileImportEligibleInFilter.total === 0}
+                    onClick={toggleFileImportSelectAllEligible}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-bold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/25"
+                    title="Seleciona/desmarca todas as linhas válidas deste filtro (inclui 'Na base' quando permitido)"
                   >
-                    {label} <span className="opacity-60 tabular-nums">{count}</span>
+                    {fileImportAllEligibleSelected ? 'Desmarcar todos' : 'Selecionar todos'}
+                    <span className="opacity-60 tabular-nums"> ({fileImportEligibleInFilter.total})</span>
                   </button>
-                ))}
+                </div>
               </div>
               {fileImportTriageSummary.total > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-2.5 bg-white/80 dark:bg-slate-900/40">
