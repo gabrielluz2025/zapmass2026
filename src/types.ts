@@ -420,6 +420,10 @@ export interface ZapMassContextType {
   contactsHasMore?: boolean;
   contactsLoadingMore?: boolean;
   loadMoreContacts?: () => Promise<void>;
+  /** Total de documentos em `users/{uid}/contacts` (agregado Firestore), independente do que está em memória. */
+  contactsSavedTotal?: number | null;
+  contactsSavedTotalLoading?: boolean;
+  refreshContactsSavedTotal?: () => Promise<void>;
   contactLists: ContactList[]; // Nova propriedade
   campaigns: Campaign[];
   metrics: DashboardMetrics;

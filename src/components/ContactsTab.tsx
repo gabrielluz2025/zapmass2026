@@ -1,6 +1,6 @@
 import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2 } from 'lucide-react';
+import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2, RotateCw, Database } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Contact, ContactList } from '../types';
 import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
@@ -737,6 +737,9 @@ export const ContactsTab: React.FC = () => {
     contactsHasMore,
     contactsLoadingMore,
     loadMoreContacts,
+    contactsSavedTotal,
+    contactsSavedTotalLoading,
+    refreshContactsSavedTotal,
     contactLists,
     addContact,
     bulkAddContacts,
@@ -3578,37 +3581,85 @@ export const ContactsTab: React.FC = () => {
         </div>
 
         <div className="flex flex-col gap-3 min-w-0">
-          <div className="ui-card px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  {activeFilter.startsWith('list:') ? 'Lista' : 'Contatos'}
-                </span>
-                <span className="text-xs font-semibold text-slate-500">
-                  {listFilteredContacts.length.toLocaleString('pt-BR')} no filtro
-                </span>
-                {searchTerm.trim() && (
-                  <span className="text-xs text-slate-500 truncate">
-                    · buscando por <b>{searchTerm.trim()}</b>
-                  </span>
-                )}
+          <div className="rounded-2xl border border-emerald-200/70 dark:border-emerald-900/45 bg-gradient-to-br from-emerald-50/95 via-white to-slate-50 dark:from-emerald-950/35 dark:via-slate-900 dark:to-slate-950 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 flex flex-col gap-3">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
+                      {activeFilter.startsWith('list:') ? 'Lista selecionada' : 'Base de contatos'}
+                    </span>
+                    {searchTerm.trim() && (
+                      <span className="text-xs text-slate-500 truncate max-w-[min(100%,280px)]">
+                        · busca: <b className="text-slate-700 dark:text-slate-200">{searchTerm.trim()}</b>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug max-w-2xl">
+                    Números à esquerda refletem a base no Firestore e o que já foi carregado na sessão; à direita, o que o filtro atual mostra na tabela virtualizada.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void refreshContactsSavedTotal?.()}
+                    disabled={contactsSavedTotalLoading || !refreshContactsSavedTotal}
+                    className="ui-btn ui-btn-secondary inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Atualizar contagem total na base (Firestore)"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${contactsSavedTotalLoading ? 'motion-safe:animate-spin' : ''}`} />
+                    Atualizar totais
+                  </button>
+                  {(contactsHasMore || contactsLoadingMore) && (
+                    <button
+                      type="button"
+                      onClick={() => void loadMoreContacts?.()}
+                      disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
+                      className="ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Carrega mais contatos da base (paginação)"
+                    >
+                      {contactsLoadingMore ? 'Carregando…' : contactsHasMore ? 'Carregar mais' : 'Tudo carregado'}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                Use a lateral para navegar por temperatura, retornos e listas. A tabela é virtualizada para manter o scroll leve.
-              </div>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              {(contactsHasMore || contactsLoadingMore) && (
-                <button
-                  type="button"
-                  onClick={() => void loadMoreContacts?.()}
-                  disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
-                  className="ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Carrega mais contatos da base (paginação)"
+              <div className="flex flex-wrap gap-2">
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200/80 dark:border-emerald-800/60 bg-white/80 dark:bg-slate-900/70 px-3 py-1.5 text-[11px] font-semibold text-emerald-900 dark:text-emerald-100 shadow-sm"
+                  title="Documentos em users/seu-id/contacts no Firestore"
                 >
-                  {contactsLoadingMore ? 'Carregando…' : contactsHasMore ? 'Carregar mais' : 'Tudo carregado'}
-                </button>
-              )}
+                  <Database className="w-3.5 h-3.5 opacity-80" />
+                  Na base
+                  <span className="tabular-nums text-xs">
+                    {contactsSavedTotalLoading
+                      ? '…'
+                      : contactsSavedTotal != null
+                        ? contactsSavedTotal.toLocaleString('pt-BR')
+                        : '—'}
+                  </span>
+                </span>
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+                  title="Contatos já carregados nesta sessão (paginação)"
+                >
+                  Carregados
+                  <span className="tabular-nums text-xs">{contacts.length.toLocaleString('pt-BR')}</span>
+                </span>
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/80 dark:bg-sky-950/30 px-3 py-1.5 text-[11px] font-semibold text-sky-900 dark:text-sky-100"
+                  title="Resultado após filtro da lateral e busca"
+                >
+                  No filtro
+                  <span className="tabular-nums text-xs">{listFilteredContacts.length.toLocaleString('pt-BR')}</span>
+                </span>
+              </div>
+              {contactsSavedTotal != null &&
+                contacts.length < contactsSavedTotal &&
+                (contactsHasMore || contactsLoadingMore) && (
+                  <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-medium rounded-lg bg-amber-50/90 dark:bg-amber-950/25 border border-amber-200/70 dark:border-amber-900/40 px-2.5 py-1.5">
+                    Ainda há contatos na base que não estão na tabela. Use &quot;Carregar mais&quot; para ir buscando em blocos de 500.
+                  </p>
+                )}
             </div>
           </div>
           {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (

@@ -40,6 +40,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getCountFromServer,
   query,
   orderBy,
   limit,
@@ -234,6 +235,9 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   contactsHasMore: false,
   contactsLoadingMore: false,
   loadMoreContacts: async () => {},
+  contactsSavedTotal: null,
+  contactsSavedTotalLoading: false,
+  refreshContactsSavedTotal: async () => {},
   contactLists: [],
   campaigns: [],
   metrics: INITIAL_METRICS,
@@ -336,6 +340,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactsHasMore, setContactsHasMore] = useState(false);
   const [contactsLoadingMore, setContactsLoadingMore] = useState(false);
+  const [contactsSavedTotal, setContactsSavedTotal] = useState<number | null>(null);
+  const [contactsSavedTotalLoading, setContactsSavedTotalLoading] = useState(false);
   const contactsLastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [contactLists, setContactLists] = useState<ContactList[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -626,6 +632,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
   }, []);
 
+  const refreshContactsSavedTotal = useCallback(async (): Promise<void> => {
+    const uid = currentUidRef.current;
+    if (!uid) {
+      setContactsSavedTotal(null);
+      setContactsSavedTotalLoading(false);
+      return;
+    }
+    const requestUid = uid;
+    setContactsSavedTotalLoading(true);
+    try {
+      const agg = await getCountFromServer(query(collection(db, 'users', requestUid, 'contacts')));
+      if (currentUidRef.current !== requestUid) return;
+      setContactsSavedTotal(agg.data().count);
+    } catch (err) {
+      warnProd('[Firestore] contagem users/.../contacts:', (err as Error)?.message || err);
+      if (currentUidRef.current === requestUid) setContactsSavedTotal(null);
+    } finally {
+      if (currentUidRef.current === requestUid) setContactsSavedTotalLoading(false);
+    }
+  }, []);
+
+  const refreshContactsSavedTotalRef = useRef(refreshContactsSavedTotal);
+  refreshContactsSavedTotalRef.current = refreshContactsSavedTotal;
+
   // --- FIREBASE SYNC ---
   useEffect(() => {
     let cleanupFirestore: Array<() => void> = [];
@@ -708,6 +738,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             )
           );
         }
+        void refreshContactsSavedTotalRef.current();
       }
       if (needLists) {
         cleanupFirestore.push(
@@ -792,6 +823,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContactLists([]);
         setCampaigns([]);
         setConnections([]);
+        setContactsSavedTotal(null);
         campaignFirestoreHealRef.current.clear();
       }
       // Garante que o Socket.io usa o mesmo UID que a UI — senão o servidor cria
@@ -819,6 +851,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setContactLists([]);
         setCampaigns([]);
         setConnections([]);
+        setContactsSavedTotal(null);
         campaignFirestoreHealRef.current.clear();
         return;
       }
@@ -883,6 +916,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setContactLists([]);
       setCampaigns([]);
       setConnections([]);
+      setContactsSavedTotal(null);
       campaignFirestoreHealRef.current.clear();
     }
     currentUidRef.current = dataUid;
@@ -1913,6 +1947,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!uid) throw new Error('Faça login para adicionar contato.');
     const { id, ...payload } = contact;
     const ref = await addDoc(collection(db, 'users', uid, 'contacts'), payload);
+    void refreshContactsSavedTotal();
     if (!options?.silent) {
       toast.success('Contato adicionado com sucesso!');
     }
@@ -1947,6 +1982,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!options?.silent && contactRows.length > 0) {
       toast.success(`${contactRows.length} contato(s) gravados em lote.`);
     }
+    void refreshContactsSavedTotal();
     return ids;
   };
 
@@ -1955,6 +1991,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!uid) throw new Error('Faça login para remover contato.');
     await deleteDoc(doc(db, 'users', uid, 'contacts', id)).catch(() => {});
     await deleteDoc(doc(db, 'contacts', id)).catch(() => {});
+    void refreshContactsSavedTotal();
     if (!options?.silent) {
       toast.success('Contato removido.');
     }
@@ -2133,6 +2170,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     } catch {
       /* ignore */
     }
+    void refreshContactsSavedTotal();
     return summary;
   };
 
@@ -2769,6 +2807,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableAddContact = useStableCallback(addContact);
   const stableBulkAddContacts = useStableCallback(bulkAddContacts);
   const stableRemoveContact = useStableCallback(removeContact);
+  const stableRefreshContactsSavedTotal = useStableCallback(refreshContactsSavedTotal);
   const stableUpdateContact = useStableCallback(updateContact);
   const stableBulkUpdateContacts = useStableCallback(bulkUpdateContacts);
   const stableCreateContactList = useStableCallback(createContactList);
@@ -2819,6 +2858,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsHasMore,
       contactsLoadingMore,
       loadMoreContacts,
+      contactsSavedTotal,
+      contactsSavedTotalLoading,
+      refreshContactsSavedTotal: stableRefreshContactsSavedTotal,
       contactLists,
       metrics,
       birthdays,
@@ -2875,6 +2917,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       connections,
       campaigns,
       contacts,
+      contactsHasMore,
+      contactsLoadingMore,
+      loadMoreContacts,
+      contactsSavedTotal,
+      contactsSavedTotalLoading,
+      stableRefreshContactsSavedTotal,
       contactLists,
       metrics,
       birthdays,
