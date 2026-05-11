@@ -33,7 +33,6 @@ import {
   CampaignGeoUfStats
 } from '../types';
 import {
-  arrayUnion,
   collection,
   onSnapshot,
   addDoc,
@@ -46,7 +45,8 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
-  increment
+  increment,
+  runTransaction
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
@@ -2098,9 +2098,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return summary;
   };
 
-  const CONTACT_LIST_IDS_CHUNK = 350;
-
-  /** Evita um único update gigante (20k+ IDs pode falhar por limite do documento ou timeout). */
+  /**
+   * Acrescenta IDs à lista em `users/{uid}/contact_lists` com transação (merge lido + novo).
+   * Não usa mais `contact_lists` na raiz: em produção as regras bloqueiam cliente nesse path e o
+   * fallback fazia `updateDoc` falhar ou gravar onde a UI não lê — parecia “não salvou na lista”.
+   */
   const appendContactIdsToContactList = async (
     listId: string,
     ids: string[],
@@ -2111,30 +2113,32 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uniq = [...new Set(ids.filter(Boolean))];
     if (uniq.length === 0 && !options?.notesLine) return;
 
-    const refUser = doc(db, 'users', uid, 'contact_lists', listId);
-    let ref = refUser;
-    let snap = await getDoc(refUser);
-    if (!snap.exists()) {
-      const refRoot = doc(db, 'contact_lists', listId);
-      const snapRoot = await getDoc(refRoot);
-      if (!snapRoot.exists()) throw new Error('Lista não encontrada (Firestore).');
-      ref = refRoot;
-      snap = snapRoot;
-    }
+    const ref = doc(db, 'users', uid, 'contact_lists', listId);
 
-    const prevNotes = String((snap.data() as Record<string, unknown>).notes ?? '');
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(ref);
+      if (!snap.exists()) {
+        throw new Error(
+          'Lista não encontrada no seu utilizador. Recarregue a página e escolha de novo a lista em Contatos.'
+        );
+      }
+      const data = snap.data() as Record<string, unknown>;
+      const rawIds = data.contactIds;
+      const cur: string[] = Array.isArray(rawIds)
+        ? rawIds.filter((x): x is string => typeof x === 'string' && Boolean(x.trim()))
+        : [];
+      const mergedIds = [...new Set([...cur, ...uniq])];
 
-    for (let i = 0; i < uniq.length; i += CONTACT_LIST_IDS_CHUNK) {
-      const chunk = uniq.slice(i, i + CONTACT_LIST_IDS_CHUNK);
-      await updateDoc(ref, { contactIds: arrayUnion(...chunk) });
-    }
-
-    if (options?.notesLine) {
-      await updateDoc(ref, {
-        notes: `${prevNotes}\n${options.notesLine}`.trim(),
-        lastUpdated: new Date().toISOString(),
-      });
-    }
+      const patch: Record<string, unknown> = {
+        contactIds: mergedIds,
+        lastUpdated: new Date().toISOString()
+      };
+      if (options?.notesLine) {
+        const prevNotes = String(data.notes ?? '');
+        patch.notes = `${prevNotes}\n${options.notesLine}`.trim();
+      }
+      transaction.update(ref, patch);
+    });
   };
 
   const createContactList = async (name: string, contactIds: string[], description?: string): Promise<string> => {

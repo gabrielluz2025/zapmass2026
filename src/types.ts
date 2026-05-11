@@ -467,7 +467,7 @@ export interface ZapMassContextType {
     options?: { silent?: boolean }
   ) => Promise<void>;
   createContactList: (name: string, contactIds: string[], description?: string) => Promise<string>;
-  /** Acrescenta IDs à lista em várias escritas (arrayUnion em chunks) — necessário para milhares de contactos sem falhar no limite do documento / payload. */
+  /** Acrescenta IDs à lista (`users/{uid}/contact_lists`) com transação — merge com `contactIds` actuais. */
   appendContactIdsToContactList: (
     listId: string,
     contactIds: string[],
