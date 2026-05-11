@@ -4155,17 +4155,17 @@ export const ContactsTab: React.FC = () => {
       {/* Revisao de importacao por arquivo (XLSX/CSV ou vCard): filtros, problemas, duplicados */}
       {fileImportOpen && !fileImportDocked && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-6 animate-fadeIn"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 py-8 sm:py-6 animate-fadeIn"
           onClick={() => {
             if (autoFixProgress) return;
             setFileImportOpen(false);
           }}
         >
           <div
-            className="bg-white dark:bg-slate-900 w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col"
+            className="bg-white dark:bg-slate-900 w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col min-h-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-50 to-emerald-50 dark:from-violet-950/20 dark:to-emerald-950/20">
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-50 to-emerald-50 dark:from-violet-950/20 dark:to-emerald-950/20">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-white shadow flex items-center justify-center shrink-0">
                   <FileSpreadsheet className="w-5 h-5 text-violet-600" />
@@ -4187,7 +4187,7 @@ export const ContactsTab: React.FC = () => {
               </button>
             </div>
 
-            <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 flex flex-col gap-2">
+            <div className="shrink-0 px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 flex flex-col gap-2">
               <div className="flex flex-wrap gap-1.5 items-center">
                 <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">Mostrar</span>
                 {([
@@ -4275,7 +4275,7 @@ export const ContactsTab: React.FC = () => {
 
             <div
               ref={fileImportTableScrollRef}
-              className="flex-1 overflow-auto p-3 sm:p-4 min-h-[200px] max-h-[min(58vh,560px)]"
+              className="flex-1 min-h-0 overflow-auto p-3 sm:p-4"
             >
               <table className="w-full text-[12px]" style={{ display: 'block' }}>
                 <thead
@@ -4415,7 +4415,7 @@ export const ContactsTab: React.FC = () => {
               </table>
             </div>
 
-            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
+            <div className="shrink-0 px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
               <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-white dark:bg-slate-900">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino da importação</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -4549,17 +4549,17 @@ export const ContactsTab: React.FC = () => {
       {/* SMART IMPORT MODAL: cola do Excel/Word, parser inteligente, preview editavel */}
       {smartImportOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-6 animate-fadeIn"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 py-8 sm:py-6 animate-fadeIn"
           onClick={() => {
             setSmartImportOpen(false);
             setSmartImportPreviewFilter('all');
           }}
         >
           <div
-            className="bg-white dark:bg-slate-900 w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col"
+            className="bg-white dark:bg-slate-900 w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col min-h-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-sky-50 to-emerald-50 dark:from-sky-950/20 dark:to-emerald-950/20">
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-sky-50 to-emerald-50 dark:from-sky-950/20 dark:to-emerald-950/20">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-white shadow flex items-center justify-center">
                   <Wand2 className="w-5 h-5 text-sky-600" />
@@ -4581,7 +4581,7 @@ export const ContactsTab: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
               <div className="rounded-xl border border-sky-100 dark:border-sky-900/40 bg-sky-50/60 dark:bg-sky-950/20 p-3 flex gap-2.5 items-start">
                 <Info className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
                 <div className="text-[12px] text-slate-700 dark:text-slate-300 leading-relaxed">
@@ -4720,7 +4720,7 @@ export const ContactsTab: React.FC = () => {
                       </Button>
                     </div>
                   </div>
-                  <div className="max-h-[45vh] overflow-auto">
+                  <div className="max-h-[45vh] min-h-0 overflow-auto">
                     <table className="w-full text-[12px]">
                       <thead className="sticky top-0 bg-slate-100/90 dark:bg-slate-800/90 backdrop-blur z-10">
                         <tr className="text-left text-[10.5px] uppercase tracking-wider text-slate-500">
@@ -4830,7 +4830,7 @@ export const ContactsTab: React.FC = () => {
               )}
             </div>
 
-            <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
+            <div className="shrink-0 px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-3 bg-slate-50 dark:bg-slate-900/50">
               <p className="text-[11.5px] text-slate-500">
                 Os campos em amarelo estão incompletos (nome ou telefone inválidos). Duplicado na base = pode marcar a linha para unificar dados e vincular à lista, sem criar outro contato. Repetido no texto = mesma linha duas vezes no trecho colado — não importa a 2.ª ocorrência.
               </p>
