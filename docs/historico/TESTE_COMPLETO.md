@@ -423,12 +423,12 @@ Get-Process | Where-Object { $_.ProcessName -match 'chrome' } | Stop-Process -Fo
 
 ## 📚 **DOCUMENTAÇÃO RELACIONADA**
 
-- `README.md` - Visão geral do sistema
+- `../README.md` - Visão geral do sistema
 - `IMPROVEMENTS.md` - Melhorias 1-10
 - `ADVANCED_FEATURES.md` - Melhorias 11-20
 - `STABILITY_FIXES.md` - Correções de estabilidade
 - `RESET_v2.2.0.md` - Mudanças da versão atual
-- `GUIA_DE_TESTE.md` - Guia de testes detalhado
+- `../GUIA_DE_TESTE.md` - Guia de testes detalhado
 
 ---
 

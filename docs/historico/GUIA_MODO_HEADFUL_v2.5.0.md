@@ -23,7 +23,7 @@ O WhatsApp Web mudou recentemente e agora **EXIGE** que haja uma conversa prévi
 npm run dev
 ```
 
-Ou clique em `INICIAR_SIMPLES.bat`
+Ou use `INICIAR.bat` → opção 1 (ou opção 5 para aquecimento headful)
 
 ### **2️⃣ Aguardar Janela do Chrome Abrir**
 

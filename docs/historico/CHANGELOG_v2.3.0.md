@@ -83,12 +83,12 @@ Configurações centralizadas:
 }
 ```
 
-### **3. `START_EVOLUTION_API.bat`** ✅
+### **3. `INICIAR.bat` (na raiz; antigo `START_EVOLUTION_API.bat`)** ✅
 
-Script auxiliar para iniciar Evolution API via Docker ou manualmente.
+Menu único: Evolution API via Docker, ZapMass, aquecimento e scripts auxiliares.
 
 ### **4. Documentação:**
-- `EVOLUTION_API_SETUP.md` - Guia completo de instalação
+- `../EVOLUTION_API_SETUP.md` - Guia completo de instalação
 - `EVOLUTION_API_GUIA_RAPIDO.md` - Guia rápido de inicialização
 - `PROBLEMA_MARKEDUNREAD.md` - Análise do erro e soluções
 
@@ -278,7 +278,7 @@ Se a Evolution API não funcionar, você pode voltar para v2.2.1:
 ## 📚 **DOCUMENTAÇÃO**
 
 - **Guia Rápido:** `EVOLUTION_API_GUIA_RAPIDO.md`
-- **Setup Completo:** `EVOLUTION_API_SETUP.md`
+- **Setup Completo:** `../EVOLUTION_API_SETUP.md`
 - **Problema markedUnread:** `PROBLEMA_MARKEDUNREAD.md`
 - **Evolution API Docs:** https://doc.evolution-api.com
 

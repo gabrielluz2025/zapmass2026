@@ -71,6 +71,7 @@ import {
 import { normPhoneKey } from '../utils/brPhoneNormalize';
 import { getCampaignStageTotal } from '../utils/campaignStageCount';
 import { mergeConversationsFromSocketUpdate } from '../utils/conversationInboxTrim';
+import { devLog, devWarn, warnProd } from '../utils/logger';
 
 const FIRESTORE_BATCH_CHUNK = 280;
 
@@ -668,7 +669,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               );
               setContacts(mergeContacts(b.userContacts, b.legacyContacts));
             },
-            (err) => console.warn('[Firestore] users/.../contacts:', (err as Error)?.message || err)
+            (err) => warnProd('[Firestore] users/.../contacts:', (err as Error)?.message || err)
           )
         );
         if (!ignoreLegacy) {
@@ -687,7 +688,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 );
                 setContacts(mergeContacts(b.userContacts, b.legacyContacts));
               },
-              (err) => console.warn('[Firestore] /contacts (legado):', (err as Error)?.message || err)
+              (err) => warnProd('[Firestore] /contacts (legado):', (err as Error)?.message || err)
             )
           );
         }
@@ -701,7 +702,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               b.userLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
               setContactLists(mergeContactLists(b.userLists, b.legacyLists));
             },
-            (err) => console.warn('[Firestore] contact_lists (usuario):', (err as Error)?.message || err)
+            (err) => warnProd('[Firestore] contact_lists (usuario):', (err as Error)?.message || err)
           )
         );
         if (!ignoreLegacy) {
@@ -718,7 +719,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 b.legacyLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
                 setContactLists(mergeContactLists(b.userLists, b.legacyLists));
               },
-              (err) => console.warn('[Firestore] /contact_lists (legado):', (err as Error)?.message || err)
+              (err) => warnProd('[Firestore] /contact_lists (legado):', (err as Error)?.message || err)
             )
           );
         }
@@ -737,7 +738,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               syncStuckCampaignsToFirestore(mergedUserLegacy, uid);
               setCampaigns(healStuckRunningCampaignsList(mergedUserLegacy));
             },
-            (err) => console.warn('[Firestore] campaigns (usuario):', (err as Error)?.message || err)
+            (err) => warnProd('[Firestore] campaigns (usuario):', (err as Error)?.message || err)
           )
         );
         if (!ignoreLegacy) {
@@ -758,7 +759,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 syncStuckCampaignsToFirestore(mergedL, uid);
                 setCampaigns(healStuckRunningCampaignsList(mergedL));
               },
-              (err) => console.warn('[Firestore] /campaigns (legado):', (err as Error)?.message || err)
+              (err) => warnProd('[Firestore] /campaigns (legado):', (err as Error)?.message || err)
             )
           );
         }
@@ -848,7 +849,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const ownsConnectionId = (connectionId: string) =>
       ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId);
 
-    console.log(`Iniciando conexão Socket.IO com: ${BACKEND_URL || 'origem relativa'}`);
+    devLog(`Iniciando conexão Socket.IO com: ${BACKEND_URL || 'origem relativa'}`);
 
     /** Firebase só serve HTML/JS — sem Node na mesma URL; ligar Socket à mesma origem falha sempre. */
     if (isLikelySplitStaticFrontend()) {
@@ -910,7 +911,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       // Sem toast em reconexao: troca de aba / retorno do fundo gera muito ruido; o painel
       // usa isBackendConnected; toast so na primeira carga (acima) e se ficar 6s+ off (disconnect).
-      console.log('🔌 Conectado ao servidor Socket.io');
+      devLog('🔌 Conectado ao servidor Socket.io');
     });
 
     socket.on('disconnect', (reason) => {
@@ -2871,7 +2872,7 @@ export function useZapMassConversations(): Conversation[] {
 export function useZapMassCore(): ZapMassCoreContextValue {
   const core = useContext(ZapMassCoreContext);
   if (core === EMPTY_CORE) {
-    console.warn('useZapMassCore usado fora do ZapMassProvider. Retornando núcleo vazio.');
+    devWarn('useZapMassCore usado fora do ZapMassProvider. Retornando núcleo vazio.');
   }
   return core;
 }
@@ -2886,7 +2887,7 @@ export const useZapMass = (): ZapMassContextWithSocket => {
   const core = useContext(ZapMassCoreContext);
   const { conversations } = useContext(ZapMassConversationsContext);
   if (core === EMPTY_CORE) {
-    console.warn('useZapMass usado fora do ZapMassProvider. Retornando contexto vazio.');
+    devWarn('useZapMass usado fora do ZapMassProvider. Retornando contexto vazio.');
     return EMPTY_CONTEXT;
   }
   return useMemo(

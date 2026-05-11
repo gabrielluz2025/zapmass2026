@@ -1,5 +1,4 @@
-/* ─── Google Fonts ─────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800;14..32,900&display=swap');
+/* Inter: carregado uma vez em index.html (evita pedido duplicado do @import). */
 
 /* WhatsApp Web skin para a aba "Pipeline" (ChatTab.tsx). */
 @import './styles/wa-web.css';
@@ -20,6 +19,12 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 /* ─── Design Tokens ────────────────────────── */

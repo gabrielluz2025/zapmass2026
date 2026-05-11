@@ -1,0 +1,9 @@
+{
+  "name": "ZapMass",
+  "short_name": "ZapMass",
+  "description": "Disparos em massa e gestão de canais WhatsApp",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060A14",
+  "theme_color": "#059669"
+}

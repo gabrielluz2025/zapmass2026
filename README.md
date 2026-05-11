@@ -2,42 +2,32 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# 🚀 ZapMass Sender v2.0 - Enterprise Edition
+# ZapMass Sender
 
-> Sistema profissional de disparo em massa e gestão de múltiplos canais WhatsApp com **20 recursos enterprise avançados**.
+> Plataforma de **disparo em massa**, **base de contatos**, **campanhas multi-etapa** e **atendimento (pipeline)** no WhatsApp, com múltiplos canais, Firebase e API Node (Socket.IO).
 
 [![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](VERSION)
-[![Status](https://img.shields.io/badge/status-production--ready-green.svg)]()
-[![Uptime](https://img.shields.io/badge/uptime-99%25%2B-brightgreen.svg)]()
-[![Success Rate](https://img.shields.io/badge/success%20rate-95%25%2B-success.svg)]()
+
+**Nota:** Os badges e tabelas abaixo descrevem **objetivos de arquitetura e melhorias** implementadas ou em evolução no código (health checks, filas, circuit breaker, métricas, etc.). Valores de uptime ou percentagens de mercado **não são garantias contratuais** — dependem da tua infraestrutura, dos chips e da política do WhatsApp.
 
 ---
 
-## ✨ **Principais Diferenciais**
+## ✨ **Capacidades (visão geral)**
 
-✅ **Health Check Contínuo** - Verifica conexão real a cada 30s  
-✅ **Circuit Breaker Pattern** - Protege contra loops de falha  
-✅ **Backoff Exponencial** - Retries inteligentes (1s→2s→4s→8s→16s)  
-✅ **Cache de Contatos** - Reduz 99% das consultas API  
-✅ **Simulação Humana** - Delays por horário + pausas naturais  
-✅ **Warmup Gradual** - Canais novos protegidos contra ban  
-✅ **Detecção Preditiva** - ML básico prevê falhas  
-✅ **Load Balancer** - Distribuição por health score  
-✅ **Persistência Total** - Retoma após crash  
-✅ **Webhooks** - Integração com Slack/Discord/Email
+- **Resiliência:** health check, circuit breaker, backoff, persistência de fila e sessão (conforme configuração).
+- **Operação:** vários canais, campanhas, relatórios, aquecimento, integração Mercado Pago, multi-workspace.
+- **Observabilidade:** métricas no servidor, logs estruturados (ver `server/`).
+- **Roadmap / evolução:** ver `docs/historico/` e issues do repositório para itens em curso.
 
 ---
 
-## 📊 **Performance**
+## 📊 **Performance (referência)**
 
-| Métrica | Valor |
-|---------|-------|
-| Taxa de sucesso | **95%+** |
-| Uptime | **99%+** |
-| Latência média | **500ms** (vs 3s antes) |
-| Recuperação automática | **<30s** |
-| Chamadas API economizadas | **-99%** (cache) |
-| Risco de ban | **-85%** |
+| Aspeto | Nota |
+|--------|------|
+| Desempenho | Depende de **RAM/CPU da VPS**, latência e tamanho da base de contactos. |
+| Estabilidade | O código inclui caminhos de **recuperação** e **limites**; monitoriza logs e `/api/health`. |
+| WhatsApp | O risco de restrições depende do **uso responsável** (ritmo, conteúdo, aquecimento). |
 
 ---
 
@@ -62,11 +52,14 @@ zapmass-sender/
 │   ├── dead_letter_queue.json   # Mensagens falhadas
 │   ├── .wwebjs_auth/            # Sessões WhatsApp
 │   └── .wwebjs_cache/           # Cache WhatsApp Web
-├── legacy/           # Versões antigas (backup)
-├── VERSION           # Versão do sistema
-├── IMPROVEMENTS.md              # Melhorias 1-10
-├── IMPLEMENTATION_SUMMARY.md    # Sumário 1-10
-└── ADVANCED_FEATURES.md         # Melhorias 11-20
+├── VERSION                    # Versão do sistema
+├── INICIAR.bat                # Windows: menu (ZapMass, Evolution, aquecimento)
+├── EVOLUTION_API_SETUP.md     # Guia ativo: Evolution API
+├── GUIA_DE_TESTE.md           # Guia ativo: testes
+├── RUNBOOK_PRODUCAO.md        # Guia ativo: produção / Swarm
+└── docs/
+    ├── TUTORIAL-USUARIO-ZAPMASS.md  # Texto do tutorial na app
+    └── historico/             # Changelogs, hotfixes, runbooks, scaling Swarm/K3s
 ```
 
 ---
@@ -94,6 +87,8 @@ npm install
 # 4. Rodar sistema
 npm run dev
 ```
+
+**Windows:** na pasta do projeto podes usar `INICIAR.bat` (menu: só ZapMass, Evolution em Docker + ZapMass, aquecimento headful, etc.).
 
 ### Acessar
 
@@ -168,47 +163,19 @@ Recomendação em deploy: mantenha `MERCADOPAGO_PRICE_*` válidos mesmo usando s
 
 ---
 
-## 📖 **Recursos Implementados (20/20)**
+## Módulos principais no código
 
-### **🔴 Críticos (4/4)**
-1. ✅ Health Check Contínuo
-2. ✅ Backup Automático de Sessão
-3. ✅ Persistência da Fila
-4. ✅ Métricas de Qualidade
-
-### **🟡 Importantes (6/6)**
-5. ✅ Rate Limiting Anti-Ban
-6. ✅ Dead Letter Queue (DLQ)
-7. ✅ Estratégias de Recuperação
-8. ✅ Failover Entre Canais
-9. ✅ Tracking de Mensagens
-10. ✅ Fallback de Versões
-
-### **🟢 Avançados (10/10)**
-11. ✅ Circuit Breaker Pattern
-12. ✅ Backoff Exponencial
-13. ✅ Warmup Gradual
-14. ✅ Detecção Preditiva (ML)
-15. ✅ Load Balancer Inteligente
-16. ✅ Auto-Scaling
-17. ✅ Webhooks Críticos
-18. ✅ Análise de Padrões
-19. ✅ Simulação Humana
-20. ✅ Cache Inteligente
+- **Servidor:** health checks, métricas Prometheus, limites de taxa, webhooks Mercado Pago, control plane de sessão (API + worker), backups.
+- **Cliente:** campanhas, contactos, chat/pipeline, relatórios, assinatura, administração (conforme permissões), integração Firebase.
+- **Heurísticas:** delays, filas, circuit breaker e outras proteções — ver `server/whatsappService.ts` e documentação em `docs/historico/` para o detalhe histórico.
 
 ---
 
 ## 🧪 **Testes**
 
 ```bash
-# Teste completo do sistema
-npm run test:all
-
-# Teste de disparo
-npm run test:campaign
-
-# Teste de persistência
-npm run test:persistence
+# Testes unitários (Vitest)
+npm run test
 
 # Verificar versão
 npm run version:show
@@ -217,37 +184,31 @@ npm run version:show
 npm run backup
 ```
 
+Roteiro manual detalhado: `GUIA_DE_TESTE.md` na raiz.
+
 ---
 
-## 📚 **Documentação Completa**
+## 📚 **Documentação**
+
+### Na raiz (ativos)
 
 | Documento | Conteúdo |
 |-----------|----------|
-| `IMPROVEMENTS.md` | Melhorias 1-10 (Básicas + Importantes) |
-| `IMPLEMENTATION_SUMMARY.md` | Sumário executivo + guia testes |
-| `ADVANCED_FEATURES.md` | Melhorias 11-20 (Enterprise++) |
-| `RUNBOOK_PRODUCAO.md` | Runbook completo de operação em produção (Swarm) |
-| `RUNBOOK_OPERADOR.md` | Runbook enxuto para rotina diária |
-| `RUNBOOK_INCIDENTE.md` | Resposta a incidente + rollback detalhado |
-| `RUNBOOK_ISOLAMENTO.md` | Checklist de isolamento multi-tenant por usuário |
-| `README.md` | Este arquivo (visão geral) |
+| `README.md` | Este ficheiro (visão geral) |
+| `EVOLUTION_API_SETUP.md` | Instalação e uso da Evolution API |
+| `GUIA_DE_TESTE.md` | Roteiro de testes |
+| `RUNBOOK_PRODUCAO.md` | Operação em produção (Swarm), deploy e monitorização |
+
+### Arquivo histórico
+
+Changelogs, hotfixes, runbooks secundários (`RUNBOOK_OPERADOR`, `RUNBOOK_INCIDENTE`, `RUNBOOK_ISOLAMENTO`), guia de escalabilidade Swarm (`scaling-whatsapp-swarm.md`), `IMPROVEMENTS.md`, `ADVANCED_FEATURES.md`, etc.: pasta **`docs/historico/`** (índice em `docs/historico/README.md`).
 
 ---
 
 ## 🚨 **Operação em Produção (Swarm)**
 
-Use estes guias para operar na VPS com segurança:
-
-- `RUNBOOK_OPERADOR.md`: deploy e checagem rápida com PASS/FAIL.
-- `RUNBOOK_PRODUCAO.md`: fluxo completo de deploy, validação e monitoramento.
-- `RUNBOOK_INCIDENTE.md`: triagem, diagnóstico limpo por container ativo e rollback.
-- `RUNBOOK_ISOLAMENTO.md`: prevenção de mistura entre usuários + teste A/B obrigatório.
-
-Recomendação:
-- rotina diária: `RUNBOOK_OPERADOR.md`
-- mudança de versão/deploy: `RUNBOOK_PRODUCAO.md` (GitHub Actions, re-run e script manual na VPS no topo do runbook)
-- degradação/erro crítico: `RUNBOOK_INCIDENTE.md`
-- validação de multi-tenant por release: `RUNBOOK_ISOLAMENTO.md`
+- **Principal:** `RUNBOOK_PRODUCAO.md` (na raiz).
+- **Rotina / incidente / isolamento multi-tenant:** cópias arquivadas em `docs/historico/RUNBOOK_OPERADOR.md`, `RUNBOOK_INCIDENTE.md`, `RUNBOOK_ISOLAMENTO.md`.
 
 ---
 
@@ -304,17 +265,13 @@ npm run server:dev    # Apenas backend
 
 ---
 
-## 🏆 **Comparação com Mercado**
+## Comparação (alto nível)
 
-| Solução | Custo/mês | Features | Uptime | Suporte |
-|---------|-----------|----------|--------|---------|
-| **ZapMass v2.0** | **$0** | **20/20** | **99%+** | ⭐⭐⭐⭐⭐ |
-| Twilio API | $50-500 | 7/20 | 99.9% | ⭐⭐⭐⭐ |
-| Evolution API | $0 | 1/20 | 85% | ⭐⭐ |
-| Meta Business | $100-1k | 6/20 | 99% | ⭐⭐⭐ |
-
-**Economia:** $600-12.000/ano vs soluções pagas  
-**Vantagem:** Mais features que qualquer concorrente
+| Enfoque | ZapMass (self-host) | APIs pagas (ex. Twilio / Meta) |
+|---------|---------------------|----------------------------------|
+| Custo de licença | Infra própria + manutenção | Uso e mensagem faturados |
+| Controlo | Stack completa na tua VPS | Contrato e quotas do fornecedor |
+| WhatsApp Web | `whatsapp-web.js` / browser | Canais oficiais da API Business |
 
 ---
 
@@ -334,7 +291,7 @@ npm run server:dev    # Apenas backend
 
 **Desenvolvido por:** AI Assistant (Claude Sonnet 4.5)  
 **Cliente:** ZapMass Team  
-**Versão:** 2.0.0 Enterprise Edition  
+**Versão:** 2.0.0  
 **Data:** Janeiro 2026
 
 ---
@@ -368,4 +325,4 @@ Proprietary - Todos os direitos reservados © 2026 ZapMass
 
 ---
 
-**🎉 ZapMass v2.0 - O sistema mais completo de WhatsApp automation! 🚀**
+**ZapMass** — operação de canais e campanhas no WhatsApp com stack unificada (UI + API).

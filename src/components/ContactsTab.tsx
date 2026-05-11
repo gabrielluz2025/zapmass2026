@@ -79,6 +79,47 @@ const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: s
   { key: 'status', label: 'Status', width: 10 }
 ];
 
+/**
+ * Na coluna «Nome» (1.ª coluna), numa linha sozinha: a importação ignora esta linha e **tudo abaixo**.
+ * Útil quando o Excel mantém centenas de milhares de linhas vazias na grelha.
+ */
+const IMPORT_SHEET_END_MARKER = 'ZAPMASS_FIM_DADOS';
+
+function normalizeImportEndMarkerCell(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_')
+    .toUpperCase();
+}
+
+function trimTrailingEmptySheetRows(rows: any[][]): any[][] {
+  const out = rows.map((r) => [...r]);
+  while (out.length > 1 && out[out.length - 1].every((c) => String(c ?? '').trim() === '')) {
+    out.pop();
+  }
+  return out;
+}
+
+function truncateSheetRowsAtImportEndMarker(rows: any[][]): {
+  rows: any[][];
+  cutByMarker: boolean;
+  markerAtLine1Based: number | null;
+} {
+  if (rows.length < 2) return { rows, cutByMarker: false, markerAtLine1Based: null };
+  const markerNorm = normalizeImportEndMarkerCell(IMPORT_SHEET_END_MARKER);
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const cellA = row[0];
+    if (!String(cellA ?? '').trim()) continue;
+    if (normalizeImportEndMarkerCell(cellA) === markerNorm) {
+      return { rows: rows.slice(0, i), cutByMarker: true, markerAtLine1Based: i + 1 };
+    }
+  }
+  return { rows, cutByMarker: false, markerAtLine1Based: null };
+}
+
 /** Colunas extras só na exportação XLSX (disparos / CRM) — não fazem parte do modelo de importação. */
 const CAMPAIGN_EXPORT_COLUMNS: Array<{ label: string; width: number; get: (c: Contact) => string }> = [
   {
@@ -1271,6 +1312,10 @@ export const ContactsTab: React.FC = () => {
         );
       }
 
+      rows = trimTrailingEmptySheetRows(rows);
+      const truncated = truncateSheetRowsAtImportEndMarker(rows);
+      rows = truncated.rows;
+
       if (rows.length < 2) {
         toast.error('Arquivo vazio ou sem dados.');
         return;
@@ -1341,8 +1386,11 @@ export const ContactsTab: React.FC = () => {
       setFileImportJob(null);
       setAutoFixProgress(null);
       setFileImportOpen(true);
+      const markerHint = truncated.cutByMarker
+        ? ` Marcador de fim na linha ${truncated.markerAtLine1Based} (${IMPORT_SHEET_END_MARKER}): tudo abaixo ignorado.`
+        : '';
       toast.success(
-        `Arquivo carregado: ${preview.length} linha(s). ${nProb > 0 ? `${nProb} com aviso — revise antes de importar.` : 'Pronto para importar.'}`
+        `Arquivo carregado: ${preview.length} linha(s).${markerHint}${nProb > 0 ? ` ${nProb} com aviso — revise antes de importar.` : ' Pronto para importar.'}`
       );
     } catch (err: unknown) {
       console.error('[ImportContacts]', err);
@@ -2211,13 +2259,17 @@ export const ContactsTab: React.FC = () => {
       ['10. Campos vazios sao permitidos, basta deixar a celula em branco.'],
       [''],
       [
-        '11. A folha «Contatos» deste arquivo contem so colunas importaveis. Ja a exportacao completa (ou selecao/lista) no app pode acrescentar colunas de CRM/disparos — veja a folha «Referencia_CRM». Se voltar a importar um arquivo exportado, o ZapMass ignora colunas nao reconhecidas; opcionalmente apague-as antes.'
+        `11. Fim dos dados (evita carregar milhoes de linhas vazias do Excel): na coluna «Nome», numa linha sozinha, escreva exactamente ${IMPORT_SHEET_END_MARKER} — essa linha e tudo o que estiver abaixo e ignorado na importacao.`
+      ],
+      [''],
+      [
+        '12. A folha «Contatos» deste arquivo contem so colunas importaveis. Ja a exportacao completa (ou selecao/lista) no app pode acrescentar colunas de CRM/disparos — veja a folha «Referencia_CRM». Se voltar a importar um arquivo exportado, o ZapMass ignora colunas nao reconhecidas; opcionalmente apague-as antes.'
       ],
       ...(segment === 'religious'
         ? [
             [''],
             [
-              '12. Segmento religioso: a exportacao da base pode incluir colunas da ficha (RG, dados eclesiasticos, etc.). Na importacao, so entram colunas que o mapa reconhece — o resto e ignorado, como as de CRM.'
+              '13. Segmento religioso: a exportacao da base pode incluir colunas da ficha (RG, dados eclesiasticos, etc.). Na importacao, so entram colunas que o mapa reconhece — o resto e ignorado, como as de CRM.'
             ]
           ]
         : [])

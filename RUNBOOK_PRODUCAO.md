@@ -1,5 +1,7 @@
 # RUNBOOK PRODUCAO - ZAPMASS (SWARM)
 
+**Referência técnica (arquitetura, variáveis `SESSION_*`, split API/worker):** `docs/historico/scaling-whatsapp-swarm.md`
+
 ## Como o deploy chega à VPS
 
 1. **GitHub Actions** — Um push em `main` (que altere paths cobertos pelo workflow) dispara **«Build + deploy VPS»**: valida build no runner e, em seguida, SSH na VPS para executar `deployment/vps-deploy.sh`. Exige secrets no repositório: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (opcional: `VPS_SSH_PORT`). Acompanhe em **GitHub → Actions**.

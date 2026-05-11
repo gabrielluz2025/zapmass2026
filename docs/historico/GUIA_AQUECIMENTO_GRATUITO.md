@@ -29,7 +29,7 @@ Use o script `AQUECER_NUMEROS.bat`:
 
 ## Fluxo recomendado
 
-1. **Rodar envio normal** (`TESTAR_v2.4.1.bat`).
+1. **Rodar envio normal** (`INICIAR.bat` → opção 1 ou 6).
 2. Ver a lista **Aquecimento** aparecer na tela de campanhas.
 3. Rodar `AQUECER_NUMEROS.bat`.
 4. Abrir conversas dos números pendentes.
@@ -47,6 +47,6 @@ Use o script `AQUECER_NUMEROS.bat`:
 
 ## Arquivos úteis
 
-- `TESTAR_v2.4.1.bat` → envio normal (headless)
+- `INICIAR.bat` → opção 1 ou 6 → envio normal (headless)
 - `AQUECER_NUMEROS.bat` → aquecimento (headful)
 

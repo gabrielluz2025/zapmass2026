@@ -218,7 +218,7 @@ function startHealthCheck(connectionId: string, aggressive = false): void
 - **Guia completo:** `STABILITY_FIXES.md`
 - **Melhorias 1-10:** `IMPROVEMENTS.md`
 - **Melhorias 11-20:** `ADVANCED_FEATURES.md`
-- **README:** `README.md`
+- **README:** `../README.md`
 
 ---
 

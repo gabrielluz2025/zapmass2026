@@ -54,17 +54,23 @@ const PastoralVisitsTab = lazy(() =>
   import('./components/religious/PastoralVisitsTab').then((m) => ({ default: m.PastoralVisitsTab }))
 );
 
-/** Spinner leve quando um chunk de vista ainda está a carregar */
+/** Placeholder quando um chunk de vista ainda está a carregar (skeleton + indicador). */
 const LazyViewSpinner: React.FC = () => (
   <div
-    className="flex flex-1 min-h-[36vh] w-full flex-col items-center justify-center gap-3"
+    className="flex flex-1 min-h-[36vh] w-full flex-col items-center justify-center gap-5 px-4"
     aria-busy="true"
-    aria-label="A carregar"
+    aria-label="A carregar painel"
   >
-    <Loader2 className="w-7 h-7 animate-spin" style={{ color: 'var(--brand-600)' }} />
-    <span className="text-[13px] font-medium" style={{ color: 'var(--text-2)' }}>
+    <div className="w-full max-w-lg space-y-3" aria-hidden="true">
+      <div className="h-9 w-52 max-w-[70%] rounded-xl bg-[var(--surface-2)] animate-pulse motion-reduce:animate-none" />
+      <div className="h-3.5 w-full rounded-md bg-[var(--surface-2)] animate-pulse motion-reduce:animate-none" />
+      <div className="h-3.5 w-[92%] rounded-md bg-[var(--surface-2)] animate-pulse motion-reduce:animate-none" />
+      <div className="h-3.5 w-[68%] rounded-md bg-[var(--surface-2)] animate-pulse motion-reduce:animate-none" />
+    </div>
+    <div className="flex items-center gap-2.5 text-[13px] font-medium" style={{ color: 'var(--text-2)' }}>
+      <Loader2 className="w-5 h-5 motion-safe:animate-spin" style={{ color: 'var(--brand-600)' }} />
       A carregar painel…
-    </span>
+    </div>
   </div>
 );
 

@@ -156,7 +156,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return [
         ...groups,
         {
-          label: 'Estudio criador',
+          label: 'Estúdio criador',
           items: [CREATOR_STUDIO_ITEM]
         }
       ];
@@ -172,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`flex flex-col ${widthClass} h-screen fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out ${
+      className={`flex flex-col ${widthClass} h-screen fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out motion-reduce:transition-none motion-reduce:duration-0 ${
         isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       }`}
       style={{
@@ -249,11 +249,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 return (
                   <button
                     key={item.id}
+                    type="button"
                     onClick={() => onChangeView(item.id)}
+                    aria-current={isActive ? 'page' : undefined}
                     title={collapsed ? item.label : undefined}
                     className={`w-full flex items-center gap-3 ${
                       collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2'
-                    } rounded-lg text-[13px] font-medium transition-all duration-150 group relative ${
+                    } rounded-lg text-[13px] font-medium transition-all duration-150 motion-reduce:transition-none motion-reduce:duration-0 group relative ${
                       isActive ? 'text-white' : 'text-slate-400 hover:text-slate-100'
                     }`}
                     style={

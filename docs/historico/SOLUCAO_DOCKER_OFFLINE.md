@@ -37,7 +37,7 @@ Se não der erro, está funcionando!
 ### **Passo 3: Executar novamente**
 
 ```powershell
-INICIAR_ZAPMASS_v2.3.0.bat
+INICIAR.bat (opção 2: Evolution + ZapMass)
 # Escolha opção [1] Docker
 ```
 

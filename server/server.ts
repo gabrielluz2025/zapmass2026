@@ -79,6 +79,7 @@ import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing } from './redisPing.js';
 import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
+import { securityHeadersMiddleware } from './securityHeaders.js';
 
 function notifyCampaignSocketError(
   uid: string,
@@ -107,6 +108,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const app = express();
+app.use(securityHeadersMiddleware);
 configureTrustProxy(app);
 const httpServer = createServer(app);
 const serverStartedAt = new Date();

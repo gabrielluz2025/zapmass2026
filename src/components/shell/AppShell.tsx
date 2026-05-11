@@ -92,8 +92,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         unico valor que muda de fato (collapse/expand do sidebar).
       */}
       <main
-        className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen`}
-        style={{ transition: 'margin-left 200ms ease' }}
+        className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen transition-[margin-left] duration-200 ease-in-out motion-reduce:transition-none`}
       >
         <TopBar
           currentView={currentView}

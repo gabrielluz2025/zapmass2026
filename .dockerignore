@@ -11,9 +11,14 @@ data
 **/.wwebjs_auth
 **/.wwebjs_cache
 tokens
-legacy
+# Arquivo de documentação antiga (não necessário na imagem).
+docs/historico
 # Markdown de doc (exceto o tutorial embutido no bundle Vite — sem isto some após Docker build na VPS).
 *.md
+!README.md
+!EVOLUTION_API_SETUP.md
+!GUIA_DE_TESTE.md
+!RUNBOOK_PRODUCAO.md
 !docs/TUTORIAL-USUARIO-ZAPMASS.md
 npm-debug.log*
 .DS_Store
