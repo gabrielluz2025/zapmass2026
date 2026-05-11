@@ -42,11 +42,15 @@ import {
   getDocs,
   query,
   orderBy,
+  limit,
+  startAfter,
   setDoc,
   updateDoc,
   writeBatch,
   increment,
-  runTransaction
+  runTransaction,
+  type QueryDocumentSnapshot,
+  type DocumentData
 } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
@@ -227,6 +231,9 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   systemMetrics: INITIAL_SYS_METRICS,
   connections: [],
   contacts: [],
+  contactsHasMore: false,
+  contactsLoadingMore: false,
+  loadMoreContacts: async () => {},
   contactLists: [],
   campaigns: [],
   metrics: INITIAL_METRICS,
@@ -327,6 +334,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>(INITIAL_METRICS);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactsHasMore, setContactsHasMore] = useState(false);
+  const [contactsLoadingMore, setContactsLoadingMore] = useState(false);
+  const contactsLastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [contactLists, setContactLists] = useState<ContactList[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const campaignsRef = useRef<Campaign[]>([]);
@@ -522,101 +532,102 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   }, [funnelStats]);
 
+  const normalizeContactDoc = useCallback((id: string, raw: Record<string, any>): Contact => {
+    const birthday =
+      raw.birthday ||
+      raw.aniversario ||
+      raw.dataNascimento ||
+      raw.data_nascimento ||
+      raw.dataAniversario ||
+      raw.dob ||
+      raw.birthdate ||
+      raw.birthDate ||
+      '';
+    const email = raw.email || raw.e_mail || '';
+    const notes = raw.notes || raw.observacoes || raw.obs || '';
+    const followUpAt =
+      parseFirestoreDateToIso(raw.followUpAt) ||
+      parseFirestoreDateToIso(raw.follow_up_at) ||
+      parseFirestoreDateToIso(raw.retornoEm);
+    const followUpRaw = raw.followUpNote ?? raw.follow_up_note ?? raw.retornoNota;
+    const followUpNote =
+      typeof followUpRaw === 'string' && followUpRaw.trim() ? followUpRaw.trim().slice(0, 500) : undefined;
+    const aliasRaw = raw.aliasContactIds;
+    const aliasContactIds = Array.isArray(aliasRaw)
+      ? aliasRaw.map((x: unknown) => String(x || '')).filter(Boolean)
+      : [];
+    const rmpRaw = raw.religiousMemberProfile;
+    const religiousMemberProfile: ReligiousMemberProfile | undefined =
+      rmpRaw && typeof rmpRaw === 'object' && !Array.isArray(rmpRaw)
+        ? (rmpRaw as ReligiousMemberProfile)
+        : undefined;
+    const rawCtp = raw.campaignTablePreview;
+    const campaignTablePreview =
+      rawCtp &&
+      typeof rawCtp === 'object' &&
+      !Array.isArray(rawCtp) &&
+      String((rawCtp as Record<string, unknown>).campaignId || '').trim()
+        ? (() => {
+            const o = rawCtp as Record<string, unknown>;
+            const cid = String(o.campaignId || '').trim().slice(0, 64);
+            return {
+              campaignId: cid,
+              campaignName: String(o.campaignName || '').slice(0, 120),
+              sent: Math.max(0, Math.floor(Number(o.sent) || 0)),
+              totalStages: Math.max(1, Math.floor(Number(o.totalStages) || 1)),
+              pending: Math.max(0, Math.floor(Number(o.pending) || 0)),
+              updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : ''
+            };
+          })()
+        : undefined;
+    return {
+      id,
+      name: raw.name || raw.nome || 'Sem Nome',
+      phone:
+        raw.phone ||
+        raw.telefone ||
+        raw.celular ||
+        raw.mobile ||
+        raw.whatsapp ||
+        raw.numero ||
+        raw.Numero ||
+        '',
+      city: raw.city || raw.cidade || '',
+      state: raw.state || raw.uf || raw.estado || '',
+      street: raw.street || raw.rua || raw.logradouro || raw.endereco || '',
+      number: raw.number || raw.numero || raw.num || '',
+      neighborhood: raw.neighborhood || raw.bairro || '',
+      zipCode: raw.zipCode || raw.cep || raw.zip || '',
+      church: raw.church || raw.igreja || '',
+      role: raw.role || raw.cargo || raw.funcao || '',
+      profession: raw.profession || raw.profissao || raw.cargoProfissional || raw.cargo_profissional || '',
+      birthday,
+      email,
+      notes,
+      tags: Array.isArray(raw.tags) ? raw.tags : [],
+      status: raw.status || 'VALID',
+      lastMsg: raw.lastMsg || raw.ultimaMsg,
+      ...(followUpAt ? { followUpAt } : {}),
+      ...(followUpNote ? { followUpNote } : {}),
+      ...(aliasContactIds.length > 0 ? { aliasContactIds } : {}),
+      ...(religiousMemberProfile && Object.keys(religiousMemberProfile).length > 0 ? { religiousMemberProfile } : {}),
+      ...(raw.marketingOptOut === true ? { marketingOptOut: true } : {}),
+      ...(raw.marketingOptIn === true ? { marketingOptIn: true } : {}),
+      ...(typeof raw.marketingConsentAt === 'string' && raw.marketingConsentAt.trim()
+        ? { marketingConsentAt: raw.marketingConsentAt.trim() }
+        : {}),
+      ...(typeof raw.marketingConsentText === 'string' && raw.marketingConsentText.trim()
+        ? { marketingConsentText: raw.marketingConsentText.trim().slice(0, 500) }
+        : {}),
+      ...(raw.campaignMessagesReceived != null && raw.campaignMessagesReceived !== ''
+        ? { campaignMessagesReceived: Math.max(0, Math.floor(Number(raw.campaignMessagesReceived) || 0)) }
+        : {}),
+      ...(campaignTablePreview ? { campaignTablePreview } : {})
+    };
+  }, []);
+
   // --- FIREBASE SYNC ---
   useEffect(() => {
-    const normalizeContactDoc = (id: string, raw: Record<string, any>): Contact => {
-      const birthday =
-        raw.birthday ||
-        raw.aniversario ||
-        raw.dataNascimento ||
-        raw.data_nascimento ||
-        raw.dataAniversario ||
-        raw.dob ||
-        raw.birthdate ||
-        raw.birthDate ||
-        '';
-      const email = raw.email || raw.e_mail || '';
-      const notes = raw.notes || raw.observacoes || raw.obs || '';
-      const followUpAt =
-        parseFirestoreDateToIso(raw.followUpAt) ||
-        parseFirestoreDateToIso(raw.follow_up_at) ||
-        parseFirestoreDateToIso(raw.retornoEm);
-      const followUpRaw = raw.followUpNote ?? raw.follow_up_note ?? raw.retornoNota;
-      const followUpNote =
-        typeof followUpRaw === 'string' && followUpRaw.trim() ? followUpRaw.trim().slice(0, 500) : undefined;
-      const aliasRaw = raw.aliasContactIds;
-      const aliasContactIds = Array.isArray(aliasRaw)
-        ? aliasRaw.map((x: unknown) => String(x || '')).filter(Boolean)
-        : [];
-      const rmpRaw = raw.religiousMemberProfile;
-      const religiousMemberProfile: ReligiousMemberProfile | undefined =
-        rmpRaw && typeof rmpRaw === 'object' && !Array.isArray(rmpRaw)
-          ? (rmpRaw as ReligiousMemberProfile)
-          : undefined;
-      const rawCtp = raw.campaignTablePreview;
-      const campaignTablePreview =
-        rawCtp && typeof rawCtp === 'object' && !Array.isArray(rawCtp) && String((rawCtp as Record<string, unknown>).campaignId || '').trim()
-          ? (() => {
-              const o = rawCtp as Record<string, unknown>;
-              const cid = String(o.campaignId || '').trim().slice(0, 64);
-              return {
-                campaignId: cid,
-                campaignName: String(o.campaignName || '').slice(0, 120),
-                sent: Math.max(0, Math.floor(Number(o.sent) || 0)),
-                totalStages: Math.max(1, Math.floor(Number(o.totalStages) || 1)),
-                pending: Math.max(0, Math.floor(Number(o.pending) || 0)),
-                updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : ''
-              };
-            })()
-          : undefined;
-      return {
-        id,
-        name: raw.name || raw.nome || 'Sem Nome',
-        phone:
-          raw.phone ||
-          raw.telefone ||
-          raw.celular ||
-          raw.mobile ||
-          raw.whatsapp ||
-          raw.numero ||
-          raw.Numero ||
-          '',
-        city: raw.city || raw.cidade || '',
-        state: raw.state || raw.uf || raw.estado || '',
-        street: raw.street || raw.rua || raw.logradouro || raw.endereco || '',
-        number: raw.number || raw.numero || raw.num || '',
-        neighborhood: raw.neighborhood || raw.bairro || '',
-        zipCode: raw.zipCode || raw.cep || raw.zip || '',
-        church: raw.church || raw.igreja || '',
-        role: raw.role || raw.cargo || raw.funcao || '',
-        profession: raw.profession || raw.profissao || raw.cargoProfissional || raw.cargo_profissional || '',
-        birthday,
-        email,
-        notes,
-        tags: Array.isArray(raw.tags) ? raw.tags : [],
-        status: raw.status || 'VALID',
-        lastMsg: raw.lastMsg || raw.ultimaMsg,
-        ...(followUpAt ? { followUpAt } : {}),
-        ...(followUpNote ? { followUpNote } : {}),
-        ...(aliasContactIds.length > 0 ? { aliasContactIds } : {}),
-        ...(religiousMemberProfile && Object.keys(religiousMemberProfile).length > 0
-          ? { religiousMemberProfile }
-          : {}),
-        ...(raw.marketingOptOut === true ? { marketingOptOut: true } : {}),
-        ...(raw.marketingOptIn === true ? { marketingOptIn: true } : {}),
-        ...(typeof raw.marketingConsentAt === 'string' && raw.marketingConsentAt.trim()
-          ? { marketingConsentAt: raw.marketingConsentAt.trim() }
-          : {}),
-        ...(typeof raw.marketingConsentText === 'string' && raw.marketingConsentText.trim()
-          ? { marketingConsentText: raw.marketingConsentText.trim().slice(0, 500) }
-          : {}),
-        ...(raw.campaignMessagesReceived != null && raw.campaignMessagesReceived !== ''
-          ? { campaignMessagesReceived: Math.max(0, Math.floor(Number(raw.campaignMessagesReceived) || 0)) }
-          : {}),
-        ...(campaignTablePreview ? { campaignTablePreview } : {})
-      };
-    };
-
     let cleanupFirestore: Array<() => void> = [];
 
     const stopAll = () => {
@@ -659,11 +670,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       b.legacyCampaigns = [];
 
       if (needContacts) {
+        const CONTACTS_PAGE_SIZE = 500;
+        contactsLastDocRef.current = null;
+        setContactsHasMore(false);
         cleanupFirestore.push(
           onSnapshot(
-            query(collection(db, 'users', uid, 'contacts'), orderBy('name')),
+            query(collection(db, 'users', uid, 'contacts'), orderBy('name'), limit(CONTACTS_PAGE_SIZE)),
             (snapshot) => {
               if (currentUidRef.current !== uid) return;
+              contactsLastDocRef.current = snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : null;
+              setContactsHasMore(snapshot.docs.length >= CONTACTS_PAGE_SIZE);
               b.userContacts = snapshot.docs.map((docSnap) =>
                 normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
               );
@@ -675,7 +691,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!ignoreLegacy) {
           cleanupFirestore.push(
             onSnapshot(
-              query(collection(db, 'contacts')),
+              query(collection(db, 'contacts'), orderBy('name'), limit(CONTACTS_PAGE_SIZE)),
               (snapshot) => {
                 if (currentUidRef.current !== uid) return;
                 if (!allowLegacyNow()) {
@@ -824,6 +840,39 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       stopAll();
     };
   }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading]);
+
+  const loadMoreContacts = useCallback(async (): Promise<void> => {
+    const uid = currentUidRef.current;
+    if (!uid) return;
+    if (contactsLoadingMore) return;
+    if (!contactsHasMore) return;
+    const last = contactsLastDocRef.current;
+    if (!last) return;
+    const CONTACTS_PAGE_SIZE = 500;
+    setContactsLoadingMore(true);
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, 'users', uid, 'contacts'),
+          orderBy('name'),
+          startAfter(last),
+          limit(CONTACTS_PAGE_SIZE)
+        )
+      );
+      const nextDocs = snap.docs.map((d) => normalizeContactDoc(d.id, d.data() as Record<string, any>));
+      contactsLastDocRef.current = snap.docs.length ? snap.docs[snap.docs.length - 1] : contactsLastDocRef.current;
+      setContactsHasMore(snap.docs.length >= CONTACTS_PAGE_SIZE);
+      if (nextDocs.length > 0) {
+        setContacts((prev) => {
+          const byId = new Map(prev.map((c) => [c.id, c]));
+          for (const c of nextDocs) byId.set(c.id, c);
+          return Array.from(byId.values()).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+        });
+      }
+    } finally {
+      setContactsLoadingMore(false);
+    }
+  }, [contactsHasMore, contactsLoadingMore]);
 
   useEffect(() => {
     const u = auth.currentUser;
@@ -2767,6 +2816,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       connections,
       campaigns,
       contacts,
+      contactsHasMore,
+      contactsLoadingMore,
+      loadMoreContacts,
       contactLists,
       metrics,
       birthdays,

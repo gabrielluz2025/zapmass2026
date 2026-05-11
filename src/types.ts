@@ -416,6 +416,10 @@ export interface WarmupItem {
 export interface ZapMassContextType {
   connections: WhatsAppConnection[];
   contacts: Contact[];
+  /** Paginação de contatos (Firestore). `contacts` contém apenas o que já foi carregado. */
+  contactsHasMore?: boolean;
+  contactsLoadingMore?: boolean;
+  loadMoreContacts?: () => Promise<void>;
   contactLists: ContactList[]; // Nova propriedade
   campaigns: Campaign[];
   metrics: DashboardMetrics;

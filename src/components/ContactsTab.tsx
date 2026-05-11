@@ -734,6 +734,9 @@ export const ContactsTab: React.FC = () => {
   const conversations = useZapMassConversations();
   const {
     contacts,
+    contactsHasMore,
+    contactsLoadingMore,
+    loadMoreContacts,
     contactLists,
     addContact,
     bulkAddContacts,
@@ -2868,6 +2871,16 @@ export const ContactsTab: React.FC = () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [contacts, managedListForView, listMemberSearch]);
 
+  const managedListMissingCount = useMemo(() => {
+    const list = managedListForView;
+    if (!list?.contactIds?.length) return 0;
+    // Com paginação, pode haver IDs na lista que ainda não estão carregados em `contacts`.
+    const loadedSet = new Set(contacts.map((c) => c.id));
+    let missing = 0;
+    for (const id of list.contactIds) if (!loadedSet.has(id)) missing++;
+    return missing;
+  }, [managedListForView, contacts]);
+
   const manageListAddPool = useMemo(() => {
     const list = managedListForView;
     if (!list) return [] as Contact[];
@@ -3397,6 +3410,21 @@ export const ContactsTab: React.FC = () => {
 
           {listManageSubTab === 'members' ? (
             <div className="space-y-3">
+              {managedListMissingCount > 0 && (
+                <div className="rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 flex flex-wrap items-center gap-2">
+                  <span className="text-[12px] text-amber-900 dark:text-amber-200 font-medium">
+                    {managedListMissingCount.toLocaleString('pt-BR')} contato(s) desta lista ainda não foram carregados (paginação).
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreContacts?.()}
+                    disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
+                    className="ml-auto ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {contactsLoadingMore ? 'Carregando…' : 'Carregar mais'}
+                  </button>
+                </div>
+              )}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
@@ -3440,6 +3468,21 @@ export const ContactsTab: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
+              {contactsHasMore && (
+                <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                  <span>
+                    Base carregada parcialmente (paginação). Para encontrar mais contatos nesta busca, carregue mais.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreContacts?.()}
+                    disabled={contactsLoadingMore || !loadMoreContacts}
+                    className="font-bold text-emerald-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {contactsLoadingMore ? 'Carregando…' : 'Carregar mais'}
+                  </button>
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
                 <div className="relative flex-1 max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -3591,6 +3634,19 @@ export const ContactsTab: React.FC = () => {
                       : 'Ajuste o filtro na lateral ou tente outra busca.'
             }
           />
+          {(contactsHasMore || contactsLoadingMore) && (
+            <div className="mt-3 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => void loadMoreContacts?.()}
+                disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
+                className="ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Carrega mais contatos da base (paginação)"
+              >
+                {contactsLoadingMore ? 'Carregando…' : contactsHasMore ? 'Carregar mais contatos' : 'Tudo carregado'}
+              </button>
+            </div>
+          )}
           </div>
       </div>
       <ContactsBulkBar
