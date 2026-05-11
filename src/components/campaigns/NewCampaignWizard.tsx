@@ -1,4 +1,5 @@
 import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   AlertCircle,
   AlertTriangle,
@@ -517,6 +518,36 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     });
   }, [eligibleContacts, filterSearch]);
 
+  const filterPickerScrollRef = useRef<HTMLDivElement>(null);
+  const filterContactsVirtualCount =
+    step === 1 && sendMode === 'filter' && eligibleContacts.length > 0 ? visibleContacts.length : 0;
+  const filterContactsVirtualizer = useVirtualizer({
+    count: filterContactsVirtualCount,
+    getScrollElement: () => filterPickerScrollRef.current,
+    estimateSize: () => 58,
+    overscan: 10,
+    getItemKey: (index) => {
+      const row = visibleContacts[index];
+      return row ? `${row.id || ''}:${row.phone}` : String(index);
+    }
+  });
+
+  /** Uma passagem O(n) em `visibleContacts` — evita `.every`/`.some` em milhares de linhas a cada render. */
+  const visibleSelectionStats = useMemo(() => {
+    const n = visibleContacts.length;
+    if (!manualSelection || n === 0) {
+      return { allVisible: false, someVisible: false };
+    }
+    let sel = 0;
+    for (const c of visibleContacts) {
+      if (selectedContactPhones.has(c.phone)) sel++;
+    }
+    return {
+      allVisible: sel === n,
+      someVisible: sel > 0 && sel < n
+    };
+  }, [manualSelection, visibleContacts, selectedContactPhones]);
+
   // Contatos que efetivamente irao receber
   const finalContacts = useMemo<Contact[]>(() => {
     if (sendMode !== 'filter') return [];
@@ -593,12 +624,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setSelectedContactPhones(new Set());
   };
   const allVisibleSelected =
-    manualSelection &&
-    visibleContacts.length > 0 &&
-    visibleContacts.every((c) => selectedContactPhones.has(c.phone));
-  const someVisibleSelected =
-    manualSelection &&
-    visibleContacts.some((c) => selectedContactPhones.has(c.phone));
+    manualSelection && visibleContacts.length > 0 && visibleSelectionStats.allVisible;
+  const someVisibleSelected = manualSelection && visibleSelectionStats.someVisible;
 
   const renderTemperatureFilter = () => (
     <div
@@ -1571,47 +1598,75 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           )}
                         </div>
                       </div>
-                      <div className="max-h-72 overflow-y-auto divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+                      <div
+                        ref={filterPickerScrollRef}
+                        className="max-h-72 min-h-0 overflow-y-auto divide-y"
+                        style={{ borderColor: 'var(--border-subtle)' }}
+                      >
                         {visibleContacts.length === 0 ? (
                           <div className="text-center py-6 text-[12.5px]" style={{ color: 'var(--text-3)' }}>
                             Nenhum contato bate com a busca.
                           </div>
                         ) : (
-                          visibleContacts.map((c) => {
-                            const effectivelySelected = manualSelection
-                              ? selectedContactPhones.has(c.phone)
-                              : true;
-                            return (
-                              <label
-                                key={c.id || c.phone}
-                                className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-[var(--surface-2)] transition-colors"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={effectivelySelected}
-                                  onChange={() => toggleContactPhone(c.phone)}
-                                  className="w-4 h-4 rounded cursor-pointer flex-shrink-0"
-                                  style={{ accentColor: 'var(--brand-500)' }}
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                                    {c.name || `+${c.phone}`}
-                                  </p>
-                                  <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
-                                    +{c.phone}
-                                    {c.city ? ` - ${c.city}` : ''}
-                                    {c.role ? ` - ${c.role}` : ''}
-                                    {c.profession ? ` - ${c.profession}` : ''}
-                                  </p>
+                          <div
+                            className="divide-y"
+                            style={{
+                              height: filterContactsVirtualizer.getTotalSize(),
+                              width: '100%',
+                              position: 'relative',
+                              borderColor: 'var(--border-subtle)'
+                            }}
+                          >
+                            {filterContactsVirtualizer.getVirtualItems().map((vRow) => {
+                              const c = visibleContacts[vRow.index];
+                              if (!c) return null;
+                              const effectivelySelected = manualSelection
+                                ? selectedContactPhones.has(c.phone)
+                                : true;
+                              return (
+                                <div
+                                  key={`${c.id || ''}:${c.phone}`}
+                                  data-index={vRow.index}
+                                  ref={filterContactsVirtualizer.measureElement}
+                                  className="absolute left-0 top-0 w-full"
+                                  style={{ transform: `translateY(${vRow.start}px)` }}
+                                >
+                                  <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-[var(--surface-2)] transition-colors border-b border-[var(--border-subtle)]">
+                                    <input
+                                      type="checkbox"
+                                      checked={effectivelySelected}
+                                      onChange={() => toggleContactPhone(c.phone)}
+                                      className="w-4 h-4 rounded cursor-pointer flex-shrink-0"
+                                      style={{ accentColor: 'var(--brand-500)' }}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                                        {c.name || `+${c.phone}`}
+                                      </p>
+                                      <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
+                                        +{c.phone}
+                                        {c.city ? ` - ${c.city}` : ''}
+                                        {c.role ? ` - ${c.role}` : ''}
+                                        {c.profession ? ` - ${c.profession}` : ''}
+                                      </p>
+                                    </div>
+                                    {c.church && (
+                                      <span
+                                        className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded hidden sm:inline"
+                                        style={{
+                                          background: 'var(--surface-0)',
+                                          color: 'var(--text-3)',
+                                          border: '1px solid var(--border-subtle)'
+                                        }}
+                                      >
+                                        {c.church}
+                                      </span>
+                                    )}
+                                  </label>
                                 </div>
-                                {c.church && (
-                                  <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded hidden sm:inline" style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}>
-                                    {c.church}
-                                  </span>
-                                )}
-                              </label>
-                            );
-                          })
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     </div>
