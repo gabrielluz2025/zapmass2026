@@ -3581,33 +3581,34 @@ export const ContactsTab: React.FC = () => {
         </div>
 
         <div className="flex flex-col gap-3 min-w-0">
-          <div className="rounded-2xl border border-emerald-200/70 dark:border-emerald-900/45 bg-gradient-to-br from-emerald-50/95 via-white to-slate-50 dark:from-emerald-950/35 dark:via-slate-900 dark:to-slate-950 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 flex flex-col gap-3">
-              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden relative">
+            <div className="absolute top-0 left-0 w-1 h-full bg-[var(--brand-500)] opacity-50" />
+            <div className="px-5 py-4 flex flex-col gap-4">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2.5">
+                    <h2 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
                       {activeFilter.startsWith('list:') ? 'Lista selecionada' : 'Base de contatos'}
-                    </span>
+                    </h2>
                     {searchTerm.trim() && (
-                      <span className="text-xs text-slate-500 truncate max-w-[min(100%,280px)]">
-                        · busca: <b className="text-slate-700 dark:text-slate-200">{searchTerm.trim()}</b>
-                      </span>
+                      <Badge variant="info" className="text-[10px] py-0.5 px-2 font-bold uppercase tracking-wider">
+                        Busca: {searchTerm.trim()}
+                      </Badge>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-snug max-w-2xl">
-                    Números à esquerda refletem a base no Firestore e o que já foi carregado na sessão; à direita, o que o filtro atual mostra na tabela virtualizada.
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-xl leading-relaxed">
+                    Visualização dinâmica dos seus contatos. Use os filtros na lateral para segmentar seu público e realizar disparos em massa com precisão.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => void refreshContactsSavedTotal?.()}
                     disabled={contactsSavedTotalLoading || !refreshContactsSavedTotal}
-                    className="ui-btn ui-btn-secondary inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Atualizar contagem total na base (Firestore)"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all disabled:opacity-50"
+                    title="Sincronizar total com o Firestore"
                   >
-                    <RotateCw className={`w-3.5 h-3.5 ${contactsSavedTotalLoading ? 'motion-safe:animate-spin' : ''}`} />
+                    <RotateCw className={`w-3.5 h-3.5 ${contactsSavedTotalLoading ? 'animate-spin' : ''}`} />
                     Atualizar totais
                   </button>
                   {(contactsHasMore || contactsLoadingMore) && (
@@ -3615,50 +3616,61 @@ export const ContactsTab: React.FC = () => {
                       type="button"
                       onClick={() => void loadMoreContacts?.()}
                       disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
-                      className="ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Carrega mais contatos da base (paginação)"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-[var(--brand-600)] hover:brightness-110 shadow-md shadow-[var(--brand-600)]/20 transition-all disabled:opacity-50"
                     >
-                      {contactsLoadingMore ? 'Carregando…' : contactsHasMore ? 'Carregar mais' : 'Tudo carregado'}
+                      {contactsLoadingMore ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Carregando…
+                        </>
+                      ) : (
+                        'Carregar mais 500'
+                      )}
                     </button>
                   )}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200/80 dark:border-emerald-800/60 bg-white/80 dark:bg-slate-900/70 px-3 py-1.5 text-[11px] font-semibold text-emerald-900 dark:text-emerald-100 shadow-sm"
-                  title="Documentos em users/seu-id/contacts no Firestore"
-                >
-                  <Database className="w-3.5 h-3.5 opacity-80" />
-                  Na base
-                  <span className="tabular-nums text-xs">
-                    {contactsSavedTotalLoading
-                      ? '…'
-                      : contactsSavedTotal != null
-                        ? contactsSavedTotal.toLocaleString('pt-BR')
-                        : '—'}
-                  </span>
-                </span>
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 px-3 py-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200"
-                  title="Contatos já carregados nesta sessão (paginação)"
-                >
-                  Carregados
-                  <span className="tabular-nums text-xs">{contacts.length.toLocaleString('pt-BR')}</span>
-                </span>
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/80 dark:bg-sky-950/30 px-3 py-1.5 text-[11px] font-semibold text-sky-900 dark:text-sky-100"
-                  title="Resultado após filtro da lateral e busca"
-                >
-                  No filtro
-                  <span className="tabular-nums text-xs">{listFilteredContacts.length.toLocaleString('pt-BR')}</span>
-                </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <StatBox
+                  icon={<Database className="w-4 h-4 text-slate-400" />}
+                  label="Na base (Firestore)"
+                  value={contactsSavedTotalLoading ? '...' : contactsSavedTotal?.toLocaleString('pt-BR') || '0'}
+                  sub="Total de documentos salvos"
+                  color="slate"
+                />
+                <StatBox
+                  icon={<Layers className="w-4 h-4 text-emerald-500" />}
+                  label="Carregados"
+                  value={contacts.length.toLocaleString('pt-BR')}
+                  sub="Disponíveis nesta sessão"
+                  color="emerald"
+                />
+                <StatBox
+                  icon={<Filter className="w-4 h-4 text-sky-500" />}
+                  label="No filtro atual"
+                  value={listFilteredContacts.length.toLocaleString('pt-BR')}
+                  sub="Prontos para ação"
+                  color="sky"
+                />
               </div>
+
               {contactsSavedTotal != null &&
                 contacts.length < contactsSavedTotal &&
                 (contactsHasMore || contactsLoadingMore) && (
-                  <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-medium rounded-lg bg-amber-50/90 dark:bg-amber-950/25 border border-amber-200/70 dark:border-amber-900/40 px-2.5 py-1.5">
-                    Ainda há contatos na base que não estão na tabela. Use &quot;Carregar mais&quot; para ir buscando em blocos de 500.
-                  </p>
+                  <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-900/30">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-bold leading-tight">
+                        Existem mais {(contactsSavedTotal - contacts.length).toLocaleString('pt-BR')} contatos na base ainda não carregados.
+                      </p>
+                      <p className="text-[10px] text-amber-700/70 dark:text-amber-400/60 mt-0.5">
+                        A tabela utiliza carregamento sob demanda para manter a performance. Clique em &quot;Carregar mais&quot; para buscar o restante.
+                      </p>
+                    </div>
+                  </div>
                 )}
             </div>
           </div>
@@ -5320,5 +5332,32 @@ export const ContactsTab: React.FC = () => {
     </div>
   );
 };
-      
-      
+
+const StatBox: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub: string;
+  color: 'slate' | 'emerald' | 'sky';
+}> = ({ icon, label, value, sub, color }) => {
+  const colors = {
+    slate: 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 text-slate-900 dark:text-white',
+    emerald: 'border-emerald-200/60 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-900 dark:text-emerald-100',
+    sky: 'border-sky-200/60 dark:border-sky-900/40 bg-sky-50/50 dark:bg-sky-950/10 text-sky-900 dark:text-sky-100',
+  };
+
+  return (
+    <div className={`p-3 rounded-2xl border ${colors[color]} shadow-sm flex items-center gap-3`}>
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+        color === 'slate' ? 'bg-white dark:bg-slate-800 shadow-sm' : 'bg-white/80 dark:bg-slate-900/50 shadow-sm'
+      }`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">{label}</div>
+        <div className="text-xl font-black tabular-nums leading-none my-0.5">{value}</div>
+        <div className="text-[9px] opacity-60 truncate">{sub}</div>
+      </div>
+    </div>
+  );
+};

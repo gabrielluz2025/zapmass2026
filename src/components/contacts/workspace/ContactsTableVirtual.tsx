@@ -151,15 +151,23 @@ export const ContactsTableVirtual: React.FC<Props> = ({
 
       {/* Corpo virtualizado */}
       {rows.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center p-10 text-center">
-          <div>
-            <div className="w-14 h-14 rounded-2xl mx-auto mb-3 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-              <Users className="w-7 h-7" />
+        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50/30 dark:bg-slate-900/10">
+          <div className="relative mb-6">
+            <div className="w-20 h-20 rounded-3xl bg-white dark:bg-slate-800 shadow-xl flex items-center justify-center text-slate-300 dark:text-slate-600 relative z-10 border border-slate-100 dark:border-slate-700">
+              <Users className="w-10 h-10" />
             </div>
-            <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">Nenhum contato aqui</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs">
-              {emptyHint || 'Tente outro filtro ou importe novos contatos.'}
-            </div>
+            <div className="absolute -inset-4 bg-[var(--brand-500)]/10 rounded-full blur-2xl animate-pulse" />
+          </div>
+          <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight mb-2">
+            Nenhum contato encontrado
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
+            {emptyHint || 'Não encontramos resultados para os filtros ou busca aplicados. Tente ajustar os parâmetros na lateral.'}
+          </p>
+          <div className="mt-8 flex items-center gap-3">
+            <div className="h-px w-8 bg-slate-200 dark:bg-slate-800" />
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">ZapMass CRM</span>
+            <div className="h-px w-8 bg-slate-200 dark:bg-slate-800" />
           </div>
         </div>
       ) : (

@@ -57,26 +57,29 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
   }, [importOpen]);
 
   return (
-    <div className="ui-card px-4 py-3 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+    <div className="ui-card px-5 py-4 flex flex-col lg:flex-row gap-5 lg:items-center lg:justify-between shadow-sm relative overflow-hidden">
+      {/* Background Decor */}
+      <div className="absolute top-0 right-0 w-64 h-64 bg-slate-100/50 dark:bg-slate-800/20 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+      
       {/* Esquerda — identidade + mini stats */}
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-4 min-w-0 relative z-10">
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 shadow"
+          className="w-12 h-12 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg"
           style={{ background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))' }}
         >
-          <Users className="w-5 h-5" />
+          <Users className="w-6 h-6" />
         </div>
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-slate-900 dark:text-white">Contatos</h1>
-            <span
-              className="px-2 py-0.5 rounded-md text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Contatos</h1>
+            <div
+              className="px-2.5 py-1 rounded-lg text-xs font-black bg-slate-900 dark:bg-white dark:text-slate-900 text-white shadow-sm"
               title="Total de contatos na base"
             >
               {stats.total.toLocaleString('pt-BR')}
-            </span>
+            </div>
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap mt-0.5">
+          <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-x-4 gap-y-2 flex-wrap mt-1.5">
             <Pill label="Válidos" value={stats.valid} tone="emerald" />
             <Pill label="Novos (7d)" value={stats.newLast7} tone="sky" />
             <Pill label="Quentes" value={stats.hot} tone="rose" />
@@ -89,60 +92,66 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
       </div>
 
       {/* Direita — ações */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2.5 flex-wrap relative z-10">
         <button
           onClick={onOpenInsights}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+          className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[var(--brand-500)]/50 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm"
           title="Ver painel completo de análise (carrega sob demanda)"
         >
-          <BarChart3 className="w-4 h-4" />
+          <BarChart3 className="w-4 h-4 text-[var(--brand-500)]" />
           <span className="hidden sm:inline">Insights</span>
         </button>
 
         <div className="relative" ref={importBtnRef}>
           <button
             onClick={() => setImportOpen((v) => !v)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[var(--brand-500)]/50 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm"
           >
-            <Upload className="w-4 h-4" />
+            <Upload className="w-4 h-4 text-emerald-500" />
             <span className="hidden sm:inline">Importar</span>
-            <ChevronDown className="w-3 h-3 opacity-60" />
+            <ChevronDown className="w-3.5 h-3.5 opacity-60" />
           </button>
           {importOpen && (
-            <div className="absolute right-0 top-full mt-1 w-64 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 z-30 overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 z-30 overflow-hidden ring-4 ring-black/5 animate-in fade-in slide-in-from-top-1">
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Opções de entrada
+              </div>
               <MenuItem
-                icon={<FileSpreadsheet className="w-4 h-4 text-emerald-500" />}
+                icon={<FileSpreadsheet className="w-5 h-5 text-emerald-500" />}
                 title="Importar XLSX / CSV"
                 subtitle="Planilha com as colunas do template"
                 onClick={() => { setImportOpen(false); onImportXLSX(); }}
               />
               <MenuItem
-                icon={<Smartphone className="w-4 h-4 text-teal-500" />}
+                icon={<Smartphone className="w-5 h-5 text-teal-500" />}
                 title="Importar vCard (.vcf)"
-                subtitle="Exportado do celular (Contactos ou Android)"
+                subtitle="Exportado do celular (Contatos)"
                 onClick={() => { setImportOpen(false); onImportVcf(); }}
               />
               <MenuItem
-                icon={<Wand2 className="w-4 h-4 text-violet-500" />}
+                icon={<Wand2 className="w-5 h-5 text-violet-500" />}
                 title="Importação inteligente"
                 subtitle="Cole texto livre — a IA extrai os dados"
                 onClick={() => { setImportOpen(false); onSmartImport(); }}
               />
-              <MenuItem
-                icon={<Download className="w-4 h-4 text-sky-500" />}
-                title="Baixar template"
-                subtitle="Modelo XLSX pronto para preencher"
-                onClick={() => { setImportOpen(false); onDownloadTemplate(); }}
-              />
+              <div className="p-2 bg-slate-50 dark:bg-slate-800/30">
+                <button
+                  onClick={() => { setImportOpen(false); onDownloadTemplate(); }}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Baixar template XLSX
+                </button>
+              </div>
             </div>
           )}
         </div>
 
         <button
           onClick={onExport}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+          className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[var(--brand-500)]/50 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm"
         >
-          <Download className="w-4 h-4" />
+          <Download className="w-4 h-4 text-sky-500" />
           <span className="hidden sm:inline">Exportar</span>
         </button>
 
@@ -150,21 +159,21 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
           <button
             type="button"
             onClick={onOpenNormalizeNames}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[var(--brand-500)]/50 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm"
             title="Remover prefixos, padronizar maiúsculas e opcionalmente reduzir a primeiro e último nome"
           >
-            <SpellCheck2 className="w-4 h-4" />
-            <span className="hidden sm:inline">Nomes</span>
+            <SpellCheck2 className="w-4 h-4 text-violet-500" />
+            <span className="hidden sm:inline">Limpar nomes</span>
           </button>
         )}
 
         <button
           onClick={onNewContact}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-bold text-white shadow-md transition hover:brightness-110"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white shadow-lg transition hover:scale-[1.02] active:scale-[0.98] hover:brightness-110 active:brightness-90"
           style={{ background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))' }}
         >
           <UserPlus className="w-4 h-4" />
-          Novo contato
+          <span>Novo contato</span>
         </button>
       </div>
     </div>
