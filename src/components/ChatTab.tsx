@@ -2361,26 +2361,25 @@ export const ChatTab: React.FC<{
                     </div>
                   )}
               </div>
-              <div className="flex items-center gap-0.5">
+              <div className="flex items-center gap-1.5 shrink-0 ml-3 relative" ref={chatMenuRef}>
                 <button
                   type="button"
-                  className="wa-icon-btn"
+                  className="p-2.5 rounded-xl text-slate-500 hover:text-[var(--brand-600)] dark:text-slate-400 dark:hover:text-[var(--brand-400)] hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   onClick={() => setShowChatSearch(!showChatSearch)}
                   title="Buscar mensagens"
                   aria-label="Buscar mensagens"
                 >
                   <Search className="w-5 h-5" />
                 </button>
-                <div className="relative" ref={chatMenuRef}>
-                  <button
-                    type="button"
-                    className="wa-icon-btn"
-                    onClick={() => setShowChatMenu((v) => !v)}
-                    title="Mais opções"
-                    aria-label="Mais opções"
-                  >
-                    <MoreVertical className="w-5 h-5" />
-                  </button>
+                <button
+                  type="button"
+                  className="p-2.5 rounded-xl text-slate-500 hover:text-[var(--brand-600)] dark:text-slate-400 dark:hover:text-[var(--brand-400)] hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  onClick={() => setShowChatMenu((v) => !v)}
+                  title="Mais opções"
+                  aria-label="Mais opções"
+                >
+                  <MoreVertical className="w-5 h-5" />
+                </button>
                   {showChatMenu && (
                     <div
                       className="absolute right-0 top-full mt-1 z-30 min-w-[220px] rounded-xl shadow-lg py-1.5"
@@ -2475,14 +2474,12 @@ export const ChatTab: React.FC<{
                       />
                     </div>
                   )}
-                </div>
               </div>
             </div>
 
             {showChatSearch && (
               <div
-                className="flex items-center gap-2 px-4 py-2 flex-shrink-0"
-                style={{ background: 'var(--wa-header)', borderBottom: '1px solid var(--wa-divider)' }}
+                className="flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 z-10"
               >
                 <Input
                   autoFocus
@@ -2512,18 +2509,21 @@ export const ChatTab: React.FC<{
             >
               {/* Banner especial: conversa nova sem histórico (rascunho local). */}
               {isSelectedDraft && (
-                <div className="flex justify-center mb-3">
+                <div className="flex justify-center mb-4">
                   <div
-                    className="text-[12px] px-3.5 py-2 rounded-xl inline-flex items-center gap-2 shadow-sm max-w-[92%]"
+                    className="text-[12.5px] px-4 py-3 rounded-2xl inline-flex items-center gap-3 shadow-md max-w-[92%]"
                     style={{
-                      background: 'linear-gradient(135deg, rgba(16,185,129,0.10), rgba(16,185,129,0.04))',
+                      background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))',
                       color: 'var(--text-1)',
-                      border: '1px solid rgba(16,185,129,0.35)'
+                      border: '1px solid rgba(16,185,129,0.4)',
+                      backdropFilter: 'blur(8px)'
                     }}
                   >
-                    <MessageCircle className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center shrink-0">
+                      <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    </div>
                     <span>
-                      Nova conversa com <strong>{selectedDisplay?.primary ?? selectedConversation?.contactName}</strong>. Envie a primeira mensagem abaixo — ela será criada no WhatsApp ao enviar.
+                      Nova conversa com <strong className="font-black text-slate-900 dark:text-white">{selectedDisplay?.primary ?? selectedConversation?.contactName}</strong>. Envie a primeira mensagem abaixo — ela será criada no WhatsApp ao enviar.
                     </span>
                   </div>
                 </div>
@@ -2827,19 +2827,18 @@ export const ChatTab: React.FC<{
               </div>
             )}
 
-            <div className="wa-composer flex-shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-3 flex-shrink-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-10">
               <button
                 type="button"
                 onClick={() => {
                   setShowEmojiPicker(!showEmojiPicker);
                   setShowQuickReplies(false);
                 }}
-                className="wa-icon-btn"
-                style={showEmojiPicker ? { color: 'var(--wa-green-strong)' } : undefined}
+                className={`p-2.5 rounded-xl transition-colors ${showEmojiPicker ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-[var(--brand-600)] dark:hover:text-[var(--brand-400)]'}`}
                 title="Emojis"
                 aria-label="Inserir emoji"
               >
-                <Smile className="w-[22px] h-[22px]" />
+                <Smile className="w-6 h-6" />
               </button>
               <button
                 type="button"
@@ -2847,12 +2846,11 @@ export const ChatTab: React.FC<{
                   setShowQuickReplies(!showQuickReplies);
                   setShowEmojiPicker(false);
                 }}
-                className="wa-icon-btn"
-                style={showQuickReplies ? { color: 'var(--wa-green-strong)' } : undefined}
+                className={`p-2.5 rounded-xl transition-colors ${showQuickReplies ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-[var(--brand-600)] dark:hover:text-[var(--brand-400)]'}`}
                 title="Respostas rápidas"
                 aria-label="Respostas rápidas"
               >
-                <MessageCircle className="w-[22px] h-[22px]" />
+                <MessageCircle className="w-6 h-6" />
               </button>
               <input
                 ref={fileInputRef}
@@ -2864,11 +2862,11 @@ export const ChatTab: React.FC<{
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="wa-icon-btn"
+                className="p-2.5 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-[var(--brand-600)] dark:hover:text-[var(--brand-400)] transition-colors"
                 title="Anexar arquivo"
                 aria-label="Anexar arquivo"
               >
-                {sendingMedia ? <Loader2 className="w-[22px] h-[22px] animate-spin" /> : <Paperclip className="w-[22px] h-[22px]" />}
+                {sendingMedia ? <Loader2 className="w-6 h-6 animate-spin" /> : <Paperclip className="w-6 h-6" />}
               </button>
               {(uploadStage === 'reading' || uploadStage === 'uploading' || uploadStage === 'sending') && (
                 <MediaUploadProgressBar
@@ -2906,7 +2904,7 @@ export const ChatTab: React.FC<{
                 </button>
               )}
 
-              <form onSubmit={handleSendMessage} className="flex items-center gap-2 flex-1 min-w-0">
+              <form onSubmit={handleSendMessage} className="flex items-center gap-3 flex-1 min-w-0">
                 {isSelectedDraft && (
                   <select
                     value={selectedDraftChannelId}
@@ -2918,11 +2916,11 @@ export const ChatTab: React.FC<{
                         [selectedChatId]: nextConnectionId
                       }));
                     }}
-                    className="py-2 px-2.5 rounded-lg text-[12.5px] outline-none border max-w-[170px]"
+                    className="py-2.5 px-3 rounded-xl text-sm font-semibold outline-none border transition-colors shadow-sm min-w-[140px]"
                     style={{
-                      background: 'var(--wa-panel)',
-                      color: 'var(--wa-text)',
-                      borderColor: 'var(--wa-divider)'
+                      background: 'var(--surface-0)',
+                      color: 'var(--text-1)',
+                      borderColor: 'var(--border-subtle)'
                     }}
                     title="Escolha o canal para enviar"
                   >
@@ -2934,34 +2932,39 @@ export const ChatTab: React.FC<{
                     ))}
                   </select>
                 )}
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setShowEmojiPicker(false);
-                      setShowQuickReplies(false);
-                    }
-                  }}
-                  placeholder="Digite uma mensagem"
-                  className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-[14px] rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[var(--brand-500)]/30 focus:border-[var(--brand-500)]/50 transition-all shadow-sm"
-                  aria-label="Mensagem"
-                />
+                <div className="relative flex-1 min-w-0 flex items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm focus-within:ring-2 focus-within:ring-[var(--brand-500)]/30 focus-within:border-[var(--brand-500)]/50 transition-all px-1">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowEmojiPicker(false);
+                        setShowQuickReplies(false);
+                      }
+                    }}
+                    placeholder="Digite uma mensagem"
+                    className="flex-1 bg-transparent border-none outline-none text-slate-900 dark:text-slate-100 text-[15px] px-4 py-3 placeholder:text-slate-400"
+                    aria-label="Mensagem"
+                  />
+                  <div className="flex items-center pr-2 gap-1">
+                    {/* Add extra action buttons inside the input container for a modern look */}
+                  </div>
+                </div>
                 <button
                   type="submit"
                   disabled={!canSendCurrent}
-                  className={`flex items-center justify-center w-11 h-11 rounded-xl transition-all shadow-sm shrink-0 ${
+                  className={`flex items-center justify-center w-12 h-12 rounded-2xl transition-all shadow-md shrink-0 ${
                     inputText.trim() 
-                      ? 'bg-[var(--brand-500)] text-white hover:brightness-110 active:scale-95' 
+                      ? 'bg-[var(--brand-500)] text-white hover:brightness-110 active:scale-95 hover:shadow-[var(--brand-500)]/30' 
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                   data-mode={inputText.trim() ? 'send' : 'mic'}
                   title={isSelectedDraft && !selectedDraftChannelId ? 'Escolha um canal para enviar' : inputText.trim() ? 'Enviar' : 'Microfone'}
                   style={!canSendCurrent ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                 >
-                  {inputText.trim() ? <Send className="w-5 h-5 ml-1" /> : <Mic className="w-5 h-5" />}
+                  {inputText.trim() ? <Send className="w-5 h-5 ml-1" /> : <Mic className="w-[22px] h-[22px]" />}
                 </button>
               </form>
             </div>
