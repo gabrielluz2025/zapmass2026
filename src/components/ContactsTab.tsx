@@ -807,7 +807,7 @@ export const ContactsTab: React.FC = () => {
   /** Defer `searchTerm` para o filtro pesado (varre 14+ campos por contato) — digitação não trava o input em bases grandes. */
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [currentPage, setCurrentPage] = useState(1);
-  const [autoLoadActive, setAutoLoadActive] = useState(false);
+  const [autoLoadActive, setAutoLoadActive] = useState(true);
 
   // Auto-loader: carrega o restante da base em background se solicitado ou se necessário para a página
   useEffect(() => {
@@ -3640,28 +3640,13 @@ export const ContactsTab: React.FC = () => {
                     Atualizar totais
                   </button>
                   {(contactsHasMore || contactsLoadingMore) && (
-                    <button
-                      type="button"
-                      onClick={() => setAutoLoadActive(true)}
-                      disabled={autoLoadActive || !contactsHasMore || contactsLoadingMore}
-                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white transition-all disabled:opacity-50 ${
-                        autoLoadActive ? 'bg-emerald-600' : 'bg-[var(--brand-600)] hover:brightness-110 shadow-md shadow-[var(--brand-600)]/20'
-                      }`}
-                    >
-                      {autoLoadActive ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Carregando toda a base…
-                        </>
-                      ) : contactsLoadingMore ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Carregando…
-                        </>
-                      ) : (
-                        'Carregar tudo (Automático)'
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50 shadow-sm transition-all animate-in fade-in zoom-in-95">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{contactsLoadingMore ? 'Buscando blocos...' : 'Auto-carregamento ativo'}</span>
+                      <span className="ml-1 opacity-60 tabular-nums">
+                        {contacts.length.toLocaleString('pt-BR')} / {contactsSavedTotal?.toLocaleString('pt-BR') || '…'}
+                      </span>
+                    </div>
                   )}
                 </div>
               </div>
