@@ -807,6 +807,18 @@ export const ContactsTab: React.FC = () => {
   /** Defer `searchTerm` para o filtro pesado (varre 14+ campos por contato) — digitação não trava o input em bases grandes. */
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [currentPage, setCurrentPage] = useState(1);
+  const [autoLoadActive, setAutoLoadActive] = useState(false);
+
+  // Auto-loader: carrega o restante da base em background se solicitado ou se necessário para a página
+  useEffect(() => {
+    if (!autoLoadActive || !contactsHasMore || contactsLoadingMore) return;
+
+    const timer = setTimeout(() => {
+      void loadMoreContacts?.();
+    }, 1000); // Pequeno delay entre blocos para não sobrecarregar
+
+    return () => clearTimeout(timer);
+  }, [autoLoadActive, contactsHasMore, contactsLoadingMore, loadMoreContacts]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
@@ -1472,7 +1484,7 @@ export const ContactsTab: React.FC = () => {
     }
   };
 
-  const ITEMS_PER_PAGE = 15;
+  const ITEMS_PER_PAGE = 500;
   const { topTags, recentContacts } = useMemo(() => {
     const tagCounts = contacts.reduce<Record<string, number>>((acc, contact) => {
       contact.tags.forEach((tag) => {
@@ -2071,7 +2083,16 @@ export const ContactsTab: React.FC = () => {
   }, [filteredContacts, activeFilter]);
 
   // Pagination Logic
-  const totalPages = Math.ceil(listFilteredContacts.length / ITEMS_PER_PAGE);
+  const totalAvailable = useMemo(() => {
+    // Se o filtro for "Todos" e sem busca ativa, usamos o total real da base (Firestore)
+    if (activeFilter === 'all' && !searchTerm.trim() && contactsSavedTotal != null) {
+      return contactsSavedTotal;
+    }
+    // Caso contrário, usamos o que temos carregado (já que filtros locais só funcionam no que está em memória)
+    return listFilteredContacts.length;
+  }, [activeFilter, searchTerm, contactsSavedTotal, listFilteredContacts.length]);
+
+  const totalPages = Math.max(1, Math.ceil(totalAvailable / ITEMS_PER_PAGE));
   const paginatedContacts = useMemo(
     () =>
       listFilteredContacts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
@@ -2083,6 +2104,13 @@ export const ContactsTab: React.FC = () => {
   const handlePageChange = (newPage: number) => {
     if (newPage > 0 && newPage <= totalPages) {
       setCurrentPage(newPage);
+      
+      // Se estamos indo para uma página que ainda não foi carregada completamente, 
+      // e temos mais contatos na base, ativa o auto-carregamento.
+      const neededCount = newPage * ITEMS_PER_PAGE;
+      if (neededCount > contacts.length && contactsHasMore) {
+        setAutoLoadActive(true);
+      }
     }
   };
 
@@ -3614,17 +3642,24 @@ export const ContactsTab: React.FC = () => {
                   {(contactsHasMore || contactsLoadingMore) && (
                     <button
                       type="button"
-                      onClick={() => void loadMoreContacts?.()}
-                      disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-[var(--brand-600)] hover:brightness-110 shadow-md shadow-[var(--brand-600)]/20 transition-all disabled:opacity-50"
+                      onClick={() => setAutoLoadActive(true)}
+                      disabled={autoLoadActive || !contactsHasMore || contactsLoadingMore}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white transition-all disabled:opacity-50 ${
+                        autoLoadActive ? 'bg-emerald-600' : 'bg-[var(--brand-600)] hover:brightness-110 shadow-md shadow-[var(--brand-600)]/20'
+                      }`}
                     >
-                      {contactsLoadingMore ? (
+                      {autoLoadActive ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Carregando toda a base…
+                        </>
+                      ) : contactsLoadingMore ? (
                         <>
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           Carregando…
                         </>
                       ) : (
-                        'Carregar mais 500'
+                        'Carregar tudo (Automático)'
                       )}
                     </button>
                   )}
@@ -3649,7 +3684,7 @@ export const ContactsTab: React.FC = () => {
                 <StatBox
                   icon={<Filter className="w-4 h-4 text-sky-500" />}
                   label="No filtro atual"
-                  value={listFilteredContacts.length.toLocaleString('pt-BR')}
+                  value={totalAvailable.toLocaleString('pt-BR')}
                   sub="Prontos para ação"
                   color="sky"
                 />
@@ -3710,32 +3745,102 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
-          <ContactsTableVirtual
-            rows={listFilteredContacts}
-            contactTemps={contactTemps}
-            selectedIds={selectedIds}
-            onToggleSelect={handleToggleSelectOne}
-            onToggleSelectAll={handleToggleSelectAllVisible}
-            onRowClick={handleRowClick}
-            onEdit={beginEditContact}
-            onDelete={(c) => handleDelete(c.id)}
-            onOpenChat={openInChat}
-            onCreateCampaign={handleCreateCampaignForContact}
-            onCopyPhone={handleCopyPhone}
-            onAddToList={handleAddSingleToList}
-            selectedContactId={selectedContact?.id || null}
-            emptyHint={
-              searchTerm
-                ? <>Nenhum contato casa com "<b>{searchTerm}</b>".</>
-                : activeFilter === 'all'
-                  ? 'Sua base está vazia. Importe ou crie um contato.'
-                  : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
-                    ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
-                    : activeFilter === 'wedding_today' || activeFilter === 'wedding_week'
-                      ? 'Ninguém com data de casamento na ficha neste período. Edite o contato (segmento religioso) e preencha Data do casamento na ficha de membro.'
-                      : 'Ajuste o filtro na lateral ou tente outra busca.'
-            }
-          />
+          {paginatedContacts.length === 0 && currentPage < totalPages ? (
+            <div className="h-[calc(100vh-320px)] flex flex-col items-center justify-center p-12 text-center bg-slate-50/30 dark:bg-slate-900/10 border-none">
+              <div className="relative mb-6">
+                <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex items-center justify-center text-[var(--brand-500)] relative z-10 border border-slate-100 dark:border-slate-700">
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                </div>
+              </div>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight mb-2">
+                Carregando página {currentPage}...
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
+                Buscando os contatos na base de dados para preencher esta visualização.
+              </p>
+            </div>
+          ) : (
+            <ContactsTableVirtual
+              rows={paginatedContacts}
+              contactTemps={contactTemps}
+              selectedIds={selectedIds}
+              onToggleSelect={handleToggleSelectOne}
+              onToggleSelectAll={handleToggleSelectAllVisible}
+              onRowClick={handleRowClick}
+              onEdit={beginEditContact}
+              onDelete={(c) => handleDelete(c.id)}
+              onOpenChat={openInChat}
+              onCreateCampaign={handleCreateCampaignForContact}
+              onCopyPhone={handleCopyPhone}
+              onAddToList={handleAddSingleToList}
+              selectedContactId={selectedContact?.id || null}
+              heightClass="h-[calc(100vh-320px)]"
+              emptyHint={
+                searchTerm
+                  ? <>Nenhum contato casa com "<b>{searchTerm}</b>".</>
+                  : activeFilter === 'all'
+                    ? 'Sua base está vazia. Importe ou crie um contato.'
+                    : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
+                      ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
+                      : activeFilter === 'wedding_today' || activeFilter === 'wedding_week'
+                        ? 'Ninguém com data de casamento na ficha neste período. Edite o contato (segmento religioso) e preencha Data do casamento na ficha de membro.'
+                        : 'Ajuste o filtro na lateral ou tente outra busca.'
+              }
+            />
+          )}
+
+          {/* Pagination Footer */}
+          {totalPages > 1 && (
+            <div className="px-4 py-3 flex items-center justify-between border-t border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/10">
+              <div className="text-xs text-slate-500 font-medium">
+                Mostrando <span className="text-slate-900 dark:text-white font-bold">{paginatedContacts.length}</span> de <span className="text-slate-900 dark:text-white font-bold">{totalAvailable.toLocaleString('pt-BR')}</span> contatos
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                
+                <div className="flex items-center gap-1">
+                  {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                    let pageNum = currentPage;
+                    if (totalPages <= 5) pageNum = i + 1;
+                    else if (currentPage <= 3) pageNum = i + 1;
+                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                    else pageNum = currentPage - 2 + i;
+
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${
+                          currentPage === pageNum
+                            ? 'bg-[var(--brand-600)] text-white shadow-md'
+                            : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="text-xs text-slate-500 font-medium">
+                Página <span className="text-slate-900 dark:text-white font-bold">{currentPage}</span> de <span className="text-slate-900 dark:text-white font-bold">{totalPages}</span>
+              </div>
+            </div>
+          )}
           </div>
       </div>
       <ContactsBulkBar
