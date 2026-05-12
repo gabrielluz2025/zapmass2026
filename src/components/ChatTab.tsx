@@ -2361,7 +2361,8 @@ export const ChatTab: React.FC<{
                     </div>
                   )}
               </div>
-              <div className="flex items-center gap-1.5 shrink-0 ml-3 relative" ref={chatMenuRef}>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 ml-3 relative" ref={chatMenuRef}>
                 <button
                   type="button"
                   className="p-2.5 rounded-xl text-slate-500 hover:text-[var(--brand-600)] dark:text-slate-400 dark:hover:text-[var(--brand-400)] hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
