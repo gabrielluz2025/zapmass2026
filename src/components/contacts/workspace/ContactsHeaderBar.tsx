@@ -57,9 +57,11 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
   }, [importOpen]);
 
   return (
-    <div className="ui-card px-5 py-4 flex flex-col lg:flex-row gap-5 lg:items-center lg:justify-between shadow-sm relative overflow-hidden">
+    <div className="ui-card px-5 py-4 flex flex-col lg:flex-row gap-5 lg:items-center lg:justify-between shadow-sm relative">
       {/* Background Decor */}
-      <div className="absolute top-0 right-0 w-64 h-64 bg-slate-100/50 dark:bg-slate-800/20 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+      <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-slate-100/50 dark:bg-slate-800/20 rounded-full -translate-y-1/2 translate-x-1/3" />
+      </div>
       
       {/* Esquerda — identidade + mini stats */}
       <div className="flex items-center gap-4 min-w-0 relative z-10">
