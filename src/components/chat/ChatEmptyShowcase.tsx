@@ -84,22 +84,26 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
     {
       label: 'Conversas',
       value: totalConversations,
-      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #f59e0b 20%, transparent), transparent 55%)'
+      wash: 'radial-gradient(circle at 85% 15%, rgba(16, 185, 129, 0.15), transparent 60%)',
+      color: 'text-emerald-500'
     },
     {
       label: 'Não lidas',
       value: totalUnread,
-      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #8b5cf6 18%, transparent), transparent 55%)'
+      wash: 'radial-gradient(circle at 85% 15%, rgba(139, 92, 246, 0.15), transparent 60%)',
+      color: 'text-violet-500'
     },
     {
       label: 'Canais',
       value: totalChannels,
-      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #0ea5e9 18%, transparent), transparent 55%)'
+      wash: 'radial-gradient(circle at 85% 15%, rgba(14, 165, 233, 0.15), transparent 60%)',
+      color: 'text-sky-500'
     },
     {
       label: 'No CRM',
       value: crmCount,
-      wash: 'radial-gradient(circle at 85% 15%, color-mix(in srgb, #10b981 16%, transparent), transparent 55%)'
+      wash: 'radial-gradient(circle at 85% 15%, rgba(245, 158, 11, 0.15), transparent 60%)',
+      color: 'text-amber-500'
     }
   ];
 
@@ -242,22 +246,22 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
               {kpiItems.map((s) => (
                 <div
                   key={s.label}
-                  className="rounded-xl px-3.5 py-3 relative overflow-hidden"
+                  className="rounded-xl px-4 py-3.5 relative overflow-hidden"
                   style={{
-                    background: `linear-gradient(155deg, var(--surface-0), var(--surface-0))`,
+                    background: 'var(--surface-0)',
                     border: '1px solid var(--border-subtle)'
                   }}
                 >
                   <div
-                    className="pointer-events-none absolute inset-0 opacity-90"
+                    className="pointer-events-none absolute inset-0 opacity-100"
                     style={{ background: s.wash }}
                     aria-hidden
                   />
                   <div className="relative z-[1]">
-                    <div className="text-[22px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                    <div className="text-[26px] font-black tabular-nums leading-none tracking-tight" style={{ color: 'var(--text-1)' }}>
                       {s.value.toLocaleString('pt-BR')}
                     </div>
-                    <div className="text-[10px] font-semibold mt-2 uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                    <div className={`text-[10px] font-bold mt-2.5 uppercase tracking-wider ${s.color}`}>
                       {s.label}
                     </div>
                   </div>

@@ -142,22 +142,24 @@ const KanbanColumnBody: React.FC<KanbanColumnBodyProps> = memo(function KanbanCo
                         {preview}
                       </p>
                     )}
-                    <p className="text-[9.5px] truncate mt-1 font-medium" style={{ color: 'var(--text-3)', opacity: 0.85 }}>
-                      {conn ? `${conn} · ` : ''}
-                      {conv.contactPhone}
-                    </p>
-                    {conv.unreadCount > 0 && (
-                      <span
-                        className="inline-block mt-1 text-[9.5px] font-bold px-2 py-0.5 rounded-full"
-                        style={{
-                          background: 'linear-gradient(135deg, var(--brand-500), var(--brand-600))',
-                          color: '#fff',
-                          boxShadow: '0 2px 8px -2px color-mix(in srgb, var(--brand-500) 50%, transparent)'
-                        }}
-                      >
-                        {conv.unreadCount} nova{conv.unreadCount === 1 ? '' : 's'}
-                      </span>
-                    )}
+                    <div className="flex items-center justify-between mt-2.5">
+                      {conv.unreadCount > 0 && (
+                        <span
+                          className="text-[9.5px] font-bold px-2 py-0.5 rounded-md"
+                          style={{
+                            background: 'linear-gradient(135deg, var(--brand-500), var(--brand-600))',
+                            color: '#fff',
+                            boxShadow: '0 2px 8px -2px color-mix(in srgb, var(--brand-500) 50%, transparent)'
+                          }}
+                        >
+                          {conv.unreadCount} nova{conv.unreadCount === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      <p className="text-[9.5px] font-medium ml-auto" style={{ color: 'var(--text-3)', opacity: 0.85 }}>
+                        {conn ? `${conn} · ` : ''}
+                        {conv.contactPhone}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </button>
@@ -429,22 +431,17 @@ export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
               contacto{totalInBoard === 1 ? '' : 's'} no quadro
             </span>
           </div>
-          <Button
+          <button
             type="button"
-            size="sm"
-            variant="primary"
-            leftIcon={<Plus className="w-3.5 h-3.5" />}
+            className="ui-btn ui-btn-primary flex items-center gap-1.5"
             onClick={() => {
               setNewColName('');
               setAddOpen(true);
             }}
-            style={{
-              background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
-              boxShadow: '0 8px 20px -6px rgba(245, 158, 11, 0.45)'
-            }}
           >
+            <Plus className="w-4 h-4" />
             Nova etapa
-          </Button>
+          </button>
         </div>
 
         {/* Área de colunas — “mesa” com profundidade + deslize horizontal */}
@@ -518,38 +515,37 @@ export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
                   style={{ borderBottom: '1px solid var(--border-subtle)' }}
                 >
                   <div className="min-w-0 flex-1 text-left">
-                    <p className="text-[13px] font-bold truncate tracking-tight" style={{ color: 'var(--text-1)' }}>
+                    <p className="text-[14px] font-black truncate tracking-tight uppercase" style={{ color: 'var(--text-1)' }}>
                       {col.name}
                     </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
                     <span
-                      className="inline-flex mt-1.5 tabular-nums text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                      className="inline-flex tabular-nums text-[11px] font-black px-2 py-0.5 rounded-lg mr-1"
                       style={{
-                        background: 'var(--surface-2)',
-                        color: 'var(--text-3)',
-                        border: '1px solid var(--border-subtle)'
+                        background: 'color-mix(in srgb, var(--text-3) 15%, transparent)',
+                        color: 'var(--text-2)'
                       }}
                     >
-                      {list.length} · contacto{list.length === 1 ? '' : 's'}
+                      {list.length}
                     </span>
-                  </div>
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
                     <button
                       type="button"
-                      className="p-2 rounded-lg transition-colors hover:brightness-110"
-                      style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}
+                      className="p-1.5 rounded-lg transition-colors hover:bg-slate-200 dark:hover:bg-slate-700"
+                      style={{ color: 'var(--text-3)' }}
                       title="Renomear coluna"
                       onClick={() => setRenameOpen({ id: col.id, name: col.name })}
                     >
-                      <Pencil className="w-3.5 h-3.5" />
+                      <Pencil className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
-                      className="p-2 rounded-lg transition-colors hover:brightness-110"
-                      style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}
+                      className="p-1.5 rounded-lg transition-colors hover:bg-rose-100 hover:text-rose-500 dark:hover:bg-rose-900/30 dark:hover:text-rose-400"
+                      style={{ color: 'var(--text-3)' }}
                       title="Remover coluna"
                       onClick={() => setDeleteAsk(col)}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -591,26 +587,19 @@ export const ClientPipelineBoard = memo(function ClientPipelineBoardInner({
               setNewColName('');
               setAddOpen(true);
             }}
-            className="flex w-[min(100%,104px)] flex-shrink-0 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed transition-all duration-200 self-stretch min-h-[180px] hover:scale-[1.01] active:scale-[0.99]"
+            className="flex w-[min(100%,120px)] flex-shrink-0 flex-col items-center justify-center gap-3 rounded-2xl transition-all duration-200 self-stretch min-h-[180px] hover:scale-[1.02] active:scale-[0.98] group"
             style={{
-              borderColor: 'color-mix(in srgb, var(--brand-500) 40%, transparent)',
-              color: 'var(--brand-600)',
-              background:
-                'linear-gradient(180deg, color-mix(in srgb, var(--brand-500) 8%, var(--surface-0)) 0%, var(--surface-1) 100%)',
-              boxShadow: 'inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent)'
+              background: 'var(--surface-0)',
+              border: '2px dashed var(--border-subtle)',
             }}
           >
             <span
-              className="flex h-11 w-11 items-center justify-center rounded-xl"
-              style={{
-                background: 'color-mix(in srgb, var(--brand-500) 16%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)'
-              }}
+              className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 group-hover:bg-[var(--brand-500)] group-hover:text-white transition-colors"
             >
-              <Plus className="w-5 h-5" style={{ color: 'var(--brand-500)' }} />
+              <Plus className="w-6 h-6" />
             </span>
-            <span className="text-[10px] font-bold px-1.5 text-center leading-tight" style={{ color: 'var(--text-2)' }}>
-              Nova etapa
+            <span className="text-xs font-bold text-slate-500 group-hover:text-[var(--brand-600)] dark:group-hover:text-[var(--brand-400)] text-center leading-tight transition-colors">
+              Adicionar<br />Etapa
             </span>
           </button>
         </div>

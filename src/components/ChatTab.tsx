@@ -372,7 +372,10 @@ async function inboxWorkspacePostFinish(body: Record<string, unknown>): Promise<
   return j;
 }
 
-export const ChatTab: React.FC = () => {
+export const ChatTab: React.FC<{
+  autoSelectedConversationId?: string | null;
+  onClearAutoSelected?: () => void;
+}> = ({ autoSelectedConversationId, onClearAutoSelected }) => {
   const conversations = useZapMassConversations();
   const {
     contacts,
@@ -2128,94 +2131,83 @@ export const ChatTab: React.FC = () => {
       >
         {selectedConversation ? (
           <>
-            <div className="wa-chat-header flex-shrink-0 overflow-visible">
-              <button
-                onClick={() => setShowMobileChat(false)}
-                className="wa-icon-btn md:hidden -ml-1"
-                aria-label="Voltar"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div className="flex flex-col flex-1 min-w-0 gap-1.5">
+            <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm z-10">
+              <div className="flex items-center gap-3 min-w-0">
                 <button
-                  type="button"
-                  className="flex items-center gap-3 w-full min-w-0 text-left rounded-xl -mx-1 px-1 py-0.5 transition-colors"
-                  style={{ WebkitTapHighlightColor: 'transparent' }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'color-mix(in srgb, var(--wa-text) 6%, transparent)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                  }}
-                  onClick={() => setShowContactInfo(!showContactInfo)}
+                  onClick={() => setShowMobileChat(false)}
+                  className="md:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+                  aria-label="Voltar"
                 >
-                  <div className="relative flex-shrink-0">
-                    <img
-                      src={getConvAvatar(selectedConversation)}
-                      loading="eager"
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                      className="w-10 h-10 rounded-full object-cover"
-                      alt=""
-                      style={{ background: 'var(--wa-divider)' }}
-                    />
-                    {crm.get(selectedConversation.id).pinned && (
-                      <div
-                        className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                        style={{ background: '#f59e0b' }}
-                        title="Fixado"
-                      >
-                        <Pin className="w-2 h-2 text-white fill-white" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <h3
-                        className="text-[17px] font-semibold truncate leading-tight"
-                        style={{ color: 'var(--wa-text)' }}
-                        title={
-                          selectedDisplay?.primary ??
-                          selectedConversation.contactName ??
-                          ''
-                        }
-                      >
-                        {selectedDisplay?.primary ?? selectedConversation.contactName}
-                      </h3>
-                      {(() => {
-                        const s = crm.get(selectedConversation.id).status;
-                        if (!s) return null;
-                        const m = STATUS_META[s];
-                        return (
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"
-                            style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}55` }}
-                          >
-                            <span>{m.emoji}</span>
-                            {m.label}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                    <p className="text-[11px] truncate mt-0.5 leading-snug" style={{ color: 'var(--wa-text-3)' }}>
-                      {selectedDisplay?.whatsappSubtitle && (
-                        <span title="Nome salvo no WhatsApp / celular">{selectedDisplay.whatsappSubtitle}</span>
-                      )}
-                      {selectedDisplay?.whatsappSubtitle &&
-                        (selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
-                          <span> · </span>
-                        )}
-                      {(selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
-                        <span className="font-mono tabular-nums">
-                          {selectedDisplay?.phoneSecondary || selectedConversation.contactPhone}
-                        </span>
-                      )}
-                      {selectedConnection && (
-                        <span className="opacity-90">{` · ${selectedConnection.name}`}</span>
-                      )}
-                    </p>
-                  </div>
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
+                <div className="flex flex-col flex-1 min-w-0 gap-1.5">
+                  <button
+                    type="button"
+                    className="flex items-center gap-3 w-full min-w-0 text-left rounded-xl -mx-1 px-1 py-0.5 transition-colors group"
+                    style={{ WebkitTapHighlightColor: 'transparent' }}
+                    onClick={() => setShowContactInfo(!showContactInfo)}
+                  >
+                    <div className="relative flex-shrink-0">
+                      <img
+                        src={getConvAvatar(selectedConversation)}
+                        loading="eager"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover:ring-[var(--brand-500)]/30 transition-all"
+                        alt=""
+                      />
+                      {crm.get(selectedConversation.id).pinned && (
+                        <div
+                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900"
+                          style={{ background: '#f59e0b' }}
+                          title="Fixado"
+                        >
+                          <Pin className="w-2.5 h-2.5 text-white fill-white" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3
+                          className="text-base font-bold truncate tracking-tight text-slate-900 dark:text-white group-hover:text-[var(--brand-600)] dark:group-hover:text-[var(--brand-400)] transition-colors"
+                          title={
+                            selectedDisplay?.primary ??
+                            selectedConversation.contactName ??
+                            ''
+                          }
+                        >
+                          {selectedDisplay?.primary ?? selectedConversation.contactName}
+                        </h3>
+                        {(() => {
+                          const s = crm.get(selectedConversation.id).status;
+                          if (!s) return null;
+                          const m = STATUS_META[s];
+                          return (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider inline-flex items-center gap-1 shadow-sm"
+                              style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}30` }}
+                            >
+                              <span>{m.emoji}</span>
+                              {m.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <p className="text-[11px] font-medium truncate mt-0.5 text-slate-500 dark:text-slate-400">
+                        {selectedDisplay?.whatsappSubtitle && (
+                          <span title="Nome salvo no WhatsApp / celular" className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded mr-1.5 text-slate-600 dark:text-slate-300">~ {selectedDisplay.whatsappSubtitle}</span>
+                        )}
+                        {(selectedDisplay?.phoneSecondary || selectedConversation.contactPhone) && (
+                          <span className="font-mono tabular-nums">
+                            {selectedDisplay?.phoneSecondary || selectedConversation.contactPhone}
+                          </span>
+                        )}
+                        {selectedConnection && (
+                          <span className="opacity-70 ml-1.5 before:content-['•'] before:mr-1.5">{selectedConnection.name}</span>
+                        )}
+                      </p>
+                    </div>
+                  </button>
                 {!workspaceLoading &&
                   workspaceAuthUid &&
                   effectiveWorkspaceUid &&
@@ -2954,18 +2946,22 @@ export const ChatTab: React.FC = () => {
                     }
                   }}
                   placeholder="Digite uma mensagem"
-                  className="wa-composer-input"
+                  className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-[14px] rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[var(--brand-500)]/30 focus:border-[var(--brand-500)]/50 transition-all shadow-sm"
                   aria-label="Mensagem"
                 />
                 <button
                   type="submit"
                   disabled={!canSendCurrent}
-                  className="wa-composer-send"
+                  className={`flex items-center justify-center w-11 h-11 rounded-xl transition-all shadow-sm shrink-0 ${
+                    inputText.trim() 
+                      ? 'bg-[var(--brand-500)] text-white hover:brightness-110 active:scale-95' 
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
                   data-mode={inputText.trim() ? 'send' : 'mic'}
                   title={isSelectedDraft && !selectedDraftChannelId ? 'Escolha um canal para enviar' : inputText.trim() ? 'Enviar' : 'Microfone'}
                   style={!canSendCurrent ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                 >
-                  {inputText.trim() ? <Send className="w-5 h-5" /> : <Mic className="w-[22px] h-[22px]" />}
+                  {inputText.trim() ? <Send className="w-5 h-5 ml-1" /> : <Mic className="w-5 h-5" />}
                 </button>
               </form>
             </div>
