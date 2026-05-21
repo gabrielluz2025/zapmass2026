@@ -3173,26 +3173,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   label="Modo"
                   value={campaignFlowMode === 'reply' ? 'Fluxo por respostas' : 'Sequência automática'}
                 />
-                <div
-                  className="rounded-lg p-3 text-[12px] leading-snug -mt-1"
-                  style={{
-                    background: 'rgba(59, 130, 246, 0.055)',
-                    border: '1px solid rgba(59, 130, 246, 0.16)'
-                  }}
-                >
-                  {campaignFlowMode === 'sequential' ? (
-                    <span style={{ color: 'var(--text-2)' }}>
-                      Todas as etapas serão enviadas em fila para cada contato (intervalo entre cada envio). Não é
-                      necessário que o destinatário responda entre uma mensagem e outra.
-                    </span>
-                  ) : (
-                    <span style={{ color: 'var(--text-2)' }}>
-                      Apenas a 1ª mensagem vai na abertura; as próximas só depois da resposta do contato e conforme as
-                      regras por etapa (abaixo em “Mensagens”). Para disparar todas sem esperar resposta, volte ao passo
-                      Mensagem e escolha sequência automática.
-                    </span>
-                  )}
-                </div>
                 <ReviewRow
                   label="Etapas"
                   value={`${messageStages.length} mensagem${messageStages.length !== 1 ? 'ns' : ''} por contato`}
