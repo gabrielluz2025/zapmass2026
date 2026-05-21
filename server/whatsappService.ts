@@ -954,7 +954,12 @@ const emitToConnectionOwner = (event: string, connectionId: string, payload: Rec
 };
 
 const emitToOwnerUid = (event: string, ownerUid: string | undefined, payload: Record<string, unknown>) => {
-    if (!io || !ownerUid) return;
+    if (!ownerUid) return;
+    if (ownerEmitRedisBridge) {
+        ownerEmitRedisBridge(ownerUid, event, payload);
+        return;
+    }
+    if (!io) return;
     io.to(`user:${ownerUid}`).emit(event, payload);
 };
 
@@ -1500,13 +1505,12 @@ const incrementOwnerFunnel = (
 };
 
 const emitFunnelStats = (ownerUidHint?: string) => {
-    if (!io) return;
     const owner = ownerUidHint || funnelStatsRecipientUid();
     const payload = {
         ...(owner ? ownerFunnelStats(owner) || makeEmptyFunnelStats() : funnelStats)
     };
     if (owner) {
-        io.to(`user:${owner}`).emit('funnel-stats-update', payload);
+        emitToOwnerUid('funnel-stats-update', owner, payload);
     }
 };
 
@@ -1743,12 +1747,12 @@ const ensureCampaignGeo = (campaignId: string): Record<string, CampaignGeoUf> =>
 };
 
 const emitCampaignGeoNow = (campaignId: string) => {
-    if (!io || !campaignId) return;
+    if (!campaignId) return;
     const ownerUid = campaignGeoOwnerById.get(campaignId);
     const byUf = campaignGeoById.get(campaignId) || {};
     const payload = { campaignId, byUf, updatedAt: Date.now() };
     if (ownerUid) {
-        io.to(`user:${ownerUid}`).emit('campaign-geo-update', payload);
+        emitToOwnerUid('campaign-geo-update', ownerUid, payload);
     }
     scheduleCampaignGeoSave();
 };
@@ -2517,22 +2521,19 @@ const loadWarmupState = async () => {
 };
 
 const emitWarmupUpdate = () => {
-    if (!io) return;
-    if (io) {
-        const grouped = new Map<string, typeof warmupQueue>();
-        warmupQueue.forEach((item) => {
-            const uid = ownerUidFromConnectionId((item as any).connectionId);
-            if (!uid) return;
-            if (!grouped.has(uid)) grouped.set(uid, []);
-            grouped.get(uid)!.push(item);
+    const grouped = new Map<string, typeof warmupQueue>();
+    warmupQueue.forEach((item) => {
+        const uid = ownerUidFromConnectionId((item as any).connectionId);
+        if (!uid) return;
+        if (!grouped.has(uid)) grouped.set(uid, []);
+        grouped.get(uid)!.push(item);
+    });
+    grouped.forEach((pending, uid) => {
+        emitToOwnerUid('warmup-update', uid, {
+            pending,
+            warmedCount: warmedNumbers.size
         });
-        grouped.forEach((pending, uid) => {
-            io.to(`user:${uid}`).emit('warmup-update', {
-                pending,
-                warmedCount: warmedNumbers.size
-            });
-        });
-    }
+    });
 };
 
 const addWarmupItem = async (item: WarmupItem) => {
