@@ -62,6 +62,13 @@ import { normPhoneKey } from '../../utils/brPhoneNormalize';
 
 type CampaignFlowMode = 'sequential' | 'reply';
 
+type MessageStageOptionDraft = {
+  id: string;
+  tokensText: string;
+  reply: string;
+  marketingEffect: 'none' | 'opt_in' | 'opt_out';
+};
+
 type MessageStageDraft = {
   id: string;
   body: string;
@@ -70,7 +77,19 @@ type MessageStageDraft = {
   invalidReplyBody: string;
   /** Quando a resposta for válida nesta etapa (fluxo por respostas). */
   marketingEffect: 'none' | 'opt_in' | 'opt_out';
+  optionsMode?: 'linear' | 'conditional';
+  options?: MessageStageOptionDraft[];
 };
+
+const newMessageStageOption = (): MessageStageOptionDraft => ({
+  id:
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `o-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+  tokensText: '1',
+  reply: '',
+  marketingEffect: 'none'
+});
 
 const newMessageStage = (): MessageStageDraft => ({
   id:
@@ -80,8 +99,10 @@ const newMessageStage = (): MessageStageDraft => ({
   body: '',
   acceptAnyReply: true,
   validTokensText: '1, 2, sim, nao',
-  invalidReplyBody: 'Nao entendi. Responda com uma das opcoes indicadas acima.',
-  marketingEffect: 'none'
+  invalidReplyBody: 'Não entendi. Responda com uma das opções válidas.',
+  marketingEffect: 'none',
+  optionsMode: 'linear',
+  options: []
 });
 
 const parseValidTokensText = (s: string) =>
@@ -783,6 +804,33 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     insertCampaignTokenIntoTextarea(invalidReplyRef.current, cur, variable, (next) =>
       patchActiveStage({ invalidReplyBody: next })
     );
+  };
+
+  const addStageOption = () => {
+    const stage = messageStages[activeStageIdx];
+    if (!stage) return;
+    const currentOptions = stage.options || [];
+    patchActiveStage({
+      options: [...currentOptions, newMessageStageOption()]
+    });
+  };
+
+  const removeStageOption = (optId: string) => {
+    const stage = messageStages[activeStageIdx];
+    if (!stage) return;
+    const currentOptions = stage.options || [];
+    patchActiveStage({
+      options: currentOptions.filter((opt) => opt.id !== optId)
+    });
+  };
+
+  const updateStageOption = (optId: string, patch: Partial<MessageStageOptionDraft>) => {
+    const stage = messageStages[activeStageIdx];
+    if (!stage) return;
+    const currentOptions = stage.options || [];
+    patchActiveStage({
+      options: currentOptions.map((opt) => (opt.id === optId ? { ...opt, ...patch } : opt))
+    });
   };
 
   const insertAbFirstBodyBVariable = (variable: string) => {
