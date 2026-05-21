@@ -175,6 +175,8 @@ interface ZapMassContextWithSocket extends ZapMassContextType {
   warmupActive: boolean;
   startWarmupTimer: (intervalMinutes: number, runRound: () => void) => void;
   stopWarmupTimer: () => void;
+  startAutoWarmup: (connectionIds: string[], intervalMinutes: number) => void;
+  stopAutoWarmup: () => void;
 }
 
 const INITIAL_SYS_METRICS: SystemMetrics = { cpu: 0, ram: 0, uptime: '0m', latency: 0 };
@@ -288,6 +290,8 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   warmupActive: false,
   startWarmupTimer: () => {},
   stopWarmupTimer: () => {},
+  startAutoWarmup: () => {},
+  stopAutoWarmup: () => {},
   patchConversationInboxClaim: () => {},
   circuitBreakerOpenConnectionIds: []
 };
@@ -381,6 +385,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     setWarmupActive(false);
     if (warmupTimerRef.current) clearInterval(warmupTimerRef.current);
     warmupTimerRef.current = null;
+  };
+
+  const startAutoWarmup = (connectionIds: string[], intervalMinutes: number) => {
+    socketRef.current?.emit('start-auto-warmup', { connectionIds, intervalMinutes });
+  };
+
+  const stopAutoWarmup = () => {
+    socketRef.current?.emit('stop-auto-warmup');
   };
 
   // Campaign State
@@ -700,16 +712,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       b.legacyCampaigns = [];
 
       if (needContacts) {
-        const CONTACTS_PAGE_SIZE = 500;
         contactsLastDocRef.current = null;
         setContactsHasMore(false);
         cleanupFirestore.push(
           onSnapshot(
-            query(collection(db, 'users', uid, 'contacts'), orderBy('name'), limit(CONTACTS_PAGE_SIZE)),
+            query(collection(db, 'users', uid, 'contacts'), orderBy('name')),
             (snapshot) => {
               if (currentUidRef.current !== uid) return;
-              contactsLastDocRef.current = snapshot.docs.length ? snapshot.docs[snapshot.docs.length - 1] : null;
-              setContactsHasMore(snapshot.docs.length >= CONTACTS_PAGE_SIZE);
               b.userContacts = snapshot.docs.map((docSnap) =>
                 normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
               );
@@ -721,7 +730,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!ignoreLegacy) {
           cleanupFirestore.push(
             onSnapshot(
-              query(collection(db, 'contacts'), orderBy('name'), limit(CONTACTS_PAGE_SIZE)),
+              query(collection(db, 'contacts'), orderBy('name')),
               (snapshot) => {
                 if (currentUidRef.current !== uid) return;
                 if (!allowLegacyNow()) {
@@ -1239,6 +1248,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setWarmedCount(Number.isFinite(data?.warmedCount) ? data.warmedCount : 0);
     });
 
+    socket.on('auto-warmup-state', (data: { active: boolean; connectionIds?: string[]; intervalMinutes?: number }) => {
+      setWarmupActive(!!data?.active);
+    });
+
     socket.on('initial-data', (data: { contacts?: Contact[]; birthdays?: BirthdayContact[] }) => {
       if (Array.isArray(data?.birthdays)) setBirthdays(data.birthdays);
       // Contactos vêm do Firestore (`onSnapshot`); não substituir por [] se algum payload legado vier vazio.
@@ -1362,7 +1375,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const scheduleCampaignProgressSocketFlush = () => {
       if (campaignProgressSocketRafRef.current != null) return;
-      campaignProgressSocketRafRef.current = requestAnimationFrame(() => {
+      campaignProgressSocketRafRef.current = setTimeout(() => {
         campaignProgressSocketRafRef.current = null;
         flushCampaignProgressSocketFromRefs();
         if (
@@ -1371,7 +1384,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ) {
           scheduleCampaignProgressSocketFlush();
         }
-      });
+      }, 100) as unknown as number;
     };
 
     flushCampaignProgressSocketFromRefsRef.current = flushCampaignProgressSocketFromRefs;
@@ -2835,6 +2848,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableClearAllUserData = useStableCallback(clearAllUserData);
   const stableStartWarmupTimer = useStableCallback(startWarmupTimer);
   const stableStopWarmupTimer = useStableCallback(stopWarmupTimer);
+  const stableStartAutoWarmup = useStableCallback(startAutoWarmup);
+  const stableStopAutoWarmup = useStableCallback(stopAutoWarmup);
 
   const zapMassUiSnapshot = useMemo<ZapMassUiSnapshot>(
     () => ({
@@ -2911,6 +2926,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       warmupActive,
       startWarmupTimer: stableStartWarmupTimer,
       stopWarmupTimer: stableStopWarmupTimer,
+      startAutoWarmup: stableStartAutoWarmup,
+      stopAutoWarmup: stableStopAutoWarmup,
       circuitBreakerOpenConnectionIds: [...circuitBreakerOpenIds].sort()
     }),
     [

@@ -159,8 +159,9 @@ export const CampaignCockpitHero: React.FC<CampaignCockpitHeroProps> = ({
 
   useEffect(() => {
     const interval = setInterval(() => {
-      const delta = Math.max(0, stats.runningProcessed - lastProcessedRef.current);
-      lastProcessedRef.current = stats.runningProcessed;
+      const currentProcessed = stats.runningProcessed;
+      const delta = Math.max(0, currentProcessed - lastProcessedRef.current);
+      lastProcessedRef.current = currentProcessed;
       setSparkData((prev) => {
         const next = [...prev.slice(1), delta];
         return next;

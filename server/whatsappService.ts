@@ -4206,6 +4206,12 @@ const applyMessageVars = (template: string, phone: string, vars: Record<string, 
     return out;
 };
 
+type ReplyFlowStepOption = {
+    tokens: string[];
+    reply: string;
+    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+};
+
 type ReplyFlowStepDef = {
     body: string;
     acceptAnyReply: boolean;
@@ -4213,6 +4219,7 @@ type ReplyFlowStepDef = {
     invalidReplyBody: string;
     /** CRM: opt_in / opt_out quando resposta valida nesta etapa */
     marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+    options?: ReplyFlowStepOption[];
 };
 
 type ReplyFlowSession = {
@@ -4286,6 +4293,11 @@ const sanitizeReplyFlowSteps = (
         validTokens?: string[];
         invalidReplyBody?: string;
         marketingEffect?: string;
+        options?: Array<{
+            tokens?: string[];
+            reply?: string;
+            marketingEffect?: string;
+        }>;
     }>
 ): ReplyFlowStepDef[] => {
     return raw
@@ -4293,6 +4305,24 @@ const sanitizeReplyFlowSteps = (
             const me = String(s.marketingEffect || 'none').toLowerCase();
             const marketingEffect: 'none' | 'opt_in' | 'opt_out' =
                 me === 'opt_in' || me === 'opt_out' ? me : 'none';
+
+            const sanitizedOptions = Array.isArray(s.options)
+                ? s.options
+                      .map((opt) => {
+                          const optMe = String(opt.marketingEffect || 'none').toLowerCase();
+                          const optMarketingEffect: 'none' | 'opt_in' | 'opt_out' =
+                              optMe === 'opt_in' || optMe === 'opt_out' ? optMe : 'none';
+                          return {
+                              tokens: Array.isArray(opt.tokens)
+                                  ? opt.tokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
+                                  : [],
+                              reply: String(opt.reply || '').trim(),
+                              marketingEffect: optMarketingEffect
+                          };
+                      })
+                      .filter((opt) => opt.tokens.length > 0 && opt.reply.length > 0)
+                : undefined;
+
             return {
                 body: String(s.body || '').trim(),
                 acceptAnyReply: Boolean(s.acceptAnyReply),
@@ -4300,7 +4330,8 @@ const sanitizeReplyFlowSteps = (
                     ? s.validTokens.map((t) => String(t || '').toLowerCase().trim()).filter(Boolean)
                     : [],
                 invalidReplyBody: String(s.invalidReplyBody || '').trim(),
-                marketingEffect
+                marketingEffect,
+                options: sanitizedOptions
             };
         })
         .filter((s) => s.body.length > 0);
@@ -4483,6 +4514,60 @@ const handleReplyFlowIncoming = (
         nonTextReply: Boolean(nonTextReply)
     });
 
+    const gateStep = steps[awaiting];
+
+    // Se o passo atual tiver opções condicionais (Múltipla escolha com respostas específicas)
+    if (gateStep.options && gateStep.options.length > 0) {
+        const t = String(bodyText || '').trim();
+        const nonText = Boolean(nonTextReply);
+        
+        let matchedOption: any = null;
+        if (t || nonText) {
+            const norm = t.toLowerCase();
+            const first = norm.split(/\s+/)[0] || '';
+            
+            matchedOption = gateStep.options.find((opt) => {
+                const tokens = opt.tokens || [];
+                return tokens.some((tok) => tok === norm || tok === first);
+            });
+        }
+
+        if (matchedOption) {
+            // Se der match na opção, envia a resposta personalizada e encerra a sessão
+            const replyBody = applyMessageVars(matchedOption.reply, phoneDigits, session.vars);
+            void enqueueReplyFlowOutbound({
+                to: session.toRaw,
+                message: replyBody,
+                connectionId,
+                status: 'PENDING',
+                queueCampaignId: session.campaignId
+            });
+
+            const optMe = matchedOption.marketingEffect || 'none';
+            if (optMe === 'opt_in') {
+                emitReplyFlowMarketingConsent(session.ownerUid, session.campaignId, 'opt_in', phoneDigits, bodyText);
+            } else if (optMe === 'opt_out') {
+                emitReplyFlowMarketingConsent(session.ownerUid, session.campaignId, 'opt_out', phoneDigits, bodyText);
+            }
+
+            disposeReplyFlowSession(key, session);
+            return;
+        } else {
+            // Resposta inválida para as opções configuradas
+            if (gateStep.invalidReplyBody) {
+                const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
+                void enqueueReplyFlowOutbound({
+                    to: session.toRaw,
+                    message: inv,
+                    connectionId,
+                    status: 'PENDING',
+                    queueCampaignId: session.campaignId
+                });
+            }
+            return;
+        }
+    }
+
     if (awaiting >= steps.length - 1) {
         const gate = steps[steps.length - 1];
         const gateOk = replyMatchesGate(gate, bodyText, { nonTextReply });
@@ -4506,7 +4591,6 @@ const handleReplyFlowIncoming = (
         return;
     }
 
-    const gateStep = steps[awaiting];
     if (!replyMatchesGate(gateStep, bodyText, { nonTextReply })) {
         if (gateStep.invalidReplyBody) {
             const inv = applyMessageVars(gateStep.invalidReplyBody, phoneDigits, session.vars);
@@ -5397,11 +5481,10 @@ const processQueue = async () => {
         // Verificar pausa de campanha ativa
         const pauseCampaignId = item.queueCampaignId || currentCampaign.campaignId;
         if (pauseCampaignId && pausedCampaigns.has(pauseCampaignId)) {
-            console.log(`[Queue] ⏸️ Campanha ${pauseCampaignId} pausada. Aguardando retomada...`);
-            while (pausedCampaigns.has(pauseCampaignId)) {
-                await new Promise(r => setTimeout(r, 2000));
-            }
-            console.log(`[Queue] ▶️ Campanha ${pauseCampaignId} retomada.`);
+            console.log(`[Queue] ⏸️ Campanha ${pauseCampaignId} pausada. Recolocando na fila para não bloquear outros disparos.`);
+            requeueQueueItem(item);
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
         }
         
         // Verificar se deve fazer pausa (almoço/café)
@@ -6312,3 +6395,177 @@ export const canControlCampaign = (uid: string, campaignId: string): boolean => 
 export const getConnectionState = (id: string) => {
     return connectionsInfo.find(c => c.id === id) || null;
 };
+
+// --- SISTEMA DE AQUECIMENTO AUTOMÁTICO EM SEGUNDO PLANO (BACKEND) ---
+const WARMUP_MESSAGES = [
+    'Oi! Tudo bem?',
+    'Olá, boa tarde!',
+    'Tudo bem por aí?',
+    'Bom dia! Como vai?',
+    'Boa tarde!',
+    'Olá! Tudo certo por aí?',
+    'E aí, como tá o dia?',
+    'Fala! Beleza?',
+    'Oi! Quanto tempo!',
+    'Ei, tudo tranquilo?',
+    'Opa! Como está?',
+    'Bom dia! Tudo bem com você?',
+    'Boa noite! Como foi o dia?',
+    'Olá! Alguma novidade?',
+    'Oi! Saudades!',
+    'Como vai a semana?',
+    'Tudo certo?',
+    'Fala aí! Sumiu hein!',
+    'Opa, e aí?',
+    'Olá! Passando pra dar um oi!',
+    'Boa! Como tá?',
+    'Ei! Vamos conversar?'
+];
+
+const autoWarmupsFile = path.join(dataDir, 'auto_warmups.json');
+type AutoWarmupConfig = {
+    uid: string;
+    connectionIds: string[];
+    intervalMinutes: number;
+};
+const activeAutoWarmups = new Map<string, { intervalMinutes: number; connectionIds: string[]; timer?: any }>();
+
+const saveAutoWarmupsToDisk = async () => {
+    try {
+        const payload = Array.from(activeAutoWarmups.entries()).map(([uid, val]) => ({
+            uid,
+            connectionIds: val.connectionIds,
+            intervalMinutes: val.intervalMinutes
+        }));
+        await fs.promises.writeFile(autoWarmupsFile, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (err) {
+        console.error('[AutoWarmup] Erro ao salvar configs:', err);
+    }
+};
+
+const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
+    const allConns = getConnections();
+    const activeConns = allConns.filter(
+        (c) => c.status === 'CONNECTED' && connectionIds.includes(c.id) && c.phoneNumber
+    );
+    if (activeConns.length < 2) {
+        console.log(`[AutoWarmup] [${uid}] Menos de 2 canais conectados ativos para o aquecimento.`);
+        return;
+    }
+
+    const pairs: Array<[any, any]> = [];
+    for (let i = 0; i < activeConns.length; i++) {
+        for (let j = i + 1; j < activeConns.length; j++) {
+            pairs.push([activeConns[i], activeConns[j]]);
+        }
+    }
+
+    if (pairs.length === 0) return;
+
+    console.log(`[AutoWarmup] [${uid}] Iniciando rodada de aquecimento para ${pairs.length} pares.`);
+    for (const [a, b] of pairs) {
+        if (!activeAutoWarmups.has(uid)) {
+            console.log(`[AutoWarmup] [${uid}] Aquecimento foi interrompido.`);
+            break;
+        }
+        try {
+            // A envia para B
+            const msgAtoB = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
+            await sendWarmupMessage(a.id, b.phoneNumber, msgAtoB);
+
+            // Delay aleatório 3-8s
+            await new Promise((r) => setTimeout(r, 3000 + Math.random() * 5000));
+
+            if (!activeAutoWarmups.has(uid)) break;
+
+            // B responde para A
+            const msgBtoA = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
+            await sendWarmupMessage(b.id, a.phoneNumber, msgBtoA);
+
+            await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+        } catch (err: any) {
+            console.error(`[AutoWarmup] Erro no par ${a.id} <-> ${b.id}:`, err?.message || err);
+        }
+    }
+};
+
+export const startAutoWarmup = async (uid: string, connectionIds: string[], intervalMinutes: number) => {
+    stopAutoWarmup(uid);
+    
+    console.log(`[AutoWarmup] Iniciando aquecimento contínuo no backend para uid=${uid}, canalIds=${connectionIds.join(',')}, interval=${intervalMinutes}min`);
+    
+    const runAndSchedule = async () => {
+        await runAutoWarmupRound(uid, connectionIds).catch(() => {});
+        
+        const current = activeAutoWarmups.get(uid);
+        if (current) {
+            current.timer = setTimeout(runAndSchedule, intervalMinutes * 60 * 1000);
+        }
+    };
+
+    activeAutoWarmups.set(uid, {
+        connectionIds,
+        intervalMinutes
+    });
+
+    void runAndSchedule();
+
+    await saveAutoWarmupsToDisk();
+    emitAutoWarmupStateToUser(uid);
+};
+
+export const stopAutoWarmup = (uid: string) => {
+    const existing = activeAutoWarmups.get(uid);
+    if (existing) {
+        if (existing.timer) clearTimeout(existing.timer);
+        activeAutoWarmups.delete(uid);
+        console.log(`[AutoWarmup] Aquecimento parado para uid=${uid}`);
+        void saveAutoWarmupsToDisk();
+    }
+    emitAutoWarmupStateToUser(uid);
+};
+
+export const getAutoWarmupState = (uid: string) => {
+    const existing = activeAutoWarmups.get(uid);
+    if (existing) {
+        return {
+            active: true,
+            connectionIds: existing.connectionIds,
+            intervalMinutes: existing.intervalMinutes
+        };
+    }
+    return {
+        active: false,
+        connectionIds: [],
+        intervalMinutes: 10
+    };
+};
+
+export const loadAndResumeAutoWarmups = async () => {
+    try {
+        const exists = await fs.promises.access(autoWarmupsFile).then(() => true).catch(() => false);
+        if (!exists) return;
+        const raw = await fs.promises.readFile(autoWarmupsFile, 'utf8');
+        const parsed = JSON.parse(raw) as AutoWarmupConfig[];
+        if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+                if (item.uid && Array.isArray(item.connectionIds) && item.connectionIds.length > 0) {
+                    void startAutoWarmup(item.uid, item.connectionIds, item.intervalMinutes || 10);
+                }
+            }
+            console.log(`[AutoWarmup] Retomado ${parsed.length} aquecimento(s) contínuo(s) no backend.`);
+        }
+    } catch (err) {
+        console.error('[AutoWarmup] Falha ao retomar aquecimentos salvos:', err);
+    }
+};
+
+const emitAutoWarmupStateToUser = (uid: string) => {
+    const state = getAutoWarmupState(uid);
+    emitToOwnerUid('auto-warmup-state', uid, state);
+};
+
+// Carrega os aquecimentos salvos em background
+setTimeout(() => {
+    void loadAndResumeAutoWarmups();
+}, 5000);
