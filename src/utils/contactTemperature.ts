@@ -111,33 +111,35 @@ export function computeContactTemperatures(
     const s = accum(phoneKey);
     const all = conv.messages || [];
     const msgs = all.length > MAX_MESSAGES_SCAN_PER_CONV ? all.slice(all.length - MAX_MESSAGES_SCAN_PER_CONV) : all;
-    let maxOutTs = 0;
+    
+    let lastMeTs = 0;
+    let waitingReply = false;
+
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i];
       const ts = m.timestampMs || (m.timestamp ? Date.parse(m.timestamp) : 0) || 0;
+      if (!ts) continue;
+
       if (m.sender === 'me') {
         s.sent++;
         if (ts > s.lastSentTs) s.lastSentTs = ts;
-        if (ts > maxOutTs) maxOutTs = ts;
+        lastMeTs = ts;
+        waitingReply = true;
+
         const st = (m as { status?: string }).status;
         if (st === 'delivered' || st === 'read') s.delivered++;
         if (st === 'read') {
           s.read++;
           if (ts > s.lastReadTs) s.lastReadTs = ts;
         }
-      }
-    }
-    if (maxOutTs > 0) {
-      let bestReplyTs = 0;
-      for (let i = 0; i < msgs.length; i++) {
-        const m = msgs[i];
-        if (m.sender !== 'them') continue;
-        const ts = m.timestampMs || (m.timestamp ? Date.parse(m.timestamp) : 0) || 0;
-        if (ts > maxOutTs && ts > bestReplyTs) bestReplyTs = ts;
-      }
-      if (bestReplyTs > 0) {
-        s.replied++;
-        if (bestReplyTs > s.lastReplyTs) s.lastReplyTs = bestReplyTs;
+      } else if (m.sender === 'them') {
+        if (ts > s.lastReplyTs) s.lastReplyTs = ts;
+        if (lastMeTs > 0 && ts > lastMeTs) {
+          if (waitingReply) {
+            s.replied++;
+            waitingReply = false;
+          }
+        }
       }
     }
   }

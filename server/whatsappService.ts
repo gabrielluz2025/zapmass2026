@@ -26,6 +26,8 @@ import {
     loadChatArchiveMessages,
     threadIdFromConversationId
 } from './chatArchiveFirestore.js';
+import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { getFirestore } from 'firebase-admin/firestore';
 
 import crypto from 'node:crypto';
 
@@ -4019,7 +4021,7 @@ const initializeClient = async (id: string, name: string) => {
                         if (!phoneDigits) phoneDigits = toPhoneKey(chatSerialized);
                         if (phoneDigits.length >= 8) {
                             const { bodyText, nonTextReply } = extractReplyFlowBodyFromIncoming(msg);
-                            handleReplyFlowIncoming(id, phoneDigits, bodyText, nonTextReply, convId);
+                            await handleReplyFlowIncoming(id, phoneDigits, bodyText, nonTextReply, convId);
                         }
                     }
                 }
@@ -4402,6 +4404,28 @@ const enqueueReplyFlowOutbound = async (item: QueueItem) => {
     }
 };
 
+const loadReplyFlowDefFromFirestore = async (campaignId: string): Promise<{ steps: ReplyFlowStepDef[] } | null> => {
+    try {
+        const admin = getFirebaseAdmin();
+        if (!admin) return null;
+        const db = getFirestore(admin);
+        const snap = await db.collectionGroup('campaigns').where('__name__', '==', `campaigns/${campaignId}`).get();
+        if (!snap.empty) {
+            const data = snap.docs[0].data();
+            if (data?.replyFlow?.enabled && Array.isArray(data.replyFlow.steps)) {
+                const sanitized = sanitizeReplyFlowSteps(data.replyFlow.steps);
+                if (sanitized.length > 0) {
+                    replyFlowDefs.set(campaignId, { steps: sanitized });
+                    return { steps: sanitized };
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[ReplyFlow] Erro ao buscar campanha no Firestore:', e);
+    }
+    return null;
+};
+
 /**
  * Encontra a session de reply flow para um telefone que respondeu.
  *
@@ -4447,6 +4471,12 @@ const findReplyFlowSession = (
         const sessionPhone = key.slice(connectionId.length + 1).replace(/\D/g, '');
         if (!sessionPhone) continue;
         if (sessionPhone === incoming) return { key, session };
+        if (session.registeredConvKey) {
+            const regPhone = toPhoneKey(session.registeredConvKey);
+            if (regPhone && regPhone === incoming) {
+                return { key, session };
+            }
+        }
         if (stripBrNine(sessionPhone) === incomingNoNine) {
             bestKey = key;
             bestSession = session;
@@ -4463,7 +4493,7 @@ const findReplyFlowSession = (
     return null;
 };
 
-const handleReplyFlowIncoming = (
+const handleReplyFlowIncoming = async (
     connectionId: string,
     phoneDigits: string,
     bodyText: string,
@@ -4493,7 +4523,10 @@ const handleReplyFlowIncoming = (
         return;
     }
     const { key, session } = found;
-    const def = replyFlowDefs.get(session.campaignId);
+    let def = replyFlowDefs.get(session.campaignId);
+    if (!def?.steps?.length) {
+        def = await loadReplyFlowDefFromFirestore(session.campaignId).catch(() => null) as any;
+    }
     if (!def?.steps?.length) {
         disposeReplyFlowSession(key, session);
         return;
