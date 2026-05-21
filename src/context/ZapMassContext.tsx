@@ -1577,27 +1577,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       }
 
-      if (log.level === 'ERROR' && log.payload?.campaignId) {
-        const uid = currentUidRef.current;
-        const payload = log.payload as {
-          campaignId: string;
-          to?: string;
-          connectionId?: string;
-          error?: string;
-          message?: string;
-        };
-        if (uid) {
-          addDoc(collection(db, 'users', uid, 'campaigns', payload.campaignId, 'logs'), {
-            level: log.level,
-            message: log.message,
-            to: payload.to || '',
-            connectionId: payload.connectionId || '',
-            error: payload.error || '',
-            createdAt: new Date().toISOString()
-          }).catch(() => {});
-        }
-      }
-
       if (log.level === 'INFO' && log.message === 'Mensagem enviada' && log.payload?.campaignId) {
         const uid = currentUidRef.current;
         const payload = log.payload as {
@@ -1606,13 +1585,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           connectionId?: string;
         };
         if (uid) {
-          addDoc(collection(db, 'users', uid, 'campaigns', payload.campaignId, 'logs'), {
-            level: 'INFO',
-            message: log.message,
-            to: payload.to || '',
-            connectionId: payload.connectionId || '',
-            createdAt: new Date().toISOString()
-          }).catch(() => {});
           const toRaw = payload.to;
           if (typeof toRaw === 'string' && toRaw.trim()) {
             const pkey = normPhoneKey(toRaw);

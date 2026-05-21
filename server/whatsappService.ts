@@ -1299,17 +1299,78 @@ const formatSendError = (rawMessage?: string) => {
 /** Disparo em massa: evita sendSeen (paths sensíveis no WA-Web) e link preview por mensagem. */
 const CAMPAIGN_TEXT_SEND_OPTS = { sendSeen: false, linkPreview: false };
 
+const persistCampaignLogToFirestore = async (
+    ownerUid: string | undefined,
+    campaignId: string | undefined,
+    level: string,
+    message: string,
+    payload?: Record<string, unknown>
+) => {
+    if (!ownerUid || !campaignId) return;
+    try {
+        const admin = getFirebaseAdmin();
+        if (!admin) return;
+        const db = getFirestore(admin);
+        await db.collection('users').doc(ownerUid).collection('campaigns').doc(campaignId).collection('logs').add({
+            level: level.toUpperCase(),
+            message,
+            to: String(payload?.to || ''),
+            connectionId: String(payload?.connectionId || ''),
+            error: String(payload?.error || ''),
+            createdAt: new Date().toISOString()
+        });
+    } catch (e) {
+        console.warn('[FirestoreLog] Erro ao salvar log no Firestore:', e);
+    }
+};
+
+const persistCampaignProgressToFirestore = async (
+    ownerUid: string | undefined,
+    campaignId: string | undefined,
+    successCount: number,
+    failCount: number,
+    processedCount: number,
+    status?: string
+) => {
+    if (!ownerUid || !campaignId) return;
+    try {
+        const admin = getFirebaseAdmin();
+        if (!admin) return;
+        const db = getFirestore(admin);
+        const updateData: Record<string, any> = {
+            successCount,
+            failedCount: failCount,
+            processedCount
+        };
+        if (status) {
+            updateData.status = status;
+        }
+        await db.collection('users').doc(ownerUid).collection('campaigns').doc(campaignId).update(updateData);
+    } catch (e) {
+        console.warn('[FirestoreProgress] Erro ao atualizar progresso da campanha no Firestore:', e);
+    }
+};
+
 const emitCampaignLog = (level: 'INFO' | 'WARN' | 'ERROR', message: string, payload?: Record<string, unknown>) => {
-    emitToOwnerUid('campaign-log', currentCampaign.ownerUid, {
+    const cid = (payload?.campaignId as string) || currentCampaign.campaignId;
+    const uid = currentCampaign.ownerUid;
+
+    emitToOwnerUid('campaign-log', uid, {
         timestamp: new Date().toISOString(),
         level,
         message,
         payload: {
-            campaignId: currentCampaign.campaignId,
+            campaignId: cid,
             ...payload
         }
     });
     console.log(`[Campaign:${level}] ${message}`, payload || '');
+
+    if (uid && cid) {
+        if (level === 'ERROR' || (level === 'INFO' && message === 'Mensagem enviada')) {
+            void persistCampaignLogToFirestore(uid, cid, level, message, payload);
+        }
+    }
 };
 
 let currentCampaign = {
@@ -5562,26 +5623,31 @@ const processQueue = async () => {
     }
     
     console.log('Campanha finalizada.');
-    emitToOwnerUid('campaign-complete', currentCampaign.ownerUid, { 
-        successCount: currentCampaign.successCount, 
-        failCount: currentCampaign.failCount,
-        processed: currentCampaign.processed,
-        total: currentCampaign.total,
-        campaignId: currentCampaign.campaignId
-    });
+    const finishedId = currentCampaign.campaignId;
+    const finishedOwner = currentCampaign.ownerUid;
     const okN = currentCampaign.successCount || 0;
     const failN = currentCampaign.failCount || 0;
     const proc = currentCampaign.processed || 0;
     const tot = currentCampaign.total || 0;
-    void persistUserNotification(String(currentCampaign.ownerUid || ''), {
+
+    if (finishedOwner && finishedId) {
+        void persistCampaignProgressToFirestore(finishedOwner, finishedId, okN, failN, proc, 'COMPLETED');
+    }
+
+    emitToOwnerUid('campaign-complete', finishedOwner, { 
+        successCount: okN, 
+        failCount: failN,
+        processed: proc,
+        total: tot,
+        campaignId: finishedId
+    });
+    void persistUserNotification(String(finishedOwner || ''), {
         title: 'Campanha concluída',
         body: `Processados ${proc} de ${tot}. Sucesso: ${okN} · Falhas: ${failN}.`,
         kind: okN > 0 ? 'success' : failN > 0 ? 'warning' : 'info',
         category: 'campaign',
-        campaignId: currentCampaign.campaignId
+        campaignId: finishedId
     }).catch(() => {});
-    const finishedId = currentCampaign.campaignId;
-    const finishedOwner = currentCampaign.ownerUid;
     void import('./campaignScheduleFollowup.js')
         .then((m) => m.onMassCampaignCompleteForSchedule(finishedId, finishedOwner))
         .catch(() => {});
@@ -5635,26 +5701,38 @@ const resumeQueueIfNeeded = (connectionId: string) => {
 };
 
 const handleCampaignProgress = () => {
-    emitToOwnerUid('campaign-progress', currentCampaign.ownerUid, {
-        total: currentCampaign.total,
-        processed: currentCampaign.processed,
-        successCount: currentCampaign.successCount,
-        failCount: currentCampaign.failCount,
-        campaignId: currentCampaign.campaignId
+    const cid = currentCampaign.campaignId;
+    const uid = currentCampaign.ownerUid;
+    const tot = currentCampaign.total;
+    const proc = currentCampaign.processed;
+    const okN = currentCampaign.successCount;
+    const failN = currentCampaign.failCount;
+
+    emitToOwnerUid('campaign-progress', uid, {
+        total: tot,
+        processed: proc,
+        successCount: okN,
+        failCount: failN,
+        campaignId: cid
     });
 
-    const shouldLog = currentCampaign.processed === currentCampaign.total
-        || currentCampaign.processed - currentCampaign.lastLoggedProcessed >= 5;
+    const shouldLog = proc === tot || proc - currentCampaign.lastLoggedProcessed >= 5;
     if (shouldLog) {
-        currentCampaign.lastLoggedProcessed = currentCampaign.processed;
+        currentCampaign.lastLoggedProcessed = proc;
         emitCampaignLog('INFO', 'Progresso do disparo', {
-            processed: currentCampaign.processed,
-            total: currentCampaign.total,
-            success: currentCampaign.successCount,
-            failed: currentCampaign.failCount
+            processed: proc,
+            total: tot,
+            success: okN,
+            failed: failN
         });
+        
         // Salvar progresso a cada 5 mensagens
         persistQueue().catch(() => {});
+
+        // Atualizar Firestore diretamente do backend
+        if (uid && cid) {
+            void persistCampaignProgressToFirestore(uid, cid, okN, failN, proc);
+        }
     }
 };
 
