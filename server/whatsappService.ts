@@ -4696,10 +4696,10 @@ export const startCampaign = async (
     }
 
     const sanitizedReplySteps =
-        Boolean(replyFlow?.enabled && campaignId && Array.isArray(replyFlow?.steps) && (replyFlow?.steps?.length || 0) >= 2)
+        Boolean(replyFlow?.enabled && campaignId && Array.isArray(replyFlow?.steps) && (replyFlow?.steps?.length || 0) >= 1)
             ? sanitizeReplyFlowSteps(replyFlow!.steps!)
             : [];
-    const useReplyFlow = sanitizedReplySteps.length >= 2;
+    const useReplyFlow = sanitizedReplySteps.length >= 1;
 
     const templates = messageTemplates.map((t) => String(t || '').trim()).filter((t) => t.length > 0);
     if (!useReplyFlow && templates.length === 0) return false;
