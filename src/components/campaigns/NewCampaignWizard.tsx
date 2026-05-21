@@ -913,16 +913,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     scheduleTimeZone
   ]);
   const scheduleOk = launchMode === 'now' || abLabEnabled || scheduleSlots.length > 0;
-  const preflightComplete =
-    preflightAck.audience && preflightAck.messages && preflightAck.responsibility;
   const canSubmit =
     canGoFromAudience &&
     canGoFromMessage &&
     canGoFromChannels &&
     !isSubmitting &&
     abLabOk &&
-    scheduleOk &&
-    preflightComplete;
+    scheduleOk;
 
   useEffect(() => {
     if (step !== 4) return;
@@ -1076,9 +1073,18 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             steps: messageStages.map((s) => ({
               body: s.body.trim(),
               acceptAnyReply: s.acceptAnyReply,
-              validTokens: parseValidTokensText(s.validTokensText),
+              validTokens: s.optionsMode === 'conditional'
+                ? []
+                : parseValidTokensText(s.validTokensText),
               invalidReplyBody: s.invalidReplyBody.trim(),
-              marketingEffect: s.marketingEffect ?? 'none'
+              marketingEffect: s.marketingEffect ?? 'none',
+              options: s.optionsMode === 'conditional' && Array.isArray(s.options)
+                ? s.options.map((opt) => ({
+                    tokens: parseValidTokensText(opt.tokensText),
+                    reply: opt.reply.trim(),
+                    marketingEffect: opt.marketingEffect
+                  }))
+                : undefined
             }))
           }
         : undefined;

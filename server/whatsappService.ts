@@ -4013,6 +4013,9 @@ const initializeClient = async (id: string, name: string) => {
                     if (!chatSerialized.endsWith('@g.us')) {
                         let phoneDigits = '';
                         if (contact?.number) phoneDigits = String(contact.number).replace(/\D/g, '');
+                        if (!phoneDigits && chatSerialized.endsWith('@lid')) {
+                            phoneDigits = await resolvePnDigitsFromLidSerialized(client, chatSerialized).catch(() => '');
+                        }
                         if (!phoneDigits) phoneDigits = toPhoneKey(chatSerialized);
                         if (phoneDigits.length >= 8) {
                             const { bodyText, nonTextReply } = extractReplyFlowBodyFromIncoming(msg);
