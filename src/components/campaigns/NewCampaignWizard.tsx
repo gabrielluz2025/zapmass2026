@@ -2819,279 +2819,165 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
               <div
                 className="mb-5 p-4 rounded-xl space-y-3"
-                style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)' }}
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
               >
-                <p className="text-[12px] font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                  <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
-                  Checklist antes do envio
+                <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                  Quando enviar
                 </p>
-                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Marque cada item para liberar o botão «
-                  {launchMode === 'schedule' ? 'Agendar campanha' : 'Iniciar disparo'}».
-                </p>
-                <label className="flex items-start gap-2.5 cursor-pointer text-[12.5px] leading-snug">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 rounded"
-                    checked={preflightAck.audience}
-                    onChange={(e) => setPreflightAck((p) => ({ ...p, audience: e.target.checked }))}
-                  />
-                  <span style={{ color: 'var(--text-2)' }}>
-                    Revisei o <strong>público</strong>:{' '}
-                    <strong style={{ color: 'var(--text-1)' }}>{numbers.length}</strong> número(s) na fila.
-                  </span>
-                </label>
-                <label className="flex items-start gap-2.5 cursor-pointer text-[12.5px] leading-snug">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 rounded"
-                    checked={preflightAck.messages}
-                    onChange={(e) => setPreflightAck((p) => ({ ...p, messages: e.target.checked }))}
-                  />
-                  <span style={{ color: 'var(--text-2)' }}>
-                    Revisei o(s) <strong>texto(s)</strong>, variáveis e (se houver) o fluxo por respostas.
-                  </span>
-                </label>
-                <label className="flex items-start gap-2.5 cursor-pointer text-[12.5px] leading-snug">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 rounded"
-                    checked={preflightAck.responsibility}
-                    onChange={(e) => setPreflightAck((p) => ({ ...p, responsibility: e.target.checked }))}
-                  />
-                  <span style={{ color: 'var(--text-2)' }}>
-                    Os chips precisam estar <strong>Conectados</strong> no momento do disparo
-                    {launchMode === 'schedule'
-                      ? ' (na hora agendada ou em cada janela)'
-                      : ''}
-                    ; intervalo <strong>{delaySeconds}s</strong>; uso alinhado a WhatsApp e legislação (opt-in / spam).
-                  </span>
-                </label>
-                {!preflightComplete && (
-                  <p className="text-[11px] font-semibold" style={{ color: '#f59e0b' }}>
-                    Marque os três itens acima para continuar.
-                  </p>
-                )}
-              </div>
-
-              <div
-                className="mb-5 p-4 rounded-xl space-y-3"
-                style={{ background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.28)' }}
-              >
-                <p className="text-[12px] font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                  <Smartphone className="w-4 h-4 text-blue-500" />
-                  Teste rápido (recomendado)
-                </p>
-                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Envia apenas a <strong>primeira mensagem</strong> do fluxo pelo primeiro canal conectado selecionado.
-                  Use o seu número ou um contacto de confiança antes de disparar para toda a lista.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-                  <div className="flex-1 min-w-0">
-                    <label className="ui-eyebrow mb-1 block" htmlFor="wizard-quick-test-phone">
-                      Número (com DDD)
-                    </label>
-                    <Input
-                      id="wizard-quick-test-phone"
-                      value={quickTestPhone}
-                      onChange={(e) => setQuickTestPhone(e.target.value)}
-                      placeholder="ex. 5511999990000"
-                      disabled={quickTestBusy}
-                    />
-                  </div>
-                  <Button
+                <div className="flex flex-wrap gap-2">
+                  <button
                     type="button"
-                    variant="secondary"
-                    loading={quickTestBusy}
-                    disabled={
-                      quickTestBusy ||
-                      !socket?.connected ||
-                      !getConnectedSelectedIds()[0] ||
-                      !firstMessageStageBody.trim()
+                    onClick={() => setLaunchMode('now')}
+                    className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all"
+                    style={
+                      launchMode === 'now'
+                        ? { background: 'var(--brand-500)', color: '#fff' }
+                        : { background: 'var(--surface-0)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
                     }
-                    onClick={sendWizardQuickTest}
-                    className="shrink-0"
                   >
-                    Enviar teste
-                  </Button>
+                    Iniciar agora
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLaunchMode('schedule')}
+                    disabled={abLabEnabled}
+                    className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all inline-flex items-center gap-1.5"
+                    style={
+                      launchMode === 'schedule'
+                        ? { background: '#6366f1', color: '#fff' }
+                        : {
+                            background: 'var(--surface-0)',
+                            color: abLabEnabled ? 'var(--text-3)' : 'var(--text-2)',
+                            border: '1px solid var(--border-subtle)',
+                            opacity: abLabEnabled ? 0.55 : 1
+                          }
+                    }
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    Agendar na semana
+                  </button>
                 </div>
-                {numbers.length >= 25 && (
-                  <p className="text-[11px] font-medium" style={{ color: '#6366f1' }}>
-                    Lista com {numbers.length} contactos: enviar um teste primeiro reduz risco de erro em massa.
+                {abLabEnabled && (
+                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                    Laboratório A/B só pode ser disparado imediatamente (duas campanhas em sequência).
                   </p>
                 )}
-                {quickTestSentOk && (
-                  <p
-                    className="text-[11px] font-semibold flex items-center gap-1.5"
-                    style={{ color: '#10b981' }}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    Teste enviado nesta sessão — pode seguir para o disparo com mais confiança.
-                  </p>
+                {launchMode === 'schedule' && !abLabEnabled && (
+                  <div className="space-y-3 pt-1">
+                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                      Fuso: <strong style={{ color: 'var(--text-1)' }}>{scheduleTimeZone}</strong> — horários iguais aos do seu relógio local do navegador.
+                    </p>
+                    <label className="flex items-center gap-2 cursor-pointer text-[12px]">
+                      <input
+                        type="checkbox"
+                        checked={repeatWeekly}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setRepeatWeekly(checked);
+                          if (!checked && !onceScheduleDate) {
+                            setOnceScheduleDate(formatTodayYmdInZone(scheduleTimeZone));
+                          }
+                        }}
+                      />
+                      Repetir toda semana (após cada conclusão, reagenda o próximo disparo igual à grade)
+                    </label>
+                    {!repeatWeekly ? (
+                      <div
+                        className="rounded-xl p-3 space-y-2"
+                        style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                      >
+                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                          Data e hora do disparo
+                        </p>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="flex flex-col gap-0.5 min-w-[140px]">
+                            <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                              Dia
+                            </span>
+                            <input
+                              type="date"
+                              min={scheduleDateMin}
+                              value={onceScheduleDate}
+                              onChange={(e) => setOnceScheduleDate(e.target.value)}
+                              className="rounded-md text-[13px] px-2 py-1.5 tabular-nums w-full max-w-[200px]"
+                              style={{
+                                  background: 'var(--surface-1)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-1)'
+                              }}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-0.5 min-w-[120px]">
+                            <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                              Hora
+                            </span>
+                            <input
+                              type="time"
+                              value={onceScheduleTime}
+                              onChange={(e) => setOnceScheduleTime(e.target.value)}
+                              className="rounded-md text-[13px] px-2 py-1.5 tabular-nums"
+                              style={{
+                                background: 'var(--surface-1)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--text-1)'
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                          Um disparo só, na data exata escolhida (fuso acima — mesmo do navegador).
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((label, dow) => (
+                          <div
+                            key={label}
+                            className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                            style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                          >
+                            <span className="text-[12px] font-semibold w-8" style={{ color: 'var(--text-2)' }}>
+                              {label}
+                            </span>
+                            <input
+                              type="time"
+                              value={dayTimes[dow] || ''}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setDayTimes((prev) => {
+                                  const n = [...prev];
+                                  n[dow] = v;
+                                  return n;
+                                });
+                              }}
+                              className="rounded-md text-[13px] px-2 py-1 tabular-nums"
+                              style={{
+                                background: 'var(--surface-1)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--text-1)'
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {nextRunPreview && (
+                      <p className="text-[12px]" style={{ color: 'var(--brand-700)' }}>
+                        Próximo disparo previsto:{' '}
+                        <strong>
+                          {new Date(nextRunPreview).toLocaleString('pt-BR', {
+                            weekday: 'long',
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </strong>
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
-
-              <div
-                  className="mb-5 p-4 rounded-xl space-y-3"
-                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                >
-                  <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                    Quando enviar
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setLaunchMode('now')}
-                      className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all"
-                      style={
-                        launchMode === 'now'
-                          ? { background: 'var(--brand-500)', color: '#fff' }
-                          : { background: 'var(--surface-0)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
-                      }
-                    >
-                      Iniciar agora
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLaunchMode('schedule')}
-                      disabled={abLabEnabled}
-                      className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all inline-flex items-center gap-1.5"
-                      style={
-                        launchMode === 'schedule'
-                          ? { background: '#6366f1', color: '#fff' }
-                          : {
-                              background: 'var(--surface-0)',
-                              color: abLabEnabled ? 'var(--text-3)' : 'var(--text-2)',
-                              border: '1px solid var(--border-subtle)',
-                              opacity: abLabEnabled ? 0.55 : 1
-                            }
-                      }
-                    >
-                      <Clock className="w-3.5 h-3.5" />
-                      Agendar na semana
-                    </button>
-                  </div>
-                  {abLabEnabled && (
-                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                      Laboratório A/B só pode ser disparado imediatamente (duas campanhas em sequência).
-                    </p>
-                  )}
-                  {launchMode === 'schedule' && !abLabEnabled && (
-                    <div className="space-y-3 pt-1">
-                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                        Fuso: <strong style={{ color: 'var(--text-1)' }}>{scheduleTimeZone}</strong> — horários iguais aos do seu relógio local do navegador.
-                      </p>
-                      <label className="flex items-center gap-2 cursor-pointer text-[12px]">
-                        <input
-                          type="checkbox"
-                          checked={repeatWeekly}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setRepeatWeekly(checked);
-                            if (!checked && !onceScheduleDate) {
-                              setOnceScheduleDate(formatTodayYmdInZone(scheduleTimeZone));
-                            }
-                          }}
-                        />
-                        Repetir toda semana (após cada conclusão, reagenda o próximo disparo igual à grade)
-                      </label>
-                      {!repeatWeekly ? (
-                        <div
-                          className="rounded-xl p-3 space-y-2"
-                          style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-                        >
-                          <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                            Data e hora do disparo
-                          </p>
-                          <div className="flex flex-wrap items-end gap-2">
-                            <div className="flex flex-col gap-0.5 min-w-[140px]">
-                              <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                                Dia
-                              </span>
-                              <input
-                                type="date"
-                                min={scheduleDateMin}
-                                value={onceScheduleDate}
-                                onChange={(e) => setOnceScheduleDate(e.target.value)}
-                                className="rounded-md text-[13px] px-2 py-1.5 tabular-nums w-full max-w-[200px]"
-                                style={{
-                                  background: 'var(--surface-1)',
-                                  border: '1px solid var(--border-subtle)',
-                                  color: 'var(--text-1)'
-                                }}
-                              />
-                            </div>
-                            <div className="flex flex-col gap-0.5 min-w-[120px]">
-                              <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                                Hora
-                              </span>
-                              <input
-                                type="time"
-                                value={onceScheduleTime}
-                                onChange={(e) => setOnceScheduleTime(e.target.value)}
-                                className="rounded-md text-[13px] px-2 py-1.5 tabular-nums"
-                                style={{
-                                  background: 'var(--surface-1)',
-                                  border: '1px solid var(--border-subtle)',
-                                  color: 'var(--text-1)'
-                                }}
-                              />
-                            </div>
-                          </div>
-                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                            Um disparo só, na data exata escolhida (fuso acima — mesmo do navegador).
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((label, dow) => (
-                            <div
-                              key={label}
-                              className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
-                              style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-                            >
-                              <span className="text-[12px] font-semibold w-8" style={{ color: 'var(--text-2)' }}>
-                                {label}
-                              </span>
-                              <input
-                                type="time"
-                                value={dayTimes[dow] || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  setDayTimes((prev) => {
-                                    const n = [...prev];
-                                    n[dow] = v;
-                                    return n;
-                                  });
-                                }}
-                                className="rounded-md text-[13px] px-2 py-1 tabular-nums"
-                                style={{
-                                  background: 'var(--surface-1)',
-                                  border: '1px solid var(--border-subtle)',
-                                  color: 'var(--text-1)'
-                                }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {nextRunPreview && (
-                        <p className="text-[12px]" style={{ color: 'var(--brand-700)' }}>
-                          Próximo disparo previsto:{' '}
-                          <strong>
-                            {new Date(nextRunPreview).toLocaleString('pt-BR', {
-                              weekday: 'long',
-                              day: '2-digit',
-                              month: 'short',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </strong>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
 
               {campaignFlowMode === 'sequential' && (
                 <div
@@ -3173,6 +3059,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   label="Modo"
                   value={campaignFlowMode === 'reply' ? 'Fluxo por respostas' : 'Sequência automática'}
                 />
+                <div
+                  className="rounded-lg p-3 text-[12px] leading-snug -mt-1"
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.055)',
+                    border: '1px solid rgba(59, 130, 246, 0.16)'
+                  }}
+                >
+                  {campaignFlowMode === 'sequential' ? (
+                    <span style={{ color: 'var(--text-2)' }}>
+                      Todas as etapas serão enviadas em fila para cada contato (intervalo entre cada envio). Não é
+                      necessário que o destinatário responda entre uma mensagem e outra.
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--text-2)' }}>
+                      Apenas a 1ª mensagem vai na abertura; as próximas só depois da resposta do contato e conforme as
+                      regras por etapa configuradas na aba Mensagem.
+                    </span>
+                  )}
+                </div>
                 <ReviewRow
                   label="Etapas"
                   value={`${messageStages.length} mensagem${messageStages.length !== 1 ? 'ns' : ''} por contato`}
