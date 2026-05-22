@@ -1189,7 +1189,10 @@ const registerSocketHandlers = () => {
       void (async () => {
         try {
           if (!(await requireActiveSubscription())) return;
-          if (!waService.canControlCampaign(uid, campaignId)) {
+          if (
+            !evolutionService.canControlCampaign(uid, campaignId) &&
+            !waService.canControlCampaign(uid, campaignId)
+          ) {
             denyCrossTenant('pause-campaign', { campaignId });
             return;
           }
@@ -1205,7 +1208,10 @@ const registerSocketHandlers = () => {
       void (async () => {
         try {
           if (!(await requireActiveSubscription())) return;
-          if (!waService.canControlCampaign(uid, campaignId)) {
+          if (
+            !evolutionService.canControlCampaign(uid, campaignId) &&
+            !waService.canControlCampaign(uid, campaignId)
+          ) {
             denyCrossTenant('resume-campaign', { campaignId });
             return;
           }

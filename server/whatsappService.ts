@@ -28,6 +28,7 @@ import {
 } from './chatArchiveFirestore.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
+import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 
 import crypto from 'node:crypto';
 
@@ -1299,58 +1300,6 @@ const formatSendError = (rawMessage?: string) => {
 /** Disparo em massa: evita sendSeen (paths sensíveis no WA-Web) e link preview por mensagem. */
 const CAMPAIGN_TEXT_SEND_OPTS = { sendSeen: false, linkPreview: false };
 
-const persistCampaignLogToFirestore = async (
-    ownerUid: string | undefined,
-    campaignId: string | undefined,
-    level: string,
-    message: string,
-    payload?: Record<string, unknown>
-) => {
-    if (!ownerUid || !campaignId) return;
-    try {
-        const admin = getFirebaseAdmin();
-        if (!admin) return;
-        const db = getFirestore(admin);
-        await db.collection('users').doc(ownerUid).collection('campaigns').doc(campaignId).collection('logs').add({
-            level: level.toUpperCase(),
-            message,
-            to: String(payload?.to || ''),
-            connectionId: String(payload?.connectionId || ''),
-            error: String(payload?.error || ''),
-            createdAt: new Date().toISOString()
-        });
-    } catch (e) {
-        console.warn('[FirestoreLog] Erro ao salvar log no Firestore:', e);
-    }
-};
-
-const persistCampaignProgressToFirestore = async (
-    ownerUid: string | undefined,
-    campaignId: string | undefined,
-    successCount: number,
-    failCount: number,
-    processedCount: number,
-    status?: string
-) => {
-    if (!ownerUid || !campaignId) return;
-    try {
-        const admin = getFirebaseAdmin();
-        if (!admin) return;
-        const db = getFirestore(admin);
-        const updateData: Record<string, any> = {
-            successCount,
-            failedCount: failCount,
-            processedCount
-        };
-        if (status) {
-            updateData.status = status;
-        }
-        await db.collection('users').doc(ownerUid).collection('campaigns').doc(campaignId).update(updateData);
-    } catch (e) {
-        console.warn('[FirestoreProgress] Erro ao atualizar progresso da campanha no Firestore:', e);
-    }
-};
-
 const emitCampaignLog = (level: 'INFO' | 'WARN' | 'ERROR', message: string, payload?: Record<string, unknown>) => {
     const cid = (payload?.campaignId as string) || currentCampaign.campaignId;
     const uid = currentCampaign.ownerUid;
@@ -2058,14 +2007,20 @@ export const shutdownAll = async (reason: string = 'SIGTERM'): Promise<void> => 
 // --- INITIALIZATION ---
 export const init = (socketIo: SocketIOServer) => {
     io = socketIo;
+    const engine = String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase();
+    const evolutionOnly = engine === 'evolution';
     const headlessApi = process.env.SESSION_PROCESS_MODE === 'api';
+    const skipBrowser = evolutionOnly || headlessApi;
+
     console.log(
-        headlessApi
-            ? 'WhatsApp Service: modo API headless (Chromium só no worker)'
-            : 'WhatsApp Service Initialized with IO'
+        evolutionOnly
+            ? 'WhatsApp Service: modo Evolution (Chromium/wwebjs desativado — funil/métricas ativos)'
+            : headlessApi
+              ? 'WhatsApp Service: modo API headless (Chromium só no worker)'
+              : 'WhatsApp Service Initialized with IO'
     );
 
-    if (!headlessApi) {
+    if (!skipBrowser) {
         startPuppeteerMonitor();
     }
 
@@ -2078,6 +2033,9 @@ export const init = (socketIo: SocketIOServer) => {
         .then(() => loadCampaignGeoState())
         .then(() => loadDeletedConversationIds())
         .then(async () => {
+            if (evolutionOnly) {
+                return;
+            }
             if (connectionsInfo.length === 0) {
                 await loadConnectionsFromAuth();
             }
@@ -6515,6 +6473,38 @@ export const canControlCampaign = (uid: string, campaignId: string): boolean => 
     if (!uid || !campaignId) return false;
     return currentCampaign.campaignId === campaignId && currentCampaign.ownerUid === uid;
 };
+
+/** Registra campanha Evolution no mapa de geo/funil (antes do 1º envio). */
+export function evolutionRegisterCampaign(campaignId: string, ownerUid?: string): void {
+    if (campaignId && ownerUid) campaignGeoOwnerById.set(campaignId, ownerUid);
+}
+
+/** Rastreia envio de campanha via Evolution API no funil persistente. */
+export function evolutionTrackMessageSent(
+    messageId: string,
+    connectionId: string,
+    phoneDigits: string,
+    campaignId: string,
+    ownerUid?: string
+): void {
+    evolutionRegisterCampaign(campaignId, ownerUid);
+    const convId = `${connectionId}:${phoneDigits}`;
+    trackCampaignSend(messageId, convId, Date.now(), phoneDigits, campaignId);
+}
+
+/** Mapeia status Evolution/Baileys (3=entregue, 4=lido) para o funil interno. */
+export function evolutionTrackMessageAck(messageId: string, evolutionStatus: number): void {
+    let ack = 0;
+    if (evolutionStatus >= 4) ack = 3;
+    else if (evolutionStatus >= 3) ack = 2;
+    else if (evolutionStatus >= 2) ack = 1;
+    if (ack > 0) handleCampaignAck(messageId, ack);
+}
+
+/** Contabiliza resposta do contato no funil de campanha. */
+export function evolutionTrackIncomingReply(connectionId: string, phoneDigits: string): void {
+    handleIncomingForFunnel(`${connectionId}:${phoneDigits}`, Date.now(), phoneDigits);
+}
 
 export const getConnectionState = (id: string) => {
     return connectionsInfo.find(c => c.id === id) || null;

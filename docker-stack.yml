@@ -63,6 +63,7 @@ services:
       S3_USE_SSL: ${S3_USE_SSL:-true}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      ZAPMASS_WHATSAPP_ENGINE: ${ZAPMASS_WHATSAPP_ENGINE:-evolution}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evolution-secure-pass-2026}
       # Opcional: scrape interno (rede Docker) sem token; localhost/público exigem Bearer se definido.
       METRICS_TOKEN: ${METRICS_TOKEN:-}

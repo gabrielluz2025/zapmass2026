@@ -21,6 +21,14 @@ import {
     sanitizeReplyFlowSteps,
     type CampaignRecipient,
 } from './replyFlowEngine.js';
+import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
+import {
+    evolutionRegisterCampaign,
+    evolutionTrackIncomingReply,
+    evolutionTrackMessageAck,
+    evolutionTrackMessageSent,
+    publishOwnerEvent,
+} from './whatsappService.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
@@ -120,6 +128,19 @@ let dynamicSettings = {
 const pausedCampaigns = new Set<string>();
 const campaignMediaById = new Map<string, CampaignMediaPayload>();
 
+interface CampaignRuntimeState {
+    ownerUid?: string;
+    total: number;
+    processed: number;
+    successCount: number;
+    failCount: number;
+    lastLoggedProcessed: number;
+    isRunning: boolean;
+}
+
+const campaignsById = new Map<string, CampaignRuntimeState>();
+const campaignPendingJobs = new Map<string, number>();
+
 let replyFlowEngine: ReplyFlowEngine;
 
 export function applySettings(settings: { minDelay?: number; maxDelay?: number; dailyLimit?: number; sleepMode?: boolean }) {
@@ -169,15 +190,111 @@ function bumpQueueSize(connectionId: string, delta: number) {
     else connectionQueueSizes.set(connectionId, next);
 }
 
-function emitCampaignLog(level: 'INFO' | 'WARN' | 'ERROR', message: string, payload?: Record<string, unknown>) {
+function emitCampaignLog(
+    level: 'INFO' | 'WARN' | 'ERROR',
+    message: string,
+    payload?: Record<string, unknown>,
+    ownerUid?: string
+) {
+    const campaignId = (payload?.campaignId as string) || undefined;
+    const uid = ownerUid || (campaignId ? campaignsById.get(campaignId)?.ownerUid : undefined);
     const entry = {
         level,
         message,
         timestamp: new Date().toISOString(),
-        ...payload,
+        payload: { campaignId, ...payload },
     };
-    if (io) io.emit('campaign-log', entry);
+    publishOwnerEvent(uid, 'campaign-log', entry);
     log(level === 'ERROR' ? 'error' : level === 'WARN' ? 'warn' : 'info', message, payload);
+
+    if (uid && campaignId) {
+        if (level === 'ERROR' || (level === 'INFO' && message === 'Mensagem enviada')) {
+            void persistCampaignLogToFirestore(uid, campaignId, level, message, payload);
+        }
+    }
+}
+
+function bumpCampaignProgress(campaignId: string | undefined, success: boolean) {
+    if (!campaignId) return;
+    const state = campaignsById.get(campaignId);
+    if (!state) return;
+
+    state.processed += 1;
+    if (success) state.successCount += 1;
+    else state.failCount += 1;
+
+    publishOwnerEvent(state.ownerUid, 'campaign-progress', {
+        total: state.total,
+        processed: state.processed,
+        successCount: state.successCount,
+        failCount: state.failCount,
+        campaignId,
+    });
+
+    const shouldLog = state.processed === state.total || state.processed - state.lastLoggedProcessed >= 5;
+    if (shouldLog) {
+        state.lastLoggedProcessed = state.processed;
+        emitCampaignLog(
+            'INFO',
+            'Progresso do disparo',
+            {
+                campaignId,
+                processed: state.processed,
+                total: state.total,
+                success: state.successCount,
+                failed: state.failCount,
+            },
+            state.ownerUid
+        );
+        if (state.ownerUid) {
+            void persistCampaignProgressToFirestore(
+                state.ownerUid,
+                campaignId,
+                state.successCount,
+                state.failCount,
+                state.processed
+            );
+        }
+    }
+}
+
+function finishCampaignJob(campaignId: string | undefined, success: boolean) {
+    if (!campaignId) return;
+    bumpCampaignProgress(campaignId, success);
+
+    const pending = Math.max(0, (campaignPendingJobs.get(campaignId) || 0) - 1);
+    if (pending <= 0) {
+        campaignPendingJobs.delete(campaignId);
+        const state = campaignsById.get(campaignId);
+        if (state?.isRunning) {
+            state.isRunning = false;
+            campaignMediaById.delete(campaignId);
+            if (state.ownerUid) {
+                void persistCampaignProgressToFirestore(
+                    state.ownerUid,
+                    campaignId,
+                    state.successCount,
+                    state.failCount,
+                    state.processed,
+                    'COMPLETED'
+                );
+                publishOwnerEvent(state.ownerUid, 'campaign-finished', {
+                    campaignId,
+                    successCount: state.successCount,
+                    failCount: state.failCount,
+                    total: state.total,
+                });
+            }
+        }
+    } else {
+        campaignPendingJobs.set(campaignId, pending);
+    }
+}
+
+export function canControlCampaign(uid: string, campaignId: string): boolean {
+    if (!uid || !campaignId) return false;
+    const state = campaignsById.get(campaignId);
+    return Boolean(state?.isRunning && state.ownerUid === uid);
 }
 
 function ensureReplyFlowEngine() {
@@ -193,18 +310,16 @@ function ensureReplyFlowEngine() {
             });
         },
         onMarketingConsent: (ownerUid, campaignId, effect, phoneDigits, replyText) => {
-            if (io) {
-                io.emit('contact-marketing-consent', {
-                    ownerUid,
-                    campaignId,
-                    phoneDigits,
-                    effect,
-                    replyText: String(replyText || '').slice(0, 500),
-                    at: new Date().toISOString(),
-                });
-            }
+            publishOwnerEvent(ownerUid, 'contact-marketing-consent', {
+                campaignId,
+                phoneDigits,
+                effect,
+                replyText: String(replyText || '').slice(0, 500),
+                at: new Date().toISOString(),
+            });
         },
-        onLog: (message, payload) => emitCampaignLog('INFO', message, payload),
+        onLog: (message, payload) =>
+            emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
         isCampaignPaused: (campaignId) => pausedCampaigns.has(campaignId),
     });
 }
@@ -321,6 +436,7 @@ async function setupWebhook(instanceName: string) {
                 'QRCODE_UPDATED',
                 'CONNECTION_UPDATE',
                 'MESSAGES_UPSERT',
+                'MESSAGES_UPDATE',
                 'SEND_MESSAGE',
             ],
         });
@@ -428,7 +544,7 @@ async function sendMediaInternal(
     mimeType: string,
     fileName: string,
     caption?: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; messageId?: string }> {
     try {
         const number = to.replace(/[^0-9]/g, '');
         log('info', `Enviando media via ${connectionId}`, { to: number, mimeType, fileName });
@@ -456,13 +572,14 @@ async function sendMediaInternal(
         };
 
         const response = await api.post(endpoint, payload);
+        const messageId = response.data?.key?.id || response.data?.key?._serialized;
 
         if (response.data?.key) {
-            log('info', `✅ Media enviada com sucesso`, { to: number, messageId: response.data.key.id, url });
-            return true;
+            log('info', `✅ Media enviada com sucesso`, { to: number, messageId, url });
+            return { ok: true, messageId: messageId ? String(messageId) : undefined };
         }
 
-        return false;
+        return { ok: false };
     } catch (error: any) {
         log('error', `Erro ao enviar media`, {
             connectionId,
@@ -470,16 +587,19 @@ async function sendMediaInternal(
             error: error.message,
             response: error.response?.data,
         });
-        return false;
+        return { ok: false };
     }
 }
 
 /**
  * Envia uma mensagem - FUNÇÃO INTERNA (3 argumentos)
  */
-async function sendMessageInternal(connectionId: string, to: string, message: string): Promise<boolean> {
+async function sendMessageInternal(
+    connectionId: string,
+    to: string,
+    message: string
+): Promise<{ ok: boolean; messageId?: string }> {
     try {
-        // Formatar número (remover caracteres especiais)
         const number = to.replace(/[^0-9]/g, '');
 
         log('info', `Enviando mensagem via ${connectionId}`, { to: number });
@@ -489,13 +609,13 @@ async function sendMessageInternal(connectionId: string, to: string, message: st
             text: message,
         });
 
+        const messageId = response.data?.key?.id || response.data?.key?._serialized;
         if (response.data?.key) {
-            log('info', `✅ Mensagem enviada com sucesso`, { to: number, messageId: response.data.key.id });
-            return true;
+            log('info', `✅ Mensagem enviada com sucesso`, { to: number, messageId });
+            return { ok: true, messageId: messageId ? String(messageId) : undefined };
         }
 
-        return false;
-
+        return { ok: false };
     } catch (error: any) {
         log('error', `Erro ao enviar mensagem`, {
             connectionId,
@@ -503,12 +623,15 @@ async function sendMessageInternal(connectionId: string, to: string, message: st
             error: error.message,
             response: error.response?.data,
         });
-        return false;
+        return { ok: false };
     }
 }
 
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     bumpQueueSize(item.connectionId, 1);
+    if (item.campaignId) {
+        campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
+    }
     await campaignQueue.add('send', item, {
         jobId: `${item.campaignId || 'direct'}:${item.connectionId}:${item.to}:${Date.now()}`,
         attempts: 3,
@@ -548,10 +671,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         mediaToSend = campaignMediaById.get(item.campaignId);
     }
 
-    let success = false;
+    let sendResult: { ok: boolean; messageId?: string } = { ok: false };
     if (mediaToSend?.base64 || mediaToSend?.url) {
         if (mediaToSend.url) {
-            success = await sendMediaByUrlInternal(
+            sendResult = await sendMediaByUrlInternal(
                 item.connectionId,
                 item.to,
                 mediaToSend.url,
@@ -560,7 +683,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
                 mediaToSend.caption || item.message
             );
         } else if (mediaToSend.base64) {
-            success = await sendMediaInternal(
+            sendResult = await sendMediaInternal(
                 item.connectionId,
                 item.to,
                 mediaToSend.base64,
@@ -570,12 +693,31 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
             );
         }
     } else {
-        success = await sendMessageInternal(item.connectionId, item.to, item.message);
+        sendResult = await sendMessageInternal(item.connectionId, item.to, item.message);
     }
 
-    if (!success) {
+    if (!sendResult.ok) {
         throw new Error('Falha no envio');
     }
+
+    const phoneDigits = normalizePhoneKey(item.to);
+    const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
+    if (item.campaignId && sendResult.messageId) {
+        evolutionTrackMessageSent(
+            sendResult.messageId,
+            item.connectionId,
+            phoneDigits,
+            item.campaignId,
+            campaignState?.ownerUid || item.replyFlowOpen?.ownerUid
+        );
+    }
+
+    emitCampaignLog(
+        'INFO',
+        'Mensagem enviada',
+        { campaignId: item.campaignId, to: phoneDigits, connectionId: item.connectionId },
+        campaignState?.ownerUid
+    );
 
     ensureReplyFlowEngine();
     if (item.replyFlowOpen?.campaignId) {
@@ -598,14 +740,13 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
     }
 
     bumpQueueSize(item.connectionId, -1);
+    finishCampaignJob(item.campaignId, true);
 
-    if (io && item.campaignId) {
-        io.emit('campaign:message-sent', {
-            campaignId: item.campaignId,
-            to: item.to,
-            success: true,
-        });
-    }
+    publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
+        campaignId: item.campaignId,
+        to: item.to,
+        success: true,
+    });
 
     const delay =
         dynamicSettings.minDelay + Math.random() * (dynamicSettings.maxDelay - dynamicSettings.minDelay);
@@ -619,7 +760,7 @@ async function sendMediaByUrlInternal(
     mimeType: string,
     fileName: string,
     caption?: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; messageId?: string }> {
     try {
         const number = to.replace(/[^0-9]/g, '');
         let type = 'document';
@@ -638,7 +779,8 @@ async function sendMediaByUrlInternal(
             },
         });
 
-        return Boolean(response.data?.key);
+        const messageId = response.data?.key?.id || response.data?.key?._serialized;
+        return { ok: Boolean(response.data?.key), messageId: messageId ? String(messageId) : undefined };
     } catch (error: any) {
         log('error', 'Erro ao enviar media por URL', {
             connectionId,
@@ -646,7 +788,7 @@ async function sendMediaByUrlInternal(
             mediaUrl,
             error: error.message,
         });
-        return false;
+        return { ok: false };
     }
 }
 
@@ -670,14 +812,20 @@ function ensureCampaignWorker() {
 
         if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
             bumpQueueSize(item.connectionId, -1);
-            if (io && item.campaignId) {
-                io.emit('campaign:message-sent', {
-                    campaignId: item.campaignId,
-                    to: item.to,
-                    success: false,
-                    error: err.message,
-                });
-            }
+            finishCampaignJob(item.campaignId, false);
+            const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
+            publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
+                campaignId: item.campaignId,
+                to: item.to,
+                success: false,
+                error: err.message,
+            });
+            emitCampaignLog(
+                'ERROR',
+                'Falha no envio da campanha',
+                { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId, error: err.message },
+                campaignState?.ownerUid
+            );
         }
     });
 
@@ -753,17 +901,30 @@ export async function startCampaign(
         typeof channelWeights === 'object' &&
         Object.keys(channelWeights).length > 0;
 
-    emitCampaignLog('INFO', 'Campanha iniciada', {
-        campaignId: cid,
-        total: totalJobs,
-        connections: activeConnectionIds.length,
-        stages: stageCount,
-        replyFlow: useReplyFlow,
-    });
+    emitCampaignLog(
+        'INFO',
+        'Campanha iniciada',
+        {
+            campaignId: cid,
+            total: totalJobs,
+            connections: activeConnectionIds.length,
+            stages: stageCount,
+            replyFlow: useReplyFlow,
+        },
+        ownerUid
+    );
 
-    if (io) {
-        io.emit('campaign-started', { total: totalJobs, campaignId: cid, ownerUid });
-    }
+    campaignsById.set(cid, {
+        ownerUid,
+        total: totalJobs,
+        processed: 0,
+        successCount: 0,
+        failCount: 0,
+        lastLoggedProcessed: 0,
+        isRunning: true,
+    });
+    evolutionRegisterCampaign(cid, ownerUid);
+    publishOwnerEvent(ownerUid, 'campaign-started', { total: totalJobs, campaignId: cid });
 
     for (let i = 0; i < numbers.length; i++) {
         const num = numbers[i];
@@ -914,21 +1075,23 @@ export function handleWebhook(event: any) {
                             nonTextReply,
                             incomingConvId: `${instance}:${phoneDigits}`,
                         });
-                        metrics.totalReplied++;
+                        evolutionTrackIncomingReply(instance, phoneDigits);
                     }
                 }
                 break;
             }
 
-            case 'MESSAGES_UPDATE':
-                // Atualização de Status da Mensagem (Entregue, Lido)
-                const updateStatus = data[0]?.update?.status; // 2=Sent, 3=Delivered, 4=Read
-                if (updateStatus >= 3) {
-                     metrics.totalDelivered++;
-                     if (updateStatus === 4) metrics.totalRead++;
-                     log('info', 'Status de mensagem atualizado (ACK)', { status: updateStatus });
+            case 'MESSAGES_UPDATE': {
+                const updates = Array.isArray(data) ? data : data ? [data] : [];
+                for (const upd of updates) {
+                    const messageId = upd?.key?.id || upd?.keyId;
+                    const updateStatus = upd?.update?.status ?? upd?.status;
+                    if (messageId != null && updateStatus != null) {
+                        evolutionTrackMessageAck(String(messageId), Number(updateStatus));
+                    }
                 }
                 break;
+            }
         }
 
     } catch (error: any) {
@@ -973,6 +1136,9 @@ export function getConnections(): WhatsAppConnection[] {
 }
 
 export function isMassCampaignEngineIdle(): boolean {
+    for (const state of campaignsById.values()) {
+        if (state.isRunning) return false;
+    }
     let total = 0;
     for (const n of connectionQueueSizes.values()) total += n;
     return total === 0;
@@ -1074,7 +1240,7 @@ export async function sendMessage(conversationId: string, text: string): Promise
         to = conversationId;
     }
 
-    return sendMessageInternal(connectionId, to, text);
+    return (await sendMessageInternal(connectionId, to, text)).ok;
 }
 
 export async function sendMedia(conversationId: string, base64: string, mimeType: string, fileName: string, caption?: string): Promise<boolean> {
@@ -1092,19 +1258,21 @@ export async function sendMedia(conversationId: string, base64: string, mimeType
         to = conversationId;
     }
 
-    return sendMediaInternal(connectionId, to, base64, mimeType, fileName, caption);
+    return (await sendMediaInternal(connectionId, to, base64, mimeType, fileName, caption)).ok;
 }
 
 export function pauseCampaign(campaignId: string) {
     pausedCampaigns.add(campaignId);
+    const state = campaignsById.get(campaignId);
     log('info', `⏸️ Campanha pausada: ${campaignId}`);
-    if (io) io.emit('campaign-paused', { campaignId });
+    publishOwnerEvent(state?.ownerUid, 'campaign-paused', { campaignId });
 }
 
 export function resumeCampaign(campaignId: string) {
     pausedCampaigns.delete(campaignId);
+    const state = campaignsById.get(campaignId);
     log('info', `▶️ Campanha retomada: ${campaignId}`);
-    if (io) io.emit('campaign-resumed', { campaignId });
+    publishOwnerEvent(state?.ownerUid, 'campaign-resumed', { campaignId });
     ensureCampaignWorker();
 }
 
@@ -1120,6 +1288,7 @@ export default {
     sendMedia,
     startCampaign,
     isMassCampaignEngineIdle,
+    canControlCampaign,
     pauseCampaign,
     resumeCampaign,
     applySettings,
