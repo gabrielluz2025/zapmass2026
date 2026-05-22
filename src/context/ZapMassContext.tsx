@@ -252,6 +252,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   sessionLiveStats: null,
   campaignStatus: { isRunning: false, total: 0, processed: 0, success: 0, failed: 0 },
   addConnection: async () => {},
+  setConnectionProxy: async () => {},
   removeConnection: () => {},
   updateConnectionStatus: () => {},
   reconnectConnection: async () => {},
@@ -1826,7 +1827,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  const addConnection = async (name: string) => {
+  const addConnection = async (
+    name: string,
+    proxy?: { host: string; port: string | number; protocol?: string; username?: string; password?: string }
+  ) => {
     const sock = socketRef.current;
     if (!sock) {
       toast.error('Socket nao pronto. Atualize a pagina.');
@@ -1843,8 +1847,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       toast.error(msg);
       return;
     }
-    sock.emit('ui-log', { action: 'create-connection', name });
-    sock.emit('create-connection', { name });
+    sock.emit('ui-log', { action: 'create-connection', name, hasProxy: Boolean(proxy?.host) });
+    sock.emit('create-connection', { name, proxy });
+  };
+
+  const setConnectionProxy = async (
+    id: string,
+    proxy: { host: string; port: string | number; protocol?: string; username?: string; password?: string } | null
+  ) => {
+    const sock = socketRef.current;
+    if (!sock) {
+      toast.error('Socket nao pronto. Atualize a pagina.');
+      return;
+    }
+    sock.emit('set-connection-proxy', { id, proxy });
   };
 
   const removeConnection = (id: string) => {
@@ -2784,6 +2800,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const stableAddConnection = useStableCallback(addConnection);
+  const stableSetConnectionProxy = useStableCallback(setConnectionProxy);
   const stableRemoveConnection = useStableCallback(removeConnection);
   const stableUpdateConnectionStatus = useStableCallback(updateConnectionStatus);
   const stableReconnectConnection = useStableCallback(reconnectConnection);
@@ -2859,6 +2876,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       campaignStatus,
       systemMetrics,
       addConnection: stableAddConnection,
+      setConnectionProxy: stableSetConnectionProxy,
       removeConnection: stableRemoveConnection,
       updateConnectionStatus: stableUpdateConnectionStatus,
       reconnectConnection: stableReconnectConnection,

@@ -7,12 +7,23 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import { Queue, Worker, Job } from 'bullmq';
+import IORedis from 'ioredis';
 import { evolutionConfig } from './evolutionConfig.js';
+import { saveMediaFromBase64 } from './mediaStorage.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
 
 import { WhatsAppConnection, ConnectionStatus, DashboardMetrics, Conversation, ChatMessage } from './types.js';
+
+export interface ConnectionProxyConfig {
+    host: string;
+    port: string | number;
+    protocol?: 'http' | 'https' | 'socks4' | 'socks5';
+    username?: string;
+    password?: string;
+}
 
 interface EvolutionInstance {
     instanceName: string;
@@ -21,6 +32,15 @@ interface EvolutionInstance {
     profilePicUrl?: string;
     profileName?: string;
     phoneNumber?: string;
+    proxy?: ConnectionProxyConfig;
+}
+
+interface CampaignMediaPayload {
+    base64?: string;
+    url?: string;
+    mimeType: string;
+    fileName: string;
+    caption?: string;
 }
 
 interface MessageQueueItem {
@@ -28,8 +48,7 @@ interface MessageQueueItem {
     to: string;
     message: string;
     campaignId?: string;
-    attempts: number;
-    totalAttempts: number;
+    media?: CampaignMediaPayload;
 }
 
 interface WarmupItem {
@@ -43,10 +62,15 @@ interface WarmupItem {
 
 // ================== ESTADO GLOBAL ==================
 
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+
+const campaignQueue = new Queue<MessageQueueItem>('campaign-messages', { connection });
+const connectionQueueSizes = new Map<string, number>();
+let campaignWorker: Worker<MessageQueueItem> | null = null;
+
 const connections: Map<string, EvolutionInstance> = new Map();
-const messageQueue: MessageQueueItem[] = [];
 let io: SocketIOServer | null = null;
-let isProcessing = false;
 
 // Métricas e conversas
 let metrics: DashboardMetrics = {
@@ -94,6 +118,33 @@ const api: AxiosInstance = axios.create({
 
 // ================== FUNÇÕES AUXILIARES ==================
 
+async function applyProxyToInstance(instanceName: string, proxy?: ConnectionProxyConfig | null) {
+    if (!proxy?.host || !proxy.port) return;
+    try {
+        await api.post(`/proxy/set/${instanceName}`, {
+            enabled: true,
+            host: proxy.host,
+            port: String(proxy.port),
+            protocol: proxy.protocol || 'http',
+            username: proxy.username || '',
+            password: proxy.password || '',
+        });
+        log('info', `Proxy configurado para ${instanceName}`, {
+            host: proxy.host,
+            port: proxy.port,
+            protocol: proxy.protocol || 'http',
+        });
+    } catch (error: any) {
+        log('warn', `Erro ao configurar proxy para ${instanceName}`, { error: error.message });
+    }
+}
+
+function bumpQueueSize(connectionId: string, delta: number) {
+    const next = Math.max(0, (connectionQueueSizes.get(connectionId) || 0) + delta);
+    if (next === 0) connectionQueueSizes.delete(connectionId);
+    else connectionQueueSizes.set(connectionId, next);
+}
+
 function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
     const timestamp = new Date().toISOString();
     const prefix = `[EvolutionAPI:${level.toUpperCase()}]`;
@@ -113,23 +164,44 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
 /**
  * Cria uma nova instância (conexão WhatsApp) - FUNÇÃO INTERNA
  */
-async function createConnectionInternal(id: string, name: string): Promise<{ qrCode?: string; error?: string }> {
+async function createConnectionInternal(
+    id: string,
+    name: string,
+    proxy?: ConnectionProxyConfig
+): Promise<{ qrCode?: string; error?: string }> {
     try {
         log('info', `Criando instância: ${name} (${id})`);
 
-        const response = await api.post('/instance/create', {
+        const createPayload: Record<string, unknown> = {
             instanceName: id,
             qrcode: true,
             integration: 'WHATSAPP-BAILEYS',
-        });
+        };
+
+        if (proxy?.host && proxy.port) {
+            createPayload.proxy = {
+                host: proxy.host,
+                port: String(proxy.port),
+                protocol: proxy.protocol || 'http',
+                username: proxy.username || '',
+                password: proxy.password || '',
+            };
+        }
+
+        const response = await api.post('/instance/create', createPayload);
 
         const instance: EvolutionInstance = {
             instanceName: id,
             friendlyName: name,
             status: 'created',
+            ...(proxy?.host && proxy.port ? { proxy } : {}),
         };
 
         connections.set(id, instance);
+
+        if (proxy?.host && proxy.port) {
+            await applyProxyToInstance(id, proxy);
+        }
 
         // Obter QR Code
         const qrCode = response.data?.qrcode?.base64 || response.data?.qrcode?.code;
@@ -273,40 +345,48 @@ export async function deleteConnection(id: string) {
 /**
  * Envia uma mensagem com Mídia - FUNÇÃO INTERNA
  */
-async function sendMediaInternal(connectionId: string, to: string, base64: string, mimeType: string, fileName: string, caption?: string): Promise<boolean> {
+async function sendMediaInternal(
+    connectionId: string,
+    to: string,
+    base64: string,
+    mimeType: string,
+    fileName: string,
+    caption?: string
+): Promise<boolean> {
     try {
         const number = to.replace(/[^0-9]/g, '');
         log('info', `Enviando media via ${connectionId}`, { to: number, mimeType, fileName });
-        
+
         let type = 'document';
         if (mimeType.startsWith('image/')) type = 'image';
         else if (mimeType.startsWith('video/')) type = 'video';
         else if (mimeType.startsWith('audio/')) type = 'audio';
+
+        const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
 
         const endpoint = `/message/sendMedia/${connectionId}`;
         const payload = {
             number,
             options: {
                 delay: 1200,
-                presence: 'composing'
+                presence: 'composing',
             },
             mediaMessage: {
                 mediatype: type,
                 caption: caption || '',
-                media: base64.split(',')[1] || base64, // Pega só o base64 puro sem prefixo data:mime
-                fileName: fileName
-            }
+                media: url,
+                fileName,
+            },
         };
 
         const response = await api.post(endpoint, payload);
 
         if (response.data?.key) {
-            log('info', `✅ Media enviada com sucesso`, { to: number, messageId: response.data.key.id });
+            log('info', `✅ Media enviada com sucesso`, { to: number, messageId: response.data.key.id, url });
             return true;
         }
 
         return false;
-
     } catch (error: any) {
         log('error', `Erro ao enviar media`, {
             connectionId,
@@ -351,6 +431,162 @@ async function sendMessageInternal(connectionId: string, to: string, message: st
     }
 }
 
+async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
+    bumpQueueSize(item.connectionId, 1);
+    await campaignQueue.add('send', item, {
+        jobId: `${item.campaignId || 'direct'}:${item.connectionId}:${item.to}:${Date.now()}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        delay: Math.max(0, delayMs),
+        removeOnComplete: 1000,
+        removeOnFail: 5000,
+    });
+}
+
+async function processCampaignJob(job: Job<MessageQueueItem>) {
+    const item = job.data;
+
+    if (item.campaignId && pausedCampaigns.has(item.campaignId)) {
+        await job.moveToDelayed(Date.now() + 3000);
+        return;
+    }
+
+    if (dynamicSettings.sleepMode) {
+        const hour = new Date().getHours();
+        if (hour >= 20 || hour < 8) {
+            log('info', '😴 Sleep mode ativo - adiando envio');
+            await job.moveToDelayed(Date.now() + 60_000);
+            return;
+        }
+    }
+
+    const state = await getConnectionState(item.connectionId);
+    if (state !== 'open') {
+        throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
+    }
+
+    log('info', 'Tentando envio', { to: item.to, connectionId: item.connectionId, campaignId: item.campaignId });
+
+    let success = false;
+    if (item.media?.base64 || item.media?.url) {
+        if (item.media.url) {
+            success = await sendMediaByUrlInternal(
+                item.connectionId,
+                item.to,
+                item.media.url,
+                item.media.mimeType,
+                item.media.fileName,
+                item.media.caption || item.message
+            );
+        } else if (item.media.base64) {
+            success = await sendMediaInternal(
+                item.connectionId,
+                item.to,
+                item.media.base64,
+                item.media.mimeType,
+                item.media.fileName,
+                item.media.caption || item.message
+            );
+        }
+    } else {
+        success = await sendMessageInternal(item.connectionId, item.to, item.message);
+    }
+
+    if (!success) {
+        throw new Error('Falha no envio');
+    }
+
+    bumpQueueSize(item.connectionId, -1);
+
+    if (io && item.campaignId) {
+        io.emit('campaign:message-sent', {
+            campaignId: item.campaignId,
+            to: item.to,
+            success: true,
+        });
+    }
+
+    const delay =
+        dynamicSettings.minDelay + Math.random() * (dynamicSettings.maxDelay - dynamicSettings.minDelay);
+    await new Promise((r) => setTimeout(r, delay));
+}
+
+async function sendMediaByUrlInternal(
+    connectionId: string,
+    to: string,
+    mediaUrl: string,
+    mimeType: string,
+    fileName: string,
+    caption?: string
+): Promise<boolean> {
+    try {
+        const number = to.replace(/[^0-9]/g, '');
+        let type = 'document';
+        if (mimeType.startsWith('image/')) type = 'image';
+        else if (mimeType.startsWith('video/')) type = 'video';
+        else if (mimeType.startsWith('audio/')) type = 'audio';
+
+        const response = await api.post(`/message/sendMedia/${connectionId}`, {
+            number,
+            options: { delay: 1200, presence: 'composing' },
+            mediaMessage: {
+                mediatype: type,
+                caption: caption || '',
+                media: mediaUrl,
+                fileName,
+            },
+        });
+
+        return Boolean(response.data?.key);
+    } catch (error: any) {
+        log('error', 'Erro ao enviar media por URL', {
+            connectionId,
+            to,
+            mediaUrl,
+            error: error.message,
+        });
+        return false;
+    }
+}
+
+function ensureCampaignWorker() {
+    if (campaignWorker) return;
+
+    campaignWorker = new Worker<MessageQueueItem>('campaign-messages', processCampaignJob, {
+        connection: connection.duplicate(),
+        concurrency: 1,
+    });
+
+    campaignWorker.on('failed', (job, err) => {
+        const item = job?.data;
+        log('error', 'Job de campanha falhou', {
+            to: item?.to,
+            connectionId: item?.connectionId,
+            campaignId: item?.campaignId,
+            error: err.message,
+            attemptsMade: job?.attemptsMade,
+        });
+
+        if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
+            bumpQueueSize(item.connectionId, -1);
+            if (io && item.campaignId) {
+                io.emit('campaign:message-sent', {
+                    campaignId: item.campaignId,
+                    to: item.to,
+                    success: false,
+                    error: err.message,
+                });
+            }
+        }
+    });
+
+    campaignWorker.on('completed', () => {
+        /* contadores já ajustados no processCampaignJob */
+    });
+
+    log('info', 'Worker BullMQ de campanhas iniciado');
+}
+
 /**
  * Inicia uma campanha - VERSÃO INTERNA (recebe objeto)
  */
@@ -359,128 +595,34 @@ async function startCampaignInternal(data: {
     numbers: string[];
     message: string;
     connectionIds: string[];
+    media?: CampaignMediaPayload;
 }) {
-    const { campaignId, numbers, message, connectionIds } = data;
+    const { campaignId, numbers, message, connectionIds, media } = data;
 
     log('info', 'Campanha iniciada', {
         campaignId,
         total: numbers.length,
         channels: connectionIds.length,
+        hasMedia: Boolean(media),
     });
 
-    // Adicionar mensagens à fila
+    ensureCampaignWorker();
+
     for (let i = 0; i < numbers.length; i++) {
         const connectionId = connectionIds[i % connectionIds.length];
-        messageQueue.push({
-            connectionId,
-            to: numbers[i],
-            message,
-            campaignId,
-            attempts: 0,
-            totalAttempts: 0,
-        });
+        const staggerDelay = i * dynamicSettings.minDelay;
+
+        await enqueueCampaignItem(
+            {
+                connectionId,
+                to: numbers[i],
+                message,
+                campaignId,
+                ...(media ? { media } : {}),
+            },
+            staggerDelay
+        );
     }
-
-    // Processar fila
-    if (!isProcessing) {
-        processQueue();
-    }
-}
-
-/**
- * Processa fila de mensagens
- */
-async function processQueue() {
-    if (isProcessing || messageQueue.length === 0) return;
-
-    isProcessing = true;
-
-    while (messageQueue.length > 0) {
-        const item = messageQueue.shift()!;
-
-        try {
-            // Verificar se instância está conectada
-            const state = await getConnectionState(item.connectionId);
-
-            if (state !== 'open') {
-                log('warn', `Canal ${item.connectionId} não está conectado (${state})`, {
-                    to: item.to,
-                });
-
-                // Recolocar na fila se ainda tiver tentativas
-                if (item.attempts < 3) {
-                    item.attempts++;
-                    messageQueue.push(item);
-                    await new Promise(r => setTimeout(r, 5000)); // Aguardar 5s
-                }
-                continue;
-            }
-
-            // Enviar mensagem
-            log('info', 'Tentando envio', { to: item.to, connectionId: item.connectionId });
-
-            const success = await sendMessageInternal(item.connectionId, item.to, item.message);
-
-            if (success) {
-                // Sucesso
-                if (io && item.campaignId) {
-                    io.emit('campaign:message-sent', {
-                        campaignId: item.campaignId,
-                        to: item.to,
-                        success: true,
-                    });
-                }
-            } else {
-                // Falha - retentar
-                if (item.attempts < 3) {
-                    item.attempts++;
-                    messageQueue.push(item);
-                } else {
-                    // Falha definitiva
-                    log('error', 'Excedido limite de tentativas', { to: item.to });
-
-                    if (io && item.campaignId) {
-                        io.emit('campaign:message-sent', {
-                            campaignId: item.campaignId,
-                            to: item.to,
-                            success: false,
-                            error: 'Excedido limite de tentativas',
-                        });
-                    }
-                }
-            }
-
-            // Sleep mode: pausa fora do horário comercial (20h-8h)
-            if (dynamicSettings.sleepMode) {
-                const hour = new Date().getHours();
-                if (hour >= 20 || hour < 8) {
-                    log('info', '😴 Sleep mode ativo - aguardando horário comercial');
-                    await new Promise(r => setTimeout(r, 60000));
-                    continue;
-                }
-            }
-
-            // Verificar se campanha está pausada
-            if (item.campaignId && pausedCampaigns.has(item.campaignId)) {
-                messageQueue.unshift(item); // Devolver ao início
-                await new Promise(r => setTimeout(r, 3000));
-                continue;
-            }
-
-            // Delay dinâmico entre mensagens (anti-ban)
-            const delay = dynamicSettings.minDelay + Math.random() * (dynamicSettings.maxDelay - dynamicSettings.minDelay);
-            await new Promise(r => setTimeout(r, delay));
-
-        } catch (error: any) {
-            log('error', 'Erro ao processar item da fila', {
-                to: item.to,
-                error: error.message,
-            });
-        }
-    }
-
-    isProcessing = false;
-    log('info', 'Fila processada completamente');
 }
 
 /**
@@ -488,9 +630,10 @@ async function processQueue() {
  */
 export function init(socketIO: SocketIOServer) {
     io = socketIO;
+    ensureCampaignWorker();
     log('info', 'Evolution API Service Initialized', {
         apiUrl: evolutionConfig.apiUrl,
-        webhookUrl: evolutionConfig.webhookUrl
+        webhookUrl: evolutionConfig.webhookUrl,
     });
 
     // Testar conectividade com Evolution API
@@ -613,11 +756,21 @@ export function getConnections(): WhatsAppConnection[] {
             phoneNumber: conn.phoneNumber || null,
             status,
             lastActivity: new Date().toLocaleString(),
-            queueSize: messageQueue.filter(m => m.connectionId === id).length,
+            queueSize: connectionQueueSizes.get(id) || 0,
             messagesSentToday: 0,
             signalStrength: 'STRONG',
             profilePicUrl: conn.profilePicUrl,
             batteryLevel: 100,
+            ...(conn.proxy?.host
+                ? {
+                      proxy: {
+                          enabled: true,
+                          host: conn.proxy.host,
+                          port: String(conn.proxy.port),
+                          protocol: conn.proxy.protocol || 'http',
+                      },
+                  }
+                : {}),
         });
     }
     return result;
@@ -639,57 +792,79 @@ export function getWarmupState() {
 }
 
 export async function markWarmupReady(numbers: string[]) {
-    const normalized = numbers.map(n => n.replace(/[^0-9]/g, ''));
-    normalized.forEach(num => warmedNumbers.add(num));
+    const normalized = numbers.map((n) => n.replace(/[^0-9]/g, ''));
+    normalized.forEach((num) => warmedNumbers.add(num));
 
-    // Mover itens da warmup queue para message queue
-    const ready = warmupQueue.filter(item => normalized.includes(item.to.replace(/[^0-9]/g, '')));
+    ensureCampaignWorker();
+
+    const ready = warmupQueue.filter((item) =>
+        normalized.includes(item.to.replace(/[^0-9]/g, ''))
+    );
     for (const item of ready) {
-        messageQueue.push({
+        await enqueueCampaignItem({
             connectionId: item.connectionId,
             to: item.to,
             message: item.message,
             campaignId: item.campaignId,
-            attempts: 0,
-            totalAttempts: 0,
         });
     }
 
-    // Remover da warmup queue
-    const remaining = warmupQueue.filter(item => !normalized.includes(item.to.replace(/[^0-9]/g, '')));
+    const remaining = warmupQueue.filter(
+        (item) => !normalized.includes(item.to.replace(/[^0-9]/g, ''))
+    );
     warmupQueue.length = 0;
     warmupQueue.push(...remaining);
 
     if (io) {
         io.emit('warmup-update', getWarmupState());
     }
-
-    // Iniciar processamento se necessário
-    if (!isProcessing && messageQueue.length > 0) {
-        processQueue();
-    }
 }
 
 // ================== ADAPTADORES (compatibilidade server.ts) ==================
 
 // createConnection compatível com server.ts (recebe name como string)
-export async function createConnection(name: string): Promise<void> {
+export async function createConnection(name: string, proxy?: ConnectionProxyConfig): Promise<void> {
     const id = generateId();
-    await createConnectionInternal(id, name);
+    await createConnectionInternal(id, name, proxy);
 }
 
-// startCampaign compatível com server.ts (4 argumentos)
+export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfig | null): Promise<void> {
+    const conn = connections.get(id);
+    if (!conn) throw new Error('Conexão não encontrada');
+
+    if (proxy?.host && proxy.port) {
+        conn.proxy = proxy;
+        connections.set(id, conn);
+        await applyProxyToInstance(id, proxy);
+    } else {
+        delete conn.proxy;
+        connections.set(id, conn);
+        try {
+            await api.post(`/proxy/set/${id}`, { enabled: false });
+        } catch {
+            /* instância pode não ter proxy configurado */
+        }
+    }
+
+    if (io) {
+        io.emit('connection-update', { id, proxy: conn.proxy ? { enabled: true, host: conn.proxy.host } : null });
+    }
+}
+
+// startCampaign compatível com server.ts (4 argumentos + mídia opcional)
 export async function startCampaign(
     numbers: string[],
     message: string,
     connectionIds: string[],
-    campaignId?: string
+    campaignId?: string,
+    media?: CampaignMediaPayload
 ): Promise<void> {
     await startCampaignInternal({
         campaignId: campaignId || `campaign_${Date.now()}`,
         numbers,
         message,
         connectionIds,
+        ...(media ? { media } : {}),
     });
 }
 
@@ -743,13 +918,14 @@ export function resumeCampaign(campaignId: string) {
     pausedCampaigns.delete(campaignId);
     log('info', `▶️ Campanha retomada: ${campaignId}`);
     if (io) io.emit('campaign-resumed', { campaignId });
-    if (!isProcessing && messageQueue.length > 0) processQueue();
+    ensureCampaignWorker();
 }
 
 // Export default
 export default {
     init,
     createConnection,
+    setConnectionProxy,
     deleteConnection,
     forceQr,
     reconnectConnection,

@@ -9,7 +9,10 @@ import { QrCanvas } from './QrCanvas';
 interface AddConnectionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (name: string) => void;
+  onSuccess: (
+    name: string,
+    proxy?: { host: string; port: string | number; protocol?: string; username?: string; password?: string }
+  ) => void;
 }
 
 const QR_LOAD_TIMEOUT_MS = 120_000;
@@ -39,6 +42,12 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   const { socket, connections, isBackendConnected } = useZapMassCore();
   const [step, setStep] = useState<'naming' | 'loading_qr' | 'scanning' | 'success'>('naming');
   const [connectionName, setConnectionName] = useState('');
+  const [showProxy, setShowProxy] = useState(false);
+  const [proxyHost, setProxyHost] = useState('');
+  const [proxyPort, setProxyPort] = useState('');
+  const [proxyProtocol, setProxyProtocol] = useState('http');
+  const [proxyUser, setProxyUser] = useState('');
+  const [proxyPass, setProxyPass] = useState('');
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const [currentConnectionId, setCurrentConnectionId] = useState<string | null>(null);
   const [phase, setPhase] = useState<InitPhase>('queued');
@@ -68,6 +77,12 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     if (!isOpen || wasOpen) return;
     setStep('naming');
     setConnectionName('');
+    setShowProxy(false);
+    setProxyHost('');
+    setProxyPort('');
+    setProxyProtocol('http');
+    setProxyUser('');
+    setProxyPass('');
     setQrCodeData(null);
     setCurrentConnectionId(null);
     pendingConnectionIdRef.current = null;
@@ -312,7 +327,17 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       priorConnectionIdsRef.current = new Set(connections.map((c) => c.id));
       setPhase('queued');
       setStep('loading_qr');
-      onSuccess(connectionName);
+      const proxy =
+        showProxy && proxyHost.trim() && proxyPort.trim()
+          ? {
+              host: proxyHost.trim(),
+              port: proxyPort.trim(),
+              protocol: proxyProtocol,
+              ...(proxyUser.trim() ? { username: proxyUser.trim() } : {}),
+              ...(proxyPass.trim() ? { password: proxyPass.trim() } : {}),
+            }
+          : undefined;
+      onSuccess(connectionName, proxy);
   };
 
   /** Envia ao servidor o pedido de pairing code para o `currentConnectionId`. */
@@ -373,6 +398,64 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
                 }}
               />
               <p className="text-xs text-gray-500 mt-2">Dê um nome para identificar este chip.</p>
+
+              <button
+                type="button"
+                onClick={() => setShowProxy((v) => !v)}
+                className="mt-4 text-xs font-medium text-emerald-700 hover:text-emerald-800"
+              >
+                {showProxy ? '− Ocultar proxy (opcional)' : '+ Proxy por chip (opcional)'}
+              </button>
+
+              {showProxy && (
+                <div className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Host do proxy"
+                      className="ui-input col-span-2 text-sm"
+                      value={proxyHost}
+                      onChange={(e) => setProxyHost(e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Porta"
+                      className="ui-input text-sm"
+                      value={proxyPort}
+                      onChange={(e) => setProxyPort(e.target.value)}
+                    />
+                  </div>
+                  <select
+                    className="ui-input text-sm w-full"
+                    value={proxyProtocol}
+                    onChange={(e) => setProxyProtocol(e.target.value)}
+                  >
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                    <option value="socks4">SOCKS4</option>
+                    <option value="socks5">SOCKS5</option>
+                  </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Usuário (opcional)"
+                      className="ui-input text-sm"
+                      value={proxyUser}
+                      onChange={(e) => setProxyUser(e.target.value)}
+                    />
+                    <input
+                      type="password"
+                      placeholder="Senha (opcional)"
+                      className="ui-input text-sm"
+                      value={proxyPass}
+                      onChange={(e) => setProxyPass(e.target.value)}
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    Cada chip pode usar um IP diferente via proxy residencial ou datacenter.
+                  </p>
+                </div>
+              )}
               
               <button 
                 disabled={!connectionName.trim()}

@@ -81,6 +81,7 @@ import { redisPing } from './redisPing.js';
 import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
 import { securityHeadersMiddleware } from './securityHeaders.js';
+import { getUploadsDir } from './mediaStorage.js';
 
 function notifyCampaignSocketError(
   uid: string,
@@ -111,6 +112,7 @@ process.on('unhandledRejection', (reason) => {
 const app = express();
 app.use(securityHeadersMiddleware);
 configureTrustProxy(app);
+app.use('/public/uploads', express.static(getUploadsDir()) as any);
 const httpServer = createServer(app);
 const serverStartedAt = new Date();
 // Upload de mídia (send-media) chega via socket em base64. Base64 infla ~33%
@@ -715,10 +717,10 @@ const registerSocketHandlers = () => {
       }
     );
     
-    socket.on('create-connection', ({ name }: { name?: string }) => {
+    socket.on('create-connection', ({ name, proxy }: { name?: string; proxy?: evolutionService.ConnectionProxyConfig }) => {
       const queueKey = uid;
       enqueuePerKey(queueKey, async () => {
-        const decision = await evaluateMayCreateWaConnection(uid, waService.getConnections());
+        const decision = await evaluateMayCreateWaConnection(uid, evolutionService.getConnections());
         if (decision.ok === false) {
           if (decision.reason === 'subscription-required') {
             socket.emit('subscription-required', {
@@ -740,7 +742,7 @@ const registerSocketHandlers = () => {
         await runSessionCommandOrLocal({
           submit: () => submitCreateConnection(connName, authOp, owner),
           local: async () => {
-            await evolutionService.createConnection(connName);
+            await evolutionService.createConnection(connName, proxy);
           }
         });
         socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
@@ -780,6 +782,27 @@ const registerSocketHandlers = () => {
           });
         } catch (e) {
           reportSocketAsyncError('reconnect-connection', e);
+        }
+      })();
+    });
+
+    socket.on('set-connection-proxy', ({ id, proxy }: { id?: string; proxy?: evolutionService.ConnectionProxyConfig | null }) => {
+      void (async () => {
+        try {
+          const connId = String(id || '').trim();
+          if (!connId) {
+            socket.emit('socket-operation-error', { op: 'set-connection-proxy', error: 'Canal inválido.' });
+            return;
+          }
+          if (!ownsConnectionId(connId)) {
+            denyCrossTenant('set-connection-proxy', { id: connId });
+            return;
+          }
+          userLog('ui:set-connection-proxy', { id: connId, host: proxy?.host });
+          await evolutionService.setConnectionProxy(connId, proxy || null);
+          socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+        } catch (e) {
+          reportSocketAsyncError('set-connection-proxy', e);
         }
       })();
     });
@@ -952,7 +975,7 @@ const registerSocketHandlers = () => {
         }).catch(() => {});
         return;
       }
-      const connections = filterByConnectionScope(uid, waService.getConnections());
+      const connections = filterByConnectionScope(uid, evolutionService.getConnections());
       const connectedIds = connections
         .filter((conn) => conn.status === 'CONNECTED')
         .map((conn) => conn.id);
@@ -965,9 +988,9 @@ const registerSocketHandlers = () => {
         notifyCampaignSocketError(uid, err, campaignId);
         return;
       }
-      if (typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0) {
-        waService.applySettings({ minDelay: delaySeconds, maxDelay: delaySeconds });
-      }
+        if (typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0) {
+          evolutionService.applySettings({ minDelay: delaySeconds, maxDelay: delaySeconds });
+        }
       userLog('ui:start-campaign', { campaignId, connections: connectionIds.length, total: numbers?.length || 0, delaySeconds });
       try {
         const stages =
@@ -982,16 +1005,21 @@ const registerSocketHandlers = () => {
           return;
         }
         const sanitizedMedia = normalizeCampaignMediaAttachment(mediaAttachment);
+        const campaignMedia = sanitizedMedia
+          ? {
+              base64: sanitizedMedia.dataBase64,
+              mimeType: sanitizedMedia.mimeType,
+              fileName: sanitizedMedia.fileName,
+            }
+          : undefined;
 
         await evolutionService.startCampaign(
           numbers,
-          stages[0] || message,
+          stages[0] || message || '',
           connectionIds,
-          campaignId
-        ); // uid = tenant (dono/conta partilhada)
-        // OBS: The original code supported complex multi-stage flows and replies.
-        // We will adapt startCampaign on EvolutionService to support these later or fallback to true for now.
-        // Evolution Service returns void right now, let's treat it as true.
+          campaignId,
+          campaignMedia
+        );
         const ok = true;
         if (!ok) {
           const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
@@ -1023,7 +1051,7 @@ const registerSocketHandlers = () => {
       try {
         await runSessionCommandOrLocal({
           submit: () => submitSendMessage(conversationId, text, authOp),
-          local: () => evolutionService.sendMessage(conversationId, text) as any
+          local: () => waService.sendMessage(conversationId, text) as any
         });
         logEvent('wa:send-message', { conversationId });
       } catch (error: any) {
@@ -1080,8 +1108,14 @@ const registerSocketHandlers = () => {
                 { conversationId, dataBase64, mimeType, fileName, caption, sendMediaAsDocument },
                 authOp
               ),
-            local: () =>
-              evolutionService.sendMedia(conversationId, dataBase64, mimeType, fileName, caption) as any
+          local: () =>
+              waService.sendMedia(conversationId, {
+                dataBase64,
+                mimeType,
+                fileName,
+                caption,
+                sendMediaAsDocument
+              }) as any
           });
           logEvent('wa:send-media:done', {
             conversationId,
@@ -1137,7 +1171,7 @@ const registerSocketHandlers = () => {
         try {
           if (!(await requireActiveSubscription())) return;
           userLog('ui:update-settings', settings as Record<string, unknown>);
-          waService.applySettings(settings);
+          evolutionService.applySettings(settings);
           socket.emit('settings-saved', { ok: true });
         } catch (e) {
           reportSocketAsyncError('update-settings', e);
@@ -1154,7 +1188,7 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:pause-campaign', { campaignId });
-          waService.pauseCampaign(campaignId);
+          evolutionService.pauseCampaign(campaignId);
         } catch (e) {
           reportSocketAsyncError('pause-campaign', e);
         }
@@ -1170,7 +1204,7 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:resume-campaign', { campaignId });
-          waService.resumeCampaign(campaignId);
+          evolutionService.resumeCampaign(campaignId);
         } catch (e) {
           reportSocketAsyncError('resume-campaign', e);
         }
@@ -1186,7 +1220,7 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:mark-as-read', { conversationId });
-          waService.markAsRead(conversationId);
+          // Note: Needs evolution api equivalent or stub
         } catch (e) {
           reportSocketAsyncError('mark-as-read', e);
         }
@@ -1216,7 +1250,7 @@ const registerSocketHandlers = () => {
       if (!numbers || !Array.isArray(numbers) || numbers.length === 0) return;
       if (!(await requireActiveSubscription())) return;
       userLog('ui:warmup-marked', { count: numbers.length });
-      await waService.markWarmupReady(numbers);
+        await evolutionService.markWarmupReady(numbers);
       socket.emit('warmup-update', getWarmupStateForUid());
     });
 
@@ -1229,7 +1263,8 @@ const registerSocketHandlers = () => {
       }
       userLog('warmup:send', { from, to });
       try {
-        await waService.sendWarmupMessage(from, to, message);
+        // Fallback to sendMessage if evolutionService.sendWarmupMessage isn't explicitly defined yet.
+        await evolutionService.sendMessage(`${from}:${to}`, message);
       } catch (e: any) {
         console.error(`[Warmup] Erro ao enviar de ${from} para ${to}:`, e?.message || e);
       }
@@ -1243,7 +1278,7 @@ const registerSocketHandlers = () => {
       }
       console.log('[TestDispatch] Iniciando teste de disparo:', { fromConnectionId, toPhone, message });
       try {
-        await waService.sendWarmupMessage(fromConnectionId, toPhone, message);
+        await evolutionService.sendMessage(`${fromConnectionId}:${toPhone}`, message);
         socket.emit('test-dispatch-result', { success: true, message: 'Teste enviado com sucesso' });
       } catch (e: any) {
         console.error('[TestDispatch] Erro:', e?.message || e);

@@ -325,7 +325,10 @@ export const ConnectionsTab: React.FC = () => {
   }, [blockNewBySubscription, atPlatformMax, needChannelExtraPurchase]);
 
   const requestNewConnection = useCallback(
-    (name: string) => {
+    (
+      name: string,
+      proxy?: { host: string; port: string | number; protocol?: string; username?: string; password?: string }
+    ) => {
       if (blockNewBySubscription) {
         toast.error('Assine o ZapMass para criar novos canais. Abra Minha assinatura.');
         return;
@@ -341,7 +344,7 @@ export const ConnectionsTab: React.FC = () => {
         }
         return;
       }
-      addConnection(name);
+      addConnection(name, proxy);
     },
     [addConnection, blockNewBySubscription, canOpenNameModal, needChannelExtraPurchase, atPlatformMax]
   );

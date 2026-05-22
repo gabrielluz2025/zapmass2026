@@ -31,6 +31,13 @@ export interface WhatsAppConnection {
    * NÃO restaura este canal. Utilizador tem de pedir QR/pareamento de novo.
    */
   sessionZombie?: boolean;
+  /** Proxy HTTP/SOCKS na Evolution API para este chip. */
+  proxy?: {
+    enabled: boolean;
+    host?: string;
+    port?: string;
+    protocol?: string;
+  };
 }
 
 export interface SystemMetrics {
@@ -453,7 +460,14 @@ export interface ZapMassContextType {
   };
 
   // Actions
-  addConnection: (name: string) => void | Promise<void>;
+  addConnection: (
+    name: string,
+    proxy?: { host: string; port: string | number; protocol?: string; username?: string; password?: string }
+  ) => void | Promise<void>;
+  setConnectionProxy: (
+    id: string,
+    proxy: { host: string; port: string | number; protocol?: string; username?: string; password?: string } | null
+  ) => void | Promise<void>;
   removeConnection: (id: string) => void;
   updateConnectionStatus: (id: string, status: ConnectionStatus) => void;
   reconnectConnection: (id: string) => void | Promise<void>;

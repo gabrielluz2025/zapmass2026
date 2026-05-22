@@ -49,6 +49,18 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
       EVOLUTION_WEBHOOK_TOKEN: ${EVOLUTION_WEBHOOK_TOKEN:-}
+      EVOLUTION_API_URL: ${EVOLUTION_API_URL:-http://evolution:8080}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-zapmass-secure-key-2026}
+      ZAPMASS_WEBHOOK_URL: ${ZAPMASS_WEBHOOK_URL:-http://zapmass:3001/webhook/evolution}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_PORT: ${S3_PORT:-}
+      S3_USE_SSL: ${S3_USE_SSL:-true}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
@@ -84,6 +96,7 @@ services:
     depends_on:
       - redis
       - evolution
+      - postgres
 
   evolution:
     image: atendai/evolution-api:v2.2.0
@@ -93,9 +106,10 @@ services:
     environment:
       - SERVER_PORT=8080
       - AUTHENTICATION_TYPE=apikey
-      - AUTHENTICATION_API_KEY=zapmass-secure-key-2026
-      - DATABASE_PROVIDER=sqlite
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-zapmass-secure-key-2026}
+      - DATABASE_PROVIDER=postgresql
       - DATABASE_ENABLED=true
+      - DATABASE_CONNECTION_URI=postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/evolution_db?schema=public
       - REDIS_ENABLED=true
       - REDIS_URI=redis://redis:6379/1
       - REDIS_PREFIX_KEY=evolution
@@ -109,6 +123,21 @@ services:
       - STORE_CHATS=true
     volumes:
       - zapmass-evolution:/evolution/instances
+    depends_on:
+      - redis
+      - postgres
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=evolution_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-evolution-secure-pass-2026}
+    volumes:
+      - zapmass-postgres:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
@@ -156,3 +185,4 @@ volumes:
   zapmass-data:
   zapmass-redis:
   zapmass-evolution:
+  zapmass-postgres:
