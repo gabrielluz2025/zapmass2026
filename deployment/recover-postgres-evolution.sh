@@ -23,6 +23,11 @@ POSTGRES_PASSWORD="$(grep -E '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWOR
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$DEFAULT_POSTGRES_PASSWORD}"
 EVOLUTION_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' "$ENV" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' || true)"
 EVOLUTION_KEY="${EVOLUTION_KEY:-$DEFAULT_EVOLUTION_KEY}"
+POSTGRES_HOST="${POSTGRES_HOST:-tasks.postgres}"
+
+postgres_container_id() {
+  docker ps -q --filter "name=zapmass_postgres" 2>/dev/null | head -1 || true
+}
 
 swarm_network() {
   local cid net
@@ -31,7 +36,7 @@ swarm_network() {
     net="$(docker inspect "$cid" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null | head -1 || true)"
     [ -n "$net" ] && printf '%s' "$net" && return 0
   fi
-  docker network ls --format '{{.Name}}' | grep -E 'zapmass.*default' | head -1 || true
+  docker network ls --format '{{.Name}}' | grep -E 'zapmass.*(internal|default)' | head -1 || true
 }
 
 verify_postgres_auth() {
@@ -47,11 +52,7 @@ verify_postgres_auth_overlay() {
   net="$(swarm_network)"
   [ -n "$net" ] || return 1
   docker run --rm --network "$net" -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres:15-alpine \
-    psql -h postgres -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
-}
-
-postgres_container_id() {
-  docker ps -q --filter "name=zapmass_postgres" 2>/dev/null | head -1 || true
+    psql -h "${POSTGRES_HOST}" -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
 }
 
 wait_pg_isready() {
@@ -71,7 +72,7 @@ wait_pg_isready() {
   if [ -n "$net" ]; then
     for i in $(seq 1 15); do
       if docker run --rm --network "$net" postgres:15-alpine \
-        pg_isready -h postgres -U postgres -d evolution_db -q 2>/dev/null; then
+        pg_isready -h "${POSTGRES_HOST}" -U postgres -d evolution_db -q 2>/dev/null; then
         ok "pg_isready OK (rede ${net})"
         return 0
       fi
@@ -102,11 +103,11 @@ diagnose_evolution() {
 }
 
 restart_evolution() {
-  local db_uri="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/evolution_db?schema=public"
+  local db_uri="postgresql://postgres:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/evolution_db?schema=public"
   log "Parar Evolution"
   docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
   sleep 12
-  log "Actualizar DATABASE_CONNECTION_URI na Evolution"
+  log "Actualizar DATABASE_CONNECTION_URI na Evolution (${POSTGRES_HOST})"
   docker service update \
     --env-rm DATABASE_CONNECTION_URI \
     --env-add "DATABASE_CONNECTION_URI=${db_uri}" \

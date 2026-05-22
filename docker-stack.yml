@@ -100,6 +100,8 @@ services:
         delay: 10s
       restart_policy:
         condition: on-failure
+    networks:
+      - zapmass_internal
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001/api/health"]
       interval: 30s
@@ -146,6 +148,8 @@ services:
       resources:
         reservations:
           cpus: "0.25"
+    networks:
+      - zapmass_internal
 
   evolution:
     image: atendai/evolution-api:v2.2.0
@@ -160,7 +164,7 @@ services:
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-zapmass-secure-key-2026}
       - DATABASE_PROVIDER=postgresql
       - DATABASE_ENABLED=true
-      - DATABASE_CONNECTION_URI=postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/evolution_db?schema=public
+      - DATABASE_CONNECTION_URI=postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@tasks.postgres:5432/evolution_db?schema=public
       - REDIS_ENABLED=true
       - REDIS_URI=redis://redis:6379/1
       - REDIS_PREFIX_KEY=evolution
@@ -181,8 +185,10 @@ services:
         delay: 20s
       restart_policy:
         condition: on-failure
-        delay: 20s
+        delay: 30s
         max_attempts: 8
+    networks:
+      - zapmass_internal
 
   postgres:
     image: postgres:15-alpine
@@ -200,11 +206,14 @@ services:
       start_period: 40s
     deploy:
       replicas: 1
+      endpoint_mode: dnsrr
       update_config:
         order: start-first
       restart_policy:
         condition: on-failure
         delay: 5s
+    networks:
+      - zapmass_internal
 
   redis:
     image: redis:7-alpine
@@ -215,6 +224,8 @@ services:
       replicas: 1
       restart_policy:
         condition: any
+    networks:
+      - zapmass_internal
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -228,9 +239,16 @@ services:
         mode: host
     deploy:
       replicas: 1
+    networks:
+      - zapmass_internal
 
 volumes:
   zapmass-data:
   zapmass-evolution:
   zapmass-postgres:
   redis-data:
+
+networks:
+  zapmass_internal:
+    driver: overlay
+    attachable: true
