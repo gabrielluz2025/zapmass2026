@@ -271,6 +271,54 @@ export async function deleteConnection(id: string) {
 }
 
 /**
+ * Envia uma mensagem com Mídia - FUNÇÃO INTERNA
+ */
+async function sendMediaInternal(connectionId: string, to: string, base64: string, mimeType: string, fileName: string, caption?: string): Promise<boolean> {
+    try {
+        const number = to.replace(/[^0-9]/g, '');
+        log('info', `Enviando media via ${connectionId}`, { to: number, mimeType, fileName });
+        
+        let type = 'document';
+        if (mimeType.startsWith('image/')) type = 'image';
+        else if (mimeType.startsWith('video/')) type = 'video';
+        else if (mimeType.startsWith('audio/')) type = 'audio';
+
+        const endpoint = `/message/sendMedia/${connectionId}`;
+        const payload = {
+            number,
+            options: {
+                delay: 1200,
+                presence: 'composing'
+            },
+            mediaMessage: {
+                mediatype: type,
+                caption: caption || '',
+                media: base64.split(',')[1] || base64, // Pega só o base64 puro sem prefixo data:mime
+                fileName: fileName
+            }
+        };
+
+        const response = await api.post(endpoint, payload);
+
+        if (response.data?.key) {
+            log('info', `✅ Media enviada com sucesso`, { to: number, messageId: response.data.key.id });
+            return true;
+        }
+
+        return false;
+
+    } catch (error: any) {
+        log('error', `Erro ao enviar media`, {
+            connectionId,
+            to,
+            error: error.message,
+            response: error.response?.data,
+        });
+        return false;
+    }
+}
+
+/**
  * Envia uma mensagem - FUNÇÃO INTERNA (3 argumentos)
  */
 async function sendMessageInternal(connectionId: string, to: string, message: string): Promise<boolean> {
@@ -440,8 +488,10 @@ async function processQueue() {
  */
 export function init(socketIO: SocketIOServer) {
     io = socketIO;
-    log('info', 'Evolution API Service Initialized');
-    log('info', `API URL: ${evolutionConfig.apiUrl}`);
+    log('info', 'Evolution API Service Initialized', {
+        apiUrl: evolutionConfig.apiUrl,
+        webhookUrl: evolutionConfig.webhookUrl
+    });
 
     // Testar conectividade com Evolution API
     testConnection();
@@ -499,12 +549,45 @@ export function handleWebhook(event: any) {
                 break;
 
             case 'MESSAGES_UPSERT':
-                // Mensagem recebida (para aba de chat)
+                // Mensagem recebida (para aba de chat e ReplyFlow)
+                const isFromMe = data.messages?.[0]?.key?.fromMe;
+                const remoteJid = data.messages?.[0]?.key?.remoteJid;
+                const messageId = data.messages?.[0]?.key?.id;
+                const messageText = data.messages?.[0]?.message?.conversation || data.messages?.[0]?.message?.extendedTextMessage?.text || '';
+
                 if (io) {
                     io.emit('message-received', {
                         connectionId: instance,
                         message: data,
                     });
+                }
+                
+                // Tratar ACK do funil
+                if (isFromMe && messageId) {
+                    // Update funil sent/delivered
+                    metrics.totalSent++;
+                    if (io) {
+                        io.emit('campaign-progress', {
+                            successCount: metrics.totalSent,
+                            connectionId: instance
+                        });
+                    }
+                } else if (!isFromMe && remoteJid) {
+                    // Resposta do cliente - pode ser um ReplyFlow / Funil 
+                    log('info', 'Recebida resposta de cliente', { from: remoteJid, text: messageText });
+                    
+                    // Disparar um handler de ReplyFlow do whatsappService se estivesse conectado 
+                    // Como estamos migrando, idealmente faríamos um emit interno
+                }
+                break;
+
+            case 'MESSAGES_UPDATE':
+                // Atualização de Status da Mensagem (Entregue, Lido)
+                const updateStatus = data[0]?.update?.status; // 2=Sent, 3=Delivered, 4=Read
+                if (updateStatus >= 3) {
+                     metrics.totalDelivered++;
+                     if (updateStatus === 4) metrics.totalRead++;
+                     log('info', 'Status de mensagem atualizado (ACK)', { status: updateStatus });
                 }
                 break;
         }
@@ -632,6 +715,24 @@ export async function sendMessage(conversationId: string, text: string): Promise
     return sendMessageInternal(connectionId, to, text);
 }
 
+export async function sendMedia(conversationId: string, base64: string, mimeType: string, fileName: string, caption?: string): Promise<boolean> {
+    const parts = conversationId.split(':');
+    let connectionId: string;
+    let to: string;
+
+    if (parts.length >= 2) {
+        connectionId = parts[0];
+        to = parts[parts.length - 1];
+    } else {
+        const firstConn = connections.keys().next().value;
+        if (!firstConn) return false;
+        connectionId = firstConn;
+        to = conversationId;
+    }
+
+    return sendMediaInternal(connectionId, to, base64, mimeType, fileName, caption);
+}
+
 export function pauseCampaign(campaignId: string) {
     pausedCampaigns.add(campaignId);
     log('info', `⏸️ Campanha pausada: ${campaignId}`);
@@ -653,6 +754,7 @@ export default {
     forceQr,
     reconnectConnection,
     sendMessage,
+    sendMedia,
     startCampaign,
     pauseCampaign,
     resumeCampaign,

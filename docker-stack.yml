@@ -133,6 +133,39 @@ services:
         reservations:
           cpus: "0.25"
 
+  evolution:
+    image: atendai/evolution-api:v2.2.0
+    ports:
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: host
+    environment:
+      - SERVER_PORT=8080
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=zapmass-secure-key-2026
+      - DATABASE_PROVIDER=sqlite
+      - DATABASE_ENABLED=true
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://redis:6379/1
+      - REDIS_PREFIX_KEY=evolution
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://redis:6379/1
+      - CACHE_LOCAL_ENABLED=false
+      - WEBSOCKET_ENABLED=false
+      - STORE_MESSAGES=true
+      - STORE_MESSAGE_UP=true
+      - STORE_CONTACTS=true
+      - STORE_CHATS=true
+    volumes:
+      - zapmass-evolution:/evolution/instances
+    deploy:
+      replicas: 1
+      update_config:
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
@@ -158,4 +191,5 @@ services:
 
 volumes:
   zapmass-data:
+  zapmass-evolution:
   redis-data:
