@@ -108,3 +108,35 @@ render_template() {
 }
 
 gerar_chave() { openssl rand -hex 24 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32 | head -n1; }
+
+# Remove contentores duplicados/orfaos (ex.: 7679e29ff1bc_zapmass-cli-demo) antes do compose up.
+limpar_containers_cliente() {
+    local slug="$1"
+    local needle="zapmass-cli-${slug}"
+    local id name removed=0
+
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        id="${line%% *}"
+        name="${line#* }"
+        case "$name" in
+            *"${needle}"*)
+                if docker rm -f "$id" >/dev/null 2>&1; then
+                    removed=$((removed + 1))
+                    log "Removido contentor antigo: ${name}"
+                fi
+                ;;
+        esac
+    done < <(docker ps -a --format '{{.ID}} {{.Names}}' 2>/dev/null || true)
+
+    [ "$removed" -gt 0 ] && return 0
+    return 0
+}
+
+# Recria o stack de um cliente sem conflito de container_name.
+recriar_cliente_compose() {
+    local dir="$1"
+    local slug="$2"
+    limpar_containers_cliente "$slug"
+    (cd "$dir" && docker compose up -d --force-recreate --remove-orphans)
+}

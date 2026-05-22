@@ -188,6 +188,8 @@ fi
 
 if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml >/dev/null 2>&1; then
   echo "==> atualizar containers dos clientes"
+  # shellcheck source=deployment/clientes/scripts/_comum.sh
+  . "$(dirname "$0")/clientes/scripts/_comum.sh"
   for dir in /opt/zapmass/clientes/*/; do
     slug="$(basename "$dir")"
     case "$slug" in
@@ -195,7 +197,9 @@ if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml
     esac
     [ -f "${dir}docker-compose.yml" ] || continue
     echo "    - cliente: ${slug}"
-    (cd "$dir" && docker compose up -d --force-recreate)
+    if ! recriar_cliente_compose "$dir" "$slug"; then
+      echo "AVISO: falha ao atualizar cliente ${slug} (deploy principal continua)" >&2
+    fi
   done
 else
   echo "==> sem clientes adicionais"

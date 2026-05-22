@@ -141,6 +141,8 @@ patch_client_env() {
 
 CLIENTES_DIR="$ROOT/clientes"
 if [ -d "$CLIENTES_DIR" ]; then
+  # shellcheck source=deployment/clientes/scripts/_comum.sh
+  . "$ROOT/deployment/clientes/scripts/_comum.sh"
   for dir in "$CLIENTES_DIR"/*/; do
     [ -d "$dir" ] || continue
     slug="$(basename "$dir")"
@@ -153,7 +155,7 @@ if [ -d "$CLIENTES_DIR" ]; then
     fi
     log "Cliente ${slug}: .env Evolution + recreate"
     patch_client_env "$client_env" "$pub"
-    (cd "$dir" && docker compose up -d --force-recreate) || warn "Falha ao recriar cliente ${slug}"
+    recriar_cliente_compose "$dir" "$slug" || warn "Falha ao recriar cliente ${slug}"
   done
 fi
 

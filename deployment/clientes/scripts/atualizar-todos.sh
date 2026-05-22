@@ -30,7 +30,7 @@ if [ -d "$CLIENTES_DIR" ]; then
         [ -f "${dir}/docker-compose.yml" ] || continue
 
     log "A atualizar cliente ${slug}..."
-    (cd "$dir" && docker compose up -d --force-recreate)
+    recriar_cliente_compose "$dir" "$slug"
     done
 fi
 
