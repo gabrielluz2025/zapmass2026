@@ -70,6 +70,33 @@ sync_postgres_password() {
   ok "Senha postgres actualizada"
 }
 
+verify_postgres_auth() {
+  local net
+  net="$(swarm_network)"
+  [ -n "$net" ] || return 1
+  docker run --rm --network "$net" -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres:15-alpine \
+    psql -h postgres -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
+}
+
+diagnose_evolution() {
+  echo ""
+  echo "--- zapmass_evolution (tasks) ---"
+  docker service ps zapmass_evolution --no-trunc 2>&1 | head -12 || true
+  echo ""
+  echo "--- zapmass_evolution (logs) ---"
+  docker service logs zapmass_evolution --tail 50 2>&1 || true
+}
+
+restart_evolution() {
+  log "Parar Evolution"
+  docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
+  sleep 12
+  log "Subir Evolution + force update"
+  docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
+  sleep 5
+  docker service update --force zapmass_evolution >/dev/null 2>&1 || true
+}
+
 diagnose_postgres() {
   echo ""
   echo "--- zapmass_postgres (tasks) ---"
@@ -99,7 +126,7 @@ wait_postgres_replicas() {
 
 wait_evolution_http() {
   local i code="000"
-  for i in $(seq 1 18); do
+  for i in $(seq 1 24); do
     code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
       "http://127.0.0.1:8080/instance/fetchInstances" \
       -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
@@ -107,7 +134,12 @@ wait_evolution_http() {
       printf '%s' "$code"
       return 0
     fi
-    echo "   evolution HTTP ${code} (${i}/18)"
+    local ev_rep
+    ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
+    echo "   evolution: ${ev_rep:-?} | HTTP ${code} (${i}/24)"
+    if [ "$i" = "6" ] || [ "$i" = "12" ]; then
+      diagnose_evolution
+    fi
     sleep 10
   done
   printf '%s' "$code"
@@ -127,7 +159,9 @@ reset_evolution_db_volume() {
   wait_pg_isready || return 1
   sync_postgres_password || true
   docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
-  log "Aguardar Evolution HTTP 200 (ate 3 min)"
+  sleep 5
+  docker service update --force zapmass_evolution >/dev/null 2>&1 || true
+  log "Aguardar Evolution HTTP 200 (ate 4 min)"
   http_code="$(wait_evolution_http || true)"
 }
 
@@ -140,24 +174,31 @@ diagnose_postgres
 if [ "${ZAPMASS_RESET_EVOLUTION_DB:-0}" = "1" ]; then
   reset_evolution_db_volume
 else
-  log "Force update zapmass_postgres"
-  docker service update --force zapmass_postgres >/dev/null 2>&1 || true
-  if ! wait_postgres_replicas 45; then
-    warn "Postgres continua 0/1 apos force update"
-    echo ""
-    echo "Para reinicializar o banco Evolution (apaga sessoes WhatsApp da Evolution):"
-    echo "  ZAPMASS_RESET_EVOLUTION_DB=1 bash deployment/recover-postgres-evolution.sh"
-    exit 1
+  pg_rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
+  if [ "$pg_rep" != "1/1" ]; then
+    log "Force update zapmass_postgres"
+    docker service update --force zapmass_postgres >/dev/null 2>&1 || true
+    if ! wait_postgres_replicas 45; then
+      warn "Postgres continua 0/1 apos force update"
+      echo ""
+      echo "Para reinicializar o banco Evolution (apaga sessoes WhatsApp da Evolution):"
+      echo "  ZAPMASS_RESET_EVOLUTION_DB=1 bash deployment/recover-postgres-evolution.sh"
+      exit 1
+    fi
+  else
+    ok "Postgres ja 1/1"
   fi
-  if ! wait_pg_isready; then
-    warn "pg_isready falhou — postgres pode ainda estar a arrancar"
-  fi
+  wait_pg_isready || warn "pg_isready falhou"
   sync_postgres_password || warn "Nao foi possivel alinhar senha postgres"
-  log "Reiniciar Evolution"
-  docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
-  sleep 8
-  docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
-  log "Aguardar Evolution HTTP 200 (ate 3 min)"
+  if verify_postgres_auth; then
+    ok "Postgres aceita login com POSTGRES_PASSWORD do .env"
+  else
+    warn "Login postgres com .env falhou — tentar sync novamente"
+    sync_postgres_password || true
+    verify_postgres_auth || warn "Senha ainda incorreta; considere ZAPMASS_RESET_EVOLUTION_DB=1"
+  fi
+  restart_evolution
+  log "Aguardar Evolution HTTP 200 (ate 4 min)"
   http_code="$(wait_evolution_http || true)"
 fi
 
@@ -178,5 +219,8 @@ if [ "$http_code" = "200" ]; then
 fi
 
 warn "Evolution ainda nao respondeu 200"
-docker service logs zapmass_evolution --tail 50 2>&1 || true
+diagnose_evolution
+echo ""
+echo "Se logs mostram P1001, authentication failed ou Migration failed:"
+echo "  ZAPMASS_RESET_EVOLUTION_DB=1 bash deployment/recover-postgres-evolution.sh"
 exit 1
