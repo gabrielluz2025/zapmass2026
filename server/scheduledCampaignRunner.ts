@@ -1,7 +1,7 @@
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import * as waService from './whatsappService.js';
+import * as evolutionService from './evolutionService.js';
 import { emitScheduledCampaignUserNotice } from './whatsappService.js';
 import { readUserSubscriptionForLimits, isUidTreatedAsServerAdmin } from './connectionLimits.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
@@ -91,7 +91,7 @@ export function startScheduledCampaignRunner(): void {
 async function runDueScheduledCampaigns(): Promise<void> {
   const admin = getFirebaseAdmin();
   if (!admin) return;
-  if (!waService.isMassCampaignEngineIdle()) return;
+  if (!evolutionService.isMassCampaignEngineIdle()) return;
 
   const db = getFirestore(admin);
   const nowIso = new Date().toISOString();
@@ -119,7 +119,7 @@ async function runDueScheduledCampaigns(): Promise<void> {
     .sort((a, b) => a.next.localeCompare(b.next));
 
   for (const row of sorted) {
-    if (!waService.isMassCampaignEngineIdle()) return;
+    if (!evolutionService.isMassCampaignEngineIdle()) return;
     await processOne(row.ref, row.data);
   }
 }
@@ -178,7 +178,7 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     if (!connectionIds.length) return;
     if (!connectionIds.every((id) => ownsConnectionForUid(ownerUid, id))) return;
 
-    const scoped = filterByConnectionScope(ownerUid, waService.getConnections());
+    const scoped = filterByConnectionScope(ownerUid, evolutionService.getConnections());
     const connectedIds = new Set(
       scoped.filter((c) => c.status === ConnectionStatus.CONNECTED).map((c) => c.id)
     );
@@ -214,12 +214,17 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     const first = typeof snap?.message === 'string' ? snap.message.trim() : '';
     const stages =
       stagesFromSnap.length > 0 ? stagesFromSnap : first ? [first] : [];
-    if (stages.length === 0) return;
+    const useReplyFlow = Boolean(
+      snap?.replyFlow?.enabled &&
+        Array.isArray(snap.replyFlow.steps) &&
+        snap.replyFlow.steps.length > 0
+    );
+    if (!useReplyFlow && stages.length === 0) return;
 
     const cid = path?.campaignId || ref.id;
     const delaySeconds = Number(snap?.delaySeconds ?? data.delaySeconds);
     if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
-      waService.applySettings({ minDelay: delaySeconds, maxDelay: delaySeconds });
+      evolutionService.applySettings({ minDelay: delaySeconds, maxDelay: delaySeconds });
     }
 
     const scheduledWeights =
@@ -228,13 +233,13 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
         : undefined;
 
     try {
-      const started = await waService.startCampaign(
+      const started = await evolutionService.startCampaign(
         numbers,
         stages,
         connectionIds,
         cid,
         snap?.recipients,
-        snap?.replyFlow,
+        snap?.replyFlow as Parameters<typeof evolutionService.startCampaign>[5],
         ownerUid,
         scheduledWeights
       );

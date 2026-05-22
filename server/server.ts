@@ -997,7 +997,10 @@ const registerSocketHandlers = () => {
           Array.isArray(messageStages) && messageStages.length > 0
             ? messageStages.map((s) => String(s ?? '').trim()).filter((s) => s.length > 0)
             : [String(message ?? '').trim()].filter((s) => s.length > 0);
-        if (stages.length === 0) {
+        const useReplyFlow = Boolean(
+          replyFlow?.enabled && Array.isArray(replyFlow.steps) && replyFlow.steps.length > 0
+        );
+        if (!useReplyFlow && stages.length === 0) {
           const err = 'Nenhuma mensagem definida para a campanha.';
           callback?.({ ok: false, error: err });
           socket.emit('campaign-error', { error: err, campaignId });
@@ -1013,14 +1016,17 @@ const registerSocketHandlers = () => {
             }
           : undefined;
 
-        await evolutionService.startCampaign(
+        const ok = await evolutionService.startCampaign(
           numbers,
-          stages[0] || message || '',
+          stages,
           connectionIds,
           campaignId,
+          recipients,
+          replyFlow,
+          uid,
+          channelWeights,
           campaignMedia
         );
-        const ok = true;
         if (!ok) {
           const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
           callback?.({ ok: false, error: errMsg });

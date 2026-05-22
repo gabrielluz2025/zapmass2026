@@ -11,6 +11,16 @@ import { Queue, Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { evolutionConfig } from './evolutionConfig.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
+import {
+    ReplyFlowEngine,
+    applyMessageVars,
+    buildRecipientVarsMap,
+    extractEvolutionReplyBody,
+    normalizePhoneKey,
+    pickWeightedChannel,
+    sanitizeReplyFlowSteps,
+    type CampaignRecipient,
+} from './replyFlowEngine.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
@@ -49,6 +59,17 @@ interface MessageQueueItem {
     message: string;
     campaignId?: string;
     media?: CampaignMediaPayload;
+    sendAsMedia?: boolean;
+    replyFlowOpen?: {
+        campaignId: string;
+        phoneDigits: string;
+        vars: Record<string, string>;
+        ownerUid?: string;
+    };
+    replyFlowAfterSend?: {
+        phoneDigits: string;
+        newAwaitingAfterStep: number;
+    };
 }
 
 interface WarmupItem {
@@ -97,6 +118,9 @@ let dynamicSettings = {
 
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
+const campaignMediaById = new Map<string, CampaignMediaPayload>();
+
+let replyFlowEngine: ReplyFlowEngine;
 
 export function applySettings(settings: { minDelay?: number; maxDelay?: number; dailyLimit?: number; sleepMode?: boolean }) {
     if (settings.minDelay !== undefined) dynamicSettings.minDelay = settings.minDelay * 1000;
@@ -143,6 +167,58 @@ function bumpQueueSize(connectionId: string, delta: number) {
     const next = Math.max(0, (connectionQueueSizes.get(connectionId) || 0) + delta);
     if (next === 0) connectionQueueSizes.delete(connectionId);
     else connectionQueueSizes.set(connectionId, next);
+}
+
+function emitCampaignLog(level: 'INFO' | 'WARN' | 'ERROR', message: string, payload?: Record<string, unknown>) {
+    const entry = {
+        level,
+        message,
+        timestamp: new Date().toISOString(),
+        ...payload,
+    };
+    if (io) io.emit('campaign-log', entry);
+    log(level === 'ERROR' ? 'error' : level === 'WARN' ? 'warn' : 'info', message, payload);
+}
+
+function ensureReplyFlowEngine() {
+    if (replyFlowEngine) return;
+    replyFlowEngine = new ReplyFlowEngine({
+        enqueue: (item) => {
+            void enqueueCampaignItem({
+                connectionId: item.connectionId,
+                to: item.to,
+                message: item.message,
+                campaignId: item.campaignId,
+                replyFlowAfterSend: item.replyFlowAfterSend,
+            });
+        },
+        onMarketingConsent: (ownerUid, campaignId, effect, phoneDigits, replyText) => {
+            if (io) {
+                io.emit('contact-marketing-consent', {
+                    ownerUid,
+                    campaignId,
+                    phoneDigits,
+                    effect,
+                    replyText: String(replyText || '').slice(0, 500),
+                    at: new Date().toISOString(),
+                });
+            }
+        },
+        onLog: (message, payload) => emitCampaignLog('INFO', message, payload),
+        isCampaignPaused: (campaignId) => pausedCampaigns.has(campaignId),
+    });
+}
+
+async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
+    const active: string[] = [];
+    for (const connId of connectionIds) {
+        const state = await getConnectionState(connId);
+        if (state === 'open') active.push(connId);
+        else {
+            emitCampaignLog('WARN', `Canal excluído do disparo (indisponível): ${connId}`, { connectionId: connId });
+        }
+    }
+    return active;
 }
 
 function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
@@ -467,25 +543,30 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
 
     log('info', 'Tentando envio', { to: item.to, connectionId: item.connectionId, campaignId: item.campaignId });
 
+    let mediaToSend = item.media;
+    if (item.sendAsMedia && item.campaignId && campaignMediaById.has(item.campaignId)) {
+        mediaToSend = campaignMediaById.get(item.campaignId);
+    }
+
     let success = false;
-    if (item.media?.base64 || item.media?.url) {
-        if (item.media.url) {
+    if (mediaToSend?.base64 || mediaToSend?.url) {
+        if (mediaToSend.url) {
             success = await sendMediaByUrlInternal(
                 item.connectionId,
                 item.to,
-                item.media.url,
-                item.media.mimeType,
-                item.media.fileName,
-                item.media.caption || item.message
+                mediaToSend.url,
+                mediaToSend.mimeType,
+                mediaToSend.fileName,
+                mediaToSend.caption || item.message
             );
-        } else if (item.media.base64) {
+        } else if (mediaToSend.base64) {
             success = await sendMediaInternal(
                 item.connectionId,
                 item.to,
-                item.media.base64,
-                item.media.mimeType,
-                item.media.fileName,
-                item.media.caption || item.message
+                mediaToSend.base64,
+                mediaToSend.mimeType,
+                mediaToSend.fileName,
+                mediaToSend.caption || item.message
             );
         }
     } else {
@@ -494,6 +575,26 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
 
     if (!success) {
         throw new Error('Falha no envio');
+    }
+
+    ensureReplyFlowEngine();
+    if (item.replyFlowOpen?.campaignId) {
+        replyFlowEngine.openSession({
+            connectionId: item.connectionId,
+            phoneDigits: item.replyFlowOpen.phoneDigits,
+            campaignId: item.replyFlowOpen.campaignId,
+            ownerUid: item.replyFlowOpen.ownerUid,
+            vars: item.replyFlowOpen.vars,
+            toRaw: item.to,
+            convKey: `${item.connectionId}:${item.replyFlowOpen.phoneDigits}`,
+        });
+    }
+    if (item.replyFlowAfterSend) {
+        replyFlowEngine.updateSessionAfterSend(
+            item.connectionId,
+            item.replyFlowAfterSend.phoneDigits,
+            item.replyFlowAfterSend.newAwaitingAfterStep
+        );
     }
 
     bumpQueueSize(item.connectionId, -1);
@@ -588,41 +689,128 @@ function ensureCampaignWorker() {
 }
 
 /**
- * Inicia uma campanha - VERSÃO INTERNA (recebe objeto)
+ * Inicia campanha com suporte a multi-etapas, reply flow e channelWeights.
  */
-async function startCampaignInternal(data: {
-    campaignId: string;
-    numbers: string[];
-    message: string;
-    connectionIds: string[];
-    media?: CampaignMediaPayload;
-}) {
-    const { campaignId, numbers, message, connectionIds, media } = data;
+export async function startCampaign(
+    numbers: string[],
+    messageTemplates: string[],
+    connectionIds: string[],
+    campaignId?: string,
+    recipients?: CampaignRecipient[],
+    replyFlow?: {
+        enabled?: boolean;
+        steps?: Array<{
+            body?: string;
+            acceptAnyReply?: boolean;
+            validTokens?: string[];
+            invalidReplyBody?: string;
+            marketingEffect?: string;
+            options?: Array<{ tokens?: string[]; reply?: string; marketingEffect?: string }>;
+        }>;
+    },
+    ownerUid?: string,
+    channelWeights?: Record<string, number>,
+    media?: CampaignMediaPayload
+): Promise<boolean> {
+    if (connectionIds.length === 0 || numbers.length === 0) return false;
 
-    log('info', 'Campanha iniciada', {
-        campaignId,
-        total: numbers.length,
-        channels: connectionIds.length,
-        hasMedia: Boolean(media),
-    });
+    const cid = campaignId || `campaign_${Date.now()}`;
 
+    if (media?.base64 || media?.url) {
+        campaignMediaById.set(cid, media);
+    }
+
+    const sanitizedReplySteps =
+        Boolean(replyFlow?.enabled && Array.isArray(replyFlow?.steps) && replyFlow.steps.length >= 1)
+            ? sanitizeReplyFlowSteps(replyFlow.steps)
+            : [];
+    const useReplyFlow = sanitizedReplySteps.length >= 1;
+
+    const templates = messageTemplates.map((t) => String(t || '').trim()).filter((t) => t.length > 0);
+    if (!useReplyFlow && templates.length === 0) return false;
+
+    ensureReplyFlowEngine();
     ensureCampaignWorker();
 
+    if (useReplyFlow) {
+        replyFlowEngine.registerDef(cid, sanitizedReplySteps);
+    }
+
+    const activeConnectionIds = await filterActiveConnections(connectionIds);
+    if (activeConnectionIds.length === 0) {
+        emitCampaignLog('ERROR', 'Nenhum canal respondeu após verificação.', { campaignId: cid });
+        return false;
+    }
+
+    const stageCount = useReplyFlow ? sanitizedReplySteps.length : templates.length;
+    const totalJobs = numbers.length * (useReplyFlow ? 1 : stageCount);
+    const recipientVars = buildRecipientVarsMap(recipients);
+    const hasMedia = campaignMediaById.has(cid);
+
+    const useWeights =
+        !useReplyFlow &&
+        channelWeights &&
+        typeof channelWeights === 'object' &&
+        Object.keys(channelWeights).length > 0;
+
+    emitCampaignLog('INFO', 'Campanha iniciada', {
+        campaignId: cid,
+        total: totalJobs,
+        connections: activeConnectionIds.length,
+        stages: stageCount,
+        replyFlow: useReplyFlow,
+    });
+
+    if (io) {
+        io.emit('campaign-started', { total: totalJobs, campaignId: cid, ownerUid });
+    }
+
     for (let i = 0; i < numbers.length; i++) {
-        const connectionId = connectionIds[i % connectionIds.length];
+        const num = numbers[i];
+        const cleanPhone = normalizePhoneKey(num);
+        const vars = recipientVars.get(cleanPhone) || {};
+        const assignedConnectionId = useWeights
+            ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
+            : activeConnectionIds[i % activeConnectionIds.length];
         const staggerDelay = i * dynamicSettings.minDelay;
 
-        await enqueueCampaignItem(
-            {
-                connectionId,
-                to: numbers[i],
-                message,
-                campaignId,
-                ...(media ? { media } : {}),
-            },
-            staggerDelay
-        );
+        if (useReplyFlow) {
+            const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
+            await enqueueCampaignItem(
+                {
+                    connectionId: assignedConnectionId,
+                    to: num,
+                    message: personalizedMessage,
+                    campaignId: cid,
+                    sendAsMedia: hasMedia,
+                    replyFlowOpen: {
+                        campaignId: cid,
+                        phoneDigits: cleanPhone,
+                        vars,
+                        ownerUid,
+                    },
+                },
+                staggerDelay
+            );
+        } else {
+            for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
+                const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars);
+                const stageDelay = staggerDelay + stageIndex * dynamicSettings.minDelay;
+                await enqueueCampaignItem(
+                    {
+                        connectionId: assignedConnectionId,
+                        to: num,
+                        message: personalizedMessage,
+                        campaignId: cid,
+                        sendAsMedia: hasMedia && stageIndex === 0,
+                    },
+                    stageDelay
+                );
+            }
+        }
     }
+
+    return true;
 }
 
 /**
@@ -630,6 +818,7 @@ async function startCampaignInternal(data: {
  */
 export function init(socketIO: SocketIOServer) {
     io = socketIO;
+    ensureReplyFlowEngine();
     ensureCampaignWorker();
     log('info', 'Evolution API Service Initialized', {
         apiUrl: evolutionConfig.apiUrl,
@@ -691,12 +880,11 @@ export function handleWebhook(event: any) {
                 log('info', `Status atualizado: ${instance} → ${status}`);
                 break;
 
-            case 'MESSAGES_UPSERT':
-                // Mensagem recebida (para aba de chat e ReplyFlow)
-                const isFromMe = data.messages?.[0]?.key?.fromMe;
-                const remoteJid = data.messages?.[0]?.key?.remoteJid;
-                const messageId = data.messages?.[0]?.key?.id;
-                const messageText = data.messages?.[0]?.message?.conversation || data.messages?.[0]?.message?.extendedTextMessage?.text || '';
+            case 'MESSAGES_UPSERT': {
+                const msg = data.messages?.[0];
+                const isFromMe = msg?.key?.fromMe;
+                const remoteJid = msg?.key?.remoteJid;
+                const messageId = msg?.key?.id;
 
                 if (io) {
                     io.emit('message-received', {
@@ -704,25 +892,33 @@ export function handleWebhook(event: any) {
                         message: data,
                     });
                 }
-                
-                // Tratar ACK do funil
+
                 if (isFromMe && messageId) {
-                    // Update funil sent/delivered
                     metrics.totalSent++;
                     if (io) {
                         io.emit('campaign-progress', {
                             successCount: metrics.totalSent,
-                            connectionId: instance
+                            connectionId: instance,
                         });
                     }
                 } else if (!isFromMe && remoteJid) {
-                    // Resposta do cliente - pode ser um ReplyFlow / Funil 
-                    log('info', 'Recebida resposta de cliente', { from: remoteJid, text: messageText });
-                    
-                    // Disparar um handler de ReplyFlow do whatsappService se estivesse conectado 
-                    // Como estamos migrando, idealmente faríamos um emit interno
+                    const jid = String(remoteJid);
+                    if (!jid.endsWith('@g.us')) {
+                        const phoneDigits = jid.split('@')[0].replace(/\D/g, '');
+                        const { bodyText, nonTextReply } = extractEvolutionReplyBody(msg?.message);
+                        ensureReplyFlowEngine();
+                        void replyFlowEngine.handleIncoming({
+                            connectionId: instance,
+                            phoneDigits,
+                            bodyText,
+                            nonTextReply,
+                            incomingConvId: `${instance}:${phoneDigits}`,
+                        });
+                        metrics.totalReplied++;
+                    }
                 }
                 break;
+            }
 
             case 'MESSAGES_UPDATE':
                 // Atualização de Status da Mensagem (Entregue, Lido)
@@ -774,6 +970,12 @@ export function getConnections(): WhatsAppConnection[] {
         });
     }
     return result;
+}
+
+export function isMassCampaignEngineIdle(): boolean {
+    let total = 0;
+    for (const n of connectionQueueSizes.values()) total += n;
+    return total === 0;
 }
 
 export function getMetrics(): DashboardMetrics {
@@ -851,22 +1053,7 @@ export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfi
     }
 }
 
-// startCampaign compatível com server.ts (4 argumentos + mídia opcional)
-export async function startCampaign(
-    numbers: string[],
-    message: string,
-    connectionIds: string[],
-    campaignId?: string,
-    media?: CampaignMediaPayload
-): Promise<void> {
-    await startCampaignInternal({
-        campaignId: campaignId || `campaign_${Date.now()}`,
-        numbers,
-        message,
-        connectionIds,
-        ...(media ? { media } : {}),
-    });
-}
+// startCampaign exportado acima com assinatura completa
 
 // sendMessage compatível com server.ts (conversationId, text)
 // conversationId formato: "connectionId:chatId" ou só número
@@ -932,6 +1119,7 @@ export default {
     sendMessage,
     sendMedia,
     startCampaign,
+    isMassCampaignEngineIdle,
     pauseCampaign,
     resumeCampaign,
     applySettings,
