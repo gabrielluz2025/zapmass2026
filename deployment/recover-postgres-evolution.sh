@@ -28,6 +28,48 @@ swarm_network() {
   docker network ls --format '{{.Name}}' | grep -E '^zapmass(_default)?$' | head -1 || true
 }
 
+postgres_container_id() {
+  docker ps -q --filter "name=zapmass_postgres" 2>/dev/null | head -1 || true
+}
+
+wait_pg_isready() {
+  local cid i
+  for i in $(seq 1 30); do
+    cid="$(postgres_container_id)"
+    if [ -n "$cid" ] && docker exec "$cid" pg_isready -U postgres -d evolution_db -q 2>/dev/null; then
+      ok "pg_isready OK (contentor postgres)"
+      return 0
+    fi
+    sleep 3
+  done
+
+  # Fallback: rede overlay (DNS postgres no Swarm)
+  local net
+  net="$(swarm_network)"
+  if [ -n "$net" ]; then
+    for i in $(seq 1 15); do
+      if docker run --rm --network "$net" postgres:15-alpine \
+        pg_isready -h postgres -U postgres -d evolution_db -q 2>/dev/null; then
+        ok "pg_isready OK (rede ${net})"
+        return 0
+      fi
+      sleep 2
+    done
+  fi
+  return 1
+}
+
+sync_postgres_password() {
+  local cid esc_pass
+  cid="$(postgres_container_id)"
+  [ -n "$cid" ] || return 1
+  esc_pass="${POSTGRES_PASSWORD//\'/\'\'}"
+  log "Alinhar senha do user postgres com POSTGRES_PASSWORD do .env"
+  docker exec "$cid" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+    -c "ALTER USER postgres PASSWORD '${esc_pass}';" >/dev/null
+  ok "Senha postgres actualizada"
+}
+
 diagnose_postgres() {
   echo ""
   echo "--- zapmass_postgres (tasks) ---"
@@ -55,19 +97,20 @@ wait_postgres_replicas() {
   return 1
 }
 
-wait_pg_isready() {
-  local net
-  net="$(swarm_network)"
-  [ -n "$net" ] || return 1
-  local i
-  for i in $(seq 1 30); do
-    if docker run --rm --network "$net" -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres:15-alpine \
-      pg_isready -h postgres -U postgres -d evolution_db -q 2>/dev/null; then
-      ok "pg_isready OK"
+wait_evolution_http() {
+  local i code="000"
+  for i in $(seq 1 18); do
+    code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
+      "http://127.0.0.1:8080/instance/fetchInstances" \
+      -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+    if [ "$code" = "200" ]; then
+      printf '%s' "$code"
       return 0
     fi
-    sleep 3
+    echo "   evolution HTTP ${code} (${i}/18)"
+    sleep 10
   done
+  printf '%s' "$code"
   return 1
 }
 
@@ -82,9 +125,13 @@ reset_evolution_db_volume() {
   docker service scale zapmass_postgres=1 >/dev/null 2>&1 || true
   wait_postgres_replicas 45 || return 1
   wait_pg_isready || return 1
+  sync_postgres_password || true
   docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
-  sleep 20
+  log "Aguardar Evolution HTTP 200 (ate 3 min)"
+  http_code="$(wait_evolution_http || true)"
 }
+
+http_code="000"
 
 log "Estado actual"
 docker stack services zapmass 2>/dev/null || true
@@ -102,17 +149,23 @@ else
     echo "  ZAPMASS_RESET_EVOLUTION_DB=1 bash deployment/recover-postgres-evolution.sh"
     exit 1
   fi
-  wait_pg_isready || warn "Postgres 1/1 mas pg_isready falhou (senha errada no .env?)"
+  if ! wait_pg_isready; then
+    warn "pg_isready falhou — postgres pode ainda estar a arrancar"
+  fi
+  sync_postgres_password || warn "Nao foi possivel alinhar senha postgres"
   log "Reiniciar Evolution"
   docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
   sleep 8
   docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
-  sleep 20
+  log "Aguardar Evolution HTTP 200 (ate 3 min)"
+  http_code="$(wait_evolution_http || true)"
 fi
 
-http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
-  "http://127.0.0.1:8080/instance/fetchInstances" \
-  -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+if [ "$http_code" != "200" ]; then
+  http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
+    "http://127.0.0.1:8080/instance/fetchInstances" \
+    -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+fi
 
 echo ""
 echo "========== RESUMO =========="
