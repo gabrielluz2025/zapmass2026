@@ -481,6 +481,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
             onOpenDetails={openDetails}
             dismissedIds={dismissedInsights}
             onDismiss={dismissInsight}
+            onTogglePause={toggleCampaignStatus}
           />
 
           <CampaignTemplatesGallery onUseTemplate={openWizardWithDraft} />

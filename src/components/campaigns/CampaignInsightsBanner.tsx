@@ -27,6 +27,7 @@ interface CampaignInsightsBannerProps {
   onOpenDetails: (id: string) => void;
   dismissedIds: string[];
   onDismiss: (id: string) => void;
+  onTogglePause?: (id: string) => void;
 }
 
 const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2h
@@ -63,7 +64,8 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
   connections,
   onOpenDetails,
   dismissedIds,
-  onDismiss
+  onDismiss,
+  onTogglePause
 }) => {
   const insights = useMemo<Insight[]>(() => {
     const list: Insight[] = [];
@@ -87,7 +89,7 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
           )}h e processou apenas ${Math.round(
             pct * 100
           )}% dos contatos. Verifique os chips ou pause e retome.`,
-          action: { label: 'Ver detalhes', onClick: () => onOpenDetails(c.id) }
+          action: { label: 'Pausar campanha', onClick: () => onTogglePause?.(c.id) }
         });
       }
     });
@@ -98,6 +100,7 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
       if (m.effectiveProcessed < 30) return;
       const failRate = c.failedCount / Math.max(1, m.effectiveProcessed);
       if (failRate > 0.3) {
+        const isRunning = c.status === CampaignStatus.RUNNING;
         list.push({
           id: `failrate-${c.id}`,
           tone: 'danger',
@@ -105,8 +108,8 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
           title: 'Taxa de falha elevada',
           body: `"${c.name}" está com ${Math.round(
             failRate * 100
-          )}% de falhas (${c.failedCount} de ${m.effectiveProcessed}). Revise a lista de contatos e o estado dos chips.`,
-          action: { label: 'Inspecionar', onClick: () => onOpenDetails(c.id) }
+          )}% de falhas (${c.failedCount} de ${m.effectiveProcessed}). ${isRunning ? 'Pause a campanha para evitar desgaste dos chips.' : 'Revise a lista de contatos e o estado dos chips.'}`,
+          action: isRunning ? { label: 'Pausar campanha', onClick: () => onTogglePause?.(c.id) } : { label: 'Inspecionar', onClick: () => onOpenDetails(c.id) }
         });
       }
     });
