@@ -166,21 +166,42 @@ wait_evolution_http() {
   return 1
 }
 
+wait_service_zero() {
+  local name="$1"
+  local max="${2:-30}"
+  local i rep
+  for i in $(seq 1 "$max"); do
+    rep="$(docker service ls --filter "name=${name}" --format '{{.Replicas}}' 2>/dev/null || echo '')"
+    if [ "$rep" = "0/0" ]; then
+      return 0
+    fi
+    echo "   aguardar ${name} parar: ${rep:-?} (${i}/${max})"
+    sleep 4
+  done
+  return 1
+}
+
 reset_evolution_db_volume() {
   warn "ZAPMASS_RESET_EVOLUTION_DB=1 — apagar volume zapmass_zapmass-postgres (instancias Evolution)"
   docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
   docker service scale zapmass_postgres=0 >/dev/null 2>&1 || true
-  sleep 12
-  docker volume rm -f zapmass_zapmass-postgres 2>/dev/null \
-    || docker volume rm zapmass_zapmass-postgres 2>/dev/null \
-    || true
+  wait_service_zero zapmass_postgres 30 || warn "Postgres ainda nao parou totalmente"
+  sleep 5
+  if docker volume inspect zapmass_zapmass-postgres >/dev/null 2>&1; then
+    docker volume rm -f zapmass_zapmass-postgres 2>/dev/null \
+      || docker volume rm zapmass_zapmass-postgres 2>/dev/null \
+      || true
+  fi
+  if docker volume inspect zapmass_zapmass-postgres >/dev/null 2>&1; then
+    warn "Volume zapmass_zapmass-postgres ainda existe — pare servicos manualmente e remova"
+    return 1
+  fi
+  ok "Volume postgres Evolution removido"
   docker service scale zapmass_postgres=1 >/dev/null 2>&1 || true
   wait_postgres_replicas 45 || return 1
   wait_pg_isready || return 1
   sync_postgres_password || true
-  docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
-  sleep 5
-  docker service update --force zapmass_evolution >/dev/null 2>&1 || true
+  restart_evolution
   log "Aguardar Evolution HTTP 200 (ate 4 min)"
   http_code="$(wait_evolution_http || true)"
 }
