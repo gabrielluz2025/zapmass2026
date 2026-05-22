@@ -38,6 +38,10 @@ export const QrCanvas: React.FC<QrCanvasProps> = ({
   useEffect(() => {
     let cancelled = false;
     if (!canvasRef.current || !value) return;
+    if (value.startsWith('data:image/')) {
+      setError(null);
+      return;
+    }
     setError(null);
     const dpr = typeof window !== 'undefined' ? Math.max(1, Math.min(3, window.devicePixelRatio || 1)) : 1;
     const drawSize = Math.round(size * dpr);
@@ -60,6 +64,19 @@ export const QrCanvas: React.FC<QrCanvasProps> = ({
       cancelled = true;
     };
   }, [value, size, margin, darkColor, lightColor]);
+
+  if (value.startsWith('data:image/')) {
+    return (
+      <img
+        src={value}
+        alt={ariaLabel || 'QR Code para ligar WhatsApp'}
+        className={className}
+        width={size}
+        height={size}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
 
   if (error) {
     return (

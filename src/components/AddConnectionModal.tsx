@@ -133,7 +133,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       loadTimerRef.current = null;
       if (stepRef.current === 'loading_qr') {
         toast.error(
-          'Ainda sem QR code. Verifique: servidor Node a correr, uma instância (evite API sem worker com Redis) e a pasta de dados fora de pastas muito lentas. Tente "Gerar QR" de novo ou reinicie o backend.',
+          'Ainda sem QR. Confirme: Evolution API ativa (EVOLUTION_API_URL), webhook ZAPMASS_WEBHOOK_URL acessível pelo contentor evolution, e EVOLUTION_API_KEY igual nos dois serviços. Tente "Gerar QR" de novo ou reinicie zapmass + evolution.',
           { duration: 12_000 }
         );
         setStep('naming');

@@ -91,6 +91,7 @@ import {
 
 const whatsappEngine = () => String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase();
 const useEvolutionChat = () => whatsappEngine() === 'evolution';
+const useEvolutionEngine = () => whatsappEngine() === 'evolution';
 
 function notifyCampaignSocketError(
   uid: string,
@@ -557,6 +558,15 @@ const runSessionCommandOrLocal = async (opts: { submit: () => Promise<void>; loc
   await opts.submit();
 };
 
+/** Com Evolution API, nunca enviar create/QR/reconnect para o wa-worker (wwebjs). */
+const runConnectionCommand = async (opts: { submit: () => Promise<void>; local: () => Promise<void> }): Promise<void> => {
+  if (useEvolutionEngine()) {
+    await opts.local();
+    return;
+  }
+  await runSessionCommandOrLocal(opts);
+};
+
 const registerSocketHandlers = () => {
   waService.init(io);
   evolutionService.init(io);
@@ -762,12 +772,19 @@ const registerSocketHandlers = () => {
         userLog('ui:create-connection', { name });
         const connName = typeof name === 'string' && name.trim() ? name.trim() : 'WhatsApp';
         const owner = uid && uid !== 'anonymous' ? uid : undefined;
-        await runSessionCommandOrLocal({
-          submit: () => submitCreateConnection(connName, authOp, owner),
-          local: async () => {
-            await evolutionService.createConnection(connName, proxy);
-          }
-        });
+        try {
+          await runConnectionCommand({
+            submit: () => submitCreateConnection(connName, authOp, owner),
+            local: async () => {
+              await evolutionService.createConnection(connName, proxy);
+            }
+          });
+        } catch (e: any) {
+          const message = e?.message || 'Falha ao criar canal WhatsApp.';
+          socket.emit('connection-init-failure', { message });
+          socket.emit('send-message-error', { error: message });
+          return;
+        }
         socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
       });
     });
@@ -779,7 +796,7 @@ const registerSocketHandlers = () => {
       }
       userLog('ui:delete-connection', { id });
       try {
-        await runSessionCommandOrLocal({
+        await runConnectionCommand({
           submit: () => submitDeleteConnection(id, authOp),
           local: () => evolutionService.deleteConnection(id)
         });
@@ -799,7 +816,7 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:reconnect-connection', { id });
-          await runSessionCommandOrLocal({
+          await runConnectionCommand({
             submit: () => submitReconnectConnection(id, authOp),
             local: () => evolutionService.reconnectConnection(id)
           });
@@ -871,7 +888,7 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:force-qr', { id });
-          await runSessionCommandOrLocal({
+          await runConnectionCommand({
             submit: () => submitForceQr(id, authOp),
             local: async () => { await evolutionService.forceQr(id); }
           });

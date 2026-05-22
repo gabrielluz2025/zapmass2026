@@ -57,7 +57,109 @@ interface EvolutionInstance {
     profilePicUrl?: string;
     profileName?: string;
     phoneNumber?: string;
+    qrCode?: string;
     proxy?: ConnectionProxyConfig;
+}
+
+type ExtractedEvolutionQr = { displayValue: string; kind: 'code' | 'image' };
+
+function mapEvolutionState(raw: unknown): EvolutionInstance['status'] {
+    const state = String(raw || '').toLowerCase();
+    if (state === 'open') return 'open';
+    if (state === 'connecting') return 'connecting';
+    if (state === 'created' || state === 'qrcode') return 'created';
+    return 'close';
+}
+
+function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
+    if (!source || typeof source !== 'object') return null;
+    const root = source as Record<string, unknown>;
+    const qrcode =
+        root.qrcode && typeof root.qrcode === 'object'
+            ? (root.qrcode as Record<string, unknown>)
+            : root;
+
+    const base64 = qrcode.base64;
+    if (typeof base64 === 'string' && base64.trim()) {
+        const trimmed = base64.trim();
+        if (trimmed.startsWith('data:image/')) {
+            return { displayValue: trimmed, kind: 'image' };
+        }
+        return { displayValue: `data:image/png;base64,${trimmed}`, kind: 'image' };
+    }
+
+    const code = qrcode.code;
+    if (typeof code === 'string' && code.trim()) {
+        return { displayValue: code.trim(), kind: 'code' };
+    }
+    return null;
+}
+
+function extractQrFromApiResponse(data: unknown): ExtractedEvolutionQr | null {
+    if (!data || typeof data !== 'object') return null;
+    const payload = data as Record<string, unknown>;
+    return (
+        extractEvolutionQr(payload) ||
+        extractEvolutionQr(payload.instance) ||
+        extractEvolutionQr({ qrcode: payload.qrcode })
+    );
+}
+
+function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr) {
+    const conn = connections.get(connectionId);
+    if (conn) {
+        conn.qrCode = extracted.displayValue;
+        conn.status = conn.status === 'open' ? 'open' : 'connecting';
+        connections.set(connectionId, conn);
+    }
+    if (io) {
+        io.emit('qr-code', { connectionId, qrCode: extracted.displayValue });
+        io.emit('connections-update', getConnections());
+    }
+}
+
+async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQr | null> {
+    try {
+        const response = await api.get(`/instance/connect/${instanceName}`);
+        return extractQrFromApiResponse(response.data);
+    } catch (error: any) {
+        log('warn', `Falha ao obter QR via connect/${instanceName}`, { error: error?.message });
+        return null;
+    }
+}
+
+async function hydrateInstancesFromEvolution() {
+    try {
+        const response = await api.get('/instance/fetchInstances');
+        const raw = response.data;
+        const list = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
+        for (const item of list) {
+            if (!item || typeof item !== 'object') continue;
+            const row = item as Record<string, unknown>;
+            const instanceName = String(
+                row.name || row.instanceName || (row.instance as Record<string, unknown> | undefined)?.instanceName || ''
+            ).trim();
+            if (!instanceName) continue;
+
+            const existing = connections.get(instanceName);
+            connections.set(instanceName, {
+                instanceName,
+                friendlyName: existing?.friendlyName || String(row.profileName || instanceName),
+                status: mapEvolutionState(row.connectionStatus ?? row.state ?? row.status),
+                profilePicUrl: typeof row.profilePicUrl === 'string' ? row.profilePicUrl : existing?.profilePicUrl,
+                profileName: typeof row.profileName === 'string' ? row.profileName : existing?.profileName,
+                phoneNumber: existing?.phoneNumber,
+                qrCode: existing?.qrCode,
+                proxy: existing?.proxy,
+            });
+        }
+        if (io && list.length > 0) {
+            io.emit('connections-update', getConnections());
+        }
+        log('info', `Instâncias Evolution sincronizadas: ${list.length}`);
+    } catch (error: any) {
+        log('warn', 'Falha ao sincronizar instâncias Evolution', { error: error?.message });
+    }
 }
 
 interface CampaignMediaPayload {
@@ -391,26 +493,21 @@ async function createConnectionInternal(
             await applyProxyToInstance(id, proxy);
         }
 
-        // Obter QR Code
-        const qrCode = response.data?.qrcode?.base64 || response.data?.qrcode?.code;
+        await setupWebhook(id);
+
+        let extracted = extractQrFromApiResponse(response.data);
+        if (!extracted) {
+            extracted = await fetchConnectQr(id);
+        }
+        if (extracted) {
+            emitQrToFrontend(id, extracted);
+        } else {
+            log('warn', `Instância criada sem QR imediato — aguardando webhook QRCODE_UPDATED`, { id });
+        }
 
         log('info', `Instância criada: ${name}`, { instanceName: id });
 
-        // Configurar webhook para receber eventos
-        await setupWebhook(id);
-
-        // Emitir evento para frontend
-        if (io) {
-            io.emit('qr-code', { connectionId: id, qrCode });
-            io.emit('connection-update', {
-                id,
-                name,
-                status: 'QR_READY',
-                qrCode,
-            });
-        }
-
-        return { qrCode };
+        return { qrCode: extracted?.displayValue };
 
     } catch (error: any) {
         log('error', `Erro ao criar instância ${name}`, {
@@ -465,21 +562,13 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
         // Desconectar instância atual
         await api.delete(`/instance/logout/${id}`);
 
-        // Reconectar para gerar novo QR
-        const response = await api.get(`/instance/connect/${id}`);
-        const qrCode = response.data?.qrcode?.base64 || response.data?.qrcode?.code;
-
-        if (io) {
-            io.emit('qr-code', { connectionId: id, qrCode });
-            io.emit('connection-update', {
-                id,
-                status: 'QR_READY',
-                qrCode,
-            });
+        const extracted = await fetchConnectQr(id);
+        if (extracted) {
+            emitQrToFrontend(id, extracted);
         }
 
         log('info', `Novo QR gerado para: ${id}`);
-        return { qrCode };
+        return { qrCode: extracted?.displayValue };
 
     } catch (error: any) {
         log('error', `Erro ao forçar QR para ${id}`, { error: error.message });
@@ -494,13 +583,11 @@ export async function reconnectConnection(id: string) {
     try {
         log('info', `Reconectando instância: ${id}`);
 
-        const response = await api.get(`/instance/connect/${id}`);
-        
-        if (io) {
-            io.emit('connection-update', {
-                id,
-                status: 'CONNECTING',
-            });
+        const extracted = await fetchConnectQr(id);
+        if (extracted) {
+            emitQrToFrontend(id, extracted);
+        } else if (io) {
+            io.emit('connection-update', { id, status: 'CONNECTING' });
         }
 
         log('info', `Instância reconectada: ${id}`);
@@ -985,12 +1072,12 @@ export function init(socketIO: SocketIOServer) {
     chatStore.init(socketIO);
     ensureReplyFlowEngine();
     ensureCampaignWorker();
-    log('info', 'Evolution API Service Initialized', {
+        log('info', 'Evolution API Service Initialized', {
         apiUrl: evolutionConfig.apiUrl,
         webhookUrl: evolutionConfig.webhookUrl,
     });
 
-    // Testar conectividade com Evolution API
+    void hydrateInstancesFromEvolution();
     testConnection();
 }
 
@@ -1018,20 +1105,32 @@ async function testConnection() {
 export function handleWebhook(event: any) {
     try {
         const { instance, data } = event;
+        const eventName = String(event?.event || '').toUpperCase().replace(/\./g, '_');
 
-        switch (event.event) {
-            case 'QRCODE_UPDATED':
-                if (io) {
-                    io.emit('qr-code', {
-                        connectionId: instance,
-                        qrCode: data.qrcode,
-                    });
+        switch (eventName) {
+            case 'QRCODE_UPDATED': {
+                const extracted = extractEvolutionQr({ qrcode: data }) || extractEvolutionQr(data);
+                if (extracted && instance) {
+                    emitQrToFrontend(instance, extracted);
                 }
                 break;
+            }
 
-            case 'CONNECTION_UPDATE':
+            case 'CONNECTION_UPDATE': {
                 const status = data.state === 'open' ? 'ONLINE' : 
                                data.state === 'connecting' ? 'CONNECTING' : 'OFFLINE';
+
+                const conn = connections.get(instance);
+                if (conn) {
+                    conn.status = mapEvolutionState(data.state);
+                    if (data.state === 'open') {
+                        conn.qrCode = undefined;
+                        if (typeof data.wuid === 'string') {
+                            conn.phoneNumber = data.wuid.split('@')[0]?.replace(/\D/g, '') || conn.phoneNumber;
+                        }
+                    }
+                    connections.set(instance, conn);
+                }
 
                 if (io) {
                     io.emit('connection-update', {
@@ -1040,6 +1139,7 @@ export function handleWebhook(event: any) {
                         profilePicUrl: data.profilePicUrl,
                         profileName: data.profileName,
                     });
+                    io.emit('connections-update', getConnections());
                 }
 
                 log('info', `Status atualizado: ${instance} → ${status}`);
@@ -1048,6 +1148,7 @@ export function handleWebhook(event: any) {
                     void chatStore.syncChatsForConnection(instance);
                 }
                 break;
+            }
 
             case 'MESSAGES_UPSERT': {
                 const msg = data.messages?.[0];
@@ -1129,6 +1230,7 @@ export function getConnections(): WhatsAppConnection[] {
             signalStrength: 'STRONG',
             profilePicUrl: conn.profilePicUrl,
             batteryLevel: 100,
+            ...(conn.qrCode ? { qrCode: conn.qrCode } : {}),
             ...(conn.proxy?.host
                 ? {
                       proxy: {
@@ -1239,7 +1341,10 @@ export async function markWarmupReady(numbers: string[]) {
 // createConnection compatível com server.ts (recebe name como string)
 export async function createConnection(name: string, proxy?: ConnectionProxyConfig): Promise<void> {
     const id = generateId();
-    await createConnectionInternal(id, name, proxy);
+    const result = await createConnectionInternal(id, name, proxy);
+    if (result.error) {
+        throw new Error(result.error);
+    }
 }
 
 export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfig | null): Promise<void> {
