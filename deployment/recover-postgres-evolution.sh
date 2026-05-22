@@ -19,7 +19,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 cd "$ROOT"
-POSTGRES_PASSWORD="$(grep -E '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=' "$ENV" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=//' | tr -d '\r"' || true)"
+POSTGRES_PASSWORD="$(grep -E '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=' "$ENV" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=//' | tr -d '\r"' | xargs || true)"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$DEFAULT_POSTGRES_PASSWORD}"
 EVOLUTION_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' "$ENV" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' || true)"
 EVOLUTION_KEY="${EVOLUTION_KEY:-$DEFAULT_EVOLUTION_KEY}"
@@ -39,7 +39,7 @@ verify_postgres_auth() {
   cid="$(postgres_container_id)"
   [ -n "$cid" ] || return 1
   docker exec -e "PGPASSWORD=${POSTGRES_PASSWORD}" "$cid" \
-    psql -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
+    psql -h 127.0.0.1 -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
 }
 
 verify_postgres_auth_overlay() {
