@@ -25,7 +25,29 @@ EVOLUTION_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' 
 EVOLUTION_KEY="${EVOLUTION_KEY:-$DEFAULT_EVOLUTION_KEY}"
 
 swarm_network() {
-  docker network ls --format '{{.Name}}' | grep -E '^zapmass(_default)?$' | head -1 || true
+  local cid net
+  cid="$(postgres_container_id)"
+  if [ -n "$cid" ]; then
+    net="$(docker inspect "$cid" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null | head -1 || true)"
+    [ -n "$net" ] && printf '%s' "$net" && return 0
+  fi
+  docker network ls --format '{{.Name}}' | grep -E 'zapmass.*default' | head -1 || true
+}
+
+verify_postgres_auth() {
+  local cid
+  cid="$(postgres_container_id)"
+  [ -n "$cid" ] || return 1
+  docker exec -e "PGPASSWORD=${POSTGRES_PASSWORD}" "$cid" \
+    psql -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
+}
+
+verify_postgres_auth_overlay() {
+  local net
+  net="$(swarm_network)"
+  [ -n "$net" ] || return 1
+  docker run --rm --network "$net" -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres:15-alpine \
+    psql -h postgres -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
 }
 
 postgres_container_id() {
@@ -70,14 +92,6 @@ sync_postgres_password() {
   ok "Senha postgres actualizada"
 }
 
-verify_postgres_auth() {
-  local net
-  net="$(swarm_network)"
-  [ -n "$net" ] || return 1
-  docker run --rm --network "$net" -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres:15-alpine \
-    psql -h postgres -U postgres -d evolution_db -c 'SELECT 1' >/dev/null 2>&1
-}
-
 diagnose_evolution() {
   echo ""
   echo "--- zapmass_evolution (tasks) ---"
@@ -88,12 +102,18 @@ diagnose_evolution() {
 }
 
 restart_evolution() {
+  local db_uri="postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/evolution_db?schema=public"
   log "Parar Evolution"
   docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
   sleep 12
+  log "Actualizar DATABASE_CONNECTION_URI na Evolution"
+  docker service update \
+    --env-rm DATABASE_CONNECTION_URI \
+    --env-add "DATABASE_CONNECTION_URI=${db_uri}" \
+    zapmass_evolution >/dev/null 2>&1 || true
   log "Subir Evolution + force update"
   docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
-  sleep 5
+  sleep 8
   docker service update --force zapmass_evolution >/dev/null 2>&1 || true
 }
 
@@ -193,9 +213,18 @@ else
   if verify_postgres_auth; then
     ok "Postgres aceita login com POSTGRES_PASSWORD do .env"
   else
-    warn "Login postgres com .env falhou — tentar sync novamente"
+    warn "Login local falhou — tentar sync novamente"
     sync_postgres_password || true
-    verify_postgres_auth || warn "Senha ainda incorreta; considere ZAPMASS_RESET_EVOLUTION_DB=1"
+    if verify_postgres_auth; then
+      ok "Postgres aceita login apos segundo sync"
+    else
+      warn "Senha ainda falha no contentor — use ZAPMASS_RESET_EVOLUTION_DB=1"
+    fi
+  fi
+  if verify_postgres_auth_overlay; then
+    ok "Postgres acessivel na rede overlay (hostname postgres)"
+  else
+    warn "Overlay postgres:5432 falhou (Evolution pode ter P1001)"
   fi
   restart_evolution
   log "Aguardar Evolution HTTP 200 (ate 4 min)"
