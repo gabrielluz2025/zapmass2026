@@ -4446,9 +4446,15 @@ const replyMatchesGate = (
     if (!t && nonText) {
         return false;
     }
-    const norm = t.toLowerCase();
+    
+    // Remove pontuação para não falhar em casos como "Sim," ou "1."
+    const norm = t.toLowerCase().replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
     const first = norm.split(/\s+/)[0] || '';
-    return tokens.some((tok) => tok === norm || tok === first);
+    
+    return tokens.some((tok) => {
+        const cleanTok = tok.replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
+        return cleanTok === norm || cleanTok === first;
+    });
 };
 
 const enqueueReplyFlowOutbound = async (item: QueueItem) => {
@@ -4621,12 +4627,15 @@ const handleReplyFlowIncoming = async (
         
         let matchedOption: any = null;
         if (t || nonText) {
-            const norm = t.toLowerCase();
+            const norm = t.toLowerCase().replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
             const first = norm.split(/\s+/)[0] || '';
             
             matchedOption = gateStep.options.find((opt) => {
                 const tokens = opt.tokens || [];
-                return tokens.some((tok) => tok === norm || tok === first);
+                return tokens.some((tok) => {
+                    const cleanTok = tok.replace(/[^\w\s\u00C0-\u00FF0-9]/g, '').trim();
+                    return cleanTok === norm || cleanTok === first;
+                });
             });
         }
 

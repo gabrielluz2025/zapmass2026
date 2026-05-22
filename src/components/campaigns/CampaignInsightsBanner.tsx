@@ -201,9 +201,8 @@ export const CampaignInsightsBanner: React.FC<CampaignInsightsBannerProps> = ({
             tone: 'warning',
             icon: <Target className="w-4 h-4" />,
             title: 'Carga concentrada',
-            body: `Mais de ${Math.round(
-              topShare * 100
-            )}% dos disparos atuais estão em um único chip. Distribua entre mais canais pra reduzir risco de bloqueio.`
+            body: `${topShare >= 1 ? '100%' : `Mais de ${Math.round(topShare * 100)}%`} dos disparos atuais estão em um único chip. Distribua entre mais canais pra reduzir risco de bloqueio.`,
+            action: { label: 'Ver campanha', onClick: () => onOpenDetails(running[0].id) }
           });
         }
       }
