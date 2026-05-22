@@ -29,6 +29,7 @@ import {
     evolutionTrackMessageSent,
     publishOwnerEvent,
 } from './whatsappService.js';
+import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
@@ -108,7 +109,6 @@ let metrics: DashboardMetrics = {
     totalRead: 0,
     totalReplied: 0,
 };
-let conversations: Conversation[] = [];
 const warmupQueue: WarmupItem[] = [];
 const warmedNumbers = new Set<string>();
 
@@ -160,6 +160,8 @@ const api: AxiosInstance = axios.create({
         'Content-Type': 'application/json',
     },
 });
+
+const chatStore: EvolutionChatStore = createEvolutionChat(api);
 
 // ================== FUNÇÕES AUXILIARES ==================
 
@@ -979,6 +981,7 @@ export async function startCampaign(
  */
 export function init(socketIO: SocketIOServer) {
     io = socketIO;
+    chatStore.init(socketIO);
     ensureReplyFlowEngine();
     ensureCampaignWorker();
     log('info', 'Evolution API Service Initialized', {
@@ -1039,6 +1042,10 @@ export function handleWebhook(event: any) {
                 }
 
                 log('info', `Status atualizado: ${instance} → ${status}`);
+
+                if (data.state === 'open') {
+                    void chatStore.syncChatsForConnection(instance);
+                }
                 break;
 
             case 'MESSAGES_UPSERT': {
@@ -1046,6 +1053,8 @@ export function handleWebhook(event: any) {
                 const isFromMe = msg?.key?.fromMe;
                 const remoteJid = msg?.key?.remoteJid;
                 const messageId = msg?.key?.id;
+
+                chatStore.handleWebhookMessage(instance, data);
 
                 if (io) {
                     io.emit('message-received', {
@@ -1056,12 +1065,10 @@ export function handleWebhook(event: any) {
 
                 if (isFromMe && messageId) {
                     metrics.totalSent++;
-                    if (io) {
-                        io.emit('campaign-progress', {
-                            successCount: metrics.totalSent,
-                            connectionId: instance,
-                        });
-                    }
+                    publishOwnerEvent(undefined, 'campaign-progress', {
+                        successCount: metrics.totalSent,
+                        connectionId: instance,
+                    });
                 } else if (!isFromMe && remoteJid) {
                     const jid = String(remoteJid);
                     if (!jid.endsWith('@g.us')) {
@@ -1088,6 +1095,7 @@ export function handleWebhook(event: any) {
                     const updateStatus = upd?.update?.status ?? upd?.status;
                     if (messageId != null && updateStatus != null) {
                         evolutionTrackMessageAck(String(messageId), Number(updateStatus));
+                        chatStore.updateMessageStatus(String(messageId), Number(updateStatus));
                     }
                 }
                 break;
@@ -1149,7 +1157,44 @@ export function getMetrics(): DashboardMetrics {
 }
 
 export function getConversations(): Conversation[] {
-    return [...conversations];
+    return chatStore.getConversations();
+}
+
+export async function syncAllOpenChats(): Promise<void> {
+    const tasks: Promise<number>[] = [];
+    for (const [id, conn] of connections.entries()) {
+        if (conn.status === 'open') {
+            tasks.push(chatStore.syncChatsForConnection(id));
+        }
+    }
+    await Promise.all(tasks);
+}
+
+export async function loadChatHistory(
+    conversationId: string,
+    limit = 500,
+    skipMedia = true
+): Promise<{ ok: boolean; total: number; error?: string }> {
+    return chatStore.loadChatHistory(conversationId, limit, skipMedia);
+}
+
+export async function loadMessageMedia(
+    conversationId: string,
+    messageId: string
+): Promise<{ ok: boolean; mediaUrl?: string; error?: string }> {
+    return chatStore.loadMessageMedia(conversationId, messageId);
+}
+
+export async function markAsRead(conversationId: string): Promise<void> {
+    await chatStore.markAsRead(conversationId);
+}
+
+export async function fetchConversationPicture(conversationId: string): Promise<string | null> {
+    return chatStore.fetchConversationPicture(conversationId);
+}
+
+export function deleteLocalConversations(conversationIds: string[]): number {
+    return chatStore.deleteLocalConversations(conversationIds);
 }
 
 export function getWarmupState() {
@@ -1222,43 +1267,22 @@ export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfi
 // startCampaign exportado acima com assinatura completa
 
 // sendMessage compatível com server.ts (conversationId, text)
-// conversationId formato: "connectionId:chatId" ou só número
 export async function sendMessage(conversationId: string, text: string): Promise<boolean> {
-    // Extrair connectionId e número do conversationId
-    const parts = conversationId.split(':');
-    let connectionId: string;
-    let to: string;
-
-    if (parts.length >= 2) {
-        connectionId = parts[0];
-        to = parts[parts.length - 1];
-    } else {
-        // Tentar usar primeira conexão disponível
-        const firstConn = connections.keys().next().value;
-        if (!firstConn) return false;
-        connectionId = firstConn;
-        to = conversationId;
-    }
-
-    return (await sendMessageInternal(connectionId, to, text)).ok;
+    await chatStore.sendMessage(conversationId, text);
+    return true;
 }
 
-export async function sendMedia(conversationId: string, base64: string, mimeType: string, fileName: string, caption?: string): Promise<boolean> {
-    const parts = conversationId.split(':');
-    let connectionId: string;
-    let to: string;
-
-    if (parts.length >= 2) {
-        connectionId = parts[0];
-        to = parts[parts.length - 1];
-    } else {
-        const firstConn = connections.keys().next().value;
-        if (!firstConn) return false;
-        connectionId = firstConn;
-        to = conversationId;
+export async function sendMedia(
+    conversationId: string,
+    payload: {
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        caption?: string;
+        sendMediaAsDocument?: boolean;
     }
-
-    return (await sendMediaInternal(connectionId, to, base64, mimeType, fileName, caption)).ok;
+): Promise<void> {
+    await chatStore.sendMedia(conversationId, payload);
 }
 
 export function pauseCampaign(campaignId: string) {
@@ -1297,6 +1321,12 @@ export default {
     getConnections,
     getMetrics,
     getConversations,
+    syncAllOpenChats,
+    loadChatHistory,
+    loadMessageMedia,
+    markAsRead,
+    fetchConversationPicture,
+    deleteLocalConversations,
     getWarmupState,
     markWarmupReady,
 };

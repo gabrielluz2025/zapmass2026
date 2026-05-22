@@ -83,6 +83,9 @@ import { evolutionWebhookLimiter } from './httpRateLimit.js';
 import { securityHeadersMiddleware } from './securityHeaders.js';
 import { getUploadsDir } from './mediaStorage.js';
 
+const whatsappEngine = () => String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase();
+const useEvolutionChat = () => whatsappEngine() === 'evolution';
+
 function notifyCampaignSocketError(
   uid: string,
   error: string,
@@ -685,6 +688,14 @@ const registerSocketHandlers = () => {
         if (uid && uid !== 'anonymous') {
           await ensureAssignmentsLoaded(uid).catch(() => undefined);
         }
+        if (useEvolutionChat()) {
+          await evolutionService.syncAllOpenChats().catch(() => undefined);
+          socket.emit(
+            'conversations-update',
+            conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations())
+          );
+          return;
+        }
         socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, waService.getConversations()));
       })();
     });
@@ -1055,10 +1066,14 @@ const registerSocketHandlers = () => {
       if (!(await requireActiveSubscription())) return;
       userLog('ui:send-message', { conversationId });
       try {
-        await runSessionCommandOrLocal({
-          submit: () => submitSendMessage(conversationId, text, authOp),
-          local: () => waService.sendMessage(conversationId, text) as any
-        });
+        if (useEvolutionChat()) {
+          await evolutionService.sendMessage(conversationId, text);
+        } else {
+          await runSessionCommandOrLocal({
+            submit: () => submitSendMessage(conversationId, text, authOp),
+            local: () => waService.sendMessage(conversationId, text) as any
+          });
+        }
         logEvent('wa:send-message', { conversationId });
       } catch (error: any) {
         logEvent('wa:send-message-error', { conversationId, error: error?.message || 'Erro desconhecido' });
@@ -1108,21 +1123,31 @@ const registerSocketHandlers = () => {
           sendMediaAsDocument: Boolean(sendMediaAsDocument)
         });
         try {
-          await runSessionCommandOrLocal({
-            submit: () =>
-              submitSendMedia(
-                { conversationId, dataBase64, mimeType, fileName, caption, sendMediaAsDocument },
-                authOp
-              ),
-          local: () =>
-              waService.sendMedia(conversationId, {
-                dataBase64,
-                mimeType,
-                fileName,
-                caption,
-                sendMediaAsDocument
-              }) as any
-          });
+          if (useEvolutionChat()) {
+            await evolutionService.sendMedia(conversationId, {
+              dataBase64,
+              mimeType,
+              fileName,
+              caption,
+              sendMediaAsDocument
+            });
+          } else {
+            await runSessionCommandOrLocal({
+              submit: () =>
+                submitSendMedia(
+                  { conversationId, dataBase64, mimeType, fileName, caption, sendMediaAsDocument },
+                  authOp
+                ),
+              local: () =>
+                waService.sendMedia(conversationId, {
+                  dataBase64,
+                  mimeType,
+                  fileName,
+                  caption,
+                  sendMediaAsDocument
+                }) as any
+            });
+          }
           logEvent('wa:send-media:done', {
             conversationId,
             fileName,
@@ -1232,7 +1257,11 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:mark-as-read', { conversationId });
-          // Note: Needs evolution api equivalent or stub
+          if (useEvolutionChat()) {
+            await evolutionService.markAsRead(conversationId);
+          } else {
+            await waService.markAsRead(conversationId);
+          }
         } catch (e) {
           reportSocketAsyncError('mark-as-read', e);
         }
@@ -1248,10 +1277,14 @@ const registerSocketHandlers = () => {
       try {
         const redisUrl = process.env.REDIS_URL?.trim();
         const useWorkerRpc =
-          (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(redisUrl);
+          !useEvolutionChat() &&
+          (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' &&
+          Boolean(redisUrl);
         const pic = useWorkerRpc
           ? await fetchConversationPictureViaRedis(redisUrl!, conversationId)
-          : await waService.fetchConversationPicture(conversationId);
+          : useEvolutionChat()
+            ? await evolutionService.fetchConversationPicture(conversationId)
+            : await waService.fetchConversationPicture(conversationId);
         socket.emit('conversation-picture', { conversationId, profilePicUrl: pic });
       } catch (e: any) {
         console.error('[fetch-conversation-picture] erro:', e?.message || e);
@@ -1314,10 +1347,14 @@ const registerSocketHandlers = () => {
       userLog('ui:load-chat-history', { conversationId, limit, includeMedia });
       const redisUrl = process.env.REDIS_URL?.trim();
       const useWorkerRpc =
-        (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(redisUrl);
+        !useEvolutionChat() &&
+        (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' &&
+        Boolean(redisUrl);
       const resp = useWorkerRpc
         ? await loadChatHistoryViaRedis(redisUrl!, conversationId, limit ?? 500, !includeMedia)
-        : await waService.loadChatHistory(conversationId, limit ?? 500, !includeMedia);
+        : useEvolutionChat()
+          ? await evolutionService.loadChatHistory(conversationId, limit ?? 500, !includeMedia)
+          : await waService.loadChatHistory(conversationId, limit ?? 500, !includeMedia);
       callback?.(resp);
     });
 
@@ -1336,10 +1373,14 @@ const registerSocketHandlers = () => {
       }
       const redisUrl = process.env.REDIS_URL?.trim();
       const useWorkerRpc =
-        (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' && Boolean(redisUrl);
+        !useEvolutionChat() &&
+        (process.env.SESSION_PROCESS_MODE || 'monolith') === 'api' &&
+        Boolean(redisUrl);
       const resp = useWorkerRpc
         ? await loadMessageMediaViaRedis(redisUrl!, conversationId, messageId)
-        : await waService.loadMessageMedia(conversationId, messageId);
+        : useEvolutionChat()
+          ? await evolutionService.loadMessageMedia(conversationId, messageId)
+          : await waService.loadMessageMedia(conversationId, messageId);
       callback?.(resp);
     });
 
@@ -1354,7 +1395,9 @@ const registerSocketHandlers = () => {
         return;
       }
       userLog('ui:delete-local-conversations', { count: conversationIds.length });
-      const removed = waService.deleteLocalConversations(conversationIds);
+      const removed = useEvolutionChat()
+        ? evolutionService.deleteLocalConversations(conversationIds)
+        : waService.deleteLocalConversations(conversationIds);
       callback?.({ ok: true, removed });
     });
 
