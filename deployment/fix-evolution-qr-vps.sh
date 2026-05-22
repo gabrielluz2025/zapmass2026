@@ -57,6 +57,60 @@ fi
 
 EVOLUTION_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' "$ENV" | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"')"
 EVOLUTION_KEY="${EVOLUTION_KEY:-$DEFAULT_EVOLUTION_KEY}"
+POSTGRES_PASSWORD="$(grep -E '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=' "$ENV" | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=//' | tr -d '\r"')"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$DEFAULT_POSTGRES_PASSWORD}"
+
+swarm_network() {
+  docker network ls --format '{{.Name}}' | grep -E '^zapmass(_default)?$' | head -1 || true
+}
+
+wait_postgres_ready() {
+  log "Aguardar Postgres 1/1"
+  local deadline=$((SECONDS + 240))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local rep
+    rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
+    if [ "$rep" = "1/1" ]; then
+      break
+    fi
+    echo "   postgres replicas: ${rep:-desconhecido} — aguardando..."
+    sleep 5
+  done
+
+  local net
+  net="$(swarm_network)"
+  if [ -z "$net" ]; then
+    warn "Rede Swarm zapmass nao encontrada; a saltar pg_isready"
+    return 0
+  fi
+
+  log "Testar pg_isready na rede ${net}"
+  local i
+  for i in $(seq 1 50); do
+    if docker run --rm --network "$net" -e "PGPASSWORD=${POSTGRES_PASSWORD}" postgres:15-alpine \
+      pg_isready -h postgres -U postgres -d evolution_db -q 2>/dev/null; then
+      ok "Postgres aceita ligacoes (postgres:5432)"
+      return 0
+    fi
+    sleep 4
+  done
+
+  warn "Postgres nao respondeu a pg_isready. Logs postgres:"
+  docker service logs zapmass_postgres --tail 50 2>&1 || true
+  return 1
+}
+
+restart_evolution_after_postgres() {
+  if ! docker service inspect zapmass_evolution >/dev/null 2>&1; then
+    return 0
+  fi
+  log "Reiniciar Evolution DEPOIS do Postgres (evita erro P1001)"
+  docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
+  sleep 10
+  wait_postgres_ready || true
+  docker service scale zapmass_evolution=1 >/dev/null 2>&1 || true
+  sleep 15
+}
 
 log "Atualizar codigo e redeploy (git + vps-deploy)"
 chmod +x deployment/manual-pull-deploy.sh deployment/vps-deploy.sh 2>/dev/null || true
@@ -103,29 +157,37 @@ if [ -d "$CLIENTES_DIR" ]; then
   done
 fi
 
-log "Forcar recriacao do servico Evolution (Swarm)"
-if docker service inspect zapmass_evolution >/dev/null 2>&1; then
-  docker service update --force zapmass_evolution >/dev/null 2>&1 || true
-fi
+restart_evolution_after_postgres
 
-log "Aguardar Evolution 1/1 (ate 3 min)"
-deadline=$((SECONDS + 180))
+log "Aguardar Evolution 1/1 e HTTP 200 (ate 5 min)"
+deadline=$((SECONDS + 300))
 evolution_ok=0
+http_code="000"
+body=""
 while [ "$SECONDS" -lt "$deadline" ]; do
   replicas="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
-  if [ "$replicas" = "1/1" ]; then
+  http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
+    "http://127.0.0.1:8080/instance/fetchInstances" \
+    -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+  body="$(cat /tmp/evolution-fetch.json 2>/dev/null || true)"
+  if [ "$replicas" = "1/1" ] && [ "$http_code" = "200" ]; then
     evolution_ok=1
     break
   fi
-  echo "   evolution replicas: ${replicas:-desconhecido} — aguardando..."
-  sleep 8
+  echo "   evolution: ${replicas:-?} | HTTP ${http_code} — aguardando..."
+  sleep 10
 done
 
-log "Testar Evolution na porta 8080"
-http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
-  "http://127.0.0.1:8080/instance/fetchInstances" \
-  -H "apikey: ${EVOLUTION_KEY}" || echo 000)"
-body="$(cat /tmp/evolution-fetch.json 2>/dev/null || true)"
+if [ "$evolution_ok" -ne 1 ]; then
+  restart_evolution_after_postgres
+  sleep 20
+  http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
+    "http://127.0.0.1:8080/instance/fetchInstances" \
+    -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+  body="$(cat /tmp/evolution-fetch.json 2>/dev/null || true)"
+  replicas="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
+  [ "$replicas" = "1/1" ] && [ "$http_code" = "200" ] && evolution_ok=1
+fi
 
 log "Testar API ZapMass (porta ${HOST_PORT:-3001})"
 api_code="$(curl -s -o /tmp/zapmass-version.json -w '%{http_code}' \
@@ -156,7 +218,14 @@ if [ "$evolution_ok" -eq 1 ] && [ "$http_code" = "200" ]; then
 fi
 
 warn "Evolution ainda nao respondeu 200. Logs:"
+docker service logs zapmass_postgres --tail 40 2>&1 || true
 docker service logs zapmass_evolution --tail 60 2>&1 || true
+echo ""
+echo "Se postgres falhar por senha antiga no volume, alinhe POSTGRES_PASSWORD no .env"
+echo "com a senha original OU (apaga dados Evolution) remova o volume:"
+echo "  docker service scale zapmass_evolution=0"
+echo "  docker volume rm zapmass_zapmass-postgres  # CUIDADO: apaga DB Evolution"
+echo "  bash deployment/manual-pull-deploy.sh"
 echo ""
 echo "Envie ao suporte o output acima (RESUMO + logs)."
 exit 1

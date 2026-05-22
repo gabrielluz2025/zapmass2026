@@ -178,8 +178,11 @@ services:
       replicas: 1
       update_config:
         order: stop-first
+        delay: 20s
       restart_policy:
         condition: on-failure
+        delay: 20s
+        max_attempts: 8
 
   postgres:
     image: postgres:15-alpine
@@ -189,12 +192,19 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-evolution-secure-pass-2026}
     volumes:
       - zapmass-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d evolution_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
     deploy:
       replicas: 1
       update_config:
-        order: stop-first
+        order: start-first
       restart_policy:
         condition: on-failure
+        delay: 5s
 
   redis:
     image: redis:7-alpine
