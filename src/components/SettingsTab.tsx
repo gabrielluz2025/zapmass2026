@@ -49,7 +49,7 @@ import {
   type UseSegmentId
 } from '../constants/useSegments';
 
-const SETTINGS_KEY = 'zapmass_settings';
+const SETTINGS_KEY_PREFIX = 'zapmass_settings';
 
 interface SystemSettings {
   minDelay: number;
@@ -121,6 +121,18 @@ function serializeServerSettings(s: SystemSettings): string {
   });
 }
 
+function readLocalSettings(storageKey: string): SystemSettings {
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(storageKey) || '{}') };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function settingsStorageKey(workspaceUid?: string | null): string {
+  return workspaceUid ? `${SETTINGS_KEY_PREFIX}_${workspaceUid}` : SETTINGS_KEY_PREFIX;
+}
+
 export const SettingsTab: React.FC = () => {
   const { socket, clearAllUserData } = useZapMassCore();
   const { user, signOut } = useAuth();
@@ -132,26 +144,61 @@ export const SettingsTab: React.FC = () => {
     user && authUid && effectiveWorkspaceUid && authUid === effectiveWorkspaceUid
   );
 
-  const saved: SystemSettings = (() => {
-    try {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
-    } catch {
-      return DEFAULT_SETTINGS;
-    }
-  })();
+  const storageKey = settingsStorageKey(effectiveWorkspaceUid);
+  const [savedSnapshot, setSavedSnapshot] = useState<SystemSettings>(() => readLocalSettings(storageKey));
 
   const [section, setSection] = useState<Section>('disparo');
-  const [minDelay, setMinDelay] = useState(saved.minDelay);
-  const [maxDelay, setMaxDelay] = useState(saved.maxDelay);
-  const [dailyLimit, setDailyLimit] = useState(saved.dailyLimit);
-  const [sleepMode, setSleepMode] = useState(saved.sleepMode);
-  const [webhookUrl, setWebhookUrl] = useState(saved.webhookUrl);
-  const [emailNotif, setEmailNotif] = useState(saved.emailNotif);
+  const [minDelay, setMinDelay] = useState(savedSnapshot.minDelay);
+  const [maxDelay, setMaxDelay] = useState(savedSnapshot.maxDelay);
+  const [dailyLimit, setDailyLimit] = useState(savedSnapshot.dailyLimit);
+  const [sleepMode, setSleepMode] = useState(savedSnapshot.sleepMode);
+  const [webhookUrl, setWebhookUrl] = useState(savedSnapshot.webhookUrl);
+  const [emailNotif, setEmailNotif] = useState(savedSnapshot.emailNotif);
   const [themeId, setThemeId] = useState<ThemeId>('emerald');
   const [mode, setMode] = useState<ModeId>('dark');
   const [savedOk, setSavedOk] = useState(false);
   const [clearingAll, setClearingAll] = useState(false);
-  const settingsBaselineRef = useRef(serializeServerSettings(saved));
+  const settingsBaselineRef = useRef(serializeServerSettings(savedSnapshot));
+
+  const applySettingsToForm = (settings: SystemSettings) => {
+    setMinDelay(settings.minDelay);
+    setMaxDelay(settings.maxDelay);
+    setDailyLimit(settings.dailyLimit);
+    setSleepMode(settings.sleepMode);
+    setWebhookUrl(settings.webhookUrl);
+    setEmailNotif(settings.emailNotif);
+    setSavedSnapshot(settings);
+    settingsBaselineRef.current = serializeServerSettings(settings);
+    localStorage.setItem(storageKey, JSON.stringify(settings));
+  };
+
+  useEffect(() => {
+    const local = readLocalSettings(storageKey);
+    applySettingsToForm(local);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const onTenantSettings = (settings: SystemSettings) => {
+      applySettingsToForm({ ...DEFAULT_SETTINGS, ...settings });
+    };
+    const onSettingsSaved = (resp: { ok?: boolean; settings?: SystemSettings; error?: string }) => {
+      if (resp.ok && resp.settings) {
+        applySettingsToForm({ ...DEFAULT_SETTINGS, ...resp.settings });
+        setSavedOk(true);
+        setTimeout(() => setSavedOk(false), 3000);
+      } else if (resp.error) {
+        toast.error(resp.error);
+      }
+    };
+    socket.on('tenant-settings', onTenantSettings);
+    socket.on('settings-saved', onSettingsSaved);
+    socket.emit('fetch-tenant-settings');
+    return () => {
+      socket.off('tenant-settings', onTenantSettings);
+      socket.off('settings-saved', onSettingsSaved);
+    };
+  }, [socket, storageKey]);
 
   const [segmentChoice, setSegmentChoice] = useState<UseSegmentId>(segment);
   const [segmentSaving, setSegmentSaving] = useState(false);
@@ -214,11 +261,12 @@ export const SettingsTab: React.FC = () => {
       return;
     }
     const settings: SystemSettings = { minDelay, maxDelay, dailyLimit, sleepMode, webhookUrl, emailNotif };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    settingsBaselineRef.current = serializeServerSettings(settings);
     socket?.emit('update-settings', settings);
+    settingsBaselineRef.current = serializeServerSettings(settings);
+    localStorage.setItem(storageKey, JSON.stringify(settings));
+    setSavedSnapshot(settings);
+    toast.success('Configurações salvas para esta conta.');
     setSavedOk(true);
-    toast.success('Configurações salvas.');
     setTimeout(() => setSavedOk(false), 3000);
   };
 

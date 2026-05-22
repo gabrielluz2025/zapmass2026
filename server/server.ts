@@ -82,6 +82,12 @@ import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
 import { securityHeadersMiddleware } from './securityHeaders.js';
 import { getUploadsDir } from './mediaStorage.js';
+import {
+    loadTenantSettings,
+    saveTenantSettings,
+    settingsToClientPayload,
+    type TenantSettingsClientPayload,
+} from './tenantSettings.js';
 
 const whatsappEngine = () => String(process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution').toLowerCase();
 const useEvolutionChat = () => whatsappEngine() === 'evolution';
@@ -657,6 +663,12 @@ const registerSocketHandlers = () => {
     void (async () => {
       if (uid && uid !== 'anonymous') {
         await ensureAssignmentsLoaded(uid).catch(() => undefined);
+        try {
+          const tenantSettings = await loadTenantSettings(uid);
+          socket.emit('tenant-settings', settingsToClientPayload(tenantSettings));
+        } catch {
+          /* defaults no cliente */
+        }
       }
       socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations()));
     })();
@@ -999,9 +1011,6 @@ const registerSocketHandlers = () => {
         notifyCampaignSocketError(uid, err, campaignId);
         return;
       }
-        if (typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0) {
-          evolutionService.applySettings({ minDelay: delaySeconds, maxDelay: delaySeconds });
-        }
       userLog('ui:start-campaign', { campaignId, connections: connectionIds.length, total: numbers?.length || 0, delaySeconds });
       try {
         const stages =
@@ -1036,7 +1045,10 @@ const registerSocketHandlers = () => {
           replyFlow,
           uid,
           channelWeights,
-          campaignMedia
+          campaignMedia,
+          typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0
+            ? delaySeconds
+            : undefined
         );
         if (!ok) {
           const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
@@ -1197,15 +1209,40 @@ const registerSocketHandlers = () => {
       void incrementTenantUsageMs(uid, delta);
     });
 
-    socket.on('update-settings', (settings: { minDelay?: number; maxDelay?: number; dailyLimit?: number; sleepMode?: boolean; webhookUrl?: string; emailNotif?: boolean }) => {
+    socket.on('fetch-tenant-settings', () => {
+      void (async () => {
+        try {
+          if (!uid || uid === 'anonymous') return;
+          const tenantSettings = await loadTenantSettings(uid);
+          socket.emit('tenant-settings', settingsToClientPayload(tenantSettings));
+        } catch (e) {
+          reportSocketAsyncError('fetch-tenant-settings', e);
+        }
+      })();
+    });
+
+    socket.on('update-settings', (settings: TenantSettingsClientPayload) => {
       void (async () => {
         try {
           if (!(await requireActiveSubscription())) return;
-          userLog('ui:update-settings', settings as Record<string, unknown>);
-          evolutionService.applySettings(settings);
-          socket.emit('settings-saved', { ok: true });
+          if (!uid || uid === 'anonymous') {
+            socket.emit('settings-saved', { ok: false, error: 'Faça login para salvar configurações.' });
+            return;
+          }
+          userLog('ui:update-settings', { ...settings });
+          const saved = await saveTenantSettings(uid, settings);
+          if (!useEvolutionChat()) {
+            await waService.applySettingsForTenant(uid, settings);
+          }
+          const payload = settingsToClientPayload(saved);
+          socket.emit('settings-saved', { ok: true, settings: payload });
+          socket.emit('tenant-settings', payload);
         } catch (e) {
           reportSocketAsyncError('update-settings', e);
+          socket.emit('settings-saved', {
+            ok: false,
+            error: (e as Error)?.message || 'Falha ao salvar configurações.'
+          });
         }
       })();
     });

@@ -29,6 +29,11 @@ import {
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
+import {
+    getTenantDispatchSettings,
+    saveTenantSettings,
+    type TenantSettingsClientPayload,
+} from './tenantSettings.js';
 
 import crypto from 'node:crypto';
 
@@ -163,6 +168,16 @@ const MARKED_UNREAD_WINDOW = 60 * 1000; // 1 minuto
 // Dynamic settings (updated via applySettings socket event)
 const pausedCampaigns = new Set<string>();
 const dynamicSettings = { minDelay: 2000, maxDelay: 5000, dailyLimit: 500, sleepMode: false, webhookUrl: '', emailNotif: false };
+
+function syncDynamicSettingsFromTenant(ownerUid?: string) {
+    const settings = getTenantDispatchSettings(ownerUid);
+    dynamicSettings.minDelay = settings.minDelayMs;
+    dynamicSettings.maxDelay = settings.maxDelayMs;
+    dynamicSettings.dailyLimit = settings.dailyLimit;
+    dynamicSettings.sleepMode = settings.sleepMode;
+    dynamicSettings.webhookUrl = settings.webhookUrl;
+    dynamicSettings.emailNotif = settings.emailNotif;
+}
 
 const canRestartForMarkedUnread = (connectionId: string): boolean => {
     const now = Date.now();
@@ -4840,6 +4855,7 @@ export const startCampaign = async (
         lastLoggedProcessed: 0,
         startTime: Date.now()
     };
+    syncDynamicSettingsFromTenant(currentCampaign.ownerUid);
 
     if (campaignId) {
         campaignGeoById.set(campaignId, {});
@@ -6437,6 +6453,17 @@ export const applySettings = (settings: { minDelay?: number; maxDelay?: number; 
     if (settings.webhookUrl !== undefined) dynamicSettings.webhookUrl = settings.webhookUrl;
     if (settings.emailNotif !== undefined) dynamicSettings.emailNotif = settings.emailNotif;
     console.log('[Settings] ✅ Configurações aplicadas:', dynamicSettings);
+};
+
+export const applySettingsForTenant = async (
+    uid: string,
+    settings: Partial<TenantSettingsClientPayload>
+) => {
+    await saveTenantSettings(uid, settings);
+    if (!currentCampaign.isRunning || currentCampaign.ownerUid === uid) {
+        syncDynamicSettingsFromTenant(uid);
+    }
+    console.log('[Settings] ✅ Configurações do tenant aplicadas:', uid);
 };
 
 export const pauseCampaign = (campaignId: string) => {

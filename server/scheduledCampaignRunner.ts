@@ -223,9 +223,6 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
 
     const cid = path?.campaignId || ref.id;
     const delaySeconds = Number(snap?.delaySeconds ?? data.delaySeconds);
-    if (Number.isFinite(delaySeconds) && delaySeconds > 0) {
-      evolutionService.applySettings({ minDelay: delaySeconds, maxDelay: delaySeconds });
-    }
 
     const scheduledWeights =
       snap?.channelWeights && typeof snap.channelWeights === 'object' && snap.channelWeights !== null
@@ -241,7 +238,9 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
         snap?.recipients,
         snap?.replyFlow as Parameters<typeof evolutionService.startCampaign>[5],
         ownerUid,
-        scheduledWeights
+        scheduledWeights,
+        undefined,
+        Number.isFinite(delaySeconds) && delaySeconds > 0 ? delaySeconds : undefined
       );
       if (!started) {
         console.warn('[ScheduledCampaign] startCampaign não iniciou (canais indisponíveis ou fila vazia). Reagendando.');

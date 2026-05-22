@@ -23,6 +23,12 @@ import {
 } from './replyFlowEngine.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import {
+    getTenantDispatchSettings,
+    resolveCampaignDispatchSettings,
+    saveTenantSettings,
+    type TenantSettingsClientPayload,
+} from './tenantSettings.js';
+import {
     evolutionRegisterCampaign,
     evolutionTrackIncomingReply,
     evolutionTrackMessageAck,
@@ -116,14 +122,6 @@ const warmedNumbers = new Set<string>();
 let idCounter = 0;
 const generateId = () => `conn_${Date.now()}_${++idCounter}`;
 
-// Configurações dinâmicas (enviadas pelo frontend via Settings)
-let dynamicSettings = {
-    minDelay: 15000,   // 15s
-    maxDelay: 45000,   // 45s
-    dailyLimit: 1000,
-    sleepMode: true,
-};
-
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
 const campaignMediaById = new Map<string, CampaignMediaPayload>();
@@ -143,12 +141,9 @@ const campaignPendingJobs = new Map<string, number>();
 
 let replyFlowEngine: ReplyFlowEngine;
 
-export function applySettings(settings: { minDelay?: number; maxDelay?: number; dailyLimit?: number; sleepMode?: boolean }) {
-    if (settings.minDelay !== undefined) dynamicSettings.minDelay = settings.minDelay * 1000;
-    if (settings.maxDelay !== undefined) dynamicSettings.maxDelay = settings.maxDelay * 1000;
-    if (settings.dailyLimit !== undefined) dynamicSettings.dailyLimit = settings.dailyLimit;
-    if (settings.sleepMode !== undefined) dynamicSettings.sleepMode = settings.sleepMode;
-    log('info', '⚙️ Configurações atualizadas', dynamicSettings);
+export async function applySettings(ownerUid: string, settings: Partial<TenantSettingsClientPayload>) {
+    const saved = await saveTenantSettings(ownerUid, settings);
+    log('info', '⚙️ Configurações do tenant atualizadas', { ownerUid, ...saved });
 }
 
 // Cliente HTTP configurado
@@ -652,10 +647,13 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         return;
     }
 
-    if (dynamicSettings.sleepMode) {
+    const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
+    const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
+
+    if (dispatchSettings.sleepMode) {
         const hour = new Date().getHours();
         if (hour >= 20 || hour < 8) {
-            log('info', '😴 Sleep mode ativo - adiando envio');
+            log('info', '😴 Sleep mode ativo - adiando envio', { ownerUid: campaignState?.ownerUid });
             await job.moveToDelayed(Date.now() + 60_000);
             return;
         }
@@ -703,7 +701,6 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
     }
 
     const phoneDigits = normalizePhoneKey(item.to);
-    const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
     if (item.campaignId && sendResult.messageId) {
         evolutionTrackMessageSent(
             sendResult.messageId,
@@ -751,7 +748,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
     });
 
     const delay =
-        dynamicSettings.minDelay + Math.random() * (dynamicSettings.maxDelay - dynamicSettings.minDelay);
+        dispatchSettings.minDelayMs +
+        Math.random() * (dispatchSettings.maxDelayMs - dispatchSettings.minDelayMs);
     await new Promise((r) => setTimeout(r, delay));
 }
 
@@ -860,7 +858,8 @@ export async function startCampaign(
     },
     ownerUid?: string,
     channelWeights?: Record<string, number>,
-    media?: CampaignMediaPayload
+    media?: CampaignMediaPayload,
+    delaySeconds?: number
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
@@ -928,6 +927,8 @@ export async function startCampaign(
     evolutionRegisterCampaign(cid, ownerUid);
     publishOwnerEvent(ownerUid, 'campaign-started', { total: totalJobs, campaignId: cid });
 
+    const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds);
+
     for (let i = 0; i < numbers.length; i++) {
         const num = numbers[i];
         const cleanPhone = normalizePhoneKey(num);
@@ -935,7 +936,7 @@ export async function startCampaign(
         const assignedConnectionId = useWeights
             ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
             : activeConnectionIds[i % activeConnectionIds.length];
-        const staggerDelay = i * dynamicSettings.minDelay;
+        const staggerDelay = i * dispatchSettings.minDelayMs;
 
         if (useReplyFlow) {
             const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
@@ -958,7 +959,7 @@ export async function startCampaign(
         } else {
             for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
                 const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars);
-                const stageDelay = staggerDelay + stageIndex * dynamicSettings.minDelay;
+                const stageDelay = staggerDelay + stageIndex * dispatchSettings.minDelayMs;
                 await enqueueCampaignItem(
                     {
                         connectionId: assignedConnectionId,
