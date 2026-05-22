@@ -115,21 +115,25 @@ limpar_containers_cliente() {
     local needle="zapmass-cli-${slug}"
     local id name removed=0
 
-    while IFS= read -r line; do
-        [ -z "$line" ] && continue
-        id="${line%% *}"
-        name="${line#* }"
+    while IFS= read -r id; do
+        [ -z "$id" ] && continue
+        if docker rm -f "$id" >/dev/null 2>&1; then
+            removed=$((removed + 1))
+        fi
+    done < <(docker ps -aq --filter "name=${needle}" 2>/dev/null || true)
+
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
         case "$name" in
             *"${needle}"*)
-                if docker rm -f "$id" >/dev/null 2>&1; then
+                if docker rm -f "$name" >/dev/null 2>&1; then
                     removed=$((removed + 1))
                     log "Removido contentor antigo: ${name}"
                 fi
                 ;;
         esac
-    done < <(docker ps -a --format '{{.ID}} {{.Names}}' 2>/dev/null || true)
+    done < <(docker ps -a --format '{{.Names}}' 2>/dev/null || true)
 
-    [ "$removed" -gt 0 ] && return 0
     return 0
 }
 

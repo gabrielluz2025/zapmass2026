@@ -41,7 +41,16 @@ ensure_env_var "EVOLUTION_API_KEY" "$DEFAULT_EVOLUTION_KEY"
 ensure_env_var "EVOLUTION_API_URL" "http://evolution:8080"
 ensure_env_var "ZAPMASS_WHATSAPP_ENGINE" "evolution"
 ensure_env_var "ZAPMASS_WEBHOOK_URL" "http://api:3001/webhook/evolution"
-ensure_env_var "POSTGRES_PASSWORD" "$DEFAULT_POSTGRES_PASSWORD"
+# So escreve POSTGRES_PASSWORD se ainda nao existir (volume pode ter senha antiga).
+if ! grep -qE '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=' "$ENV"; then
+  if docker volume inspect zapmass_zapmass-postgres >/dev/null 2>&1; then
+    warn "Volume postgres existe sem POSTGRES_PASSWORD no .env — use a senha original ou ZAPMASS_RESET_EVOLUTION_DB=1"
+    printf '\nPOSTGRES_PASSWORD=%s\n' "$DEFAULT_POSTGRES_PASSWORD" >> "$ENV"
+    log "Adicionado POSTGRES_PASSWORD padrao ao .env (se Evolution falhar auth, corrija a senha)"
+  else
+    ensure_env_var "POSTGRES_PASSWORD" "$DEFAULT_POSTGRES_PASSWORD"
+  fi
+fi
 
 # Evolution + QR no Swarm: monolith (nao mandar QR para wa-worker wwebjs).
 if grep -qE '^[[:space:]]*(export[[:space:]]+)?ZAPMASS_API_SESSION_MODE=' "$ENV"; then
@@ -64,9 +73,24 @@ swarm_network() {
   docker network ls --format '{{.Name}}' | grep -E '^zapmass(_default)?$' | head -1 || true
 }
 
+diagnose_postgres() {
+  echo ""
+  echo "--- zapmass_postgres (tasks) ---"
+  docker service ps zapmass_postgres --no-trunc 2>&1 | head -10 || true
+  echo "--- zapmass_postgres (logs) ---"
+  docker service logs zapmass_postgres --tail 35 2>&1 || true
+}
+
+try_recover_postgres() {
+  log "Recuperar Postgres (force update)"
+  docker service update --force zapmass_postgres >/dev/null 2>&1 || true
+  sleep 15
+}
+
 wait_postgres_ready() {
   log "Aguardar Postgres 1/1"
   local deadline=$((SECONDS + 240))
+  local last_diag=0
   while [ "$SECONDS" -lt "$deadline" ]; do
     local rep
     rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
@@ -74,8 +98,26 @@ wait_postgres_ready() {
       break
     fi
     echo "   postgres replicas: ${rep:-desconhecido} — aguardando..."
+    if [ $((SECONDS - last_diag)) -ge 45 ]; then
+      diagnose_postgres
+      try_recover_postgres
+      last_diag=$SECONDS
+    fi
     sleep 5
   done
+
+  rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
+  if [ "$rep" != "1/1" ]; then
+    warn "Postgres nao chegou a 1/1"
+    diagnose_postgres
+    if [ "${ZAPMASS_RESET_EVOLUTION_DB:-0}" = "1" ]; then
+      log "ZAPMASS_RESET_EVOLUTION_DB=1 — executar recover-postgres-evolution.sh"
+      bash "$ROOT/deployment/recover-postgres-evolution.sh"
+      return $?
+    fi
+    warn "Execute: ZAPMASS_RESET_EVOLUTION_DB=1 bash deployment/recover-postgres-evolution.sh"
+    return 1
+  fi
 
   local net
   net="$(swarm_network)"
