@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# Corrige Evolution + QR na VPS (Swarm + clientes demo/acme).
+# Uso (root): cd /opt/zapmass && bash deployment/fix-evolution-qr-vps.sh
+set -euo pipefail
+
+ROOT="${ROOT:-/opt/zapmass}"
+ENV="${ENV_PATH:-$ROOT/.env}"
+DEFAULT_EVOLUTION_KEY="${DEFAULT_EVOLUTION_KEY:-zapmass-secure-key-2026}"
+DEFAULT_POSTGRES_PASSWORD="${DEFAULT_POSTGRES_PASSWORD:-evolution-secure-pass-2026}"
+
+log() { echo "==> $*"; }
+ok() { echo "OK: $*"; }
+warn() { echo "AVISO: $*" >&2; }
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Execute como root (sudo -i)." >&2
+  exit 1
+fi
+
+cd "$ROOT"
+if [ ! -f "$ENV" ]; then
+  echo "Erro: $ENV nao existe. Copie .env.example primeiro." >&2
+  exit 1
+fi
+
+ensure_env_var() {
+  local key="$1"
+  local value="$2"
+  if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV"; then
+    return 0
+  fi
+  printf '\n%s=%s\n' "$key" "$value" >> "$ENV"
+  log "Adicionado ao .env: ${key}=..."
+}
+
+log "Backup do .env"
+cp -a "$ENV" "${ENV}.bak.$(date +%Y%m%d%H%M%S)"
+
+log "Garantir variaveis Evolution no .env principal"
+ensure_env_var "EVOLUTION_API_KEY" "$DEFAULT_EVOLUTION_KEY"
+ensure_env_var "EVOLUTION_API_URL" "http://evolution:8080"
+ensure_env_var "ZAPMASS_WHATSAPP_ENGINE" "evolution"
+ensure_env_var "ZAPMASS_WEBHOOK_URL" "http://api:3001/webhook/evolution"
+ensure_env_var "POSTGRES_PASSWORD" "$DEFAULT_POSTGRES_PASSWORD"
+
+# Evolution + QR no Swarm: monolith (nao mandar QR para wa-worker wwebjs).
+if grep -qE '^[[:space:]]*(export[[:space:]]+)?ZAPMASS_API_SESSION_MODE=' "$ENV"; then
+  sed -i -E 's/^([[:space:]]*export[[:space:]]+)?ZAPMASS_API_SESSION_MODE=.*/ZAPMASS_API_SESSION_MODE=monolith/' "$ENV"
+else
+  printf '\nZAPMASS_API_SESSION_MODE=monolith\n' >> "$ENV"
+fi
+if grep -qE '^[[:space:]]*(export[[:space:]]+)?WA_WORKER_REPLICAS=' "$ENV"; then
+  sed -i -E 's/^([[:space:]]*export[[:space:]]+)?WA_WORKER_REPLICAS=.*/WA_WORKER_REPLICAS=0/' "$ENV"
+else
+  printf 'WA_WORKER_REPLICAS=0\n' >> "$ENV"
+fi
+
+EVOLUTION_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' "$ENV" | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"')"
+EVOLUTION_KEY="${EVOLUTION_KEY:-$DEFAULT_EVOLUTION_KEY}"
+
+log "Atualizar codigo e redeploy (git + vps-deploy)"
+chmod +x deployment/manual-pull-deploy.sh deployment/vps-deploy.sh 2>/dev/null || true
+bash deployment/ensure-git-main.sh
+bash deployment/vps-deploy.sh
+
+log "Sincronizar imagem zapmass:latest -> zapmass-zapmass:latest (clientes)"
+if docker image inspect zapmass:latest >/dev/null 2>&1; then
+  docker tag zapmass:latest zapmass-zapmass:latest
+  ok "Imagem zapmass-zapmass:latest actualizada"
+else
+  warn "zapmass:latest nao encontrada; clientes podem ficar com imagem antiga"
+fi
+
+patch_client_env() {
+  local client_env="$1"
+  local public_url="${2:-}"
+  [ -f "$client_env" ] || return 0
+  cp -a "$client_env" "${client_env}.bak.$(date +%Y%m%d%H%M%S)"
+  grep -qE '^ZAPMASS_WHATSAPP_ENGINE=' "$client_env" || echo 'ZAPMASS_WHATSAPP_ENGINE=evolution' >> "$client_env"
+  grep -qE '^EVOLUTION_API_KEY=' "$client_env" || echo "EVOLUTION_API_KEY=${EVOLUTION_KEY}" >> "$client_env"
+  grep -qE '^EVOLUTION_API_URL=' "$client_env" || echo 'EVOLUTION_API_URL=http://172.17.0.1:8080' >> "$client_env"
+  if [ -n "$public_url" ]; then
+    grep -qE '^ZAPMASS_WEBHOOK_URL=' "$client_env" || echo "ZAPMASS_WEBHOOK_URL=${public_url%/}/webhook/evolution" >> "$client_env"
+    grep -qE '^PUBLIC_APP_URL=' "$client_env" || echo "PUBLIC_APP_URL=${public_url}" >> "$client_env"
+  fi
+}
+
+CLIENTES_DIR="$ROOT/clientes"
+if [ -d "$CLIENTES_DIR" ]; then
+  for dir in "$CLIENTES_DIR"/*/; do
+    [ -d "$dir" ] || continue
+    slug="$(basename "$dir")"
+    [[ "$slug" == *removido* ]] && continue
+    [ -f "${dir}/docker-compose.yml" ] || continue
+    client_env="${dir}/.env"
+    pub=""
+    if [ -f "$client_env" ]; then
+      pub="$(grep -E '^PUBLIC_URL=' "$client_env" | tail -1 | cut -d= -f2- | tr -d '\r"' || true)"
+    fi
+    log "Cliente ${slug}: .env Evolution + recreate"
+    patch_client_env "$client_env" "$pub"
+    (cd "$dir" && docker compose up -d --force-recreate) || warn "Falha ao recriar cliente ${slug}"
+  done
+fi
+
+log "Forcar recriacao do servico Evolution (Swarm)"
+if docker service inspect zapmass_evolution >/dev/null 2>&1; then
+  docker service update --force zapmass_evolution >/dev/null 2>&1 || true
+fi
+
+log "Aguardar Evolution 1/1 (ate 3 min)"
+deadline=$((SECONDS + 180))
+evolution_ok=0
+while [ "$SECONDS" -lt "$deadline" ]; do
+  replicas="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
+  if [ "$replicas" = "1/1" ]; then
+    evolution_ok=1
+    break
+  fi
+  echo "   evolution replicas: ${replicas:-desconhecido} — aguardando..."
+  sleep 8
+done
+
+log "Testar Evolution na porta 8080"
+http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
+  "http://127.0.0.1:8080/instance/fetchInstances" \
+  -H "apikey: ${EVOLUTION_KEY}" || echo 000)"
+body="$(cat /tmp/evolution-fetch.json 2>/dev/null || true)"
+
+log "Testar API ZapMass (porta ${HOST_PORT:-3001})"
+api_code="$(curl -s -o /tmp/zapmass-version.json -w '%{http_code}' \
+  "http://127.0.0.1:${HOST_PORT:-3001}/api/version" || echo 000)"
+api_body="$(cat /tmp/zapmass-version.json 2>/dev/null || true)"
+
+echo ""
+echo "========== RESUMO =========="
+docker stack services zapmass 2>/dev/null || true
+docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || true
+echo ""
+echo "Evolution HTTP: ${http_code}"
+if [ -n "$body" ]; then
+  echo "Evolution body: ${body:0:200}"
+else
+  echo "Evolution body: (vazio — servico pode ainda estar a arrancar)"
+fi
+echo "API /api/version HTTP: ${api_code}"
+if [ -n "$api_body" ]; then
+  echo "API version: ${api_body}"
+fi
+echo "Chave Evolution (.env): ${EVOLUTION_KEY:0:8}..."
+echo ""
+
+if [ "$evolution_ok" -eq 1 ] && [ "$http_code" = "200" ]; then
+  ok "Evolution operacional. Abra o painel e clique em Gerar QR."
+  exit 0
+fi
+
+warn "Evolution ainda nao respondeu 200. Logs:"
+docker service logs zapmass_evolution --tail 60 2>&1 || true
+echo ""
+echo "Envie ao suporte o output acima (RESUMO + logs)."
+exit 1

@@ -74,6 +74,8 @@ fi
 
 PORTA="$(proxima_porta_livre)"
 BACKUP_KEY="$(gerar_chave)"
+EVOLUTION_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' "${ZAPMASS_ROOT}/.env" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' || true)"
+EVOLUTION_API_KEY="${EVOLUTION_API_KEY:-zapmass-secure-key-2026}"
 DIR="$(cliente_dir "$SLUG")"
 DATA_DIR="$(cliente_data "$SLUG")"
 
@@ -89,7 +91,8 @@ render_template \
     "${DIR}/.env" \
     "SLUG=${SLUG}" \
     "DOMAIN=${DOMINIO}" \
-    "BACKUP_KEY=${BACKUP_KEY}"
+    "BACKUP_KEY=${BACKUP_KEY}" \
+    "EVOLUTION_API_KEY=${EVOLUTION_API_KEY}"
 # Acrescenta HOST_PORT no .env para que scripts futuros possam descobri-la.
 printf '\nHOST_PORT=%s\n' "$PORTA" >> "${DIR}/.env"
 chmod 600 "${DIR}/.env"

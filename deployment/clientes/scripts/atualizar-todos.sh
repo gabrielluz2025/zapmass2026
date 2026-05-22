@@ -29,8 +29,8 @@ if [ -d "$CLIENTES_DIR" ]; then
         [[ "$slug" == *removido* ]] && continue
         [ -f "${dir}/docker-compose.yml" ] || continue
 
-        log "A atualizar cliente ${slug}..."
-        (cd "$dir" && docker compose up -d)
+    log "A atualizar cliente ${slug}..."
+    (cd "$dir" && docker compose up -d --force-recreate)
     done
 fi
 
