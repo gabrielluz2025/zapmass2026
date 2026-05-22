@@ -206,7 +206,6 @@ services:
       start_period: 40s
     deploy:
       replicas: 1
-      endpoint_mode: dnsrr
       update_config:
         order: start-first
       restart_policy:

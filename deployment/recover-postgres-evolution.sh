@@ -25,6 +25,18 @@ EVOLUTION_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' 
 EVOLUTION_KEY="${EVOLUTION_KEY:-$DEFAULT_EVOLUTION_KEY}"
 POSTGRES_HOST="${POSTGRES_HOST:-tasks.postgres}"
 
+ensure_postgres_running() {
+  local rep
+  rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
+  if [ "$rep" = "1/1" ]; then
+    return 0
+  fi
+  log "Postgres ${rep:-?} — scale 1 + force update"
+  docker service scale zapmass_postgres=1 >/dev/null 2>&1 || true
+  docker service update --force zapmass_postgres >/dev/null 2>&1 || true
+  wait_postgres_replicas 60
+}
+
 postgres_container_id() {
   docker ps -q --filter "name=zapmass_postgres" 2>/dev/null | head -1 || true
 }
@@ -211,11 +223,23 @@ http_code="000"
 
 log "Estado actual"
 docker stack services zapmass 2>/dev/null || true
+
+http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
+  "http://127.0.0.1:8080/instance/fetchInstances" \
+  -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
+pg_rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
+if [ "$http_code" = "200" ] && [ "$ev_rep" = "1/1" ] && [ "$pg_rep" = "1/1" ]; then
+  ok "Evolution ja operacional (HTTP 200)"
+  exit 0
+fi
+
 diagnose_postgres
 
 if [ "${ZAPMASS_RESET_EVOLUTION_DB:-0}" = "1" ]; then
   reset_evolution_db_volume
 else
+  ensure_postgres_running || true
   pg_rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
   if [ "$pg_rep" != "1/1" ]; then
     log "Force update zapmass_postgres"
@@ -244,9 +268,9 @@ else
     fi
   fi
   if verify_postgres_auth_overlay; then
-    ok "Postgres acessivel na rede overlay (hostname postgres)"
+    ok "Postgres acessivel na rede overlay (${POSTGRES_HOST})"
   else
-    warn "Overlay postgres:5432 falhou (Evolution pode ter P1001)"
+    warn "Overlay ${POSTGRES_HOST}:5432 falhou — verificar rede zapmass_internal"
   fi
   restart_evolution
   log "Aguardar Evolution HTTP 200 (ate 4 min)"
