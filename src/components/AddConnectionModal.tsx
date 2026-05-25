@@ -28,11 +28,11 @@ type InitPhase =
   | 'failed';
 
 const phaseLabels: Record<InitPhase, { title: string; sub: string }> = {
-  'queued': { title: 'Na fila', sub: 'Aguardando worker disponível...' },
-  'preparing': { title: 'Preparando sessão', sub: 'Limpando estado e isolando perfil do navegador.' },
-  'launching-browser': { title: 'Iniciando navegador', sub: 'Abrindo o Chromium em segundo plano.' },
-  'loading-whatsapp-web': { title: 'Conectando ao WhatsApp', sub: 'Carregando whatsapp.com (pode levar alguns segundos).' },
-  'awaiting-scan': { title: 'Aguardando leitura', sub: 'Escaneie o QR com o seu celular.' },
+  'queued': { title: 'A contactar servidor', sub: 'A preparar ligação WhatsApp...' },
+  'preparing': { title: 'A preparar sessão', sub: 'A criar instância na Evolution API.' },
+  'launching-browser': { title: 'A iniciar navegador', sub: 'A abrir o Chromium em segundo plano.' },
+  'loading-whatsapp-web': { title: 'A ligar ao WhatsApp', sub: 'A carregar whatsapp.com (pode demorar alguns segundos).' },
+  'awaiting-scan': { title: 'Aguardando leitura', sub: 'Escaneie o QR com o telemóvel.' },
   'authenticated': { title: 'Autenticado', sub: 'Sincronizando sessão...' },
   'ready': { title: 'Conectado', sub: 'Tudo pronto.' },
   'failed': { title: 'Falha ao iniciar', sub: 'Tente novamente em instantes.' }
@@ -66,6 +66,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   /** Ids de canais antes de clicar em "Gerar QR" — acha o canal novo se o evento socket falhar. */
   const priorConnectionIdsRef = useRef<Set<string>>(new Set());
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showQrRetry, setShowQrRetry] = useState(false);
   const [qrZoomOpen, setQrZoomOpen] = useState(false);
 
   const prevIsOpenRef = useRef(false);
@@ -96,18 +97,27 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     setPairCode(null);
     setPairWaiting(false);
     setPairError(null);
+    setShowQrRetry(false);
   }, [isOpen]);
 
-  /** Se o evento `qr-code` nao chegar, o contexto ainda actualiza a lista com qrCode no canal novo. */
+  useEffect(() => {
+    if (step !== 'loading_qr' || phase !== 'awaiting-scan') {
+      setShowQrRetry(false);
+      return;
+    }
+    const t = setTimeout(() => setShowQrRetry(true), 14_000);
+    return () => clearTimeout(t);
+  }, [step, phase]);
+
+  /** Vincula o canal novo (mesmo antes do QR) e usa qrCode da lista se o socket atrasar. */
   useEffect(() => {
     if (step !== 'loading_qr') return;
-    const newChannel = connections.find(
-      (c) =>
-        !priorConnectionIdsRef.current.has(c.id) &&
-        (c.status === ConnectionStatus.QR_READY || c.status === ConnectionStatus.CONNECTING) &&
-        Boolean(c.qrCode?.length)
-    );
-    if (newChannel?.qrCode) {
+    const newChannel = connections.find((c) => !priorConnectionIdsRef.current.has(c.id));
+    if (newChannel?.id && !pendingConnectionIdRef.current) {
+      pendingConnectionIdRef.current = newChannel.id;
+      setCurrentConnectionId(newChannel.id);
+    }
+    if (newChannel?.qrCode?.length) {
       setQrCodeData(newChannel.qrCode);
       setCurrentConnectionId(newChannel.id);
       pendingConnectionIdRef.current = newChannel.id;
@@ -186,6 +196,16 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       }, 2000);
     };
 
+    /** Evolution emite connection-update (ONLINE); wwebjs emite connection-ready — ambos fecham o modal. */
+    const handleConnectionUpdate = (data: { id?: string; status?: string }) => {
+      const pending = pendingConnectionIdRef.current;
+      if (stepRef.current !== 'scanning' || !pending) return;
+      if (data.id !== pending) return;
+      if (String(data.status || '').toUpperCase() === 'ONLINE') {
+        handleReady({ connectionId: pending });
+      }
+    };
+
     /** Assinatura/limite reprovados pelo servidor — volta ao form e limpa QR (inclui se já estiver em scanning). */
     const onSubscriptionRequired = () => {
       const s = stepRef.current;
@@ -225,9 +245,9 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       }
     };
 
-    const onInitFailure = (data: { connectionId: string; message?: string }) => {
+    const onInitFailure = (data: { connectionId?: string; message?: string }) => {
       if (stepRef.current !== 'loading_qr') return;
-      if (priorConnectionIdsRef.current.has(data.connectionId)) return;
+      if (data.connectionId && priorConnectionIdsRef.current.has(data.connectionId)) return;
       if (loadTimerRef.current) {
         clearTimeout(loadTimerRef.current);
         loadTimerRef.current = null;
@@ -292,10 +312,20 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
 
     socket.on('qr-code', handleQrCode);
     socket.on('connection-ready', handleReady);
+    socket.on('connection-update', handleConnectionUpdate);
     socket.on('connection-progress', onProgress);
     socket.on('connection-queue-progress', onQueueProgress);
     socket.on('subscription-required', onSubscriptionRequired);
     socket.on('connection-limit-reached', onConnectionLimit);
+    const onConnectionCreated = (data: { connectionId?: string }) => {
+      const cid = String(data?.connectionId || '').trim();
+      if (!cid || stepRef.current !== 'loading_qr') return;
+      if (priorConnectionIdsRef.current.has(cid)) return;
+      pendingConnectionIdRef.current = cid;
+      setCurrentConnectionId(cid);
+    };
+
+    socket.on('connection-created', onConnectionCreated);
     socket.on('connection-init-failure', onInitFailure);
     socket.on('session-worker-missing', onSessionWorkerMissing);
     socket.on('pairing-code', onPairingCode);
@@ -305,10 +335,12 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     return () => {
         socket.off('qr-code', handleQrCode);
         socket.off('connection-ready', handleReady);
+        socket.off('connection-update', handleConnectionUpdate);
         socket.off('connection-progress', onProgress);
         socket.off('connection-queue-progress', onQueueProgress);
         socket.off('subscription-required', onSubscriptionRequired);
         socket.off('connection-limit-reached', onConnectionLimit);
+        socket.off('connection-created', onConnectionCreated);
         socket.off('connection-init-failure', onInitFailure);
         socket.off('session-worker-missing', onSessionWorkerMissing);
         socket.off('pairing-code', onPairingCode);
@@ -514,6 +546,22 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
               <p className="text-[11px] text-slate-400 mt-4">
                 Várias contas em paralelo entram em fila no servidor — outras contas continuam a operar normalmente.
               </p>
+
+              {showQrRetry && pendingConnectionIdRef.current && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = pendingConnectionIdRef.current;
+                    if (!socket || !id) return;
+                    setShowQrRetry(false);
+                    toast('A pedir novo QR ao servidor...', { icon: '🔄' });
+                    socket.emit('force-qr', { id });
+                  }}
+                  className="mt-4 w-full py-2.5 rounded-lg border border-emerald-300 text-emerald-800 text-sm font-semibold hover:bg-emerald-50"
+                >
+                  QR demorou? Tentar gerar de novo
+                </button>
+              )}
 
               <button
                 type="button"

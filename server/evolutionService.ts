@@ -91,9 +91,18 @@ function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
         return { displayValue: `data:image/png;base64,${trimmed}`, kind: 'image' };
     }
 
-    const code = qrcode.code;
+    const code = qrcode.code ?? qrcode.pairingCode;
     if (typeof code === 'string' && code.trim()) {
         return { displayValue: code.trim(), kind: 'code' };
+    }
+
+    const rootBase64 = root.base64;
+    if (typeof rootBase64 === 'string' && rootBase64.trim()) {
+        const trimmed = rootBase64.trim();
+        return {
+            displayValue: trimmed.startsWith('data:image/') ? trimmed : `data:image/png;base64,${trimmed}`,
+            kind: 'image',
+        };
     }
     return null;
 }
@@ -110,7 +119,14 @@ function extractQrFromApiResponse(data: unknown): ExtractedEvolutionQr | null {
 
 function emitConnectionProgress(
     connectionId: string,
-    phase: 'preparing' | 'awaiting-scan' | 'authenticated' | 'ready' | 'failed'
+    phase:
+        | 'preparing'
+        | 'launching-browser'
+        | 'loading-whatsapp-web'
+        | 'awaiting-scan'
+        | 'authenticated'
+        | 'ready'
+        | 'failed'
 ) {
     const payload = { connectionId, phase };
     const ownerUid = resolveOwnerUid(connectionId);
@@ -310,6 +326,72 @@ function parseConnectionStateFromData(data: unknown): string {
 }
 
 const connectionWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const qrWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function stopQrWatch(connectionId: string) {
+    const timer = qrWatchTimers.get(connectionId);
+    if (timer) {
+        clearTimeout(timer);
+        qrWatchTimers.delete(connectionId);
+    }
+}
+
+function emitConnectionInitFailure(connectionId: string, message: string) {
+    const ownerUid = resolveOwnerUid(connectionId);
+    const payload = { connectionId, message };
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'connection-init-failure', payload);
+    } else if (io) {
+        io.emit('connection-init-failure', payload);
+    }
+}
+
+/** Polling até o QR chegar (create/connect/webhook) ou timeout — evita modal preso em "Aguardar QR". */
+function ensureQrDelivered(connectionId: string, maxAttempts = 45, delayMs = 2000) {
+    stopQrWatch(connectionId);
+    let attempts = 0;
+
+    const tick = async () => {
+        if (!connections.has(connectionId)) {
+            stopQrWatch(connectionId);
+            return;
+        }
+        const conn = connections.get(connectionId);
+        if (conn?.status === 'open') {
+            stopQrWatch(connectionId);
+            return;
+        }
+        if (conn?.qrCode?.trim()) {
+            const kind: 'code' | 'image' = conn.qrCode.startsWith('data:image/') ? 'image' : 'code';
+            emitQrToFrontend(connectionId, { displayValue: conn.qrCode.trim(), kind });
+            stopQrWatch(connectionId);
+            return;
+        }
+
+        attempts++;
+        let extracted = await fetchConnectQr(connectionId);
+        if (extracted) {
+            emitQrToFrontend(connectionId, extracted);
+            stopQrWatch(connectionId);
+            return;
+        }
+
+        if (attempts >= maxAttempts) {
+            stopQrWatch(connectionId);
+            emitConnectionProgress(connectionId, 'failed');
+            emitConnectionInitFailure(
+                connectionId,
+                'QR não foi gerado a tempo. Confirme Evolution API ativa, webhook e CONFIG_SESSION_PHONE_VERSION (sem sufixo -alpha). Tente "Gerar QR" de novo.'
+            );
+            log('error', `Timeout aguardando QR: ${connectionId}`);
+            return;
+        }
+
+        qrWatchTimers.set(connectionId, setTimeout(() => void tick(), delayMs));
+    };
+
+    void tick();
+}
 
 function stopWatchingConnection(connectionId: string) {
     const timer = connectionWatchTimers.get(connectionId);
@@ -335,6 +417,7 @@ function applyConnectionStateUpdate(
     if (conn) {
         conn.status = mapEvolutionState(state);
         if (state === 'open') {
+            stopQrWatch(instance);
             conn.qrCode = undefined;
             const wuid =
                 typeof data?.wuid === 'string'
@@ -417,6 +500,7 @@ function watchConnectionUntilOpen(connectionId: string) {
 }
 
 function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr) {
+    stopQrWatch(connectionId);
     const conn = connections.get(connectionId);
     if (conn) {
         conn.qrCode = extracted.displayValue;
@@ -437,17 +521,35 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
 }
 
 async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQr | null> {
-    try {
-        const response = await api.get(`/instance/connect/${instanceName}`);
-        const extracted = extractQrFromApiResponse(response.data);
-        if (!extracted && response.data && typeof response.data === 'object') {
-            log('warn', `connect/${instanceName} sem QR parseável`, {
-                keys: Object.keys(response.data as Record<string, unknown>),
-            });
+    const tryParse = (data: unknown, via: string): ExtractedEvolutionQr | null => {
+        const extracted = extractQrFromApiResponse(data);
+        if (extracted) return extracted;
+        if (data && typeof data === 'object') {
+            const row = data as Record<string, unknown>;
+            const count = row.count;
+            if (count === 0 || count === '0') {
+                log('warn', `connect/${instanceName} retornou count:0 (${via}) — ver CONFIG_SESSION_PHONE_VERSION na Evolution`);
+            }
         }
-        return extracted;
+        return null;
+    };
+
+    try {
+        const getResp = await api.get(`/instance/connect/${instanceName}`);
+        const fromGet = tryParse(getResp.data, 'GET');
+        if (fromGet) return fromGet;
     } catch (error: any) {
-        log('warn', `Falha ao obter QR via connect/${instanceName}`, {
+        log('warn', `GET connect/${instanceName} falhou`, {
+            error: error?.message,
+            status: error?.response?.status,
+        });
+    }
+
+    try {
+        const postResp = await api.post(`/instance/connect/${instanceName}`, {});
+        return tryParse(postResp.data, 'POST');
+    } catch (error: any) {
+        log('warn', `POST connect/${instanceName} falhou`, {
             error: error?.message,
             status: error?.response?.status,
         });
@@ -836,6 +938,7 @@ async function createConnectionInternal(
     try {
         log('info', `Criando instância: ${name} (${id})`);
         emitConnectionProgress(id, 'preparing');
+        emitConnectionProgress(id, 'launching-browser');
 
         const createPayload: Record<string, unknown> = {
             instanceName: id,
@@ -853,6 +956,7 @@ async function createConnectionInternal(
             };
         }
 
+        emitConnectionProgress(id, 'loading-whatsapp-web');
         const response = await api.post('/instance/create', createPayload);
 
         const instance: EvolutionInstance = {
@@ -879,7 +983,8 @@ async function createConnectionInternal(
         if (extracted) {
             emitQrToFrontend(id, extracted);
         } else {
-            log('warn', `Instância criada sem QR imediato — aguardando webhook QRCODE_UPDATED`, { id });
+            log('warn', `Instância criada sem QR imediato — polling + webhook`, { id });
+            ensureQrDelivered(id);
         }
 
         log('info', `Instância criada: ${name}`, { instanceName: id });
@@ -963,12 +1068,12 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
 
     let extracted = await fetchConnectQr(id);
     if (!extracted) {
-        extracted = await pollConnectQr(id, 8, 2500);
+        extracted = await pollConnectQr(id, 10, 2500);
     }
     if (!extracted) {
-        throw new Error(
-            'Não foi possível gerar QR. Verifique a Evolution (versão WA) ou remova o canal e crie outro.'
-        );
+        ensureQrDelivered(id, 25, 2000);
+        log('info', `forceQr: polling QR para ${id}`);
+        return {};
     }
 
     emitQrToFrontend(id, extracted);
@@ -986,8 +1091,16 @@ export async function reconnectConnection(id: string) {
         const extracted = await fetchConnectQr(id);
         if (extracted) {
             emitQrToFrontend(id, extracted);
-        } else if (io) {
-            io.emit('connection-update', { id, status: 'CONNECTING' });
+        } else {
+            ensureQrDelivered(id);
+            if (io) {
+                const ou = resolveOwnerUid(id);
+                if (ou) {
+                    publishOwnerEvent(ou, 'connection-update', { id, status: 'CONNECTING' });
+                } else {
+                    io.emit('connection-update', { id, status: 'CONNECTING' });
+                }
+            }
         }
 
         log('info', `Instância reconectada: ${id}`);
@@ -1005,6 +1118,7 @@ export async function deleteConnection(id: string): Promise<void> {
     const ownerUid = resolveOwnerUid(id);
 
     stopWatchingConnection(id);
+    stopQrWatch(id);
 
     try {
         try {
@@ -1765,8 +1879,15 @@ export async function createConnection(
     ownerUid?: string
 ): Promise<void> {
     const id = generateId(ownerUid);
+    const uid = ownerUid || ownerUidFromConnectionId(id);
+    if (uid) {
+        publishOwnerEvent(uid, 'connection-created', { connectionId: id, name });
+    } else if (io) {
+        io.emit('connection-created', { connectionId: id, name });
+    }
     const result = await createConnectionInternal(id, name, proxy, ownerUid);
     if (result.error) {
+        stopQrWatch(id);
         throw new Error(result.error);
     }
 }
