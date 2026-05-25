@@ -176,6 +176,61 @@ export function assignConnectionOwner(connectionId: string, ownerUid: string): b
     return true;
 }
 
+/** Remove instâncias Evolution presas em connecting/close (não open) do dono atual. */
+export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<{ deleted: string[]; keptOpen: string[] }> {
+    const uid = String(ownerUid || '').trim();
+    const deleted: string[] = [];
+    const keptOpen: string[] = [];
+    if (!uid || uid === 'anonymous') return { deleted, keptOpen };
+
+    try {
+        const response = await api.get('/instance/fetchInstances');
+        const raw = response.data;
+        const list = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
+
+        for (const item of list) {
+            if (!item || typeof item !== 'object') continue;
+            const row = item as Record<string, unknown>;
+            const instanceName = String(
+                row.name || row.instanceName || (row.instance as Record<string, unknown> | undefined)?.instanceName || ''
+            ).trim();
+            if (!instanceName) continue;
+
+            const state = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
+            if (state === 'open') {
+                if (resolveOwnerUid(instanceName) === uid) keptOpen.push(instanceName);
+                continue;
+            }
+            if (resolveOwnerUid(instanceName) !== uid) continue;
+            if (state !== 'connecting' && state !== 'close' && state !== 'created') continue;
+
+            try {
+                try {
+                    await api.delete(`/instance/logout/${instanceName}`);
+                } catch {
+                    /* ok */
+                }
+                await api.delete(`/instance/delete/${instanceName}`);
+                stopWatchingConnection(instanceName);
+                connections.delete(instanceName);
+                chatStore.purgeConversationsForConnection(instanceName);
+                deleted.push(instanceName);
+                log('info', `Zumbi Evolution removido: ${instanceName} (${state})`);
+            } catch (error: any) {
+                log('warn', `Falha ao remover zumbi ${instanceName}`, { error: error?.message });
+            }
+        }
+    } catch (error: any) {
+        log('warn', 'pruneConnectingZombiesForOwner falhou', { error: error?.message });
+    }
+
+    if (deleted.length > 0) {
+        const scoped = filterByConnectionScope(uid, getConnections());
+        publishOwnerEvent(uid, 'connections-update', scoped);
+    }
+    return { deleted, keptOpen };
+}
+
 /** Evolution → memória → dono → chats (painel + pipeline). */
 export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     connections: WhatsAppConnection[];
@@ -188,6 +243,10 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     }
 
     await hydrateInstancesFromEvolution();
+    const pruned = await pruneConnectingZombiesForOwner(uid);
+    if (pruned.deleted.length > 0) {
+        log('info', `syncConnectionsForOwner: zumbis removidos=${pruned.deleted.join(',')}`);
+    }
 
     const claimed: string[] = [];
     for (const orphanId of listOrphanOpenConnectionIds()) {
@@ -300,7 +359,7 @@ function applyConnectionStateUpdate(
     const ownerUid = resolveOwnerUid(instance);
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'connection-update', updatePayload);
-        publishOwnerEvent(ownerUid, 'connections-update', getConnections());
+        publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
     } else if (io) {
         io.emit('connection-update', updatePayload);
         io.emit('connections-update', getConnections());
@@ -369,7 +428,7 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
     const ownerUid = resolveOwnerUid(connectionId);
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'qr-code', payload);
-        publishOwnerEvent(ownerUid, 'connections-update', getConnections());
+        publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
     } else if (io) {
         io.emit('qr-code', payload);
         io.emit('connections-update', getConnections());
@@ -437,8 +496,14 @@ async function hydrateInstancesFromEvolution() {
                 proxy: existing?.proxy,
             });
         }
-        if (io && list.length > 0) {
-            io.emit('connections-update', getConnections());
+        if (list.length > 0) {
+            const ownersNotified = new Set<string>();
+            for (const [id] of connections) {
+                const ou = resolveOwnerUid(id);
+                if (!ou || ownersNotified.has(ou)) continue;
+                ownersNotified.add(ou);
+                publishOwnerEvent(ou, 'connections-update', filterByConnectionScope(ou, getConnections()));
+            }
         }
         log('info', `Instâncias Evolution sincronizadas: ${list.length}`);
     } catch (error: any) {
@@ -881,24 +946,34 @@ export async function getConnectionState(instanceName: string): Promise<string> 
  * Força novo QR Code
  */
 export async function forceQr(id: string): Promise<{ qrCode?: string; error?: string }> {
-    try {
-        log('info', `Forçando novo QR para: ${id}`);
-
-        // Desconectar instância atual
-        await api.delete(`/instance/logout/${id}`);
-
-        const extracted = await fetchConnectQr(id);
-        if (extracted) {
-            emitQrToFrontend(id, extracted);
-        }
-
-        log('info', `Novo QR gerado para: ${id}`);
-        return { qrCode: extracted?.displayValue };
-
-    } catch (error: any) {
-        log('error', `Erro ao forçar QR para ${id}`, { error: error.message });
-        return { error: error.message };
+    log('info', `Forçando novo QR para: ${id}`);
+    const conn = connections.get(id);
+    if (!conn) {
+        await hydrateInstancesFromEvolution();
     }
+    if (!connections.has(id)) {
+        throw new Error('Canal não encontrado. Atualize a página ou crie um canal novo.');
+    }
+
+    try {
+        await api.delete(`/instance/logout/${id}`);
+    } catch {
+        /* instância pode já estar deslogada */
+    }
+
+    let extracted = await fetchConnectQr(id);
+    if (!extracted) {
+        extracted = await pollConnectQr(id, 8, 2500);
+    }
+    if (!extracted) {
+        throw new Error(
+            'Não foi possível gerar QR. Verifique a Evolution (versão WA) ou remova o canal e crie outro.'
+        );
+    }
+
+    emitQrToFrontend(id, extracted);
+    log('info', `Novo QR gerado para: ${id}`);
+    return { qrCode: extracted.displayValue };
 }
 
 /**
@@ -925,23 +1000,52 @@ export async function reconnectConnection(id: string) {
 /**
  * Deleta uma instância
  */
-export async function deleteConnection(id: string) {
+export async function deleteConnection(id: string): Promise<void> {
+    log('info', `Deletando instância: ${id}`);
+    const ownerUid = resolveOwnerUid(id);
+
+    stopWatchingConnection(id);
+
     try {
-        log('info', `Deletando instância: ${id}`);
-
-        await api.delete(`/instance/delete/${id}`);
-        stopWatchingConnection(id);
-        connections.delete(id);
-
-        if (io) {
-            io.emit('connection-deleted', { id });
+        try {
+            await api.delete(`/instance/logout/${id}`);
+        } catch {
+            /* ok */
         }
-
-        log('info', `Instância deletada: ${id}`);
-
+        await api.delete(`/instance/delete/${id}`);
     } catch (error: any) {
-        log('error', `Erro ao deletar ${id}`, { error: error.message });
+        const status = error?.response?.status;
+        if (status !== 404) {
+            const msg =
+                error?.response?.data?.message ||
+                error?.response?.data?.error ||
+                error?.message ||
+                'Falha ao remover canal na Evolution';
+            log('error', `Erro ao deletar ${id}`, { error: msg, status });
+            throw new Error(String(msg));
+        }
     }
+
+    connections.delete(id);
+    connectionQueueSizes.delete(id);
+    const removedChats = chatStore.purgeConversationsForConnection(id);
+
+    if (ownerUid) {
+        const scoped = filterByConnectionScope(ownerUid, getConnections());
+        publishOwnerEvent(ownerUid, 'connection-deleted', { id });
+        publishOwnerEvent(ownerUid, 'connections-update', scoped);
+        const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+        publishOwnerEvent(
+            ownerUid,
+            'conversations-update',
+            conversationsPayloadForViewer(ownerUid, ownerUid, chatStore.getConversations())
+        );
+    } else if (io) {
+        io.emit('connection-deleted', { id });
+        io.emit('connections-update', getConnections());
+    }
+
+    log('info', `Instância deletada: ${id}`, { removedChats });
 }
 
 /**

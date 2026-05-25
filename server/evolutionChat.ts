@@ -547,6 +547,15 @@ export function createEvolutionChat(api: AxiosInstance) {
         return removed;
     }
 
+    function purgeConversationsForConnection(connectionId: string): number {
+        const cid = String(connectionId || '').trim();
+        if (!cid) return 0;
+        const ids = conversations
+            .filter((c) => c.id.startsWith(`${cid}:`) || c.connectionId === cid)
+            .map((c) => c.id);
+        return deleteLocalConversations(ids);
+    }
+
     return {
         init,
         getConversations: () => [...conversations],
@@ -561,6 +570,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         markAsRead,
         fetchConversationPicture,
         deleteLocalConversations,
+        purgeConversationsForConnection,
     };
 }
 

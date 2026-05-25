@@ -635,7 +635,12 @@ const registerSocketHandlers = () => {
     let lastUiLogKey = '';
     let lastUiLogAt = 0;
     let lastUsageBeatAt = Date.now();
-    const ownsConnectionId = (connectionId: string) => ownsConnectionForUid(uid, connectionId);
+    const ownsConnectionId = (connectionId: string) => {
+      const meta = useEvolutionEngine()
+        ? evolutionService.getConnections().find((c) => c.id === connectionId)?.ownerUid
+        : waService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
+      return ownsConnectionForUid(uid, connectionId, meta);
+    };
     const userLog = (event: string, payload?: Record<string, unknown>) =>
       logEvent(event, { uid, ...(payload || {}) });
     const denyCrossTenant = (action: string, payload?: Record<string, unknown>) => {
@@ -862,7 +867,8 @@ const registerSocketHandlers = () => {
         socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
       } catch (e: any) {
         console.error('[delete-connection]', e);
-        socket.emit('send-message-error', { error: e?.message || 'Falha ao remover canal' });
+        const message = e?.message || 'Falha ao remover canal';
+        socket.emit('socket-operation-error', { op: 'delete-connection', error: message });
       }
     });
 

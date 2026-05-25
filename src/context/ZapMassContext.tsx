@@ -423,6 +423,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   /** Último flush definido no `useEffect` do socket (desmontagem aplica pendentes sem duplicar lógica). */
   const flushCampaignProgressSocketFromRefsRef = useRef<() => void>(() => {});
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
+  const pendingConnectionToastIdRef = useRef<string | null>(null);
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Atraso antes de marcar UI como offline — evita OFFLINE a piscar em quedas < ~3s (sleep da CPU / troca de aba). */
@@ -1594,7 +1595,37 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const minGapMs = 10_000;
       if (now - socketOperationErrorToastAtRef.current < minGapMs) return;
       socketOperationErrorToastAtRef.current = now;
+      if (pendingConnectionToastIdRef.current) {
+        toast.dismiss(pendingConnectionToastIdRef.current);
+        pendingConnectionToastIdRef.current = null;
+      }
       toast.error(msg, { id: 'socket-operation-error', duration: 6500 });
+    });
+
+    socket.on('security-warning', (p: { action?: string; error?: string }) => {
+      if (pendingConnectionToastIdRef.current) {
+        toast.dismiss(pendingConnectionToastIdRef.current);
+        pendingConnectionToastIdRef.current = null;
+      }
+      const msg =
+        typeof p?.error === 'string' && p.error.trim()
+          ? p.error
+          : 'Operação bloqueada por isolamento de conta.';
+      toast.error(msg, { id: 'security-warning', duration: 7000 });
+    });
+
+    socket.on('connection-deleted', ({ id }: { id?: string }) => {
+      const connId = String(id || '').trim();
+      if (!connId) return;
+      if (pendingConnectionToastIdRef.current) {
+        toast.dismiss(pendingConnectionToastIdRef.current);
+        pendingConnectionToastIdRef.current = null;
+      } else {
+        toast.dismiss(`remove-${connId}`);
+      }
+      setConnections((prev) => prev.filter((c) => c.id !== connId));
+      delete qrCodeByConnectionId.current[connId];
+      toast.success('Conexão removida.', { id: `removed-${connId}` });
     });
 
     socket.on('campaign-log', (log: { timestamp: string; level: string; message: string; payload?: Record<string, unknown> }) => {
@@ -1908,9 +1939,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const removeConnection = (id: string) => {
-    socketRef.current?.emit('ui-log', { action: 'delete-connection', id });
-    socketRef.current?.emit('delete-connection', { id });
-    toast.success('Conexão removida.');
+    const sock = socketRef.current;
+    if (!sock) {
+      toast.error('Socket nao pronto. Atualize a pagina.');
+      return;
+    }
+    sock.emit('ui-log', { action: 'delete-connection', id });
+    const toastId = `remove-${id}`;
+    pendingConnectionToastIdRef.current = toastId;
+    toast.loading('Removendo canal...', { id: toastId });
+    sock.emit('delete-connection', { id });
   };
 
   const updateConnectionStatus = (id: string, status: ConnectionStatus) => {
