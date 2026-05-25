@@ -222,11 +222,11 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
 
             try {
                 try {
-                    await api.delete(`/instance/logout/${instanceName}`);
+                    await api.delete(`/instance/logout/${evoInst(instanceName)}`);
                 } catch {
                     /* ok */
                 }
-                await api.delete(`/instance/delete/${instanceName}`);
+                await api.delete(`/instance/delete/${evoInst(instanceName)}`);
                 stopWatchingConnection(instanceName);
                 connections.delete(instanceName);
                 chatStore.purgeConversationsForConnection(instanceName);
@@ -384,6 +384,7 @@ function ensureQrDelivered(connectionId: string, maxAttempts = 45, delayMs = 200
                 'QR não foi gerado a tempo. Confirme Evolution API ativa, webhook e CONFIG_SESSION_PHONE_VERSION (sem sufixo -alpha). Tente "Gerar QR" de novo.'
             );
             log('error', `Timeout aguardando QR: ${connectionId}`);
+            void deleteConnection(connectionId).catch(() => undefined);
             return;
         }
 
@@ -542,7 +543,7 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
     };
 
     try {
-        const getResp = await api.get(`/instance/connect/${instanceName}`);
+        const getResp = await api.get(`/instance/connect/${evoInst(instanceName)}`);
         const fromGet = tryParse(getResp.data, 'GET');
         if (fromGet) return fromGet;
     } catch (error: any) {
@@ -553,7 +554,7 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
     }
 
     try {
-        const postResp = await api.post(`/instance/connect/${instanceName}`, {});
+        const postResp = await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
         return tryParse(postResp.data, 'POST');
     } catch (error: any) {
         log('warn', `POST connect/${instanceName} falhou`, {
@@ -744,12 +745,13 @@ let metrics: DashboardMetrics = {
 const warmupQueue: WarmupItem[] = [];
 const warmedNumbers = new Set<string>();
 
-// Gerador de IDs únicos
+// Gerador de IDs: Evolution aceita bem conn_* curto; uid__conn_* falhava QR (timeout/count:0).
 let idCounter = 0;
-const generateId = (ownerUid?: string) => {
-    const base = `conn_${Date.now()}_${++idCounter}`;
-    return ownerUid ? `${ownerUid}__${base}` : base;
-};
+const generateId = (_ownerUid?: string) => `conn_${Date.now()}_${++idCounter}`;
+
+function evoInst(instanceName: string): string {
+    return encodeURIComponent(String(instanceName || '').trim());
+}
 
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
@@ -792,7 +794,7 @@ const chatStore: EvolutionChatStore = createEvolutionChat(api);
 async function applyProxyToInstance(instanceName: string, proxy?: ConnectionProxyConfig | null) {
     if (!proxy?.host || !proxy.port) return;
     try {
-        await api.post(`/proxy/set/${instanceName}`, {
+        await api.post(`/proxy/set/${evoInst(instanceName)}`, {
             enabled: true,
             host: proxy.host,
             port: String(proxy.port),
@@ -1071,7 +1073,7 @@ async function setupWebhook(instanceName: string) {
         // Evolution API v2 exige objeto "webhook" na raiz (v1 usava campos flat → HTTP 400).
         // byEvents:false — todos os eventos vão para a mesma URL; com true a Evolution posta em
         // /webhook/.../qrcode-updated (404 se só existir POST /webhook/evolution).
-        await api.post(`/webhook/set/${instanceName}`, {
+        await api.post(`/webhook/set/${evoInst(instanceName)}`, {
             webhook: {
                 enabled: true,
                 url,
@@ -1095,7 +1097,7 @@ async function setupWebhook(instanceName: string) {
  */
 export async function getConnectionState(instanceName: string): Promise<string> {
     try {
-        const response = await api.get(`/instance/connectionState/${instanceName}`);
+        const response = await api.get(`/instance/connectionState/${evoInst(instanceName)}`);
         return parseConnectionStatePayload(response.data);
     } catch (error) {
         return 'close';
@@ -1116,7 +1118,7 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     }
 
     try {
-        await api.delete(`/instance/logout/${id}`);
+        await api.delete(`/instance/logout/${evoInst(id)}`);
     } catch {
         /* instância pode já estar deslogada */
     }
@@ -1177,11 +1179,11 @@ export async function deleteConnection(id: string): Promise<void> {
 
     try {
         try {
-            await api.delete(`/instance/logout/${id}`);
+            await api.delete(`/instance/logout/${evoInst(id)}`);
         } catch {
             /* ok */
         }
-        await api.delete(`/instance/delete/${id}`);
+        await api.delete(`/instance/delete/${evoInst(id)}`);
     } catch (error: any) {
         const status = error?.response?.status;
         if (status !== 404) {
@@ -1933,8 +1935,11 @@ export async function createConnection(
     proxy?: ConnectionProxyConfig,
     ownerUid?: string
 ): Promise<void> {
+    const uid = ownerUid && ownerUid !== 'anonymous' ? ownerUid : undefined;
+    if (uid) {
+        await pruneConnectingZombiesForOwner(uid);
+    }
     const id = generateId(ownerUid);
-    const uid = ownerUid || ownerUidFromConnectionId(id);
     if (uid) {
         publishOwnerEvent(uid, 'connection-created', { connectionId: id, name });
     } else if (io) {
@@ -1959,7 +1964,7 @@ export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfi
         delete conn.proxy;
         connections.set(id, conn);
         try {
-            await api.post(`/proxy/set/${id}`, { enabled: false });
+            await api.post(`/proxy/set/${evoInst(id)}`, { enabled: false });
         } catch {
             /* instância pode não ter proxy configurado */
         }
