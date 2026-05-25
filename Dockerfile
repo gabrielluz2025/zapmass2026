@@ -73,7 +73,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=zapmass-npm-runner \
   npm ci --omit=dev \
   && npm cache clean --force
 COPY --from=builder /app/dist ./dist
