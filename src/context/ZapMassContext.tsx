@@ -57,7 +57,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
-import { getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
+import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import { mergeCampaigns, mergeContactLists, mergeContacts } from '../utils/mergeLegacyUserDocs';
@@ -985,6 +985,47 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
     }
 
+    const syncConnectionsFromApi = async () => {
+      const u = auth.currentUser;
+      const ownerUid = getOwnerUidForConnectionScope();
+      if (!u || !ownerUid || ownerUid === 'anonymous') return;
+      try {
+        const token = await u.getIdToken();
+        const res = await fetch(apiUrl('/api/connections/sync'), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          connections?: WhatsAppConnection[];
+          conversationsCount?: number;
+        };
+        const list = Array.isArray(data.connections) ? data.connections : [];
+        if (list.length === 0) return;
+        setConnections((prev) => {
+          const result = list.map((conn) => {
+            const previous = prev.find((item) => item.id === conn.id);
+            const shouldClearQr = conn.status === ConnectionStatus.CONNECTED;
+            if (shouldClearQr) delete qrCodeByConnectionId.current[conn.id];
+            return {
+              ...conn,
+              qrCode: shouldClearQr
+                ? undefined
+                : qrCodeByConnectionId.current[conn.id] ?? previous?.qrCode
+            };
+          });
+          connectionsRef.current = result;
+          return result;
+        });
+        devLog('[sync] Canais sincronizados da Evolution', {
+          count: list.length,
+          conversations: data.conversationsCount
+        });
+      } catch (e) {
+        console.warn('[sync] /api/connections/sync falhou:', e);
+      }
+    };
+
     socket.on('connect', () => {
       if (offlineBadgeDelayRef.current) {
         clearTimeout(offlineBadgeDelayRef.current);
@@ -1005,6 +1046,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // Sem toast em reconexao: troca de aba / retorno do fundo gera muito ruido; o painel
       // usa isBackendConnected; toast so na primeira carga (acima) e se ficar 6s+ off (disconnect).
       devLog('🔌 Conectado ao servidor Socket.io');
+      void syncConnectionsFromApi();
     });
 
     socket.on('disconnect', (reason) => {
@@ -1067,7 +1109,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     queueMicrotask(() => syncBackendConnected());
 
     socket.on('connections-update', (updatedConnections: WhatsAppConnection[]) => {
-      const mine = (Array.isArray(updatedConnections) ? updatedConnections : []).filter((conn) => ownsConnectionId(conn.id));
+      const mine = (Array.isArray(updatedConnections) ? updatedConnections : []).filter((conn) =>
+        ownsConnectionForUid(getOwnerUidForConnectionScope(), conn.id, conn.ownerUid)
+      );
       setConnections((prev) => {
         const result = mine.map((conn) => {
           const previous = prev.find((item) => item.id === conn.id);

@@ -37,23 +37,32 @@ export function isLegacyConnectionId(id: string): boolean {
 
 export function ownsConnectionForUid(
   socketUid: string | null | undefined,
-  connectionId: string
+  connectionId: string,
+  /** Dono gravado no servidor (ids legados `conn_*` sem prefixo `uid__`). */
+  metadataOwnerUid?: string | null
 ): boolean {
   if (!connectionId) return false;
+
+  const uid = !socketUid || socketUid === 'anonymous' ? 'anonymous' : socketUid;
+
+  const idx = connectionId.indexOf('__');
+  if (idx > 0) {
+    const owner = connectionId.slice(0, idx);
+    if (uid === 'anonymous') return owner === 'anonymous';
+    return owner === uid;
+  }
+
+  if (metadataOwnerUid) {
+    if (uid === 'anonymous') return metadataOwnerUid === 'anonymous';
+    return metadataOwnerUid === uid;
+  }
+
   if (isLegacyConnectionId(connectionId)) {
     if (!strictConnectionScope()) return true;
-    // Modo multi-tenant estrito: so sessao "anonima" (operador) ve o legado.
     return !socketUid || socketUid === 'anonymous';
   }
 
-  const idx = connectionId.indexOf('__');
-  if (idx <= 0) return false;
-
-  const owner = connectionId.slice(0, idx);
-  const uid = !socketUid || socketUid === 'anonymous' ? 'anonymous' : socketUid;
-
-  if (uid === 'anonymous') return owner === 'anonymous';
-  return owner === uid;
+  return false;
 }
 
 export function filterByConnectionScope<T extends { id?: string; connectionId?: string }>(
@@ -69,6 +78,10 @@ export function filterByConnectionScope<T extends { id?: string; connectionId?: 
           ? item.id
           : '';
     if (!key) return false;
-    return ownsConnectionForUid(uid, key);
+    const meta =
+      typeof (item as { ownerUid?: string }).ownerUid === 'string'
+        ? (item as { ownerUid?: string }).ownerUid
+        : undefined;
+    return ownsConnectionForUid(uid, key, meta);
   });
 }

@@ -326,7 +326,7 @@ let bulkConversationSyncDepth = 0;
 let io: SocketIOServer;
 
 /** Worker publica no Redis; processo API com Socket.IO real emite para o browser. */
-type OwnerEmitFn = (uid: string, event: string, payload: Record<string, unknown>) => void;
+type OwnerEmitFn = (uid: string, event: string, payload: unknown) => void;
 let ownerEmitRedisBridge: OwnerEmitFn | null = null;
 export const setOwnerEmitRedisBridge = (fn: OwnerEmitFn | null) => {
     ownerEmitRedisBridge = fn;
@@ -988,7 +988,7 @@ const emitToOwnerUid = (event: string, ownerUid: string | undefined, payload: Re
 export const publishOwnerEvent = (
     ownerUid: string | undefined,
     event: string,
-    payload: Record<string, unknown>
+    payload: unknown
 ): void => {
     if (!ownerUid) return;
     if (ownerEmitRedisBridge) {

@@ -75,6 +75,7 @@ import { registerWorkspaceRoutes } from './workspaceRoutes.js';
 import { registerPublicInboxSurveyRoutes } from './publicInboxSurveyRoutes.js';
 import { registerWorkspaceStaffPasswordRoutes } from './workspaceStaffPasswordRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
+import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing } from './redisPing.js';
@@ -327,6 +328,7 @@ registerPublicInboxSurveyRoutes(app);
 registerWorkspaceRoutes(app);
 registerWorkspaceStaffPasswordRoutes(app);
 registerProductSuggestionRoutes(app);
+registerConnectionsSyncRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', (req, res) => {
@@ -405,7 +407,7 @@ app.post('/api/backup', async (req, res) => {
   }
 });
 
-app.post('/webhook/evolution', evolutionWebhookLimiter, (req, res) => {
+const handleEvolutionWebhookPost = (req: express.Request, res: express.Response) => {
   try {
     const tok = process.env.EVOLUTION_WEBHOOK_TOKEN?.trim();
     if (tok) {
@@ -416,17 +418,31 @@ app.post('/webhook/evolution', evolutionWebhookLimiter, (req, res) => {
         return res.status(401).json({ error: 'Unauthorized' });
       }
     }
-    const ev = (req.body || {}) as { event?: string; instance?: string };
-    
-    // Processamento do Webhook pela Evolution Service
     evolutionService.handleWebhook(req.body);
-    
     res.status(200).json({ received: true, handled: true });
   } catch (error) {
     console.error('[webhook/evolution]', error);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
-});
+};
+
+// Rota principal + sufixos quando byEvents=true (Evolution appenda ex.: /qrcode-updated).
+const evolutionWebhookPostPaths = [
+  '/webhook/evolution',
+  '/webhook/evolution/qrcode-updated',
+  '/webhook/evolution/connection-update',
+  '/webhook/evolution/messages-upsert',
+  '/webhook/evolution/messages-update',
+  '/webhook/evolution/send-message',
+  '/webhook/qrcode-updated',
+  '/webhook/connection-update',
+  '/webhook/messages-upsert',
+  '/webhook/messages-update',
+  '/webhook/send-message',
+];
+for (const webhookPath of evolutionWebhookPostPaths) {
+  app.post(webhookPath, evolutionWebhookLimiter, handleEvolutionWebhookPost);
+}
 
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '../dist');
@@ -668,7 +684,22 @@ const registerSocketHandlers = () => {
     };
     userLog('socket:connected', { socketId: socket.id });
 
-    socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+    const emitScopedConnections = () => {
+      socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+    };
+    emitScopedConnections();
+    if (uid && uid !== 'anonymous') {
+      void evolutionService.syncConnectionsForOwner(uid).then((r) => {
+        if (r.connections.length > 0 || r.claimed.length > 0) {
+          userLog('socket:sync-connections', {
+            channels: r.connections.length,
+            claimed: r.claimed,
+            syncedChats: r.syncedChats
+          });
+        }
+        emitScopedConnections();
+      });
+    }
     socket.emit('metrics-update', emptyMetrics);
     void (async () => {
       if (uid && uid !== 'anonymous') {
@@ -776,7 +807,7 @@ const registerSocketHandlers = () => {
           await runConnectionCommand({
             submit: () => submitCreateConnection(connName, authOp, owner),
             local: async () => {
-              await evolutionService.createConnection(connName, proxy);
+              await evolutionService.createConnection(connName, proxy, owner);
             }
           });
         } catch (e: any) {
@@ -785,8 +816,36 @@ const registerSocketHandlers = () => {
           socket.emit('send-message-error', { error: message });
           return;
         }
-        socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+        emitScopedConnections();
       });
+    });
+
+    socket.on('claim-connection', ({ id }: { id?: string }) => {
+      void (async () => {
+        const connId = String(id || '').trim();
+        if (!connId) {
+          socket.emit('socket-operation-error', { op: 'claim-connection', error: 'Canal inválido.' });
+          return;
+        }
+        if (uid === 'anonymous') {
+          socket.emit('socket-operation-error', { op: 'claim-connection', error: 'Faça login para vincular o canal.' });
+          return;
+        }
+        const ok = evolutionService.assignConnectionOwner(connId, uid);
+        if (!ok) {
+          socket.emit('socket-operation-error', {
+            op: 'claim-connection',
+            error: 'Não foi possível vincular este canal à sua conta (já pertence a outro usuário ou não existe).'
+          });
+          return;
+        }
+        emitScopedConnections();
+        await evolutionService.syncAllOpenChats().catch(() => undefined);
+        socket.emit(
+          'conversations-update',
+          conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations())
+        );
+      })();
     });
 
     socket.on('delete-connection', async ({ id }) => {
@@ -1530,6 +1589,9 @@ const startServer = async (port: number): Promise<boolean> => {
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Servidor rodando na porta ${port}`);
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
+    console.log(
+      `[WhatsApp] engine=${whatsappEngine()} evolutionUrl=${process.env.EVOLUTION_API_URL || 'http://evolution:8080'} webhook=${process.env.ZAPMASS_WEBHOOK_URL || 'http://api:3001/webhook/evolution'}`
+    );
     console.log(
       `[Socket.IO] maxHttpBufferSize=${socketMaxHttpBufferMb} MB (SOCKET_MAX_HTTP_BUFFER_MB; campanhas/chat em base64)`
     );

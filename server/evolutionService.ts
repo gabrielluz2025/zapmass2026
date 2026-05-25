@@ -36,6 +36,7 @@ import {
     publishOwnerEvent,
 } from './whatsappService.js';
 import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
+import { filterByConnectionScope } from '../src/utils/connectionScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
@@ -54,6 +55,8 @@ interface EvolutionInstance {
     instanceName: string;
     friendlyName: string;
     status: 'created' | 'connecting' | 'open' | 'close';
+    /** Firebase uid quando o id e legado (`conn_*` sem `uid__`). */
+    ownerUid?: string;
     profilePicUrl?: string;
     profileName?: string;
     phoneNumber?: string;
@@ -105,6 +108,255 @@ function extractQrFromApiResponse(data: unknown): ExtractedEvolutionQr | null {
     );
 }
 
+function emitConnectionProgress(
+    connectionId: string,
+    phase: 'preparing' | 'awaiting-scan' | 'authenticated' | 'ready' | 'failed'
+) {
+    const payload = { connectionId, phase };
+    const ownerUid = resolveOwnerUid(connectionId);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'connection-progress', payload);
+    } else if (io) {
+        io.emit('connection-progress', payload);
+    }
+}
+
+function emitToConnectionFrontend(
+    connectionId: string,
+    event: string,
+    payload: Record<string, unknown>
+) {
+    const ownerUid = resolveOwnerUid(connectionId);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, event, payload);
+        return;
+    }
+    if (io) io.emit(event, payload);
+}
+
+function emitConnectionOpenToFrontend(connectionId: string) {
+    emitConnectionProgress(connectionId, 'authenticated');
+    emitToConnectionFrontend(connectionId, 'connection-authenticated', { connectionId });
+    emitConnectionProgress(connectionId, 'ready');
+    emitToConnectionFrontend(connectionId, 'connection-ready', { connectionId });
+}
+
+function ownerUidFromConnectionId(connectionId: string): string | undefined {
+    const idx = connectionId.indexOf('__');
+    return idx > 0 ? connectionId.slice(0, idx) : undefined;
+}
+
+function resolveOwnerUid(connectionId: string): string | undefined {
+    return ownerUidFromConnectionId(connectionId) || connections.get(connectionId)?.ownerUid;
+}
+
+/** Canal aberto na Evolution sem dono (legado) — reparo pos-scan. */
+export function listOrphanOpenConnectionIds(): string[] {
+    const out: string[] = [];
+    for (const [id, conn] of connections.entries()) {
+        if (conn.status !== 'open') continue;
+        if (ownerUidFromConnectionId(id)) continue;
+        if (conn.ownerUid) continue;
+        out.push(id);
+    }
+    return out;
+}
+
+export function assignConnectionOwner(connectionId: string, ownerUid: string): boolean {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return false;
+    const conn = connections.get(connectionId);
+    if (!conn) return false;
+    if (conn.ownerUid && conn.ownerUid !== uid) return false;
+    const fromId = ownerUidFromConnectionId(connectionId);
+    if (fromId && fromId !== uid) return false;
+    conn.ownerUid = uid;
+    connections.set(connectionId, conn);
+    publishOwnerEvent(uid, 'connections-update', filterByConnectionScope(uid, getConnections()));
+    return true;
+}
+
+/** Evolution → memória → dono → chats (painel + pipeline). */
+export async function syncConnectionsForOwner(ownerUid: string): Promise<{
+    connections: WhatsAppConnection[];
+    claimed: string[];
+    syncedChats: string[];
+}> {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') {
+        return { connections: [], claimed: [], syncedChats: [] };
+    }
+
+    await hydrateInstancesFromEvolution();
+
+    const claimed: string[] = [];
+    for (const orphanId of listOrphanOpenConnectionIds()) {
+        if (assignConnectionOwner(orphanId, uid)) claimed.push(orphanId);
+    }
+
+    const syncedChats: string[] = [];
+    for (const [id, conn] of connections.entries()) {
+        if (conn.status !== 'open') continue;
+        if (resolveOwnerUid(id) !== uid) continue;
+        const n = await chatStore.syncChatsForConnection(id);
+        if (n > 0) syncedChats.push(id);
+        else if (n === 0) syncedChats.push(id);
+    }
+
+    const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+    const scoped = filterByConnectionScope(uid, getConnections());
+    publishOwnerEvent(uid, 'connections-update', scoped);
+    publishOwnerEvent(
+        uid,
+        'conversations-update',
+        conversationsPayloadForViewer(uid, uid, chatStore.getConversations())
+    );
+
+    log('info', `syncConnectionsForOwner: ${scoped.length} canal(is), claimed=${claimed.join(',') || '-'}`);
+
+    return { connections: scoped, claimed, syncedChats };
+}
+
+function resolveInstanceName(raw: unknown): string {
+    if (typeof raw === 'string') return raw.trim();
+    if (raw && typeof raw === 'object') {
+        const row = raw as Record<string, unknown>;
+        return String(row.instanceName || row.name || '').trim();
+    }
+    return '';
+}
+
+function parseConnectionStatePayload(data: unknown): string {
+    if (!data || typeof data !== 'object') return 'close';
+    const row = data as Record<string, unknown>;
+    if (typeof row.state === 'string') return row.state;
+    const nested = row.instance;
+    if (nested && typeof nested === 'object') {
+        const state = (nested as Record<string, unknown>).state;
+        if (typeof state === 'string') return state;
+    }
+    return 'close';
+}
+
+function parseConnectionStateFromData(data: unknown): string {
+    if (!data || typeof data !== 'object') return '';
+    const row = data as Record<string, unknown>;
+    if (typeof row.state === 'string') return row.state;
+    const nested = row.instance;
+    if (nested && typeof nested === 'object') {
+        const state = (nested as Record<string, unknown>).state;
+        if (typeof state === 'string') return state;
+    }
+    return '';
+}
+
+const connectionWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function stopWatchingConnection(connectionId: string) {
+    const timer = connectionWatchTimers.get(connectionId);
+    if (timer) {
+        clearTimeout(timer);
+        connectionWatchTimers.delete(connectionId);
+    }
+}
+
+function applyConnectionStateUpdate(
+    instance: string,
+    rawState: string,
+    data?: Record<string, unknown>
+) {
+    if (!instance) return;
+    const state = String(rawState || '').toLowerCase();
+    if (!state) return;
+
+    const status =
+        state === 'open' ? 'ONLINE' : state === 'connecting' ? 'CONNECTING' : 'OFFLINE';
+
+    const conn = connections.get(instance);
+    if (conn) {
+        conn.status = mapEvolutionState(state);
+        if (state === 'open') {
+            conn.qrCode = undefined;
+            const wuid =
+                typeof data?.wuid === 'string'
+                    ? data.wuid
+                    : typeof data?.instance === 'object' &&
+                        typeof (data.instance as Record<string, unknown>).wuid === 'string'
+                      ? String((data.instance as Record<string, unknown>).wuid)
+                      : '';
+            if (wuid) {
+                conn.phoneNumber = wuid.split('@')[0]?.replace(/\D/g, '') || conn.phoneNumber;
+            }
+        }
+        connections.set(instance, conn);
+    }
+
+    const updatePayload = {
+        id: instance,
+        status,
+        profilePicUrl: data?.profilePicUrl,
+        profileName: data?.profileName,
+    };
+    const ownerUid = resolveOwnerUid(instance);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'connection-update', updatePayload);
+        publishOwnerEvent(ownerUid, 'connections-update', getConnections());
+    } else if (io) {
+        io.emit('connection-update', updatePayload);
+        io.emit('connections-update', getConnections());
+    }
+
+    log('info', `Status atualizado: ${instance} → ${status}`);
+
+    if (state === 'open') {
+        stopWatchingConnection(instance);
+        emitConnectionOpenToFrontend(instance);
+        void (async () => {
+            await chatStore.syncChatsForConnection(instance);
+            const ou = resolveOwnerUid(instance);
+            if (ou) {
+                const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+                publishOwnerEvent(
+                    ou,
+                    'conversations-update',
+                    conversationsPayloadForViewer(ou, ou, chatStore.getConversations())
+                );
+            }
+        })();
+    }
+}
+
+/** Fallback quando webhook CONNECTION_UPDATE não chega (comum em Swarm/Evolution v2). */
+function watchConnectionUntilOpen(connectionId: string) {
+    if (!connectionId || connectionWatchTimers.has(connectionId)) return;
+    const existing = connections.get(connectionId);
+    if (existing?.status === 'open') return;
+
+    let attempts = 0;
+    const maxAttempts = 90;
+
+    const poll = async () => {
+        if (!connections.has(connectionId)) {
+            stopWatchingConnection(connectionId);
+            return;
+        }
+        attempts++;
+        const state = (await getConnectionState(connectionId)).toLowerCase();
+        if (state === 'open') {
+            applyConnectionStateUpdate(connectionId, state, {});
+            return;
+        }
+        if (attempts >= maxAttempts) {
+            stopWatchingConnection(connectionId);
+            log('warn', `Timeout aguardando conexão abrir: ${connectionId}`);
+            return;
+        }
+        connectionWatchTimers.set(connectionId, setTimeout(() => void poll(), 2000));
+    };
+
+    connectionWatchTimers.set(connectionId, setTimeout(() => void poll(), 2000));
+}
+
 function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr) {
     const conn = connections.get(connectionId);
     if (conn) {
@@ -112,20 +364,51 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
         conn.status = conn.status === 'open' ? 'open' : 'connecting';
         connections.set(connectionId, conn);
     }
-    if (io) {
-        io.emit('qr-code', { connectionId, qrCode: extracted.displayValue });
+    emitConnectionProgress(connectionId, 'awaiting-scan');
+    const payload = { connectionId, qrCode: extracted.displayValue };
+    const ownerUid = resolveOwnerUid(connectionId);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'qr-code', payload);
+        publishOwnerEvent(ownerUid, 'connections-update', getConnections());
+    } else if (io) {
+        io.emit('qr-code', payload);
         io.emit('connections-update', getConnections());
     }
+    watchConnectionUntilOpen(connectionId);
 }
 
 async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQr | null> {
     try {
         const response = await api.get(`/instance/connect/${instanceName}`);
-        return extractQrFromApiResponse(response.data);
+        const extracted = extractQrFromApiResponse(response.data);
+        if (!extracted && response.data && typeof response.data === 'object') {
+            log('warn', `connect/${instanceName} sem QR parseável`, {
+                keys: Object.keys(response.data as Record<string, unknown>),
+            });
+        }
+        return extracted;
     } catch (error: any) {
-        log('warn', `Falha ao obter QR via connect/${instanceName}`, { error: error?.message });
+        log('warn', `Falha ao obter QR via connect/${instanceName}`, {
+            error: error?.message,
+            status: error?.response?.status,
+        });
         return null;
     }
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function pollConnectQr(
+    instanceName: string,
+    attempts = 6,
+    delayMs = 2000
+): Promise<ExtractedEvolutionQr | null> {
+    for (let i = 0; i < attempts; i++) {
+        const extracted = await fetchConnectQr(instanceName);
+        if (extracted) return extracted;
+        if (i < attempts - 1) await sleep(delayMs);
+    }
+    return null;
 }
 
 async function hydrateInstancesFromEvolution() {
@@ -146,6 +429,7 @@ async function hydrateInstancesFromEvolution() {
                 instanceName,
                 friendlyName: existing?.friendlyName || String(row.profileName || instanceName),
                 status: mapEvolutionState(row.connectionStatus ?? row.state ?? row.status),
+                ownerUid: existing?.ownerUid || ownerUidFromConnectionId(instanceName),
                 profilePicUrl: typeof row.profilePicUrl === 'string' ? row.profilePicUrl : existing?.profilePicUrl,
                 profileName: typeof row.profileName === 'string' ? row.profileName : existing?.profileName,
                 phoneNumber: existing?.phoneNumber,
@@ -200,10 +484,31 @@ interface WarmupItem {
 
 // ================== ESTADO GLOBAL ==================
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+function getRedisUrl(): string | null {
+    const url = process.env.REDIS_URL?.trim();
+    return url || null;
+}
 
-const campaignQueue = new Queue<MessageQueueItem>('campaign-messages', { connection });
+let redisConnection: IORedis | null = null;
+let campaignQueue: Queue<MessageQueueItem> | null = null;
+
+function getRedisConnection(): IORedis | null {
+    const url = getRedisUrl();
+    if (!url) return null;
+    if (!redisConnection) {
+        redisConnection = new IORedis(url, { maxRetriesPerRequest: null });
+    }
+    return redisConnection;
+}
+
+function getCampaignQueue(): Queue<MessageQueueItem> | null {
+    const conn = getRedisConnection();
+    if (!conn) return null;
+    if (!campaignQueue) {
+        campaignQueue = new Queue<MessageQueueItem>('campaign-messages', { connection: conn });
+    }
+    return campaignQueue;
+}
 const connectionQueueSizes = new Map<string, number>();
 let campaignWorker: Worker<MessageQueueItem> | null = null;
 
@@ -222,7 +527,10 @@ const warmedNumbers = new Set<string>();
 
 // Gerador de IDs únicos
 let idCounter = 0;
-const generateId = () => `conn_${Date.now()}_${++idCounter}`;
+const generateId = (ownerUid?: string) => {
+    const base = `conn_${Date.now()}_${++idCounter}`;
+    return ownerUid ? `${ownerUid}__${base}` : base;
+};
 
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
@@ -457,10 +765,12 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
 async function createConnectionInternal(
     id: string,
     name: string,
-    proxy?: ConnectionProxyConfig
+    proxy?: ConnectionProxyConfig,
+    ownerUid?: string
 ): Promise<{ qrCode?: string; error?: string }> {
     try {
         log('info', `Criando instância: ${name} (${id})`);
+        emitConnectionProgress(id, 'preparing');
 
         const createPayload: Record<string, unknown> = {
             instanceName: id,
@@ -484,6 +794,7 @@ async function createConnectionInternal(
             instanceName: id,
             friendlyName: name,
             status: 'created',
+            ownerUid: ownerUid || ownerUidFromConnectionId(id),
             ...(proxy?.host && proxy.port ? { proxy } : {}),
         };
 
@@ -495,9 +806,10 @@ async function createConnectionInternal(
 
         await setupWebhook(id);
 
+        emitConnectionProgress(id, 'awaiting-scan');
         let extracted = extractQrFromApiResponse(response.data);
         if (!extracted) {
-            extracted = await fetchConnectQr(id);
+            extracted = await pollConnectQr(id);
         }
         if (extracted) {
             emitQrToFrontend(id, extracted);
@@ -523,20 +835,33 @@ async function createConnectionInternal(
  */
 async function setupWebhook(instanceName: string) {
     try {
+        const url = evolutionConfig.webhookUrl;
+        const events = [
+            'QRCODE_UPDATED',
+            'CONNECTION_UPDATE',
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'SEND_MESSAGE',
+        ];
+        // Evolution API v2 exige objeto "webhook" na raiz (v1 usava campos flat → HTTP 400).
+        // byEvents:false — todos os eventos vão para a mesma URL; com true a Evolution posta em
+        // /webhook/.../qrcode-updated (404 se só existir POST /webhook/evolution).
         await api.post(`/webhook/set/${instanceName}`, {
-            url: evolutionConfig.webhookUrl,
-            webhook_by_events: true,
-            events: [
-                'QRCODE_UPDATED',
-                'CONNECTION_UPDATE',
-                'MESSAGES_UPSERT',
-                'MESSAGES_UPDATE',
-                'SEND_MESSAGE',
-            ],
+            webhook: {
+                enabled: true,
+                url,
+                byEvents: false,
+                base64: true,
+                events,
+            },
         });
-        log('info', `Webhook configurado para ${instanceName}`);
+        log('info', `Webhook configurado para ${instanceName}`, { url });
     } catch (error: any) {
-        log('warn', `Erro ao configurar webhook para ${instanceName}`, { error: error.message });
+        const detail = error?.response?.data;
+        log('warn', `Erro ao configurar webhook para ${instanceName}`, {
+            error: error.message,
+            response: detail,
+        });
     }
 }
 
@@ -546,7 +871,7 @@ async function setupWebhook(instanceName: string) {
 export async function getConnectionState(instanceName: string): Promise<string> {
     try {
         const response = await api.get(`/instance/connectionState/${instanceName}`);
-        return response.data?.state || 'close';
+        return parseConnectionStatePayload(response.data);
     } catch (error) {
         return 'close';
     }
@@ -605,6 +930,7 @@ export async function deleteConnection(id: string) {
         log('info', `Deletando instância: ${id}`);
 
         await api.delete(`/instance/delete/${id}`);
+        stopWatchingConnection(id);
         connections.delete(id);
 
         if (io) {
@@ -712,11 +1038,19 @@ async function sendMessageInternal(
 }
 
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
+    const queue = getCampaignQueue();
+    if (!queue) {
+        log('warn', 'Redis indisponível — job de campanha ignorado (defina REDIS_URL)', {
+            connectionId: item.connectionId,
+            to: item.to,
+        });
+        return;
+    }
     bumpQueueSize(item.connectionId, 1);
     if (item.campaignId) {
         campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
     }
-    await campaignQueue.add('send', item, {
+    await queue.add('send', item, {
         jobId: `${item.campaignId || 'direct'}:${item.connectionId}:${item.to}:${Date.now()}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
@@ -880,10 +1214,11 @@ async function sendMediaByUrlInternal(
 }
 
 function ensureCampaignWorker() {
-    if (campaignWorker) return;
+    const conn = getRedisConnection();
+    if (!conn || campaignWorker) return;
 
     campaignWorker = new Worker<MessageQueueItem>('campaign-messages', processCampaignJob, {
-        connection: connection.duplicate(),
+        connection: conn.duplicate(),
         concurrency: 1,
     });
 
@@ -1104,49 +1439,29 @@ async function testConnection() {
  */
 export function handleWebhook(event: any) {
     try {
-        const { instance, data } = event;
+        const instance = resolveInstanceName(event?.instance ?? event?.instanceName);
+        const data = event?.data ?? event;
         const eventName = String(event?.event || '').toUpperCase().replace(/\./g, '_');
 
         switch (eventName) {
             case 'QRCODE_UPDATED': {
                 const extracted = extractEvolutionQr({ qrcode: data }) || extractEvolutionQr(data);
                 if (extracted && instance) {
+                    log('info', `QR recebido via webhook para ${instance}`);
                     emitQrToFrontend(instance, extracted);
+                } else {
+                    log('warn', `QRCODE_UPDATED sem QR parseável`, { instance, hasData: Boolean(data) });
                 }
                 break;
             }
 
             case 'CONNECTION_UPDATE': {
-                const status = data.state === 'open' ? 'ONLINE' : 
-                               data.state === 'connecting' ? 'CONNECTING' : 'OFFLINE';
-
-                const conn = connections.get(instance);
-                if (conn) {
-                    conn.status = mapEvolutionState(data.state);
-                    if (data.state === 'open') {
-                        conn.qrCode = undefined;
-                        if (typeof data.wuid === 'string') {
-                            conn.phoneNumber = data.wuid.split('@')[0]?.replace(/\D/g, '') || conn.phoneNumber;
-                        }
-                    }
-                    connections.set(instance, conn);
-                }
-
-                if (io) {
-                    io.emit('connection-update', {
-                        id: instance,
-                        status,
-                        profilePicUrl: data.profilePicUrl,
-                        profileName: data.profileName,
-                    });
-                    io.emit('connections-update', getConnections());
-                }
-
-                log('info', `Status atualizado: ${instance} → ${status}`);
-
-                if (data.state === 'open') {
-                    void chatStore.syncChatsForConnection(instance);
-                }
+                const rawState = parseConnectionStateFromData(data);
+                applyConnectionStateUpdate(
+                    instance,
+                    rawState,
+                    data && typeof data === 'object' ? (data as Record<string, unknown>) : undefined
+                );
                 break;
             }
 
@@ -1222,6 +1537,7 @@ export function getConnections(): WhatsAppConnection[] {
         result.push({
             id,
             name: conn.friendlyName || id,
+            ownerUid: resolveOwnerUid(id),
             phoneNumber: conn.phoneNumber || null,
             status,
             lastActivity: new Date().toLocaleString(),
@@ -1339,9 +1655,13 @@ export async function markWarmupReady(numbers: string[]) {
 // ================== ADAPTADORES (compatibilidade server.ts) ==================
 
 // createConnection compatível com server.ts (recebe name como string)
-export async function createConnection(name: string, proxy?: ConnectionProxyConfig): Promise<void> {
-    const id = generateId();
-    const result = await createConnectionInternal(id, name, proxy);
+export async function createConnection(
+    name: string,
+    proxy?: ConnectionProxyConfig,
+    ownerUid?: string
+): Promise<void> {
+    const id = generateId(ownerUid);
+    const result = await createConnectionInternal(id, name, proxy, ownerUid);
     if (result.error) {
         throw new Error(result.error);
     }
@@ -1428,6 +1748,9 @@ export default {
     getMetrics,
     getConversations,
     syncAllOpenChats,
+    syncConnectionsForOwner,
+    assignConnectionOwner,
+    listOrphanOpenConnectionIds,
     loadChatHistory,
     loadMessageMedia,
     markAsRead,
