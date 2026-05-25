@@ -11,7 +11,7 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=zapmass-npm-builder \
   npm ci
 
 # Variaveis VITE_* precisam existir na hora do build (Vite as "cozinha" no bundle).
