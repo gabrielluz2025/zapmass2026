@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, QrCode, Smartphone, Loader2, CheckCircle2, KeyRound, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getAuth } from 'firebase/auth';
 import { useZapMassCore } from '../context/ZapMassContext';
+import { apiUrl } from '../utils/apiBase';
 import { ConnectionStatus } from '../types';
 import { QRCodeModal } from './QRCodeModal';
 import { QrCanvas } from './QrCanvas';
@@ -129,6 +131,49 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       toast.success('QR code disponível! Escaneie com o celular.', { icon: '📷', duration: 3500 });
     }
   }, [connections, step]);
+
+  /** Polling HTTP — QR mesmo se o socket ou o build antigo falharem. */
+  useEffect(() => {
+    if (!isOpen) return;
+    const waitingQr =
+      step === 'loading_qr' || (step === 'scanning' && !qrCodeData && !pairMode);
+    if (!waitingQr) return;
+    const id = pendingConnectionIdRef.current;
+    if (!id) return;
+
+    let cancelled = false;
+    const pollQr = async () => {
+      try {
+        const u = getAuth().currentUser;
+        if (!u) return;
+        const token = await u.getIdToken();
+        const res = await fetch(apiUrl(`/api/connections/${encodeURIComponent(id)}/qr`), {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = (await res.json()) as { ok?: boolean; qrCode?: string };
+        if (cancelled || !data?.ok || !data.qrCode) return;
+        setQrCodeData(data.qrCode);
+        setCurrentConnectionId(id);
+        pendingConnectionIdRef.current = id;
+        setStep('scanning');
+        setShowQrRetry(false);
+        if (loadTimerRef.current) {
+          clearTimeout(loadTimerRef.current);
+          loadTimerRef.current = null;
+        }
+        toast.success('QR disponível! Escaneie com o celular.', { icon: '📷', duration: 4000 });
+      } catch {
+        /* próxima tentativa */
+      }
+    };
+
+    void pollQr();
+    const interval = setInterval(() => void pollQr(), 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isOpen, step, qrCodeData, pairMode]);
 
   useEffect(() => {
     if (step !== 'loading_qr' || !isOpen) {

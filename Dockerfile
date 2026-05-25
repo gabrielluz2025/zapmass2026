@@ -33,7 +33,9 @@ ENV VITE_ADMIN_EMAILS=$VITE_ADMIN_EMAILS \
     VITE_GA_MEASUREMENT_ID=$VITE_GA_MEASUREMENT_ID
 
 COPY . .
-RUN npm run build
+# Invalida cache do Vite quando o commit muda (evita UI antiga no Swarm).
+ARG CACHEBUST=unknown
+RUN echo "build cache bust: ${CACHEBUST}" && npm run build
 
 # Runtime: mesmo base Debian que o build (menos surpresas com libs)
 FROM node:22-bookworm AS runner

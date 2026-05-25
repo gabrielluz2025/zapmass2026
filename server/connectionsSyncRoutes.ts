@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { filterByConnectionScope } from '../src/utils/connectionScope.js';
+import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import * as evolutionService from './evolutionService.js';
 
@@ -62,6 +62,37 @@ export function registerConnectionsSyncRoutes(app: Express): void {
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             console.error('[api/connections/sync]', message);
+            return res.status(500).json({ ok: false, error: message });
+        }
+    });
+
+    /** Fallback quando o socket não entrega o QR — o modal faz polling até aparecer. */
+    app.get('/api/connections/:id/qr', async (req: Request, res: Response) => {
+        try {
+            const idToken = parseBearer(req);
+            if (!idToken) {
+                return res.status(401).json({ ok: false, error: 'Authorization: Bearer <token> obrigatório.' });
+            }
+            const tenantUid = await resolveTenantUid(idToken);
+            if (!tenantUid) {
+                return res.status(401).json({ ok: false, error: 'Token inválido.' });
+            }
+            const connectionId = String(req.params.id || '').trim();
+            if (!connectionId) {
+                return res.status(400).json({ ok: false, error: 'Canal inválido.' });
+            }
+            const meta = evolutionService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
+            if (!ownsConnectionForUid(tenantUid, connectionId, meta)) {
+                return res.status(403).json({ ok: false, error: 'Canal não pertence a esta conta.' });
+            }
+            const qrCode = await evolutionService.refreshConnectionQr(connectionId);
+            if (!qrCode) {
+                return res.json({ ok: false, error: 'QR ainda não disponível. Aguarde alguns segundos.' });
+            }
+            return res.json({ ok: true, connectionId, qrCode });
+        } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            console.error('[api/connections/:id/qr]', message);
             return res.status(500).json({ ok: false, error: message });
         }
     });

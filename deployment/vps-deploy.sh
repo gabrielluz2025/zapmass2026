@@ -120,6 +120,7 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     echo "==> ZAPMASS_DOCKER_BUILD_NO_CACHE=1 — build completo sem cache de camadas"
   fi
   docker build "${_build_extra[@]}" -t zapmass:latest \
+    --build-arg CACHEBUST="${VITE_GIT_REF}" \
     --build-arg VITE_ADMIN_EMAILS="${VITE_ADMIN_EMAILS:-}" \
     --build-arg VITE_MARKETING_PRICE_MONTHLY="${VITE_MARKETING_PRICE_MONTHLY:-}" \
     --build-arg VITE_MARKETING_PRICE_ANNUAL="${VITE_MARKETING_PRICE_ANNUAL:-}" \

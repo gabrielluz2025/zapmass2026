@@ -513,6 +513,13 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'qr-code', payload);
         publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+        if (io) {
+            io.to(`user:${ownerUid}`).emit('qr-code', payload);
+            io.to(`user:${ownerUid}`).emit(
+                'connections-update',
+                filterByConnectionScope(ownerUid, getConnections())
+            );
+        }
     } else if (io) {
         io.emit('qr-code', payload);
         io.emit('connections-update', getConnections());
@@ -558,6 +565,51 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Aguarda QR na Evolution (create/connect) antes de devolver ao cliente. */
+async function waitForQrFirst(connectionId: string, maxWaitMs = 28_000): Promise<ExtractedEvolutionQr | null> {
+    const deadline = Date.now() + maxWaitMs;
+    while (Date.now() < deadline) {
+        const conn = connections.get(connectionId);
+        if (conn?.qrCode?.trim()) {
+            const v = conn.qrCode.trim();
+            return { displayValue: v, kind: v.startsWith('data:image/') ? 'image' : 'code' };
+        }
+        const extracted = await fetchConnectQr(connectionId);
+        if (extracted) return extracted;
+        await sleep(2000);
+    }
+    return null;
+}
+
+/** Busca QR na Evolution e reenvia ao painel (HTTP + socket). */
+export async function refreshConnectionQr(connectionId: string): Promise<string | null> {
+    const id = String(connectionId || '').trim();
+    if (!id) return null;
+    if (!connections.has(id)) {
+        await hydrateInstancesFromEvolution();
+    }
+    if (!connections.has(id)) return null;
+
+    let extracted = await fetchConnectQr(id);
+    if (!extracted) {
+        extracted = await pollConnectQr(id, 8, 2000);
+    }
+    if (extracted) {
+        emitQrToFrontend(id, extracted);
+        return extracted.displayValue;
+    }
+    const conn = connections.get(id);
+    const cached = conn?.qrCode?.trim();
+    if (cached) {
+        emitQrToFrontend(id, {
+            displayValue: cached,
+            kind: cached.startsWith('data:image/') ? 'image' : 'code',
+        });
+        return cached;
+    }
+    return null;
+}
 
 async function pollConnectQr(
     instanceName: string,
@@ -978,12 +1030,15 @@ async function createConnectionInternal(
         emitConnectionProgress(id, 'awaiting-scan');
         let extracted = extractQrFromApiResponse(response.data);
         if (!extracted) {
-            extracted = await pollConnectQr(id);
+            extracted = await pollConnectQr(id, 6, 2000);
+        }
+        if (!extracted) {
+            extracted = await waitForQrFirst(id, 28_000);
         }
         if (extracted) {
             emitQrToFrontend(id, extracted);
         } else {
-            log('warn', `Instância criada sem QR imediato — polling + webhook`, { id });
+            log('warn', `Instância criada sem QR após espera — watchdog + webhook`, { id });
             ensureQrDelivered(id);
         }
 
