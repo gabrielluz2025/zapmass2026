@@ -138,9 +138,27 @@ limpar_containers_cliente() {
 }
 
 # Recria o stack de um cliente sem conflito de container_name.
+swarm_overlay_network() {
+    docker network ls --format '{{.Name}}' | grep -E '^zapmass_zapmass_internal$|^zapmass_internal$' | head -1 || true
+}
+
+ligar_cliente_rede_swarm() {
+    local slug="$1"
+    local net
+    net="$(swarm_overlay_network)"
+    if [ -z "$net" ]; then
+        warn "Rede overlay Swarm nao encontrada — cliente ${slug} sem Redis partilhado."
+        return 0
+    fi
+    if docker network connect "$net" "zapmass-cli-${slug}" 2>/dev/null; then
+        log "Cliente ${slug} ligado a rede ${net} (Redis/Evolution internos)."
+    fi
+}
+
 recriar_cliente_compose() {
     local dir="$1"
     local slug="$2"
     limpar_containers_cliente "$slug"
     (cd "$dir" && docker compose up -d --force-recreate --remove-orphans)
+    ligar_cliente_rede_swarm "$slug"
 }

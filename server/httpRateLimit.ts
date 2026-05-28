@@ -1,4 +1,22 @@
 import rateLimit from 'express-rate-limit';
+import type { Request } from 'express';
+
+function isPrivateOrLoopbackIp(ip: string): boolean {
+  const normalized = ip.replace(/^::ffff:/, '').trim();
+  if (!normalized || normalized === '::1' || normalized === '127.0.0.1') return true;
+  if (normalized.startsWith('10.')) return true;
+  if (normalized.startsWith('192.168.')) return true;
+  const octets = normalized.match(/^172\.(\d+)\./);
+  if (octets) {
+    const second = Number(octets[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  return false;
+}
+
+/** Evolution no Swarm posta de IP privado (overlay Docker) — não aplicar limite agressivo. */
+const skipEvolutionWebhookRateLimit = (req: Request): boolean =>
+  isPrivateOrLoopbackIp(String(req.ip || ''));
 
 /** Tentativas de login staff por IP (abuse-resistant para instalação multi-tenant). */
 export const staffSignInLimiter = rateLimit({
@@ -27,10 +45,11 @@ export const mercadoWebhookLimiter = rateLimit({
   message: { ok: false, error: 'Webhook: limite temporário ultrapassado.' }
 });
 
-/** Compatível com proxies Evolution antigos sem integração ao ZapMass — principalmente noop. */
+/** Webhooks Evolution — tráfego interno (Docker) isento; limite alto para URL pública. */
 export const evolutionWebhookLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 360,
+  max: 10_000,
+  skip: skipEvolutionWebhookRateLimit,
   standardHeaders: true,
   legacyHeaders: false,
   message: { ok: false, error: 'Webhook: limite ultrapassado.' }

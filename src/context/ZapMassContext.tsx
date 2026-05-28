@@ -1333,6 +1333,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('connection-ready', ({ connectionId }: { connectionId: string }) => {
       const conn = connectionsRef.current.find(c => c.id === connectionId);
       toast.success(`Conexão "${conn?.name || connectionId}" estabelecida! ✅`);
+      void syncConnectionsFromApi();
     });
 
     socket.on('auth-failure', ({ connectionId, message }: { connectionId: string; message: string }) => {

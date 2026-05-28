@@ -122,6 +122,11 @@ services:
       - STORE_MESSAGE_UP=true
       - STORE_CONTACTS=true
       - STORE_CHATS=true
+      - CONFIG_SESSION_PHONE_VERSION=${CONFIG_SESSION_PHONE_VERSION:-2.3000.1035712111}
+      - CONFIG_SESSION_PHONE_CLIENT=${CONFIG_SESSION_PHONE_CLIENT:-ZapMass}
+      - CONFIG_SESSION_PHONE_NAME=${CONFIG_SESSION_PHONE_NAME:-Chrome}
+      - LOG_LEVEL=${EVOLUTION_LOG_LEVEL:-ERROR}
+      - NODE_OPTIONS=--dns-result-order=ipv4first
     volumes:
       - zapmass-evolution:/evolution/instances
     depends_on:

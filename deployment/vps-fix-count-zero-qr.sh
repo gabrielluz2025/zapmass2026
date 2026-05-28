@@ -44,14 +44,27 @@ CREATE=$(curl -s -X POST "http://127.0.0.1:8080/instance/create" \
   -H "apikey: $API_KEY" -H "Content-Type: application/json" \
   -d "{\"instanceName\":\"$TEST\",\"qrcode\":true,\"integration\":\"WHATSAPP-BAILEYS\"}")
 echo "$CREATE" | head -c 600; echo
-if echo "$CREATE" | grep -q base64; then
-  echo "OK: QR no create"
+if echo "$CREATE" | grep -qE 'base64|"code"'; then
+  echo "OK: QR no create (test_qr_*)"
 else
   sleep 3
   CONN=$(curl -s "http://127.0.0.1:8080/instance/connect/$TEST" -H "apikey: $API_KEY")
   echo "connect: $CONN"
 fi
 curl -sf -X DELETE "http://127.0.0.1:8080/instance/delete/$TEST" -H "apikey: $API_KEY" >/dev/null || true
+
+log "4b) Mesmo teste com nome conn_* (como o painel)"
+CONN_TEST="conn_$(date +%s)_1"
+CREATE2=$(curl -s -X POST "http://127.0.0.1:8080/instance/create" \
+  -H "apikey: $API_KEY" -H "Content-Type: application/json" \
+  -d "{\"instanceName\":\"${CONN_TEST}\",\"qrcode\":true,\"integration\":\"WHATSAPP-BAILEYS\"}")
+echo "$CREATE2" | head -c 600; echo
+if echo "$CREATE2" | grep -qE 'base64|"code"'; then
+  echo "OK: QR no create (${CONN_TEST})"
+else
+  echo "AVISO: create conn_* sem QR — apague instancias conn_* antigas no Manager"
+fi
+curl -sf -X DELETE "http://127.0.0.1:8080/instance/delete/${CONN_TEST}" -H "apikey: $API_KEY" >/dev/null || true
 
 log "5) Webhook v2 na instancia teste (se ainda existir)"
 echo ""

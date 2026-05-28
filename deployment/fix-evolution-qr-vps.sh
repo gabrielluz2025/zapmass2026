@@ -41,6 +41,7 @@ ensure_env_var "EVOLUTION_API_KEY" "$DEFAULT_EVOLUTION_KEY"
 ensure_env_var "EVOLUTION_API_URL" "http://evolution:8080"
 ensure_env_var "ZAPMASS_WHATSAPP_ENGINE" "evolution"
 ensure_env_var "ZAPMASS_WEBHOOK_URL" "http://api:3001/webhook/evolution"
+ensure_env_var "CONFIG_SESSION_PHONE_VERSION" "2.3000.1035712111"
 # So escreve POSTGRES_PASSWORD se ainda nao existir (volume pode ter senha antiga).
 if ! grep -qE '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=' "$ENV"; then
   if docker volume inspect zapmass_zapmass-postgres >/dev/null 2>&1; then
@@ -167,17 +168,29 @@ else
   warn "zapmass:latest nao encontrada; clientes podem ficar com imagem antiga"
 fi
 
+set_or_replace_env_var() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if grep -qE "^[[:space:]]*${key}=" "$file"; then
+    sed -i -E "s|^[[:space:]]*${key}=.*|${key}=${value}|" "$file"
+  else
+    printf '\n%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
 patch_client_env() {
   local client_env="$1"
   local public_url="${2:-}"
   [ -f "$client_env" ] || return 0
   cp -a "$client_env" "${client_env}.bak.$(date +%Y%m%d%H%M%S)"
-  grep -qE '^ZAPMASS_WHATSAPP_ENGINE=' "$client_env" || echo 'ZAPMASS_WHATSAPP_ENGINE=evolution' >> "$client_env"
-  grep -qE '^EVOLUTION_API_KEY=' "$client_env" || echo "EVOLUTION_API_KEY=${EVOLUTION_KEY}" >> "$client_env"
-  grep -qE '^EVOLUTION_API_URL=' "$client_env" || echo 'EVOLUTION_API_URL=http://172.17.0.1:8080' >> "$client_env"
+  set_or_replace_env_var "$client_env" "ZAPMASS_WHATSAPP_ENGINE" "evolution"
+  set_or_replace_env_var "$client_env" "EVOLUTION_API_KEY" "$EVOLUTION_KEY"
+  set_or_replace_env_var "$client_env" "EVOLUTION_API_URL" "http://172.17.0.1:8080"
+  set_or_replace_env_var "$client_env" "REDIS_URL" "redis://redis:6379"
   if [ -n "$public_url" ]; then
-    grep -qE '^ZAPMASS_WEBHOOK_URL=' "$client_env" || echo "ZAPMASS_WEBHOOK_URL=${public_url%/}/webhook/evolution" >> "$client_env"
-    grep -qE '^PUBLIC_APP_URL=' "$client_env" || echo "PUBLIC_APP_URL=${public_url}" >> "$client_env"
+    set_or_replace_env_var "$client_env" "ZAPMASS_WEBHOOK_URL" "${public_url%/}/webhook/evolution"
+    set_or_replace_env_var "$client_env" "PUBLIC_APP_URL" "$public_url"
   fi
 }
 

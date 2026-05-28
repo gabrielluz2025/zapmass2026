@@ -171,7 +171,10 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 </>
               )}
             </div>
-            <p className="text-xs text-slate-400 font-mono truncate">{connection.phoneNumber || 'Aguardando conexão...'}</p>
+            <p className="text-xs text-slate-400 font-mono truncate">
+              {connection.phoneNumber ||
+                (isConnected ? 'Sem número — reconecte ou gere novo QR' : 'Aguardando conexão...')}
+            </p>
           </div>
         </div>
 

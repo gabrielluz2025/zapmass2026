@@ -74,6 +74,110 @@ function mapEvolutionState(raw: unknown): EvolutionInstance['status'] {
     return 'close';
 }
 
+function phoneDigitsFromJidLike(value: unknown): string | undefined {
+    if (typeof value !== 'string' || !value.trim()) return undefined;
+    const base = value.includes('@') ? value.split('@')[0] : value;
+    const digits = base.replace(/\D/g, '');
+    return digits.length >= 10 ? digits : undefined;
+}
+
+function phoneFromEvolutionRow(row: Record<string, unknown>): string | undefined {
+    const nested =
+        row.instance && typeof row.instance === 'object'
+            ? (row.instance as Record<string, unknown>)
+            : null;
+    for (const candidate of [
+        row.ownerJid,
+        row.owner,
+        row.number,
+        row.phone,
+        row.wuid,
+        row.jid,
+        nested?.ownerJid,
+        nested?.owner,
+        nested?.wuid,
+        nested?.number,
+        nested?.phone,
+    ]) {
+        const digits = phoneDigitsFromJidLike(candidate);
+        if (digits) return digits;
+    }
+    return undefined;
+}
+
+function phoneFromWebhookData(data?: Record<string, unknown>): string | undefined {
+    if (!data) return undefined;
+    const nested =
+        data.instance && typeof data.instance === 'object'
+            ? (data.instance as Record<string, unknown>)
+            : undefined;
+    for (const candidate of [
+        data.wuid,
+        data.ownerJid,
+        data.owner,
+        data.number,
+        data.phone,
+        data.jid,
+        nested?.wuid,
+        nested?.ownerJid,
+        nested?.owner,
+        nested?.number,
+    ]) {
+        const digits = phoneDigitsFromJidLike(candidate);
+        if (digits) return digits;
+    }
+    return undefined;
+}
+
+/** Evolution v2 nem sempre manda wuid no webhook — busca ownerJid em fetchInstances. */
+async function enrichConnectionMeta(instanceName: string): Promise<void> {
+    const conn = connections.get(instanceName);
+    if (!conn) return;
+
+    let changed = false;
+    try {
+        const response = await api.get('/instance/fetchInstances');
+        const raw = response.data;
+        const list = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
+        const row = list.find((item: unknown) => {
+            if (!item || typeof item !== 'object') return false;
+            const r = item as Record<string, unknown>;
+            const name = String(
+                r.name || r.instanceName || (r.instance as Record<string, unknown> | undefined)?.instanceName || ''
+            ).trim();
+            return name === instanceName;
+        }) as Record<string, unknown> | undefined;
+
+        if (row) {
+            const phone = phoneFromEvolutionRow(row);
+            if (phone && conn.phoneNumber !== phone) {
+                conn.phoneNumber = phone;
+                changed = true;
+            }
+            if (typeof row.profilePicUrl === 'string' && row.profilePicUrl && conn.profilePicUrl !== row.profilePicUrl) {
+                conn.profilePicUrl = row.profilePicUrl;
+                changed = true;
+            }
+            if (typeof row.profileName === 'string' && row.profileName && !conn.profileName) {
+                conn.profileName = row.profileName;
+                changed = true;
+            }
+        }
+    } catch (error: any) {
+        log('warn', `enrichConnectionMeta(${instanceName}) falhou`, { error: error?.message });
+    }
+
+    if (changed) {
+        connections.set(instanceName, conn);
+        const ownerUid = resolveOwnerUid(instanceName);
+        if (ownerUid) {
+            publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+        } else if (io) {
+            io.emit('connections-update', getConnections());
+        }
+    }
+}
+
 function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
     if (!source || typeof source !== 'object') return null;
     const root = source as Record<string, unknown>;
@@ -420,25 +524,19 @@ function applyConnectionStateUpdate(
         if (state === 'open') {
             stopQrWatch(instance);
             conn.qrCode = undefined;
-            const wuid =
-                typeof data?.wuid === 'string'
-                    ? data.wuid
-                    : typeof data?.instance === 'object' &&
-                        typeof (data.instance as Record<string, unknown>).wuid === 'string'
-                      ? String((data.instance as Record<string, unknown>).wuid)
-                      : '';
-            if (wuid) {
-                conn.phoneNumber = wuid.split('@')[0]?.replace(/\D/g, '') || conn.phoneNumber;
-            }
+            const phone = phoneFromWebhookData(data);
+            if (phone) conn.phoneNumber = phone;
         }
         connections.set(instance, conn);
     }
 
+    const connAfter = connections.get(instance);
     const updatePayload = {
         id: instance,
         status,
-        profilePicUrl: data?.profilePicUrl,
-        profileName: data?.profileName,
+        profilePicUrl: data?.profilePicUrl ?? connAfter?.profilePicUrl,
+        profileName: data?.profileName ?? connAfter?.profileName,
+        phoneNumber: connAfter?.phoneNumber ?? null,
     };
     const ownerUid = resolveOwnerUid(instance);
     if (ownerUid) {
@@ -453,11 +551,27 @@ function applyConnectionStateUpdate(
 
     if (state === 'open') {
         stopWatchingConnection(instance);
-        emitConnectionOpenToFrontend(instance);
+        void enrichConnectionMeta(instance).then(() => {
+            const ou = resolveOwnerUid(instance);
+            if (ou) {
+                publishOwnerEvent(
+                    ou,
+                    'connections-update',
+                    filterByConnectionScope(ou, getConnections())
+                );
+            }
+            emitConnectionOpenToFrontend(instance);
+        });
         void (async () => {
+            await enrichConnectionMeta(instance);
             await chatStore.syncChatsForConnection(instance);
             const ou = resolveOwnerUid(instance);
             if (ou) {
+                publishOwnerEvent(
+                    ou,
+                    'connections-update',
+                    filterByConnectionScope(ou, getConnections())
+                );
                 const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
                 publishOwnerEvent(
                     ou,
@@ -528,41 +642,92 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
     watchConnectionUntilOpen(connectionId);
 }
 
+const countZeroRecoveryAttempts = new Map<string, number>();
+
+/** Instâncias criadas antes do CONFIG_SESSION correto ficam com connect count:0 até logout/restart. */
+async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolean> {
+    const attempts = countZeroRecoveryAttempts.get(instanceName) ?? 0;
+    if (attempts >= 2) return false;
+    countZeroRecoveryAttempts.set(instanceName, attempts + 1);
+    log('info', `count:0 — recuperar sessão Evolution: ${instanceName} (tentativa ${attempts + 1})`);
+
+    try {
+        await api.put(`/instance/restart/${evoInst(instanceName)}`, {});
+        await sleep(4000);
+        return true;
+    } catch {
+        /* restart pode não existir em todas as builds */
+    }
+
+    try {
+        await api.delete(`/instance/logout/${evoInst(instanceName)}`);
+        await sleep(1500);
+        await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
+        await sleep(2000);
+        return true;
+    } catch (error: any) {
+        log('warn', `Recuperação count:0 falhou para ${instanceName}`, { error: error?.message });
+        return false;
+    }
+}
+
 async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQr | null> {
-    const tryParse = (data: unknown, via: string): ExtractedEvolutionQr | null => {
+    const tryParse = (data: unknown, via: string): { extracted: ExtractedEvolutionQr | null; countZero: boolean } => {
         const extracted = extractQrFromApiResponse(data);
-        if (extracted) return extracted;
+        if (extracted) return { extracted, countZero: false };
+        let countZero = false;
         if (data && typeof data === 'object') {
             const row = data as Record<string, unknown>;
             const count = row.count;
             if (count === 0 || count === '0') {
+                countZero = true;
                 log('warn', `connect/${instanceName} retornou count:0 (${via}) — ver CONFIG_SESSION_PHONE_VERSION na Evolution`);
             }
         }
+        return { extracted: null, countZero };
+    };
+
+    const runConnectPass = async (): Promise<ExtractedEvolutionQr | null> => {
+        let sawCountZero = false;
+
+        try {
+            const getResp = await api.get(`/instance/connect/${evoInst(instanceName)}`);
+            const parsed = tryParse(getResp.data, 'GET');
+            if (parsed.extracted) return parsed.extracted;
+            if (parsed.countZero) sawCountZero = true;
+        } catch (error: any) {
+            log('warn', `GET connect/${instanceName} falhou`, {
+                error: error?.message,
+                status: error?.response?.status,
+            });
+        }
+
+        try {
+            const postResp = await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
+            const parsed = tryParse(postResp.data, 'POST');
+            if (parsed.extracted) return parsed.extracted;
+            if (parsed.countZero) sawCountZero = true;
+        } catch (error: any) {
+            log('warn', `POST connect/${instanceName} falhou`, {
+                error: error?.message,
+                status: error?.response?.status,
+            });
+        }
+
+        if (sawCountZero && (await tryRecoverCountZeroInstance(instanceName))) {
+            try {
+                const retry = await api.get(`/instance/connect/${evoInst(instanceName)}`);
+                const parsed = tryParse(retry.data, 'GET-retry');
+                if (parsed.extracted) return parsed.extracted;
+            } catch {
+                /* ok */
+            }
+        }
+
         return null;
     };
 
-    try {
-        const getResp = await api.get(`/instance/connect/${evoInst(instanceName)}`);
-        const fromGet = tryParse(getResp.data, 'GET');
-        if (fromGet) return fromGet;
-    } catch (error: any) {
-        log('warn', `GET connect/${instanceName} falhou`, {
-            error: error?.message,
-            status: error?.response?.status,
-        });
-    }
-
-    try {
-        const postResp = await api.post(`/instance/connect/${evoInst(instanceName)}`, {});
-        return tryParse(postResp.data, 'POST');
-    } catch (error: any) {
-        log('warn', `POST connect/${instanceName} falhou`, {
-            error: error?.message,
-            status: error?.response?.status,
-        });
-        return null;
-    }
+    return runConnectPass();
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -639,6 +804,7 @@ async function hydrateInstancesFromEvolution() {
             if (!instanceName) continue;
 
             const existing = connections.get(instanceName);
+            const phoneFromApi = phoneFromEvolutionRow(row);
             connections.set(instanceName, {
                 instanceName,
                 friendlyName: existing?.friendlyName || String(row.profileName || instanceName),
@@ -646,7 +812,7 @@ async function hydrateInstancesFromEvolution() {
                 ownerUid: existing?.ownerUid || ownerUidFromConnectionId(instanceName),
                 profilePicUrl: typeof row.profilePicUrl === 'string' ? row.profilePicUrl : existing?.profilePicUrl,
                 profileName: typeof row.profileName === 'string' ? row.profileName : existing?.profileName,
-                phoneNumber: existing?.phoneNumber,
+                phoneNumber: phoneFromApi || existing?.phoneNumber,
                 qrCode: existing?.qrCode,
                 proxy: existing?.proxy,
             });
@@ -1176,6 +1342,7 @@ export async function deleteConnection(id: string): Promise<void> {
 
     stopWatchingConnection(id);
     stopQrWatch(id);
+    countZeroRecoveryAttempts.delete(id);
 
     try {
         try {

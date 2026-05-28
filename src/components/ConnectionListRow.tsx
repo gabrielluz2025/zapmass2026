@@ -141,7 +141,8 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
             </span>
           </div>
           <span className="text-[11px] font-mono truncate block" style={{ color: 'var(--text-3)' }}>
-            {connection.phoneNumber || 'Aguardando conexão...'}
+            {connection.phoneNumber ||
+              (isConnected ? 'Sem número — reconecte' : 'Aguardando conexão...')}
           </span>
         </div>
 

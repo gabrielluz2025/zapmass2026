@@ -152,7 +152,8 @@ services:
       - zapmass_internal
 
   evolution:
-    image: atendai/evolution-api:v2.2.0
+    # v2.2.0 (atendai) costuma retornar qrcode.count=0; 2.3.6 gera QR de forma confiável.
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.6}
     ports:
       - target: 8080
         published: 8080
@@ -172,10 +173,21 @@ services:
       - CACHE_REDIS_URI=redis://redis:6379/1
       - CACHE_LOCAL_ENABLED=false
       - WEBSOCKET_ENABLED=false
+      # URL pública da Evolution (Manager/webhook); ajuste no .env se usar dominio.
+      - SERVER_URL=${EVOLUTION_SERVER_URL:-http://127.0.0.1:8080}
+      - QRCODE_LIMIT=${EVOLUTION_QRCODE_LIMIT:-30}
       - STORE_MESSAGES=true
       - STORE_MESSAGE_UP=true
       - STORE_CONTACTS=true
       - STORE_CHATS=true
+      # Baileys: versão desatualizada → connect/create retorna qrcode.count=0 (Evolution v2.2.x).
+      # Lista atual: https://wppconnect.io/pt-BR/whatsapp-versions/
+      # Sem sufixo "-alpha" (wppconnect); Baileys usa só o número da versão.
+      - CONFIG_SESSION_PHONE_VERSION=${CONFIG_SESSION_PHONE_VERSION:-2.3000.1040093096}
+      - CONFIG_SESSION_PHONE_CLIENT=${CONFIG_SESSION_PHONE_CLIENT:-Chrome}
+      - CONFIG_SESSION_PHONE_NAME=${CONFIG_SESSION_PHONE_NAME:-Chrome}
+      - LOG_LEVEL=${EVOLUTION_LOG_LEVEL:-ERROR}
+      - NODE_OPTIONS=--dns-result-order=ipv4first
     volumes:
       - zapmass-evolution:/evolution/instances
     deploy:

@@ -28,7 +28,11 @@ ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replica
 pg_rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
 
 if [ "$http_code" = "200" ] && [ "$ev_rep" = "1/1" ] && [ "$pg_rep" = "1/1" ]; then
-  log "Evolution ja operacional (HTTP 200) — nada mais a fazer"
+  log "Evolution ja operacional (HTTP 200)"
+  if [ -f "$ROOT/deployment/sync-client-evolution-env.sh" ]; then
+    chmod +x "$ROOT/deployment/sync-client-evolution-env.sh" 2>/dev/null || true
+    bash "$ROOT/deployment/sync-client-evolution-env.sh" || true
+  fi
   docker stack services zapmass
   exit 0
 fi
