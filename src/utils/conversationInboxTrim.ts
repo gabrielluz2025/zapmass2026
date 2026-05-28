@@ -54,6 +54,10 @@ export function mergeConversationsFromSocketUpdate(
   const filtered = incoming.filter((c) =>
     ownsConnectionId(c.connectionId, c.connectionOwnerUid)
   );
+  /** Servidor já filtrou; vazio aqui costuma ser corrida antes de connections-update / ownerUid. */
+  if (filtered.length === 0 && incoming.length > 0) {
+    return prev;
+  }
   const trimmedIncoming = filtered.map((c) => trimConversationMessagesTail(c, maxTail));
   const prevById = new Map(prev.map((c) => [c.id, c]));
   const out = trimmedIncoming.map((inc) => {

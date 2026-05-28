@@ -418,12 +418,14 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     }
 
     const syncedChats: string[] = [];
-    for (const [id, conn] of connections.entries()) {
-        if (conn.status !== 'open') continue;
+    for (const [id] of connections.entries()) {
         if (resolveOwnerUid(id) !== uid) continue;
+        if (!(await isConnectionOpen(id))) continue;
         const n = await chatStore.syncChatsForConnection(id);
-        if (n > 0) syncedChats.push(id);
-        else if (n === 0) syncedChats.push(id);
+        syncedChats.push(id);
+        if (n === 0) {
+            log('warn', `syncConnectionsForOwner: findChats retornou 0 conversas 1:1`, { connectionId: id, ownerUid: uid });
+        }
     }
 
     const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
@@ -2611,9 +2613,9 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<void> {
         return;
     }
     const tasks: Promise<number>[] = [];
-    for (const [id, conn] of connections.entries()) {
-        if (conn.status !== 'open') continue;
+    for (const [id] of connections.entries()) {
         if (resolveOwnerUid(id) !== uid) continue;
+        if (!(await isConnectionOpen(id))) continue;
         tasks.push(chatStore.syncChatsForConnection(id));
     }
     if (tasks.length > 0) {

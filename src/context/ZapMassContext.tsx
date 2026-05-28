@@ -966,9 +966,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const getOwnerUidForConnectionScope = (): string =>
       currentUidRef.current ?? resolvedWorkspaceUid ?? 'anonymous';
     const ownsConnectionId = (connectionId: string, connectionOwnerUid?: string) => {
+      const idx = connectionId.indexOf('__');
+      const ownerFromId = idx > 0 ? connectionId.slice(0, idx) : undefined;
       const meta =
         connectionOwnerUid ??
-        connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid;
+        connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid ??
+        ownerFromId;
       return ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId, meta);
     };
 
@@ -1271,7 +1274,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         conversationsSocketPendingRef.current = null;
         if (!pending) return;
         if (pending.length === 0) {
-          setConversations([]);
+          /** Payload vazio com canal CONNECTED = escopo/sync atrasado no servidor — não esvaziar o pipeline. */
+          const hasConnected = connectionsRef.current.some(
+            (c) => c.status === ConnectionStatus.CONNECTED
+          );
+          if (hasConnected && socket.connected) {
+            socket.emit('request-conversations-sync');
+          }
           return;
         }
         setConversations((prev) => mergeConversationsFromSocketUpdate(prev, pending, ownsConnectionId));

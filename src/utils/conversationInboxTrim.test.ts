@@ -33,4 +33,13 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     const out = mergeConversationsFromSocketUpdate([], incoming, owns);
     expect(out).toHaveLength(0);
   });
+
+  it('não esvazia estado anterior se o filtro do cliente descartar tudo (corrida socket)', () => {
+    const prev = [conv(`${tenantUid}__chip1`)];
+    const incoming = [conv(legacyChip)];
+    const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
+    const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
+    expect(out).toBe(prev);
+    expect(out).toHaveLength(1);
+  });
 });

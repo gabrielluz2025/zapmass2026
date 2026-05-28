@@ -769,10 +769,24 @@ const registerSocketHandlers = () => {
           } else {
             await evolutionService.syncAllOpenChats().catch(() => undefined);
           }
-          socket.emit(
-            'conversations-update',
-            conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+          const convPayload = conversationsPayloadForViewer(
+            uid,
+            authOp,
+            evolutionService.getConversations(),
+            resolveConnectionOwnerUid
           );
+          if (
+            convPayload.length === 0 &&
+            filterByConnectionScope(uid, evolutionService.getConnections()).some(
+              (c) => c.status === 'CONNECTED'
+            )
+          ) {
+            structuredLog('warn', 'socket.conversations_empty_with_open_channel', {
+              tenantUid: uid,
+              authUid: authOp
+            });
+          }
+          socket.emit('conversations-update', convPayload);
           return;
         }
         socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, waService.getConversations()));
