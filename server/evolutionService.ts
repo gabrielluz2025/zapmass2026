@@ -44,6 +44,10 @@ import {
     isLegacyConnectionId,
     ownsConnectionForUid
 } from '../src/utils/connectionScope.js';
+import {
+    canReconcileLegacyCampaignOwner,
+    resolveCampaignTenantOwner
+} from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
@@ -1577,10 +1581,42 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
     }
 }
 
-export function canControlCampaign(uid: string, campaignId: string): boolean {
-    if (!uid || !campaignId) return false;
-    const state = campaignsById.get(campaignId);
-    return Boolean(state?.isRunning && state.ownerUid === uid);
+/** Campanha ativa pertence ao tenant; reconcilia ownerUid de membro da equipa. */
+export function ensureTenantOwnsCampaign(
+    tenantUid: string,
+    campaignId: string,
+    workspaceMemberUids?: ReadonlySet<string>,
+    actingAuthUid?: string
+): boolean {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return false;
+    const state = campaignsById.get(cid);
+    if (!state?.isRunning) return false;
+
+    let resolved = resolveCampaignTenantOwner(
+        tenantUid,
+        state.ownerUid,
+        workspaceMemberUids,
+        actingAuthUid
+    );
+    if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, state.ownerUid, workspaceMemberUids)) {
+        resolved = tenantUid;
+    }
+    if (!resolved) return false;
+    if (state.ownerUid !== resolved) {
+        state.ownerUid = resolved;
+        evolutionRegisterCampaign(cid, resolved);
+    }
+    return true;
+}
+
+export function canControlCampaign(
+    uid: string,
+    campaignId: string,
+    workspaceMemberUids?: ReadonlySet<string>,
+    actingAuthUid?: string
+): boolean {
+    return ensureTenantOwnsCampaign(uid, campaignId, workspaceMemberUids, actingAuthUid);
 }
 
 function ensureReplyFlowEngine() {

@@ -16,6 +16,10 @@ import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import * as advancedFeatures from './advancedFeatures.js';
 import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/connectionScope.js';
+import {
+    canReconcileLegacyCampaignOwner,
+    resolveCampaignTenantOwner
+} from './campaignTenantScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
@@ -6496,9 +6500,30 @@ export const resumeCampaign = (campaignId: string) => {
     }
 };
 
-export const canControlCampaign = (uid: string, campaignId: string): boolean => {
+export const canControlCampaign = (
+    uid: string,
+    campaignId: string,
+    workspaceMemberUids?: ReadonlySet<string>,
+    actingAuthUid?: string
+): boolean => {
     if (!uid || !campaignId) return false;
-    return currentCampaign.campaignId === campaignId && currentCampaign.ownerUid === uid;
+    if (currentCampaign.campaignId !== campaignId || !currentCampaign.isRunning) return false;
+
+    let resolved = resolveCampaignTenantOwner(
+        uid,
+        currentCampaign.ownerUid,
+        workspaceMemberUids,
+        actingAuthUid
+    );
+    if (!resolved && canReconcileLegacyCampaignOwner(uid, currentCampaign.ownerUid, workspaceMemberUids)) {
+        resolved = uid;
+    }
+    if (!resolved) return false;
+    if (currentCampaign.ownerUid !== resolved) {
+        currentCampaign.ownerUid = resolved;
+        evolutionRegisterCampaign(campaignId, resolved);
+    }
+    return true;
 };
 
 /** Registra campanha Evolution no mapa de geo/funil (antes do 1º envio). */
