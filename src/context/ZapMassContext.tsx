@@ -57,6 +57,10 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../services/firebase';
 import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
+import {
+  mergeConnectionStatus,
+  mergeWhatsAppConnectionLists
+} from '../utils/connectionStateMerge';
 import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
@@ -220,6 +224,14 @@ function mergedSystemMetricsUnchanged(prev: SystemMetrics, patch: Partial<System
     (prev.ramFreeGb ?? 0) === (next.ramFreeGb ?? 0) &&
     (prev.ramUsedGb ?? 0) === (next.ramUsedGb ?? 0) &&
     (prev.platform || '') === (next.platform || '')
+  );
+}
+
+function connectionListHasStaleConnecting(list: WhatsAppConnection[]): boolean {
+  return list.some(
+    (c) =>
+      (c.status === ConnectionStatus.CONNECTING || c.status === ConnectionStatus.QR_READY) &&
+      !c.qrCode
   );
 }
 
@@ -426,6 +438,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
   const pendingConnectionToastIdRef = useRef<string | null>(null);
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
+  const syncConnectionsFromApiRef = useRef<() => Promise<void>>(async () => {});
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Atraso antes de marcar UI como offline — evita OFFLINE a piscar em quedas < ~3s (sleep da CPU / troca de aba). */
   const offlineBadgeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -935,6 +948,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     bindUserRef.current(dataUid);
   }, [effectiveWorkspaceUid, workspaceLoading]);
 
+  useEffect(() => {
+    connectionsRef.current = connections;
+  }, [connections]);
+
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
     const BACKEND_URL = getSocketIoOrigin();
@@ -1002,20 +1019,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           connections?: WhatsAppConnection[];
           conversationsCount?: number;
         };
-        const list = Array.isArray(data.connections) ? data.connections : [];
+        const list = (Array.isArray(data.connections) ? data.connections : []).filter((conn) =>
+          ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
+        );
         if (list.length === 0) return;
         setConnections((prev) => {
-          const result = list.map((conn) => {
-            const previous = prev.find((item) => item.id === conn.id);
-            const shouldClearQr = conn.status === ConnectionStatus.CONNECTED;
-            if (shouldClearQr) delete qrCodeByConnectionId.current[conn.id];
-            return {
-              ...conn,
-              qrCode: shouldClearQr
-                ? undefined
-                : qrCodeByConnectionId.current[conn.id] ?? previous?.qrCode
-            };
-          });
+          const result = mergeWhatsAppConnectionLists(list, prev, qrCodeByConnectionId.current);
+          for (const conn of result) {
+            if (conn.status === ConnectionStatus.CONNECTED) {
+              delete qrCodeByConnectionId.current[conn.id];
+            }
+          }
           connectionsRef.current = result;
           return result;
         });
@@ -1027,6 +1041,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         console.warn('[sync] /api/connections/sync falhou:', e);
       }
     };
+    syncConnectionsFromApiRef.current = syncConnectionsFromApi;
 
     socket.on('connect', () => {
       if (offlineBadgeDelayRef.current) {
@@ -1049,6 +1064,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // usa isBackendConnected; toast so na primeira carga (acima) e se ficar 6s+ off (disconnect).
       devLog('🔌 Conectado ao servidor Socket.io');
       void syncConnectionsFromApi();
+      scheduleBootstrapConnectionSync();
     });
 
     socket.on('disconnect', (reason) => {
@@ -1104,6 +1120,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     // na ordem esperada apos retoken / reload).
     const onManagerReconnect = () => {
       syncBackendConnected();
+      void syncConnectionsFromApi();
     };
     socket.io.on('reconnect', onManagerReconnect);
     // Estado inicial: se o socket ja estiver conectado (ou reconectar muito rapido), reflete no badge.
@@ -1111,23 +1128,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     queueMicrotask(() => syncBackendConnected());
 
     socket.on('connections-update', (updatedConnections: WhatsAppConnection[]) => {
+      const ownerUid = getOwnerUidForConnectionScope();
       const mine = (Array.isArray(updatedConnections) ? updatedConnections : []).filter((conn) =>
-        ownsConnectionForUid(getOwnerUidForConnectionScope(), conn.id, conn.ownerUid)
+        ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
       );
+      if (mine.length === 0) return;
       setConnections((prev) => {
-        const result = mine.map((conn) => {
-          const previous = prev.find((item) => item.id === conn.id);
-          const shouldClearQr = conn.status === ConnectionStatus.CONNECTED;
-          if (shouldClearQr) {
+        const result = mergeWhatsAppConnectionLists(mine, prev, qrCodeByConnectionId.current);
+        for (const conn of result) {
+          if (conn.status === ConnectionStatus.CONNECTED) {
             delete qrCodeByConnectionId.current[conn.id];
           }
-          return {
-            ...conn,
-            qrCode: shouldClearQr
-              ? undefined
-              : qrCodeByConnectionId.current[conn.id] ?? previous?.qrCode
-          };
-        });
+        }
         /** Ignorar update sem mudanças relevantes — evita rerender em cascata pela referência nova. */
         if (
           prev.length === result.length &&
@@ -1354,14 +1366,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                 : null;
         if (!nextStatus) return;
         setConnections((prev) => {
-          if (!prev.some((c) => c.id === id)) return prev;
+          const current = prev.find((c) => c.id === id);
+          if (!current) return prev;
+          const mergedStatus = mergeConnectionStatus(nextStatus, current.status);
+          if (mergedStatus === current.status && payload.phoneNumber == null) return prev;
           const updated = prev.map((c) =>
             c.id === id
               ? {
                   ...c,
-                  status: nextStatus,
+                  status: mergedStatus,
                   phoneNumber: payload.phoneNumber ?? c.phoneNumber,
-                  qrCode: nextStatus === ConnectionStatus.CONNECTED ? undefined : c.qrCode
+                  qrCode: mergedStatus === ConnectionStatus.CONNECTED ? undefined : c.qrCode
                 }
               : c
           );
@@ -1371,15 +1386,29 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     );
 
-    /** Canal em CONNECTING sem QR há muito tempo — reconcilia com Evolution via HTTP. */
+    /** Boot: Evolution/API pode ainda estar a hidratar quando o 1.º connections-update chega. */
+    const bootstrapSyncTimers: ReturnType<typeof setTimeout>[] = [];
+    const scheduleBootstrapConnectionSync = () => {
+      for (const t of bootstrapSyncTimers) clearTimeout(t);
+      bootstrapSyncTimers.length = 0;
+      for (const delayMs of [2500, 8000, 20_000]) {
+        bootstrapSyncTimers.push(
+          setTimeout(() => {
+            if (!socket.connected) return;
+            if (connectionListHasStaleConnecting(connectionsRef.current)) {
+              void syncConnectionsFromApi();
+            }
+          }, delayMs)
+        );
+      }
+    };
+
+    /** Canal em CONNECTING sem QR — reconcilia com Evolution via HTTP (boot + pairing preso). */
     const stuckConnectingSyncInterval = setInterval(() => {
-      const stuck = connectionsRef.current.some(
-        (c) =>
-          (c.status === ConnectionStatus.CONNECTING || c.status === ConnectionStatus.QR_READY) &&
-          !c.qrCode
-      );
-      if (stuck) void syncConnectionsFromApi();
-    }, 60_000);
+      if (connectionListHasStaleConnecting(connectionsRef.current)) {
+        void syncConnectionsFromApi();
+      }
+    }, 15_000);
 
     socket.on('auth-failure', ({ connectionId, message }: { connectionId: string; message: string }) => {
       toast.error(`Falha de autenticação: ${message || 'Tente escanear novamente.'}`);
@@ -1901,10 +1930,38 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       clearInterval(pingInterval);
       clearInterval(stuckConnectingSyncInterval);
+      for (const t of bootstrapSyncTimers) clearTimeout(t);
+      bootstrapSyncTimers.length = 0;
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
   }, [syncStuckCampaignsToFirestore]);
+
+  /** Hidrata canais após auth + workspace — não depender só do primeiro socket.connect. */
+  useEffect(() => {
+    const u = auth.currentUser;
+    if (!u?.uid || workspaceLoading) return;
+    const dataUid = effectiveWorkspaceUid ?? u.uid;
+    currentUidRef.current = dataUid;
+
+    const runSync = () => void syncConnectionsFromApiRef.current();
+    runSync();
+    const t1 = window.setTimeout(runSync, 1500);
+    const t2 = window.setTimeout(runSync, 5000);
+
+    const sock = socketRef.current;
+    if (sock && !sock.connected) {
+      void u.getIdToken().then((token) => {
+        sock.auth = { token };
+        if (!sock.connected) sock.connect();
+      });
+    }
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [effectiveWorkspaceUid, workspaceLoading, auth.currentUser?.uid]);
 
   // --- ACTIONS ---
   const waitForSocketConnected = (timeoutMs: number) =>

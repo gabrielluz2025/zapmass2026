@@ -692,7 +692,7 @@ const registerSocketHandlers = () => {
     const emitScopedConnections = () => {
       socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
     };
-    emitScopedConnections();
+    // Estado fresco da Evolution antes do primeiro paint — evita CONNECTING stale no boot.
     if (uid && uid !== 'anonymous') {
       void evolutionService.syncConnectionsForOwner(uid).then((r) => {
         if (r.connections.length > 0 || r.claimed.length > 0) {
@@ -704,6 +704,8 @@ const registerSocketHandlers = () => {
         }
         emitScopedConnections();
       });
+    } else {
+      emitScopedConnections();
     }
     socket.emit('metrics-update', emptyMetrics);
     void (async () => {
