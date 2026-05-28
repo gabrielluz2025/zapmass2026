@@ -5,6 +5,12 @@ set -euo pipefail
 
 cd /opt/zapmass
 
+# Garante que o arquivo .env existe para não quebrar o docker stack deploy/compose que o exige em env_file
+if [ ! -f .env ]; then
+  echo "==> AVISO: .env não encontrado em /opt/zapmass! Criando um arquivo .env padrão a partir de .env.example..."
+  cp .env.example .env
+fi
+
 event="${GITHUB_EVENT_NAME:-push}"
 
 # Janela segura: só no cron. Hora do relógio do host (muitas VPS = UTC; use TZ=... no systemd/cron se quiser fuso local).
