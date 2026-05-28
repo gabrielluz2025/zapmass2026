@@ -101,9 +101,9 @@ export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user
       const r = await fetch(apiUrl('/api/admin/connections-overview'), {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const j = (await r.json()) as { ok?: boolean; error?: string; connections?: Row[] };
+      const j = (await r.json()) as { ok?: boolean; error?: string; hint?: string; connections?: Row[] };
       if (!r.ok) {
-        setLoadError(j.error || `HTTP ${r.status}`);
+        setLoadError([j.error, j.hint].filter(Boolean).join(' — ') || `HTTP ${r.status}`);
         setRows([]);
         return;
       }

@@ -11,7 +11,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from './AuthContext';
 import { useWorkspace } from './WorkspaceContext';
-import { isAdminUserEmail } from '../utils/adminAccess';
+import { isPlatformAdminUser } from '../utils/adminAccess';
 import {
   DEFAULT_USE_SEGMENT,
   isValidUseSegment,
@@ -79,7 +79,7 @@ export const AppProfileProvider: React.FC<{ children: ReactNode }> = ({ children
 
   const needsSegmentOnboarding = useMemo(() => {
     if (workspaceLoading || loading || !user || !workspaceUid || !authUid) return false;
-    if (isAdminUserEmail(user.email)) return false;
+    if (isPlatformAdminUser(user)) return false;
     /** Só o dono grava `app_profile`; equipa herda leitura do doc do dono. */
     if (authUid !== workspaceUid) return false;
     return savedSegment === null;

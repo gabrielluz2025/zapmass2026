@@ -4,6 +4,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import type { UserSubscriptionDoc } from './subscriptionFirestore.js';
 import { filterByConnectionScope } from '../src/utils/connectionScope.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
+import { adminUidSet, isPlatformAdminDecoded } from './adminIdentity.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
@@ -11,24 +12,19 @@ export const BASE_CONNECTION_SLOTS = 2;
 export const MAX_CONNECTIONS_TOTAL = 5;
 export const MAX_EXTRA_CHANNEL_SLOTS = 3;
 
-function adminEmailSet(): Set<string> {
-  const raw = process.env.ADMIN_EMAILS?.trim() || '';
-  return new Set(
-    raw
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-  );
-}
-
 export async function isUidTreatedAsServerAdmin(uid: string): Promise<boolean> {
   if (!uid || uid === 'anonymous') return false;
+  if (adminUidSet().has(uid)) return true;
   const app = getFirebaseAdmin();
   if (!app) return false;
   try {
     const u = await getAuth(app).getUser(uid);
     const email = (u.email || '').toLowerCase();
-    return email && adminEmailSet().has(email);
+    return isPlatformAdminDecoded({
+      uid,
+      email,
+      admin: u.customClaims?.admin === true
+    });
   } catch {
     return false;
   }

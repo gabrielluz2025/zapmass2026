@@ -27,7 +27,7 @@ import {
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 import { getSavedMode, toggleMode } from '../../theme';
-import { isAdminUserEmail } from '../../utils/adminAccess';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 import { canAccessCreatorStudio } from '../../utils/creatorStudioAccess';
 import { useAppProfile } from '../../context/AppProfileContext';
 
@@ -136,7 +136,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [mode, setMode] = useState(getSavedMode());
 
   const navGroupsDisplay = useMemo(() => {
-    const email = user?.email ?? null;
     let groups = navGroups.map((g) => {
       if (g.label !== 'Principal') return g;
       const items =
@@ -145,14 +144,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           : g.items.filter((it) => it.id !== 'religious-members' && it.id !== 'pastoral-visits');
       return { ...g, items };
     });
-    if (isAdminUserEmail(email)) {
+    if (isPlatformAdminUser(user)) {
       groups = groups.map((gr) => {
         if (gr.label === 'Sistema') return { ...gr, items: [...gr.items, ADMIN_NAV_ITEM] };
         if (gr.label === 'Operações') return { ...gr, items: [...gr.items, ADMIN_OPS_ITEM] };
         return gr;
       });
     }
-    if (canAccessCreatorStudio(email)) {
+    if (canAccessCreatorStudio(user?.email ?? null)) {
       return [
         ...groups,
         {
@@ -162,7 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
     return groups;
-  }, [user?.email, segment]);
+  }, [user, segment]);
 
   useEffect(() => {
     setMode(getSavedMode());

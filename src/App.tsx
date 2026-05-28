@@ -18,7 +18,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppConfigProvider } from './context/AppConfigContext';
 import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext';
 import { applyMode, applyTheme, getSavedMode, getSavedTheme } from './theme';
-import { isAdminUserEmail } from './utils/adminAccess';
+import { isPlatformAdminUser } from './utils/adminAccess';
 import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { AppProfileProvider, useAppProfile } from './context/AppProfileContext';
@@ -115,7 +115,7 @@ const MainLayout: React.FC = () => {
   const trialEndTimerRef = useRef<number | null>(null);
   const trialEndedHandledRef = useRef(false);
 
-  const isAdmin = isAdminUserEmail(user?.email ?? null);
+  const isAdmin = isPlatformAdminUser(user);
 
   useEffect(() => {
     if (!enforce || !user || !subscription) return;
@@ -247,12 +247,12 @@ const MainLayout: React.FC = () => {
       case 'subscription':
         return <MySubscriptionTab />;
       case 'admin':
-        if (!isAdminUserEmail(user?.email ?? null)) {
+        if (!isPlatformAdminUser(user)) {
           return <ConnectionsTab />;
         }
         return <AdminPanel />;
       case 'admin-ops':
-        if (!isAdminUserEmail(user?.email ?? null)) {
+        if (!isPlatformAdminUser(user)) {
           return <ConnectionsTab />;
         }
         return <AdminServerTab />;

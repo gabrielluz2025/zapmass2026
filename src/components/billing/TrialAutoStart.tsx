@@ -5,7 +5,7 @@ import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { persistTrialEndFromServer } from '../../utils/trialLocalEnd';
 import { trackTrialStarted } from '../../utils/marketingEvents';
-import { isAdminUserEmail } from '../../utils/adminAccess';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 import { apiUrl } from '../../utils/apiBase';
 
 /** Se a landing marcou sessionStorage, inicia o teste de 1h uma vez apos o login. */
@@ -16,7 +16,7 @@ export const TrialAutoStart: React.FC = () => {
 
   useEffect(() => {
     if (!user || ran.current) return;
-    if (isAdminUserEmail(user.email)) return;
+    if (isPlatformAdminUser(user)) return;
     let forceIfNeeded = false;
     try {
       const explicit = sessionStorage.getItem('zapmass.startTrialAfterLogin') === '1';

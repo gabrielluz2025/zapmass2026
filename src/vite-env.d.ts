@@ -11,6 +11,10 @@ interface ImportMetaEnv {
   readonly VITE_ENFORCE_SUBSCRIPTION?: string;
   /** Lista separada por virgula; mesmo e-mail deve estar em ADMIN_EMAILS no servidor para gravar appConfig. */
   readonly VITE_ADMIN_EMAILS?: string;
+  /** UIDs Firebase (plataforma admin); espelhar ZAPMASS_ADMIN_UIDS no servidor. */
+  readonly VITE_ZAPMASS_ADMIN_UIDS?: string;
+  /** Alias legado; preferir VITE_ZAPMASS_ADMIN_UIDS. */
+  readonly VITE_ADMIN_UIDS?: string;
   /**
    * Modo estudio (BAT de desenvolvimento). Ativa menu "Estudio criador" junto com VITE_ADMIN_EMAILS.
    * Nao use em build de producao para clientes.

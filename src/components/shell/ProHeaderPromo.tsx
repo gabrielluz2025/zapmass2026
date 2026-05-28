@@ -4,7 +4,7 @@ import { useSubscription } from '../../context/SubscriptionContext';
 import { useAuth } from '../../context/AuthContext';
 import { firestoreTimeToMs } from '../../utils/firestoreTime';
 import { clearTrialEndLocal, readTrialEndMsFromLocal } from '../../utils/trialLocalEnd';
-import { isAdminUserEmail } from '../../utils/adminAccess';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, totalSeconds);
@@ -25,7 +25,7 @@ export const ProHeaderPromo: React.FC<ProHeaderPromoProps> = ({ showProActivePil
   const { subscription } = useSubscription();
   const { user } = useAuth();
   const [, setTick] = useState(0);
-  const isAdmin = isAdminUserEmail(user?.email ?? null);
+  const isAdmin = isPlatformAdminUser(user);
 
   const trialEndMs = useMemo(() => {
     if (isAdmin) return null;

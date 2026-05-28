@@ -167,6 +167,7 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
   docker build "${_build_extra[@]}" -t zapmass:latest \
     --build-arg CACHEBUST="${VITE_GIT_REF}" \
     --build-arg VITE_ADMIN_EMAILS="${VITE_ADMIN_EMAILS:-}" \
+    --build-arg VITE_ZAPMASS_ADMIN_UIDS="${VITE_ZAPMASS_ADMIN_UIDS:-}" \
     --build-arg VITE_MARKETING_PRICE_MONTHLY="${VITE_MARKETING_PRICE_MONTHLY:-}" \
     --build-arg VITE_MARKETING_PRICE_ANNUAL="${VITE_MARKETING_PRICE_ANNUAL:-}" \
     --build-arg VITE_ENFORCE_SUBSCRIPTION="${VITE_ENFORCE_SUBSCRIPTION:-true}" \

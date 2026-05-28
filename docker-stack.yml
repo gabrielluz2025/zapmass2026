@@ -7,6 +7,7 @@ services:
       context: .
       args:
         VITE_ADMIN_EMAILS: ${VITE_ADMIN_EMAILS:-}
+        VITE_ZAPMASS_ADMIN_UIDS: ${VITE_ZAPMASS_ADMIN_UIDS:-}
         VITE_MARKETING_PRICE_MONTHLY: ${VITE_MARKETING_PRICE_MONTHLY:-}
         VITE_MARKETING_PRICE_ANNUAL: ${VITE_MARKETING_PRICE_ANNUAL:-}
         VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-true}
@@ -69,6 +70,7 @@ services:
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       SUBSCRIPTION_ENFORCE: ${SUBSCRIPTION_ENFORCE:-true}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ZAPMASS_ADMIN_UIDS: ${ZAPMASS_ADMIN_UIDS:-}
       # Resend (emails transacionais + respostas a sugestões): Swarm não repassa env_file ao contentor como o Compose —
       # estas variáveis têm de estar no .env da VPS E exportadas por deployment/vps-deploy.sh antes do stack deploy.
       RESEND_API_KEY: ${RESEND_API_KEY:-}

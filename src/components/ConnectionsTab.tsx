@@ -41,7 +41,7 @@ import { SectionHeader, StatCard, Tabs, Input, Button, EmptyState, Modal } from 
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useMainLayoutNav } from '../context/MainLayoutNavContext';
-import { isAdminUserEmail } from '../utils/adminAccess';
+import { isPlatformAdminUser } from '../utils/adminAccess';
 import {
   getMaxConnectionSlotsForUser,
   countAccountScopedConnections,
@@ -97,7 +97,7 @@ export const ConnectionsTab: React.FC = () => {
   const { user } = useAuth();
   const { subscription, readOnlyMode, enforce: subEnforce } = useSubscription();
   const goToView = useMainLayoutNav();
-  const isAdmin = isAdminUserEmail(user?.email ?? null);
+  const isAdmin = isPlatformAdminUser(user);
   const maxConnectionSlots = useMemo(
     () => getMaxConnectionSlotsForUser(subscription, isAdmin),
     [subscription, isAdmin]

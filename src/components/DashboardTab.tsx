@@ -40,7 +40,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useAppProfile } from '../context/AppProfileContext';
 import { getSegmentExperience } from '../constants/segmentExperience';
-import { isAdminUserEmail } from '../utils/adminAccess';
+import { isPlatformAdminUser } from '../utils/adminAccess';
 import {
   daysUntilWeddingAnniversary,
   parseWeddingDayMonth,
@@ -290,7 +290,7 @@ export const DashboardTab: React.FC = () => {
       .sort((a, b) => a.scheduledStartMs - b.scheduledStartMs)
       .slice(0, 6);
   }, [pastoralVisits]);
-  const isAdmin = isAdminUserEmail(user?.email ?? null);
+  const isAdmin = isPlatformAdminUser(user);
   const maxPlanChannelSlots = useMemo(
     () => getMaxConnectionSlotsForUser(subscription, isAdmin),
     [subscription, isAdmin]

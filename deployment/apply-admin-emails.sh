@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Garante ADMIN_EMAILS e VITE_ADMIN_EMAILS no .env (idempotente).
+# Garante ADMIN_EMAILS, VITE_ADMIN_EMAILS e (opcional) ZAPMASS_ADMIN_UIDS no .env (idempotente).
 # Se `git pull` disser "not on a branch":  bash deployment/ensure-git-main.sh
-# Depois: cd /opt/zapmass && git pull && sudo bash deployment/apply-admin-emails.sh
-# Opcional: ADMIN_EMAIL=outro@dominio.com bash deployment/apply-admin-emails.sh
+# Depois: cd /opt/zapmass && git pull && sudo bash deployment/apply-admin-emails.sh && bash deployment/manual-pull-deploy.sh
+#
+# Uso:
+#   ADMIN_EMAIL=a@x.com,b@y.com bash deployment/apply-admin-emails.sh
+#   ZAPMASS_ADMIN_UIDS=firebaseUid123 bash deployment/apply-admin-emails.sh
 set -euo pipefail
 ROOT="${ROOT:-/opt/zapmass}"
 E="${ADMIN_EMAIL:-festaimportgabriel@gmail.com}"
+UIDS="${ZAPMASS_ADMIN_UIDS:-}"
 ENV="${ROOT}/.env"
 
 if [ ! -d "$ROOT" ]; then
@@ -21,13 +25,20 @@ if [ ! -f "$ENV" ]; then
 fi
 
 tmp="$(mktemp)"
-grep -vE '^(ADMIN_EMAILS|VITE_ADMIN_EMAILS)=' "$ENV" > "$tmp" 2>/dev/null || : > "$tmp"
+grep -vE '^(ADMIN_EMAILS|VITE_ADMIN_EMAILS|ZAPMASS_ADMIN_UIDS|VITE_ZAPMASS_ADMIN_UIDS)=' "$ENV" > "$tmp" 2>/dev/null || : > "$tmp"
 mv "$tmp" "$ENV"
 
 {
   echo "ADMIN_EMAILS=${E}"
   echo "VITE_ADMIN_EMAILS=${E}"
+  if [ -n "$UIDS" ]; then
+    echo "ZAPMASS_ADMIN_UIDS=${UIDS}"
+    echo "VITE_ZAPMASS_ADMIN_UIDS=${UIDS}"
+  fi
 } >> "$ENV"
 
 echo "==> $ENV: ADMIN_EMAILS e VITE_ADMIN_EMAILS = ${E}"
-echo "==> Correr deploy (rebuild) para o Vite incorporar VITE_ADMIN_EMAILS no bundle."
+if [ -n "$UIDS" ]; then
+  echo "==> $ENV: ZAPMASS_ADMIN_UIDS = ${UIDS}"
+fi
+echo "==> Correr deploy (rebuild) para o Vite incorporar VITE_* no bundle e reiniciar api com ADMIN_EMAILS."

@@ -122,9 +122,12 @@ export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
       const r = await fetch(apiUrl('/api/admin/ops-snapshot'), {
         headers: { Authorization: `Bearer ${token}` }
       });
-      const j = (await r.json()) as AdminOpsSnapshot & { error?: string };
+      const j = (await r.json()) as AdminOpsSnapshot & { error?: string; hint?: string };
       if (!r.ok) {
-        setErr((j as { error?: string }).error || `HTTP ${r.status}`);
+        const msg = [(j as { error?: string }).error, (j as { hint?: string }).hint]
+          .filter(Boolean)
+          .join(' — ');
+        setErr(msg || `HTTP ${r.status}`);
         setData(null);
         return;
       }
