@@ -941,6 +941,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setContactLists([]);
       setCampaigns([]);
       setConnections([]);
+      setConversations([]);
       setContactsSavedTotal(null);
       campaignFirestoreHealRef.current.clear();
     }
