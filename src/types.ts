@@ -38,6 +38,11 @@ export interface WhatsAppConnection {
     port?: string;
     protocol?: string;
   };
+  dailyLimit?: number;
+  growthRate?: number;
+  growthType?: 'percent' | 'fixed';
+  limitAction?: 'ask' | 'redirect';
+  limitExceededApproved?: boolean;
 }
 
 export interface SystemMetrics {
@@ -473,6 +478,16 @@ export interface ZapMassContextType {
   reconnectConnection: (id: string) => void | Promise<void>;
   forceQr: (id: string) => void | Promise<void>;
   renameConnection: (id: string, name: string) => void | Promise<void>;
+  updateConnectionSettings: (
+    id: string,
+    settings: {
+      dailyLimit?: number;
+      growthRate?: number;
+      growthType?: 'percent' | 'fixed';
+      limitAction?: 'ask' | 'redirect';
+      limitExceededApproved?: boolean;
+    }
+  ) => void | Promise<void>;
   addContact: (contact: Contact, options?: { silent?: boolean }) => Promise<string | void> | void;
   /** Grava vários contactos novos em lotes (Firestore batch); ordem dos IDs corresponde à dos elementos. */
   bulkAddContacts: (contacts: Contact[], options?: { silent?: boolean }) => Promise<string[]>;

@@ -944,6 +944,27 @@ const registerSocketHandlers = () => {
       })();
     });
 
+    socket.on('update-connection-settings', ({ id, settings }: { id: string, settings: any }) => {
+      void (async () => {
+        try {
+          const connId = String(id || '').trim();
+          if (!connId || !settings) {
+            socket.emit('socket-operation-error', { op: 'update-connection-settings', error: 'Parâmetros inválidos.' });
+            return;
+          }
+          if (!ownsConnectionId(connId)) {
+            denyCrossTenant('update-connection-settings', { id: connId });
+            return;
+          }
+          userLog('ui:update-connection-settings', { id: connId, settings });
+          await evolutionService.updateConnectionSettings(connId, settings);
+          socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+        } catch (e: any) {
+          reportSocketAsyncError('update-connection-settings', e);
+        }
+      })();
+    });
+
     socket.on('force-qr', ({ id }) => {
       void (async () => {
         try {

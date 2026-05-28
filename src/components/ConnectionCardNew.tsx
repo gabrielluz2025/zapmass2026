@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings } from 'lucide-react';
 import { QRCodeModal } from './QRCodeModal';
 import { QrCanvas } from './QrCanvas';
 import { WhatsAppConnection, ConnectionStatus } from '../types';
@@ -19,6 +19,13 @@ interface ConnectionCardProps {
   onReconnect: (id: string) => void;
   onForceQr: (id: string) => void;
   onRename?: (id: string, name: string) => void;
+  onUpdateSettings?: (id: string, settings: {
+    dailyLimit?: number;
+    growthRate?: number;
+    growthType?: 'percent' | 'fixed';
+    limitAction?: 'ask' | 'redirect';
+    limitExceededApproved?: boolean;
+  }) => void;
 }
 
 export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({ 
@@ -26,7 +33,8 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   onDisconnect, 
   onReconnect,
   onForceQr,
-  onRename
+  onRename,
+  onUpdateSettings
 }) => {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -44,9 +52,43 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(connection.name);
 
+  // Estados locais para as configurações individualizadas de conexão
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dailyLimitInput, setDailyLimitInput] = useState(String(connection.dailyLimit || ''));
+  const [growthRateInput, setGrowthRateInput] = useState(String(connection.growthRate || ''));
+  const [growthTypeInput, setGrowthTypeInput] = useState<'percent' | 'fixed'>(connection.growthType || 'fixed');
+  const [limitActionInput, setLimitActionInput] = useState<'ask' | 'redirect'>(connection.limitAction || 'ask');
+
   useEffect(() => {
     if (!renameOpen) setRenameValue(connection.name);
   }, [connection.name, renameOpen]);
+
+  useEffect(() => {
+    setDailyLimitInput(String(connection.dailyLimit || ''));
+    setGrowthRateInput(String(connection.growthRate || ''));
+    setGrowthTypeInput(connection.growthType || 'fixed');
+    setLimitActionInput(connection.limitAction || 'ask');
+  }, [connection.dailyLimit, connection.growthRate, connection.growthType, connection.limitAction]);
+
+  const saveSettings = () => {
+    if (!onUpdateSettings) return;
+    const limit = dailyLimitInput.trim() ? Math.max(0, parseInt(dailyLimitInput) || 0) : 0;
+    const growth = growthRateInput.trim() ? Math.max(0, parseInt(growthRateInput) || 0) : 0;
+    onUpdateSettings(connection.id, {
+      dailyLimit: limit,
+      growthRate: growth,
+      growthType: growthTypeInput,
+      limitAction: limitActionInput
+    });
+    setSettingsOpen(false);
+  };
+
+  const approveExtraSending = () => {
+    if (!onUpdateSettings) return;
+    onUpdateSettings(connection.id, {
+      limitExceededApproved: true
+    });
+  };
 
   const submitRename = () => {
     const trimmed = renameValue.trim();
@@ -230,14 +272,131 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
           </div>
         ) : isConnected ? (
           /* Stats grid for connected */
-          <div className="space-y-2.5 mb-4">
+          <div className="space-y-3 mb-4 animate-in fade-in slide-in-from-top-1 duration-200">
+            {/* Alerta de Limite Diário Atingido */}
+            {connection.dailyLimit && connection.dailyLimit > 0 && connection.messagesSentToday >= connection.dailyLimit && (
+              <div className="p-3 rounded-xl border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 text-red-800 dark:text-red-200 flex flex-col gap-2 shadow-sm animate-pulse">
+                <div className="flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+                  <p className="text-xs font-bold leading-tight">
+                    Limite diário de {connection.dailyLimit} mensagens atingido hoje!
+                  </p>
+                </div>
+                {!connection.limitExceededApproved ? (
+                  <div className="flex flex-col gap-1">
+                    <p className="text-[10px] opacity-80 leading-normal">
+                      O envio de novas mensagens em campanhas foi suspenso para este chip para evitar o seu bloqueio.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={approveExtraSending}
+                      className="mt-1 w-full py-1.5 px-3 bg-red-600 dark:bg-red-500 hover:bg-red-700 text-white text-[10px] font-bold uppercase rounded-lg transition active:scale-95 flex items-center justify-center gap-1 shadow-sm"
+                    >
+                      <Zap className="w-3 h-3 fill-current" /> Aprovar envio extra hoje
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-green-700 dark:text-green-300 font-bold flex items-center gap-1 bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Envio extra aprovado pelo usuário hoje!
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Painel expansível de configurações de limites */}
+            {settingsOpen && (
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/10 space-y-3 shadow-inner">
+                <div className="flex items-center gap-1.5 pb-1.5 border-b border-slate-200/60 dark:border-slate-800/60">
+                  <Zap className="w-4 h-4 text-emerald-500" />
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Limites & Crescimento</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Limite diário</label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Sem limite"
+                      value={dailyLimitInput}
+                      onChange={(e) => setDailyLimitInput(e.target.value)}
+                      className="w-full text-xs font-bold px-2 py-1.5 rounded-lg border focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Ação ao estourar</label>
+                    <select
+                      value={limitActionInput}
+                      onChange={(e) => setLimitActionInput(e.target.value as any)}
+                      className="w-full text-xs font-bold px-2 py-1.5 rounded-lg border focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-slate-200 dark:border-slate-800"
+                    >
+                      <option value="ask">Parar/Perguntar</option>
+                      <option value="redirect">Desviar Canal</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Crescimento diário</label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Desativado"
+                      value={growthRateInput}
+                      onChange={(e) => setGrowthRateInput(e.target.value)}
+                      className="w-full text-xs font-bold px-2 py-1.5 rounded-lg border focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Tipo crescimento</label>
+                    <select
+                      value={growthTypeInput}
+                      onChange={(e) => setGrowthTypeInput(e.target.value as any)}
+                      className="w-full text-xs font-bold px-2 py-1.5 rounded-lg border focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-slate-200 dark:border-slate-800"
+                    >
+                      <option value="fixed">Fixo (Ex: +10 msgs)</option>
+                      <option value="percent">Percentual (Ex: +10%)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={saveSettings}
+                    className="flex-1 py-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase rounded-lg transition active:scale-95"
+                  >
+                    Salvar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsOpen(false)}
+                    className="flex-1 py-1 px-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-black uppercase rounded-lg transition active:scale-95"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2.5">
               <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <Send className="w-3.5 h-3.5 text-emerald-500" />
                   <span className="text-[9px] font-black text-slate-400 uppercase">Hoje</span>
+                  {connection.dailyLimit && connection.dailyLimit > 0 ? (
+                    <span className="text-[8px] ml-auto font-bold opacity-60">meta {connection.dailyLimit}</span>
+                  ) : null}
                 </div>
-                <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums">{connection.messagesSentToday.toLocaleString()}</span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums">
+                    {connection.messagesSentToday.toLocaleString()}
+                  </span>
+                  {connection.dailyLimit && connection.dailyLimit > 0 ? (
+                    <span className="text-xs text-slate-400 tabular-nums">/ {connection.dailyLimit}</span>
+                  ) : null}
+                </div>
               </div>
               <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
                 <div className="flex items-center gap-1.5 mb-1.5">
@@ -251,7 +410,12 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
             </div>
 
             <div className="grid grid-cols-3 gap-2.5">
-              <div className="p-2.5 rounded-xl text-center" style={{ background: 'var(--surface-2)' }}>
+              <div className="p-2.5 rounded-xl text-center relative" style={{ background: 'var(--surface-2)' }}>
+                {connection.growthRate && connection.growthRate > 0 ? (
+                  <span className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[7px] font-black px-1 rounded-full border border-[var(--surface-2)]">
+                    +{connection.growthRate}{connection.growthType === 'percent' ? '%' : ''}
+                  </span>
+                ) : null}
                 <Zap className="w-3 h-3 text-purple-500 mx-auto mb-1" />
                 <span className="text-xs font-black text-slate-900 dark:text-white tabular-nums block">{(connection.totalMessagesSent || 0).toLocaleString()}</span>
                 <span className="text-[8px] font-black text-slate-400 uppercase">Total</span>
@@ -326,6 +490,16 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 style={{ background: 'rgba(245,158,11,0.08)', color: '#d97706' }}>
                 <QrCode className="w-3.5 h-3.5" />
                 Forçar QR
+              </button>
+            )}
+            {onUpdateSettings && (
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(!settingsOpen)}
+                className={`p-2 transition-all rounded-xl active:scale-90 ${settingsOpen ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}
+                title="Configurações de Limite & Crescimento"
+              >
+                <Settings className="w-4 h-4" />
               </button>
             )}
             <button onClick={() => onDisconnect(connection.id)}

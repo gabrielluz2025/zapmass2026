@@ -9,6 +9,9 @@
 import axios, { AxiosInstance } from 'axios';
 import { Queue, Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { evolutionConfig } from './evolutionConfig.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
@@ -62,6 +65,13 @@ interface EvolutionInstance {
     phoneNumber?: string;
     qrCode?: string;
     proxy?: ConnectionProxyConfig;
+    dailyLimit?: number;
+    growthRate?: number;
+    growthType?: 'percent' | 'fixed';
+    limitAction?: 'ask' | 'redirect';
+    messagesSentToday?: number;
+    limitExceededApproved?: boolean;
+    lastLimitResetDate?: string; // Data no formato YYYY-MM-DD da última verificação/reinício do limite diário
 }
 
 type ExtractedEvolutionQr = { displayValue: string; kind: 'code' | 'image' };
@@ -805,7 +815,7 @@ async function hydrateInstancesFromEvolution() {
 
             const existing = connections.get(instanceName);
             const phoneFromApi = phoneFromEvolutionRow(row);
-            connections.set(instanceName, {
+            const instanceObj: EvolutionInstance = {
                 instanceName,
                 friendlyName: existing?.friendlyName || String(row.profileName || instanceName),
                 status: mapEvolutionState(row.connectionStatus ?? row.state ?? row.status),
@@ -815,7 +825,9 @@ async function hydrateInstancesFromEvolution() {
                 phoneNumber: phoneFromApi || existing?.phoneNumber,
                 qrCode: existing?.qrCode,
                 proxy: existing?.proxy,
-            });
+            };
+            applySettingsToInstance(instanceObj);
+            connections.set(instanceName, instanceObj);
         }
         if (list.length > 0) {
             const ownersNotified = new Set<string>();
@@ -897,6 +909,148 @@ function getCampaignQueue(): Queue<MessageQueueItem> | null {
 }
 const connectionQueueSizes = new Map<string, number>();
 let campaignWorker: Worker<MessageQueueItem> | null = null;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '..');
+const dataDir = path.resolve(projectRoot, process.env.DATA_DIR || 'data');
+const connectionsSettingsFile = path.join(dataDir, 'connections_settings.json');
+
+interface ConnectionSettingsPayload {
+    dailyLimit?: number;
+    growthRate?: number;
+    growthType?: 'percent' | 'fixed';
+    limitAction?: 'ask' | 'redirect';
+    messagesSentToday?: number;
+    limitExceededApproved?: boolean;
+    lastLimitResetDate?: string;
+}
+
+let connectionsSettingsCache: Record<string, ConnectionSettingsPayload> = {};
+
+function loadConnectionsSettings() {
+    try {
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+        if (fs.existsSync(connectionsSettingsFile)) {
+            const raw = fs.readFileSync(connectionsSettingsFile, 'utf8');
+            connectionsSettingsCache = JSON.parse(raw);
+        }
+    } catch (err) {
+        log('warn', 'Falha ao carregar connections_settings.json', { error: err });
+    }
+}
+
+export function saveConnectionsSettings() {
+    try {
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+        fs.writeFileSync(connectionsSettingsFile, JSON.stringify(connectionsSettingsCache, null, 2), 'utf8');
+    } catch (err) {
+        log('warn', 'Falha ao salvar connections_settings.json', { error: err });
+    }
+}
+
+// Carregar as configurações na inicialização do módulo
+loadConnectionsSettings();
+
+function applySettingsToInstance(conn: EvolutionInstance) {
+    const cached = connectionsSettingsCache[conn.instanceName];
+    if (cached) {
+        conn.dailyLimit = cached.dailyLimit;
+        conn.growthRate = cached.growthRate;
+        conn.growthType = cached.growthType || 'fixed';
+        conn.limitAction = cached.limitAction || 'ask';
+        conn.messagesSentToday = cached.messagesSentToday || 0;
+        conn.limitExceededApproved = cached.limitExceededApproved || false;
+        conn.lastLimitResetDate = cached.lastLimitResetDate;
+    } else {
+        conn.dailyLimit = undefined;
+        conn.growthRate = undefined;
+        conn.growthType = 'fixed';
+        conn.limitAction = 'ask';
+        conn.messagesSentToday = 0;
+        conn.limitExceededApproved = false;
+        conn.lastLimitResetDate = undefined;
+    }
+    checkAndResetDailyLimits(conn);
+}
+
+function checkAndResetDailyLimits(conn: EvolutionInstance) {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    if (conn.lastLimitResetDate !== today) {
+        log('info', `[LimitReset] Resetando limites diários para a conexão ${conn.instanceName}. Dia anterior: ${conn.lastLimitResetDate || 'nenhum'}, Novo dia: ${today}`);
+        
+        // Se já existia um reset anterior (não é a primeira vez que a conexão é criada) e existe taxa de crescimento configurada
+        if (conn.lastLimitResetDate && conn.dailyLimit && conn.growthRate && conn.growthRate > 0) {
+            const oldLimit = conn.dailyLimit;
+            if (conn.growthType === 'percent') {
+                conn.dailyLimit = Math.round(conn.dailyLimit * (1 + conn.growthRate / 100));
+            } else {
+                conn.dailyLimit = conn.dailyLimit + conn.growthRate;
+            }
+            log('info', `[LimitReset] Limite diário do chip ${conn.instanceName} cresceu de ${oldLimit} para ${conn.dailyLimit} mensagens.`);
+        }
+        
+        conn.messagesSentToday = 0;
+        conn.limitExceededApproved = false;
+        conn.lastLimitResetDate = today;
+        
+        // Atualiza cache e persiste no disco
+        connectionsSettingsCache[conn.instanceName] = {
+            dailyLimit: conn.dailyLimit,
+            growthRate: conn.growthRate,
+            growthType: conn.growthType,
+            limitAction: conn.limitAction,
+            messagesSentToday: conn.messagesSentToday,
+            limitExceededApproved: conn.limitExceededApproved,
+            lastLimitResetDate: conn.lastLimitResetDate
+        };
+        saveConnectionsSettings();
+    }
+}
+
+export async function updateConnectionSettings(
+    id: string,
+    settings: {
+        dailyLimit?: number;
+        growthRate?: number;
+        growthType?: 'percent' | 'fixed';
+        limitAction?: 'ask' | 'redirect';
+        messagesSentToday?: number;
+        limitExceededApproved?: boolean;
+    }
+) {
+    const conn = connections.get(id);
+    if (!conn) throw new Error('Conexão não encontrada');
+
+    if (settings.dailyLimit !== undefined) conn.dailyLimit = settings.dailyLimit;
+    if (settings.growthRate !== undefined) conn.growthRate = settings.growthRate;
+    if (settings.growthType !== undefined) conn.growthType = settings.growthType;
+    if (settings.limitAction !== undefined) conn.limitAction = settings.limitAction;
+    if (settings.messagesSentToday !== undefined) conn.messagesSentToday = settings.messagesSentToday;
+    if (settings.limitExceededApproved !== undefined) conn.limitExceededApproved = settings.limitExceededApproved;
+
+    connectionsSettingsCache[id] = {
+        dailyLimit: conn.dailyLimit,
+        growthRate: conn.growthRate,
+        growthType: conn.growthType,
+        limitAction: conn.limitAction,
+        messagesSentToday: conn.messagesSentToday,
+        limitExceededApproved: conn.limitExceededApproved,
+        lastLimitResetDate: conn.lastLimitResetDate
+    };
+    saveConnectionsSettings();
+
+    const ownerUid = resolveOwnerUid(id);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+    } else if (io) {
+        io.emit('connections-update', getConnections());
+    }
+}
 
 const connections: Map<string, EvolutionInstance> = new Map();
 let io: SocketIOServer | null = null;
@@ -1522,6 +1676,69 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         }
     }
 
+    const conn = connections.get(item.connectionId);
+    if (conn) {
+        checkAndResetDailyLimits(conn);
+
+        const dailyLimit = conn.dailyLimit || 0;
+        const sentToday = conn.messagesSentToday || 0;
+
+        if (dailyLimit > 0 && sentToday >= dailyLimit && !conn.limitExceededApproved) {
+            log('info', `[Limits] Conexão ${item.connectionId} atingiu o limite diário de ${dailyLimit} mensagens.`);
+
+            if (conn.limitAction === 'redirect') {
+                const owner = resolveOwnerUid(item.connectionId);
+                const altConn = Array.from(connections.values()).find((c) => {
+                    if (c.instanceName === item.connectionId) return false;
+                    if (c.status !== 'open') return false;
+                    if (resolveOwnerUid(c.instanceName) !== owner) return false;
+                    
+                    checkAndResetDailyLimits(c);
+                    const cLimit = c.dailyLimit || 0;
+                    const cSent = c.messagesSentToday || 0;
+                    return cLimit === 0 || cSent < cLimit;
+                });
+
+                if (altConn) {
+                    log('info', `[Limits] Redirecionando envio do canal ${item.connectionId} para o canal ${altConn.instanceName} devido ao limite atingido.`);
+                    emitCampaignLog(
+                        'WARNING',
+                        `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando envio para o canal ${altConn.friendlyName || altConn.instanceName}.`,
+                        { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+                        campaignState?.ownerUid
+                    );
+                    
+                    item.connectionId = altConn.instanceName;
+                    await job.updateProgress({ redirectedTo: altConn.instanceName });
+                    await job.moveToDelayed(Date.now() + 2000);
+                    return;
+                } else {
+                    log('warn', `[Limits] Canal ${item.connectionId} excedeu o limite e limitAction é 'redirect', mas nenhuma conexão alternativa saudável foi encontrada. Tratando como 'ask'.`);
+                }
+            }
+
+            emitCampaignLog(
+                'ERROR',
+                `Envio suspenso no canal ${conn.friendlyName || item.connectionId}. Limite diário de ${dailyLimit} mensagens foi atingido. Defina uma ação ou aprove a continuação nas configurações da conexão.`,
+                { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
+                campaignState?.ownerUid
+            );
+            
+            const owner = resolveOwnerUid(item.connectionId);
+            if (owner) {
+                publishOwnerEvent(owner, 'connection-limit-exceeded', {
+                    connectionId: item.connectionId,
+                    dailyLimit,
+                    messagesSentToday: sentToday,
+                    campaignId: item.campaignId
+                });
+            }
+
+            await job.moveToDelayed(Date.now() + 15000);
+            return;
+        }
+    }
+
     const state = await getConnectionState(item.connectionId);
     if (state !== 'open') {
         throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
@@ -1561,6 +1778,25 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
 
     if (!sendResult.ok) {
         throw new Error('Falha no envio');
+    }
+
+    if (conn) {
+        conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
+        connectionsSettingsCache[item.connectionId] = {
+            dailyLimit: conn.dailyLimit,
+            growthRate: conn.growthRate,
+            growthType: conn.growthType,
+            limitAction: conn.limitAction,
+            messagesSentToday: conn.messagesSentToday,
+            limitExceededApproved: conn.limitExceededApproved,
+            lastLimitResetDate: conn.lastLimitResetDate
+        };
+        saveConnectionsSettings();
+        
+        const ownerUid = resolveOwnerUid(item.connectionId);
+        if (ownerUid) {
+            publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+        }
     }
 
     const phoneDigits = normalizePhoneKey(item.to);
@@ -1984,7 +2220,7 @@ export function getConnections(): WhatsAppConnection[] {
             status,
             lastActivity: new Date().toLocaleString(),
             queueSize: connectionQueueSizes.get(id) || 0,
-            messagesSentToday: 0,
+            messagesSentToday: conn.messagesSentToday || 0,
             signalStrength: 'STRONG',
             profilePicUrl: conn.profilePicUrl,
             batteryLevel: 100,
@@ -1999,6 +2235,11 @@ export function getConnections(): WhatsAppConnection[] {
                       },
                   }
                 : {}),
+            dailyLimit: conn.dailyLimit,
+            growthRate: conn.growthRate,
+            growthType: conn.growthType || 'fixed',
+            limitAction: conn.limitAction || 'ask',
+            limitExceededApproved: conn.limitExceededApproved || false,
         });
     }
     return result;

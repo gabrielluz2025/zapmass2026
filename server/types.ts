@@ -32,6 +32,11 @@ export interface WhatsAppConnection {
    * NAO restaura este canal. Utilizador tem de pedir QR/pareamento de novo.
    */
   sessionZombie?: boolean;
+  dailyLimit?: number;
+  growthRate?: number;
+  growthType?: 'percent' | 'fixed';
+  limitAction?: 'ask' | 'redirect';
+  limitExceededApproved?: boolean;
 }
 
 export interface DashboardMetrics {

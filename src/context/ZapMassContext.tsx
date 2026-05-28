@@ -258,6 +258,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   reconnectConnection: async () => {},
   forceQr: async () => {},
   renameConnection: async () => {},
+  updateConnectionSettings: async () => {},
   addContact: async () => {},
   bulkAddContacts: async () => [],
   removeContact: async () => {},
@@ -2026,6 +2027,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     toast.success('Nome atualizado.');
   };
 
+  const updateConnectionSettings = async (id: string, settings: any) => {
+    const sock = socketRef.current;
+    if (!sock) {
+      toast.error('Socket nao pronto. Atualize a pagina.');
+      return;
+    }
+    // Otimista: atualiza o estado local das conexões imediatamente
+    setConnections((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...settings } : c))
+    );
+    try {
+      await refreshSocketAuthToken();
+      if (!sock.connected) sock.connect();
+      await waitForSocketConnected(20000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Falha ao conectar ao servidor.';
+      toast.error(msg);
+      return;
+    }
+    sock.emit('ui-log', { action: 'update-connection-settings', id, settings });
+    sock.emit('update-connection-settings', { id, settings });
+    toast.success('Configurações salvas.');
+  };
+
   const addContact = async (contact: Contact, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
@@ -2889,6 +2914,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableReconnectConnection = useStableCallback(reconnectConnection);
   const stableForceQr = useStableCallback(forceQr);
   const stableRenameConnection = useStableCallback(renameConnection);
+  const stableUpdateConnectionSettings = useStableCallback(updateConnectionSettings);
   const stableAddContact = useStableCallback(addContact);
   const stableBulkAddContacts = useStableCallback(bulkAddContacts);
   const stableRemoveContact = useStableCallback(removeContact);
@@ -2965,6 +2991,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       reconnectConnection: stableReconnectConnection,
       forceQr: stableForceQr,
       renameConnection: stableRenameConnection,
+      updateConnectionSettings: stableUpdateConnectionSettings,
       addContact: stableAddContact,
       bulkAddContacts: stableBulkAddContacts,
       removeContact: stableRemoveContact,
