@@ -114,11 +114,41 @@ diagnose_evolution() {
   docker service logs zapmass_evolution --tail 50 2>&1 || true
 }
 
+free_port_8080() {
+  log "Verificar se a porta 8080 está ocupada por processo ou contêiner avulso..."
+  if command -v lsof >/dev/null 2>&1; then
+    local pid
+    pid=$(lsof -t -i :8080 || true)
+    if [ -n "$pid" ]; then
+      log "Processo(s) encontrado(s) na porta 8080: $pid. Eliminando..."
+      for p in $pid; do
+        kill -9 "$p" 2>/dev/null || true
+      done
+      sleep 2
+    fi
+  fi
+  # Remove contêineres avulsos na porta 8080
+  local containers
+  containers=$(docker ps -a --filter "publish=8080" -q 2>/dev/null || true)
+  if [ -n "$containers" ]; then
+    log "Removendo contêineres avulsos na porta 8080..."
+    for c in $containers; do
+      if [[ ! "$(docker ps --filter id="$c" --format '{{.Names}}' 2>/dev/null || true)" =~ "zapmass_" ]]; then
+        docker stop "$c" || true
+        docker rm -f "$c" || true
+      fi
+    done
+  fi
+  docker rm -f evolution-api 2>/dev/null || true
+  docker rm -f evolution 2>/dev/null || true
+}
+
 restart_evolution() {
   local db_uri="postgresql://postgres:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/evolution_db?schema=public"
   log "Parar Evolution"
   docker service scale zapmass_evolution=0 >/dev/null 2>&1 || true
-  sleep 12
+  sleep 10
+  free_port_8080
   log "Actualizar DATABASE_CONNECTION_URI na Evolution (${POSTGRES_HOST})"
   docker service update \
     --env-rm DATABASE_CONNECTION_URI \

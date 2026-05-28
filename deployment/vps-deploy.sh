@@ -72,6 +72,45 @@ if [ -f .env ]; then
   fi
 fi
 
+# Libera a porta 8080 caso esteja ocupada por algum contêiner órfão ou processo zumbi (evita falha de port allocation no Swarm)
+free_port_8080() {
+  echo "==> Verificando se a porta 8080 está ocupada..."
+  if command -v lsof >/dev/null 2>&1; then
+    local pid
+    pid=$(lsof -t -i :8080 || true)
+    if [ -n "$pid" ]; then
+      echo "==> Processo(s) encontrado(s) na porta 8080: $pid. Eliminando..."
+      for p in $pid; do
+        kill -9 "$p" 2>/dev/null || true
+      done
+      sleep 2
+    fi
+  elif command -v fuser >/dev/null 2>&1; then
+    echo "==> Liberando porta 8080 via fuser..."
+    fuser -k 8080/tcp 2>/dev/null || true
+    sleep 2
+  fi
+
+  # Para e remove contêineres avulsos que possam estar tentando usar a porta 8080
+  if command -v docker >/dev/null 2>&1; then
+    local containers
+    containers=$(docker ps -a --filter "publish=8080" -q 2>/dev/null || true)
+    if [ -n "$containers" ]; then
+      echo "==> Removendo contêineres avulsos na porta 8080..."
+      for c in $containers; do
+        if [[ ! "$(docker ps --filter id="$c" --format '{{.Names}}' 2>/dev/null || true)" =~ "zapmass_" ]]; then
+          docker stop "$c" || true
+          docker rm -f "$c" || true
+        fi
+      done
+    fi
+    # Adicional: garante que o contêiner 'evolution-api' avulso não está segurando a porta
+    docker rm -f evolution-api 2>/dev/null || true
+    docker rm -f evolution 2>/dev/null || true
+  fi
+}
+free_port_8080
+
 # Converte RAM em pico: swap idempotente (4 GiB) se total < alvo; desligar: ENSURE_SWAP_ON_DEPLOY=0
 ensure_swap_on_vps() {
   if [ "${ENSURE_SWAP_ON_DEPLOY:-1}" = "0" ]; then
