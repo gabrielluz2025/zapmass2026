@@ -25,20 +25,22 @@ if [ ! -f "$ENV" ]; then
 fi
 
 tmp="$(mktemp)"
-grep -vE '^(ADMIN_EMAILS|VITE_ADMIN_EMAILS|ZAPMASS_ADMIN_UIDS|VITE_ZAPMASS_ADMIN_UIDS)=' "$ENV" > "$tmp" 2>/dev/null || : > "$tmp"
+grep -vE '^(ADMIN_EMAILS|VITE_ADMIN_EMAILS|ADMIN_UIDS|ZAPMASS_ADMIN_UIDS|VITE_ADMIN_UIDS|VITE_ZAPMASS_ADMIN_UIDS)=' "$ENV" > "$tmp" 2>/dev/null || : > "$tmp"
 mv "$tmp" "$ENV"
 
 {
   echo "ADMIN_EMAILS=${E}"
   echo "VITE_ADMIN_EMAILS=${E}"
   if [ -n "$UIDS" ]; then
+    echo "ADMIN_UIDS=${UIDS}"
     echo "ZAPMASS_ADMIN_UIDS=${UIDS}"
+    echo "VITE_ADMIN_UIDS=${UIDS}"
     echo "VITE_ZAPMASS_ADMIN_UIDS=${UIDS}"
   fi
 } >> "$ENV"
 
 echo "==> $ENV: ADMIN_EMAILS e VITE_ADMIN_EMAILS = ${E}"
 if [ -n "$UIDS" ]; then
-  echo "==> $ENV: ZAPMASS_ADMIN_UIDS = ${UIDS}"
+  echo "==> $ENV: ADMIN_UIDS / ZAPMASS_ADMIN_UIDS = ${UIDS}"
 fi
-echo "==> Correr deploy (rebuild) para o Vite incorporar VITE_* no bundle e reiniciar api com ADMIN_EMAILS."
+echo "==> Rebuild para VITE_*; reinicie api para ADMIN_EMAILS/ADMIN_UIDS (runtime)."
