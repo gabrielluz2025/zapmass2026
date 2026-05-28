@@ -1337,6 +1337,50 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       void syncConnectionsFromApi();
     });
 
+    /** Evolution: ONLINE/CONNECTING/OFFLINE — evita UI presa em "Inicializando" sem connections-update completo. */
+    socket.on(
+      'connection-update',
+      (payload: { id?: string; status?: string; phoneNumber?: string | null }) => {
+        const id = payload?.id;
+        if (!id) return;
+        const raw = String(payload.status || '').toUpperCase();
+        const nextStatus =
+          raw === 'ONLINE'
+            ? ConnectionStatus.CONNECTED
+            : raw === 'CONNECTING'
+              ? ConnectionStatus.CONNECTING
+              : raw === 'OFFLINE'
+                ? ConnectionStatus.DISCONNECTED
+                : null;
+        if (!nextStatus) return;
+        setConnections((prev) => {
+          if (!prev.some((c) => c.id === id)) return prev;
+          const updated = prev.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  status: nextStatus,
+                  phoneNumber: payload.phoneNumber ?? c.phoneNumber,
+                  qrCode: nextStatus === ConnectionStatus.CONNECTED ? undefined : c.qrCode
+                }
+              : c
+          );
+          connectionsRef.current = updated;
+          return updated;
+        });
+      }
+    );
+
+    /** Canal em CONNECTING sem QR há muito tempo — reconcilia com Evolution via HTTP. */
+    const stuckConnectingSyncInterval = setInterval(() => {
+      const stuck = connectionsRef.current.some(
+        (c) =>
+          (c.status === ConnectionStatus.CONNECTING || c.status === ConnectionStatus.QR_READY) &&
+          !c.qrCode
+      );
+      if (stuck) void syncConnectionsFromApi();
+    }, 60_000);
+
     socket.on('auth-failure', ({ connectionId, message }: { connectionId: string; message: string }) => {
       toast.error(`Falha de autenticação: ${message || 'Tente escanear novamente.'}`);
     });
@@ -1856,6 +1900,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         offlineBadgeDelayRef.current = null;
       }
       clearInterval(pingInterval);
+      clearInterval(stuckConnectingSyncInterval);
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
