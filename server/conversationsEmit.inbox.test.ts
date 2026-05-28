@@ -56,6 +56,7 @@ describe('conversationsPayloadForViewer (inbox por staff)', () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0]?.connectionId).toBe(legacyChip);
+    expect(out[0]?.connectionOwnerUid).toBe(tenantUid);
   });
 
   it('canal legado conn_* sem resolver é filtrado (escopo estrito)', () => {

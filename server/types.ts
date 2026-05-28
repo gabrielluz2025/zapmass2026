@@ -65,6 +65,8 @@ export interface Conversation {
   contactPhone: string;
   profilePicUrl?: string;
   connectionId: string;
+  /** Dono do canal (escopo `conn_*` legado); incluído no payload socket/HTTP. */
+  connectionOwnerUid?: string;
   unreadCount: number;
   lastMessage: string;
   lastMessageTime: string;

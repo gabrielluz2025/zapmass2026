@@ -399,6 +399,8 @@ export interface Conversation {
   contactPhone: string;
   profilePicUrl?: string;
   connectionId: string; // Qual chip está conversando
+  /** Dono do canal (ids legados `conn_*`); enviado pelo servidor para escopo antes de `connections-update`. */
+  connectionOwnerUid?: string;
   unreadCount: number;
   lastMessage: string;
   lastMessageTime: string;

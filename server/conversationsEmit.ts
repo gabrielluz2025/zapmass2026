@@ -20,11 +20,15 @@ export function conversationsPayloadForViewer(
 ): Conversation[] {
   const scoped = filterByConnectionScope(
     tenantUid,
-    allConversations.map((c) => ({
-      ...c,
-      connectionId: c.connectionId,
-      ownerUid: resolveConnectionOwner?.(c.connectionId)
-    }))
+    allConversations.map((c) => {
+      const connectionOwnerUid = resolveConnectionOwner?.(c.connectionId);
+      return {
+        ...c,
+        connectionId: c.connectionId,
+        ownerUid: connectionOwnerUid,
+        connectionOwnerUid
+      };
+    })
   ) as Conversation[];
 
   if (authUid !== tenantUid) {

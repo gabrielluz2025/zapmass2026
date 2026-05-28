@@ -46,12 +46,14 @@ let lastResult: Conversation[] | null = null;
 export function mergeConversationsFromSocketUpdate(
   prev: Conversation[],
   incoming: Conversation[],
-  ownsConnectionId: (connectionId: string) => boolean,
+  ownsConnectionId: (connectionId: string, connectionOwnerUid?: string) => boolean,
   maxTail: number = SYNC_MSG_TAIL
 ): Conversation[] {
   const h = hashIncoming(incoming);
   if (h === lastIncomingHash && lastResult && prev === lastResult) return prev;
-  const filtered = incoming.filter((c) => ownsConnectionId(c.connectionId));
+  const filtered = incoming.filter((c) =>
+    ownsConnectionId(c.connectionId, c.connectionOwnerUid)
+  );
   const trimmedIncoming = filtered.map((c) => trimConversationMessagesTail(c, maxTail));
   const prevById = new Map(prev.map((c) => [c.id, c]));
   const out = trimmedIncoming.map((inc) => {

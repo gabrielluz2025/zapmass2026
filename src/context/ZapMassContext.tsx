@@ -965,8 +965,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     /** Evita corrida Firebase vs ref: o primeiro connections-update vinha antes do ref estar alinhado e esvaziava a lista (modo estrito uid__). */
     const getOwnerUidForConnectionScope = (): string =>
       currentUidRef.current ?? resolvedWorkspaceUid ?? 'anonymous';
-    const ownsConnectionId = (connectionId: string) => {
-      const meta = connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid;
+    const ownsConnectionId = (connectionId: string, connectionOwnerUid?: string) => {
+      const meta =
+        connectionOwnerUid ??
+        connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid;
       return ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId, meta);
     };
 
@@ -1170,6 +1172,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               p.qrCode === r.qrCode &&
               p.name === r.name &&
               p.phoneNumber === r.phoneNumber &&
+              (p.ownerUid ?? '') === (r.ownerUid ?? '') &&
               (p.healthScore ?? 100) === (r.healthScore ?? 100)
             );
           })
@@ -1258,7 +1261,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('conversations-update', (updatedConversations: Conversation[]) => {
-      if (!Array.isArray(updatedConversations) || updatedConversations.length === 0) return;
+      if (!Array.isArray(updatedConversations)) return;
       /** Lista completa do servidor por evento; substituir preserva último estado no frame (concatenar quebraria o merge). */
       conversationsSocketPendingRef.current = updatedConversations;
       if (conversationsSocketRafRef.current != null) return;
@@ -1266,7 +1269,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         conversationsSocketRafRef.current = null;
         const pending = conversationsSocketPendingRef.current;
         conversationsSocketPendingRef.current = null;
-        if (!pending?.length) return;
+        if (!pending) return;
+        if (pending.length === 0) {
+          setConversations([]);
+          return;
+        }
         setConversations((prev) => mergeConversationsFromSocketUpdate(prev, pending, ownsConnectionId));
       });
     });
