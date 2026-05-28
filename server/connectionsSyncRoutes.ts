@@ -57,6 +57,7 @@ export function registerConnectionsSyncRoutes(app: Express): void {
             return res.json({
                 ok: true,
                 connections,
+                conversations,
                 conversationsCount: conversations.length,
                 claimed: result.claimed,
                 syncedChats: result.syncedChats,

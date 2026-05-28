@@ -284,13 +284,6 @@ function resolveOwnerUid(connectionId: string): string | undefined {
     );
 }
 
-/** Opções para `conversationsPayloadForViewer` (ids legados `conn_*` + escopo estrito). */
-export function evolutionConversationViewerOptions(): {
-    resolveConnectionOwnerUid: (connectionId: string) => string | undefined;
-} {
-    return { resolveConnectionOwnerUid: resolveOwnerUid };
-}
-
 /** Exportado para escopo de conversas (ids legados `conn_*` + ownerUid em settings). */
 export function resolveConnectionOwnerUid(connectionId: string): string | undefined {
     return resolveOwnerUid(connectionId);

@@ -1019,25 +1019,32 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!res.ok) return;
         const data = (await res.json()) as {
           connections?: WhatsAppConnection[];
+          conversations?: Conversation[];
           conversationsCount?: number;
         };
         const list = (Array.isArray(data.connections) ? data.connections : []).filter((conn) =>
           ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
         );
-        if (list.length === 0) return;
-        setConnections((prev) => {
-          const result = mergeWhatsAppConnectionLists(list, prev, qrCodeByConnectionId.current);
-          for (const conn of result) {
-            if (conn.status === ConnectionStatus.CONNECTED) {
-              delete qrCodeByConnectionId.current[conn.id];
+        if (list.length > 0) {
+          setConnections((prev) => {
+            const result = mergeWhatsAppConnectionLists(list, prev, qrCodeByConnectionId.current);
+            for (const conn of result) {
+              if (conn.status === ConnectionStatus.CONNECTED) {
+                delete qrCodeByConnectionId.current[conn.id];
+              }
             }
-          }
-          connectionsRef.current = result;
-          return result;
-        });
+            connectionsRef.current = result;
+            return result;
+          });
+        }
+        if (Array.isArray(data.conversations) && data.conversations.length > 0) {
+          setConversations((prev) =>
+            mergeConversationsFromSocketUpdate(prev, data.conversations!, ownsConnectionId)
+          );
+        }
         devLog('[sync] Canais sincronizados da Evolution', {
           count: list.length,
-          conversations: data.conversationsCount
+          conversations: data.conversationsCount ?? data.conversations?.length ?? 0
         });
         if (socket.connected) {
           socket.emit('request-conversations-sync');
