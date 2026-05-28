@@ -39,7 +39,11 @@ import {
     publishOwnerEvent,
 } from './whatsappService.js';
 import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
-import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/connectionScope.js';
+import {
+    filterByConnectionScope,
+    isLegacyConnectionId,
+    ownsConnectionForUid
+} from '../src/utils/connectionScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
@@ -289,11 +293,10 @@ export function resolveConnectionOwnerUid(connectionId: string): string | undefi
     return resolveOwnerUid(connectionId);
 }
 
-/** Canal aberto/conectando na Evolution sem dono (legado) — reparo pos-scan. */
+/** Canais legados na RAM sem dono (qualquer estado) — reparo pós-scan/sync. */
 export function listOrphanOpenConnectionIds(): string[] {
     const out: string[] = [];
-    for (const [id, conn] of connections.entries()) {
-        if (conn.status !== 'open' && conn.status !== 'connecting') continue;
+    for (const [id] of connections.entries()) {
         if (ownerUidFromConnectionId(id)) continue;
         if (resolveOwnerUid(id)) continue;
         out.push(id);
@@ -310,18 +313,55 @@ export function tryClaimUnownedLegacyConnection(connectionId: string, ownerUid: 
     const id = String(connectionId || '').trim();
     if (!uid || uid === 'anonymous' || !id || !isLegacyConnectionId(id)) return false;
     if (resolveOwnerUid(id)) return false;
+
     const conn = connections.get(id);
-    if (!conn) return false;
-    if (conn.status !== 'open' && conn.status !== 'connecting') return false;
-    return assignConnectionOwner(id, uid);
+    if (conn) {
+        return assignConnectionOwner(id, uid);
+    }
+
+    // Evolution ainda não hidratou a RAM — persiste dono em settings para desbloquear socket/REST.
+    const cached = connectionsSettingsCache[id];
+    if (cached?.ownerUid) return false;
+    if (!connectionsSettingsCache[id]) {
+        connectionsSettingsCache[id] = {};
+    }
+    connectionsSettingsCache[id].ownerUid = uid;
+    saveConnectionsSettings();
+    return true;
 }
 
-export function assignConnectionOwner(connectionId: string, ownerUid: string): boolean {
+/** Resolve dono, tenta claim legado sem dono e valida escopo do tenant (socket + REST). */
+export function ensureTenantOwnsConnection(tenantUid: string, connectionId: string): boolean {
+    const uid = String(tenantUid || '').trim();
+    const id = String(connectionId || '').trim();
+    if (!id) return false;
+
+    let meta = resolveOwnerUid(id);
+    if (ownsConnectionForUid(uid || 'anonymous', id, meta)) {
+        return true;
+    }
+
+    if (!meta && uid && uid !== 'anonymous' && isLegacyConnectionId(id)) {
+        tryClaimUnownedLegacyConnection(id, uid);
+        meta = resolveOwnerUid(id);
+    }
+
+    return ownsConnectionForUid(uid || 'anonymous', id, meta);
+}
+
+export function assignConnectionOwner(
+    connectionId: string,
+    ownerUid: string,
+    opts?: { replacePriorOwner?: string }
+): boolean {
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous') return false;
     const conn = connections.get(connectionId);
     if (!conn) return false;
-    if (conn.ownerUid && conn.ownerUid !== uid) return false;
+    if (conn.ownerUid && conn.ownerUid !== uid) {
+        const prior = opts?.replacePriorOwner?.trim();
+        if (!prior || conn.ownerUid !== prior) return false;
+    }
     const fromId = ownerUidFromConnectionId(connectionId);
     if (fromId && fromId !== uid) return false;
     conn.ownerUid = uid;
@@ -415,6 +455,19 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     const claimed: string[] = [];
     for (const orphanId of listOrphanOpenConnectionIds()) {
         if (assignConnectionOwner(orphanId, uid)) claimed.push(orphanId);
+    }
+
+    const admin = (await import('./firebaseAdmin.js')).getFirebaseAdmin();
+    const { isUidMemberOfTenant } = await import('./inboxAssignments.js');
+    const { isLegacyConnectionId } = await import('../src/utils/connectionScope.js');
+    if (admin) {
+        for (const [id] of connections.entries()) {
+            if (!isLegacyConnectionId(id)) continue;
+            const prior = resolveOwnerUid(id);
+            if (!prior || prior === uid) continue;
+            if (!(await isUidMemberOfTenant(admin, uid, prior))) continue;
+            if (assignConnectionOwner(id, uid, { replacePriorOwner: prior })) claimed.push(id);
+        }
     }
 
     const syncedChats: string[] = [];

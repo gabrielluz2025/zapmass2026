@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
+import { filterByConnectionScope } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import * as evolutionService from './evolutionService.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js'; // escopo conn_* legado
@@ -84,8 +84,7 @@ export function registerConnectionsSyncRoutes(app: Express): void {
             if (!connectionId) {
                 return res.status(400).json({ ok: false, error: 'Canal inválido.' });
             }
-            const meta = resolveConnectionOwnerUid(connectionId);
-            if (!ownsConnectionForUid(tenantUid, connectionId, meta)) {
+            if (!evolutionService.ensureTenantOwnsConnection(tenantUid, connectionId)) {
                 return res.status(403).json({ ok: false, error: 'Canal não pertence a esta conta.' });
             }
             const qrCode = await evolutionService.refreshConnectionQr(connectionId);

@@ -25,6 +25,10 @@ import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js';
+import {
+  ensureConnectionOwnedByTenant,
+  ownsConnectionForTenantSync
+} from './connectionOwnership.js';
 import { ensureAssignmentsLoaded } from './inboxAssignments.js';
 import {
   WHATSAPP_AUDIO_MAX_BYTES,
@@ -638,12 +642,7 @@ const registerSocketHandlers = () => {
     let lastUsageBeatAt = Date.now();
     const ownsConnectionId = (connectionId: string) => {
       if (useEvolutionEngine()) {
-        let meta = resolveConnectionOwnerUid(connectionId);
-        if (!meta && uid !== 'anonymous') {
-          evolutionService.tryClaimUnownedLegacyConnection(connectionId, uid);
-          meta = resolveConnectionOwnerUid(connectionId);
-        }
-        return ownsConnectionForUid(uid, connectionId, meta);
+        return evolutionService.ensureTenantOwnsConnection(uid, connectionId);
       }
       const meta = waService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
       return ownsConnectionForUid(uid, connectionId, meta);
@@ -675,7 +674,9 @@ const registerSocketHandlers = () => {
     const getWarmupStateForUid = () => {
       const state = evolutionService.getWarmupState();
       const pending = Array.isArray(state?.pending)
-        ? state.pending.filter((item: { connectionId?: string }) => ownsConnectionId(item?.connectionId || ''))
+        ? state.pending.filter((item: { connectionId?: string }) =>
+            ownsConnectionForTenantSync(uid, item?.connectionId || '', resolveConnectionMeta)
+          )
         : [];
       return { pending, warmedCount: pending.length };
     };

@@ -1722,11 +1722,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         toast.dismiss(pendingConnectionToastIdRef.current);
         pendingConnectionToastIdRef.current = null;
       }
-      const msg =
+      const base =
         typeof p?.error === 'string' && p.error.trim()
           ? p.error
           : 'Operação bloqueada por isolamento de conta.';
-      toast.error(msg, { id: 'security-warning', duration: 7000 });
+      const actionHint =
+        typeof p?.action === 'string' && p.action.trim() ? ` (${p.action.trim()})` : '';
+      toast.error(`${base}${actionHint}`, { id: 'security-warning', duration: 7000 });
     });
 
     socket.on('connection-deleted', ({ id }: { id?: string }) => {
