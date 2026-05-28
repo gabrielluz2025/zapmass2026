@@ -1702,7 +1702,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
                 if (altConn) {
                     log('info', `[Limits] Redirecionando envio do canal ${item.connectionId} para o canal ${altConn.instanceName} devido ao limite atingido.`);
                     emitCampaignLog(
-                        'WARNING',
+                        'WARN',
                         `Limite diário atingido no canal ${conn.friendlyName || item.connectionId}. Redirecionando envio para o canal ${altConn.friendlyName || altConn.instanceName}.`,
                         { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId },
                         campaignState?.ownerUid
