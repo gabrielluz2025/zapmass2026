@@ -51,7 +51,7 @@ export function registerConnectionsSyncRoutes(app: Express): void {
                 tenantUid,
                 tenantUid,
                 evolutionService.getConversations(),
-                resolveConnectionOwnerUid
+                evolutionService.resolveConnectionOwnerUid
             );
 
             return res.json({
