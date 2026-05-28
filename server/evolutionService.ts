@@ -284,6 +284,18 @@ function resolveOwnerUid(connectionId: string): string | undefined {
     );
 }
 
+/** Opções para `conversationsPayloadForViewer` (ids legados `conn_*` + escopo estrito). */
+export function evolutionConversationViewerOptions(): {
+    resolveConnectionOwnerUid: (connectionId: string) => string | undefined;
+} {
+    return { resolveConnectionOwnerUid: resolveOwnerUid };
+}
+
+/** Exportado para escopo de conversas (ids legados `conn_*` + ownerUid em settings). */
+export function resolveConnectionOwnerUid(connectionId: string): string | undefined {
+    return resolveOwnerUid(connectionId);
+}
+
 /** Canal aberto na Evolution sem dono (legado) — reparo pos-scan. */
 export function listOrphanOpenConnectionIds(): string[] {
     const out: string[] = [];
@@ -412,7 +424,7 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     publishOwnerEvent(
         uid,
         'conversations-update',
-        conversationsPayloadForViewer(uid, uid, chatStore.getConversations())
+        conversationsPayloadForViewer(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
     );
 
     log('info', `syncConnectionsForOwner: ${scoped.length} canal(is), claimed=${claimed.join(',') || '-'}`);
@@ -478,7 +490,7 @@ function emitScopedConversationsUpdate() {
             publishOwnerEvent(
                 uid,
                 'conversations-update',
-                conversationsPayloadForViewer(uid, uid, all)
+                conversationsPayloadForViewer(uid, uid, all, resolveConnectionOwnerUid)
             );
         }
         if (owners.size === 0 && io) {
@@ -758,7 +770,7 @@ function applyConnectionStateUpdate(
                 publishOwnerEvent(
                     ou,
                     'conversations-update',
-                    conversationsPayloadForViewer(ou, ou, chatStore.getConversations())
+                    conversationsPayloadForViewer(ou, ou, chatStore.getConversations(), resolveConnectionOwnerUid)
                 );
             }
         })();
@@ -1796,7 +1808,7 @@ export async function deleteConnection(id: string): Promise<void> {
         publishOwnerEvent(
             ownerUid,
             'conversations-update',
-            conversationsPayloadForViewer(ownerUid, ownerUid, chatStore.getConversations())
+            conversationsPayloadForViewer(ownerUid, ownerUid, chatStore.getConversations(), resolveConnectionOwnerUid)
         );
     } else if (io) {
         io.emit('connection-deleted', { id });
@@ -2573,6 +2585,7 @@ export async function syncAllOpenChats(): Promise<void> {
         }
     }
     await Promise.all(tasks);
+    emitScopedConversationsUpdate();
 }
 
 export async function loadChatHistory(

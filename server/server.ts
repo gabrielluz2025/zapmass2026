@@ -24,6 +24,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
+import { resolveConnectionOwnerUid } from './evolutionService.js';
 import { ensureAssignmentsLoaded } from './inboxAssignments.js';
 import {
   WHATSAPP_AUDIO_MAX_BYTES,
@@ -718,7 +719,10 @@ const registerSocketHandlers = () => {
           /* defaults no cliente */
         }
       }
-      socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations()));
+      socket.emit(
+        'conversations-update',
+        conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+      );
     })();
     socket.emit('warmup-update', getWarmupStateForUid());
     socket.emit('system-metrics', getSystemMetrics());
@@ -752,7 +756,7 @@ const registerSocketHandlers = () => {
           await evolutionService.syncAllOpenChats().catch(() => undefined);
           socket.emit(
             'conversations-update',
-            conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations())
+            conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
           );
           return;
         }
@@ -850,7 +854,7 @@ const registerSocketHandlers = () => {
         await evolutionService.syncAllOpenChats().catch(() => undefined);
         socket.emit(
           'conversations-update',
-          conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations())
+          conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
         );
       })();
     });

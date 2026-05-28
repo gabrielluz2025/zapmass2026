@@ -6,17 +6,25 @@ import {
 } from './inboxAssignments.js';
 import type { Conversation } from './types.js';
 
+/** Resolve dono de canal legado (`conn_*` sem `uid__`) para `filterByConnectionScope`. */
+export type ConnectionOwnerResolver = (connectionId: string) => string | undefined;
+
 /**
  * Lista de conversas que cada socket deve ver: escopo de chip + regras de inbox (staff).
  */
 export function conversationsPayloadForViewer(
   tenantUid: string,
   authUid: string,
-  allConversations: Conversation[]
+  allConversations: Conversation[],
+  resolveConnectionOwner?: ConnectionOwnerResolver
 ): Conversation[] {
   const scoped = filterByConnectionScope(
     tenantUid,
-    allConversations.map((c) => ({ ...c, connectionId: c.connectionId }))
+    allConversations.map((c) => ({
+      ...c,
+      connectionId: c.connectionId,
+      ownerUid: resolveConnectionOwner?.(c.connectionId)
+    }))
   ) as Conversation[];
 
   if (authUid !== tenantUid) {

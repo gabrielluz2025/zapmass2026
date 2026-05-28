@@ -171,21 +171,53 @@ export function createEvolutionChat(api: AxiosInstance) {
         upsertConversation(conv);
     }
 
+    function chatRemoteJid(chat: any): string | null {
+        const idRaw = chat?.id;
+        const candidates = [
+            chat?.remoteJid,
+            chat?.jid,
+            chat?.key?.remoteJid,
+            chat?.lastMessage?.key?.remoteJid,
+            typeof idRaw === 'string' ? idRaw : null,
+            idRaw && typeof idRaw === 'object'
+                ? idRaw._serialized || (idRaw.user ? `${idRaw.user}@${idRaw.server || 's.whatsapp.net'}` : null)
+                : null,
+        ];
+        for (const c of candidates) {
+            if (c == null) continue;
+            const s = String(c).trim();
+            if (s && s.includes('@')) return s;
+        }
+        return null;
+    }
+
+    function extractFindChatsList(raw: unknown): any[] {
+        if (Array.isArray(raw)) return raw;
+        if (!raw || typeof raw !== 'object') return [];
+        const row = raw as Record<string, unknown>;
+        for (const key of ['chats', 'records', 'data', 'result', 'response'] as const) {
+            const v = row[key];
+            if (Array.isArray(v)) return v;
+            if (v && typeof v === 'object') {
+                const nested = v as Record<string, unknown>;
+                if (Array.isArray(nested.chats)) return nested.chats as any[];
+                if (Array.isArray(nested.records)) return nested.records as any[];
+            }
+        }
+        return [];
+    }
+
     function mapEvolutionChatToConversation(connectionId: string, chat: any): Conversation | null {
-        const remoteJid =
-            chat?.id ||
-            chat?.remoteJid ||
-            chat?.jid ||
-            chat?.key?.remoteJid ||
-            chat?.lastMessage?.key?.remoteJid;
-        if (!remoteJid || String(remoteJid).endsWith('@g.us') || String(remoteJid) === 'status@broadcast') {
+        const remoteJid = chatRemoteJid(chat);
+        if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') {
             return null;
         }
 
-        const jid = String(remoteJid);
+        const jid = remoteJid;
         const id = buildConversationId(connectionId, jid);
         const name =
             chat?.name ||
+            chat?.chatName ||
             chat?.pushName ||
             chat?.contactName ||
             chat?.verifiedName ||
@@ -215,15 +247,11 @@ export function createEvolutionChat(api: AxiosInstance) {
 
     async function syncChatsForConnection(connectionId: string): Promise<number> {
         try {
-            const response = await api.post(`/chat/findChats/${evoInst(connectionId)}`, {});
-            const raw = response.data;
-            const chats: any[] = Array.isArray(raw)
-                ? raw
-                : Array.isArray(raw?.chats)
-                  ? raw.chats
-                  : Array.isArray(raw?.records)
-                    ? raw.records
-                    : [];
+            const response = await api.post(`/chat/findChats/${evoInst(connectionId)}`, {
+                page: 1,
+                limit: 500,
+            });
+            const chats = extractFindChatsList(response.data);
 
             let added = 0;
             for (const chat of chats) {
@@ -232,7 +260,12 @@ export function createEvolutionChat(api: AxiosInstance) {
                 upsertConversation(conv);
                 added++;
             }
-            if (added > 0) emitConversationsUpdate();
+            emitConversationsUpdate();
+            if (chats.length > 0 && added === 0) {
+                console.warn(
+                    `[EvolutionChat] syncChats ${connectionId}: ${chats.length} item(ns) da API, 0 conversas 1:1 mapeadas`
+                );
+            }
             return added;
         } catch (error: any) {
             console.warn(`[EvolutionChat] syncChats ${connectionId}:`, error?.message || error);

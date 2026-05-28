@@ -21,7 +21,8 @@ async function emitConversationsFilteredPerSocket(io: Server, tenantUid: string,
     }
     for (const remoteSocket of socks) {
       const authUid = String((remoteSocket.data as { authUid?: string }).authUid ?? tenantUid);
-      const list = conversationsPayloadForViewer(tenantUid, authUid, convs);
+      const { resolveConnectionOwnerUid } = await import('./evolutionService.js');
+      const list = conversationsPayloadForViewer(tenantUid, authUid, convs, resolveConnectionOwnerUid);
       remoteSocket.emit('conversations-update', list);
     }
   } catch (e) {

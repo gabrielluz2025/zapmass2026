@@ -47,4 +47,21 @@ describe('conversationsPayloadForViewer (inbox por staff)', () => {
     expect(outA).toHaveLength(1);
     expect(outA[0]?.inboxClaimedByAuthUid).toBe(staffA);
   });
+
+  it('canal legado conn_* com ownerUid no resolver entra no escopo do tenant', () => {
+    const legacyChip = 'conn_1700000000000';
+    const convs = [baseConv(`${legacyChip}:5511999999999@s.whatsapp.net`, legacyChip)];
+    const out = conversationsPayloadForViewer(tenantUid, tenantUid, convs, (id) =>
+      id === legacyChip ? tenantUid : undefined
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.connectionId).toBe(legacyChip);
+  });
+
+  it('canal legado conn_* sem resolver é filtrado (escopo estrito)', () => {
+    const legacyChip = 'conn_1700000000000';
+    const convs = [baseConv(`${legacyChip}:5511999999999@s.whatsapp.net`, legacyChip)];
+    const out = conversationsPayloadForViewer(tenantUid, tenantUid, convs);
+    expect(out).toHaveLength(0);
+  });
 });

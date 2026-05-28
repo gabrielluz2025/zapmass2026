@@ -958,8 +958,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     /** Evita corrida Firebase vs ref: o primeiro connections-update vinha antes do ref estar alinhado e esvaziava a lista (modo estrito uid__). */
     const getOwnerUidForConnectionScope = (): string =>
       currentUidRef.current ?? auth.currentUser?.uid ?? 'anonymous';
-    const ownsConnectionId = (connectionId: string) =>
-      ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId);
+    const ownsConnectionId = (connectionId: string) => {
+      const meta = connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid;
+      return ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId, meta);
+    };
 
     devLog(`Iniciando conexão Socket.IO com: ${BACKEND_URL || 'origem relativa'}`);
 
@@ -1037,6 +1039,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           count: list.length,
           conversations: data.conversationsCount
         });
+        if (socket.connected) {
+          socket.emit('request-conversations-sync');
+        }
       } catch (e) {
         console.warn('[sync] /api/connections/sync falhou:', e);
       }
@@ -1346,7 +1351,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('connection-ready', ({ connectionId }: { connectionId: string }) => {
       const conn = connectionsRef.current.find(c => c.id === connectionId);
       toast.success(`Conexão "${conn?.name || connectionId}" estabelecida! ✅`);
-      void syncConnectionsFromApi();
+      void syncConnectionsFromApi().then(() => {
+        if (socket.connected) socket.emit('request-conversations-sync');
+      });
     });
 
     /** Evolution: ONLINE/CONNECTING/OFFLINE — evita UI presa em "Inicializando" sem connections-update completo. */
@@ -1383,6 +1390,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           connectionsRef.current = updated;
           return updated;
         });
+        if (nextStatus === ConnectionStatus.CONNECTED && socket.connected) {
+          socket.emit('request-conversations-sync');
+        }
       }
     );
 

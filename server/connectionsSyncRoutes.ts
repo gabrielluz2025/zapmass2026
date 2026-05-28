@@ -4,6 +4,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import * as evolutionService from './evolutionService.js';
+import { resolveConnectionOwnerUid } from './evolutionService.js'; // escopo conn_* legado
 
 function parseBearer(req: Request): string | null {
     const h = req.headers.authorization || '';
@@ -49,7 +50,8 @@ export function registerConnectionsSyncRoutes(app: Express): void {
             const conversations = conversationsPayloadForViewer(
                 tenantUid,
                 tenantUid,
-                evolutionService.getConversations()
+                evolutionService.getConversations(),
+                resolveConnectionOwnerUid
             );
 
             return res.json({
