@@ -298,7 +298,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         if (!parsed) throw new Error('conversationId inválido');
 
         const number = parsed.remoteJid.replace(/@.+$/, '').replace(/\D/g, '');
-        const response = await api.post(`/message/sendText/${parsed.connectionId}`, { number, text });
+        const response = await api.post(`/message/sendText/${parsed.connectionId}`, { number, text, delay: 1200 });
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         const nowMs = Date.now();
 
@@ -346,15 +346,14 @@ export function createEvolutionChat(api: AxiosInstance) {
             else if (payload.mimeType.startsWith('audio/')) type = 'audio';
         }
 
+        // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
         const response = await api.post(`/message/sendMedia/${parsed.connectionId}`, {
             number,
-            options: { delay: 1200, presence: 'composing' },
-            mediaMessage: {
-                mediatype: type,
-                caption: payload.caption || '',
-                media: url,
-                fileName: payload.fileName,
-            },
+            delay: 1200,
+            mediatype: type,
+            caption: payload.caption || '',
+            media: url,
+            fileName: payload.fileName,
         });
 
         const messageId = response.data?.key?.id || response.data?.key?._serialized;

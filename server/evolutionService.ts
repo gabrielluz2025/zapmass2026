@@ -277,7 +277,11 @@ function ownerUidFromConnectionId(connectionId: string): string | undefined {
 }
 
 function resolveOwnerUid(connectionId: string): string | undefined {
-    return ownerUidFromConnectionId(connectionId) || connections.get(connectionId)?.ownerUid;
+    return (
+        ownerUidFromConnectionId(connectionId) ||
+        connections.get(connectionId)?.ownerUid ||
+        connectionsSettingsCache[connectionId]?.ownerUid
+    );
 }
 
 /** Canal aberto na Evolution sem dono (legado) — reparo pos-scan. */
@@ -1289,9 +1293,17 @@ function ensureReplyFlowEngine() {
 async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
     const active: string[] = [];
     for (const connId of connectionIds) {
+        // Usa estado em memória como primeira verificação rápida
+        const memState = connections.get(connId)?.status;
+        if (memState === 'open') {
+            active.push(connId);
+            continue;
+        }
+        // Fallback: consulta Evolution API via HTTP
         const state = await getConnectionState(connId);
-        if (state === 'open') active.push(connId);
-        else {
+        if (state === 'open') {
+            active.push(connId);
+        } else {
             emitCampaignLog('WARN', `Canal excluído do disparo (indisponível): ${connId}`, { connectionId: connId });
         }
     }
@@ -1585,20 +1597,15 @@ async function sendMediaInternal(
         const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
 
         const endpoint = `/message/sendMedia/${connectionId}`;
+        // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
         const payload = {
             number,
-            options: {
-                delay: 1200,
-                presence: 'composing',
-            },
-            mediaMessage: {
-                mediatype: type,
-                caption: caption || '',
-                media: url,
-                fileName,
-            },
+            delay: 1200,
+            mediatype: type,
+            caption: caption || '',
+            media: url,
+            fileName,
         };
-
         const response = await api.post(endpoint, payload);
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
 
@@ -1635,6 +1642,7 @@ async function sendMessageInternal(
         const response = await api.post(`/message/sendText/${connectionId}`, {
             number,
             text: message,
+            delay: 1200,
         });
 
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
@@ -1761,9 +1769,13 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         }
     }
 
-    const state = await getConnectionState(item.connectionId);
-    if (state !== 'open') {
-        throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
+    // Verifica estado em memória primeiro (evita HTTP desnecessário)
+    const memStateJob = connections.get(item.connectionId)?.status;
+    if (memStateJob !== 'open') {
+        const state = await getConnectionState(item.connectionId);
+        if (state !== 'open') {
+            throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
+        }
     }
 
     log('info', 'Tentando envio', { to: item.to, connectionId: item.connectionId, campaignId: item.campaignId });
@@ -1889,17 +1901,15 @@ async function sendMediaByUrlInternal(
         else if (mimeType.startsWith('video/')) type = 'video';
         else if (mimeType.startsWith('audio/')) type = 'audio';
 
+        // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
         const response = await api.post(`/message/sendMedia/${connectionId}`, {
             number,
-            options: { delay: 1200, presence: 'composing' },
-            mediaMessage: {
-                mediatype: type,
-                caption: caption || '',
-                media: mediaUrl,
-                fileName,
-            },
+            delay: 1200,
+            mediatype: type,
+            caption: caption || '',
+            media: mediaUrl,
+            fileName,
         });
-
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         return { ok: Boolean(response.data?.key), messageId: messageId ? String(messageId) : undefined };
     } catch (error: any) {
