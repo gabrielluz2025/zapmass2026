@@ -913,16 +913,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     scheduleTimeZone
   ]);
   const scheduleOk = launchMode === 'now' || abLabEnabled || scheduleSlots.length > 0;
-  const preflightComplete =
-    preflightAck.audience && preflightAck.messages && preflightAck.responsibility;
   const canSubmit =
     canGoFromAudience &&
     canGoFromMessage &&
     canGoFromChannels &&
     !isSubmitting &&
     abLabOk &&
-    scheduleOk &&
-    preflightComplete;
+    scheduleOk;
 
   useEffect(() => {
     if (step !== 4) return;
