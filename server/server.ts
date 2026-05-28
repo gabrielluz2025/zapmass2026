@@ -764,7 +764,11 @@ const registerSocketHandlers = () => {
           await ensureAssignmentsLoaded(uid).catch(() => undefined);
         }
         if (useEvolutionChat()) {
-          await evolutionService.syncAllOpenChats().catch(() => undefined);
+          if (uid && uid !== 'anonymous') {
+            await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
+          } else {
+            await evolutionService.syncAllOpenChats().catch(() => undefined);
+          }
           socket.emit(
             'conversations-update',
             conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
@@ -862,7 +866,7 @@ const registerSocketHandlers = () => {
           return;
         }
         emitScopedConnections();
-        await evolutionService.syncAllOpenChats().catch(() => undefined);
+        await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
         socket.emit(
           'conversations-update',
           conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
@@ -1118,11 +1122,7 @@ const registerSocketHandlers = () => {
         }).catch(() => {});
         return;
       }
-      const connections = filterByConnectionScope(uid, evolutionService.getConnections());
-      const connectedIds = connections
-        .filter((conn) => conn.status === 'CONNECTED')
-        .map((conn) => conn.id);
-      const hasConnected = connectionIds.some((id: string) => connectedIds.includes(id));
+      const hasConnected = await evolutionService.anySelectedConnectionsOpen(connectionIds);
       if (!hasConnected) {
         userLog('campaign:error', { campaignId, reason: 'Nenhum canal conectado', connectionIds });
         const err = 'Nenhum canal conectado disponível para disparo.';

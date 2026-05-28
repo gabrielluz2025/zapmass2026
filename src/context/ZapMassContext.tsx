@@ -954,10 +954,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // --- SOCKET.IO REAL-TIME CONNECTION ---
   useEffect(() => {
+    /** Workspace (userWorkspaceLinks) tem de resolver antes do socket — senão o filtro usa authUid e bloqueia canais/conversas do tenant. */
+    if (workspaceLoading) return undefined;
+    const resolvedWorkspaceUid = effectiveWorkspaceUid ?? auth.currentUser?.uid ?? null;
+    if (!resolvedWorkspaceUid) return undefined;
+    currentUidRef.current = resolvedWorkspaceUid;
+
     const BACKEND_URL = getSocketIoOrigin();
     /** Evita corrida Firebase vs ref: o primeiro connections-update vinha antes do ref estar alinhado e esvaziava a lista (modo estrito uid__). */
     const getOwnerUidForConnectionScope = (): string =>
-      currentUidRef.current ?? auth.currentUser?.uid ?? 'anonymous';
+      currentUidRef.current ?? resolvedWorkspaceUid ?? 'anonymous';
     const ownsConnectionId = (connectionId: string) => {
       const meta = connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid;
       return ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId, meta);
@@ -1952,7 +1958,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
-  }, [syncStuckCampaignsToFirestore]);
+  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading]);
 
   /** Hidrata canais após auth + workspace — não depender só do primeiro socket.connect. */
   useEffect(() => {

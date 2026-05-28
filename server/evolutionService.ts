@@ -468,6 +468,13 @@ function parseConnectionStatePayload(data: unknown): string {
 }
 
 /** Estado aberto: memória da API + Evolution (evita disparo/pipeline bloqueados por polling atrasado). */
+export async function anySelectedConnectionsOpen(connectionIds: string[]): Promise<boolean> {
+    for (const id of connectionIds) {
+        if (await isConnectionOpen(id)) return true;
+    }
+    return false;
+}
+
 async function isConnectionOpen(instanceName: string): Promise<boolean> {
     const mem = connections.get(instanceName);
     if (mem?.status === 'open') return true;
@@ -2596,6 +2603,24 @@ export async function syncAllOpenChats(): Promise<void> {
     emitScopedConversationsUpdate();
 }
 
+/** findChats só dos canais `open` do tenant — evita sync global e pipeline vazio por escopo. */
+export async function syncOpenChatsForOwner(ownerUid: string): Promise<void> {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') {
+        await syncAllOpenChats();
+        return;
+    }
+    const tasks: Promise<number>[] = [];
+    for (const [id, conn] of connections.entries()) {
+        if (conn.status !== 'open') continue;
+        if (resolveOwnerUid(id) !== uid) continue;
+        tasks.push(chatStore.syncChatsForConnection(id));
+    }
+    if (tasks.length > 0) {
+        await Promise.all(tasks);
+    }
+}
+
 export async function loadChatHistory(
     conversationId: string,
     limit = 500,
@@ -2765,6 +2790,7 @@ export default {
     getMetrics,
     getConversations,
     syncAllOpenChats,
+    syncOpenChatsForOwner,
     syncConnectionsForOwner,
     assignConnectionOwner,
     listOrphanOpenConnectionIds,
