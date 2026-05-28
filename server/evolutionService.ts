@@ -318,7 +318,7 @@ export function assignConnectionOwner(connectionId: string, ownerUid: string): b
     return true;
 }
 
-/** Remove instâncias Evolution presas em connecting/close (não open) do dono atual. */
+/** Remove instâncias Evolution zumbis (close/created) do dono — nunca `connecting` (pós-scan do QR). */
 export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<{ deleted: string[]; keptOpen: string[] }> {
     const uid = String(ownerUid || '').trim();
     const deleted: string[] = [];
@@ -344,7 +344,9 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
                 continue;
             }
             if (resolveOwnerUid(instanceName) !== uid) continue;
-            if (state !== 'connecting' && state !== 'close' && state !== 'created') continue;
+            // Não apagar `connecting`: sync pós-QR e connection-ready chamam sync e matariam a sessão em curso.
+            if (state !== 'close' && state !== 'created') continue;
+            if (connectionWatchTimers.has(instanceName) || qrWatchTimers.has(instanceName)) continue;
 
             try {
                 try {
@@ -430,25 +432,60 @@ function resolveInstanceName(raw: unknown): string {
 function parseConnectionStatePayload(data: unknown): string {
     if (!data || typeof data !== 'object') return 'close';
     const row = data as Record<string, unknown>;
-    if (typeof row.state === 'string') return row.state;
+    for (const key of ['state', 'connectionStatus', 'status'] as const) {
+        const v = row[key];
+        if (typeof v === 'string' && v.trim()) return v;
+    }
     const nested = row.instance;
     if (nested && typeof nested === 'object') {
-        const state = (nested as Record<string, unknown>).state;
-        if (typeof state === 'string') return state;
+        const inst = nested as Record<string, unknown>;
+        for (const key of ['state', 'connectionStatus', 'status'] as const) {
+            const v = inst[key];
+            if (typeof v === 'string' && v.trim()) return v;
+        }
     }
     return 'close';
 }
 
-function parseConnectionStateFromData(data: unknown): string {
-    if (!data || typeof data !== 'object') return '';
-    const row = data as Record<string, unknown>;
-    if (typeof row.state === 'string') return row.state;
-    const nested = row.instance;
-    if (nested && typeof nested === 'object') {
-        const state = (nested as Record<string, unknown>).state;
-        if (typeof state === 'string') return state;
+/** Estado aberto: memória da API + Evolution (evita disparo/pipeline bloqueados por polling atrasado). */
+async function isConnectionOpen(instanceName: string): Promise<boolean> {
+    const mem = connections.get(instanceName);
+    if (mem?.status === 'open') return true;
+    const apiState = (await getConnectionState(instanceName)).toLowerCase();
+    if (apiState === 'open') {
+        if (mem) {
+            applyConnectionStateUpdate(instanceName, 'open', {});
+        }
+        return true;
     }
-    return '';
+    return false;
+}
+
+function parseConnectionStateFromData(data: unknown): string {
+    const parsed = parseConnectionStatePayload(data);
+    return parsed === 'close' ? '' : parsed;
+}
+
+function emitScopedConversationsUpdate() {
+    void (async () => {
+        const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+        const all = chatStore.getConversations();
+        const owners = new Set<string>();
+        for (const c of all) {
+            const ou = resolveOwnerUid(c.connectionId);
+            if (ou) owners.add(ou);
+        }
+        for (const uid of owners) {
+            publishOwnerEvent(
+                uid,
+                'conversations-update',
+                conversationsPayloadForViewer(uid, uid, all)
+            );
+        }
+        if (owners.size === 0 && io) {
+            io.emit('conversations-update', all);
+        }
+    })();
 }
 
 const connectionWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -570,6 +607,11 @@ function applyConnectionStateUpdate(
     }
 
     log('info', `Status atualizado: ${instance} → ${status}`);
+
+    // Webhook CONNECTION_UPDATE às vezes não chega após o scan do QR — polling até `open`.
+    if (state === 'connecting') {
+        watchConnectionUntilOpen(instance);
+    }
 
     if (state === 'open') {
         stopWatchingConnection(instance);
@@ -826,11 +868,13 @@ async function hydrateInstancesFromEvolution() {
             if (!instanceName) continue;
 
             const existing = connections.get(instanceName);
+            const prevStatus = existing?.status;
+            const mappedState = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
             const phoneFromApi = phoneFromEvolutionRow(row);
             const instanceObj: EvolutionInstance = {
                 instanceName,
                 friendlyName: existing?.friendlyName || String(row.profileName || instanceName),
-                status: mapEvolutionState(row.connectionStatus ?? row.state ?? row.status),
+                status: mappedState,
                 ownerUid: existing?.ownerUid || ownerUidFromConnectionId(instanceName),
                 profilePicUrl: typeof row.profilePicUrl === 'string' ? row.profilePicUrl : existing?.profilePicUrl,
                 profileName: typeof row.profileName === 'string' ? row.profileName : existing?.profileName,
@@ -840,6 +884,13 @@ async function hydrateInstancesFromEvolution() {
             };
             applySettingsToInstance(instanceObj);
             connections.set(instanceName, instanceObj);
+            if (mappedState === 'open' && prevStatus !== 'open') {
+                applyConnectionStateUpdate(
+                    instanceName,
+                    'open',
+                    row as Record<string, unknown>
+                );
+            }
         }
         if (list.length > 0) {
             const ownersNotified = new Set<string>();
@@ -848,6 +899,11 @@ async function hydrateInstancesFromEvolution() {
                 if (!ou || ownersNotified.has(ou)) continue;
                 ownersNotified.add(ou);
                 publishOwnerEvent(ou, 'connections-update', filterByConnectionScope(ou, getConnections()));
+            }
+        }
+        for (const [id, conn] of connections.entries()) {
+            if (conn.status === 'connecting') {
+                watchConnectionUntilOpen(id);
             }
         }
         log('info', `Instâncias Evolution sincronizadas: ${list.length}`);
@@ -1293,17 +1349,8 @@ function ensureReplyFlowEngine() {
 async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
     const active: string[] = [];
     for (const connId of connectionIds) {
-        // Usa estado em memória como primeira verificação rápida
-        const memState = connections.get(connId)?.status;
-        if (memState === 'open') {
-            active.push(connId);
-            continue;
-        }
-        // Fallback: consulta Evolution API via HTTP
-        const state = await getConnectionState(connId);
-        if (state === 'open') {
-            active.push(connId);
-        } else {
+        if (await isConnectionOpen(connId)) active.push(connId);
+        else {
             emitCampaignLog('WARN', `Canal excluído do disparo (indisponível): ${connId}`, { connectionId: connId });
         }
     }
@@ -1504,6 +1551,7 @@ export async function reconnectConnection(id: string) {
             emitQrToFrontend(id, extracted);
         } else {
             ensureQrDelivered(id);
+            watchConnectionUntilOpen(id);
             if (io) {
                 const ou = resolveOwnerUid(id);
                 if (ou) {
@@ -1596,8 +1644,8 @@ async function sendMediaInternal(
 
         const { url } = await saveMediaFromBase64(base64, mimeType, fileName);
 
-        const endpoint = `/message/sendMedia/${connectionId}`;
         // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
+        const endpoint = `/message/sendMedia/${evoInst(connectionId)}`;
         const payload = {
             number,
             delay: 1200,
@@ -1639,7 +1687,7 @@ async function sendMessageInternal(
 
         log('info', `Enviando mensagem via ${connectionId}`, { to: number });
 
-        const response = await api.post(`/message/sendText/${connectionId}`, {
+        const response = await api.post(`/message/sendText/${evoInst(connectionId)}`, {
             number,
             text: message,
             delay: 1200,
@@ -1769,13 +1817,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         }
     }
 
-    // Verifica estado em memória primeiro (evita HTTP desnecessário)
-    const memStateJob = connections.get(item.connectionId)?.status;
-    if (memStateJob !== 'open') {
+    if (!(await isConnectionOpen(item.connectionId))) {
         const state = await getConnectionState(item.connectionId);
-        if (state !== 'open') {
-            throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
-        }
+        throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
     }
 
     log('info', 'Tentando envio', { to: item.to, connectionId: item.connectionId, campaignId: item.campaignId });
@@ -1902,7 +1946,7 @@ async function sendMediaByUrlInternal(
         else if (mimeType.startsWith('audio/')) type = 'audio';
 
         // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
-        const response = await api.post(`/message/sendMedia/${connectionId}`, {
+        const response = await api.post(`/message/sendMedia/${evoInst(connectionId)}`, {
             number,
             delay: 1200,
             mediatype: type,
@@ -2114,7 +2158,7 @@ export async function startCampaign(
  */
 export function init(socketIO: SocketIOServer) {
     io = socketIO;
-    chatStore.init(socketIO);
+    chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
     ensureReplyFlowEngine();
     ensureCampaignWorker();
         log('info', 'Evolution API Service Initialized', {

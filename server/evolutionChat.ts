@@ -8,16 +8,29 @@ const MAX_MESSAGES = 10000;
 
 type ParsedConversation = { connectionId: string; chatPart: string; remoteJid: string };
 
+function evoInst(instanceName: string): string {
+    return encodeURIComponent(String(instanceName || '').trim());
+}
+
 export function createEvolutionChat(api: AxiosInstance) {
     let conversations: Conversation[] = [];
     let io: SocketIOServer | null = null;
+    let notifyConversationsChanged: (() => void) | null = null;
     const deletedConversationIds = new Set<string>();
 
-    function init(socketIO: SocketIOServer) {
+    function init(
+        socketIO: SocketIOServer,
+        opts?: { notifyConversationsChanged?: () => void }
+    ) {
         io = socketIO;
+        notifyConversationsChanged = opts?.notifyConversationsChanged ?? null;
     }
 
     function emitConversationsUpdate() {
+        if (notifyConversationsChanged) {
+            notifyConversationsChanged();
+            return;
+        }
         if (io) io.emit('conversations-update', [...conversations]);
     }
 
@@ -202,7 +215,7 @@ export function createEvolutionChat(api: AxiosInstance) {
 
     async function syncChatsForConnection(connectionId: string): Promise<number> {
         try {
-            const response = await api.post(`/chat/findChats/${connectionId}`, {});
+            const response = await api.post(`/chat/findChats/${evoInst(connectionId)}`, {});
             const raw = response.data;
             const chats: any[] = Array.isArray(raw)
                 ? raw
@@ -234,7 +247,7 @@ export function createEvolutionChat(api: AxiosInstance) {
             page: 1,
         };
         try {
-            const response = await api.post(`/chat/findMessages/${connectionId}`, body);
+            const response = await api.post(`/chat/findMessages/${evoInst(connectionId)}`, body);
             const raw = response.data;
             let messages: any[] = Array.isArray(raw)
                 ? raw
@@ -298,7 +311,11 @@ export function createEvolutionChat(api: AxiosInstance) {
         if (!parsed) throw new Error('conversationId inválido');
 
         const number = parsed.remoteJid.replace(/@.+$/, '').replace(/\D/g, '');
-        const response = await api.post(`/message/sendText/${parsed.connectionId}`, { number, text, delay: 1200 });
+        const response = await api.post(`/message/sendText/${evoInst(parsed.connectionId)}`, {
+            number,
+            text,
+            delay: 1200,
+        });
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         const nowMs = Date.now();
 
@@ -347,7 +364,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         }
 
         // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
-        const response = await api.post(`/message/sendMedia/${parsed.connectionId}`, {
+        const response = await api.post(`/message/sendMedia/${evoInst(parsed.connectionId)}`, {
             number,
             delay: 1200,
             mediatype: type,
@@ -457,7 +474,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         if (!match) return { ok: false, error: 'Mensagem não encontrada.' };
 
         try {
-            const response = await api.post(`/chat/getBase64FromMediaMessage/${parsed.connectionId}`, {
+            const response = await api.post(`/chat/getBase64FromMediaMessage/${evoInst(parsed.connectionId)}`, {
                 message: match,
             });
             const base64 = response.data?.base64 || response.data?.data;
@@ -499,7 +516,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         if (unreadThem.length === 0) return;
 
         try {
-            await api.post(`/chat/markMessageAsRead/${parsed.connectionId}`, {
+            await api.post(`/chat/markMessageAsRead/${evoInst(parsed.connectionId)}`, {
                 readMessages: unreadThem.map((m) => ({
                     remoteJid: parsed.remoteJid,
                     fromMe: false,
@@ -520,7 +537,7 @@ export function createEvolutionChat(api: AxiosInstance) {
 
         const number = parsed.remoteJid.replace(/@.+$/, '').replace(/\D/g, '');
         try {
-            const response = await api.post(`/chat/fetchProfilePictureUrl/${parsed.connectionId}`, { number });
+            const response = await api.post(`/chat/fetchProfilePictureUrl/${evoInst(parsed.connectionId)}`, { number });
             const pic = response.data?.profilePictureUrl || response.data?.url || response.data?.picture;
             if (pic && String(pic).startsWith('http')) {
                 if (conv) {
