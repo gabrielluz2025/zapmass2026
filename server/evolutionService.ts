@@ -302,6 +302,14 @@ export function assignConnectionOwner(connectionId: string, ownerUid: string): b
     if (fromId && fromId !== uid) return false;
     conn.ownerUid = uid;
     connections.set(connectionId, conn);
+
+    // Salva o dono de forma persistente no disco
+    if (!connectionsSettingsCache[connectionId]) {
+        connectionsSettingsCache[connectionId] = {};
+    }
+    connectionsSettingsCache[connectionId].ownerUid = uid;
+    saveConnectionsSettings();
+
     publishOwnerEvent(uid, 'connections-update', filterByConnectionScope(uid, getConnections()));
     return true;
 }
@@ -924,6 +932,7 @@ interface ConnectionSettingsPayload {
     messagesSentToday?: number;
     limitExceededApproved?: boolean;
     lastLimitResetDate?: string;
+    ownerUid?: string; // Mantém o proprietário do canal de forma persistente
 }
 
 let connectionsSettingsCache: Record<string, ConnectionSettingsPayload> = {};
@@ -966,6 +975,9 @@ function applySettingsToInstance(conn: EvolutionInstance) {
         conn.messagesSentToday = cached.messagesSentToday || 0;
         conn.limitExceededApproved = cached.limitExceededApproved || false;
         conn.lastLimitResetDate = cached.lastLimitResetDate;
+        if (cached.ownerUid && !conn.ownerUid) {
+            conn.ownerUid = cached.ownerUid;
+        }
     } else {
         conn.dailyLimit = undefined;
         conn.growthRate = undefined;
@@ -1006,7 +1018,8 @@ function checkAndResetDailyLimits(conn: EvolutionInstance) {
             limitAction: conn.limitAction,
             messagesSentToday: conn.messagesSentToday,
             limitExceededApproved: conn.limitExceededApproved,
-            lastLimitResetDate: conn.lastLimitResetDate
+            lastLimitResetDate: conn.lastLimitResetDate,
+            ownerUid: conn.ownerUid
         };
         saveConnectionsSettings();
     }
@@ -1040,7 +1053,8 @@ export async function updateConnectionSettings(
         limitAction: conn.limitAction,
         messagesSentToday: conn.messagesSentToday,
         limitExceededApproved: conn.limitExceededApproved,
-        lastLimitResetDate: conn.lastLimitResetDate
+        lastLimitResetDate: conn.lastLimitResetDate,
+        ownerUid: conn.ownerUid
     };
     saveConnectionsSettings();
 
@@ -1340,6 +1354,14 @@ async function createConnectionInternal(
             ownerUid: ownerUid || ownerUidFromConnectionId(id),
             ...(proxy?.host && proxy.port ? { proxy } : {}),
         };
+
+        if (instance.ownerUid) {
+            if (!connectionsSettingsCache[id]) {
+                connectionsSettingsCache[id] = {};
+            }
+            connectionsSettingsCache[id].ownerUid = instance.ownerUid;
+            saveConnectionsSettings();
+        }
 
         connections.set(id, instance);
 
