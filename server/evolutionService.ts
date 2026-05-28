@@ -318,7 +318,7 @@ export function assignConnectionOwner(connectionId: string, ownerUid: string): b
     return true;
 }
 
-/** Remove instâncias Evolution zumbis (close/created) do dono — nunca `connecting` (pós-scan do QR). */
+/** Remove instâncias Evolution zumbis (`created` órfãs) — nunca `connecting` nem `close` (sessão recuperável). */
 export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<{ deleted: string[]; keptOpen: string[] }> {
     const uid = String(ownerUid || '').trim();
     const deleted: string[] = [];
@@ -344,8 +344,8 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
                 continue;
             }
             if (resolveOwnerUid(instanceName) !== uid) continue;
-            // Não apagar `connecting`: sync pós-QR e connection-ready chamam sync e matariam a sessão em curso.
-            if (state !== 'close' && state !== 'created') continue;
+            // Não apagar `connecting` nem `close`: sync pós-QR / queda transitória — logout+delete mata sessão pareada.
+            if (state !== 'created') continue;
             if (connectionWatchTimers.has(instanceName) || qrWatchTimers.has(instanceName)) continue;
 
             try {
@@ -462,8 +462,7 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
 }
 
 function parseConnectionStateFromData(data: unknown): string {
-    const parsed = parseConnectionStatePayload(data);
-    return parsed === 'close' ? '' : parsed;
+    return parseConnectionStatePayload(data);
 }
 
 function emitScopedConversationsUpdate() {
@@ -490,6 +489,94 @@ function emitScopedConversationsUpdate() {
 
 const connectionWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const qrWatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Evita tratar close transitório do Baileys durante pairing como desconexão real. */
+const pairingStartedAt = new Map<string, number>();
+const autoReconnectState = new Map<
+    string,
+    { attempts: number; timer?: ReturnType<typeof setTimeout>; inFlight?: boolean }
+>();
+let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
+
+function clearAutoReconnect(connectionId: string) {
+    const st = autoReconnectState.get(connectionId);
+    if (st?.timer) clearTimeout(st.timer);
+    autoReconnectState.delete(connectionId);
+}
+
+function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immediate?: boolean }) {
+    if (!connectionId || !connections.has(connectionId)) return;
+    const conn = connections.get(connectionId);
+    if (!conn || conn.status === 'open') return;
+    if (connectionWatchTimers.has(connectionId) || qrWatchTimers.has(connectionId)) return;
+
+    const prev = autoReconnectState.get(connectionId) ?? { attempts: 0 };
+    if (prev.inFlight) return;
+    if (prev.attempts >= 6) {
+        log('warn', `Auto-reconnect esgotado para ${connectionId}`);
+        emitConnectionInitFailure(
+            connectionId,
+            'Canal desconectou várias vezes. Use "Reconectar" ou "Forçar QR" se não voltar sozinho.'
+        );
+        return;
+    }
+
+    const attempt = prev.attempts + 1;
+    const delayMs = options?.immediate
+        ? 0
+        : Math.min(120_000, 5_000 * Math.pow(2, attempt - 1));
+    if (prev.timer) clearTimeout(prev.timer);
+
+    const timer = setTimeout(() => {
+        void (async () => {
+            const st = autoReconnectState.get(connectionId);
+            if (!st || st.inFlight) return;
+            st.inFlight = true;
+            autoReconnectState.set(connectionId, st);
+            log('info', `Auto-reconnect Evolution: ${connectionId} (tentativa ${attempt})`);
+            try {
+                try {
+                    await api.put(`/instance/restart/${evoInst(connectionId)}`, {});
+                    await sleep(3000);
+                } catch {
+                    await api.post(`/instance/connect/${evoInst(connectionId)}`, {});
+                    await sleep(2000);
+                }
+                const state = (await getConnectionState(connectionId)).toLowerCase();
+                if (state === 'open') {
+                    clearAutoReconnect(connectionId);
+                    applyConnectionStateUpdate(connectionId, 'open', {});
+                    return;
+                }
+                if (state === 'connecting' || state === 'created') {
+                    applyConnectionStateUpdate(connectionId, state, {});
+                    watchConnectionUntilOpen(connectionId);
+                    const paired = Boolean(connections.get(connectionId)?.phoneNumber?.trim());
+                    if (!paired) {
+                        const extracted = await fetchConnectQr(connectionId);
+                        if (extracted) emitQrToFrontend(connectionId, extracted);
+                    }
+                    clearAutoReconnect(connectionId);
+                    return;
+                }
+                st.attempts = attempt;
+                st.inFlight = false;
+                autoReconnectState.set(connectionId, st);
+                scheduleEvolutionAutoReconnect(connectionId);
+            } catch (error: any) {
+                log('warn', `Auto-reconnect falhou: ${connectionId}`, { error: error?.message });
+                const st2 = autoReconnectState.get(connectionId);
+                if (st2) {
+                    st2.attempts = attempt;
+                    st2.inFlight = false;
+                    autoReconnectState.set(connectionId, st2);
+                    scheduleEvolutionAutoReconnect(connectionId);
+                }
+            }
+        })();
+    }, delayMs);
+
+    autoReconnectState.set(connectionId, { attempts: attempt, timer, inFlight: false });
+}
 
 function stopQrWatch(connectionId: string) {
     const timer = qrWatchTimers.get(connectionId);
@@ -574,6 +661,20 @@ function applyConnectionStateUpdate(
     const state = String(rawState || '').toLowerCase();
     if (!state) return;
 
+    const connBefore = connections.get(instance);
+    const prevStatus = connBefore?.status;
+
+    // Close durante pairing (Evolution/Baileys) — ignorar só nos primeiros ~45s; depois tratar como queda real.
+    if (state === 'close' && (prevStatus === 'connecting' || prevStatus === 'created')) {
+        const started = pairingStartedAt.get(instance);
+        const pairingAge = started ? Date.now() - started : 120_000;
+        if (pairingAge < 45_000) {
+            log('info', `Close transitório ignorado (pairing): ${instance}`);
+            return;
+        }
+        log('warn', `Pairing preso (${Math.round(pairingAge / 1000)}s) — aplicando close: ${instance}`);
+    }
+
     const status =
         state === 'open' ? 'ONLINE' : state === 'connecting' ? 'CONNECTING' : 'OFFLINE';
 
@@ -582,9 +683,19 @@ function applyConnectionStateUpdate(
         conn.status = mapEvolutionState(state);
         if (state === 'open') {
             stopQrWatch(instance);
+            pairingStartedAt.delete(instance);
+            clearAutoReconnect(instance);
             conn.qrCode = undefined;
             const phone = phoneFromWebhookData(data);
             if (phone) conn.phoneNumber = phone;
+        } else if (state === 'connecting' || state === 'created') {
+            if (!pairingStartedAt.has(instance)) {
+                pairingStartedAt.set(instance, Date.now());
+            }
+        } else if (state === 'close') {
+            stopQrWatch(instance);
+            stopWatchingConnection(instance);
+            pairingStartedAt.delete(instance);
         }
         connections.set(instance, conn);
     }
@@ -611,6 +722,13 @@ function applyConnectionStateUpdate(
     // Webhook CONNECTION_UPDATE às vezes não chega após o scan do QR — polling até `open`.
     if (state === 'connecting') {
         watchConnectionUntilOpen(instance);
+    }
+
+    if (state === 'close') {
+        const paired = Boolean(connAfter?.phoneNumber?.trim());
+        if (prevStatus === 'open' || paired) {
+            scheduleEvolutionAutoReconnect(instance);
+        }
     }
 
     if (state === 'open') {
@@ -667,9 +785,28 @@ function watchConnectionUntilOpen(connectionId: string) {
             applyConnectionStateUpdate(connectionId, state, {});
             return;
         }
+        if (state === 'close' && attempts >= 4) {
+            const conn = connections.get(connectionId);
+            if (conn?.phoneNumber?.trim()) {
+                stopWatchingConnection(connectionId);
+                clearAutoReconnect(connectionId);
+                scheduleEvolutionAutoReconnect(connectionId, { immediate: true });
+                return;
+            }
+        }
         if (attempts >= maxAttempts) {
             stopWatchingConnection(connectionId);
             log('warn', `Timeout aguardando conexão abrir: ${connectionId}`);
+            const conn = connections.get(connectionId);
+            if (conn?.phoneNumber?.trim()) {
+                clearAutoReconnect(connectionId);
+                scheduleEvolutionAutoReconnect(connectionId, { immediate: true });
+            } else {
+                emitConnectionInitFailure(
+                    connectionId,
+                    'Conexão não abriu a tempo. Verifique Evolution API e webhook; use "Forçar QR" se necessário.'
+                );
+            }
             return;
         }
         connectionWatchTimers.set(connectionId, setTimeout(() => void poll(), 2000));
@@ -752,6 +889,14 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
     };
 
     const runConnectPass = async (): Promise<ExtractedEvolutionQr | null> => {
+        const mem = connections.get(instanceName);
+        if (mem?.status === 'open') return null;
+        const live = (await getConnectionState(instanceName)).toLowerCase();
+        if (live === 'open') {
+            applyConnectionStateUpdate(instanceName, 'open', {});
+            return null;
+        }
+
         let sawCountZero = false;
 
         try {
@@ -821,6 +966,12 @@ export async function refreshConnectionQr(connectionId: string): Promise<string 
     }
     if (!connections.has(id)) return null;
 
+    const liveState = (await getConnectionState(id)).toLowerCase();
+    if (liveState === 'open') {
+        applyConnectionStateUpdate(id, 'open', {});
+        return null;
+    }
+
     let extracted = await fetchConnectQr(id);
     if (!extracted) {
         extracted = await pollConnectQr(id, 8, 2000);
@@ -869,7 +1020,11 @@ async function hydrateInstancesFromEvolution() {
 
             const existing = connections.get(instanceName);
             const prevStatus = existing?.status;
-            const mappedState = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
+            let mappedState = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
+            if (existing?.status === 'open' && mappedState !== 'open') {
+                const verified = (await getConnectionState(instanceName)).toLowerCase();
+                if (verified === 'open') mappedState = 'open';
+            }
             const phoneFromApi = phoneFromEvolutionRow(row);
             const instanceObj: EvolutionInstance = {
                 instanceName,
@@ -883,13 +1038,22 @@ async function hydrateInstancesFromEvolution() {
                 proxy: existing?.proxy,
             };
             applySettingsToInstance(instanceObj);
-            connections.set(instanceName, instanceObj);
-            if (mappedState === 'open' && prevStatus !== 'open') {
+
+            if (existing && mappedState !== prevStatus) {
                 applyConnectionStateUpdate(
                     instanceName,
-                    'open',
+                    mappedState,
                     row as Record<string, unknown>
                 );
+            } else {
+                connections.set(instanceName, instanceObj);
+                if (!existing && (mappedState === 'open' || mappedState === 'connecting')) {
+                    applyConnectionStateUpdate(
+                        instanceName,
+                        mappedState,
+                        row as Record<string, unknown>
+                    );
+                }
             }
         }
         if (list.length > 0) {
@@ -1500,7 +1664,11 @@ export async function getConnectionState(instanceName: string): Promise<string> 
     try {
         const response = await api.get(`/instance/connectionState/${evoInst(instanceName)}`);
         return parseConnectionStatePayload(response.data);
-    } catch (error) {
+    } catch (error: any) {
+        const status = error?.response?.status;
+        if (status === 404) return 'close';
+        const mem = connections.get(instanceName)?.status;
+        if (mem) return mem;
         return 'close';
     }
 }
@@ -1546,19 +1714,33 @@ export async function reconnectConnection(id: string) {
     try {
         log('info', `Reconectando instância: ${id}`);
 
+        const live = (await getConnectionState(id)).toLowerCase();
+        if (live === 'open') {
+            applyConnectionStateUpdate(id, 'open', {});
+            log('info', `Instância já aberta: ${id}`);
+            return;
+        }
+
+        const conn = connections.get(id);
+        if (conn?.phoneNumber?.trim() && (live === 'close' || live === 'connecting')) {
+            clearAutoReconnect(id);
+            scheduleEvolutionAutoReconnect(id, { immediate: true });
+            log('info', `Auto-reconnect imediato (canal pareado): ${id}`);
+            return;
+        }
+
         const extracted = await fetchConnectQr(id);
         if (extracted) {
             emitQrToFrontend(id, extracted);
         } else {
             ensureQrDelivered(id);
             watchConnectionUntilOpen(id);
-            if (io) {
-                const ou = resolveOwnerUid(id);
-                if (ou) {
-                    publishOwnerEvent(ou, 'connection-update', { id, status: 'CONNECTING' });
-                } else {
-                    io.emit('connection-update', { id, status: 'CONNECTING' });
-                }
+            const ou = resolveOwnerUid(id);
+            const payload = { id, status: 'CONNECTING' as const };
+            if (ou) {
+                publishOwnerEvent(ou, 'connection-update', payload);
+            } else if (io) {
+                io.emit('connection-update', payload);
             }
         }
 
@@ -1578,6 +1760,8 @@ export async function deleteConnection(id: string): Promise<void> {
 
     stopWatchingConnection(id);
     stopQrWatch(id);
+    clearAutoReconnect(id);
+    pairingStartedAt.delete(id);
     countZeroRecoveryAttempts.delete(id);
 
     try {
@@ -2156,6 +2340,44 @@ export async function startCampaign(
 /**
  * Inicialização do serviço
  */
+async function reconcileConnectionHealth() {
+    for (const [id, conn] of connections.entries()) {
+        if (connectionWatchTimers.has(id) || qrWatchTimers.has(id)) continue;
+        const apiState = (await getConnectionState(id)).toLowerCase();
+        const memState = conn.status;
+        const paired = Boolean(conn.phoneNumber?.trim());
+
+        if (apiState === 'open' && memState !== 'open') {
+            applyConnectionStateUpdate(id, 'open', {});
+            continue;
+        }
+
+        if (memState === 'connecting' || memState === 'created') {
+            const pairingAge = Date.now() - (pairingStartedAt.get(id) ?? 0);
+            if (apiState === 'open') {
+                applyConnectionStateUpdate(id, 'open', {});
+            } else if (apiState === 'connecting') {
+                watchConnectionUntilOpen(id);
+            } else if (apiState === 'close' && pairingAge > 50_000) {
+                log('info', `Health: pairing preso ${id} (${Math.round(pairingAge / 1000)}s)`);
+                applyConnectionStateUpdate(id, 'close', {});
+                if (paired) scheduleEvolutionAutoReconnect(id);
+            }
+            continue;
+        }
+
+        if (memState === 'open' && apiState !== 'open') {
+            log('info', `Health reconcile ${id}: mem=open api=${apiState}`);
+            applyConnectionStateUpdate(id, apiState === 'connecting' ? 'connecting' : 'close', {});
+            continue;
+        }
+
+        if (paired && memState === 'close' && apiState !== 'open' && !autoReconnectState.has(id)) {
+            scheduleEvolutionAutoReconnect(id);
+        }
+    }
+}
+
 export function init(socketIO: SocketIOServer) {
     io = socketIO;
     chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
@@ -2166,7 +2388,12 @@ export function init(socketIO: SocketIOServer) {
         webhookUrl: evolutionConfig.webhookUrl,
     });
 
-    void hydrateInstancesFromEvolution();
+    void hydrateInstancesFromEvolution().then(() => reconcileConnectionHealth());
+    if (!connectionHealthTimer) {
+        connectionHealthTimer = setInterval(() => {
+            void reconcileConnectionHealth();
+        }, 30_000);
+    }
     testConnection();
 }
 
