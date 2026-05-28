@@ -12,6 +12,12 @@ describe('connectionScope', () => {
     expect(ownsConnectionForUid('owner1', 'owner2__chanA')).toBe(false);
   });
 
+  it('ownsConnectionForUid strict: legacy conn_* with metadata ownerUid', () => {
+    expect(ownsConnectionForUid('owner1', 'conn_1700000000000', 'owner1')).toBe(true);
+    expect(ownsConnectionForUid('owner2', 'conn_1700000000000', 'owner1')).toBe(false);
+    expect(ownsConnectionForUid('owner1', 'conn_1700000000000')).toBe(false);
+  });
+
   it('filterByConnectionScope keeps only owned', () => {
     const list = [
       { id: 'owner1__a', connectionId: 'owner1__a' },

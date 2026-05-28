@@ -638,7 +638,7 @@ const registerSocketHandlers = () => {
     let lastUsageBeatAt = Date.now();
     const ownsConnectionId = (connectionId: string) => {
       const meta = useEvolutionEngine()
-        ? evolutionService.getConnections().find((c) => c.id === connectionId)?.ownerUid
+        ? resolveConnectionOwnerUid(connectionId)
         : waService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
       return ownsConnectionForUid(uid, connectionId, meta);
     };

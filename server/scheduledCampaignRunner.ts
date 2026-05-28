@@ -6,6 +6,7 @@ import { emitScheduledCampaignUserNotice } from './whatsappService.js';
 import { readUserSubscriptionForLimits, isUidTreatedAsServerAdmin } from './connectionLimits.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
+import { resolveConnectionOwnerUid } from './evolutionService.js';
 import { ConnectionStatus } from './types.js';
 
 const RETRY_DELAY_MS = 5 * 60 * 1000;
@@ -176,7 +177,7 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
           : [];
 
     if (!connectionIds.length) return;
-    if (!connectionIds.every((id) => ownsConnectionForUid(ownerUid, id))) return;
+    if (!connectionIds.every((id) => ownsConnectionForUid(ownerUid, id, resolveConnectionOwnerUid(id)))) return;
 
     const scoped = filterByConnectionScope(ownerUid, evolutionService.getConnections());
     const connectedIds = new Set(

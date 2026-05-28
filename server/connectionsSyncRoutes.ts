@@ -84,7 +84,7 @@ export function registerConnectionsSyncRoutes(app: Express): void {
             if (!connectionId) {
                 return res.status(400).json({ ok: false, error: 'Canal inválido.' });
             }
-            const meta = evolutionService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
+            const meta = resolveConnectionOwnerUid(connectionId);
             if (!ownsConnectionForUid(tenantUid, connectionId, meta)) {
                 return res.status(403).json({ ok: false, error: 'Canal não pertence a esta conta.' });
             }
