@@ -5,6 +5,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { workspaceInviteLimiter } from './httpRateLimit.js';
 import { ownsConnectionForUid } from '../src/utils/connectionScope.js';
+import { resolveConnectionOwnerUid } from './evolutionService.js';
 import {
   assignmentsSnapshotForTenant,
   ensureAssignmentsLoaded,
@@ -497,7 +498,10 @@ export function registerWorkspaceRoutes(app: Express): void {
     try {
       const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
-      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+      if (
+        !conv ||
+        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
+      ) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const r = await inboxClaimConversation(tenantUid, authUid, conversationId, conv);
@@ -539,7 +543,10 @@ export function registerWorkspaceRoutes(app: Express): void {
     try {
       const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
-      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+      if (
+        !conv ||
+        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
+      ) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const isOwner = authUid === tenantUid;
@@ -610,7 +617,10 @@ export function registerWorkspaceRoutes(app: Express): void {
     try {
       const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
-      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+      if (
+        !conv ||
+        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
+      ) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const isOwner = authUid === tenantUid;
@@ -677,7 +687,10 @@ export function registerWorkspaceRoutes(app: Express): void {
     try {
       const { tenantUid, authUid } = await resolveWorkspaceParticipant(adminApp, token);
       const conv = getConversations().find((c) => c.id === conversationId);
-      if (!conv || !ownsConnectionForUid(tenantUid, conv.connectionId)) {
+      if (
+        !conv ||
+        !ownsConnectionForUid(tenantUid, conv.connectionId, resolveConnectionOwnerUid(conv.connectionId))
+      ) {
         return res.status(403).json({ ok: false, error: 'Conversa não encontrada neste workspace.' });
       }
       const isOwner = authUid === tenantUid;

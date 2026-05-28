@@ -637,9 +637,15 @@ const registerSocketHandlers = () => {
     let lastUiLogAt = 0;
     let lastUsageBeatAt = Date.now();
     const ownsConnectionId = (connectionId: string) => {
-      const meta = useEvolutionEngine()
-        ? resolveConnectionOwnerUid(connectionId)
-        : waService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
+      if (useEvolutionEngine()) {
+        let meta = resolveConnectionOwnerUid(connectionId);
+        if (!meta && uid !== 'anonymous') {
+          evolutionService.tryClaimUnownedLegacyConnection(connectionId, uid);
+          meta = resolveConnectionOwnerUid(connectionId);
+        }
+        return ownsConnectionForUid(uid, connectionId, meta);
+      }
+      const meta = waService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
       return ownsConnectionForUid(uid, connectionId, meta);
     };
     const userLog = (event: string, payload?: Record<string, unknown>) =>
@@ -693,24 +699,27 @@ const registerSocketHandlers = () => {
     const emitScopedConnections = () => {
       socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
     };
-    // Estado fresco da Evolution antes do primeiro paint — evita CONNECTING stale no boot.
-    if (uid && uid !== 'anonymous') {
-      void evolutionService.syncConnectionsForOwner(uid).then((r) => {
-        if (r.connections.length > 0 || r.claimed.length > 0) {
-          userLog('socket:sync-connections', {
-            channels: r.connections.length,
-            claimed: r.claimed,
-            syncedChats: r.syncedChats
-          });
-        }
-        emitScopedConnections();
-      });
-    } else {
-      emitScopedConnections();
-    }
     socket.emit('metrics-update', emptyMetrics);
     void (async () => {
       if (uid && uid !== 'anonymous') {
+        if (useEvolutionEngine()) {
+          try {
+            const r = await evolutionService.syncConnectionsForOwner(uid);
+            if (r.connections.length > 0 || r.claimed.length > 0) {
+              userLog('socket:sync-connections', {
+                channels: r.connections.length,
+                claimed: r.claimed,
+                syncedChats: r.syncedChats
+              });
+            }
+          } catch (e) {
+            structuredLog('warn', 'socket.sync_connections_failed', {
+              tenantUid: uid,
+              message: e instanceof Error ? e.message : String(e)
+            });
+          }
+        }
+        emitScopedConnections();
         await ensureAssignmentsLoaded(uid).catch(() => undefined);
         try {
           const tenantSettings = await loadTenantSettings(uid);
@@ -718,6 +727,8 @@ const registerSocketHandlers = () => {
         } catch {
           /* defaults no cliente */
         }
+      } else {
+        emitScopedConnections();
       }
       socket.emit(
         'conversations-update',

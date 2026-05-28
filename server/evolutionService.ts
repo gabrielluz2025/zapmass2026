@@ -39,7 +39,7 @@ import {
     publishOwnerEvent,
 } from './whatsappService.js';
 import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
-import { filterByConnectionScope } from '../src/utils/connectionScope.js';
+import { filterByConnectionScope, isLegacyConnectionId } from '../src/utils/connectionScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
 // ================== INTERFACES ==================
@@ -289,16 +289,31 @@ export function resolveConnectionOwnerUid(connectionId: string): string | undefi
     return resolveOwnerUid(connectionId);
 }
 
-/** Canal aberto na Evolution sem dono (legado) — reparo pos-scan. */
+/** Canal aberto/conectando na Evolution sem dono (legado) — reparo pos-scan. */
 export function listOrphanOpenConnectionIds(): string[] {
     const out: string[] = [];
     for (const [id, conn] of connections.entries()) {
-        if (conn.status !== 'open') continue;
+        if (conn.status !== 'open' && conn.status !== 'connecting') continue;
         if (ownerUidFromConnectionId(id)) continue;
-        if (conn.ownerUid) continue;
+        if (resolveOwnerUid(id)) continue;
         out.push(id);
     }
     return out;
+}
+
+/**
+ * Vincula canal legado `conn_*` sem dono ao tenant (ex.: antes do sync no socket terminar).
+ * Não sobrescreve ownerUid já gravado (outra conta).
+ */
+export function tryClaimUnownedLegacyConnection(connectionId: string, ownerUid: string): boolean {
+    const uid = String(ownerUid || '').trim();
+    const id = String(connectionId || '').trim();
+    if (!uid || uid === 'anonymous' || !id || !isLegacyConnectionId(id)) return false;
+    if (resolveOwnerUid(id)) return false;
+    const conn = connections.get(id);
+    if (!conn) return false;
+    if (conn.status !== 'open' && conn.status !== 'connecting') return false;
+    return assignConnectionOwner(id, uid);
 }
 
 export function assignConnectionOwner(connectionId: string, ownerUid: string): boolean {
