@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ownsConnectionForUid } from '../src/utils/connectionScope.js';
 
+const tenantUid = 'firebaseTenantA';
+const legacyChip = 'conn_1700000000000';
+
 describe('legacy conn_* ownership (escopo estrito)', () => {
-  const tenantUid = 'firebaseTenantA';
-  const legacyChip = 'conn_1700000000000';
 
   it('sem ownerUid conhecido bloqueia tenant logado', () => {
     expect(ownsConnectionForUid(tenantUid, legacyChip)).toBe(false);
@@ -20,5 +21,13 @@ describe('ensureTenantOwnsConnection (integração leve)', () => {
     const mod = await import('./evolutionService.js');
     expect(typeof mod.ensureTenantOwnsConnection).toBe('function');
     expect(typeof mod.tryClaimUnownedLegacyConnection).toBe('function');
+  });
+
+  it('membro da equipa no Set permite promoção conn_* → tenant (regra)', () => {
+    const staffUid = 'staffB';
+    const members = new Set([tenantUid, staffUid]);
+    expect(members.has(staffUid)).toBe(true);
+    expect(ownsConnectionForUid(tenantUid, legacyChip, staffUid)).toBe(false);
+    expect(ownsConnectionForUid(tenantUid, legacyChip, tenantUid)).toBe(true);
   });
 });

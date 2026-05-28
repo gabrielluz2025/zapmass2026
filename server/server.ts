@@ -25,11 +25,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js';
-import {
-  ensureConnectionOwnedByTenant,
-  ownsConnectionForTenantSync
-} from './connectionOwnership.js';
-import { ensureAssignmentsLoaded } from './inboxAssignments.js';
+import { ensureAssignmentsLoaded, getWorkspaceMemberUidSet } from './inboxAssignments.js';
 import {
   WHATSAPP_AUDIO_MAX_BYTES,
   WHATSAPP_IMAGE_MAX_BYTES,
@@ -619,6 +615,14 @@ const registerSocketHandlers = () => {
           console.warn('[socket] userWorkspaceLinks:', (e as Error)?.message || e);
         }
         socket.data.uid = tenantUid;
+        if (tenantUid !== 'anonymous') {
+          try {
+            (socket.data as { workspaceMemberUids?: Set<string> }).workspaceMemberUids =
+              await getWorkspaceMemberUidSet(adminApp, tenantUid);
+          } catch (e) {
+            console.warn('[socket] workspaceMemberUids:', (e as Error)?.message || e);
+          }
+        }
         next();
         return;
       }
@@ -640,9 +644,11 @@ const registerSocketHandlers = () => {
     let lastUiLogKey = '';
     let lastUiLogAt = 0;
     let lastUsageBeatAt = Date.now();
+    const workspaceMembers = (socket.data as { workspaceMemberUids?: ReadonlySet<string> })
+      .workspaceMemberUids;
     const ownsConnectionId = (connectionId: string) => {
       if (useEvolutionEngine()) {
-        return evolutionService.ensureTenantOwnsConnection(uid, connectionId);
+        return evolutionService.ensureTenantOwnsConnection(uid, connectionId, workspaceMembers);
       }
       const meta = waService.getConnections().find((c) => c.id === connectionId)?.ownerUid;
       return ownsConnectionForUid(uid, connectionId, meta);
@@ -675,7 +681,7 @@ const registerSocketHandlers = () => {
       const state = evolutionService.getWarmupState();
       const pending = Array.isArray(state?.pending)
         ? state.pending.filter((item: { connectionId?: string }) =>
-            ownsConnectionForTenantSync(uid, item?.connectionId || '', resolveConnectionMeta)
+            ownsConnectionId(item?.connectionId || '')
           )
         : [];
       return { pending, warmedCount: pending.length };

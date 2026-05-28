@@ -331,7 +331,11 @@ export function tryClaimUnownedLegacyConnection(connectionId: string, ownerUid: 
 }
 
 /** Resolve dono, tenta claim legado sem dono e valida escopo do tenant (socket + REST). */
-export function ensureTenantOwnsConnection(tenantUid: string, connectionId: string): boolean {
+export function ensureTenantOwnsConnection(
+    tenantUid: string,
+    connectionId: string,
+    workspaceMemberUids?: ReadonlySet<string>
+): boolean {
     const uid = String(tenantUid || '').trim();
     const id = String(connectionId || '').trim();
     if (!id) return false;
@@ -339,6 +343,20 @@ export function ensureTenantOwnsConnection(tenantUid: string, connectionId: stri
     let meta = resolveOwnerUid(id);
     if (ownsConnectionForUid(uid || 'anonymous', id, meta)) {
         return true;
+    }
+
+    const prior = meta;
+    if (
+        prior &&
+        prior !== uid &&
+        uid &&
+        uid !== 'anonymous' &&
+        isLegacyConnectionId(id) &&
+        workspaceMemberUids?.has(prior)
+    ) {
+        assignConnectionOwner(id, uid, { replacePriorOwner: prior });
+        meta = resolveOwnerUid(id);
+        if (ownsConnectionForUid(uid, id, meta)) return true;
     }
 
     if (!meta && uid && uid !== 'anonymous' && isLegacyConnectionId(id)) {

@@ -966,13 +966,25 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const getOwnerUidForConnectionScope = (): string =>
       currentUidRef.current ?? resolvedWorkspaceUid ?? 'anonymous';
     const ownsConnectionId = (connectionId: string, connectionOwnerUid?: string) => {
+      const tenantUid = getOwnerUidForConnectionScope();
       const idx = connectionId.indexOf('__');
       const ownerFromId = idx > 0 ? connectionId.slice(0, idx) : undefined;
       const meta =
         connectionOwnerUid ??
         connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid ??
         ownerFromId;
-      return ownsConnectionForUid(getOwnerUidForConnectionScope(), connectionId, meta);
+      if (ownsConnectionForUid(tenantUid, connectionId, meta)) return true;
+      const authUid = auth.currentUser?.uid;
+      if (
+        authUid &&
+        meta === authUid &&
+        tenantUid &&
+        tenantUid !== authUid &&
+        resolvedWorkspaceUid === tenantUid
+      ) {
+        return true;
+      }
+      return false;
     };
 
     devLog(`Iniciando conexão Socket.IO com: ${BACKEND_URL || 'origem relativa'}`);

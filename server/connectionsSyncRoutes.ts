@@ -4,7 +4,7 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { filterByConnectionScope } from '../src/utils/connectionScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import * as evolutionService from './evolutionService.js';
-import { resolveConnectionOwnerUid } from './evolutionService.js'; // escopo conn_* legado
+import { getWorkspaceMemberUidSet } from './inboxAssignments.js';
 
 function parseBearer(req: Request): string | null {
     const h = req.headers.authorization || '';
@@ -84,7 +84,11 @@ export function registerConnectionsSyncRoutes(app: Express): void {
             if (!connectionId) {
                 return res.status(400).json({ ok: false, error: 'Canal inválido.' });
             }
-            if (!evolutionService.ensureTenantOwnsConnection(tenantUid, connectionId)) {
+            const adminApp = getFirebaseAdmin();
+            const members = adminApp
+                ? await getWorkspaceMemberUidSet(adminApp, tenantUid)
+                : new Set([tenantUid]);
+            if (!evolutionService.ensureTenantOwnsConnection(tenantUid, connectionId, members)) {
                 return res.status(403).json({ ok: false, error: 'Canal não pertence a esta conta.' });
             }
             const qrCode = await evolutionService.refreshConnectionQr(connectionId);

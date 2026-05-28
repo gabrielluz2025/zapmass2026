@@ -163,6 +163,26 @@ export async function isUidMemberOfTenant(
   return typeof ou === 'string' && ou === tenantUid;
 }
 
+/** UIDs que podem operar o workspace (dono + equipa em userWorkspaceLinks). */
+export async function getWorkspaceMemberUidSet(
+  admin: NonNullable<ReturnType<typeof getFirebaseAdmin>>,
+  tenantUid: string
+): Promise<Set<string>> {
+  const uid = String(tenantUid || '').trim();
+  const out = new Set<string>();
+  if (!uid) return out;
+  out.add(uid);
+  try {
+    const qs = await admin.firestore().collection('userWorkspaceLinks').where('ownerUid', '==', uid).get();
+    for (const doc of qs.docs) {
+      if (doc.id) out.add(doc.id);
+    }
+  } catch {
+    /* fail closed: só o dono */
+  }
+  return out;
+}
+
 export async function inboxTransferConversation(
   tenantUid: string,
   actingAuthUid: string,
