@@ -250,6 +250,10 @@ services:
       - redis-data:/data
     deploy:
       replicas: 1
+      update_config:
+        order: stop-first
+        parallelism: 1
+        delay: 5s
       restart_policy:
         condition: any
     networks:
