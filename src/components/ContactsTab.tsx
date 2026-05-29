@@ -3332,6 +3332,91 @@ export const ContactsTab: React.FC = () => {
               onChange={handleImportVcf}
             />
 
+      {/* ── People HQ — hero visual ── */}
+      {!listManageId && smartStats.total > 0 && (
+        <div
+          className="relative overflow-hidden rounded-[24px] animate-fade-in-up"
+          style={{
+            background: 'linear-gradient(145deg,#0b1629 0%,#0d1f3a 55%,#08131f 100%)',
+            border: '1px solid rgba(59,130,246,0.22)',
+            boxShadow: '0 24px 80px -30px rgba(59,130,246,0.2)'
+          }}
+        >
+          {/* Grid decorativo */}
+          <div className="absolute inset-0 pointer-events-none opacity-[0.035]"
+            style={{ backgroundImage:'linear-gradient(rgba(59,130,246,1) 1px,transparent 1px),linear-gradient(90deg,rgba(59,130,246,1) 1px,transparent 1px)', backgroundSize:'36px 36px' }}
+            aria-hidden />
+          {/* Glow orb direita */}
+          <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full pointer-events-none opacity-20"
+            style={{ background:'radial-gradient(circle,#3b82f6,transparent 70%)', filter:'blur(40px)' }} aria-hidden />
+          {/* Acento topo */}
+          <div className="absolute inset-x-0 top-0 h-[2px] pointer-events-none"
+            style={{ background:'linear-gradient(90deg,transparent,#3b82f6 40%,#8b5cf6 70%,transparent)' }} aria-hidden />
+
+          <div className="relative z-10 px-5 py-5 sm:px-7 sm:py-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+                style={{ background:'linear-gradient(135deg,#3b82f6,#6366f1)', boxShadow:'0 6px 18px -6px rgba(59,130,246,0.7)' }}>
+                <Users className="w-4 h-4 text-white" />
+              </div>
+              <span className="text-[13px] font-bold" style={{ color:'rgba(255,255,255,0.85)' }}>People HQ</span>
+              <span className="ml-auto inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                style={{ background:'rgba(59,130,246,0.15)', color:'#60a5fa', border:'1px solid rgba(59,130,246,0.3)' }}>
+                <Database className="w-2.5 h-2.5" /> Base CRM
+              </span>
+            </div>
+
+            {/* KPI tiles */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+              {[
+                { label:'Total', val: smartStats.total.toLocaleString('pt-BR'), color:'#60a5fa', icon:<Users className="w-3.5 h-3.5" /> },
+                { label:'Quentes 🔥', val: smartStats.hot.toLocaleString('pt-BR'), color:'#f87171', icon:<Flame className="w-3.5 h-3.5" /> },
+                { label:'Novos (7d)', val: smartStats.last7.toLocaleString('pt-BR'), color:'#34d399', icon:<TrendingUp className="w-3.5 h-3.5" /> },
+                { label:'Retorno hoje', val: smartStats.retorno_hoje.toLocaleString('pt-BR'), color:'#fbbf24', icon:<Clock className="w-3.5 h-3.5" /> },
+                { label:'Aniv. hoje', val: smartStats.bdayToday.toLocaleString('pt-BR'), color:'#e879f9', icon:<Cake className="w-3.5 h-3.5" /> },
+                { label:'Casamentos 7d', val: smartStats.weddingWeek.toLocaleString('pt-BR'), color:'#f9a8d4', icon:<Heart className="w-3.5 h-3.5" /> },
+              ].map(k => (
+                <div key={k.label}
+                  className="flex flex-col gap-1 rounded-xl px-3 py-3 transition-all duration-200 hover:scale-[1.04]"
+                  style={{ background:`${k.color}10`, border:`1px solid ${k.color}28` }}>
+                  <div className="flex items-center gap-1.5" style={{ color:k.color }}>
+                    {k.icon}
+                    <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.38)' }}>{k.label}</span>
+                  </div>
+                  <span className="text-[22px] font-black tabular-nums leading-none" style={{ color:'#fff' }}>{k.val}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Temperatura barra */}
+            {smartStats.total > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.35)' }}>Temperatura da base</span>
+                  <span className="text-[10px] font-semibold" style={{ color:'rgba(255,255,255,0.35)' }}>
+                    🔥{smartStats.hot} quentes · 🌡️{smartStats.warm} mornos · ❄️{smartStats.cold} frios
+                  </span>
+                </div>
+                <div className="h-2 rounded-full overflow-hidden flex gap-0.5" style={{ background:'rgba(255,255,255,0.06)' }}>
+                  {smartStats.hot > 0 && (
+                    <div className="h-full rounded-full transition-all duration-1000"
+                      style={{ width:`${(smartStats.hot/smartStats.total)*100}%`, background:'linear-gradient(90deg,#ef4444,#f97316)' }} />
+                  )}
+                  {smartStats.warm > 0 && (
+                    <div className="h-full rounded-full transition-all duration-1000"
+                      style={{ width:`${(smartStats.warm/smartStats.total)*100}%`, background:'linear-gradient(90deg,#f59e0b,#fbbf24)' }} />
+                  )}
+                  {smartStats.cold > 0 && (
+                    <div className="h-full rounded-full transition-all duration-1000"
+                      style={{ width:`${(smartStats.cold/smartStats.total)*100}%`, background:'linear-gradient(90deg,#6366f1,#8b5cf6)' }} />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {!listManageId && (
         <ContactsHeaderBar
           stats={headerStats}
