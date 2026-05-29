@@ -344,6 +344,24 @@ const belongsToUidCampaign = (
   return connIds.some((id) => ownsConnectionForUid(uid, id));
 };
 
+/** Apaga subcolecao logs antes de remover a campanha (batch com limite Firestore). */
+async function deleteCampaignLogsForUser(uid: string, campaignId: string): Promise<void> {
+  const logsSnap = await getDocs(collection(db, 'users', uid, 'campaigns', campaignId, 'logs'));
+  if (logsSnap.empty) return;
+  let batch = writeBatch(db);
+  let pending = 0;
+  for (const logDoc of logsSnap.docs) {
+    batch.delete(logDoc.ref);
+    pending++;
+    if (pending >= 400) {
+      await batch.commit();
+      batch = writeBatch(db);
+      pending = 0;
+    }
+  }
+  if (pending > 0) await batch.commit();
+}
+
 /** Referência estável: o corpo da função actualiza-se a cada render sem invalidar `useMemo` do Provider. */
 function useStableCallback<T extends (...args: any[]) => any>(fn: T): T {
   const r = useRef(fn);
@@ -2769,8 +2787,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (campaign?.status === CampaignStatus.RUNNING) {
       socketRef.current?.emit('pause-campaign', { campaignId });
     }
-    await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignId)).catch(() => {});
-    await deleteDoc(doc(db, 'campaigns', campaignId)).catch(() => {});
+    await deleteCampaignLogsForUser(uid, campaignId);
+    // Nao apagar /campaigns/{id} na raiz — regras Firestore bloqueiam (allow: false).
+    await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignId));
     toast.success('Campanha removida.');
   };
 
@@ -2784,12 +2803,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         socketRef.current?.emit('pause-campaign', { campaignId: id });
       }
     }
-    const batch = writeBatch(db);
-    campaignIds.forEach((id) => {
+    for (const id of campaignIds) {
+      await deleteCampaignLogsForUser(uid, id);
+    }
+    let batch = writeBatch(db);
+    let pending = 0;
+    for (const id of campaignIds) {
       batch.delete(doc(db, 'users', uid, 'campaigns', id));
-      batch.delete(doc(db, 'campaigns', id));
-    });
-    await batch.commit();
+      pending++;
+      if (pending >= 400) {
+        await batch.commit();
+        batch = writeBatch(db);
+        pending = 0;
+      }
+    }
+    if (pending > 0) await batch.commit();
     toast.success(`${campaignIds.length} campanha${campaignIds.length > 1 ? 's removidas' : ' removida'}.`);
   };
 
