@@ -62,6 +62,7 @@ import {
 import { Card, CardHeader, Button, Badge, Modal, Textarea, Select } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
+import { BrazilCampaignMap, GeoLayer } from './dashboard/BrazilCampaignMap';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
   id: string;
@@ -284,8 +285,10 @@ export const DashboardTab: React.FC = () => {
     clearFunnelStats,
     isBackendConnected,
     systemLogs,
-    circuitBreakerOpenConnectionIds
+    circuitBreakerOpenConnectionIds,
+    campaignGeo
   } = useZapMassCore();
+  const [geoLayer, setGeoLayer] = useState<GeoLayer>('delivered');
   const { setCurrentView } = useAppView();
   const { user } = useAuth();
   const { subscription } = useSubscription();
@@ -1074,6 +1077,28 @@ export const DashboardTab: React.FC = () => {
         onOpenContacts={() => setCurrentView('contacts')}
         onNavigateToChat={(phone, name) => openChatNavigate(setCurrentView, phone, name)}
       />
+
+      {campaignGeo && Object.keys(campaignGeo.byUf || {}).length > 0 && (
+        <Card>
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center brand-soft">
+              <span className="text-base">🗺️</span>
+            </div>
+            <div>
+              <h3 className="ui-title text-[15px]">Cobertura Geográfica</h3>
+              <p className="ui-subtitle text-[12px]">Distribuição de envios por estado (inferência por DDD)</p>
+            </div>
+          </div>
+          <BrazilCampaignMap
+            byUf={campaignGeo.byUf}
+            layer={geoLayer}
+            onLayerChange={setGeoLayer}
+            isLive={false}
+            campaignLabel={campaignGeo.campaignId ?? undefined}
+            updatedAt={campaignGeo.updatedAt}
+          />
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
         <Card className="lg:col-span-2">

@@ -48,6 +48,7 @@ on:
       - "docker-stack.yml"
       - "deployment/**"
       - ".github/workflows/deploy.yml"
+      - ".github/workflows/recover-vps.yml"
       - ".env.example"
   schedule:
     # Roda a cada 30 min para aplicar deploy pendente na janela da madrugada.
@@ -167,8 +168,8 @@ jobs:
       - name: Falhar job se o deploy na VPS falhou
         if: steps.deploy_try_1.outcome == 'failure'
         run: |
-          echo "::error::vps-deploy.sh terminou com erro (Docker build, stack deploy ou healthcheck). Ver o log do passo «Deploy por SSH (tentativa 1)»."
-          echo "::error::Não repetimos o deploy completo em sequência — evita corrida no Swarm após falha parcial (#787)."
+          echo "::error::vps-deploy.sh terminou com erro. O workflow «Recuperar VPS» corre em seguida se o deploy falhou."
+          echo "::error::Ver o log do passo «Deploy por SSH (tentativa 1)»."
           exit 1
 
       # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).

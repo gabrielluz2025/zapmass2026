@@ -766,7 +766,10 @@ const registerSocketHandlers = () => {
       });
       socket.emit('socket-operation-error', { op, error: message });
     };
-    const emptyMetrics = { totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0 };
+    // Métricas reais da sessão atual do motor (não zeros).
+    const getLiveMetrics = () => {
+      try { return evolutionService.getMetrics(); } catch { return { totalSent: 0, totalDelivered: 0, totalRead: 0, totalReplied: 0 }; }
+    };
     const getWarmupStateForUid = () => {
       const state = evolutionService.getWarmupState();
       const pending = Array.isArray(state?.pending)
@@ -796,7 +799,7 @@ const registerSocketHandlers = () => {
     const emitScopedConnections = () => {
       socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
     };
-    socket.emit('metrics-update', emptyMetrics);
+    socket.emit('metrics-update', getLiveMetrics());
     void (async () => {
       if (uid && uid !== 'anonymous') {
         if (useEvolutionEngine()) {
@@ -1070,13 +1073,15 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:rename-connection', { id: connId, name: newName });
-          await runSessionCommandOrLocal({
-            submit: () => submitRenameConnection(connId, newName, authOp),
-            local: async () => {
-              // Note: Evolution API does not support renaming out of the box. So we may just return.
-              // We'll leave it as a no-op for now.
-            }
-          });
+          if (useEvolutionEngine()) {
+            // Evolution API não tem endpoint de rename; persiste localmente e emite update.
+            evolutionService.renameConnection(connId, newName);
+          } else {
+            await runSessionCommandOrLocal({
+              submit: () => submitRenameConnection(connId, newName, authOp),
+              local: async () => {}
+            });
+          }
           socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
         } catch (e) {
           reportSocketAsyncError('rename-connection', e);
@@ -1558,6 +1563,8 @@ const registerSocketHandlers = () => {
         socket.emit('conversation-picture', { conversationId, profilePicUrl: pic });
       } catch (e: any) {
         console.error('[fetch-conversation-picture] erro:', e?.message || e);
+        // Notifica o cliente para não deixar o spinner de foto preso.
+        socket.emit('conversation-picture', { conversationId, profilePicUrl: null });
       }
     });
 
@@ -1695,6 +1702,35 @@ const registerSocketHandlers = () => {
           waService.clearWarmupChipStats(connectionId);
         } catch (e) {
           reportSocketAsyncError('clear-warmup-chip-stats', e);
+        }
+      })();
+    });
+
+    socket.on('start-auto-warmup', ({ connectionIds, intervalMinutes }: { connectionIds?: string[]; intervalMinutes?: number }) => {
+      void (async () => {
+        try {
+          if (!(await requireActiveSubscription())) return;
+          const ids = Array.isArray(connectionIds) ? connectionIds.filter(id => ownsConnectionId(id)) : [];
+          if (ids.length === 0) return;
+          const interval = Math.max(5, Math.min(120, Number(intervalMinutes) || 10));
+          userLog('warmup:auto-start', { connectionIds: ids, intervalMinutes: interval });
+          await waService.startAutoWarmup(uid, ids, interval);
+          socket.emit('auto-warmup-state', { active: true, connectionIds: ids, intervalMinutes: interval });
+        } catch (e) {
+          reportSocketAsyncError('start-auto-warmup', e);
+        }
+      })();
+    });
+
+    socket.on('stop-auto-warmup', () => {
+      void (async () => {
+        try {
+          if (!(await requireActiveSubscription())) return;
+          userLog('warmup:auto-stop', {});
+          waService.stopAutoWarmup(uid);
+          socket.emit('auto-warmup-state', { active: false });
+        } catch (e) {
+          reportSocketAsyncError('stop-auto-warmup', e);
         }
       })();
     });

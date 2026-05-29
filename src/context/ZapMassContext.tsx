@@ -1597,18 +1597,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     flushCampaignProgressSocketFromRefsRef.current = flushCampaignProgressSocketFromRefs;
 
     socket.on('campaign-progress', (data) => {
+      // Normalizar: Evolution emite 'failCount', legado pode emitir 'failedCount'.
+      const failNorm = Number(data?.failCount ?? data?.failedCount) || 0;
       campaignProgressBarPendingRef.current = {
         total: Number(data?.total) || 0,
         processed: Number(data?.processed) || 0,
         successCount: Number(data?.successCount) || 0,
-        failCount: Number(data?.failCount) || 0
+        failCount: failNorm
       };
       const cid = typeof data?.campaignId === 'string' ? data.campaignId : '';
       if (cid) {
         campaignProgressSocketPendingRef.current[cid] = {
           processedCount: Number(data?.processed) || 0,
           successCount: Number(data?.successCount) || 0,
-          failedCount: Number(data?.failCount) || 0
+          failedCount: failNorm
         };
       }
       scheduleCampaignProgressSocketFlush();
@@ -1696,6 +1698,94 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (fail > 0) {
           toast.success(
             `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra relatório ou «Registos do sistema» por número — evitamos notificar número a número durante o disparo.`,
+            { duration: 9500, icon: '✅' }
+          );
+        } else {
+          toast.success('Campanha finalizada!', { duration: 4500 });
+        }
+      }
+    );
+
+    // Motor Evolution emite 'campaign-finished'; motor legado emite 'campaign-complete'.
+    // Ambos devem ter o mesmo tratamento de encerramento de campanha.
+    socket.on(
+      'campaign-finished',
+      (payload: {
+        successCount: number;
+        failCount: number;
+        campaignId?: string;
+        total?: number;
+      }) => {
+        resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
+        const { successCount, failCount, campaignId } = payload;
+        const processedCount = Math.max(0, (Number(successCount) || 0) + (Number(failCount) || 0));
+        setCampaignStatus(prev => ({ ...prev, isRunning: false }));
+        if (campaignId) {
+          flushCampaignProgressToFirestore(campaignId, true);
+          const uid = currentUidRef.current;
+          setCampaigns((prev) => {
+            const cur = prev.find((c) => c.id === campaignId);
+            const slots = cur?.weeklySchedule?.slots;
+            const tz = cur?.scheduleTimeZone;
+            const shouldReschedule =
+              cur?.scheduleRepeatWeekly === true &&
+              Array.isArray(slots) &&
+              slots.length > 0 &&
+              typeof tz === 'string' &&
+              tz.length > 0;
+            const nextIso = shouldReschedule ? computeNextRunIso(slots, tz, Date.now() + 45_000) : null;
+
+            if (uid) {
+              if (shouldReschedule && nextIso) {
+                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                  status: CampaignStatus.SCHEDULED,
+                  nextRunAt: nextIso,
+                  lastRunAt: new Date().toISOString(),
+                  processedCount: 0,
+                  successCount: 0,
+                  failedCount: 0
+                }).catch(() => {});
+              } else {
+                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                  status: CampaignStatus.COMPLETED,
+                  successCount,
+                  failedCount: failCount,
+                  processedCount
+                }).catch(() => {});
+              }
+            }
+
+            const next = prev.map((c) => {
+              if (c.id !== campaignId) return c;
+              if (shouldReschedule && nextIso) {
+                return {
+                  ...c,
+                  status: CampaignStatus.SCHEDULED,
+                  nextRunAt: nextIso,
+                  lastRunAt: new Date().toISOString(),
+                  processedCount: 0,
+                  successCount: 0,
+                  failedCount: 0
+                };
+              }
+              return {
+                ...c,
+                status: CampaignStatus.COMPLETED,
+                successCount,
+                failedCount: failCount,
+                processedCount
+              };
+            });
+            if (uid) syncStuckCampaignsToFirestore(next, uid);
+            return healStuckRunningCampaignsList(next);
+          });
+          clearCampaignProgressPersist(campaignId);
+        }
+        const ok = Number(successCount) || 0;
+        const fail = Number(failCount) || 0;
+        if (fail > 0) {
+          toast.success(
+            `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra relatório ou «Registos do sistema» por número.`,
             { duration: 9500, icon: '✅' }
           );
         } else {
@@ -1908,6 +1998,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('system-log', (log: SystemLog) => {
       setSystemLogs(prev => [log, ...prev].slice(0, 200));
+    });
+
+    socket.on('connection-limit-exceeded', (p: { connectionId?: string; dailyLimit?: number; messagesSentToday?: number; campaignId?: string }) => {
+      const id = String(p?.connectionId || '');
+      const limit = Number(p?.dailyLimit) || 0;
+      const sent = Number(p?.messagesSentToday) || 0;
+      const name = id || 'Canal';
+      toast.error(
+        `Limite diário atingido: ${name} enviou ${sent}/${limit} mensagens hoje. Configure a ação de limite nas configurações do canal.`,
+        { id: `limit-${id}`, duration: 10000, icon: '⚠️' }
+      );
     });
 
     socket.on('circuit-breaker-open', (p: { connectionId?: string }) => {

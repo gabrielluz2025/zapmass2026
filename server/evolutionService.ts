@@ -1374,6 +1374,10 @@ function applySettingsToInstance(conn: EvolutionInstance) {
         conn.messagesSentToday = cached.messagesSentToday || 0;
         conn.limitExceededApproved = cached.limitExceededApproved || false;
         conn.lastLimitResetDate = cached.lastLimitResetDate;
+        // Restaurar nome amigável salvo pelo usuário (rename-connection persiste aqui).
+        if ((cached as Record<string, unknown>).friendlyName && typeof (cached as Record<string, unknown>).friendlyName === 'string') {
+            conn.friendlyName = (cached as Record<string, unknown>).friendlyName as string;
+        }
         if (cached.ownerUid && !conn.ownerUid) {
             conn.ownerUid = cached.ownerUid;
         }
@@ -2863,7 +2867,9 @@ export function handleWebhook(event: any) {
 
                 if (isFromMe && messageId) {
                     metrics.totalSent++;
-                    publishOwnerEvent(undefined, 'campaign-progress', {
+                    // Usar o ownerUid do canal para escopo correto — evita descarte silencioso.
+                    const sentOwnerUid = messageOwnerUid || resolveOwnerUid(instance);
+                    publishOwnerEvent(sentOwnerUid, 'campaign-progress', {
                         successCount: metrics.totalSent,
                         connectionId: instance,
                     });
@@ -3211,6 +3217,23 @@ export async function sendMedia(
     await chatStore.sendMedia(conversationId, payload);
 }
 
+/**
+ * Renomeia um canal localmente (salva em connectionsSettingsCache).
+ * A Evolution API não tem endpoint de rename; o nome é persistido em disco
+ * e refletido imediatamente em getConnections().
+ */
+export function renameConnection(connectionId: string, newName: string): boolean {
+    const conn = connections.get(connectionId);
+    if (!conn) return false;
+    conn.friendlyName = newName;
+    if (!connectionsSettingsCache[connectionId]) connectionsSettingsCache[connectionId] = {};
+    (connectionsSettingsCache[connectionId] as Record<string, unknown>).friendlyName = newName;
+    saveConnectionsSettings();
+    const ownerUid = resolveOwnerUid(connectionId);
+    publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid || '', getConnections()));
+    return true;
+}
+
 export function pauseCampaign(campaignId: string) {
     pausedCampaigns.add(campaignId);
     const state = campaignsById.get(campaignId);
@@ -3239,6 +3262,7 @@ export default {
     startCampaign,
     isMassCampaignEngineIdle,
     canControlCampaign,
+    renameConnection,
     pauseCampaign,
     resumeCampaign,
     applySettings,

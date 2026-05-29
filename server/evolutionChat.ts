@@ -17,14 +17,17 @@ export function createEvolutionChat(api: AxiosInstance) {
     let conversations: Conversation[] = [];
     let io: SocketIOServer | null = null;
     let notifyConversationsChanged: (() => void) | null = null;
+    /** ownerUid do tenant atual — usado para escopo seguro em emitConversationsUpdate. */
+    let ownerUidForScope: string | null = null;
     const deletedConversationIds = new Set<string>();
 
     function init(
         socketIO: SocketIOServer,
-        opts?: { notifyConversationsChanged?: () => void }
+        opts?: { notifyConversationsChanged?: () => void; ownerUid?: string }
     ) {
         io = socketIO;
         notifyConversationsChanged = opts?.notifyConversationsChanged ?? null;
+        if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
     function emitConversationsUpdate() {
@@ -32,7 +35,13 @@ export function createEvolutionChat(api: AxiosInstance) {
             notifyConversationsChanged();
             return;
         }
-        if (io) io.emit('conversations-update', [...conversations]);
+        // Emitir apenas para a sala do dono — nunca broadcast global (risco cross-tenant).
+        if (io && ownerUidForScope) {
+            io.to(`user:${ownerUidForScope}`).emit('conversations-update', [...conversations]);
+        } else if (io) {
+            // Fallback seguro: não emite globalmente; apenas loga o aviso.
+            console.warn('[evolutionChat] emitConversationsUpdate sem ownerUid — update suprimido para evitar cross-tenant.');
+        }
     }
 
     function parseConversationId(conversationId: string): ParsedConversation | null {
