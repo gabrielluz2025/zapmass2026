@@ -241,6 +241,24 @@ fi
 
 if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
   echo "==> deploy em Docker Swarm (stack: zapmass)"
+  # Testar overlay Swarm: se Redis VIP inacessível, migrar para Compose (bridge DNS funciona).
+  echo "==> testando overlay Swarm (Redis VIP)..."
+  _overlay_ok=0
+  _overlay_net="zapmass_zapmass_internal"
+  if docker network inspect "${_overlay_net}" >/dev/null 2>&1; then
+    if docker run --rm --network "${_overlay_net}" redis:7-alpine \
+         sh -c 'redis-cli -h redis -p 6379 ping 2>/dev/null | grep -q PONG' 2>/dev/null; then
+      _overlay_ok=1
+      echo "==> overlay OK (redis:6379 acessivel)"
+    fi
+  fi
+  if [ "${_overlay_ok}" = "0" ]; then
+    echo "==> overlay Swarm quebrado (Redis VIP inacessível) — migrando para Docker Compose"
+    echo "==> Docker Compose usa bridge network onde redis:6379 resolve corretamente"
+    chmod +x deployment/migrar-swarm-para-compose.sh
+    exec bash deployment/migrar-swarm-para-compose.sh
+  fi
+  unset _overlay_ok _overlay_net
   # Overlay nó único: redis/tasks.redis → EHOSTUNREACH. Redis publicado no host :6379.
   export REDIS_URL=redis://host.docker.internal:6379
   echo "==> REDIS_URL=${REDIS_URL}"
