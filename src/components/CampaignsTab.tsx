@@ -554,7 +554,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                         Missões em voo
                       </span>
                       {running.slice(0,3).map(c => {
-                        const pct = c.totalRecipients > 0 ? Math.round((c.sentCount/c.totalRecipients)*100) : 0;
+                        const pct = c.totalContacts > 0 ? Math.round((c.successCount/c.totalContacts)*100) : 0;
                         return (
                           <button key={c.id} type="button" onClick={() => openDetails(c.id)}
                             className="flex items-center gap-3 rounded-xl px-4 py-2.5 text-left hover:opacity-90 transition-opacity"
