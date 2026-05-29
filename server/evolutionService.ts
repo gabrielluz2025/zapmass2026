@@ -775,6 +775,7 @@ function applyConnectionStateUpdate(
     if (!instance) return;
     const state = String(rawState || '').toLowerCase();
     if (!state) return;
+    const open = isEvolutionOpenState(state);
 
     const connBefore = connections.get(instance);
     const prevStatus = connBefore?.status;
@@ -791,12 +792,12 @@ function applyConnectionStateUpdate(
     }
 
     const status =
-        state === 'open' ? 'ONLINE' : state === 'connecting' ? 'CONNECTING' : 'OFFLINE';
+        open ? 'ONLINE' : state === 'connecting' ? 'CONNECTING' : 'OFFLINE';
 
     const conn = connections.get(instance);
     if (conn) {
         conn.status = mapEvolutionState(state);
-        if (state === 'open') {
+        if (open) {
             stopQrWatch(instance);
             pairingStartedAt.delete(instance);
             clearAutoReconnect(instance);
@@ -846,7 +847,7 @@ function applyConnectionStateUpdate(
         }
     }
 
-    if (state === 'open') {
+    if (open) {
         stopWatchingConnection(instance);
         void enrichConnectionMeta(instance).then(() => {
             const ou = resolveOwnerUid(instance);
