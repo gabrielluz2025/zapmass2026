@@ -45,7 +45,13 @@ export const startOwnerEmitRedisSubscriber = (
   deps?: OwnerEmitSubscriberDeps
 ): (() => void) | null => {
   if (!redisUrl?.trim()) return null;
-  const sub = new IORedis(redisUrl, { maxRetriesPerRequest: 1 });
+  const sub = new IORedis(redisUrl, {
+    maxRetriesPerRequest: null,
+    enableOfflineQueue: false,
+    retryStrategy: (times) => Math.min(times * 500, 5000),
+    reconnectOnError: () => true,
+  });
+  sub.on('error', (err) => console.warn('[owner-emit-redis] sub error:', err?.message || err));
   let closed = false;
 
   void sub
@@ -88,7 +94,13 @@ export const startOwnerEmitRedisSubscriber = (
 export const createOwnerEmitRedisPublisher = (redisUrl: string): OwnerEmit | null => {
   if (!redisUrl?.trim()) return null;
   try {
-    const pub = new IORedis(redisUrl, { maxRetriesPerRequest: 1 });
+    const pub = new IORedis(redisUrl, {
+      maxRetriesPerRequest: null,
+      enableOfflineQueue: false,
+      retryStrategy: (times) => Math.min(times * 500, 5000),
+      reconnectOnError: () => true,
+    });
+    pub.on('error', (err) => console.warn('[owner-emit-redis] pub error:', err?.message || err));
     return (uid: string, event: string, payload: Record<string, unknown>) => {
       try {
         void pub.publish(CHANNEL, JSON.stringify({ uid, event, payload }));

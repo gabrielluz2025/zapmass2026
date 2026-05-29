@@ -231,12 +231,39 @@ export function createEvolutionChat(api: AxiosInstance) {
     }
 
     async function syncChatsForConnection(connectionId: string): Promise<number> {
+        const inst = evoInst(connectionId);
+        const fetchChats = async (): Promise<any[]> => {
+            try {
+                const response = await api.post(`/chat/findChats/${inst}`, {
+                    page: 1,
+                    limit: 500,
+                });
+                const list = extractFindChatsList(response.data);
+                if (list.length > 0) return list;
+            } catch (postErr: any) {
+                console.warn(
+                    `[EvolutionChat] findChats POST ${connectionId}:`,
+                    postErr?.message || postErr
+                );
+            }
+            try {
+                const response = await api.get(`/chat/findChats/${inst}`);
+                return extractFindChatsList(response.data);
+            } catch (getErr: any) {
+                console.warn(
+                    `[EvolutionChat] findChats GET ${connectionId}:`,
+                    getErr?.message || getErr
+                );
+                return [];
+            }
+        };
+
         try {
-            const response = await api.post(`/chat/findChats/${evoInst(connectionId)}`, {
-                page: 1,
-                limit: 500,
-            });
-            const chats = extractFindChatsList(response.data);
+            let chats = await fetchChats();
+            if (chats.length === 0) {
+                await new Promise((r) => setTimeout(r, 1500));
+                chats = await fetchChats();
+            }
 
             let added = 0;
             for (const chat of chats) {

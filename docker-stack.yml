@@ -23,7 +23,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3001"
-      REDIS_URL: redis://redis:6379
+      # Swarm nó único: overlay VIP/tasks.* pode dar EHOSTUNREACH — Redis exposto no host :6379.
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379}
       # monolith (default) = API + WhatsApp no mesmo processo.
       # api = API sem Chromium; requer WA_WORKER_REPLICAS>=1, Redis, e ZAPMASS_API_SESSION_MODE=api no .env da VPS.
       SESSION_PROCESS_MODE: ${ZAPMASS_API_SESSION_MODE:-monolith}
@@ -93,6 +94,8 @@ services:
       WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - zapmass-data:/app/data
       - ./secrets:/run/secrets:ro
@@ -131,7 +134,8 @@ services:
     stop_grace_period: 60s
     environment:
       NODE_ENV: production
-      REDIS_URL: redis://redis:6379
+      # Swarm nó único: overlay VIP/tasks.* pode dar EHOSTUNREACH — Redis exposto no host :6379.
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379}
       SESSION_PROCESS_MODE: worker
       WORKER_ID: "{{.Task.Name}}"
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
@@ -139,6 +143,8 @@ services:
       WA_SYNC_CONV_EMIT_EVERY: ${WA_SYNC_CONV_EMIT_EVERY:-}
       WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-1}
       WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     deploy:
       # Com API em monolith: 0. Com ZAPMASS_API_SESSION_MODE=api: use 1 ou mais (Chromium no worker).
       replicas: ${WA_WORKER_REPLICAS:-0}
@@ -171,10 +177,10 @@ services:
       - DATABASE_ENABLED=true
       - DATABASE_CONNECTION_URI=postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@tasks.postgres:5432/evolution_db?schema=public
       - REDIS_ENABLED=true
-      - REDIS_URI=redis://redis:6379/1
+      - REDIS_URI=redis://host.docker.internal:6379/1
       - REDIS_PREFIX_KEY=evolution
       - CACHE_REDIS_ENABLED=true
-      - CACHE_REDIS_URI=redis://redis:6379/1
+      - CACHE_REDIS_URI=redis://host.docker.internal:6379/1
       - CACHE_LOCAL_ENABLED=false
       - WEBSOCKET_ENABLED=false
       # URL pública da Evolution (Manager/webhook); ajuste no .env se usar dominio.
@@ -192,6 +198,8 @@ services:
       - CONFIG_SESSION_PHONE_NAME=${CONFIG_SESSION_PHONE_NAME:-Chrome}
       - LOG_LEVEL=${EVOLUTION_LOG_LEVEL:-ERROR}
       - NODE_OPTIONS=--dns-result-order=ipv4first
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - zapmass-evolution:/evolution/instances
     deploy:
@@ -232,7 +240,12 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000", "--bind", "0.0.0.0"]
+    ports:
+      - target: 6379
+        published: 6379
+        protocol: tcp
+        mode: host
     volumes:
       - redis-data:/data
     deploy:

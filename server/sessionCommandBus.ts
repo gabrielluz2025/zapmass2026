@@ -26,7 +26,19 @@ const resolveRedisFactory = async (): Promise<((url: string) => RedisLike) | nul
       const mod = await import('ioredis');
       const RedisCtor = (mod as any)?.default;
       if (typeof RedisCtor !== 'function') return null;
-      return (url: string) => new RedisCtor(url, { maxRetriesPerRequest: 1 }) as RedisLike;
+      return (url: string) => {
+        const client = new RedisCtor(url, {
+          maxRetriesPerRequest: null,
+          enableOfflineQueue: false,
+          retryStrategy: (times: number) => Math.min(times * 500, 5000),
+          reconnectOnError: () => true,
+        }) as RedisLike;
+        (client as unknown as { on?: (ev: string, fn: (err: Error) => void) => void }).on?.(
+          'error',
+          (err) => console.warn('[session-bus] redis error:', err?.message || err)
+        );
+        return client;
+      };
     } catch {
       return null;
     }

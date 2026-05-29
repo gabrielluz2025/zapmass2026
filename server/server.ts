@@ -861,9 +861,9 @@ const registerSocketHandlers = () => {
           await ensureAssignmentsLoaded(uid).catch(() => undefined);
         }
         if (useEvolutionChat()) {
-          let syncMeta: Awaited<ReturnType<typeof evolutionService.syncOpenChatsForOwner>> | undefined;
+          let syncMeta: Awaited<ReturnType<typeof evolutionService.syncConnectionsForOwner>> | undefined;
           if (uid && uid !== 'anonymous') {
-            syncMeta = await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
+            syncMeta = await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
           } else {
             await evolutionService.syncAllOpenChats().catch(() => undefined);
           }

@@ -159,6 +159,9 @@ fi
 
 if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM_MANAGER" = "1" ]; }; then
   echo "==> deploy em Docker Swarm (stack: zapmass)"
+  # Overlay nó único: redis/tasks.redis → EHOSTUNREACH. Redis publicado no host :6379.
+  export REDIS_URL=redis://host.docker.internal:6379
+  echo "==> REDIS_URL=${REDIS_URL}"
   _build_extra=()
   if [ "${ZAPMASS_DOCKER_BUILD_NO_CACHE:-0}" = "1" ]; then
     _build_extra+=(--no-cache)
@@ -221,13 +224,23 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     echo "==> AVISO: $svc nao actualizado apos 6 tentativas. Tente: docker service update --force --image zapmass:latest $svc" >&2
     return 1
   }
+  _SWARM_UPDATE_FAILED=0
   for svc in zapmass_api zapmass_wa-worker; do
     if docker service inspect "$svc" >/dev/null 2>&1; then
       echo "==> (swarm) forçar recriação: $svc"
-      swarm_update_retry "$svc" || true
+      if ! swarm_update_retry "$svc"; then
+        if [ "$svc" = "zapmass_api" ]; then
+          _SWARM_UPDATE_FAILED=1
+        fi
+      fi
       sleep 6
     fi
   done
+  if [ "${_SWARM_UPDATE_FAILED}" = "1" ]; then
+    echo "ERRO: zapmass_api nao foi recriado com a imagem nova. Deploy abortado."
+    exit 1
+  fi
+  unset _SWARM_UPDATE_FAILED
   # docker-stack: replicas: ${WA_WORKER_REPLICAS:-0}; em alguns hosts a interpolação no YAML falha → 0/0.
   if docker service inspect zapmass_wa-worker >/dev/null 2>&1; then
     _wr="${WA_WORKER_REPLICAS:-0}"
@@ -306,6 +319,22 @@ for i in $(seq 1 "${_HEALTH_TRIES}"); do
   code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HP}/api/health" || echo 000)
   echo "tentativa $i: HTTP $code"
   if [ "$code" = "200" ]; then
+    _DEPLOY_REF="${VITE_GIT_REF:-unknown}"
+    _LIVE_VER="$(curl -sf "http://127.0.0.1:${HP}/api/version" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
+    echo "==> versão em execução: ${_LIVE_VER:-?} (esperado: ${_DEPLOY_REF})"
+    if [ -n "${_LIVE_VER}" ] && [ "${_LIVE_VER}" != "${_DEPLOY_REF}" ] && [ "${_DEPLOY_REF}" != "unknown" ]; then
+      echo "AVISO: versão da API difere do commit deployado — container pode estar desatualizado."
+      echo "       Tente: docker service update --force --image zapmass:latest zapmass_api"
+    fi
+    _CID="$(docker ps -q --filter name=zapmass_api | head -1)"
+    if [ -n "${_CID}" ]; then
+      echo "==> teste Redis a partir do contentor API (host.docker.internal:6379)"
+      if ! docker exec "${_CID}" node -e "const n=require('net');const u=process.env.REDIS_URL||'redis://host.docker.internal:6379';const h=new URL(u).hostname;const p=Number(new URL(u).port||6379);const s=n.createConnection(p,h,()=>{console.log('OK');process.exit(0)});s.on('error',e=>{console.error(e.message);process.exit(1)});setTimeout(()=>process.exit(1),8000);" 2>/dev/null; then
+        echo "ERRO: API nao alcanca Redis — verifique docker service ps zapmass_redis e porta 6379 no host"
+        exit 1
+      fi
+      echo "OK: redis:6379 acessivel a partir da API."
+    fi
     echo "OK: API saudável."
     exit 0
   fi

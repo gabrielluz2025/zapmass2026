@@ -87,7 +87,8 @@ COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/src/utils ./src/utils
 # insightMerge e mergeLegacyUserDocs importam tipos (Contact, Campaign, etc.)
 COPY --from=builder /app/src/types.ts ./src/types.ts
-COPY --from=builder /app/VERSION ./VERSION
+ARG VITE_GIT_REF=unknown
+RUN echo "${VITE_GIT_REF}" > VERSION
 
 EXPOSE 3001
 

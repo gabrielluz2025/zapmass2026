@@ -317,6 +317,10 @@ export function resolveConnectionOwnerUid(connectionId: string): string | undefi
     return resolveOwnerUid(connectionId);
 }
 
+function tenantOwnsConnection(tenantUid: string, connectionId: string): boolean {
+    return ownsConnectionForUid(tenantUid, connectionId, resolveOwnerUid(connectionId));
+}
+
 /** Canais legados na RAM sem dono (qualquer estado) — reparo pós-scan/sync. */
 export function listOrphanOpenConnectionIds(): string[] {
     const out: string[] = [];
@@ -519,8 +523,14 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
 
     const syncedChats: string[] = [];
     for (const [id] of connections.entries()) {
-        if (resolveOwnerUid(id) !== uid) continue;
+        if (!tenantOwnsConnection(uid, id)) continue;
         if (!(await isConnectionOpen(id))) continue;
+        setupWebhook(id).catch((err) => {
+            log('warn', 'setupWebhook falhou em syncConnectionsForOwner', {
+                connectionId: id,
+                error: err?.message,
+            });
+        });
         const n = await chatStore.syncChatsForConnection(id);
         syncedChats.push(id);
         if (n === 0) {
@@ -601,6 +611,11 @@ function emitScopedConversationsUpdate() {
         const owners = new Set<string>();
         for (const c of all) {
             const ou = resolveOwnerUid(c.connectionId);
+            if (ou) owners.add(ou);
+        }
+        for (const [id, conn] of connections.entries()) {
+            if (conn.status !== 'open' && conn.status !== 'connecting') continue;
+            const ou = resolveOwnerUid(id);
             if (ou) owners.add(ou);
         }
         for (const uid of owners) {
@@ -1274,7 +1289,15 @@ function getRedisConnection(): IORedis | null {
     const url = getRedisUrl();
     if (!url) return null;
     if (!redisConnection) {
-        redisConnection = new IORedis(url, { maxRetriesPerRequest: null });
+        redisConnection = new IORedis(url, {
+            maxRetriesPerRequest: null,
+            enableOfflineQueue: false,
+            retryStrategy: (times) => Math.min(times * 500, 5000),
+            reconnectOnError: () => true,
+        });
+        redisConnection.on('error', (err) => {
+            console.warn('[campaign-queue] redis error:', err?.message || err);
+        });
     }
     return redisConnection;
 }
@@ -2885,6 +2908,7 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
         return { syncedChats: [], skippedNotOpen: [], skippedNotOwned: [], claimed: [], conversationCounts: {} };
     }
 
+    await hydrateInstancesFromEvolution();
     const claimed = claimOrphanConnectionsForOwner(uid);
     const syncedChats: string[] = [];
     const skippedNotOpen: string[] = [];
@@ -2893,7 +2917,7 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
     const tasks: Promise<void>[] = [];
 
     for (const [id] of connections.entries()) {
-        if (resolveOwnerUid(id) !== uid) {
+        if (!tenantOwnsConnection(uid, id)) {
             skippedNotOwned.push(id);
             continue;
         }
@@ -2901,6 +2925,12 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
             skippedNotOpen.push(id);
             continue;
         }
+        setupWebhook(id).catch((err) => {
+            log('warn', 'setupWebhook falhou em syncOpenChatsForOwner', {
+                connectionId: id,
+                error: err?.message,
+            });
+        });
         syncedChats.push(id);
         tasks.push(
             chatStore.syncChatsForConnection(id).then((n) => {
@@ -2911,8 +2941,13 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
 
     if (tasks.length > 0) {
         await Promise.all(tasks);
-        emitScopedConversationsUpdate();
     }
+    const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+    publishOwnerEvent(
+        uid,
+        'conversations-update',
+        conversationsPayloadForViewer(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
+    );
 
     if (syncedChats.length === 0 || Object.values(conversationCounts).every((n) => n === 0)) {
         log('warn', 'syncOpenChatsForOwner: nenhuma conversa 1:1 importada', {
