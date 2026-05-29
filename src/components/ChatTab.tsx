@@ -170,6 +170,12 @@ function extractWaUserDigitsFromConvId(convId: string): string {
   return m ? normalizeDigits(m[1]) : '';
 }
 
+/** Retorna true se o JID da conversa é @lid (número interno do WhatsApp, não um telefone real). */
+function isLidConvId(convId: string): boolean {
+  const tail = convId.includes(':') ? convId.slice(convId.lastIndexOf(':') + 1) : convId;
+  return tail.trim().toLowerCase().endsWith('@lid');
+}
+
 /**
  * Verifica se os dígitos parecem um número de telefone válido (BR ou internacional).
  * Aceita de 8 a 15 dígitos — cobre Brasil (DDI+DDD+número), números internacionais
@@ -953,7 +959,12 @@ export const ChatTab: React.FC<{
         waName.toLowerCase() !== 'contato'
           ? waName
           : '';
-      const digits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
+      // Para JIDs @lid, os dígitos são IDs internos do WhatsApp — não são telefones reais.
+      // Usamos os dígitos apenas para cruzamento CRM (via buildPhoneDigitLookupKeys), nunca para exibição.
+      const convIsLid = isLidConvId(conv.id);
+      const rawDigits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
+      // Só gera phoneLabel se NÃO for LID — evita exibir "+17432844387532" como se fosse número real
+      const digits = convIsLid ? '' : rawDigits;
       // Formata o número para exibição amigável (ex.: +55 (11) 9 4955-0446)
       const phoneLabel = digits ? formatPhoneDisplay(digits) : '';
       // Quando só há número (sem nome amigável), usar phoneLabel como principal para exibir formatado

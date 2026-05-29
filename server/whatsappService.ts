@@ -1198,6 +1198,8 @@ const buildConversationContactPhone = async (
     if (ser.endsWith('@lid')) {
         const pn = await resolvePnDigitsFromLidSerialized(client, ser);
         if (pn.length >= 10) return `+${pn}`;
+        // Dígitos LID não são números de telefone reais — não os armazenar como contactPhone.
+        return '';
     }
     const user = ser.split('@')[0]?.replace(/\D/g, '') || '';
     if (user) return `+${user}`;
@@ -3014,7 +3016,8 @@ const fetchProfilePicsBatch = async (client: any, chatIds: string[]): Promise<Ma
         })()`;
         const payload: Record<string, string> = await pupPage.evaluate(jsCode);
         for (const [id, url] of Object.entries(payload || {})) {
-            if (typeof url === 'string' && (url.startsWith('http') || url.startsWith('blob:'))) {
+            // Aceitar apenas URLs HTTPS públicas — blob: são internas do Puppeteer e não funcionam no browser do usuário.
+            if (typeof url === 'string' && url.startsWith('https://')) {
                 result.set(id, url);
             }
         }
@@ -3206,8 +3209,9 @@ const syncConversationsViaStore = async (client: any, connectionId: string): Pro
             const chatId: string = rc.id;
             const conversationId = getConversationKey(connectionId, chatId);
             const existing = conversations.find(c => c.id === conversationId);
-            const contactName = rc.name || (rc.number ? `+${rc.number}` : 'Contato');
-            const contactPhone = rc.number ? `+${rc.number}` : '';
+            const contactName = rc.name || (rc.number && !chatId.endsWith('@lid') ? `+${rc.number}` : 'Contato');
+            // Não usar dígitos de JID @lid como contactPhone — não são números de telefone reais.
+            const contactPhone = rc.number && !chatId.endsWith('@lid') ? `+${rc.number}` : '';
             const lastTs: number = rc.lastTs || 0;
             const lastMessageTime = lastTs ? normalizeTimestamp(lastTs) : (existing?.lastMessageTime || '');
             const lastMessageTimestamp = lastTs ? lastTs * 1000 : (existing?.lastMessageTimestamp || Date.now());
@@ -3338,7 +3342,7 @@ const syncConversationsFromClient = async (client: any, connectionId: string) =>
             const lastMsgTs = chat.lastMessage?.timestamp || 0;
             const lastMessageTime = lastMsgTs ? normalizeTimestamp(lastMsgTs) : '';
             const lastMessageTimestamp = lastMsgTs ? lastMsgTs * 1000 : Date.now();
-            const fetchedMessages = await chat.fetchMessages({ limit: 25 }).catch(() => []);
+            const fetchedMessages = await chat.fetchMessages({ limit: 50 }).catch(() => []);
             /** Sem skipMedia cada anexo faz download durante o sync → minutos até o Pipeline aparecer. */
             const messages: ChatMessage[] = (
                 await Promise.all(
@@ -3597,23 +3601,39 @@ const handleClientReady = async (client: WhatsAppClient, id: string, name: strin
         runPictureCatchup();
     } else {
         console.log(`[handleClientReady] ✅ Conexão estabelecida - sincronizando conversas em background...`);
-        setImmediate(() => {
-            syncConversationsFromClient(client, id)
-                .catch(async (err) => {
-                    console.warn('[handleClientReady] getChats falhou, tentando Store.Chat direto:', errMsg(err));
-                    const ok = await syncConversationsViaStore(client, id).catch(e => {
-                        console.warn('[handleClientReady] Store.Chat falhou:', e?.message || e);
-                        return false;
-                    });
-                    if (ok) return;
-                    console.warn('[handleClientReady] Fallback final via getContacts...');
-                    return syncConversationsFromContacts(client, id).catch(e => {
-                        console.warn('[handleClientReady] Sync de contatos também falhou:', e?.message || e);
-                    });
-                })
-                .finally(() => {
-                    runPictureCatchup();
+
+        /** Executa um ciclo completo de sync (getChats → Store fallback → contacts fallback). */
+        const runFullSync = async () => {
+            await syncConversationsFromClient(client, id).catch(async (err) => {
+                console.warn('[handleClientReady] getChats falhou, tentando Store.Chat direto:', errMsg(err));
+                const ok = await syncConversationsViaStore(client, id).catch(e => {
+                    console.warn('[handleClientReady] Store.Chat falhou:', e?.message || e);
+                    return false;
                 });
+                if (ok) return;
+                console.warn('[handleClientReady] Fallback final via getContacts...');
+                return syncConversationsFromContacts(client, id).catch(e => {
+                    console.warn('[handleClientReady] Sync de contatos também falhou:', e?.message || e);
+                });
+            });
+        };
+
+        setImmediate(() => {
+            runFullSync().finally(() => {
+                runPictureCatchup();
+                // 2º sync após 90s: o WhatsApp Web pode ter carregado mais conversas
+                // na memória depois do primeiro ciclo (lazy loading do servidor WA).
+                setTimeout(() => {
+                    const conn2 = connectionsInfo.find(c => c.id === id);
+                    if (!conn2 || conn2.status !== ConnectionStatus.CONNECTED || isShuttingDown) return;
+                    const cl2 = clients.get(id);
+                    if (!cl2) return;
+                    console.log(`[handleClientReady] 2º sync (90s) para capturar mais conversas...`);
+                    runFullSync().catch(e =>
+                        console.warn('[handleClientReady] 2º sync falhou:', (e as Error)?.message || e)
+                    );
+                }, 90_000);
+            });
         });
     }
 
