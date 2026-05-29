@@ -738,8 +738,18 @@ const registerSocketHandlers = () => {
       const candidateUids = authOp !== uid ? [uid, authOp] : [uid];
       for (const candidateUid of candidateUids) {
         if (
-          await evolutionService.canControlCampaign(candidateUid, campaignId, workspaceMembers) ||
-          await waService.canControlCampaign(candidateUid, campaignId, workspaceMembers)
+          await evolutionService.canControlCampaign(
+            candidateUid,
+            campaignId,
+            workspaceMembers,
+            authOp
+          ) ||
+          await waService.canControlCampaign(
+            candidateUid,
+            campaignId,
+            workspaceMembers,
+            authOp
+          )
         ) {
           return true;
         }

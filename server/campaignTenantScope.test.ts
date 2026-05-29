@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   canReconcileLegacyCampaignOwner,
-  resolveCampaignTenantOwner
+  resolveCampaignTenantOwner,
+  buildCampaignOwnerLookupUids,
 } from './campaignTenantScope.js';
 
 describe('resolveCampaignTenantOwner', () => {
@@ -40,5 +41,19 @@ describe('resolveCampaignTenantOwner', () => {
   it('sem set de membros só permite owner === tenant', () => {
     expect(resolveCampaignTenantOwner('owner-1', 'owner-1')).toBe('owner-1');
     expect(resolveCampaignTenantOwner('owner-1', 'member-a')).toBeNull();
+  });
+});
+
+describe('buildCampaignOwnerLookupUids', () => {
+  it('prioriza tenant e actor sem duplicar', () => {
+    const members = new Set(['owner-1', 'member-a']);
+    expect(buildCampaignOwnerLookupUids('owner-1', members, 'member-a')).toEqual([
+      'owner-1',
+      'member-a',
+    ]);
+  });
+
+  it('ignora anonymous e vazios', () => {
+    expect(buildCampaignOwnerLookupUids('owner-1', undefined, 'anonymous')).toEqual(['owner-1']);
   });
 });

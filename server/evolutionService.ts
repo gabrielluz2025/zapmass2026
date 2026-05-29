@@ -46,7 +46,9 @@ import {
 } from '../src/utils/connectionScope.js';
 import {
     canReconcileLegacyCampaignOwner,
-    resolveCampaignTenantOwner
+    resolveCampaignTenantOwner,
+    lookupCampaignOwnerUidInFirestore,
+    buildCampaignOwnerLookupUids,
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 import { isEvolutionOpenState } from './evolutionOpenState.js';
@@ -1653,31 +1655,28 @@ export async function ensureTenantOwnsCampaign(
         }
     }
 
-    // Fallback para Firestore se a campanha não estiver ativa ou em memória (ex.: pós restart)
+    // Fallback Firestore: lookup direto em users/{uid}/campaigns/{id}
     try {
-        const admin = (await import('./firebaseAdmin.js')).getFirebaseAdmin();
-        if (admin) {
-            const db = admin.firestore();
-            const snap = await db.collectionGroup('campaigns')
-                .where('__name__', '==', `campaigns/${cid}`)
-                .get();
-            
-            if (!snap.empty) {
-                const doc = snap.docs[0];
-                const pathParts = doc.ref.path.split('/');
-                const ownerUid = pathParts[1]; // users/{userId}/campaigns/{campaignId}
-                if (ownerUid) {
-                    let resolved = resolveCampaignTenantOwner(
-                        tenantUid,
-                        ownerUid,
-                        workspaceMemberUids,
-                        actingAuthUid
-                    );
-                    if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, ownerUid, workspaceMemberUids)) {
-                        resolved = tenantUid;
-                    }
-                    return Boolean(resolved);
+        const lookupUids = buildCampaignOwnerLookupUids(tenantUid, workspaceMemberUids, actingAuthUid);
+        const firestoreOwner = await lookupCampaignOwnerUidInFirestore(cid, lookupUids);
+
+        if (firestoreOwner) {
+            let resolved = resolveCampaignTenantOwner(
+                tenantUid,
+                firestoreOwner,
+                workspaceMemberUids,
+                actingAuthUid
+            );
+            if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, firestoreOwner, workspaceMemberUids)) {
+                resolved = tenantUid;
+            }
+            if (resolved) {
+                const memState = campaignsById.get(cid);
+                if (memState && memState.ownerUid !== resolved) {
+                    memState.ownerUid = resolved;
+                    evolutionRegisterCampaign(cid, resolved);
                 }
+                return true;
             }
         }
     } catch (e: any) {
