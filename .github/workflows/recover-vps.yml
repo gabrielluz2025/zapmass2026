@@ -37,6 +37,6 @@ jobs:
             git fetch --all --prune
             git checkout -f main || git checkout -f origin/main
             git pull --ff-only origin main || git checkout -f origin/main
-            chmod +x deployment/recover-api-swarm.sh deployment/vps-deploy.sh
-            echo "==> recover-api-swarm (commit $(git rev-parse --short HEAD))"
-            bash deployment/recover-api-swarm.sh
+            chmod +x deployment/recover-api-swarm.sh deployment/vps-deploy.sh deployment/SOS-API-FORA.sh
+            echo "==> SOS-API-FORA (commit $(git rev-parse --short HEAD))"
+            bash deployment/SOS-API-FORA.sh

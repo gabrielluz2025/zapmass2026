@@ -434,8 +434,12 @@ if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 
   docker service ps zapmass_api || true
   docker service logs --since 10m --tail 200 zapmass_api || true
   if [ -f deployment/recover-api-swarm.sh ]; then
+    echo "==> tentativa automatica: SOS-API-FORA.sh"
+    chmod +x deployment/SOS-API-FORA.sh deployment/recover-api-swarm.sh
+    if [ -f deployment/SOS-API-FORA.sh ]; then
+      bash deployment/SOS-API-FORA.sh && exit 0
+    fi
     echo "==> tentativa automatica: recover-api-swarm.sh"
-    chmod +x deployment/recover-api-swarm.sh
     if bash deployment/recover-api-swarm.sh; then
       echo "OK: API recuperada apos falha de healthcheck."
       exit 0

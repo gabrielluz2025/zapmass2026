@@ -6,5 +6,5 @@ cd /opt/zapmass
 git fetch --all --prune
 git checkout -f main 2>/dev/null || git checkout -f origin/main
 git pull --ff-only origin main || git checkout -f origin/main
-chmod +x deployment/recover-api-swarm.sh
-exec bash deployment/recover-api-swarm.sh
+chmod +x deployment/SOS-API-FORA.sh deployment/recover-api-swarm.sh deployment/vps-deploy.sh
+exec bash deployment/SOS-API-FORA.sh
