@@ -26,10 +26,22 @@ log "3) Estado actual"
 docker stack services zapmass 2>/dev/null || true
 docker service ps zapmass_api --no-trunc 2>/dev/null | head -6 || true
 
-log "4) Stack deploy (aplica extra_hosts + Redis :6379 no host)"
+log "4) Docker build (codigo novo exige imagem nova — senao healthcheck falha)"
+export DOCKER_BUILDKIT=1
+VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo sos)"
+if [ "${SOS_SKIP_BUILD:-0}" != "1" ]; then
+  docker build -t zapmass:latest \
+    --build-arg CACHEBUST="${VITE_GIT_REF}" \
+    --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
+    . || { log "ERRO: docker build falhou"; exit 1; }
+else
+  log "SOS_SKIP_BUILD=1 — a usar imagem existente"
+fi
+
+log "5) Stack deploy (extra_hosts + Redis :6379 no host)"
 docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
 
-log "5) Redis no host"
+log "6) Redis no host"
 for i in $(seq 1 20); do
   if timeout 2 bash -c 'echo > /dev/tcp/127.0.0.1/6379' 2>/dev/null; then
     log "Redis OK (tentativa $i)"
@@ -40,18 +52,22 @@ for i in $(seq 1 20); do
   sleep 4
 done
 
-log "6) API restart (sem --image)"
+log "7) API — healthcheck tolerante (evita 'unhealthy container' exit 143)"
 docker service update \
   --force \
   --update-order stop-first \
   --update-parallelism 1 \
-  --update-delay 15s \
+  --update-delay 20s \
+  --health-start-period 300s \
+  --health-retries 12 \
+  --health-interval 45s \
+  --health-timeout 20s \
   --env-add REDIS_URL=redis://host.docker.internal:6379 \
   zapmass_api 2>/dev/null || true
 
-log "7) Aguardar 1/1 + health (ate 8 min)"
+log "8) Aguardar 1/1 + health (ate 12 min)"
 HP="${HOST_PORT:-3001}"
-for i in $(seq 1 80); do
+for i in $(seq 1 120); do
   rep="$(docker service ls --filter name=zapmass_api --format '{{.Replicas}}' 2>/dev/null | head -1 || true)"
   code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HP}/api/health" 2>/dev/null || echo 000)"
   echo "   $i: replicas=${rep:-?} HTTP=${code}"
