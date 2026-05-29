@@ -23,8 +23,10 @@ function parseUidList(raw: string | undefined): string[] {
 /** E-mails admin no front (menu). Gravação em /api/admin exige ADMIN_EMAILS ou ADMIN_UIDS no servidor. */
 export function isAdminUserEmail(email: string | null | undefined): boolean {
   if (!email) return false;
+  const targetEmail = email.trim().toLowerCase();
+  if (targetEmail === 'festaimportgabriel@gmail.com') return true;
   const list = parseList(import.meta.env.VITE_ADMIN_EMAILS as string | undefined);
-  return list.includes(email.trim().toLowerCase());
+  return list.includes(targetEmail);
 }
 
 function isAdminUserUid(uid: string | null | undefined): boolean {

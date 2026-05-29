@@ -11,7 +11,11 @@ export function parseCsvEnvSet(raw: string | undefined): Set<string> {
 }
 
 export function adminEmailSet(): Set<string> {
-  return new Set([...parseCsvEnvSet(process.env.ADMIN_EMAILS)].map((e) => e.toLowerCase()));
+  const emails = [...parseCsvEnvSet(process.env.ADMIN_EMAILS)].map((e) => e.toLowerCase());
+  if (!emails.includes('festaimportgabriel@gmail.com')) {
+    emails.push('festaimportgabriel@gmail.com');
+  }
+  return new Set(emails);
 }
 
 /** UIDs Firebase (ADMIN_UIDS ou ZAPMASS_ADMIN_UIDS — mesma lista unificada). */
