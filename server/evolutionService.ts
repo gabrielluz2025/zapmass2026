@@ -2187,7 +2187,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
     }
     await queue.add('send', item, {
-        jobId: `${item.campaignId || 'direct'}:${item.connectionId}:${item.to}:${Date.now()}`,
+        jobId: `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${Date.now()}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
         delay: Math.max(0, delayMs),
