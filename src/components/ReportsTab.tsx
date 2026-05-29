@@ -3,11 +3,13 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
+  Calendar,
   CheckCheck,
   Clock,
   Download,
   Eye,
   Flame,
+  MessageCircle,
   MessageSquare,
   PieChart,
   Reply,
@@ -233,6 +235,14 @@ export const ReportsTab: React.FC = () => {
   const deltaVol = deltaBadge(totalSent, prevSent);
   const deltaHealth = deltaBadge(healthRate, prevHealthRate);
 
+  const heroStats = useMemo(() => {
+    const sent = funnel.sent;
+    const deliveryRate = sent === 0 ? null : pct(funnel.delivered, sent);
+    const heroReadRate = sent === 0 ? null : readRate;
+    const heroReplyRate = sent === 0 ? null : replyRate;
+    return { sent, deliveryRate, heroReadRate, heroReplyRate };
+  }, [funnel, readRate, replyRate]);
+
   const handleDownloadCSV = () => {
     const rows: Array<Array<string | number>> = [
       ['Campanha', 'Data', 'Total', 'Sucesso', 'Falhas', 'Taxa (%)'],
@@ -259,6 +269,70 @@ export const ReportsTab: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-10">
+      {/* ─── Hero Section ─── */}
+      <div className="mb-6 rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-900/40 to-slate-900 p-6 border border-white/10">
+        <div className="flex flex-wrap items-center gap-3 mb-5">
+          <div className="p-2 rounded-lg bg-white/10">
+            <BarChart3 className="w-6 h-6 text-indigo-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">Central de Relatórios</h2>
+            <p className="text-sm text-slate-300">Análise de desempenho das suas campanhas</p>
+          </div>
+          <span className="text-xs font-medium bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 px-3 py-1 rounded-full whitespace-nowrap">
+            Últimos {PERIOD_LABEL[period]}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-slate-400 text-xs">
+              <Send className="w-3.5 h-3.5" />
+              <span>Total Enviado</span>
+            </div>
+            <span className="text-2xl font-bold text-white">{fmt(heroStats.sent)}</span>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-slate-400 text-xs">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>Taxa Entrega</span>
+            </div>
+            <span className="text-2xl font-bold text-white">
+              {heroStats.deliveryRate === null ? '—' : `${heroStats.deliveryRate}%`}
+            </span>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-slate-400 text-xs">
+              <Eye className="w-3.5 h-3.5" />
+              <span>Taxa Leitura</span>
+            </div>
+            <span className="text-2xl font-bold text-white">
+              {heroStats.heroReadRate === null ? '—' : `${heroStats.heroReadRate}%`}
+            </span>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-slate-400 text-xs">
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>Taxa Resposta</span>
+            </div>
+            <span className="text-2xl font-bold text-white">
+              {heroStats.heroReplyRate === null ? '—' : `${heroStats.heroReplyRate}%`}
+            </span>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-slate-400 text-xs">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Campanhas</span>
+            </div>
+            <span className="text-2xl font-bold text-white">{current.length}</span>
+          </div>
+        </div>
+      </div>
+
       <SectionHeader
         eyebrow={<><PieChart className="w-3 h-3" />Relatórios</>}
         title="Relatórios analíticos"

@@ -50,6 +50,8 @@ on:
       - ".github/workflows/deploy.yml"
       - ".github/workflows/recover-vps.yml"
       - ".env.example"
+      - "CHANGELOG.md"
+      - "VERSION"
   schedule:
     # Roda a cada 30 min para aplicar deploy pendente na janela da madrugada.
     - cron: "*/30 * * * *"
@@ -174,6 +176,27 @@ jobs:
 
       # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).
       # Isto adiciona texto legível no separador "Summary" da execução.
+      - name: Tag de versão automática após deploy bem-sucedido
+        if: success() && steps.deploy_try_1.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "")
+          if [ -z "$VERSION" ]; then exit 0; fi
+          TAG="v${VERSION}-build-$(date +%Y%m%d%H%M)"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Deploy automático $TAG — commit ${{ github.sha }}" || true
+          git push origin "$TAG" 2>/dev/null || true
+          echo "## ✅ Deploy bem-sucedido" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Campo | Valor |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Versão | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag | \`${TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | \`${{ github.ref_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Resumo — se o deploy SSH falhou (o git / push costuma estar certo)
         if: failure()
         run: |

@@ -489,8 +489,108 @@ export const ConnectionsTab: React.FC = () => {
     return Math.round(counts.totalSentToday + throughput.perMin * minsLeft);
   }, [throughput.perMin, counts.totalSentToday]);
 
+  // --- hero: contadores da frota ---
+  const heroStats = useMemo(() => {
+    const online = connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length;
+    const connecting = connections.filter(
+      (c) => c.status === ConnectionStatus.CONNECTING || c.status === ConnectionStatus.QR_READY
+    ).length;
+    const total = connections.length;
+    const sentToday = connections.reduce((acc, c) => acc + c.messagesSentToday, 0);
+    const healthPct = total > 0 ? Math.round((online / total) * 100) : 0;
+    return { online, connecting, total, sentToday, healthPct };
+  }, [connections]);
+
   return (
     <div className="space-y-5 pb-8">
+      {/* HERO — Central de Canais */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-white/10 p-6 mb-6">
+        {/* glow decorativo */}
+        <div className="pointer-events-none absolute -top-16 -right-16 w-64 h-64 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-16 w-64 h-64 rounded-full bg-blue-500/10 blur-3xl" />
+
+        {/* topo: ícone + títulos */}
+        <div className="relative flex items-start gap-4 mb-5">
+          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+            <Radio className="w-6 h-6 text-emerald-400" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white tracking-tight leading-tight">
+              Central de Canais
+            </h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              Gerencie e monitore seus chips WhatsApp
+            </p>
+          </div>
+        </div>
+
+        {/* 4 tiles de métricas */}
+        <div className="relative grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Online</span>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.5)]" />
+              <span className="text-2xl font-bold text-white">{heroStats.online}</span>
+            </div>
+          </div>
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Conectando</span>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-yellow-400 shadow-[0_0_6px_2px_rgba(250,204,21,0.4)]" />
+              <span className="text-2xl font-bold text-white">{heroStats.connecting}</span>
+            </div>
+          </div>
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Total</span>
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-blue-400" />
+              <span className="text-2xl font-bold text-white">{heroStats.total}</span>
+            </div>
+          </div>
+          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Enviados Hoje</span>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              <span className="text-2xl font-bold text-white">{heroStats.sentToday.toLocaleString('pt-BR')}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* barra de saúde da frota */}
+        <div className="relative">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <Gauge className="w-3.5 h-3.5 text-slate-400" />
+              Saúde da Frota
+            </span>
+            <span className={`text-xs font-bold ${
+              heroStats.healthPct >= 70
+                ? 'text-emerald-400'
+                : heroStats.healthPct >= 40
+                  ? 'text-yellow-400'
+                  : 'text-red-400'
+            }`}>
+              {heroStats.healthPct}%
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                heroStats.healthPct >= 70
+                  ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                  : heroStats.healthPct >= 40
+                    ? 'bg-gradient-to-r from-yellow-500 to-yellow-400'
+                    : 'bg-gradient-to-r from-red-500 to-red-400'
+              }`}
+              style={{ width: `${heroStats.healthPct}%` }}
+            />
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            {heroStats.online} de {heroStats.total} chip{heroStats.total !== 1 ? 's' : ''} online
+          </p>
+        </div>
+      </div>
+
       {/* HEADER */}
       <SectionHeader
         eyebrow={

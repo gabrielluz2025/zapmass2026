@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Flame, Play, Pause, ToggleLeft, ToggleRight, TrendingUp, MessageCircle, Clock, Zap, RefreshCw, AlertTriangle,
-  BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2, AlertCircle
+  BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2, AlertCircle, Activity, Timer
 } from 'lucide-react';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { auth } from '../services/firebase';
@@ -372,8 +372,85 @@ export const WarmupTab: React.FC = () => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  const heroTiles = useMemo(() => [
+    {
+      icon: <Flame className="w-4 h-4 text-orange-400" />,
+      label: 'Aquecidos',
+      value: warmedCount ?? 0,
+    },
+    {
+      icon: <Timer className="w-4 h-4 text-yellow-400" />,
+      label: 'Na fila',
+      value: (warmupQueue ?? []).length,
+    },
+    {
+      icon: <Activity className="w-4 h-4 text-blue-400" />,
+      label: 'Chips ativos',
+      value: connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length,
+    },
+    {
+      icon: <CheckCircle2 className="w-4 h-4 text-green-400" />,
+      label: 'Total enviado hoje',
+      value: totalMessagesSent,
+    },
+  ], [warmedCount, warmupQueue, connections, totalMessagesSent]);
+
   return (
     <div className="space-y-5 pb-10">
+      {/* ── HERO FIRE STARTER ─────────────────────────────────────── */}
+      <div className="mb-6 rounded-2xl overflow-hidden bg-gradient-to-br from-orange-950 via-red-900/50 to-slate-900 border border-white/10 shadow-xl">
+        <div className="px-6 pt-6 pb-5">
+          {/* Cabeçalho */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-orange-500/20 border border-orange-500/30">
+                <Flame className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white leading-tight">Aquecimento de Chips</h2>
+                <p className="text-sm text-slate-300 mt-0.5">
+                  Humanize seus canais com trocas naturais de mensagens
+                </p>
+              </div>
+            </div>
+            {/* Status badge */}
+            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 shrink-0">
+              <span
+                className={`w-2 h-2 rounded-full ${warmupActive ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`}
+              />
+              <span className={`text-xs font-medium ${warmupActive ? 'text-green-300' : 'text-slate-400'}`}>
+                {warmupActive ? 'Ativo' : 'Inativo'}
+              </span>
+            </div>
+          </div>
+
+          {/* Tiles */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+            {heroTiles.map((tile) => (
+              <div
+                key={tile.label}
+                className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3"
+              >
+                <div className="shrink-0">{tile.icon}</div>
+                <div className="min-w-0">
+                  <p className="text-lg font-bold text-white leading-none">{tile.value}</p>
+                  <p className="text-xs text-slate-400 mt-0.5 truncate">{tile.label}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Dica visual */}
+          <div className="flex items-center gap-2 mt-4">
+            <Zap className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+            <p className="text-xs text-slate-400">
+              Recomendado: <span className="text-orange-300 font-medium">10–30 min</span> entre rodadas
+            </p>
+          </div>
+        </div>
+      </div>
+      {/* ── FIM HERO ──────────────────────────────────────────────── */}
+
       <SectionHeader
         eyebrow={<><Flame className="w-3 h-3" />Aquecimento</>}
         title="Aquecer Numeros"
