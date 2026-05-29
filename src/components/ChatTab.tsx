@@ -130,6 +130,13 @@ function buildPhoneDigitLookupKeys(digits: string): string[] {
       if (noCc.length >= 10) pushBrMobileVariants(noCc.slice(-10));
       if (noCc.length >= 11) pushBrMobileVariants(noCc.slice(-11));
     }
+    // Para números internacionais longos (> 11 dígitos): também tenta sufixos de 9–13 dígitos.
+    // Isso cobre casos em que o WA entrega o número com código de país diferente do salvo no sistema.
+    if (d.length > 11) {
+      for (let len = 9; len <= 13 && len < d.length; len++) {
+        pushBrMobileVariants(d.slice(-len));
+      }
+    }
   };
   const d = normalizeDigits(digits);
   if (!d) return [];
@@ -163,12 +170,17 @@ function extractWaUserDigitsFromConvId(convId: string): string {
   return m ? normalizeDigits(m[1]) : '';
 }
 
-/** Filtra LID longo / id interno: só aceita dígitos que podem ser PN BR na agenda. */
+/**
+ * Verifica se os dígitos parecem um número de telefone válido (BR ou internacional).
+ * Aceita de 8 a 15 dígitos — cobre Brasil (DDI+DDD+número), números internacionais
+ * e evita LIDs excessivamente longos do WhatsApp (geralmente > 15 dígitos).
+ */
 function plausiblyBrazilPhoneDigits(d: string): boolean {
   const x = normalizeDigits(d);
-  if (x.length < 10 || x.length > 13) return false;
-  if (x.startsWith('55')) return x.length >= 12 && x.length <= 13;
-  return x.length === 10 || x.length === 11;
+  if (x.length < 8 || x.length > 15) return false;
+  // Para dígitos com prefixo 55 (BR), exige ao menos 12 dígitos (55+DDD+8).
+  if (x.startsWith('55') && x.length < 12) return false;
+  return true;
 }
 
 /**
@@ -199,6 +211,24 @@ function looksLikeDigitsOnlyContactLabel(raw: string): boolean {
   const t = raw.trim().replace(/\u00a0/g, ' ');
   if (!t) return true;
   return /^[+()\d\s.\-]+$/.test(t) && /\d{7,}/.test(t.replace(/\D/g, ''));
+}
+
+/**
+ * Formata dígitos de telefone para exibição amigável.
+ * Cobre Brasil (55+DDD+número), internacionais e números curtos.
+ */
+function formatPhoneDisplay(digits: string): string {
+  if (!digits) return '';
+  const d = normalizeDigits(digits);
+  if (!d) return `+${digits}`;
+  // Brasil: 55 + DDD(2) + 9(1) + número(8) = 13  / 55 + DDD(2) + número(8) = 12
+  if (d.startsWith('55') && (d.length === 13 || d.length === 12)) {
+    const nat = d.slice(2);
+    if (nat.length === 11) return `+55 (${nat.slice(0, 2)}) ${nat.slice(2, 7)}-${nat.slice(7)}`;
+    if (nat.length === 10) return `+55 (${nat.slice(0, 2)}) ${nat.slice(2, 6)}-${nat.slice(6)}`;
+  }
+  // Formato genérico com +
+  return `+${d}`;
 }
 
 const classifyConversation = (conv: Conversation): ConversationOrigin => {
@@ -924,14 +954,24 @@ export const ChatTab: React.FC<{
           ? waName
           : '';
       const digits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
-      const phoneLabel = digits ? `+${digits}` : '';
-      const primary = systemName || friendlyStored || waName || phoneLabel || 'Contato';
+      // Formata o número para exibição amigável (ex.: +55 (11) 9 4955-0446)
+      const phoneLabel = digits ? formatPhoneDisplay(digits) : '';
+      // Quando só há número (sem nome amigável), usar phoneLabel como principal para exibir formatado
+      const rawNumberOnly = !systemName && !friendlyStored && looksLikeDigitsOnlyContactLabel(waName);
+      const primary = systemName || friendlyStored || (rawNumberOnly ? phoneLabel : waName) || phoneLabel || 'Contato';
 
       let whatsappSubtitle: string | undefined;
-      if (systemName && waName && !same(systemName, waName)) whatsappSubtitle = waName;
+      // Mostrar o nome do WA como subtítulo apenas se for diferente do nome do sistema
+      if (systemName && waName && !looksLikeDigitsOnlyContactLabel(waName) && !same(systemName, waName)) {
+        whatsappSubtitle = waName;
+      }
 
       let phoneSecondary: string | undefined;
-      if (phoneLabel && primary !== phoneLabel) phoneSecondary = phoneLabel;
+      // Mostrar telefone formatado como info secundária (nunca mostrar LID longo como está)
+      const phoneFmt = formatPhoneDisplay(digits);
+      if (phoneFmt && primary !== phoneFmt && !looksLikeDigitsOnlyContactLabel(primary)) {
+        phoneSecondary = phoneFmt;
+      }
 
       map.set(conv.id, { primary, whatsappSubtitle, phoneSecondary });
     }
