@@ -153,8 +153,7 @@ const parseBirthdayDate = (raw: string): Date | null => {
 };
 
 /**
- * Stat card visual com gradiente, glow e barra de progresso opcional.
- * Substitui o StatCard padrao apenas no dashboard (mais impacto visual).
+ * Stat card redesenhado: borda colorida, valor grande em destaque e barra com glow.
  */
 const DashboardStat: React.FC<{
   label: string;
@@ -165,51 +164,53 @@ const DashboardStat: React.FC<{
   progress?: number;
 }> = ({ label, value, icon, gradient, helper, progress }) => (
   <div
-    className="relative overflow-hidden rounded-2xl px-4 py-4 transition-all duration-300 hover:-translate-y-0.5 animate-fade-in-up"
+    className="relative overflow-hidden rounded-2xl p-5 group transition-all duration-300 hover:-translate-y-1 hover:shadow-xl animate-fade-in-up"
     style={{
-      background: 'var(--surface-0)',
-      border: '1px solid var(--border)',
-      boxShadow: '0 4px 16px -8px rgba(0,0,0,0.08)'
+      background: `linear-gradient(160deg, color-mix(in srgb, ${gradient[0]} 8%, var(--surface-1)) 0%, var(--surface-0) 100%)`,
+      border: `1px solid color-mix(in srgb, ${gradient[0]} 22%, var(--border))`,
+      boxShadow: `0 4px 24px -10px ${gradient[0]}28`
     }}
   >
     <div
-      className="absolute -top-12 -right-12 w-36 h-36 rounded-full opacity-[0.10] pointer-events-none"
-      style={{ background: `radial-gradient(circle, ${gradient[0]}, transparent 60%)` }}
+      className="absolute -top-6 -right-6 w-28 h-28 rounded-full pointer-events-none opacity-25"
+      style={{ background: `radial-gradient(circle, ${gradient[0]}, transparent 70%)` }}
       aria-hidden
     />
-    <div className="relative flex items-center gap-3 mb-3">
+    <div className="flex items-center justify-between mb-4">
       <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-white"
+        className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0"
         style={{
           background: `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`,
-          boxShadow: `0 6px 18px -6px ${gradient[0]}`
+          boxShadow: `0 6px 18px -4px ${gradient[0]}99`
         }}
       >
         {icon}
       </div>
-      <p className="text-[10.5px] font-bold uppercase tracking-widest truncate" style={{ color: 'var(--text-3)' }}>
-        {label}
-      </p>
+      {progress != null && (
+        <span className="text-[12px] font-black tabular-nums" style={{ color: gradient[0] }}>
+          {Math.round(progress)}%
+        </span>
+      )}
     </div>
-    <p className="relative text-[30px] font-extrabold leading-none tabular-nums tracking-tight" style={{ color: 'var(--text-1)' }}>
+    <p className="text-[30px] sm:text-[34px] font-black leading-none tabular-nums tracking-tight" style={{ color: 'var(--text-1)' }}>
       {value}
     </p>
+    <p className="text-[10px] font-bold uppercase tracking-widest mt-2" style={{ color: gradient[0], opacity: 0.9 }}>
+      {label}
+    </p>
     {helper && (
-      <p className="relative text-[11.5px] mt-2 leading-snug" style={{ color: 'var(--text-3)' }}>
+      <p className="text-[11px] mt-1.5 leading-snug" style={{ color: 'var(--text-3)' }}>
         {helper}
       </p>
     )}
     {progress != null && (
-      <div
-        className="relative h-1 rounded-full mt-3 overflow-hidden"
-        style={{ background: 'var(--surface-2)' }}
-      >
+      <div className="h-1.5 rounded-full mt-4 overflow-hidden" style={{ background: 'var(--surface-2)' }}>
         <div
           className="h-full rounded-full transition-all duration-1000 ease-out"
           style={{
             width: `${Math.max(2, Math.min(100, progress))}%`,
             background: `linear-gradient(90deg, ${gradient[0]}, ${gradient[1]})`,
-            boxShadow: `0 0 12px ${gradient[0]}55`
+            boxShadow: `0 0 10px ${gradient[0]}66`
           }}
         />
       </div>
@@ -218,7 +219,7 @@ const DashboardStat: React.FC<{
 );
 
 /**
- * Cartao de atalho rapido para outras abas. Colorido, gradiente e hover animado.
+ * Atalho rápido: card neutro com ícone colorido, hover suave e seta animada.
  */
 const QuickAction: React.FC<{
   label: string;
@@ -230,29 +231,41 @@ const QuickAction: React.FC<{
   <button
     type="button"
     onClick={onClick}
-    className="group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 animate-fade-in-up"
+    className="group relative overflow-hidden rounded-2xl p-4 sm:p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 animate-fade-in-up"
     style={{
-      background: `linear-gradient(135deg, ${gradient[0]} 0%, ${gradient[1]} 100%)`,
-      boxShadow: `0 10px 24px -12px ${gradient[0]}aa`
+      background: 'var(--surface-0)',
+      border: `1px solid color-mix(in srgb, ${gradient[0]} 18%, var(--border))`,
+      boxShadow: `0 4px 16px -8px ${gradient[0]}22`
     }}
   >
+    {/* Wash de fundo no hover */}
     <div
-      className="absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-30 pointer-events-none transition-transform duration-500 group-hover:scale-125"
-      style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.6), transparent 70%)' }}
+      className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+      style={{ background: `linear-gradient(145deg, ${gradient[0]}0e, transparent 65%)` }}
       aria-hidden
     />
-    <div className="relative flex items-start justify-between">
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/20 backdrop-blur-sm ring-1 ring-white/30 text-white">
-        {icon}
-      </div>
-      <ArrowRight className="w-4 h-4 text-white/80 transition-transform duration-300 group-hover:translate-x-1" />
+    {/* Ícone */}
+    <div
+      className="relative w-12 h-12 rounded-2xl flex items-center justify-center text-white mb-4 shrink-0"
+      style={{
+        background: `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`,
+        boxShadow: `0 8px 22px -8px ${gradient[0]}bb`
+      }}
+    >
+      {icon}
     </div>
-    <p className="relative mt-3 text-[15px] font-extrabold text-white leading-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-      {label}
-    </p>
-    <p className="relative text-[11.5px] mt-0.5 text-white/85 leading-snug line-clamp-2">
-      {hint}
-    </p>
+    <div className="relative pr-6">
+      <p className="text-[14.5px] font-extrabold leading-tight" style={{ color: 'var(--text-1)' }}>
+        {label}
+      </p>
+      <p className="text-[11.5px] mt-1 leading-snug line-clamp-2" style={{ color: 'var(--text-3)' }}>
+        {hint}
+      </p>
+    </div>
+    <ArrowRight
+      className="absolute bottom-4 right-4 w-4 h-4 transition-all duration-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5"
+      style={{ color: gradient[0] }}
+    />
   </button>
 );
 
@@ -794,205 +807,198 @@ export const DashboardTab: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-10">
-      {/* ========== HERO PREMIUM: mesh gradient + CTAs + live status ========== */}
+      {/* ========== HERO: split layout — saudação + CTAs | painel ao vivo ========== */}
       <div
-        className="relative overflow-hidden rounded-[28px] px-5 py-6 sm:px-8 sm:py-8 animate-fade-in-up"
+        className="relative overflow-hidden rounded-[28px] animate-fade-in-up"
         style={{
-          background:
-            'linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(59,130,246,0.14) 45%, rgba(139,92,246,0.14) 100%), linear-gradient(135deg, var(--surface-0) 0%, var(--surface-1) 100%)',
+          background: 'linear-gradient(145deg, var(--surface-1) 0%, var(--surface-0) 100%)',
           border: '1px solid var(--border)',
-          boxShadow: '0 24px 80px -40px rgba(16,185,129,0.45), 0 8px 24px -12px rgba(0,0,0,0.15)'
+          boxShadow: '0 24px 80px -40px rgba(16,185,129,0.3), 0 8px 24px -12px rgba(0,0,0,0.1)'
         }}
       >
-        {/*
-          Orbs mesh — DECORATIVO (estático). Antes usavam `animate-blob` infinito + `filter: blur(40px)`
-          em áreas de até 448px², o que forçava o navegador a re-renderizar um blur enorme a cada frame
-          (CPU constante ~40–50% sustentado mesmo sem interação). Mantemos o visual sem a animação.
-        */}
+        {/* Orbs estáticos decorativos */}
         <div
-          className="absolute -top-28 -right-16 w-[28rem] h-[28rem] rounded-full pointer-events-none"
-          style={{
-            background: 'radial-gradient(circle, rgba(16,185,129,0.45), transparent 60%)',
-            filter: 'blur(40px)'
-          }}
+          className="absolute -top-32 -right-20 w-96 h-96 rounded-full pointer-events-none opacity-50"
+          style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.32), transparent 60%)', filter: 'blur(48px)' }}
           aria-hidden
         />
         <div
-          className="absolute top-10 left-1/3 w-72 h-72 rounded-full pointer-events-none"
-          style={{
-            background: 'radial-gradient(circle, rgba(139,92,246,0.35), transparent 60%)',
-            filter: 'blur(36px)'
-          }}
+          className="absolute -bottom-20 left-1/4 w-72 h-72 rounded-full pointer-events-none opacity-30"
+          style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.28), transparent 60%)', filter: 'blur(40px)' }}
           aria-hidden
         />
+        {/* Linha acento topo */}
         <div
-          className="absolute -bottom-24 -left-20 w-80 h-80 rounded-full pointer-events-none"
-          style={{
-            background: 'radial-gradient(circle, rgba(59,130,246,0.35), transparent 60%)',
-            filter: 'blur(42px)'
-          }}
+          className="absolute inset-x-0 top-0 h-[3px] pointer-events-none"
+          style={{ background: 'linear-gradient(90deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%)' }}
           aria-hidden
         />
 
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div className="flex items-start gap-4 min-w-0">
-            <div
-              className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl flex items-center justify-center shrink-0 relative text-[32px]"
-              style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 18px 50px -8px rgba(16,185,129,0.55), 0 0 0 1px rgba(16,185,129,0.3)'
-              }}
-            >
-              <span className="drop-shadow-[0_2px_6px_rgba(0,0,0,0.3)]">
-                {hour < 6 ? '🌙' : hour < 12 ? '☀️' : hour < 18 ? '🌤️' : '🌙'}
-              </span>
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center flex-wrap gap-2 mb-1.5">
-                <span
-                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-widest"
+        <div className="relative z-10 px-5 py-6 sm:px-8 sm:py-8">
+          <div className="flex flex-col lg:flex-row lg:items-start gap-6 lg:gap-8">
+
+            {/* === ESQUERDA: saudação + data + CTAs === */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start gap-4">
+                <div
+                  className="w-14 h-14 sm:w-[68px] sm:h-[68px] rounded-2xl flex items-center justify-center shrink-0 text-[28px]"
                   style={{
-                    background: 'rgba(16,185,129,0.16)',
-                    color: '#10b981',
-                    border: '1px solid rgba(16,185,129,0.35)'
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    boxShadow: '0 16px 40px -8px rgba(16,185,129,0.5), 0 0 0 1px rgba(16,185,129,0.25)'
                   }}
                 >
-                  <span className="relative flex w-1.5 h-1.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                  <span className="drop-shadow-[0_2px_6px_rgba(0,0,0,0.3)]">
+                    {hour < 6 ? '🌙' : hour < 12 ? '☀️' : hour < 18 ? '🌤️' : '🌙'}
                   </span>
-                  Sistema operacional
-                </span>
-                <span
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
-                  style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    color: 'var(--text-2)',
-                    border: '1px solid var(--border-subtle)'
-                  }}
-                >
-                  <Clock className="w-3 h-3" />
-                  {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center flex-wrap gap-2 mb-1.5">
+                    <span
+                      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest"
+                      style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }}
+                    >
+                      <span className="relative flex w-1.5 h-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                      </span>
+                      Ao vivo
+                    </span>
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                      style={{ background: 'rgba(255,255,255,0.04)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      <Clock className="w-3 h-3" />
+                      {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <h1
+                    className="text-[24px] sm:text-[32px] font-extrabold leading-[1.1] tracking-tight"
+                    style={{ color: 'var(--text-1)' }}
+                  >
+                    {greeting},{' '}
+                    <span
+                      style={{
+                        background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text'
+                      }}
+                    >
+                      {firstName}
+                    </span>
+                    <span className="text-[20px] sm:text-[28px] ml-1">👋</span>
+                  </h1>
+                  <p className="mt-1.5 text-[13px] sm:text-[14px] capitalize" style={{ color: 'var(--text-2)' }}>
+                    {now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    {onlineCount > 0 && (
+                      <span className="ml-2 text-[12.5px]" style={{ color: 'var(--text-3)' }}>
+                        · <strong style={{ color: '#10b981' }}>{onlineCount}</strong>{' '}
+                        {onlineCount > 1 ? 'canais' : 'canal'} online
+                      </span>
+                    )}
+                  </p>
+                  {segmentXp.dashboardTagline ? (
+                    <p className="mt-2 text-[12px] sm:text-[13px] leading-snug max-w-xl" style={{ color: 'var(--text-3)' }}>
+                      {segmentXp.dashboardTagline}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-              <h1
-                className="text-[26px] sm:text-[34px] font-extrabold leading-[1.1] tracking-tight"
-                style={{ color: 'var(--text-1)' }}
-              >
-                {greeting},{' '}
-                <span
-                  style={{
-                    background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text'
-                  }}
+
+              {/* CTAs */}
+              <div className="flex items-stretch gap-2 mt-5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('campaigns')}
+                  className="group relative overflow-hidden inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-[13.5px] font-bold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl"
+                  style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 10px 28px -10px rgba(16,185,129,0.7)' }}
                 >
-                  {firstName}
+                  <Plus className="w-4 h-4 shrink-0 transition-transform duration-300 group-hover:rotate-90" />
+                  Nova campanha
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('connections')}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl text-[13.5px] font-bold transition-all duration-300 hover:-translate-y-0.5"
+                  style={{ background: 'var(--surface-0)', color: 'var(--text-1)', border: '1px solid var(--border)' }}
+                >
+                  <Smartphone className="w-4 h-4 shrink-0" style={{ color: '#10b981' }} />
+                  Conectar canal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('help')}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl text-[13px] font-semibold transition-all duration-300 hover:-translate-y-0.5"
+                  style={{ background: 'rgba(59,130,246,0.08)', color: 'var(--text-1)', border: '1px solid rgba(59,130,246,0.25)' }}
+                  title="Abrir o guia passo a passo"
+                >
+                  <BookOpen className="w-4 h-4 shrink-0" style={{ color: '#3b82f6' }} />
+                  Como usar
+                </button>
+              </div>
+            </div>
+
+            {/* === DIREITA: painel de métricas ao vivo === */}
+            <div
+              className="lg:w-[270px] xl:w-[300px] shrink-0 rounded-2xl p-4 relative overflow-hidden"
+              style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
+            >
+              <p className="text-[9.5px] font-bold uppercase tracking-widest mb-3 flex items-center gap-1.5" style={{ color: 'var(--text-3)' }}>
+                <span className="relative flex w-1.5 h-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
                 </span>
-                <span className="text-[22px] sm:text-[30px] ml-1">👋</span>
-              </h1>
-              <p className="mt-1.5 text-[13px] sm:text-[14px] capitalize" style={{ color: 'var(--text-2)' }}>
-                {now.toLocaleDateString('pt-BR', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric'
-                })}
-                {onlineCount > 0 && (
-                  <span className="ml-2 text-[12.5px]" style={{ color: 'var(--text-3)' }}>
-                    · <strong style={{ color: '#10b981' }}>{onlineCount}</strong>{' '}
-                    {onlineCount > 1 ? 'canais' : 'canal'} online
-                  </span>
-                )}
+                Tempo real
               </p>
-              {segmentXp.dashboardTagline ? (
-                <p className="mt-2 text-[12px] sm:text-[13px] leading-snug max-w-xl" style={{ color: 'var(--text-3)' }}>
-                  {segmentXp.dashboardTagline}
-                </p>
-              ) : null}
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'Canais online', value: `${onlineCount}/${connections.length || 0}`, color: '#10b981', icon: <Cpu className="w-3.5 h-3.5" /> },
+                  { label: 'Mensagens', value: metrics.totalSent.toLocaleString('pt-BR'), color: '#3b82f6', icon: <Send className="w-3.5 h-3.5" /> },
+                  { label: 'Entregues', value: `${deliveryRate}%`, color: '#8b5cf6', icon: <CheckCheck className="w-3.5 h-3.5" /> },
+                  { label: 'Respostas', value: metrics.totalReplied.toLocaleString('pt-BR'), color: '#f59e0b', icon: <Reply className="w-3.5 h-3.5" /> }
+                ].map((s) => (
+                  <div
+                    key={s.label}
+                    className="rounded-xl px-3 py-3 relative overflow-hidden"
+                    style={{ background: `${s.color}0d`, border: `1px solid ${s.color}22` }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1.5" style={{ color: s.color }}>
+                      {s.icon}
+                      <p className="text-[9px] font-bold uppercase tracking-wider leading-none" style={{ color: 'var(--text-3)' }}>
+                        {s.label}
+                      </p>
+                    </div>
+                    <p className="text-[20px] font-black leading-none tabular-nums" style={{ color: 'var(--text-1)' }}>
+                      {s.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {bestWindow && (
+                <div
+                  className="mt-2.5 flex items-center gap-2 rounded-xl px-3 py-2"
+                  style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.20)' }}
+                >
+                  <Zap className="w-3.5 h-3.5 shrink-0" style={{ color: '#f59e0b' }} />
+                  <p className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-2)' }}>
+                    Melhor horário:{' '}
+                    <strong style={{ color: '#f59e0b' }}>{bestWindow.label}</strong>
+                  </p>
+                </div>
+              )}
+              {contacts.length > 0 && (
+                <div
+                  className="mt-2 flex items-center gap-2 rounded-xl px-3 py-2"
+                  style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.20)' }}
+                >
+                  <Users className="w-3.5 h-3.5 shrink-0" style={{ color: '#8b5cf6' }} />
+                  <p className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-2)' }}>
+                    <strong style={{ color: '#8b5cf6' }}>{contacts.length.toLocaleString('pt-BR')}</strong> contatos na base
+                  </p>
+                </div>
+              )}
             </div>
           </div>
-
-          {/* CTAs principais */}
-          <div className="flex items-stretch gap-2 shrink-0 w-full lg:w-auto">
-            <button
-              type="button"
-              onClick={() => setCurrentView('campaigns')}
-              className="group relative overflow-hidden flex-1 lg:flex-none inline-flex items-center gap-2 px-4 sm:px-5 py-3 rounded-2xl text-[13.5px] font-bold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl"
-              style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: '0 10px 28px -10px rgba(16,185,129,0.7)'
-              }}
-            >
-              <Plus className="w-4 h-4 shrink-0 transition-transform duration-300 group-hover:rotate-90" />
-              <span>Nova campanha</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentView('connections')}
-              className="flex-1 lg:flex-none inline-flex items-center gap-2 px-4 sm:px-5 py-3 rounded-2xl text-[13.5px] font-bold transition-all duration-300 hover:-translate-y-0.5"
-              style={{
-                background: 'var(--surface-0)',
-                color: 'var(--text-1)',
-                border: '1px solid var(--border)'
-              }}
-            >
-              <Smartphone className="w-4 h-4 shrink-0" style={{ color: '#10b981' }} />
-              <span>Conectar canal</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentView('help')}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 sm:px-4 py-3 rounded-2xl text-[13px] font-semibold transition-all duration-300 hover:-translate-y-0.5"
-              style={{
-                background: 'rgba(59,130,246,0.08)',
-                color: 'var(--text-1)',
-                border: '1px solid rgba(59,130,246,0.25)'
-              }}
-              title="Abrir o guia passo a passo"
-            >
-              <BookOpen className="w-4 h-4 shrink-0" style={{ color: '#3b82f6' }} />
-              <span>Como usar</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Status bar horizontal com metricas ao vivo */}
-        <div
-          className="relative z-10 mt-6 grid grid-cols-2 sm:grid-cols-4 gap-px rounded-2xl overflow-hidden"
-          style={{
-            background: 'var(--border)',
-            border: '1px solid var(--border-subtle)'
-          }}
-        >
-          {[
-            { label: 'Canais online', value: `${onlineCount}/${connections.length || 0}`, color: '#10b981', icon: <Cpu className="w-3.5 h-3.5" /> },
-            { label: 'Mensagens enviadas', value: metrics.totalSent.toLocaleString('pt-BR'), color: '#3b82f6', icon: <Send className="w-3.5 h-3.5" /> },
-            { label: 'Taxa de entrega', value: `${deliveryRate}%`, color: '#8b5cf6', icon: <CheckCheck className="w-3.5 h-3.5" /> },
-            { label: 'Respostas', value: metrics.totalReplied.toLocaleString('pt-BR'), color: '#f59e0b', icon: <Reply className="w-3.5 h-3.5" /> }
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="px-4 py-3 flex items-center gap-3"
-              style={{ background: 'var(--surface-0)' }}
-            >
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: `${s.color}22`, color: s.color, border: `1px solid ${s.color}33` }}
-              >
-                {s.icon}
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-widest truncate" style={{ color: 'var(--text-3)' }}>
-                  {s.label}
-                </p>
-                <p className="text-[17px] font-extrabold leading-tight tabular-nums truncate" style={{ color: 'var(--text-1)' }}>
-                  {s.value}
-                </p>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 
