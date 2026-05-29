@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
-  Workflow,
+  MessageCircle,
   StickyNote,
   Tag,
   Bell,
@@ -8,11 +8,23 @@ import {
   Image as ImageIcon,
   Pin,
   Search,
-  Zap,
   ShieldCheck,
-  ArrowRight,
   EyeOff,
-  Eye
+  Eye,
+  CheckCheck,
+  Check,
+  Smile,
+  Paperclip,
+  Mic,
+  Phone,
+  Video,
+  MoreVertical,
+  ArrowRight,
+  Zap,
+  Users,
+  TrendingUp,
+  Star,
+  Hash
 } from 'lucide-react';
 
 const INTRO_HIDDEN_KEY = 'zapmass-chat-pipeline-intro-hidden';
@@ -41,9 +53,131 @@ interface Props {
   };
 }
 
-/**
- * Empty state do painel de chat — “showcase” quando nenhuma conversa está selecionada.
- */
+const mockMessages = [
+  { from: 'them', text: 'Olá! Vi o produto no Instagram 😊', time: '09:41', status: null },
+  { from: 'me', text: 'Olá! Que bom! Como posso te ajudar?', time: '09:42', status: 'read' },
+  { from: 'them', text: 'Qual o preço e prazo de entrega?', time: '09:43', status: null },
+  { from: 'me', text: 'Entrego em 3 dias úteis! 🚀 Te mando o catálogo agora.', time: '09:44', status: 'delivered' }
+];
+
+function WaPreview() {
+  return (
+    <div
+      className="rounded-2xl overflow-hidden select-none shrink-0 w-full max-w-[280px]"
+      style={{
+        background: 'var(--wa-bg)',
+        border: '1px solid var(--wa-divider)',
+        boxShadow: '0 32px 64px -24px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04)'
+      }}
+      aria-hidden
+    >
+      {/* Header */}
+      <div
+        className="flex items-center gap-3 px-3 py-2.5"
+        style={{ background: 'var(--wa-header)' }}
+      >
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white text-[13px] font-bold"
+          style={{ background: 'linear-gradient(135deg, #00a884, #008069)' }}
+        >
+          MJ
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--wa-text)' }}>
+            Maria João
+          </p>
+          <p className="text-[10px]" style={{ color: 'var(--wa-green)' }}>
+            online
+          </p>
+        </div>
+        <div className="flex items-center gap-3" style={{ color: 'var(--wa-icon)' }}>
+          <Video className="w-4 h-4" />
+          <Phone className="w-4 h-4" />
+          <MoreVertical className="w-4 h-4" />
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex flex-col gap-1.5 px-3 py-3" style={{ background: 'var(--wa-bg)' }}>
+        {mockMessages.map((msg, i) => (
+          <div
+            key={i}
+            className={`flex ${msg.from === 'me' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className="rounded-lg px-3 py-1.5 max-w-[85%] relative"
+              style={{
+                background: msg.from === 'me' ? 'var(--wa-bubble-out)' : 'var(--wa-bubble-in)',
+                boxShadow: 'var(--wa-shadow-sm)',
+                borderRadius: msg.from === 'me' ? '8px 0 8px 8px' : '0 8px 8px 8px'
+              }}
+            >
+              <p className="text-[11px] leading-snug" style={{ color: 'var(--wa-text)' }}>
+                {msg.text}
+              </p>
+              <div className={`flex items-center gap-1 mt-0.5 ${msg.from === 'me' ? 'justify-end' : 'justify-start'}`}>
+                <span className="text-[9px]" style={{ color: 'var(--wa-text-3)' }}>
+                  {msg.time}
+                </span>
+                {msg.status === 'read' && <CheckCheck className="w-3 h-3" style={{ color: 'var(--wa-tick-blue)' }} />}
+                {msg.status === 'delivered' && <CheckCheck className="w-3 h-3" style={{ color: 'var(--wa-text-3)' }} />}
+                {msg.status === 'sent' && <Check className="w-3 h-3" style={{ color: 'var(--wa-text-3)' }} />}
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* Typing indicator */}
+        <div className="flex justify-start">
+          <div
+            className="rounded-lg px-3 py-2 flex items-center gap-1"
+            style={{
+              background: 'var(--wa-bubble-in)',
+              boxShadow: 'var(--wa-shadow-sm)',
+              borderRadius: '0 8px 8px 8px'
+            }}
+          >
+            {[0, 1, 2].map((dot) => (
+              <div
+                key={dot}
+                className="w-1.5 h-1.5 rounded-full animate-bounce"
+                style={{
+                  background: 'var(--wa-text-3)',
+                  animationDelay: `${dot * 0.18}s`,
+                  animationDuration: '1.1s'
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Input bar */}
+      <div
+        className="flex items-center gap-2 px-3 py-2"
+        style={{ background: 'var(--wa-header)' }}
+      >
+        <div
+          className="flex-1 flex items-center gap-2 rounded-full px-3 py-1.5"
+          style={{ background: 'var(--wa-panel)', border: '1px solid var(--wa-divider)' }}
+        >
+          <Smile className="w-4 h-4 shrink-0" style={{ color: 'var(--wa-icon)' }} />
+          <span className="text-[11px] flex-1" style={{ color: 'var(--wa-text-3)' }}>
+            Mensagem
+          </span>
+          <Paperclip className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--wa-icon)' }} />
+        </div>
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+          style={{ background: 'var(--wa-green)' }}
+        >
+          <Mic className="w-4 h-4 text-white" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const ChatEmptyShowcase: React.FC<Props> = ({
   totalConversations,
   totalUnread,
@@ -63,80 +197,71 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
   }, []);
 
   const features = [
-    { icon: <StickyNote className="w-4 h-4 stroke-[2]" />, label: 'Anotações privadas', hint: 'Histórico por cliente' },
-    { icon: <Tag className="w-4 h-4 stroke-[2]" />, label: 'Tags coloridas', hint: 'VIP, lead, urgente…' },
-    { icon: <Bell className="w-4 h-4 stroke-[2]" />, label: 'Lembretes', hint: 'Follow-up automatizado' },
-    { icon: <LayoutGrid className="w-4 h-4 stroke-[2]" />, label: 'Quadro Kanban', hint: 'Arraste entre etapas' },
-    { icon: <ImageIcon className="w-4 h-4 stroke-[2]" />, label: 'Galeria de mídias', hint: 'Ficheiros ligados ao contacto' },
-    { icon: <Pin className="w-4 h-4 stroke-[2]" />, label: 'Fixar contacto', hint: 'Prioridade na lista' },
-    { icon: <Search className="w-4 h-4 stroke-[2]" />, label: 'Busca no chat', hint: 'Texto por conversa' },
-    { icon: <ShieldCheck className="w-4 h-4 stroke-[2]" />, label: 'Auditoria', hint: 'Limpar conversas inválidas' }
+    { icon: <StickyNote className="w-[18px] h-[18px]" />, label: 'Anotações', hint: 'Histórico privado por cliente', color: '#F59E0B', bg: 'rgba(245,158,11,0.13)' },
+    { icon: <Tag className="w-[18px] h-[18px]" />, label: 'Tags', hint: 'VIP, lead, urgente e mais', color: '#8B5CF6', bg: 'rgba(139,92,246,0.13)' },
+    { icon: <Bell className="w-[18px] h-[18px]" />, label: 'Lembretes', hint: 'Follow-up automatizado', color: '#EF4444', bg: 'rgba(239,68,68,0.13)' },
+    { icon: <LayoutGrid className="w-[18px] h-[18px]" />, label: 'Kanban', hint: 'Arraste entre etapas', color: '#3B82F6', bg: 'rgba(59,130,246,0.13)' },
+    { icon: <ImageIcon className="w-[18px] h-[18px]" />, label: 'Galeria', hint: 'Imagens, docs e áudios', color: '#10B981', bg: 'rgba(16,185,129,0.13)' },
+    { icon: <Pin className="w-[18px] h-[18px]" />, label: 'Fixar', hint: 'Prioridade na lista', color: '#F97316', bg: 'rgba(249,115,22,0.13)' },
+    { icon: <Search className="w-[18px] h-[18px]" />, label: 'Busca', hint: 'Texto por conversa', color: '#06B6D4', bg: 'rgba(6,182,212,0.13)' },
+    { icon: <ShieldCheck className="w-[18px] h-[18px]" />, label: 'Auditoria', hint: 'Limpar conversas inválidas', color: '#6366F1', bg: 'rgba(99,102,241,0.13)' }
   ];
 
   const crmCount =
-    crmStats.pinned +
-    crmStats.leads +
-    crmStats.clientes +
-    crmStats.pendentes +
-    crmStats.resolvidos;
+    crmStats.pinned + crmStats.leads + crmStats.clientes + crmStats.pendentes + crmStats.resolvidos;
 
   const kpiItems = [
-    {
-      label: 'Conversas',
-      value: totalConversations,
-      wash: 'radial-gradient(circle at 85% 15%, rgba(16, 185, 129, 0.15), transparent 60%)',
-      color: 'text-emerald-500'
-    },
-    {
-      label: 'Não lidas',
-      value: totalUnread,
-      wash: 'radial-gradient(circle at 85% 15%, rgba(139, 92, 246, 0.15), transparent 60%)',
-      color: 'text-violet-500'
-    },
-    {
-      label: 'Canais',
-      value: totalChannels,
-      wash: 'radial-gradient(circle at 85% 15%, rgba(14, 165, 233, 0.15), transparent 60%)',
-      color: 'text-sky-500'
-    },
-    {
-      label: 'No CRM',
-      value: crmCount,
-      wash: 'radial-gradient(circle at 85% 15%, rgba(245, 158, 11, 0.15), transparent 60%)',
-      color: 'text-amber-500'
-    }
+    { icon: <MessageCircle className="w-5 h-5" />, label: 'Conversas', value: totalConversations, color: '#00a884', bg: 'rgba(0,168,132,0.12)' },
+    { icon: <Hash className="w-5 h-5" />, label: 'Não lidas', value: totalUnread, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' },
+    { icon: <Users className="w-5 h-5" />, label: 'Canais', value: totalChannels, color: '#3B82F6', bg: 'rgba(59,130,246,0.12)' },
+    { icon: <Star className="w-5 h-5" />, label: 'No CRM', value: crmCount, color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' }
   ];
+
+  const crmStatusChips = [
+    { label: 'Leads', value: crmStats.leads, color: '#3B82F6', bg: 'rgba(59,130,246,0.13)' },
+    { label: 'Clientes', value: crmStats.clientes, color: '#10B981', bg: 'rgba(16,185,129,0.13)' },
+    { label: 'Pendentes', value: crmStats.pendentes, color: '#F59E0B', bg: 'rgba(245,158,11,0.13)' },
+    { label: 'Resolvidos', value: crmStats.resolvidos, color: '#6B7280', bg: 'rgba(107,114,128,0.13)' }
+  ].filter((c) => c.value > 0);
 
   if (introHidden) {
     return (
       <div
         className="flex-1 flex flex-col items-center justify-center min-h-0 px-4 py-8"
-        style={{ background: 'var(--surface-0)' }}
+        style={{ background: 'var(--wa-bg)' }}
       >
         <div
           className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 rounded-2xl px-5 py-4 max-w-lg w-full"
           style={{
-            background: 'var(--surface-1)',
-            border: '1px solid var(--border-subtle)',
-            boxShadow: '0 12px 40px -24px rgba(0,0,0,0.35)'
+            background: 'var(--wa-panel)',
+            border: '1px solid var(--wa-divider)',
+            boxShadow: 'var(--wa-shadow-md)'
           }}
         >
-          <p className="text-[13px] leading-snug flex-1" style={{ color: 'var(--text-2)' }}>
-            Introdução do pipeline está <strong style={{ color: 'var(--text-1)' }}>oculta</strong>. À esquerda, escolha
-            uma conversa ou use o modo Quadro.
-          </p>
+          <div className="flex items-center gap-3 flex-1">
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+              style={{ background: 'rgba(0,168,132,0.15)' }}
+            >
+              <MessageCircle className="w-5 h-5" style={{ color: 'var(--wa-green)' }} />
+            </div>
+            <p className="text-[13px] leading-snug" style={{ color: 'var(--wa-text-2)' }}>
+              Selecione uma conversa à esquerda ou use o modo{' '}
+              <strong style={{ color: 'var(--wa-text)' }}>Quadro</strong>.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => setIntroHidden(false)}
-            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-semibold transition-opacity hover:opacity-90"
+            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[12px] font-semibold transition-all hover:brightness-110"
             style={{
-              background: 'color-mix(in srgb, var(--brand-500) 16%, var(--surface-0))',
-              color: 'var(--brand-600)',
-              border: '1px solid color-mix(in srgb, var(--brand-500) 35%, transparent)'
+              background: 'rgba(0,168,132,0.14)',
+              color: 'var(--wa-green)',
+              border: '1px solid rgba(0,168,132,0.28)'
             }}
           >
             <Eye className="w-4 h-4 shrink-0" aria-hidden />
-            Mostrar introdução
+            Ver painel
           </button>
         </div>
       </div>
@@ -144,225 +269,231 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col items-stretch justify-center relative overflow-y-auto overflow-x-hidden px-4 sm:px-8 py-8 sm:py-10 min-h-0">
-      {/* Fundo atmosférico */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-100"
-        style={{
-          background:
-            'radial-gradient(ellipse 85% 55% at 15% 10%, color-mix(in srgb, var(--brand-500) 14%, transparent), transparent 52%), radial-gradient(ellipse 70% 50% at 90% 80%, color-mix(in srgb, #8b5cf6 10%, transparent), transparent 50%), var(--surface-0)'
-        }}
-        aria-hidden
-      />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[color-mix(in_srgb,var(--brand-500)_35%,transparent)] to-transparent" aria-hidden />
+    <div
+      className="flex-1 flex flex-col items-stretch relative overflow-y-auto overflow-x-hidden min-h-0"
+      style={{ background: 'var(--wa-bg)' }}
+    >
+      {/* Faixas decorativas superiores */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] z-10" style={{ background: 'linear-gradient(90deg, var(--wa-green), var(--wa-green-strong), var(--wa-green))' }} aria-hidden />
 
-      <div className="relative w-full max-w-[920px] mx-auto flex flex-col">
-        <div className="flex justify-end w-full mb-2 sm:mb-3">
+      <div className="relative w-full max-w-[960px] mx-auto px-5 sm:px-8 py-8 flex flex-col gap-8">
+
+        {/* Botão ocultar */}
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => setIntroHidden(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-semibold transition-opacity hover:opacity-85"
+            className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-semibold transition-all hover:brightness-110"
             style={{
-              background: 'var(--surface-1)',
-              color: 'var(--text-2)',
-              border: '1px solid var(--border-subtle)',
-              boxShadow: '0 4px 16px -8px rgba(0,0,0,0.35)'
+              background: 'var(--wa-panel)',
+              color: 'var(--wa-text-3)',
+              border: '1px solid var(--wa-divider)',
+              boxShadow: 'var(--wa-shadow-sm)'
             }}
-            title="Esconder painel de introdução (a preferência fica guardada neste navegador)"
-            aria-label="Ocultar introdução do pipeline"
+            aria-label="Ocultar painel de boas-vindas"
           >
-            <EyeOff className="w-4 h-4 shrink-0" aria-hidden />
-            Ocultar introdução
+            <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden />
+            Ocultar
           </button>
         </div>
-        {/* Hero + CTA visual */}
-        <div className="mb-8 sm:mb-10 grid lg:grid-cols-[1fr_minmax(220px,280px)] gap-8 lg:gap-10 items-center">
+
+        {/* ── HERO ── */}
+        <div className="grid lg:grid-cols-[1fr_auto] gap-8 lg:gap-12 items-center">
           <div>
-            <div className="flex flex-wrap items-center gap-3 mb-5">
+            {/* Badge */}
+            <div className="flex items-center gap-2.5 mb-5">
               <div
-                className="flex h-14 w-14 items-center justify-center rounded-2xl shrink-0"
+                className="flex items-center justify-center w-12 h-12 rounded-2xl shrink-0"
                 style={{
-                  background: 'linear-gradient(145deg, color-mix(in srgb, var(--brand-500) 22%, var(--surface-1)), var(--surface-1))',
-                  border: '1px solid color-mix(in srgb, var(--brand-500) 40%, transparent)',
-                  boxShadow: '0 20px 50px -24px color-mix(in srgb, var(--brand-500) 55%, transparent)'
+                  background: 'linear-gradient(135deg, #00a884, #008069)',
+                  boxShadow: '0 12px 32px -8px rgba(0,168,132,0.55)'
                 }}
               >
-                <Workflow className="w-7 h-7" strokeWidth={1.65} style={{ color: 'var(--brand-500)' }} />
+                <MessageCircle className="w-6 h-6 text-white" strokeWidth={2} />
               </div>
               <span
-                className="inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em]"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest"
                 style={{
-                  background: 'color-mix(in srgb, var(--brand-500) 12%, var(--surface-1))',
-                  color: 'var(--brand-600)',
-                  border: '1px solid color-mix(in srgb, var(--brand-500) 28%, transparent)'
+                  background: 'rgba(0,168,132,0.14)',
+                  color: 'var(--wa-green)',
+                  border: '1px solid rgba(0,168,132,0.30)'
                 }}
               >
-                CRM ZapMass
+                <Zap className="w-3 h-3" />
+                ZapMass CRM
               </span>
             </div>
 
-            <h1 className="text-[clamp(1.35rem,3.5vw,1.85rem)] font-extrabold tracking-tight leading-tight mb-3" style={{ color: 'var(--text-1)' }}>
-              Pipeline conversacional
+            <h1
+              className="text-[clamp(1.5rem,4vw,2.1rem)] font-black tracking-tight leading-tight mb-3"
+              style={{ color: 'var(--wa-text)' }}
+            >
+              Bate-papo{' '}
+              <span style={{ color: 'var(--wa-green)' }}>inteligente</span>
             </h1>
-            <p className="text-[14px] sm:text-[15px] leading-relaxed max-w-xl mb-4" style={{ color: 'var(--text-2)' }}>
-              Centralize mensagens, notas internas e etapas de venda por contacto — num painel pensado para equipas que
-              vivem no WhatsApp.
+            <p
+              className="text-[14px] sm:text-[15px] leading-relaxed max-w-lg mb-6"
+              style={{ color: 'var(--wa-text-2)' }}
+            >
+              Gerencie todas as conversas WhatsApp em um só lugar. Com CRM embutido, tags, lembretes e
+              Kanban — a ferramenta que a sua equipa precisa.
             </p>
+
+            {/* CTA hint */}
             <div
-              className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-[12px] max-w-xl"
+              className="inline-flex items-center gap-2.5 rounded-2xl px-4 py-3 text-[13px]"
               style={{
-                background: 'var(--surface-1)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-2)'
+                background: 'var(--wa-panel)',
+                border: '1px solid var(--wa-divider)',
+                color: 'var(--wa-text-2)',
+                boxShadow: 'var(--wa-shadow-sm)'
               }}
             >
-              <ArrowRight className="w-4 h-4 shrink-0 text-amber-500" aria-hidden />
+              <ArrowRight className="w-4 h-4 shrink-0" style={{ color: 'var(--wa-green)' }} />
               <span>
-                <strong style={{ color: 'var(--text-1)' }}>À esquerda</strong>, escolha uma conversa ou arraste cartões no
-                modo <strong style={{ color: 'var(--text-1)' }}>Quadro</strong>.
+                <strong style={{ color: 'var(--wa-text)' }}>Escolha uma conversa</strong> à esquerda ou
+                use o modo <strong style={{ color: 'var(--wa-text)' }}>Quadro</strong> para arrastar
+                cartões.
               </span>
             </div>
           </div>
 
-          {/* Cartão de resumo — “cockpit” */}
-          <div
-            className="rounded-2xl p-5 lg:p-6 relative overflow-hidden"
-            style={{
-              background:
-                'linear-gradient(165deg, color-mix(in srgb, var(--surface-1) 94%, var(--surface-2)) 0%, var(--surface-1) 100%)',
-              border: '1px solid var(--border-subtle)',
-              boxShadow: '0 24px 60px -28px rgba(0,0,0,0.35), inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent)'
-            }}
-          >
-            <span
-              className="pointer-events-none absolute -right-8 -top-8 w-40 h-40 rounded-full opacity-50"
-              style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--brand-500) 25%, transparent), transparent 70%)' }}
-              aria-hidden
-            />
-            <p className="text-[11px] font-bold uppercase tracking-wider mb-4 relative" style={{ color: 'var(--text-3)' }}>
-              Resumo ao vivo
-            </p>
-            <div className="grid grid-cols-2 gap-3 relative">
-              {kpiItems.map((s) => (
-                <div
-                  key={s.label}
-                  className="rounded-xl px-4 py-3.5 relative overflow-hidden"
-                  style={{
-                    background: 'var(--surface-0)',
-                    border: '1px solid var(--border-subtle)'
-                  }}
-                >
-                  <div
-                    className="pointer-events-none absolute inset-0 opacity-100"
-                    style={{ background: s.wash }}
-                    aria-hidden
-                  />
-                  <div className="relative z-[1]">
-                    <div className="text-[26px] font-black tabular-nums leading-none tracking-tight" style={{ color: 'var(--text-1)' }}>
-                      {s.value.toLocaleString('pt-BR')}
-                    </div>
-                    <div className={`text-[10px] font-bold mt-2.5 uppercase tracking-wider ${s.color}`}>
-                      {s.label}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Preview WhatsApp */}
+          <WaPreview />
         </div>
 
-        {/* Chips CRM quando há dados */}
-        {crmCount > 0 && (
-          <div className="mb-8 flex flex-wrap items-center gap-2">
-            {crmStats.leads > 0 && (
-              <span
-                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
+        {/* ── KPI CARDS ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {kpiItems.map((item) => (
+            <div
+              key={item.label}
+              className="rounded-2xl px-4 py-4 flex items-center gap-3 relative overflow-hidden transition-transform duration-200 hover:-translate-y-0.5"
+              style={{
+                background: 'var(--wa-panel)',
+                border: '1px solid var(--wa-divider)',
+                boxShadow: 'var(--wa-shadow-sm)'
+              }}
+            >
+              <div
+                className="pointer-events-none absolute inset-0 opacity-100"
+                style={{ background: `radial-gradient(circle at 85% 15%, ${item.bg}, transparent 65%)` }}
+                aria-hidden
+              />
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 relative z-[1]"
+                style={{ background: item.bg }}
               >
-                {crmStats.leads} lead{crmStats.leads === 1 ? '' : 's'}
+                <span style={{ color: item.color }}>{item.icon}</span>
+              </div>
+              <div className="relative z-[1]">
+                <div
+                  className="text-[22px] font-black leading-none tabular-nums"
+                  style={{ color: 'var(--wa-text)' }}
+                >
+                  {item.value.toLocaleString('pt-BR')}
+                </div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mt-1" style={{ color: item.color }}>
+                  {item.label}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── CRM STATUS CHIPS ── */}
+        {crmStatusChips.length > 0 && (
+          <div
+            className="rounded-2xl px-5 py-4 flex flex-wrap items-center gap-3"
+            style={{
+              background: 'var(--wa-panel)',
+              border: '1px solid var(--wa-divider)',
+              boxShadow: 'var(--wa-shadow-sm)'
+            }}
+          >
+            <div className="flex items-center gap-2 mr-2">
+              <TrendingUp className="w-4 h-4" style={{ color: 'var(--wa-green)' }} />
+              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--wa-text-2)' }}>
+                CRM
               </span>
-            )}
-            {crmStats.clientes > 0 && (
+            </div>
+            {crmStatusChips.map((chip) => (
               <span
-                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
+                key={chip.label}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-semibold"
+                style={{ background: chip.bg, color: chip.color, border: `1px solid ${chip.bg}` }}
               >
-                {crmStats.clientes} cliente{crmStats.clientes === 1 ? '' : 's'}
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: chip.color }}
+                />
+                {chip.value} {chip.label}
               </span>
-            )}
-            {crmStats.pendentes > 0 && (
-              <span
-                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
-              >
-                {crmStats.pendentes} pendente{crmStats.pendentes === 1 ? '' : 's'}
-              </span>
-            )}
-            {crmStats.resolvidos > 0 && (
-              <span
-                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
-                style={{ background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }}
-              >
-                {crmStats.resolvidos} resolvido{crmStats.resolvidos === 1 ? '' : 's'}
-              </span>
-            )}
+            ))}
             {crmStats.comReminder > 0 && (
               <span
-                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-semibold"
                 style={{
-                  background: 'color-mix(in srgb, var(--brand-500) 10%, var(--surface-1))',
-                  color: 'var(--text-2)',
-                  border: '1px solid color-mix(in srgb, var(--brand-500) 32%, transparent)'
+                  background: 'rgba(0,168,132,0.13)',
+                  color: 'var(--wa-green)',
+                  border: '1px solid rgba(0,168,132,0.25)'
                 }}
               >
-                <Bell className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--brand-500)' }} />
+                <Bell className="w-3 h-3 shrink-0" />
                 {crmStats.comReminder} lembrete{crmStats.comReminder === 1 ? '' : 's'}
+              </span>
+            )}
+            {crmStats.pinned > 0 && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-semibold"
+                style={{
+                  background: 'rgba(249,115,22,0.13)',
+                  color: '#F97316',
+                  border: '1px solid rgba(249,115,22,0.25)'
+                }}
+              >
+                <Pin className="w-3 h-3 shrink-0" />
+                {crmStats.pinned} fixado{crmStats.pinned === 1 ? '' : 's'}
               </span>
             )}
           </div>
         )}
 
-        {/* Funcionalidades — grelha bento */}
-        <div className="w-full">
-          <p className="text-[12px] font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
-            <span
-              className="h-8 w-8 rounded-lg flex items-center justify-center"
-              style={{
-                background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 18%, transparent), transparent)',
-                border: '1px solid color-mix(in srgb, var(--brand-500) 25%, transparent)'
-              }}
+        {/* ── FEATURES GRID ── */}
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: 'rgba(0,168,132,0.15)', border: '1px solid rgba(0,168,132,0.28)' }}
             >
-              <Zap className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
-            </span>
-            O que consegue fazer aqui
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <Zap className="w-3.5 h-3.5" style={{ color: 'var(--wa-green)' }} />
+            </div>
+            <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: 'var(--wa-text-2)' }}>
+              Recursos disponíveis
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {features.map((f) => (
               <div
                 key={f.label}
-                className="flex items-start gap-3 rounded-xl px-3.5 py-3.5 transition-all duration-200 hover:brightness-[1.03]"
+                className="group flex flex-col gap-3 rounded-2xl p-4 cursor-default transition-all duration-200 hover:-translate-y-0.5 hover:brightness-105"
                 style={{
-                  background:
-                    'linear-gradient(180deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 96%, var(--surface-2)) 100%)',
-                  border: '1px solid var(--border-subtle)',
-                  boxShadow: '0 10px 28px -18px rgba(0,0,0,0.28), inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent)'
+                  background: 'var(--wa-panel)',
+                  border: '1px solid var(--wa-divider)',
+                  boxShadow: 'var(--wa-shadow-sm)'
                 }}
               >
                 <div
-                  className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                  style={{
-                    background: 'color-mix(in srgb, var(--brand-500) 12%, var(--surface-0))',
-                    color: 'var(--brand-500)',
-                    border: '1px solid color-mix(in srgb, var(--brand-500) 22%, transparent)'
-                  }}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: f.bg }}
                 >
-                  {f.icon}
+                  <span style={{ color: f.color }}>{f.icon}</span>
                 </div>
-                <div className="min-w-0 space-y-1 pt-0.5">
-                  <p className="text-[12.5px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                <div>
+                  <p className="text-[12.5px] font-bold leading-tight" style={{ color: 'var(--wa-text)' }}>
                     {f.label}
                   </p>
-                  <p className="text-[10.5px] leading-snug line-clamp-2" style={{ color: 'var(--text-3)' }}>
+                  <p className="text-[11px] leading-snug mt-1" style={{ color: 'var(--wa-text-3)' }}>
                     {f.hint}
                   </p>
                 </div>
@@ -371,9 +502,10 @@ export const ChatEmptyShowcase: React.FC<Props> = ({
           </div>
         </div>
 
+        {/* ── FOOTER ── */}
         <p
-          className="mt-10 max-w-2xl text-[11px] leading-relaxed border-t pt-6"
-          style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)' }}
+          className="text-[11px] leading-relaxed border-t pt-5 pb-2"
+          style={{ color: 'var(--wa-text-3)', borderColor: 'var(--wa-divider)' }}
         >
           Metadados de CRM ficam neste navegador. Para envio WhatsApp continuam aplicáveis as políticas da Meta e do seu
           plano ZapMass.

@@ -16,7 +16,7 @@ interface TopBarProps {
 const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   dashboard: { title: 'Painel', subtitle: 'Visão geral da operação' },
   connections: { title: 'Conexões WhatsApp', subtitle: 'Frota de canais conectados' },
-  chat: { title: 'Pipeline de mensagens', subtitle: 'Do envio à entrega, leitura e resposta' },
+  chat: { title: 'Bate-papo', subtitle: 'Conversas WhatsApp em tempo real' },
   campaigns: { title: 'Campanhas', subtitle: 'Centro de missões, A/B, modelos e disparos' },
   contacts: { title: 'Contatos', subtitle: 'Base e listas de contatos' },
   reports: { title: 'Relatórios', subtitle: 'Análise de performance' },

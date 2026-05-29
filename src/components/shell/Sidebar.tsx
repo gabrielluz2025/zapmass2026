@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard,
   Radio,
-  Workflow,
+  MessageCircle,
   Send,
   Users,
   BarChart3,
@@ -76,7 +76,7 @@ const navGroups: NavGroup[] = [
         description: 'Convidar quem opera com você'
       },
       { id: 'connections', label: 'Conexões', icon: Radio, description: 'Frota WhatsApp' },
-      { id: 'chat', label: 'Pipeline', icon: Workflow, description: 'Envio até resposta' }
+      { id: 'chat', label: 'Bate-papo', icon: MessageCircle, description: 'Conversas WhatsApp em tempo real' }
     ]
   },
   {
