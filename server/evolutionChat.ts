@@ -290,24 +290,42 @@ export function createEvolutionChat(api: AxiosInstance) {
     }
 
     function handleWebhookMessage(instance: string, data: any) {
-        const msg = data?.messages?.[0] || data;
-        if (!msg?.key) return;
+        // Evolution v2 pode mandar `data` em 3 formatos:
+        //   1) { messages: [ { key, message, ... } ] }
+        //   2) array direto: [ { key, message, ... }, ... ]
+        //   3) objeto unico: { key, message, ... }
+        // Antes, fallback `msg = data` quando data era array nao tinha .key
+        // e a mensagem era descartada silenciosamente — pipeline ficava vazio.
+        const items: any[] = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.messages)
+                ? data.messages
+                : data?.key
+                    ? [data]
+                    : [];
+        if (items.length === 0) return;
 
-        const remoteJid = String(msg.key.remoteJid || '');
-        if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return;
+        let appended = false;
+        for (const msg of items) {
+            if (!msg?.key) continue;
 
-        const conversationId = buildConversationId(instance, remoteJid);
-        const chatMsg = evolutionRawToChatMessage(msg, true);
-        if (!chatMsg) return;
+            const remoteJid = String(msg.key.remoteJid || '');
+            if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
-        const pushName = data?.messages?.[0]?.pushName || msg.pushName || remoteJid.split('@')[0];
-        appendMessageToConversation(conversationId, chatMsg, {
-            connectionId: instance,
-            contactName: String(pushName),
-            contactPhone: toPhoneDisplay(remoteJid),
-            incrementUnread: !msg.key.fromMe,
-        });
-        emitConversationsUpdate();
+            const conversationId = buildConversationId(instance, remoteJid);
+            const chatMsg = evolutionRawToChatMessage(msg, true);
+            if (!chatMsg) continue;
+
+            const pushName = msg.pushName || remoteJid.split('@')[0];
+            appendMessageToConversation(conversationId, chatMsg, {
+                connectionId: instance,
+                contactName: String(pushName),
+                contactPhone: toPhoneDisplay(remoteJid),
+                incrementUnread: !msg.key.fromMe,
+            });
+            appended = true;
+        }
+        if (appended) emitConversationsUpdate();
     }
 
     function updateMessageStatus(messageId: string, evolutionStatus: number) {

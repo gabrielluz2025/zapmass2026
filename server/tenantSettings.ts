@@ -20,11 +20,14 @@ export interface TenantSettingsClientPayload {
     emailNotif: boolean;
 }
 
+// sleepMode default false: evita que campanhas iniciadas entre 20h–8h fiquem
+// presas em moveToDelayed sem nunca enviar (usuario percebia "campanha iniciada"
+// sem mensagem chegar). O modo sono passa a ser opt-in via UI/Firestore.
 export const DEFAULT_TENANT_DISPATCH_SETTINGS: TenantDispatchSettings = {
     minDelayMs: 15_000,
     maxDelayMs: 45_000,
     dailyLimit: 1000,
-    sleepMode: true,
+    sleepMode: false,
     webhookUrl: '',
     emailNotif: true,
 };

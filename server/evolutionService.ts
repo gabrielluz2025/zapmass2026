@@ -197,6 +197,23 @@ async function enrichConnectionMeta(instanceName: string): Promise<void> {
     }
 }
 
+/**
+ * Normaliza numero para envio via Evolution.
+ * - Remove caracteres nao-digitos
+ * - Se tem 10 ou 11 digitos (BR sem DDI), prefixa "55"
+ * - Caso contrario mantem (assume DDI ja presente)
+ *
+ * Sem isso, Evolution recebe "48996460175" (sem DDI) e a entrega falha
+ * silenciosamente — campanha "rodando" sem mensagem chegar.
+ */
+function normalizeOutboundNumber(raw: string): string {
+    const digits = String(raw || '').replace(/[^0-9]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) return digits;
+    if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+    return digits;
+}
+
 function extractEvolutionQr(source: unknown): ExtractedEvolutionQr | null {
     if (!source || typeof source !== 'object') return null;
     const root = source as Record<string, unknown>;
@@ -1181,6 +1198,19 @@ async function hydrateInstancesFromEvolution() {
                 watchConnectionUntilOpen(id);
             }
         }
+        // Reaplica setupWebhook em instancias hidratadas (open/connecting):
+        // sem isso, depois de restart do container, a Evolution continua
+        // apontada para um webhook antigo/invalido e o pipeline fica vazio.
+        for (const [id, conn] of connections.entries()) {
+            if (conn.status === 'open' || conn.status === 'connecting') {
+                setupWebhook(id).catch((err) => {
+                    log('warn', 'Re-setupWebhook falhou em hydrate', {
+                        instance: id,
+                        error: err?.message,
+                    });
+                });
+            }
+        }
         log('info', `Instâncias Evolution sincronizadas: ${list.length}`);
     } catch (error: any) {
         log('warn', 'Falha ao sincronizar instâncias Evolution', { error: error?.message });
@@ -1931,6 +1961,15 @@ export async function reconnectConnection(id: string) {
             }
         }
 
+        // Garante que o webhook esteja registrado tambem na reconexao
+        // (instancias antigas podem estar com URL/token desatualizados).
+        setupWebhook(id).catch((err) => {
+            log('warn', 'Re-setupWebhook falhou em reconnect', {
+                instance: id,
+                error: err?.message,
+            });
+        });
+
         log('info', `Instância reconectada: ${id}`);
 
     } catch (error: any) {
@@ -2005,7 +2044,7 @@ async function sendMediaInternal(
     caption?: string
 ): Promise<{ ok: boolean; messageId?: string }> {
     try {
-        const number = to.replace(/[^0-9]/g, '');
+        const number = normalizeOutboundNumber(to);
         log('info', `Enviando media via ${connectionId}`, { to: number, mimeType, fileName });
 
         let type = 'document';
@@ -2055,7 +2094,7 @@ async function sendMessageInternal(
     message: string
 ): Promise<{ ok: boolean; messageId?: string }> {
     try {
-        const number = to.replace(/[^0-9]/g, '');
+        const number = normalizeOutboundNumber(to);
 
         log('info', `Enviando mensagem via ${connectionId}`, { to: number });
 
@@ -2089,11 +2128,14 @@ async function sendMessageInternal(
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     const queue = getCampaignQueue();
     if (!queue) {
-        log('warn', 'Redis indisponível — job de campanha ignorado (defina REDIS_URL)', {
+        // Sem Redis o job sumiria silenciosamente e a campanha nunca enviaria.
+        // Lanca para o caller decidir (startCampaign vai falhar e avisar a UI).
+        log('error', 'Redis indisponível — campanha não pode enfileirar (defina REDIS_URL)', {
             connectionId: item.connectionId,
             to: item.to,
+            campaignId: item.campaignId,
         });
-        return;
+        throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
     }
     bumpQueueSize(item.connectionId, 1);
     if (item.campaignId) {
@@ -2314,7 +2356,7 @@ async function sendMediaByUrlInternal(
     caption?: string
 ): Promise<{ ok: boolean; messageId?: string }> {
     try {
-        const number = to.replace(/[^0-9]/g, '');
+        const number = normalizeOutboundNumber(to);
         let type = 'document';
         if (mimeType.startsWith('image/')) type = 'image';
         else if (mimeType.startsWith('video/')) type = 'video';
@@ -2481,49 +2523,65 @@ export async function startCampaign(
 
     const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds);
 
-    for (let i = 0; i < numbers.length; i++) {
-        const num = numbers[i];
-        const cleanPhone = normalizePhoneKey(num);
-        const vars = recipientVars.get(cleanPhone) || {};
-        const assignedConnectionId = useWeights
-            ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
-            : activeConnectionIds[i % activeConnectionIds.length];
-        const staggerDelay = i * dispatchSettings.minDelayMs;
+    try {
+        for (let i = 0; i < numbers.length; i++) {
+            const num = numbers[i];
+            const cleanPhone = normalizePhoneKey(num);
+            const vars = recipientVars.get(cleanPhone) || {};
+            const assignedConnectionId = useWeights
+                ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
+                : activeConnectionIds[i % activeConnectionIds.length];
+            const staggerDelay = i * dispatchSettings.minDelayMs;
 
-        if (useReplyFlow) {
-            const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
-            await enqueueCampaignItem(
-                {
-                    connectionId: assignedConnectionId,
-                    to: num,
-                    message: personalizedMessage,
-                    campaignId: cid,
-                    sendAsMedia: hasMedia,
-                    replyFlowOpen: {
-                        campaignId: cid,
-                        phoneDigits: cleanPhone,
-                        vars,
-                        ownerUid,
-                    },
-                },
-                staggerDelay
-            );
-        } else {
-            for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
-                const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars);
-                const stageDelay = staggerDelay + stageIndex * dispatchSettings.minDelayMs;
+            if (useReplyFlow) {
+                const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
                 await enqueueCampaignItem(
                     {
                         connectionId: assignedConnectionId,
                         to: num,
                         message: personalizedMessage,
                         campaignId: cid,
-                        sendAsMedia: hasMedia && stageIndex === 0,
+                        sendAsMedia: hasMedia,
+                        replyFlowOpen: {
+                            campaignId: cid,
+                            phoneDigits: cleanPhone,
+                            vars,
+                            ownerUid,
+                        },
                     },
-                    stageDelay
+                    staggerDelay
                 );
+            } else {
+                for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
+                    const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars);
+                    const stageDelay = staggerDelay + stageIndex * dispatchSettings.minDelayMs;
+                    await enqueueCampaignItem(
+                        {
+                            connectionId: assignedConnectionId,
+                            to: num,
+                            message: personalizedMessage,
+                            campaignId: cid,
+                            sendAsMedia: hasMedia && stageIndex === 0,
+                        },
+                        stageDelay
+                    );
+                }
             }
         }
+    } catch (err: any) {
+        // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
+        // e propaga para o socket handler avisar a UI.
+        log('error', 'startCampaign falhou ao enfileirar — abortando', {
+            campaignId: cid,
+            error: err?.message,
+        });
+        const state = campaignsById.get(cid);
+        if (state) state.isRunning = false;
+        publishOwnerEvent(ownerUid, 'campaign-error', {
+            campaignId: cid,
+            error: err?.message || 'Falha ao enfileirar mensagens da campanha.',
+        });
+        throw err;
     }
 
     return true;
