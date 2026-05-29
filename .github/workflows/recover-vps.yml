@@ -1,0 +1,42 @@
+# Recuperação rápida na VPS (API 0/1, Redis, pós-deploy falho).
+# Dispara: manual (Actions → Run workflow) ou automaticamente se o deploy falhar.
+name: Recuperar VPS (API + Redis)
+
+on:
+  workflow_dispatch: {}
+  workflow_run:
+    workflows: ["Build + deploy VPS"]
+    types: [completed]
+
+concurrency:
+  group: recover-vps
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: SSH recover-api-swarm
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Recuperar API na VPS
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 5m
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+            cd /opt/zapmass
+            git fetch --all --prune
+            git checkout -f main || git checkout -f origin/main
+            git pull --ff-only origin main || git checkout -f origin/main
+            chmod +x deployment/recover-api-swarm.sh deployment/vps-deploy.sh
+            echo "==> recover-api-swarm (commit $(git rev-parse --short HEAD))"
+            bash deployment/recover-api-swarm.sh

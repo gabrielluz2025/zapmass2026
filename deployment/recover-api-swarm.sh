@@ -3,6 +3,19 @@
 set -euo pipefail
 cd /opt/zapmass
 
+echo "==> actualizar codigo"
+git fetch --all --prune 2>/dev/null || true
+git checkout -f main 2>/dev/null || git checkout -f origin/main 2>/dev/null || true
+git pull --ff-only origin main 2>/dev/null || git checkout -f "$(git rev-parse origin/main 2>/dev/null || echo main)"
+
+if [ -f .env ] && grep -qE '^REDIS_URL=' .env 2>/dev/null; then
+  if ! grep -q 'host.docker.internal' .env 2>/dev/null; then
+    echo "==> corrigindo REDIS_URL no .env"
+    sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://host.docker.internal:6379|' .env
+  fi
+fi
+export REDIS_URL=redis://host.docker.internal:6379
+
 echo "==> estado actual"
 docker stack services zapmass 2>/dev/null || true
 docker service ps zapmass_api --no-trunc 2>/dev/null | head -8 || true
