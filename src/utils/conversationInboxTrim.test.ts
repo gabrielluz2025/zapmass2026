@@ -27,19 +27,21 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     expect(out).toHaveLength(1);
   });
 
-  it('descarta legado sem connectionOwnerUid nem meta no cliente (escopo estrito)', () => {
+  it('confia no payload do servidor quando filtro local descarta legado (corrida antes de connections-update)', () => {
     const incoming = [conv(legacyChip)];
     const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
     const out = mergeConversationsFromSocketUpdate([], incoming, owns);
-    expect(out).toHaveLength(0);
+    expect(out).toHaveLength(1);
+    expect(out[0].connectionId).toBe(legacyChip);
   });
 
-  it('não esvazia estado anterior se o filtro do cliente descartar tudo (corrida socket)', () => {
+  it('substitui estado anterior pelo payload do servidor quando filtro local falha (corrida socket)', () => {
     const prev = [conv(`${tenantUid}__chip1`)];
-    const incoming = [conv(legacyChip)];
+    const incoming = [conv(legacyChip, tenantUid)];
     const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
     const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
-    expect(out).toBe(prev);
+    expect(out).not.toBe(prev);
     expect(out).toHaveLength(1);
+    expect(out[0].connectionId).toBe(legacyChip);
   });
 });
