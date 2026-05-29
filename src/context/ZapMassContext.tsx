@@ -2874,10 +2874,36 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const pauseCampaign = (campaignId: string) => {
+    setCampaigns((prev) => {
+      const next = prev.map((c) =>
+        c.id === campaignId ? { ...c, status: CampaignStatus.PAUSED } : c
+      );
+      const u = currentUidRef.current;
+      if (u) {
+        updateDoc(doc(db, 'users', u, 'campaigns', campaignId), {
+          status: CampaignStatus.PAUSED
+        }).catch(() => {});
+      }
+      return next;
+    });
+    setCampaignStatus((s) => ({ ...s, isRunning: false }));
     socketRef.current?.emit('pause-campaign', { campaignId });
   };
 
   const resumeCampaign = (campaignId: string) => {
+    setCampaigns((prev) => {
+      const next = prev.map((c) =>
+        c.id === campaignId ? { ...c, status: CampaignStatus.RUNNING } : c
+      );
+      const u = currentUidRef.current;
+      if (u) {
+        updateDoc(doc(db, 'users', u, 'campaigns', campaignId), {
+          status: CampaignStatus.RUNNING
+        }).catch(() => {});
+      }
+      return next;
+    });
+    setCampaignStatus((s) => ({ ...s, isRunning: true }));
     socketRef.current?.emit('resume-campaign', { campaignId });
   };
 

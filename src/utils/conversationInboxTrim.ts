@@ -54,11 +54,14 @@ export function mergeConversationsFromSocketUpdate(
   const filtered = incoming.filter((c) =>
     ownsConnectionId(c.connectionId, c.connectionOwnerUid)
   );
-  /** Servidor já filtrou; vazio aqui costuma ser corrida antes de connections-update / ownerUid. */
-  if (filtered.length === 0 && incoming.length > 0) {
-    return prev;
-  }
-  const trimmedIncoming = filtered.map((c) => trimConversationMessagesTail(c, maxTail));
+  /**
+   * Servidor já aplicou escopo por tenant. Se o filtro local descartar tudo (corrida:
+   * connections-update ainda não chegou ao cliente), confia no payload do servidor
+   * para não deixar o bate-papo vazio.
+   */
+  const scopedIncoming =
+    filtered.length === 0 && incoming.length > 0 ? incoming : filtered;
+  const trimmedIncoming = scopedIncoming.map((c) => trimConversationMessagesTail(c, maxTail));
   const prevById = new Map(prev.map((c) => [c.id, c]));
   const out = trimmedIncoming.map((inc) => {
     const p = prevById.get(inc.id);

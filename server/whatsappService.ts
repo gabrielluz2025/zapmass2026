@@ -6581,6 +6581,11 @@ export function evolutionRegisterCampaign(campaignId: string, ownerUid?: string)
     if (campaignId && ownerUid) campaignGeoOwnerById.set(campaignId, ownerUid);
 }
 
+/** Dono registrado para campanha (geo/funil) — usado em pause/resume quando RAM não tem estado. */
+export function getCampaignGeoOwner(campaignId: string): string | undefined {
+    return campaignGeoOwnerById.get(campaignId);
+}
+
 /** Rastreia envio de campanha via Evolution API no funil persistente. */
 export function evolutionTrackMessageSent(
     messageId: string,

@@ -1500,7 +1500,9 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:pause-campaign', { campaignId });
-          evolutionService.pauseCampaign(campaignId);
+          evolutionService.pauseCampaign(campaignId, uid);
+          // Garante feedback na UI mesmo se publishOwnerEvent falhar (ownerUid ausente em RAM).
+          socket.emit('campaign-paused', { campaignId });
         } catch (e) {
           reportSocketAsyncError('pause-campaign', e);
         }
@@ -1516,7 +1518,8 @@ const registerSocketHandlers = () => {
             return;
           }
           userLog('ui:resume-campaign', { campaignId });
-          evolutionService.resumeCampaign(campaignId);
+          evolutionService.resumeCampaign(campaignId, uid);
+          socket.emit('campaign-resumed', { campaignId });
         } catch (e) {
           reportSocketAsyncError('resume-campaign', e);
         }

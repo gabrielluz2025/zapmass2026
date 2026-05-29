@@ -65,7 +65,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const readOnlyBlockMain = readOnly && currentView !== 'subscription' && currentView !== 'help';
 
   return (
-    <div className="min-h-screen flex" style={{ backgroundColor: 'var(--bg)' }}>
+    <div className="min-h-screen flex zm-aurora-root">
       {isMobileNavOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 lg:hidden"
@@ -92,7 +92,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         unico valor que muda de fato (collapse/expand do sidebar).
       */}
       <main
-        className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen transition-[margin-left] duration-200 ease-in-out motion-reduce:transition-none`}
+        className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen transition-[margin-left] duration-200 ease-in-out motion-reduce:transition-none zm-aurora-main`}
       >
         <TopBar
           currentView={currentView}

@@ -69,14 +69,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <div
-      className="sticky top-0 z-20 border-b px-3 sm:px-5 py-2 sm:py-2.5"
-      style={{
-        // Background opaco em vez de translucido + backdrop-filter blur(16px) — o blur de 16px no
-        // header global obrigava o navegador a recompor todo o conteudo atras do header a cada
-        // pixel de scroll, derrubando 60fps e travando a UI em qualquer aba.
-        background: 'var(--bg)',
-        borderColor: 'var(--border-subtle)'
-      }}
+      className="zm-topbar-aurora sticky top-0 z-20 border-b px-3 sm:px-5 py-2 sm:py-2.5"
     >
       <div className="mx-auto grid w-full max-w-[1800px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-2 sm:gap-x-3 gap-y-1.5 min-h-[40px] sm:min-h-[44px]">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -90,9 +83,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
 
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="zm-view-pill hidden sm:inline-flex">ZapMass</span>
               <div
-                className="w-1 h-3.5 rounded-full flex-shrink-0"
+                className="w-1 h-3.5 rounded-full flex-shrink-0 hidden sm:block"
                 style={{ background: 'var(--brand-500)', opacity: 0.8 }}
               />
               <h1 className="text-[14px] font-bold tracking-tight truncate" style={{ color: 'var(--text-1)' }}>

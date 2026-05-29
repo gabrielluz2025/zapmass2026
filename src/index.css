@@ -2,6 +2,7 @@
 
 /* WhatsApp Web skin para a aba "Pipeline" (ChatTab.tsx). */
 @import './styles/wa-web.css';
+@import './styles/aurora-shell.css';
 
 @tailwind base;
 @tailwind components;
@@ -30,23 +31,23 @@
 /* ─── Design Tokens ────────────────────────── */
 :root {
   /* Brand scale (overridden by theme.ts) */
-  --brand-50:  #f0fdf4;
-  --brand-100: #dcfce7;
-  --brand-200: #bbf7d0;
-  --brand-300: #86efac;
-  --brand-400: #4ade80;
+  --brand-50:  #ecfdf5;
+  --brand-100: #d1fae5;
+  --brand-200: #a7f3d0;
+  --brand-300: #6ee7b7;
+  --brand-400: #34d399;
   --brand-500: #10b981;
   --brand-600: #059669;
   --brand-700: #047857;
   --brand-800: #065f46;
   --brand-900: #064e3b;
 
-  /* Surfaces (light mode defaults) */
-  --bg:          #f6f8fb;
+  /* Surfaces (light mode defaults) — Aurora palette */
+  --bg:          #f0f4f8;
   --surface-0:   #ffffff;
-  --surface-1:   #f9fafc;
-  --surface-2:   #f1f4f8;
-  --surface-3:   #e7ecf2;
+  --surface-1:   #f8fafc;
+  --surface-2:   #f1f5f9;
+  --surface-3:   #e2e8f0;
   --surface:     var(--surface-0);
 
   /* Borders */
@@ -101,10 +102,10 @@
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10);
   --shadow-glow: 0 0 0 1px rgba(16, 185, 129, 0.2), 0 0 24px rgba(16, 185, 129, 0.15);
 
-  /* Sidebar */
-  --sidebar-bg: #0b1220;
-  --sidebar-bg-2: #0f1a2c;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
+  /* Sidebar — deep space */
+  --sidebar-bg: #070b14;
+  --sidebar-bg-2: #0c1220;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
   --sidebar-text: #e2e8f0;
   --sidebar-text-muted: rgba(148, 163, 184, 0.72);
 

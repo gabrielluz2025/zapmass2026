@@ -171,11 +171,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`flex flex-col ${widthClass} h-screen fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out motion-reduce:transition-none motion-reduce:duration-0 ${
+      className={`zm-sidebar-aurora flex flex-col ${widthClass} h-screen fixed left-0 top-0 z-40 transition-all duration-300 ease-in-out motion-reduce:transition-none motion-reduce:duration-0 ${
         isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       }`}
       style={{
-        background: `linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-2) 100%)`,
         borderRight: '1px solid var(--sidebar-border)'
       }}
     >
@@ -252,23 +251,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onClick={() => onChangeView(item.id)}
                     aria-current={isActive ? 'page' : undefined}
                     title={collapsed ? item.label : undefined}
-                    className={`w-full flex items-center gap-3 ${
+                    className={`zm-nav-item-aurora w-full flex items-center gap-3 ${
                       collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2'
-                    } rounded-lg text-[13px] font-medium transition-all duration-150 motion-reduce:transition-none motion-reduce:duration-0 group relative ${
-                      isActive ? 'text-white' : 'text-slate-400 hover:text-slate-100'
+                    } text-[13px] font-medium group relative ${
+                      isActive ? 'is-active text-white' : 'text-slate-400 hover:text-slate-100'
                     }`}
-                    style={
-                      isActive
-                        ? {
-                            background: 'rgba(16,185,129,0.14)',
-                            boxShadow: 'inset 0 0 0 1px rgba(16,185,129,0.2)'
-                          }
-                        : undefined
-                    }
                   >
                     {isActive && !collapsed && (
                       <div
-                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-emerald-400"
+                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-emerald-400 hidden"
                         style={{ boxShadow: '0 0 10px rgba(52,211,153,0.7)' }}
                       />
                     )}

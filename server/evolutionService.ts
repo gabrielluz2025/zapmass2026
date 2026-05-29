@@ -7,7 +7,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
-import { Queue, Worker, Job } from 'bullmq';
+import { Queue, Worker, Job, DelayedError } from 'bullmq';
 import IORedis from 'ioredis';
 import fs from 'fs';
 import path from 'path';
@@ -36,6 +36,7 @@ import {
     evolutionTrackIncomingReply,
     evolutionTrackMessageAck,
     evolutionTrackMessageSent,
+    getCampaignGeoOwner,
     publishOwnerEvent,
 } from './whatsappService.js';
 import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
@@ -2251,7 +2252,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     });
 }
 
-async function processCampaignJob(job: Job<MessageQueueItem>) {
+async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const item = job.data;
 
     // Idempotência: se o envio já foi marcado ok em tentativa anterior (antes da falha do handler),
@@ -2262,9 +2263,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         return;
     }
 
+    // BullMQ v5: para readiar um job ATIVO é obrigatório passar o `token` e lançar
+    // DelayedError — caso contrário o moveToDelayed falha (lock) e o job vai para "failed".
     if (item.campaignId && pausedCampaigns.has(item.campaignId)) {
-        await job.moveToDelayed(Date.now() + 3000);
-        return;
+        await job.moveToDelayed(Date.now() + 3000, token);
+        throw new DelayedError();
     }
 
     const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
@@ -2274,8 +2277,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         const hour = new Date().getHours();
         if (hour >= 20 || hour < 8) {
             log('info', '😴 Sleep mode ativo - adiando envio', { ownerUid: campaignState?.ownerUid });
-            await job.moveToDelayed(Date.now() + 60_000);
-            return;
+            await job.moveToDelayed(Date.now() + 60_000, token);
+            throw new DelayedError();
         }
     }
 
@@ -2312,9 +2315,10 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
                     );
                     
                     item.connectionId = altConn.instanceName;
+                    await job.updateData(item).catch(() => {});
                     await job.updateProgress({ redirectedTo: altConn.instanceName });
-                    await job.moveToDelayed(Date.now() + 2000);
-                    return;
+                    await job.moveToDelayed(Date.now() + 2000, token);
+                    throw new DelayedError();
                 } else {
                     log('warn', `[Limits] Canal ${item.connectionId} excedeu o limite e limitAction é 'redirect', mas nenhuma conexão alternativa saudável foi encontrada. Tratando como 'ask'.`);
                 }
@@ -2337,8 +2341,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
                 });
             }
 
-            await job.moveToDelayed(Date.now() + 15000);
-            return;
+            await job.moveToDelayed(Date.now() + 15000, token);
+            throw new DelayedError();
         }
     }
 
@@ -3234,18 +3238,27 @@ export function renameConnection(connectionId: string, newName: string): boolean
     return true;
 }
 
-export function pauseCampaign(campaignId: string) {
-    pausedCampaigns.add(campaignId);
+/** Resolve dono da campanha para emitir eventos socket (RAM, registo geo ou parâmetro explícito). */
+function resolveCampaignOwnerUid(campaignId: string, explicitOwnerUid?: string): string | undefined {
+    const explicit = String(explicitOwnerUid || '').trim();
+    if (explicit && explicit !== 'anonymous') return explicit;
     const state = campaignsById.get(campaignId);
-    log('info', `⏸️ Campanha pausada: ${campaignId}`);
-    publishOwnerEvent(state?.ownerUid, 'campaign-paused', { campaignId });
+    if (state?.ownerUid) return state.ownerUid;
+    return getCampaignGeoOwner(campaignId);
 }
 
-export function resumeCampaign(campaignId: string) {
+export function pauseCampaign(campaignId: string, ownerUid?: string) {
+    pausedCampaigns.add(campaignId);
+    const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+    log('info', `⏸️ Campanha pausada: ${campaignId}`, { ownerUid: ou });
+    publishOwnerEvent(ou, 'campaign-paused', { campaignId });
+}
+
+export function resumeCampaign(campaignId: string, ownerUid?: string) {
     pausedCampaigns.delete(campaignId);
-    const state = campaignsById.get(campaignId);
-    log('info', `▶️ Campanha retomada: ${campaignId}`);
-    publishOwnerEvent(state?.ownerUid, 'campaign-resumed', { campaignId });
+    const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+    log('info', `▶️ Campanha retomada: ${campaignId}`, { ownerUid: ou });
+    publishOwnerEvent(ou, 'campaign-resumed', { campaignId });
     ensureCampaignWorker();
 }
 

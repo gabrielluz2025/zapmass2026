@@ -9,6 +9,20 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.0] — 2026-05-29
+
+### Corrigido
+- **CRÍTICO — Bate-papo vazio** — Corrida entre `conversations-update` e `connections-update`: o merge local descartava conversas já filtradas pelo servidor; agora confia no payload quando o filtro cliente falha
+- **CRÍTICO — Pausar/retomar campanha** — `publishOwnerEvent` era chamado sem `ownerUid` quando a campanha não estava na RAM; servidor emite evento direto ao socket + UI atualiza otimisticamente
+- **ALTO — Sync de conversas** — Após `findChats`, busca histórico recente (`findMessages`) para conversas sem mensagens (Evolution nem sempre envia `lastMessage`)
+
+### Novo — Identidade visual ZapMass Aurora
+- Shell com gradientes ambientes, sidebar glass e topbar translúcida
+- Navegação com indicador luminoso e cards com profundidade (`zm-glass-card`)
+- Animação suave de entrada de páginas
+
+---
+
 ## [2.2.0] — 2026-05-29
 
 ### Corrigido (Frontend ↔ Backend)

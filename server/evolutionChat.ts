@@ -281,6 +281,37 @@ export function createEvolutionChat(api: AxiosInstance) {
                 upsertConversation(conv);
                 added++;
             }
+
+            // findChats nem sempre traz lastMessage — busca histórico recente para conversas vazias.
+            const emptyConvs = conversations
+                .filter((c) => c.connectionId === connectionId && (!c.messages || c.messages.length === 0))
+                .slice(0, 35);
+            if (emptyConvs.length > 0) {
+                await Promise.all(
+                    emptyConvs.map(async (conv) => {
+                        const parsed = parseConversationId(conv.id);
+                        if (!parsed) return;
+                        try {
+                            const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, 30);
+                            const converted = fetched
+                                .map((m) => evolutionRawToChatMessage(m, true))
+                                .filter((m): m is ChatMessage => Boolean(m))
+                                .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+                            if (converted.length === 0) return;
+                            const target = conversations.find((c) => c.id === conv.id);
+                            if (!target) return;
+                            target.messages = converted.slice(-80);
+                            const last = converted[converted.length - 1];
+                            target.lastMessage = last.text || target.lastMessage;
+                            target.lastMessageTime = last.timestamp || target.lastMessageTime;
+                            target.lastMessageTimestamp = last.timestampMs || target.lastMessageTimestamp;
+                        } catch {
+                            /* ignore por conversa */
+                        }
+                    })
+                );
+            }
+
             emitConversationsUpdate();
             if (chats.length > 0 && added === 0) {
                 console.warn(
