@@ -32,15 +32,22 @@ fi
 
 log "4) Parar e remover stack Swarm (volumes preservados)"
 if docker stack ls 2>/dev/null | grep -q '^zapmass '; then
-  docker stack rm zapmass
-  log "aguardando containers Swarm pararem (30s)..."
-  for i in $(seq 1 15); do
+  docker stack rm zapmass 2>/dev/null || true
+  log "aguardando containers Swarm pararem (60s)..."
+  for i in $(seq 1 30); do
     running=$(docker ps --filter name=zapmass_ -q 2>/dev/null | wc -l)
     echo "   containers ainda rodando: ${running}"
     [ "${running}" = "0" ] && break
     sleep 2
   done
 fi
+
+log "4b) Forçar remoção de redes overlay órfãs"
+sleep 5
+for net in $(docker network ls --filter driver=overlay --format '{{.Name}}' 2>/dev/null | grep -v ingress || true); do
+  echo "   removendo rede overlay: ${net}"
+  docker network rm "${net}" 2>/dev/null || true
+done
 
 log "5) Build + Compose up"
 export DOCKER_BUILDKIT=1
