@@ -608,8 +608,13 @@ function emitScopedConversationsUpdate() {
                 conversationsPayloadForViewer(uid, uid, all, resolveConnectionOwnerUid)
             );
         }
-        if (owners.size === 0 && io) {
-            io.emit('conversations-update', all);
+        // Antes: io.emit broadcast de TODA a inbox quando nenhum owner
+        // resolvia, vazando conversas entre tenants. Agora apenas loga e
+        // deixa o cliente esperar por canais com ownerUid resolvido.
+        if (owners.size === 0) {
+            log('warn', 'conversations-update sem ownerUid resolvido - evento descartado', {
+                total: all.length,
+            });
         }
     })();
 }
@@ -1733,9 +1738,27 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
     const timestamp = new Date().toISOString();
     const prefix = `[EvolutionAPI:${level.toUpperCase()}]`;
     console.log(`${prefix} ${timestamp} ${message}`, data || '');
-    
-    if (io) {
-        io.emit('campaign:' + level, {
+
+    if (!io) return;
+
+    // Tenta resolver o dono pelo data (campaignId/ownerUid/connectionId)
+    // para nao vazar logs entre tenants. Se nao houver pista, evento fica
+    // apenas no console do servidor.
+    let ownerUid: string | undefined;
+    if (data && typeof data === 'object') {
+        const d: Record<string, any> = data;
+        if (typeof d.ownerUid === 'string' && d.ownerUid) {
+            ownerUid = d.ownerUid;
+        } else if (typeof d.campaignId === 'string' && d.campaignId) {
+            ownerUid = campaignsById.get(d.campaignId)?.ownerUid;
+        }
+        if (!ownerUid && typeof d.connectionId === 'string' && d.connectionId) {
+            ownerUid = resolveOwnerUid(d.connectionId);
+        }
+    }
+
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'campaign:' + level, {
             timestamp,
             reason: message,
             ...data,
@@ -2704,10 +2727,17 @@ export function handleWebhook(event: any) {
 
                 chatStore.handleWebhookMessage(instance, data);
 
-                if (io) {
-                    io.emit('message-received', {
+                // Antes: io.emit broadcast vazava mensagens entre tenants.
+                // Agora: emite apenas para o dono da conexao (sala do socket).
+                const messageOwnerUid = resolveOwnerUid(instance);
+                if (messageOwnerUid) {
+                    publishOwnerEvent(messageOwnerUid, 'message-received', {
                         connectionId: instance,
                         message: data,
+                    });
+                } else {
+                    log('warn', 'message-received recebido para canal orfao - evento descartado', {
+                        instance,
                     });
                 }
 
@@ -3017,8 +3047,14 @@ export async function setConnectionProxy(id: string, proxy: ConnectionProxyConfi
         }
     }
 
-    if (io) {
-        io.emit('connection-update', { id, proxy: conn.proxy ? { enabled: true, host: conn.proxy.host } : null });
+    // Antes: io.emit global vazava host de proxy para outros tenants.
+    // Agora envia apenas para o dono da conexao.
+    const proxyOwnerUid = resolveOwnerUid(id);
+    if (proxyOwnerUid) {
+        publishOwnerEvent(proxyOwnerUid, 'connection-update', {
+            id,
+            proxy: conn.proxy ? { enabled: true, host: conn.proxy.host } : null,
+        });
     }
 }
 

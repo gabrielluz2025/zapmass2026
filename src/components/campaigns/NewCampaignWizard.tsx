@@ -1009,8 +1009,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       return;
     }
     setQuickTestBusy(true);
-    const onResult = (result: { success?: boolean; message?: string; error?: string }) => {
+    // Antes nao havia timeout: se o servidor nao respondesse, o botao
+    // ficava 'busy' para sempre e o listener vazava ao desmontar.
+    let finished = false;
+    const cleanup = () => {
       socket?.off('test-dispatch-result', onResult);
+      clearTimeout(timeoutId);
+    };
+    const onResult = (result: { success?: boolean; message?: string; error?: string }) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
       setQuickTestBusy(false);
       if (result?.success) {
         toast.success(result.message || 'Teste enviado com sucesso.');
@@ -1019,6 +1028,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         toast.error(result?.error || 'Falha ao enviar teste.');
       }
     };
+    const timeoutId = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      setQuickTestBusy(false);
+      toast.error('Tempo esgotado aguardando resposta do servidor.');
+    }, 30_000);
     socket.on('test-dispatch-result', onResult);
     socket.emit('test-dispatch', {
       fromConnectionId: fromId,

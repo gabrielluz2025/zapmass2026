@@ -212,7 +212,9 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
       /** QR de canal já existente (ex.: reconnect) quando o usuário espera apenas um canal NOVO após "Gerar QR". */
       if (stepNow === 'loading_qr' && priorConnectionIdsRef.current.has(data.connectionId)) return;
 
-      console.log('QR Code Recebido Real:', data);
+      if (import.meta.env.DEV) {
+        console.log('[AddConnectionModal] QR recebido para', data.connectionId);
+      }
       setQrCodeData(data.qrCode);
       setCurrentConnectionId(data.connectionId);
       pendingConnectionIdRef.current = data.connectionId;
@@ -448,7 +450,12 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
             <QrCode className="w-5 h-5 text-emerald-600" />
             Nova Conexão (WhatsApp Web)
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-black/5 rounded-xl transition-colors ui-muted">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar modal de nova conexao"
+            className="p-2 hover:bg-black/5 rounded-xl transition-colors ui-muted"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>

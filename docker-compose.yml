@@ -92,6 +92,11 @@ services:
       - zapmass-data:/app/data
       - ./secrets:/run/secrets:ro
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     shm_size: "2gb"
     # Da tempo para o Node/whatsapp-web.js fechar o Chromium com graca e
     # flushar a sessao no volume antes do SIGKILL (default seria 10s).
@@ -106,6 +111,12 @@ services:
   evolution:
     image: atendai/evolution-api:v2.2.0
     restart: unless-stopped
+    # Antes os logs cresciam sem limite e podiam encher o disco da VPS.
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     ports:
       - "8080:8080"
     environment:
@@ -140,6 +151,11 @@ services:
   postgres:
     image: postgres:15-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       - POSTGRES_DB=evolution_db
       - POSTGRES_USER=postgres
@@ -153,6 +169,11 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     volumes:
       - zapmass-redis:/data
 
@@ -191,6 +212,11 @@ services:
     depends_on:
       - redis
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     profiles: ["workers"]
 
 volumes:

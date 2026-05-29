@@ -840,16 +840,37 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     bindUserRef.current = bindUser;
 
+    // Limpa TODOS os estados sensiveis antes de carregar dados de outro usuario.
+    // Antes, conversas/metricas/funil/etc do usuario anterior persistiam por
+    // alguns segundos apos troca de conta — vazamento entre sessoes em
+    // browser compartilhado.
+    const resetSessionState = () => {
+      setContacts([]);
+      setContactLists([]);
+      setCampaigns([]);
+      setConnections([]);
+      setConversations([]);
+      setBirthdays([]);
+      setSystemLogs([]);
+      setMetrics(INITIAL_METRICS);
+      setFunnelStats(INITIAL_FUNNEL);
+      setCampaignGeo(INITIAL_CAMPAIGN_GEO);
+      setSystemMetrics(INITIAL_SYS_METRICS);
+      setWarmupQueue([]);
+      setWarmedCount(0);
+      setWarmupChipStats({});
+      setCircuitBreakerOpenIds(new Set());
+      setCampaignStatus({ isRunning: false, total: 0, processed: 0, success: 0, failed: 0 });
+      setContactsSavedTotal(null);
+      campaignFirestoreHealRef.current.clear();
+      conversationsSocketPendingRef.current = null;
+    };
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       const newAuthUid = user?.uid ?? null;
       if (prevAuthUserRef.current !== newAuthUid) {
         prevAuthUserRef.current = newAuthUid;
-        setContacts([]);
-        setContactLists([]);
-        setCampaigns([]);
-        setConnections([]);
-        setContactsSavedTotal(null);
-        campaignFirestoreHealRef.current.clear();
+        resetSessionState();
       }
       // Garante que o Socket.io usa o mesmo UID que a UI — senão o servidor cria
       // conexoes "legado" (sem prefixo) e a contagem do teto fica defasada.
@@ -872,12 +893,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       if (!user?.uid) {
         stopAll();
-        setContacts([]);
-        setContactLists([]);
-        setCampaigns([]);
-        setConnections([]);
-        setContactsSavedTotal(null);
-        campaignFirestoreHealRef.current.clear();
+        resetSessionState();
         return;
       }
       if (workspaceLoading) {
@@ -2547,8 +2563,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const sendMessage = (conversationId: string, text: string) => {
     socketRef.current?.emit('ui-log', { action: 'send-message', conversationId });
     socketRef.current?.emit('send-message', { conversationId, text });
-    // Feedback visual imediato, embora o real venha do evento 'conversations-update'
-    toast.success('Mensagem enviada', { duration: 2000, position: 'bottom-right' });
+    // Antes mostravamos toast.success otimista, mas erros reais (canal
+    // desconectado, numero invalido) chegavam segundos depois via
+    // 'send-message-error' — UX contraditoria com sucesso seguido de erro.
+    // O feedback de envio agora vem da propria conversa atualizada.
   };
 
   const sendMedia = (
@@ -2654,11 +2672,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         resolve({ ok: false, total: 0, error: 'Sem conexao com servidor.' });
         return;
       }
+      // Antes a Promise nunca resolvia se o callback do servidor nao
+      // chegava (worker offline, socket morto), travando o ChatTab em
+      // historyLoading. Agora cai em timeout apos 60s.
+      let settled = false;
+      const finish = (resp: { ok: boolean; total: number; error?: string }) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(resp);
+      };
+      const timeoutId = setTimeout(() => {
+        finish({ ok: false, total: 0, error: 'Tempo esgotado ao carregar historico.' });
+      }, 60_000);
       socket.emit(
         'load-chat-history',
         { conversationId, limit, includeMedia },
         (resp?: { ok: boolean; total: number; error?: string }) => {
-          resolve(resp || { ok: false, total: 0, error: 'Sem resposta.' });
+          finish(resp || { ok: false, total: 0, error: 'Sem resposta.' });
         }
       );
     });
@@ -2878,7 +2909,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         };
 
         const onError = (data: { campaignId?: string; error?: string }) => {
-          if (!data?.campaignId || data.campaignId === campaignRef.id) {
+          // Antes: !campaignId fazia QUALQUER campaign-error global cancelar
+          // o disparo em curso, gerando falsos positivos. Agora so cancela
+          // se o ID bater explicitamente.
+          if (data?.campaignId === campaignRef.id) {
             finish({ ok: false, error: data?.error || 'Falha ao iniciar campanha.' });
           }
         };

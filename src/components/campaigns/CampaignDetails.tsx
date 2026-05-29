@@ -38,6 +38,7 @@ import {
 } from '../../types';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
@@ -308,6 +309,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const conversations = useZapMassConversations();
   const { contacts, contactLists } = useZapMassCore();
   const { user } = useAuth();
+  // Para membros de equipa, user.uid != effectiveWorkspaceUid. Os logs sao
+  // persistidos no path do workspace, entao precisamos usar o uid efetivo
+  // — antes a query lia de users/{user.uid}/campaigns/.../logs e voltava
+  // vazio, dando relatorio incompleto.
+  const { effectiveWorkspaceUid } = useWorkspace();
+  const dataUid = effectiveWorkspaceUid ?? user?.uid ?? null;
   const [persistedLogs, setPersistedLogs] = useState<SystemLog[]>([]);
   const [logsLastDoc, setLogsLastDoc] = useState<DocumentSnapshot | null>(null);
   const [logsHasMore, setLogsHasMore] = useState(false);
@@ -337,11 +344,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   };
 
   useEffect(() => {
-    const uid = user?.uid;
-    if (!uid) { setPersistedLogs([]); return; }
+    if (!dataUid) { setPersistedLogs([]); return; }
     let cancelled = false;
     const q = query(
-      collection(db, 'users', uid, 'campaigns', campaign.id, 'logs'),
+      collection(db, 'users', dataUid, 'campaigns', campaign.id, 'logs'),
       orderBy('createdAt', 'desc'),
       limit(LOGS_PAGE)
     );
@@ -353,18 +359,24 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         setLogsLastDoc(last);
         setLogsHasMore(snap.docs.length === LOGS_PAGE);
       })
-      .catch(() => { if (!cancelled) setPersistedLogs([]); });
+      .catch((err) => {
+        if (cancelled) return;
+        setPersistedLogs([]);
+        // Antes o erro era engolido silenciosamente — usuario via relatorio
+        // vazio sem saber o motivo. Agora avisa explicitamente.
+        toast.error('Nao foi possivel carregar logs persistidos da campanha.');
+        if (import.meta.env.DEV) console.warn('[CampaignDetails] logs load error:', err);
+      });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid, campaign.id]);
+  }, [dataUid, campaign.id]);
 
   const loadMoreLogs = async () => {
-    const uid = user?.uid;
-    if (!uid || !logsLastDoc || logsLoadingMore) return;
+    if (!dataUid || !logsLastDoc || logsLoadingMore) return;
     setLogsLoadingMore(true);
     try {
       const q = query(
-        collection(db, 'users', uid, 'campaigns', campaign.id, 'logs'),
+        collection(db, 'users', dataUid, 'campaigns', campaign.id, 'logs'),
         orderBy('createdAt', 'desc'),
         startAfter(logsLastDoc),
         limit(LOGS_PAGE)

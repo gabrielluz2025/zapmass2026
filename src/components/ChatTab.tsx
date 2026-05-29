@@ -742,6 +742,12 @@ export const ChatTab: React.FC<{
     try {
       const raw = sessionStorage.getItem('zapmass.openChatByPhone');
       if (!raw) return;
+      // Antes consumiamos o payload na primeira execucao do effect,
+      // mesmo se o socket ainda nao tivesse sincronizado conversations.
+      // Isso fazia o "Abrir no Chat" (vindo de Contatos) falhar
+      // intermitentemente. Agora so consumimos quando ha dados minimos
+      // para resolver a conversa (ou criar o rascunho).
+      if (conversations.length === 0 && connections.length === 0) return;
       sessionStorage.removeItem('zapmass.openChatByPhone');
 
       // Aceita tanto string pura (legado) quanto payload JSON {phone, name, profilePicUrl}

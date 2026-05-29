@@ -41,6 +41,7 @@ import { SectionHeader, StatCard, Tabs, Input, Button, EmptyState, Modal } from 
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useMainLayoutNav } from '../context/MainLayoutNavContext';
+import { useWorkspace } from '../context/WorkspaceContext';
 import { isPlatformAdminUser } from '../utils/adminAccess';
 import {
   getMaxConnectionSlotsForUser,
@@ -53,17 +54,22 @@ type FilterValue = 'ALL' | 'ONLINE' | 'OFFLINE' | 'PAIRING';
 type ViewMode = 'grid' | 'list';
 type SortKey = 'default' | 'name' | 'sent' | 'queue' | 'uptime' | 'health' | 'battery';
 
-const LS_VIEW = 'zapmass.connections.view';
-const LS_PINS = 'zapmass.connections.pins';
-const LS_SORT = 'zapmass.connections.sort';
+// Keys agora aceitam um sufixo de workspace para nao vazar pins/view entre
+// usuarios no mesmo browser. `null` = global (legado, fallback).
+const lsKey = (base: string, scope: string | null) =>
+  scope ? `${base}:${scope}` : base;
+
+const LS_VIEW_BASE = 'zapmass.connections.view';
+const LS_PINS_BASE = 'zapmass.connections.pins';
+const LS_SORT_BASE = 'zapmass.connections.sort';
 const THROUGHPUT_WINDOW_SAMPLES = 30; // 30 amostras
 const THROUGHPUT_SAMPLE_MS = 15_000; // a cada 15s → janela de ~7,5 min
 
 type ThroughputSample = { t: number; total: number };
 
-const loadPins = (): Set<string> => {
+const loadPins = (scope: string | null): Set<string> => {
   try {
-    const raw = localStorage.getItem(LS_PINS);
+    const raw = localStorage.getItem(lsKey(LS_PINS_BASE, scope));
     if (!raw) return new Set();
     return new Set(JSON.parse(raw) as string[]);
   } catch {
@@ -71,21 +77,21 @@ const loadPins = (): Set<string> => {
   }
 };
 
-const savePins = (pins: Set<string>) => {
+const savePins = (pins: Set<string>, scope: string | null) => {
   try {
-    localStorage.setItem(LS_PINS, JSON.stringify(Array.from(pins)));
+    localStorage.setItem(lsKey(LS_PINS_BASE, scope), JSON.stringify(Array.from(pins)));
   } catch {
     /* noop */
   }
 };
 
-const loadView = (): ViewMode => {
-  const v = localStorage.getItem(LS_VIEW);
+const loadView = (scope: string | null): ViewMode => {
+  const v = localStorage.getItem(lsKey(LS_VIEW_BASE, scope));
   return v === 'list' || v === 'grid' ? v : 'grid';
 };
 
-const loadSort = (): SortKey => {
-  const v = localStorage.getItem(LS_SORT) as SortKey | null;
+const loadSort = (scope: string | null): SortKey => {
+  const v = localStorage.getItem(lsKey(LS_SORT_BASE, scope)) as SortKey | null;
   return v && ['default', 'name', 'sent', 'queue', 'uptime', 'health', 'battery'].includes(v)
     ? v
     : 'default';
@@ -95,6 +101,10 @@ export const ConnectionsTab: React.FC = () => {
   const { connections, addConnection, removeConnection, reconnectConnection, forceQr, renameConnection, updateConnectionSettings } =
     useZapMassCore();
   const { user } = useAuth();
+  const { effectiveWorkspaceUid } = useWorkspace();
+  // Escopo das preferencias persistidas no localStorage. Antes pins/view/sort
+  // eram globais — vazavam entre contas no mesmo browser.
+  const lsScope = effectiveWorkspaceUid ?? user?.uid ?? null;
   const { subscription, readOnlyMode, enforce: subEnforce } = useSubscription();
   const goToView = useMainLayoutNav();
   const isAdmin = isPlatformAdminUser(user);
@@ -118,25 +128,33 @@ export const ConnectionsTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterValue>('ALL');
-  const [view, setView] = useState<ViewMode>(loadView);
-  const [sort, setSort] = useState<SortKey>(loadSort);
-  const [pinned, setPinned] = useState<Set<string>>(loadPins);
+  const [view, setView] = useState<ViewMode>(() => loadView(lsScope));
+  const [sort, setSort] = useState<SortKey>(() => loadSort(lsScope));
+  const [pinned, setPinned] = useState<Set<string>>(() => loadPins(lsScope));
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState<null | 'remove' | 'reconnect'>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const deferredSearch = useDeferredValue(searchTerm);
 
-  // --- persiste preferências ---
+  // --- persiste preferências (escopadas por workspace/uid) ---
   useEffect(() => {
-    localStorage.setItem(LS_VIEW, view);
-  }, [view]);
+    localStorage.setItem(lsKey(LS_VIEW_BASE, lsScope), view);
+  }, [view, lsScope]);
   useEffect(() => {
-    localStorage.setItem(LS_SORT, sort);
-  }, [sort]);
+    localStorage.setItem(lsKey(LS_SORT_BASE, lsScope), sort);
+  }, [sort, lsScope]);
   useEffect(() => {
-    savePins(pinned);
-  }, [pinned]);
+    savePins(pinned, lsScope);
+  }, [pinned, lsScope]);
+
+  // Recarrega preferencias quando troca de workspace/conta para nao
+  // herdar pins/view de outro usuario.
+  useEffect(() => {
+    setView(loadView(lsScope));
+    setSort(loadSort(lsScope));
+    setPinned(loadPins(lsScope));
+  }, [lsScope]);
 
   // --- throughput em tempo real ---
   const throughputRef = useRef<ThroughputSample[]>([]);

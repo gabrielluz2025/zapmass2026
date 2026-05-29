@@ -17,7 +17,7 @@ import { runBackup } from './backup.js';
 import { registerSubscriptionWebhooks } from './subscriptionWebhooks.js';
 import { registerBillingMercadoPagoRoutes } from './billingMercadoPago.js';
 import { registerBillingTrialRoutes } from './billingTrial.js';
-import { registerAdminAuthRoutes } from './adminAuth.js';
+import { assertAdminFromBearer, registerAdminAuthRoutes } from './adminAuth.js';
 import { registerAdminAppConfigRoutes } from './adminAppConfigRoutes.js';
 import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
 import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
@@ -369,7 +369,11 @@ app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   });
 });
 
+// /api/diagnose expoe instancias Evolution, conexoes mapeadas e amostra de
+// conversas (telefones). Antes era publico — agora exige Bearer admin.
 app.get('/api/diagnose', async (req, res) => {
+  const adminInfo = await assertAdminFromBearer(req, res);
+  if (!adminInfo) return;
   try {
     const redisUrl = process.env.REDIS_URL?.trim();
     let redisStatus = 'not_configured';
@@ -578,7 +582,15 @@ function enqueuePerKey(key: string, run: () => Promise<void>): void {
   const next = (createConnectionTailByKey.get(key) ?? Promise.resolve())
     .then(() => run())
     .catch((e) => console.error('[create-connection] encadeado', e));
-  createConnectionTailByKey.set(key, next);
+  // Antes o Map crescia indefinidamente (1 entrada por uid distinto) e
+  // promises encadeadas retinham closures - leak lento em SaaS. Agora
+  // limpamos a entrada quando essa promise terminar, se ainda for a tail.
+  const tail = next.finally(() => {
+    if (createConnectionTailByKey.get(key) === tail) {
+      createConnectionTailByKey.delete(key);
+    }
+  });
+  createConnectionTailByKey.set(key, tail);
 }
 
 const logEvent = (event: string, payload?: Record<string, unknown>) => {
