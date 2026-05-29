@@ -9,6 +9,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.1] — 2026-05-29
+
+### Corrigido — Bate-papo
+- **Invalid Date** na lista — normalização de timestamp Evolution (s/ms) e formatação segura no cliente
+- **Conversas lixo** (`0`, `+0`, JID inválido) — filtradas no sync e removidas da RAM
+- **Aba Todas** — mostra só conversas reais do celular; vazias/disparo nos filtros dedicados
+- **Visual Pipeline** — paleta dark alinhada ao tema Aurora (verde ZapMass)
+
+---
+
 ## [2.3.0] — 2026-05-29
 
 ### Corrigido

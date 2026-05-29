@@ -3,7 +3,7 @@ import type { Server as SocketIOServer } from 'socket.io';
 import { Conversation, ChatMessage } from './types.js';
 import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
-import { chatRemoteJidFromFindChatsRow } from './evolutionChatJid.js';
+import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 
 const MAX_MESSAGES = 10000;
 
@@ -67,12 +67,14 @@ export function createEvolutionChat(api: AxiosInstance) {
     }
 
     function toPhoneDisplay(jidOrPhone: string): string {
+        if (jidOrPhone.endsWith('@lid')) return '';
         const base = jidOrPhone.split('@')[0].replace(/\D/g, '');
-        return base ? `+${base}` : jidOrPhone;
+        if (!base || base === '0' || base.length < 8) return '';
+        return `+${base}`;
     }
 
     function formatTime(tsMs: number): string {
-        return new Date(tsMs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        return formatChatListTime(tsMs);
     }
 
     function inferMessageType(message: Record<string, unknown> | undefined): ChatMessage['type'] {
@@ -201,11 +203,29 @@ export function createEvolutionChat(api: AxiosInstance) {
         return [];
     }
 
+    function pruneGarbageConversations(): number {
+        const before = conversations.length;
+        conversations = conversations.filter((c) => {
+            const jidPart = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : '';
+            if (jidPart && isGarbagePersonChatJid(jidPart)) return false;
+            const msgs = c.messages?.length ?? 0;
+            const name = String(c.contactName || '').trim();
+            const phone = String(c.contactPhone || '').trim();
+            if (msgs === 0 && (name === '0' || phone === '+0' || phone === '0')) return false;
+            if (c.lastMessageTime === 'Invalid Date') {
+                c.lastMessageTime = formatChatListTime(c.lastMessageTimestamp || 0);
+            }
+            return true;
+        });
+        return before - conversations.length;
+    }
+
     function mapEvolutionChatToConversation(connectionId: string, chat: any): Conversation | null {
         const remoteJid = chatRemoteJid(chat);
         if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') {
             return null;
         }
+        if (isGarbagePersonChatJid(remoteJid)) return null;
 
         const jid = remoteJid;
         const id = buildConversationId(connectionId, jid);
@@ -218,12 +238,16 @@ export function createEvolutionChat(api: AxiosInstance) {
             jid.split('@')[0];
         const lastMsgRaw = chat?.lastMessage || chat?.messages?.[0];
         const lastChatMsg = lastMsgRaw ? evolutionRawToChatMessage(lastMsgRaw, true) : null;
-        const tsMs =
-            lastChatMsg?.timestampMs ||
-            Number(chat?.conversationTimestamp || chat?.updatedAt || chat?.t || Date.now()) *
-                (Number(chat?.conversationTimestamp) > 1_000_000_000_000 ? 1 : 1000);
-
         const existing = conversations.find((c) => c.id === id);
+        const hasMessages = Boolean(lastChatMsg || (existing?.messages?.length ?? 0) > 0);
+        if (!hasMessages && (String(name).trim() === '0' || isGarbagePersonChatJid(jid))) return null;
+
+        const tsMs =
+            (lastChatMsg?.timestampMs && Number.isFinite(lastChatMsg.timestampMs)
+                ? lastChatMsg.timestampMs
+                : undefined) ??
+            resolveChatRowTimestampMs(chat, existing?.lastMessageTimestamp || Date.now());
+
         return {
             id,
             contactName: String(name),
@@ -232,7 +256,10 @@ export function createEvolutionChat(api: AxiosInstance) {
             connectionId,
             unreadCount: Number(chat?.unreadCount ?? chat?.unread ?? existing?.unreadCount ?? 0) || 0,
             lastMessage: lastChatMsg?.text || existing?.lastMessage || '',
-            lastMessageTime: lastChatMsg?.timestamp || existing?.lastMessageTime || formatTime(tsMs),
+            lastMessageTime:
+                lastChatMsg?.timestamp ||
+                existing?.lastMessageTime ||
+                formatTime(tsMs),
             lastMessageTimestamp: tsMs,
             messages: existing?.messages || (lastChatMsg ? [lastChatMsg] : []),
             tags: existing?.tags || [],
@@ -310,6 +337,11 @@ export function createEvolutionChat(api: AxiosInstance) {
                         }
                     })
                 );
+            }
+
+            const pruned = pruneGarbageConversations();
+            if (pruned > 0) {
+                console.info(`[EvolutionChat] syncChats ${connectionId}: ${pruned} conversa(s) lixo removida(s)`);
             }
 
             emitConversationsUpdate();

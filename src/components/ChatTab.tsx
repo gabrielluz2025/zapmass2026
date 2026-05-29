@@ -237,6 +237,20 @@ function formatPhoneDisplay(digits: string): string {
   return `+${d}`;
 }
 
+/** Nunca exibir "Invalid Date" na lista — usa timestampMs como fallback. */
+function formatConversationListTime(conv: Conversation): string {
+  const raw = String(conv.lastMessageTime || '').trim();
+  if (raw && raw !== 'Invalid Date') return raw;
+  const ts = conv.lastMessageTimestamp;
+  if (typeof ts === 'number' && Number.isFinite(ts) && ts > 0) {
+    const date = new Date(ts);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+  return '';
+}
+
 const classifyConversation = (conv: Conversation): ConversationOrigin => {
   const msgs = conv.messages || [];
   if (msgs.length === 0) return 'empty';
@@ -1091,6 +1105,13 @@ export const ChatTab: React.FC<{
 
   const filteredConversations = useMemo(() => {
     let list = filteredByConnection;
+    /** "Todas" = conversas reais do celular; vazias/disparo ficam nos filtros dedicados. */
+    if (chatFilter === 'all') {
+      list = list.filter((c) => {
+        const o = originByConv.get(c.id);
+        return o !== 'empty' && o !== 'system';
+      });
+    }
     if (chatFilter === 'unread') list = list.filter((c) => c.unreadCount > 0);
     if (chatFilter === 'groups') list = list.filter((c) => c.id.endsWith('@g.us'));
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');
@@ -1989,7 +2010,7 @@ export const ChatTab: React.FC<{
                               )}
                             </div>
                             <span className="wa-conv-time tabular-nums" data-unread={conv.unreadCount > 0 ? 'true' : 'false'}>
-                              {conv.lastMessageTime}
+                              {formatConversationListTime(conv)}
                             </span>
                           </div>
                           {(convWaSub || convPhoneSmall) && (
