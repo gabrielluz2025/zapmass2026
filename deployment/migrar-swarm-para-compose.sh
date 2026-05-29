@@ -57,7 +57,7 @@ docker compose build \
   --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
   zapmass 2>&1 | tail -5
 
-docker compose up -d zapmass redis evolution postgres prometheus
+docker compose up -d zapmass redis evolution postgres
 
 log "6) Aguardar API responder (ate 5 min)"
 HP="${HOST_PORT:-3001}"
