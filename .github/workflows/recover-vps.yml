@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   recover:
-    name: SSH recover-api-swarm
+    name: SSH recover — migrar Swarm → Compose
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'failure' &&
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Recuperar API na VPS
+      - name: Migrar Swarm → Compose na VPS
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -37,6 +37,6 @@ jobs:
             git fetch --all --prune
             git checkout -f main || git checkout -f origin/main
             git pull --ff-only origin main || git checkout -f origin/main
-            chmod +x deployment/recover-api-swarm.sh deployment/vps-deploy.sh deployment/SOS-API-FORA.sh
-            echo "==> SOS-API-FORA (commit $(git rev-parse --short HEAD))"
-            bash deployment/SOS-API-FORA.sh
+            chmod +x deployment/migrar-swarm-para-compose.sh deployment/SOS-API-FORA.sh
+            echo "==> migrar-swarm-para-compose (commit $(git rev-parse --short HEAD))"
+            bash deployment/migrar-swarm-para-compose.sh
