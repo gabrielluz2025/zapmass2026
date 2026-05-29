@@ -164,18 +164,47 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     _build_extra+=(--no-cache)
     echo "==> ZAPMASS_DOCKER_BUILD_NO_CACHE=1 — build completo sem cache de camadas"
   fi
-  docker build "${_build_extra[@]}" -t zapmass:latest \
-    --build-arg CACHEBUST="${VITE_GIT_REF}" \
-    --build-arg VITE_ADMIN_EMAILS="${VITE_ADMIN_EMAILS:-}" \
-    --build-arg VITE_ZAPMASS_ADMIN_UIDS="${VITE_ZAPMASS_ADMIN_UIDS:-}" \
-    --build-arg VITE_MARKETING_PRICE_MONTHLY="${VITE_MARKETING_PRICE_MONTHLY:-}" \
-    --build-arg VITE_MARKETING_PRICE_ANNUAL="${VITE_MARKETING_PRICE_ANNUAL:-}" \
-    --build-arg VITE_ENFORCE_SUBSCRIPTION="${VITE_ENFORCE_SUBSCRIPTION:-true}" \
-    --build-arg VITE_CREATOR_STUDIO="${VITE_CREATOR_STUDIO:-}" \
-    --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
-    --build-arg VITE_GA_MEASUREMENT_ID="${VITE_GA_MEASUREMENT_ID:-}" \
-    .
-  docker stack deploy -c docker-stack.yml zapmass --with-registry-auth
+  _build_ok=0
+  for _build_try in 1 2 3; do
+    echo "==> docker build (tentativa ${_build_try}/3)"
+    if docker build "${_build_extra[@]}" -t zapmass:latest \
+      --build-arg CACHEBUST="${VITE_GIT_REF}" \
+      --build-arg VITE_ADMIN_EMAILS="${VITE_ADMIN_EMAILS:-}" \
+      --build-arg VITE_ZAPMASS_ADMIN_UIDS="${VITE_ZAPMASS_ADMIN_UIDS:-}" \
+      --build-arg VITE_MARKETING_PRICE_MONTHLY="${VITE_MARKETING_PRICE_MONTHLY:-}" \
+      --build-arg VITE_MARKETING_PRICE_ANNUAL="${VITE_MARKETING_PRICE_ANNUAL:-}" \
+      --build-arg VITE_ENFORCE_SUBSCRIPTION="${VITE_ENFORCE_SUBSCRIPTION:-true}" \
+      --build-arg VITE_CREATOR_STUDIO="${VITE_CREATOR_STUDIO:-}" \
+      --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
+      --build-arg VITE_GA_MEASUREMENT_ID="${VITE_GA_MEASUREMENT_ID:-}" \
+      .; then
+      _build_ok=1
+      break
+    fi
+    echo "==> AVISO: docker build falhou; aguardando 45s antes de nova tentativa (OOM/rede?)"
+    sleep 45
+  done
+  if [ "${_build_ok}" != "1" ]; then
+    echo "ERRO: docker build falhou após 3 tentativas."
+    exit 1
+  fi
+  unset _build_ok _build_try
+
+  _stack_ok=0
+  for _stack_try in 1 2 3 4 5; do
+    echo "==> docker stack deploy (tentativa ${_stack_try}/5)"
+    if docker stack deploy -c docker-stack.yml zapmass --with-registry-auth; then
+      _stack_ok=1
+      break
+    fi
+    echo "==> AVISO: stack deploy falhou (ex.: update out of sequence); aguardando 20s…"
+    sleep 20
+  done
+  if [ "${_stack_ok}" != "1" ]; then
+    echo "ERRO: docker stack deploy falhou após 5 tentativas."
+    exit 1
+  fi
+  unset _stack_ok _stack_try
   docker tag zapmass:latest zapmass-zapmass:latest 2>/dev/null || true
   # Swarm: duas "service update" em sequência podem falhar com "update out of sequence" — retentar e espaçar.
   swarm_update_retry() {
@@ -269,10 +298,11 @@ if [ -d /opt/zapmass/clientes ]; then
   docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
 fi
 
-# Healthcheck: até 5 min (com build grande a API demora a voltar 200)
+# Healthcheck: até 6 min (Swarm rolling + start-period 180s no Dockerfile)
 HP="${HOST_PORT:-3001}"
-echo "==> aguardando API /api/health (porta publicada: ${HP})"
-for i in $(seq 1 50); do
+_HEALTH_TRIES="${DEPLOY_HEALTH_TRIES:-60}"
+echo "==> aguardando API /api/health (porta publicada: ${HP}, até $((_HEALTH_TRIES * 6))s)"
+for i in $(seq 1 "${_HEALTH_TRIES}"); do
   code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HP}/api/health" || echo 000)
   echo "tentativa $i: HTTP $code"
   if [ "$code" = "200" ]; then
@@ -281,7 +311,7 @@ for i in $(seq 1 50); do
   fi
   sleep 6
 done
-echo "FALHA: API não respondeu 200 após 300s"
+echo "FALHA: API não respondeu 200 após $((_HEALTH_TRIES * 6))s"
 if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
   echo "==> docker service ps + logs (swarm)"
   docker service ps zapmass_api || true

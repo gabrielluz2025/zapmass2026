@@ -49,6 +49,7 @@ import {
     resolveCampaignTenantOwner
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
+import { isEvolutionOpenState } from './evolutionOpenState.js';
 
 // ================== INTERFACES ==================
 
@@ -83,12 +84,6 @@ interface EvolutionInstance {
 }
 
 type ExtractedEvolutionQr = { displayValue: string; kind: 'code' | 'image' };
-
-/** Evolution v2 alterna `open` e `connected` para sessão ativa. */
-function isEvolutionOpenState(raw: unknown): boolean {
-    const state = String(raw || '').toLowerCase();
-    return state === 'open' || state === 'connected';
-}
 
 function mapEvolutionState(raw: unknown): EvolutionInstance['status'] {
     const state = String(raw || '').toLowerCase();
@@ -897,7 +892,7 @@ function watchConnectionUntilOpen(connectionId: string) {
         }
         attempts++;
         const state = (await getConnectionState(connectionId)).toLowerCase();
-        if (state === 'open') {
+        if (isEvolutionOpenState(state)) {
             applyConnectionStateUpdate(connectionId, state, {});
             return;
         }
