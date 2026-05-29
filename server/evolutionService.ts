@@ -1770,7 +1770,15 @@ async function createConnectionInternal(
  */
 async function setupWebhook(instanceName: string) {
     try {
-        const url = evolutionConfig.webhookUrl;
+        let url = evolutionConfig.webhookUrl;
+        const tok = process.env.EVOLUTION_WEBHOOK_TOKEN?.trim();
+        const headers: Record<string, string> = {};
+        if (tok) {
+            const separator = url.includes('?') ? '&' : '?';
+            url = `${url}${separator}token=${encodeURIComponent(tok)}`;
+            headers['Authorization'] = `Bearer ${tok}`;
+            headers['x-evolution-webhook-token'] = tok;
+        }
         const events = [
             'QRCODE_UPDATED',
             'CONNECTION_UPDATE',
@@ -1787,6 +1795,7 @@ async function setupWebhook(instanceName: string) {
                 url,
                 byEvents: false,
                 base64: true,
+                headers,
                 events,
             },
         });
@@ -1977,6 +1986,7 @@ async function sendMediaInternal(
             number,
             delay: 1200,
             mediatype: type,
+            mimetype: mimeType,
             caption: caption || '',
             media: url,
             fileName,
@@ -2017,6 +2027,9 @@ async function sendMessageInternal(
         const response = await api.post(`/message/sendText/${evoInst(connectionId)}`, {
             number,
             text: message,
+            textMessage: {
+                text: message
+            },
             delay: 1200,
         });
 
@@ -2277,6 +2290,7 @@ async function sendMediaByUrlInternal(
             number,
             delay: 1200,
             mediatype: type,
+            mimetype: mimeType,
             caption: caption || '',
             media: mediaUrl,
             fileName,
@@ -2826,6 +2840,11 @@ export function deleteLocalConversations(conversationIds: string[]): number {
     return chatStore.deleteLocalConversations(conversationIds);
 }
 
+export async function fetchRawInstances(): Promise<any> {
+    const response = await api.get('/instance/fetchInstances');
+    return response.data;
+}
+
 export function getWarmupState() {
     return {
         pending: [...warmupQueue],
@@ -2979,4 +2998,5 @@ export default {
     deleteLocalConversations,
     getWarmupState,
     markWarmupReady,
+    fetchRawInstances,
 };

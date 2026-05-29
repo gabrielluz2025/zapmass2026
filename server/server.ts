@@ -369,6 +369,59 @@ app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   });
 });
 
+app.get('/api/diagnose', async (req, res) => {
+  try {
+    const redisUrl = process.env.REDIS_URL?.trim();
+    let redisStatus = 'not_configured';
+    let redisError: string | undefined;
+    if (redisUrl) {
+      const ping = await redisPing(redisUrl);
+      redisStatus = ping.ok ? 'ok' : 'failed';
+      redisError = ping.error;
+    }
+
+    const rawInstances = await evolutionService.fetchRawInstances().catch((err: any) => ({ error: err.message }));
+    const mappedConnections = evolutionService.getConnections();
+    const chatStoreConversations = evolutionService.getConversations();
+
+    res.json({
+      status: 'ok',
+      timestamp: new Date(),
+      env: {
+        NODE_ENV: process.env.NODE_ENV,
+        SESSION_PROCESS_MODE: process.env.SESSION_PROCESS_MODE || 'monolith',
+        ZAPMASS_WHATSAPP_ENGINE: process.env.ZAPMASS_WHATSAPP_ENGINE || 'evolution',
+        EVOLUTION_API_URL: process.env.EVOLUTION_API_URL,
+        EVOLUTION_API_KEY_PRESENT: Boolean(process.env.EVOLUTION_API_KEY),
+        EVOLUTION_API_KEY_PREFIX: process.env.EVOLUTION_API_KEY ? process.env.EVOLUTION_API_KEY.slice(0, 5) + '...' : undefined,
+        ZAPMASS_WEBHOOK_URL: process.env.ZAPMASS_WEBHOOK_URL,
+        EVOLUTION_WEBHOOK_TOKEN_PRESENT: Boolean(process.env.EVOLUTION_WEBHOOK_TOKEN),
+        STRICT_CONNECTION_SCOPE: process.env.ZAPMASS_STRICT_CONNECTION_SCOPE,
+      },
+      redis: {
+        status: redisStatus,
+        error: redisError,
+      },
+      evolution: {
+        rawInstances,
+        mappedConnections,
+      },
+      chatStore: {
+        totalConversations: chatStoreConversations.length,
+        conversationsSample: chatStoreConversations.slice(0, 15).map(c => ({
+          id: c.id,
+          connectionId: c.connectionId,
+          contactPhone: c.contactPhone,
+          unreadCount: c.unreadCount,
+          lastMessageTime: c.lastMessageTime,
+        })),
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/session-router/metrics', metricsAccessMiddleware, (_req, res) => {
   res.json(getSessionRouterMetrics());
 });
@@ -417,7 +470,8 @@ const handleEvolutionWebhookPost = (req: express.Request, res: express.Response)
       const auth = String(req.headers.authorization || '');
       const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
       const headerAlt = String(req.headers['x-evolution-webhook-token'] || '');
-      if (bearer !== tok && headerAlt !== tok) {
+      const queryToken = String(req.query.token || '');
+      if (bearer !== tok && headerAlt !== tok && queryToken !== tok) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
     }

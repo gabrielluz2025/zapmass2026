@@ -334,6 +334,9 @@ export function createEvolutionChat(api: AxiosInstance) {
         const response = await api.post(`/message/sendText/${evoInst(parsed.connectionId)}`, {
             number,
             text,
+            textMessage: {
+                text
+            },
             delay: 1200,
         });
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
@@ -388,6 +391,7 @@ export function createEvolutionChat(api: AxiosInstance) {
             number,
             delay: 1200,
             mediatype: type,
+            mimetype: payload.mimeType,
             caption: payload.caption || '',
             media: url,
             fileName: payload.fileName,
