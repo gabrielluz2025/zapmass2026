@@ -149,6 +149,36 @@ verify_redis_reachable() {
   return 1
 }
 
+wait_swarm_service_replicas() {
+  local svc=$1
+  local want="${2:-1}"
+  local tries="${3:-50}"
+  local i running
+  for i in $(seq 1 "${tries}"); do
+    running="$(docker service ls --filter "name=${svc}" --format '{{.Replicas}}' 2>/dev/null | head -1 || true)"
+    if [ "${running}" = "${want}/${want}" ]; then
+      echo "==> ${svc} OK (${running})"
+      return 0
+    fi
+    echo "==> aguardando ${svc} (${running:-?}, ${i}/${tries})"
+    sleep 6
+  done
+  echo "AVISO: ${svc} nao ficou ${want}/${want} apos ${tries} tentativas." >&2
+  docker service ps "${svc}" --no-trunc 2>/dev/null | head -5 || true
+  return 1
+}
+
+recover_swarm_api_service() {
+  echo "==> recuperacao zapmass_api (restart sem --image; evita corrida com stack deploy)"
+  docker service update \
+    --force \
+    --update-order stop-first \
+    --update-parallelism 1 \
+    --update-delay 10s \
+    zapmass_api 2>/dev/null || true
+  wait_swarm_service_replicas zapmass_api 1 40 || return 1
+}
+
 wait_redis_host() {
   local tries="${1:-20}"
   local i
@@ -214,6 +244,12 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
   # Overlay nó único: redis/tasks.redis → EHOSTUNREACH. Redis publicado no host :6379.
   export REDIS_URL=redis://host.docker.internal:6379
   echo "==> REDIS_URL=${REDIS_URL}"
+  if [ -f .env ] && grep -qE '^REDIS_URL=' .env 2>/dev/null; then
+    if ! grep -q 'host.docker.internal' .env 2>/dev/null; then
+      echo "==> corrigindo REDIS_URL no .env (env_file nao pode apontar para overlay redis:6379)"
+      sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://host.docker.internal:6379|' .env
+    fi
+  fi
   free_port_6379
   _build_extra=()
   if [ "${ZAPMASS_DOCKER_BUILD_NO_CACHE:-0}" = "1" ]; then
@@ -288,24 +324,11 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     swarm_update_retry zapmass_redis || echo "AVISO: zapmass_redis force-update falhou; stack deploy pode ter aplicado."
     wait_redis_host 25 || echo "AVISO: Redis host :6379 ainda não responde — healthcheck continuará."
   fi
-  _SWARM_UPDATE_FAILED=0
-  for svc in zapmass_api zapmass_wa-worker; do
-    if docker service inspect "$svc" >/dev/null 2>&1; then
-      echo "==> (swarm) forçar recriação: $svc"
-      if ! swarm_update_retry "$svc" zapmass:latest; then
-        if [ "$svc" = "zapmass_api" ]; then
-          _SWARM_UPDATE_FAILED=1
-        fi
-      fi
-      sleep 6
-    fi
-  done
-  if [ "${_SWARM_UPDATE_FAILED}" = "1" ]; then
-    echo "AVISO: zapmass_api force-update falhou após 6 tentativas (corrida Swarm)."
-    echo "       O stack deploy pode já ter aplicado a imagem — healthcheck abaixo confirma."
+  echo "==> aguardando stack deploy convergir (zapmass_api) — sem force --image (evita 0/1)"
+  if ! wait_swarm_service_replicas zapmass_api 1 45; then
+    recover_swarm_api_service || echo "AVISO: recuperacao da API falhou; ver docker service ps zapmass_api"
   fi
-  unset _SWARM_UPDATE_FAILED
-  # docker-stack: replicas: ${WA_WORKER_REPLICAS:-0}; em alguns hosts a interpolação no YAML falha → 0/0.
+  # wa-worker: só escala se replicas > 0 (force --image quebrava corrida com stack deploy na API).
   if docker service inspect zapmass_wa-worker >/dev/null 2>&1; then
     _wr="${WA_WORKER_REPLICAS:-0}"
     case "${_wr}" in ''|*[!0-9]*) _wr=0 ;; esac
