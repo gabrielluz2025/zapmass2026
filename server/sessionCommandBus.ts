@@ -11,6 +11,9 @@ const COMMAND_STREAM = process.env.SESSION_COMMAND_STREAM || 'zapmass:session:co
 const EVENT_STREAM = process.env.SESSION_EVENT_STREAM || 'zapmass:session:events';
 const REDIS_URL = process.env.REDIS_URL || '';
 const BLOCK_MS = Number(process.env.SESSION_BUS_BLOCK_MS || 3000);
+const PROCESS_MODE = process.env.SESSION_PROCESS_MODE || 'monolith';
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Cursor inicial Redis Streams para XREAD. `$` = só entradas novas após o subscribe (evita reexecutar delete/create antigos ao reiniciar o worker). Override: SESSION_COMMAND_CURSOR=0-0 para replay deliberado (debug/migração). */
 const defaultCommandCursor = REDIS_URL.trim() ? '$' : '0-0';
@@ -57,6 +60,8 @@ export class SessionCommandBus {
 
   async start(): Promise<void> {
     if (!this.isRedisEnabled) return;
+    // Em modo monolith todos os comandos executam localmente; não precisamos de Redis streams.
+    if (PROCESS_MODE === 'monolith') return;
     const factory = await resolveRedisFactory();
     if (!factory) {
       console.warn('[session-bus] ioredis nao disponivel. Usando barramento local em memoria.');
@@ -124,6 +129,7 @@ export class SessionCommandBus {
             }
           } catch (error) {
             console.error('[session-bus] erro lendo stream de comando', error);
+            await sleep(2000);
           }
         }
       };
@@ -170,6 +176,7 @@ export class SessionCommandBus {
             }
           } catch (error) {
             console.error('[session-bus] erro lendo stream de evento', error);
+            await sleep(2000);
           }
         }
       };

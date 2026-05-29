@@ -104,9 +104,12 @@ services:
     # e tirar backup de multiplas sessoes em paralelo.
     stop_grace_period: 45s
     depends_on:
-      - redis
-      - evolution
-      - postgres
+      redis:
+        condition: service_healthy
+      evolution:
+        condition: service_started
+      postgres:
+        condition: service_started
 
   evolution:
     image: atendai/evolution-api:v2.2.0
@@ -169,6 +172,12 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     logging:
       driver: json-file
       options:
@@ -210,7 +219,8 @@ services:
       - zapmass-data:/app/data
       - ./secrets:/run/secrets:ro
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     logging:
       driver: json-file
