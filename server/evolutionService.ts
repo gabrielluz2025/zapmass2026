@@ -84,9 +84,15 @@ interface EvolutionInstance {
 
 type ExtractedEvolutionQr = { displayValue: string; kind: 'code' | 'image' };
 
+/** Evolution v2 alterna `open` e `connected` para sessão ativa. */
+function isEvolutionOpenState(raw: unknown): boolean {
+    const state = String(raw || '').toLowerCase();
+    return state === 'open' || state === 'connected';
+}
+
 function mapEvolutionState(raw: unknown): EvolutionInstance['status'] {
     const state = String(raw || '').toLowerCase();
-    if (state === 'open') return 'open';
+    if (isEvolutionOpenState(state)) return 'open';
     if (state === 'connecting') return 'connecting';
     if (state === 'created' || state === 'qrcode') return 'created';
     return 'close';
@@ -476,7 +482,12 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
 
     const claimed: string[] = [];
     for (const orphanId of listOrphanOpenConnectionIds()) {
-        if (assignConnectionOwner(orphanId, uid)) claimed.push(orphanId);
+        if (
+            assignConnectionOwner(orphanId, uid) ||
+            tryClaimUnownedLegacyConnection(orphanId, uid)
+        ) {
+            claimed.push(orphanId);
+        }
     }
 
     const admin = (await import('./firebaseAdmin.js')).getFirebaseAdmin();
@@ -556,7 +567,7 @@ async function isConnectionOpen(instanceName: string): Promise<boolean> {
     const mem = connections.get(instanceName);
     if (mem?.status === 'open') return true;
     const apiState = (await getConnectionState(instanceName)).toLowerCase();
-    if (apiState === 'open') {
+    if (isEvolutionOpenState(apiState)) {
         if (mem) {
             applyConnectionStateUpdate(instanceName, 'open', {});
         }
@@ -646,7 +657,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
                     await sleep(2000);
                 }
                 const state = (await getConnectionState(connectionId)).toLowerCase();
-                if (state === 'open') {
+                if (isEvolutionOpenState(state)) {
                     clearAutoReconnect(connectionId);
                     applyConnectionStateUpdate(connectionId, 'open', {});
                     return;
@@ -996,7 +1007,7 @@ async function fetchConnectQr(instanceName: string): Promise<ExtractedEvolutionQ
         const mem = connections.get(instanceName);
         if (mem?.status === 'open') return null;
         const live = (await getConnectionState(instanceName)).toLowerCase();
-        if (live === 'open') {
+        if (isEvolutionOpenState(live)) {
             applyConnectionStateUpdate(instanceName, 'open', {});
             return null;
         }
@@ -1071,7 +1082,7 @@ export async function refreshConnectionQr(connectionId: string): Promise<string 
     if (!connections.has(id)) return null;
 
     const liveState = (await getConnectionState(id)).toLowerCase();
-    if (liveState === 'open') {
+    if (isEvolutionOpenState(liveState)) {
         applyConnectionStateUpdate(id, 'open', {});
         return null;
     }
@@ -1127,7 +1138,7 @@ async function hydrateInstancesFromEvolution() {
             let mappedState = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
             if (existing?.status === 'open' && mappedState !== 'open') {
                 const verified = (await getConnectionState(instanceName)).toLowerCase();
-                if (verified === 'open') mappedState = 'open';
+                if (isEvolutionOpenState(verified)) mappedState = 'open';
             }
             const phoneFromApi = phoneFromEvolutionRow(row);
             const instanceObj: EvolutionInstance = {
@@ -1851,7 +1862,7 @@ export async function reconnectConnection(id: string) {
         log('info', `Reconectando instância: ${id}`);
 
         const live = (await getConnectionState(id)).toLowerCase();
-        if (live === 'open') {
+        if (isEvolutionOpenState(live)) {
             applyConnectionStateUpdate(id, 'open', {});
             log('info', `Instância já aberta: ${id}`);
             return;
@@ -2483,14 +2494,14 @@ async function reconcileConnectionHealth() {
         const memState = conn.status;
         const paired = Boolean(conn.phoneNumber?.trim());
 
-        if (apiState === 'open' && memState !== 'open') {
+        if (isEvolutionOpenState(apiState) && memState !== 'open') {
             applyConnectionStateUpdate(id, 'open', {});
             continue;
         }
 
         if (memState === 'connecting' || memState === 'created') {
             const pairingAge = Date.now() - (pairingStartedAt.get(id) ?? 0);
-            if (apiState === 'open') {
+            if (isEvolutionOpenState(apiState)) {
                 applyConnectionStateUpdate(id, 'open', {});
             } else if (apiState === 'connecting') {
                 watchConnectionUntilOpen(id);
@@ -2502,13 +2513,13 @@ async function reconcileConnectionHealth() {
             continue;
         }
 
-        if (memState === 'open' && apiState !== 'open') {
+        if (memState === 'open' && !isEvolutionOpenState(apiState)) {
             log('info', `Health reconcile ${id}: mem=open api=${apiState}`);
             applyConnectionStateUpdate(id, apiState === 'connecting' ? 'connecting' : 'close', {});
             continue;
         }
 
-        if (paired && memState === 'close' && apiState !== 'open' && !autoReconnectState.has(id)) {
+        if (paired && memState === 'close' && !isEvolutionOpenState(apiState) && !autoReconnectState.has(id)) {
             scheduleEvolutionAutoReconnect(id);
         }
     }
@@ -2712,22 +2723,84 @@ export async function syncAllOpenChats(): Promise<void> {
     emitScopedConversationsUpdate();
 }
 
+/** Vincula `conn_*` órfãos antes do findChats (request-conversations-sync não passava pelo sync completo). */
+function claimOrphanConnectionsForOwner(ownerUid: string): string[] {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return [];
+    const claimed: string[] = [];
+    for (const orphanId of listOrphanOpenConnectionIds()) {
+        if (
+            assignConnectionOwner(orphanId, uid) ||
+            tryClaimUnownedLegacyConnection(orphanId, uid)
+        ) {
+            claimed.push(orphanId);
+        }
+    }
+    return claimed;
+}
+
 /** findChats só dos canais `open` do tenant — evita sync global e pipeline vazio por escopo. */
-export async function syncOpenChatsForOwner(ownerUid: string): Promise<void> {
+export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
+    syncedChats: string[];
+    skippedNotOpen: string[];
+    skippedNotOwned: string[];
+    claimed: string[];
+    conversationCounts: Record<string, number>;
+}> {
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous') {
         await syncAllOpenChats();
-        return;
+        return { syncedChats: [], skippedNotOpen: [], skippedNotOwned: [], claimed: [], conversationCounts: {} };
     }
-    const tasks: Promise<number>[] = [];
+
+    const claimed = claimOrphanConnectionsForOwner(uid);
+    const syncedChats: string[] = [];
+    const skippedNotOpen: string[] = [];
+    const skippedNotOwned: string[] = [];
+    const conversationCounts: Record<string, number> = {};
+    const tasks: Promise<void>[] = [];
+
     for (const [id] of connections.entries()) {
-        if (resolveOwnerUid(id) !== uid) continue;
-        if (!(await isConnectionOpen(id))) continue;
-        tasks.push(chatStore.syncChatsForConnection(id));
+        if (resolveOwnerUid(id) !== uid) {
+            skippedNotOwned.push(id);
+            continue;
+        }
+        if (!(await isConnectionOpen(id))) {
+            skippedNotOpen.push(id);
+            continue;
+        }
+        syncedChats.push(id);
+        tasks.push(
+            chatStore.syncChatsForConnection(id).then((n) => {
+                conversationCounts[id] = n;
+            })
+        );
     }
+
     if (tasks.length > 0) {
         await Promise.all(tasks);
+        emitScopedConversationsUpdate();
     }
+
+    if (syncedChats.length === 0 || Object.values(conversationCounts).every((n) => n === 0)) {
+        log('warn', 'syncOpenChatsForOwner: nenhuma conversa 1:1 importada', {
+            ownerUid: uid,
+            syncedChats,
+            skippedNotOpen,
+            skippedNotOwned: skippedNotOwned.slice(0, 8),
+            claimed,
+            conversationCounts,
+        });
+    } else {
+        log('info', 'syncOpenChatsForOwner: conversas importadas', {
+            ownerUid: uid,
+            syncedChats,
+            claimed: claimed.length ? claimed : undefined,
+            conversationCounts,
+        });
+    }
+
+    return { syncedChats, skippedNotOpen, skippedNotOwned, claimed, conversationCounts };
 }
 
 export async function loadChatHistory(

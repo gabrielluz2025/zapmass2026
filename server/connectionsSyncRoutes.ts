@@ -54,6 +54,16 @@ export function registerConnectionsSyncRoutes(app: Express): void {
                 evolutionService.resolveConnectionOwnerUid
             );
 
+            if (conversations.length === 0 && connections.some((c) => c.status === 'CONNECTED')) {
+                console.warn('[api/connections/sync] conversas vazias com canal CONNECTED', {
+                    tenantUid,
+                    syncedChats: result.syncedChats,
+                    claimed: result.claimed,
+                    connectionIds: connections.map((c) => c.id),
+                    ramConversations: evolutionService.getConversations().length,
+                });
+            }
+
             return res.json({
                 ok: true,
                 connections,

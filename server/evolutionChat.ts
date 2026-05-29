@@ -3,6 +3,7 @@ import type { Server as SocketIOServer } from 'socket.io';
 import { Conversation, ChatMessage } from './types.js';
 import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
+import { chatRemoteJidFromFindChatsRow } from './evolutionChatJid.js';
 
 const MAX_MESSAGES = 10000;
 
@@ -172,23 +173,7 @@ export function createEvolutionChat(api: AxiosInstance) {
     }
 
     function chatRemoteJid(chat: any): string | null {
-        const idRaw = chat?.id;
-        const candidates = [
-            chat?.remoteJid,
-            chat?.jid,
-            chat?.key?.remoteJid,
-            chat?.lastMessage?.key?.remoteJid,
-            typeof idRaw === 'string' ? idRaw : null,
-            idRaw && typeof idRaw === 'object'
-                ? idRaw._serialized || (idRaw.user ? `${idRaw.user}@${idRaw.server || 's.whatsapp.net'}` : null)
-                : null,
-        ];
-        for (const c of candidates) {
-            if (c == null) continue;
-            const s = String(c).trim();
-            if (s && s.includes('@')) return s;
-        }
-        return null;
+        return chatRemoteJidFromFindChatsRow(chat);
     }
 
     function extractFindChatsList(raw: unknown): any[] {
@@ -263,8 +248,10 @@ export function createEvolutionChat(api: AxiosInstance) {
             emitConversationsUpdate();
             if (chats.length > 0 && added === 0) {
                 console.warn(
-                    `[EvolutionChat] syncChats ${connectionId}: ${chats.length} item(ns) da API, 0 conversas 1:1 mapeadas`
+                    `[EvolutionChat] syncChats ${connectionId}: ${chats.length} item(ns) da API, 0 conversas 1:1 mapeadas (grupos/@broadcast ou JID ilegível)`
                 );
+            } else if (added > 0) {
+                console.info(`[EvolutionChat] syncChats ${connectionId}: ${added}/${chats.length} conversa(s) 1:1`);
             }
             return added;
         } catch (error: any) {

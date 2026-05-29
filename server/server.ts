@@ -781,8 +781,9 @@ const registerSocketHandlers = () => {
           await ensureAssignmentsLoaded(uid).catch(() => undefined);
         }
         if (useEvolutionChat()) {
+          let syncMeta: Awaited<ReturnType<typeof evolutionService.syncOpenChatsForOwner>> | undefined;
           if (uid && uid !== 'anonymous') {
-            await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
+            syncMeta = await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
           } else {
             await evolutionService.syncAllOpenChats().catch(() => undefined);
           }
@@ -792,15 +793,22 @@ const registerSocketHandlers = () => {
             evolutionService.getConversations(),
             resolveConnectionOwnerUid
           );
-          if (
-            convPayload.length === 0 &&
-            filterByConnectionScope(uid, evolutionService.getConnections()).some(
-              (c) => c.status === 'CONNECTED'
-            )
-          ) {
+          const openChannels = filterByConnectionScope(uid, evolutionService.getConnections()).filter(
+            (c) => c.status === 'CONNECTED'
+          );
+          if (convPayload.length === 0 && openChannels.length > 0) {
             structuredLog('warn', 'socket.conversations_empty_with_open_channel', {
               tenantUid: uid,
-              authUid: authOp
+              authUid: authOp,
+              openChannelIds: openChannels.map((c) => c.id),
+              syncMeta,
+              ramConversations: evolutionService.getConversations().length,
+            });
+          } else if (convPayload.length > 0) {
+            structuredLog('info', 'socket.conversations_sync_ok', {
+              tenantUid: uid,
+              count: convPayload.length,
+              syncMeta,
             });
           }
           socket.emit('conversations-update', convPayload);
