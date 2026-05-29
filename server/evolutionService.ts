@@ -1589,40 +1589,75 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
 }
 
 /** Campanha ativa pertence ao tenant; reconcilia ownerUid de membro da equipa. */
-export function ensureTenantOwnsCampaign(
+export async function ensureTenantOwnsCampaign(
     tenantUid: string,
     campaignId: string,
     workspaceMemberUids?: ReadonlySet<string>,
     actingAuthUid?: string
-): boolean {
+): Promise<boolean> {
     const cid = String(campaignId || '').trim();
     if (!cid) return false;
+    
     const state = campaignsById.get(cid);
-    if (!state?.isRunning) return false;
+    if (state) {
+        let resolved = resolveCampaignTenantOwner(
+            tenantUid,
+            state.ownerUid,
+            workspaceMemberUids,
+            actingAuthUid
+        );
+        if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, state.ownerUid, workspaceMemberUids)) {
+            resolved = tenantUid;
+        }
+        if (resolved) {
+            if (state.ownerUid !== resolved) {
+                state.ownerUid = resolved;
+                evolutionRegisterCampaign(cid, resolved);
+            }
+            return true;
+        }
+    }
 
-    let resolved = resolveCampaignTenantOwner(
-        tenantUid,
-        state.ownerUid,
-        workspaceMemberUids,
-        actingAuthUid
-    );
-    if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, state.ownerUid, workspaceMemberUids)) {
-        resolved = tenantUid;
+    // Fallback para Firestore se a campanha não estiver ativa ou em memória (ex.: pós restart)
+    try {
+        const admin = (await import('./firebaseAdmin.js')).getFirebaseAdmin();
+        if (admin) {
+            const db = admin.firestore();
+            const snap = await db.collectionGroup('campaigns')
+                .where('__name__', '==', `campaigns/${cid}`)
+                .get();
+            
+            if (!snap.empty) {
+                const doc = snap.docs[0];
+                const pathParts = doc.ref.path.split('/');
+                const ownerUid = pathParts[1]; // users/{userId}/campaigns/{campaignId}
+                if (ownerUid) {
+                    let resolved = resolveCampaignTenantOwner(
+                        tenantUid,
+                        ownerUid,
+                        workspaceMemberUids,
+                        actingAuthUid
+                    );
+                    if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, ownerUid, workspaceMemberUids)) {
+                        resolved = tenantUid;
+                    }
+                    return Boolean(resolved);
+                }
+            }
+        }
+    } catch (e: any) {
+        log('warn', 'Erro ao verificar dono da campanha no Firestore', { campaignId: cid, error: e.message });
     }
-    if (!resolved) return false;
-    if (state.ownerUid !== resolved) {
-        state.ownerUid = resolved;
-        evolutionRegisterCampaign(cid, resolved);
-    }
-    return true;
+
+    return false;
 }
 
-export function canControlCampaign(
+export async function canControlCampaign(
     uid: string,
     campaignId: string,
     workspaceMemberUids?: ReadonlySet<string>,
     actingAuthUid?: string
-): boolean {
+): Promise<boolean> {
     return ensureTenantOwnsCampaign(uid, campaignId, workspaceMemberUids, actingAuthUid);
 }
 

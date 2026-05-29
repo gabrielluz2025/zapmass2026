@@ -6500,30 +6500,64 @@ export const resumeCampaign = (campaignId: string) => {
     }
 };
 
-export const canControlCampaign = (
+export const canControlCampaign = async (
     uid: string,
     campaignId: string,
     workspaceMemberUids?: ReadonlySet<string>,
     actingAuthUid?: string
-): boolean => {
+): Promise<boolean> => {
     if (!uid || !campaignId) return false;
-    if (currentCampaign.campaignId !== campaignId || !currentCampaign.isRunning) return false;
+    if (currentCampaign.campaignId === campaignId && currentCampaign.isRunning) {
+        let resolved = resolveCampaignTenantOwner(
+            uid,
+            currentCampaign.ownerUid,
+            workspaceMemberUids,
+            actingAuthUid
+        );
+        if (!resolved && canReconcileLegacyCampaignOwner(uid, currentCampaign.ownerUid, workspaceMemberUids)) {
+            resolved = uid;
+        }
+        if (resolved) {
+            if (currentCampaign.ownerUid !== resolved) {
+                currentCampaign.ownerUid = resolved;
+                evolutionRegisterCampaign(campaignId, resolved);
+            }
+            return true;
+        }
+    }
 
-    let resolved = resolveCampaignTenantOwner(
-        uid,
-        currentCampaign.ownerUid,
-        workspaceMemberUids,
-        actingAuthUid
-    );
-    if (!resolved && canReconcileLegacyCampaignOwner(uid, currentCampaign.ownerUid, workspaceMemberUids)) {
-        resolved = uid;
+    // Fallback para Firestore se a campanha não estiver ativa em memória (ex.: pós restart)
+    try {
+        const admin = (await import('./firebaseAdmin.js')).getFirebaseAdmin();
+        if (admin) {
+            const db = admin.firestore();
+            const snap = await db.collectionGroup('campaigns')
+                .where('__name__', '==', `campaigns/${campaignId}`)
+                .get();
+            
+            if (!snap.empty) {
+                const doc = snap.docs[0];
+                const pathParts = doc.ref.path.split('/');
+                const ownerUid = pathParts[1]; // users/{userId}/campaigns/{campaignId}
+                if (ownerUid) {
+                    let resolved = resolveCampaignTenantOwner(
+                        uid,
+                        ownerUid,
+                        workspaceMemberUids,
+                        actingAuthUid
+                    );
+                    if (!resolved && canReconcileLegacyCampaignOwner(uid, ownerUid, workspaceMemberUids)) {
+                        resolved = uid;
+                    }
+                    return Boolean(resolved);
+                }
+            }
+        }
+    } catch (e) {
+        // ignora
     }
-    if (!resolved) return false;
-    if (currentCampaign.ownerUid !== resolved) {
-        currentCampaign.ownerUid = resolved;
-        evolutionRegisterCampaign(campaignId, resolved);
-    }
-    return true;
+
+    return false;
 };
 
 /** Registra campanha Evolution no mapa de geo/funil (antes do 1º envio). */

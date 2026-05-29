@@ -722,13 +722,17 @@ const registerSocketHandlers = () => {
       });
       socket.emit('security-warning', { action, error: 'Operacao bloqueada por isolamento de conta.' });
     };
-    const canControlActiveCampaign = (campaignId: string) => {
+    const canControlActiveCampaign = async (campaignId: string) => {
       const candidateUids = authOp !== uid ? [uid, authOp] : [uid];
-      return candidateUids.some(
-        (candidateUid) =>
-          evolutionService.canControlCampaign(candidateUid, campaignId, workspaceMembers) ||
-          waService.canControlCampaign(candidateUid, campaignId, workspaceMembers)
-      );
+      for (const candidateUid of candidateUids) {
+        if (
+          await evolutionService.canControlCampaign(candidateUid, campaignId, workspaceMembers) ||
+          await waService.canControlCampaign(candidateUid, campaignId, workspaceMembers)
+        ) {
+          return true;
+        }
+      }
+      return false;
     };
     const reportSocketAsyncError = (op: string, err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -1464,7 +1468,7 @@ const registerSocketHandlers = () => {
       void (async () => {
         try {
           if (!(await requireActiveSubscription())) return;
-          if (!canControlActiveCampaign(campaignId)) {
+          if (!(await canControlActiveCampaign(campaignId))) {
             denyCrossTenant('pause-campaign', { campaignId });
             return;
           }
@@ -1480,7 +1484,7 @@ const registerSocketHandlers = () => {
       void (async () => {
         try {
           if (!(await requireActiveSubscription())) return;
-          if (!canControlActiveCampaign(campaignId)) {
+          if (!(await canControlActiveCampaign(campaignId))) {
             denyCrossTenant('resume-campaign', { campaignId });
             return;
           }
