@@ -5474,6 +5474,10 @@ const processQueue = async () => {
             recordCircuitBreakerSuccess(item.connectionId);
             advancedFeatures.recordFailurePattern(formattedNum, new Date().getHours(), false);
 
+            // Marca item como já enviado para evitar reenvio caso a pausa/verificação
+            // posterior chame requeueQueueItem (duplicação).
+            (item as any)._sentOk = true;
+
             console.log(`[Queue] Enviado para ${formattedNum} via ${connInfo?.name || item.connectionId}`);
 
         } catch (error: unknown) {
@@ -5585,9 +5589,9 @@ const processQueue = async () => {
         const humanDelay = dynamicSettings.minDelay + Math.random() * (dynamicSettings.maxDelay - dynamicSettings.minDelay);
         await new Promise(r => setTimeout(r, humanDelay));
 
-        // Verificar pausa de campanha ativa
+        // Verificar pausa de campanha ativa — só reenfileirar se o item ainda não foi enviado.
         const pauseCampaignId = item.queueCampaignId || currentCampaign.campaignId;
-        if (pauseCampaignId && pausedCampaigns.has(pauseCampaignId)) {
+        if (pauseCampaignId && pausedCampaigns.has(pauseCampaignId) && !(item as any)._sentOk) {
             console.log(`[Queue] ⏸️ Campanha ${pauseCampaignId} pausada. Recolocando na fila para não bloquear outros disparos.`);
             requeueQueueItem(item);
             await new Promise(r => setTimeout(r, 2000));

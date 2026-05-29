@@ -47,6 +47,8 @@ export type ReplyFlowCallbacks = {
     ) => void;
     onLog?: (message: string, payload?: Record<string, unknown>) => void;
     isCampaignPaused?: (campaignId: string) => boolean;
+    /** Chamado quando todas as sessões de uma campanha são encerradas (reply flow concluído). */
+    onAllSessionsClosed?: (campaignId: string) => void;
 };
 
 export const normalizePhoneKey = (phone: string): string => (phone || '').replace(/\D/g, '');
@@ -239,11 +241,23 @@ export class ReplyFlowEngine {
         }
     }
 
+    /** Retorna o número de sessões de reply flow abertas para a campanha. */
+    countOpenSessionsForCampaign(campaignId: string): number {
+        return this.sessionCountByCampaign.get(campaignId) || 0;
+    }
+
     private adjustSessionCount(campaignId: string, delta: number) {
         if (!campaignId) return;
         const next = (this.sessionCountByCampaign.get(campaignId) || 0) + delta;
-        if (next <= 0) this.sessionCountByCampaign.delete(campaignId);
-        else this.sessionCountByCampaign.set(campaignId, next);
+        if (next <= 0) {
+            this.sessionCountByCampaign.delete(campaignId);
+            // Notifica que todas as sessões desta campanha foram encerradas.
+            if (delta < 0) {
+                this.callbacks.onAllSessionsClosed?.(campaignId);
+            }
+        } else {
+            this.sessionCountByCampaign.set(campaignId, next);
+        }
     }
 
     private maybeClearDef(campaignId: string) {

@@ -1252,6 +1252,8 @@ interface MessageQueueItem {
     to: string;
     message: string;
     campaignId?: string;
+    /** Índice da etapa (0-based) dentro de messageStages — usado no jobId para evitar colisão. */
+    stageIndex?: number;
     media?: CampaignMediaPayload;
     sendAsMedia?: boolean;
     replyFlowOpen?: {
@@ -1264,6 +1266,8 @@ interface MessageQueueItem {
         phoneDigits: string;
         newAwaitingAfterStep: number;
     };
+    /** Idempotência: definido após envio bem-sucedido para evitar reenvio em retry do BullMQ. */
+    _sentOk?: boolean;
 }
 
 interface WarmupItem {
@@ -1624,6 +1628,17 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
         campaignPendingJobs.delete(campaignId);
         const state = campaignsById.get(campaignId);
         if (state?.isRunning) {
+            // Não finalizar enquanto houver sessões de reply flow abertas para esta campanha.
+            // O reply flow pode enfileirar mais jobs após a resposta do contato.
+            const openReplyFlowSessions = replyFlowEngine
+                ? replyFlowEngine.countOpenSessionsForCampaign(campaignId)
+                : 0;
+            if (openReplyFlowSessions > 0) {
+                // Guarda pending como 0 mas não fecha — o reply flow irá chamar
+                // finishCampaignJob novamente quando suas sessões terminarem.
+                campaignPendingJobs.set(campaignId, 0);
+                return;
+            }
             state.isRunning = false;
             campaignMediaById.delete(campaignId);
             if (state.ownerUid) {
@@ -1722,13 +1737,16 @@ function ensureReplyFlowEngine() {
     if (replyFlowEngine) return;
     replyFlowEngine = new ReplyFlowEngine({
         enqueue: (item) => {
+            // Delay mínimo de 3s entre a resposta do contato e o próximo envio do reply flow
+            // para evitar rajadas na API Evolution e parecer menos robótico.
+            const replyDelay = 3000 + Math.random() * 4000;
             void enqueueCampaignItem({
                 connectionId: item.connectionId,
                 to: item.to,
                 message: item.message,
                 campaignId: item.campaignId,
                 replyFlowAfterSend: item.replyFlowAfterSend,
-            });
+            }, replyDelay);
         },
         onMarketingConsent: (ownerUid, campaignId, effect, phoneDigits, replyText) => {
             publishOwnerEvent(ownerUid, 'contact-marketing-consent', {
@@ -1742,6 +1760,36 @@ function ensureReplyFlowEngine() {
         onLog: (message, payload) =>
             emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
         isCampaignPaused: (campaignId) => pausedCampaigns.has(campaignId),
+        // Quando todas as sessões de reply flow de uma campanha fecham, verifica se a
+        // campanha pode agora ser marcada como concluída (pending já era 0).
+        onAllSessionsClosed: (campaignId) => {
+            const pending = campaignPendingJobs.get(campaignId) || 0;
+            if (pending === 0) {
+                // Sem jobs pendentes e sem sessões abertas: fechar a campanha agora.
+                campaignPendingJobs.delete(campaignId);
+                const state = campaignsById.get(campaignId);
+                if (state?.isRunning) {
+                    state.isRunning = false;
+                    campaignMediaById.delete(campaignId);
+                    if (state.ownerUid) {
+                        void persistCampaignProgressToFirestore(
+                            state.ownerUid,
+                            campaignId,
+                            state.successCount,
+                            state.failCount,
+                            state.processed,
+                            'COMPLETED'
+                        );
+                        publishOwnerEvent(state.ownerUid, 'campaign-finished', {
+                            campaignId,
+                            successCount: state.successCount,
+                            failCount: state.failCount,
+                            total: state.total,
+                        });
+                    }
+                }
+            }
+        },
     });
 }
 
@@ -2186,8 +2234,11 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     if (item.campaignId) {
         campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
     }
+    // jobId estável: inclui stageIndex para evitar colisão entre etapas do mesmo contato.
+    // O sufixo Date.now() permanece para evitar duplicação ao reenfileirar após pausa/retry.
+    const stageTag = item.stageIndex != null ? `s${item.stageIndex}` : 's0';
     await queue.add('send', item, {
-        jobId: `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${Date.now()}`,
+        jobId: `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${stageTag}__${Date.now()}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
         delay: Math.max(0, delayMs),
@@ -2198,6 +2249,14 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
 
 async function processCampaignJob(job: Job<MessageQueueItem>) {
     const item = job.data;
+
+    // Idempotência: se o envio já foi marcado ok em tentativa anterior (antes da falha do handler),
+    // não reenviar — apenas contabilizar como sucesso e sair.
+    if (item._sentOk) {
+        bumpQueueSize(item.connectionId, -1);
+        finishCampaignJob(item.campaignId, true);
+        return;
+    }
 
     if (item.campaignId && pausedCampaigns.has(item.campaignId)) {
         await job.moveToDelayed(Date.now() + 3000);
@@ -2320,6 +2379,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>) {
         throw new Error('Falha no envio');
     }
 
+    // Marca envio OK antes de qualquer lógica pós-envio: se o processo cair aqui,
+    // o retry do BullMQ detecta _sentOk=true e não reenvia (idempotência).
+    item._sentOk = true;
+    await job.updateData(item).catch(() => {});
+
     if (conn) {
         conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
         connectionsSettingsCache[item.connectionId] = {
@@ -2434,9 +2498,13 @@ function ensureCampaignWorker() {
     const conn = getRedisConnection();
     if (!conn || campaignWorker) return;
 
+    // Concorrência 5: cada job aguarda delay humano internamente (~2-8s), então 5 slots
+    // paralelos resultam em throughput real de ~0.5-2 msg/s sem sobrecarregar a API Evolution.
+    // O limiter global limita a 10 jobs/segundo em toda a fila (burst ≤ 20).
     campaignWorker = new Worker<MessageQueueItem>('campaign-messages', processCampaignJob, {
         connection: conn.duplicate(),
-        concurrency: 1,
+        concurrency: 5,
+        limiter: { max: 10, duration: 1000 },
     });
 
     campaignWorker.on('failed', (job, err) => {
@@ -2599,13 +2667,17 @@ export async function startCampaign(
             } else {
                 for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
                     const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars);
-                    const stageDelay = staggerDelay + stageIndex * dispatchSettings.minDelayMs;
+                    // Delay entre etapas: mínimo de 60s para que o contato receba as mensagens
+                    // com intervalo natural (evita spam e bloqueio pela Evolution/WhatsApp).
+                    const interStageMinDelay = Math.max(dispatchSettings.minDelayMs, 60_000);
+                    const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
                     await enqueueCampaignItem(
                         {
                             connectionId: assignedConnectionId,
                             to: num,
                             message: personalizedMessage,
                             campaignId: cid,
+                            stageIndex,
                             sendAsMedia: hasMedia && stageIndex === 0,
                         },
                         stageDelay
@@ -2678,7 +2750,7 @@ export function init(socketIO: SocketIOServer) {
     chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
     ensureReplyFlowEngine();
     ensureCampaignWorker();
-        log('info', 'Evolution API Service Initialized', {
+    log('info', 'Evolution API Service Initialized', {
         apiUrl: evolutionConfig.apiUrl,
         webhookUrl: evolutionConfig.webhookUrl,
     });
@@ -2690,6 +2762,32 @@ export function init(socketIO: SocketIOServer) {
         }, 30_000);
     }
     testConnection();
+    // Reconcilia jobs BullMQ que sobreviveram a um reinício do processo.
+    // Sem isso, campaignPendingJobs (RAM) começa do zero enquanto o Redis ainda
+    // tem jobs ativos — finishCampaignJob dispararia campaign-finished ao primeiro job.
+    void reconcilePendingJobsFromRedis();
+}
+
+/** Restaura campaignPendingJobs contando jobs active+waiting+delayed no Redis. */
+async function reconcilePendingJobsFromRedis() {
+    const queue = getCampaignQueue();
+    if (!queue) return;
+    try {
+        const jobs = await queue.getJobs(['active', 'waiting', 'delayed']);
+        const counts = new Map<string, number>();
+        for (const j of jobs) {
+            const cid = j.data?.campaignId;
+            if (cid) counts.set(cid, (counts.get(cid) || 0) + 1);
+        }
+        for (const [cid, count] of counts) {
+            if (!campaignPendingJobs.has(cid)) {
+                campaignPendingJobs.set(cid, count);
+                log('info', `[reconcile] Campanha ${cid}: ${count} jobs pendentes restaurados do Redis.`);
+            }
+        }
+    } catch (e: any) {
+        log('warn', '[reconcile] Não foi possível reconciliar jobs do Redis:', { error: e?.message });
+    }
 }
 
 /**
