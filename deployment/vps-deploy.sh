@@ -33,6 +33,10 @@ if [ -f .env ]; then
   while IFS='=' read -r k v; do
     k="${k//$'\r'/}"
     v="${v//$'\r'/}"
+    v="${v#\"}"
+    v="${v%\"}"
+    v="${v#\'}"
+    v="${v%\'}"
     case "$k" in
       VITE_*|MERCADOPAGO_*|ZAPMASS_*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|WA_SYNC_CONV_EMIT_EVERY|WA_FULL_INBOX_SYNC|WA_CHAT_ARCHIVE|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS|WWEBJS_WEB_VERSION_URL|TRUST_PROXY|TRUST_PROXY_HOPS|EVOLUTION_*|CONFIG_SESSION_PHONE_*|EVOLUTION_IMAGE|EVOLUTION_SERVER_URL|EVOLUTION_QRCODE_LIMIT|EVOLUTION_LOG_LEVEL|POSTGRES_PASSWORD|RESEND_API_KEY|EMAIL_FROM|EMAIL_REPLY_TO|SUGGESTION_NOTIFY_EMAIL|NEW_CLIENT_NOTIFY_EMAIL|PUBLIC_APP_URL|ALLOWED_ORIGINS|SWARM_ENABLED|REDIS_URL)
         export "$k=$v"
@@ -41,7 +45,24 @@ if [ -f .env ]; then
   # Aceitar também `export VAR=...` (sem isso o grep não apanha a linha e o Swarm fica sem MERCADOPAGO/FIREBASE/etc.).
   done < <(grep -E '^[[:space:]]*(export[[:space:]]+)?(VITE_[A-Z0-9_]*|MERCADOPAGO_[A-Z0-9_]*|ZAPMASS_[A-Z0-9_]*|HOST_PORT|METRICS_TOKEN|WA_WORKER_REPLICAS|WA_SYNC_CONV_EMIT_EVERY|WA_FULL_INBOX_SYNC|WA_CHAT_ARCHIVE|ENSURE_SWAP_ON_DEPLOY|BUILDKIT_MAX_PARALLELISM|SWAP_SIZE_MB|SUBSCRIPTION_ENFORCE|ADMIN_EMAILS|FIREBASE_WEB_API_KEY|MAX_STAFF_PASSWORD_ACCOUNTS|WWEBJS_WEB_VERSION_URL|TRUST_PROXY|TRUST_PROXY_HOPS|EVOLUTION_[A-Z0-9_]*|CONFIG_SESSION_PHONE_[A-Z0-9_]*|EVOLUTION_IMAGE|EVOLUTION_SERVER_URL|EVOLUTION_QRCODE_LIMIT|EVOLUTION_LOG_LEVEL|POSTGRES_PASSWORD|RESEND_API_KEY|EMAIL_FROM|EMAIL_REPLY_TO|SUGGESTION_NOTIFY_EMAIL|NEW_CLIENT_NOTIFY_EMAIL|PUBLIC_APP_URL|ALLOWED_ORIGINS|SWARM_ENABLED|REDIS_URL)=' .env | sed -E 's/^[[:space:]]*export[[:space:]]+//' || true)
   if [ -n "${MERCADOPAGO_ACCESS_TOKEN:-}" ]; then
-    echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…)"
+    echo "==> MERCADOPAGO_ACCESS_TOKEN presente (prefixo ${MERCADOPAGO_ACCESS_TOKEN:0:14}…; len=${#MERCADOPAGO_ACCESS_TOKEN})"
+    mkdir -p secrets
+    printf '%s\n' "$MERCADOPAGO_ACCESS_TOKEN" > secrets/mercadopago_access_token
+    chmod 600 secrets/mercadopago_access_token
+    echo "==> secrets/mercadopago_access_token sincronizado a partir do .env"
+    if command -v curl >/dev/null 2>&1; then
+      MP_HTTP=$(curl -sS -o /tmp/zapmass-mp-verify.json -w '%{http_code}' \
+        -H "Authorization: Bearer ${MERCADOPAGO_ACCESS_TOKEN}" \
+        https://api.mercadopago.com/users/me 2>/dev/null || echo "000")
+      if [ "$MP_HTTP" = "200" ]; then
+        echo "==> Mercado Pago: token validado com sucesso (HTTP 200 /users/me)"
+      else
+        echo "==> ERRO CRITICO: Mercado Pago REJEITOU o token (HTTP ${MP_HTTP}). Checkout falhara com 401."
+        echo "==> Regenere APP_USR- em https://www.mercadopago.com.br/developers/panel e atualize o .env"
+        head -c 300 /tmp/zapmass-mp-verify.json 2>/dev/null || true
+        echo
+      fi
+    fi
   else
     echo "==> AVISO: MERCADOPAGO_ACCESS_TOKEN vazio após .env"
   fi

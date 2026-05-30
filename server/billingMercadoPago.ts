@@ -4,7 +4,12 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { mergeUserSubscription } from './subscriptionFirestore.js';
 import { channelAddonUnitPriceBrl } from './connectionLimits.js';
-import { getMercadoPagoAccessToken, requireMercadoPagoAccessToken } from './mercadoPagoAccess.js';
+import {
+  getMercadoPagoAccessToken,
+  requireMercadoPagoAccessToken,
+  verifyMercadoPagoAccessTokenLive
+} from './mercadoPagoAccess.js';
+import { billingRouteErrorPayload, MercadoPagoApiError, throwIfMercadoPagoHttpError } from './mercadoPagoApiError.js';
 import {
   CHANNEL_TIER_PRICES_ANNUAL,
   CHANNEL_TIER_PRICES_MONTHLY,
@@ -235,10 +240,7 @@ async function createPreference(params: CreateParams): Promise<{ id: string; ini
   });
 
   const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
-    const msg = typeof data.message === 'string' ? data.message : JSON.stringify(data).slice(0, 400);
-    throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
-  }
+  throwIfMercadoPagoHttpError(res, data);
   const id = String(data.id || '');
   const init_point = pickMercadoPagoCheckoutUrl(data);
   if (!init_point) {
@@ -307,10 +309,7 @@ async function createPreapproval(params: CreateParams): Promise<{ id: string; in
   });
 
   const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
-    const msg = typeof data.message === 'string' ? data.message : JSON.stringify(data).slice(0, 400);
-    throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
-  }
+  throwIfMercadoPagoHttpError(res, data);
 
   const id = String(data.id || '');
   const init_point = pickMercadoPagoCheckoutUrl(data);
@@ -400,10 +399,7 @@ async function createChannelTierPreference(params: {
     body: JSON.stringify(body)
   });
   const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
-    const msg = typeof data.message === 'string' ? data.message : JSON.stringify(data).slice(0, 400);
-    throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
-  }
+  throwIfMercadoPagoHttpError(res, data);
   const id = String(data.id || '');
   const init_point = pickMercadoPagoCheckoutUrl(data);
   if (!init_point) {
@@ -486,10 +482,7 @@ async function createChannelAddonPreference(
     body: JSON.stringify(body)
   });
   const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
-    const msg = typeof data.message === 'string' ? data.message : JSON.stringify(data).slice(0, 400);
-    throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
-  }
+  throwIfMercadoPagoHttpError(res, data);
   const id = String(data.id || '');
   const init_point = String(data.init_point || '');
   if (!init_point) throw new Error('Resposta do MP sem init_point (canais extras).');
@@ -531,10 +524,7 @@ async function createChannelAddonPreapproval(params: { uid: string; email: strin
     body: JSON.stringify(body)
   });
   const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
-    const msg = typeof data.message === 'string' ? data.message : JSON.stringify(data).slice(0, 400);
-    throw new Error(`Mercado Pago: ${res.status} - ${msg}`);
-  }
+  throwIfMercadoPagoHttpError(res, data);
   const id = String(data.id || '');
   const init_point = pickMercadoPagoCheckoutUrl(data);
   if (!init_point) {
@@ -557,6 +547,22 @@ async function createChannelAddonPreapproval(params: { uid: string; email: strin
  *   Matriz `channelTiers` (1–5) + `monthly`/`annual` no tier base (2). Publico; alinha a UI ao cobrado.
  */
 export function registerBillingMercadoPagoRoutes(app: Express): void {
+  app.get('/api/billing/mercadopago/status', async (_req: Request, res: Response) => {
+    try {
+      const health = await verifyMercadoPagoAccessTokenLive();
+      return res.json({
+        ok: health.valid,
+        checkoutAvailable: health.valid,
+        configured: health.configured,
+        mode: health.mode ?? null
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[billing/mercadopago/status]', msg);
+      return res.status(500).json({ ok: false, checkoutAvailable: false, configured: false });
+    }
+  });
+
   app.get('/api/billing/mercadopago/prices', (_req: Request, res: Response) => {
     try {
       const channelTiers: Record<
@@ -665,9 +671,13 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         method
       });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[billing/mercadopago/start]', msg);
-      return res.status(500).json({ ok: false, error: msg });
+      if (e instanceof MercadoPagoApiError) {
+        console.error('[billing/mercadopago/start]', e.logMessage);
+      } else {
+        console.error('[billing/mercadopago/start]', e instanceof Error ? e.message : String(e));
+      }
+      const { status, error } = billingRouteErrorPayload(e);
+      return res.status(status).json({ ok: false, error });
     }
   });
 
@@ -775,9 +785,13 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         prorata_ratio: isUpgrade ? roundMoney(prorataRatio) : 1
       });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[billing/mercadopago/channel-plan]', msg);
-      return res.status(500).json({ ok: false, error: msg });
+      if (e instanceof MercadoPagoApiError) {
+        console.error('[billing/mercadopago/channel-plan]', e.logMessage);
+      } else {
+        console.error('[billing/mercadopago/channel-plan]', e instanceof Error ? e.message : String(e));
+      }
+      const { status, error } = billingRouteErrorPayload(e);
+      return res.status(status).json({ ok: false, error });
     }
   });
 

@@ -32,6 +32,7 @@ import {
 } from '../../constants/channelTierPricing';
 import type { UserSubscription } from '../../types';
 import { apiUrl } from '../../utils/apiBase';
+import { formatMercadoPagoCheckoutError } from '../../utils/mercadopagoCheckoutError';
 
 type Plan = 'monthly' | 'annual';
 type Method = 'pix' | 'card' | 'recurring';
@@ -248,7 +249,7 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível abrir o checkout do plano por canais.');
+        toast.error(formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined));
         return;
       }
       if (data.init_point) {
@@ -329,7 +330,7 @@ export const MySubscriptionTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Erro ao abrir o checkout.');
+        toast.error(formatMercadoPagoCheckoutError(typeof data?.error === 'string' ? data.error : undefined));
         return;
       }
       if (data.init_point) {

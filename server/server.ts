@@ -1,5 +1,5 @@
 import { PROJECT_ROOT } from './bootstrapEnv.js';
-import { isMercadoPagoAccessTokenConfigured } from './mercadoPagoAccess.js';
+import { getMercadoPagoHealthCached, isMercadoPagoAccessTokenConfigured, verifyMercadoPagoAccessTokenLive } from './mercadoPagoAccess.js';
 
 import express, { type Request } from 'express';
 import { createServer } from 'http';
@@ -334,13 +334,15 @@ registerProductSuggestionRoutes(app);
 registerConnectionsSyncRoutes(app);
 
 // --- API ROUTES ---
-app.get('/api/health', (req, res) => {
-  const mpOk = isMercadoPagoAccessTokenConfigured();
+app.get('/api/health', async (_req, res) => {
+  const mp = await getMercadoPagoHealthCached();
   res.json({
     status: 'ok',
     serverTime: new Date(),
     version: getAppVersion(),
-    mercadopagoConfigured: mpOk
+    mercadopagoConfigured: mp.configured,
+    mercadopagoCheckoutAvailable: mp.valid,
+    mercadopagoMode: mp.mode ?? null
   });
 });
 
@@ -1791,14 +1793,26 @@ const startServer = async (port: number): Promise<boolean> => {
     console.log(
       `[Socket.IO] maxHttpBufferSize=${socketMaxHttpBufferMb} MB (SOCKET_MAX_HTTP_BUFFER_MB; campanhas/chat em base64)`
     );
-    const mpOkListen = isMercadoPagoAccessTokenConfigured();
-    if (mpOkListen) {
-      console.log(`💳 Mercado Pago: token OK (configurado)`);
-    } else {
-      console.warn(
-        `[billing] MERCADOPAGO_ACCESS_TOKEN ausente — checkout MP falhará. Use .env na raiz, env no stack/compose, ou ficheiro em /run/secrets/mercadopago_access_token (volume ./secrets).`
+    const mpOkListen = verifyMercadoPagoAccessTokenLive();
+    void mpOkListen.then((health) => {
+      if (!health.configured) {
+        console.warn(
+          `[billing] MERCADOPAGO_ACCESS_TOKEN ausente — checkout MP falhará. Use .env na raiz, env no stack/compose, ou ficheiro em /run/secrets/mercadopago_access_token (volume ./secrets).`
+        );
+        return;
+      }
+      if (!health.valid) {
+        console.error(
+          `[billing] MERCADOPAGO_ACCESS_TOKEN REJEITADO pelo Mercado Pago (${health.error || 'invalid access token'}). Prefixo ${health.prefix ?? '?'}… — regenere em https://www.mercadopago.com.br/developers/panel (Credenciais de produção, Access Token APP_USR-…).`
+        );
+        return;
+      }
+      console.log(
+        `💳 Mercado Pago: token válido (${health.mode}, user ${health.userId ?? '?'}, prefixo ${health.prefix ?? '?'}…)`
       );
-    }
+    }).catch((err: unknown) => {
+      console.error('[billing] Falha ao validar MERCADOPAGO_ACCESS_TOKEN:', err);
+    });
   });
 
   httpServer.once('error', (err: NodeJS.ErrnoException) => {

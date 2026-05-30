@@ -36,6 +36,7 @@ services:
       # Swarm: `env_file` não injeta como no `docker compose up`. O deploy SSH exporta MERCADOPAGO_* do .env
       # e o Compose substitui ${...} no deploy. Sem isto: "MERCADOPAGO_ACCESS_TOKEN nao configurado".
       MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      MERCADOPAGO_ACCESS_TOKEN_FILE: ${MERCADOPAGO_ACCESS_TOKEN_FILE:-/run/secrets/mercadopago_access_token}
       MERCADOPAGO_BACK_URL: ${MERCADOPAGO_BACK_URL:-}
       MERCADOPAGO_PRICE_MONTHLY: ${MERCADOPAGO_PRICE_MONTHLY:-}
       MERCADOPAGO_PRICE_ANNUAL: ${MERCADOPAGO_PRICE_ANNUAL:-}

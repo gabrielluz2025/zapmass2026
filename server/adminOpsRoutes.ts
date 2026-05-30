@@ -7,6 +7,7 @@ import { getSessionRouterMetrics } from './sessionControlPlane.js';
 import * as waService from './whatsappService.js';
 import { getChannelCapacityHeuristic, buildAlerts, type AdminOpsAlert } from './opsHealth.js';
 import { pingFirebaseAdmin } from './firebaseAdminProbe.js';
+import { getMercadoPagoHealthCached } from './mercadoPagoAccess.js';
 
 const HISTORY_MAX = 288;
 const HISTORY_INTERVAL_MS = 5 * 60 * 1000;
@@ -60,6 +61,7 @@ export function registerAdminOpsRoutes(app: Express): void {
 
     const fbConfigured = isFirebaseAdminConfigured();
     const fb = await pingFirebaseAdmin();
+    const mp = await getMercadoPagoHealthCached();
 
     const alerts = buildAlerts({
       ramPct: m.ram,
@@ -96,6 +98,15 @@ export function registerAdminOpsRoutes(app: Express): void {
         latencyMs: fb.ms,
         projectId: fb.projectId,
         error: fb.error
+      },
+      mercadopago: {
+        configured: mp.configured,
+        checkoutAvailable: mp.valid,
+        mode: mp.mode ?? null,
+        source: mp.source ?? null,
+        prefix: mp.prefix ?? null,
+        userId: mp.userId ?? null,
+        error: mp.error ?? null
       },
       alerts,
       history: opsHistory.map((p) => ({ ...p })),
