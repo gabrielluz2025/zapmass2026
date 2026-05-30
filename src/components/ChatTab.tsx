@@ -47,6 +47,7 @@ import toast from 'react-hot-toast';
 import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
+import { dedupeConversationsById } from '../utils/conversationInboxTrim';
 import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { ClientPipelineBoard } from './chat/ClientPipelineBoard';
 import { ClientCrmPanel } from './chat/ClientCrmPanel';
@@ -924,11 +925,16 @@ export const ChatTab: React.FC<{
   // Quando o servidor retorna a conversa real com mesmo id, o rascunho é
   // descartado automaticamente.
   const mergedConversations = useMemo(() => {
-    if (draftConversations.length === 0) return conversations;
-    const realIds = new Set(conversations.map((c) => c.id));
-    const validDrafts = draftConversations.filter((d) => !realIds.has(d.id));
-    if (validDrafts.length === 0) return conversations;
-    return [...conversations, ...validDrafts];
+    const base =
+      draftConversations.length === 0
+        ? conversations
+        : (() => {
+            const realIds = new Set(conversations.map((c) => c.id));
+            const validDrafts = draftConversations.filter((d) => !realIds.has(d.id));
+            if (validDrafts.length === 0) return conversations;
+            return [...conversations, ...validDrafts];
+          })();
+    return dedupeConversationsById(base);
   }, [conversations, draftConversations]);
 
   // Prioriza nome do sistema para exibicao de conversa.
@@ -1154,6 +1160,7 @@ export const ChatTab: React.FC<{
         if (pa !== pb) return pb - pa;
         return (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0);
       });
+    return dedupeConversationsById(list);
   }, [
     filteredByConnection,
     chatFilter,
@@ -1965,7 +1972,7 @@ export const ChatTab: React.FC<{
                   const { whatsappSubtitle: convWaSub, phoneSecondary: convPhoneSmall } = disp;
                   return (
                     <div
-                      key={conv.id}
+                      key={`${conv.id}:${vRow.index}`}
                       data-index={vRow.index}
                       ref={convListVirtualizer.measureElement}
                       style={{

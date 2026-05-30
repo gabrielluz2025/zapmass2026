@@ -20,6 +20,16 @@ export function createEvolutionChat(api: AxiosInstance) {
     /** ownerUid do tenant atual — usado para escopo seguro em emitConversationsUpdate. */
     let ownerUidForScope: string | null = null;
     const deletedConversationIds = new Set<string>();
+    /** Evita corrida quando vários canais sincronizam findChats em paralelo. */
+    let storeLock: Promise<void> = Promise.resolve();
+    const withStoreLock = <T>(fn: () => Promise<T>): Promise<T> => {
+        const run = storeLock.then(fn);
+        storeLock = run.then(
+            () => undefined,
+            () => undefined
+        );
+        return run;
+    };
 
     function init(
         socketIO: SocketIOServer,
@@ -203,15 +213,24 @@ export function createEvolutionChat(api: AxiosInstance) {
         return [];
     }
 
-    function pruneGarbageConversations(): number {
+    function pruneGarbageConversations(forConnectionId?: string): number {
         const before = conversations.length;
         conversations = conversations.filter((c) => {
+            /** Nunca remove conversas de outro chip durante sync parcial de um canal. */
+            if (forConnectionId && c.connectionId !== forConnectionId) return true;
             const jidPart = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : '';
             if (jidPart && isGarbagePersonChatJid(jidPart)) return false;
             const msgs = c.messages?.length ?? 0;
             const name = String(c.contactName || '').trim();
             const phone = String(c.contactPhone || '').trim();
-            if (msgs === 0 && (name === '0' || phone === '+0' || phone === '0')) return false;
+            const hasPreview =
+                Boolean((c.lastMessage || '').trim()) ||
+                (typeof c.lastMessageTimestamp === 'number' &&
+                    Number.isFinite(c.lastMessageTimestamp) &&
+                    c.lastMessageTimestamp > 0);
+            if (msgs === 0 && !hasPreview && (name === '0' || phone === '+0' || phone === '0')) {
+                return false;
+            }
             if (c.lastMessageTime === 'Invalid Date') {
                 c.lastMessageTime = formatChatListTime(c.lastMessageTimestamp || 0);
             }
@@ -266,7 +285,11 @@ export function createEvolutionChat(api: AxiosInstance) {
         };
     }
 
-    async function syncChatsForConnection(connectionId: string): Promise<number> {
+    async function syncChatsForConnection(
+        connectionId: string,
+        opts?: { deferEmit?: boolean }
+    ): Promise<number> {
+        return withStoreLock(async () => {
         const inst = evoInst(connectionId);
         const fetchChats = async (): Promise<any[]> => {
             try {
@@ -339,12 +362,12 @@ export function createEvolutionChat(api: AxiosInstance) {
                 );
             }
 
-            const pruned = pruneGarbageConversations();
+            const pruned = pruneGarbageConversations(connectionId);
             if (pruned > 0) {
                 console.info(`[EvolutionChat] syncChats ${connectionId}: ${pruned} conversa(s) lixo removida(s)`);
             }
 
-            emitConversationsUpdate();
+            if (!opts?.deferEmit) emitConversationsUpdate();
             if (chats.length > 0 && added === 0) {
                 console.warn(
                     `[EvolutionChat] syncChats ${connectionId}: ${chats.length} item(ns) da API, 0 conversas 1:1 mapeadas (grupos/@broadcast ou JID ilegível)`
@@ -357,6 +380,7 @@ export function createEvolutionChat(api: AxiosInstance) {
             console.warn(`[EvolutionChat] syncChats ${connectionId}:`, error?.message || error);
             return 0;
         }
+        });
     }
 
     async function fetchMessages(connectionId: string, remoteJid: string, limit: number): Promise<any[]> {

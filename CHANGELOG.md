@@ -9,6 +9,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.3] — 2026-05-29
+
+### Corrigido — Multi-canal (crítico)
+- **Corrida de sync paralelo** — vários chips sincronizando `findChats` ao mesmo tempo corrompiam a lista em RAM
+- **Lock de store** — mutações em `evolutionChat` serializadas; emit único após todos os canais
+- **Prune por canal** — limpeza de lixo não remove mais conversas de outros chips
+- **Deduplicação por id** — evita lista com contador 4 mas só 3 linhas (virtualizer com key duplicada)
+
+---
+
 ## [2.3.2] — 2026-05-29
 
 ### Corrigido — Bate-papo multi-canal

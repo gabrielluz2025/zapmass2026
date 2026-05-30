@@ -79,7 +79,7 @@ import {
 } from '../utils/campaignIssueToast';
 import { normPhoneKey } from '../utils/brPhoneNormalize';
 import { getCampaignStageTotal } from '../utils/campaignStageCount';
-import { mergeConversationsFromSocketUpdate } from '../utils/conversationInboxTrim';
+import { dedupeConversationsById, mergeConversationsFromSocketUpdate } from '../utils/conversationInboxTrim';
 import { devLog, devWarn, warnProd } from '../utils/logger';
 
 const FIRESTORE_BATCH_CHUNK = 280;

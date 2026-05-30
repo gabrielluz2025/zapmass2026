@@ -22,6 +22,16 @@ export function trimConversationMessagesTail(conv: Conversation, maxTail: number
   return { ...conv, messages: msgs.slice(-maxTail) };
 }
 
+/** Remove ids duplicados (virtualizer quebra com key repetida). */
+export function dedupeConversationsById(list: Conversation[]): Conversation[] {
+  const m = new Map<string, Conversation>();
+  for (const c of list) {
+    const ex = m.get(c.id);
+    if (!ex || newestActivityMs(c) >= newestActivityMs(ex)) m.set(c.id, c);
+  }
+  return Array.from(m.values());
+}
+
 /** Hash leve da lista incoming para evitar refazer o merge do mesmo payload (servidor pode reemitir igual). */
 function hashIncoming(list: Conversation[]): string {
   let s = `${list.length}|`;
@@ -62,15 +72,21 @@ export function mergeConversationsFromSocketUpdate(
   const scopedIncoming =
     filtered.length === 0 && incoming.length > 0 ? incoming : filtered;
   const trimmedIncoming = scopedIncoming.map((c) => trimConversationMessagesTail(c, maxTail));
+  const dedupedIncoming = dedupeConversationsById(trimmedIncoming);
   const prevById = new Map(prev.map((c) => [c.id, c]));
-  const out = trimmedIncoming.map((inc) => {
-    const p = prevById.get(inc.id);
-    if (!p || !Array.isArray(p.messages) || p.messages.length <= inc.messages.length) return inc;
-    const tPrev = newestActivityMs(p);
-    const tInc = newestActivityMs(inc);
-    if (tPrev >= tInc) return { ...inc, messages: p.messages };
-    return inc;
-  });
+  const out = dedupedIncoming
+    .map((inc) => {
+      const p = prevById.get(inc.id);
+      if (!p || !Array.isArray(p.messages) || p.messages.length <= inc.messages.length) return inc;
+      const tPrev = newestActivityMs(p);
+      const tInc = newestActivityMs(inc);
+      if (tPrev >= tInc) return { ...inc, messages: p.messages };
+      return inc;
+    })
+    .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
+  if (h === lastIncomingHash && lastResult && lastResult.length === out.length && prev === lastResult) {
+    return prev;
+  }
   lastIncomingHash = h;
   lastResult = out;
   return out;

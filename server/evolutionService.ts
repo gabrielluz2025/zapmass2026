@@ -544,7 +544,7 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
                         error: err?.message,
                     });
                 });
-                const n = await chatStore.syncChatsForConnection(id);
+                const n = await chatStore.syncChatsForConnection(id, { deferEmit: true });
                 syncedChats.push(id);
                 if (n === 0) {
                     log('warn', `syncConnectionsForOwner: findChats retornou 0 conversas 1:1`, {
@@ -559,6 +559,8 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     if (syncTasks.length > 0) {
         await Promise.all(syncTasks);
     }
+
+    chatStore.emitConversationsUpdate();
 
     const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
     const scoped = filterByConnectionScope(uid, getConnections());
