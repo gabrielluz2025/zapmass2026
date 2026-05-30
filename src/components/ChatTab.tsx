@@ -253,7 +253,16 @@ function formatConversationListTime(conv: Conversation): string {
 
 const classifyConversation = (conv: Conversation): ConversationOrigin => {
   const msgs = conv.messages || [];
-  if (msgs.length === 0) return 'empty';
+  const hasPreview = Boolean((conv.lastMessage || '').trim());
+  const hasTs =
+    typeof conv.lastMessageTimestamp === 'number' &&
+    Number.isFinite(conv.lastMessageTimestamp) &&
+    conv.lastMessageTimestamp > 0;
+  if (msgs.length === 0) {
+    /** findChats traz preview sem carregar messages[] — ainda é conversa real do celular. */
+    if (hasPreview || hasTs) return 'phone';
+    return 'empty';
+  }
   // Se NUNCA teve mensagem do contato ('them') E todas as 'me' sao de campanha,
   // consideramos criada pelo sistema (nao ha conversa real no celular ainda).
   const hasIncoming = msgs.some((m) => m.sender === 'them');
@@ -456,6 +465,21 @@ export const ChatTab: React.FC<{
     () => new Map(connections.map((c) => [c.id, c])),
     [connections]
   );
+  /** Canais online — sync e filtro usam só estes. */
+  const connectedChannels = useMemo(
+    () => connections.filter((c) => c.status === 'CONNECTED'),
+    [connections]
+  );
+  const connectedChannelIdsKey = useMemo(
+    () => connectedChannels.map((c) => c.id).sort().join('|'),
+    [connectedChannels]
+  );
+
+  /** Ao abrir o bate-papo ou conectar novo chip: puxa conversas de TODOS os canais. */
+  useEffect(() => {
+    if (!socket?.connected) return;
+    socket.emit('request-conversations-sync');
+  }, [socket, connectedChannelIdsKey]);
   const pipelineBoardConnectionName = useCallback(
     (id: string) => connectionById.get(id)?.name,
     [connectionById]
@@ -1105,13 +1129,6 @@ export const ChatTab: React.FC<{
 
   const filteredConversations = useMemo(() => {
     let list = filteredByConnection;
-    /** "Todas" = conversas reais do celular; vazias/disparo ficam nos filtros dedicados. */
-    if (chatFilter === 'all') {
-      list = list.filter((c) => {
-        const o = originByConv.get(c.id);
-        return o !== 'empty' && o !== 'system';
-      });
-    }
     if (chatFilter === 'unread') list = list.filter((c) => c.unreadCount > 0);
     if (chatFilter === 'groups') list = list.filter((c) => c.id.endsWith('@g.us'));
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');
@@ -1865,7 +1882,7 @@ export const ChatTab: React.FC<{
         </div>
 
         {/* Seletor de canal (só com >1 chip ativo) */}
-        {connections.length > 1 && (
+        {connectedChannels.length > 1 && (
           <div
             className="px-3 py-2 flex-shrink-0"
             style={{ background: 'var(--wa-panel)', borderBottom: '1px solid var(--wa-divider)' }}
@@ -1874,8 +1891,10 @@ export const ChatTab: React.FC<{
               value={selectedConnectionId}
               onChange={(e) => setSelectedConnectionId(e.target.value as string | 'ALL')}
             >
-              <option value="ALL">Todos os canais ({conversations.length})</option>
-              {connections.map((c) => (
+              <option value="ALL">
+                Todos os canais ({effectiveConversations.length})
+              </option>
+              {connectedChannels.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name} ({conversationCountByConnectionId.get(c.id) ?? 0})
                 </option>

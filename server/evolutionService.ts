@@ -523,20 +523,41 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     }
 
     const syncedChats: string[] = [];
+    const syncTasks: Promise<void>[] = [];
+
     for (const [id] of connections.entries()) {
         if (!tenantOwnsConnection(uid, id)) continue;
-        if (!(await isConnectionOpen(id))) continue;
-        setupWebhook(id).catch((err) => {
-            log('warn', 'setupWebhook falhou em syncConnectionsForOwner', {
-                connectionId: id,
-                error: err?.message,
-            });
-        });
-        const n = await chatStore.syncChatsForConnection(id);
-        syncedChats.push(id);
-        if (n === 0) {
-            log('warn', `syncConnectionsForOwner: findChats retornou 0 conversas 1:1`, { connectionId: id, ownerUid: uid });
-        }
+        syncTasks.push(
+            (async () => {
+                const open = await isConnectionOpen(id);
+                if (!open) {
+                    log('info', 'syncConnectionsForOwner: canal não aberto, sync ignorado', {
+                        connectionId: id,
+                        ownerUid: uid,
+                        memStatus: connections.get(id)?.status,
+                    });
+                    return;
+                }
+                setupWebhook(id).catch((err) => {
+                    log('warn', 'setupWebhook falhou em syncConnectionsForOwner', {
+                        connectionId: id,
+                        error: err?.message,
+                    });
+                });
+                const n = await chatStore.syncChatsForConnection(id);
+                syncedChats.push(id);
+                if (n === 0) {
+                    log('warn', `syncConnectionsForOwner: findChats retornou 0 conversas 1:1`, {
+                        connectionId: id,
+                        ownerUid: uid,
+                    });
+                }
+            })()
+        );
+    }
+
+    if (syncTasks.length > 0) {
+        await Promise.all(syncTasks);
     }
 
     const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');

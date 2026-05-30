@@ -9,6 +9,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.2] — 2026-05-29
+
+### Corrigido — Bate-papo multi-canal
+- **Todas as conversas visíveis** — findChats com preview mas sem `messages[]` deixava de aparecer na aba Todas
+- **Sync de todos os chips** — `syncConnectionsForOwner` roda `findChats` em paralelo em cada canal CONNECTED
+- **Auto-sync ao abrir Bate-papo** — dispara `request-conversations-sync` quando canais conectados mudam
+- **Seletor de canal** — lista só chips online; contagem alinhada ao total exibido
+
+---
+
 ## [2.3.1] — 2026-05-29
 
 ### Corrigido — Bate-papo
