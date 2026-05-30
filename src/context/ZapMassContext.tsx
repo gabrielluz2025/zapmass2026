@@ -1335,10 +1335,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('conversation-picture', ({ conversationId, profilePicUrl }: { conversationId: string; profilePicUrl?: string | null }) => {
       if (!conversationId || !profilePicUrl) return;
+      const pic = String(profilePicUrl);
+      if (!pic.startsWith('http') && !pic.startsWith('data:')) return;
       setConversations((prev) => {
         const c = prev.find((x) => x.id === conversationId);
         if (!c || !ownsConnectionId(c.connectionId)) return prev;
-        return prev.map((x) => (x.id === conversationId ? { ...x, profilePicUrl } : x));
+        return prev.map((x) => (x.id === conversationId ? { ...x, profilePicUrl: pic } : x));
       });
     });
 

@@ -239,6 +239,131 @@ export function createEvolutionChat(api: AxiosInstance) {
         return before - conversations.length;
     }
 
+    function extractChatProfilePic(chat: Record<string, unknown> | null | undefined): string | undefined {
+        if (!chat) return undefined;
+        const contact = chat.contact as Record<string, unknown> | undefined;
+        const candidates: unknown[] = [
+            chat.profilePictureUrl,
+            chat.profilePicUrl,
+            chat.picture,
+            chat.imgUrl,
+            contact?.profilePictureUrl,
+            contact?.profilePicUrl,
+        ];
+        for (const c of candidates) {
+            if (typeof c !== 'string' || c.length < 8) continue;
+            if (c.startsWith('http') || c.startsWith('data:')) return c;
+        }
+        return undefined;
+    }
+
+    function parseProfilePicturePayload(raw: unknown): string | null {
+        if (!raw || typeof raw !== 'object') return null;
+        const row = raw as Record<string, unknown>;
+        for (const key of ['profilePictureUrl', 'url', 'picture', 'imgUrl', 'base64'] as const) {
+            const v = row[key];
+            if (typeof v !== 'string' || v.length < 8) continue;
+            if (v.startsWith('http') || v.startsWith('data:')) return v;
+        }
+        const nested = row.response ?? row.data ?? row.result;
+        if (nested && nested !== raw) return parseProfilePicturePayload(nested);
+        return null;
+    }
+
+    async function fetchAllChatsPaginated(connectionId: string): Promise<any[]> {
+        const inst = evoInst(connectionId);
+        const all: any[] = [];
+        const seen = new Set<string>();
+
+        const ingest = (list: any[]) => {
+            for (const chat of list) {
+                const jid = chatRemoteJidFromFindChatsRow(chat);
+                if (!jid || seen.has(jid)) continue;
+                seen.add(jid);
+                all.push(chat);
+            }
+        };
+
+        for (let page = 1; page <= 30; page++) {
+            let list: any[] = [];
+            try {
+                const response = await api.post(`/chat/findChats/${inst}`, { page, limit: 500 });
+                list = extractFindChatsList(response.data);
+            } catch {
+                try {
+                    const response = await api.get(`/chat/findChats/${inst}`, {
+                        params: { page, limit: 500 },
+                    });
+                    list = extractFindChatsList(response.data);
+                } catch {
+                    break;
+                }
+            }
+            if (list.length === 0) break;
+            ingest(list);
+            if (list.length < 500) break;
+        }
+
+        const contactRows = await fetchContactsSupplement(connectionId, seen);
+        all.push(...contactRows);
+        return all;
+    }
+
+    async function fetchContactsSupplement(connectionId: string, seen: Set<string>): Promise<any[]> {
+        const inst = evoInst(connectionId);
+        const out: any[] = [];
+        const tryExtract = (raw: unknown): any[] => {
+            if (Array.isArray(raw)) return raw;
+            if (!raw || typeof raw !== 'object') return [];
+            const row = raw as Record<string, unknown>;
+            for (const key of ['contacts', 'records', 'data', 'response'] as const) {
+                const v = row[key];
+                if (Array.isArray(v)) return v;
+            }
+            return [];
+        };
+        try {
+            const response = await api.post(`/chat/findContacts/${inst}`, {
+                where: {},
+                page: 1,
+                limit: 1000,
+            });
+            const list = tryExtract(response.data);
+            for (const ct of list) {
+                const row = ct as Record<string, unknown>;
+                const jid = chatRemoteJidFromFindChatsRow(row);
+                if (!jid || seen.has(jid) || jid.endsWith('@g.us') || isGarbagePersonChatJid(jid)) continue;
+                seen.add(jid);
+                out.push({
+                    ...row,
+                    remoteJid: jid,
+                    name: row.pushName || row.name || row.verifiedName,
+                });
+            }
+        } catch (err: any) {
+            console.warn(`[EvolutionChat] findContacts ${connectionId}:`, err?.message || err);
+        }
+        return out;
+    }
+
+    async function enrichProfilePicturesForConnection(
+        connectionId: string,
+        opts?: { deferEmit?: boolean }
+    ): Promise<number> {
+        const targets = conversations.filter(
+            (c) => c.connectionId === connectionId && !c.profilePicUrl
+        );
+        let fetched = 0;
+        const batchSize = 5;
+        for (let i = 0; i < Math.min(targets.length, 120); i += batchSize) {
+            const slice = targets.slice(i, i + batchSize);
+            const results = await Promise.all(slice.map((c) => fetchConversationPicture(c.id)));
+            fetched += results.filter(Boolean).length;
+        }
+        if (fetched > 0 && !opts?.deferEmit) emitConversationsUpdate();
+        return fetched;
+    }
+
     function mapEvolutionChatToConversation(connectionId: string, chat: any): Conversation | null {
         const remoteJid = chatRemoteJid(chat);
         if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') {
@@ -258,8 +383,6 @@ export function createEvolutionChat(api: AxiosInstance) {
         const lastMsgRaw = chat?.lastMessage || chat?.messages?.[0];
         const lastChatMsg = lastMsgRaw ? evolutionRawToChatMessage(lastMsgRaw, true) : null;
         const existing = conversations.find((c) => c.id === id);
-        const hasMessages = Boolean(lastChatMsg || (existing?.messages?.length ?? 0) > 0);
-        if (!hasMessages && (String(name).trim() === '0' || isGarbagePersonChatJid(jid))) return null;
 
         const tsMs =
             (lastChatMsg?.timestampMs && Number.isFinite(lastChatMsg.timestampMs)
@@ -271,7 +394,7 @@ export function createEvolutionChat(api: AxiosInstance) {
             id,
             contactName: String(name),
             contactPhone: toPhoneDisplay(jid),
-            profilePicUrl: existing?.profilePicUrl,
+            profilePicUrl: extractChatProfilePic(chat) || existing?.profilePicUrl,
             connectionId,
             unreadCount: Number(chat?.unreadCount ?? chat?.unread ?? existing?.unreadCount ?? 0) || 0,
             lastMessage: lastChatMsg?.text || existing?.lastMessage || '',
@@ -291,37 +414,12 @@ export function createEvolutionChat(api: AxiosInstance) {
     ): Promise<number> {
         return withStoreLock(async () => {
         const inst = evoInst(connectionId);
-        const fetchChats = async (): Promise<any[]> => {
-            try {
-                const response = await api.post(`/chat/findChats/${inst}`, {
-                    page: 1,
-                    limit: 500,
-                });
-                const list = extractFindChatsList(response.data);
-                if (list.length > 0) return list;
-            } catch (postErr: any) {
-                console.warn(
-                    `[EvolutionChat] findChats POST ${connectionId}:`,
-                    postErr?.message || postErr
-                );
-            }
-            try {
-                const response = await api.get(`/chat/findChats/${inst}`);
-                return extractFindChatsList(response.data);
-            } catch (getErr: any) {
-                console.warn(
-                    `[EvolutionChat] findChats GET ${connectionId}:`,
-                    getErr?.message || getErr
-                );
-                return [];
-            }
-        };
 
         try {
-            let chats = await fetchChats();
+            let chats = await fetchAllChatsPaginated(connectionId);
             if (chats.length === 0) {
                 await new Promise((r) => setTimeout(r, 1500));
-                chats = await fetchChats();
+                chats = await fetchAllChatsPaginated(connectionId);
             }
 
             let added = 0;
@@ -365,6 +463,11 @@ export function createEvolutionChat(api: AxiosInstance) {
             const pruned = pruneGarbageConversations(connectionId);
             if (pruned > 0) {
                 console.info(`[EvolutionChat] syncChats ${connectionId}: ${pruned} conversa(s) lixo removida(s)`);
+            }
+
+            const pics = await enrichProfilePicturesForConnection(connectionId, opts);
+            if (pics > 0) {
+                console.info(`[EvolutionChat] syncChats ${connectionId}: ${pics} foto(s) de perfil carregada(s)`);
             }
 
             if (!opts?.deferEmit) emitConversationsUpdate();
@@ -700,16 +803,39 @@ export function createEvolutionChat(api: AxiosInstance) {
         const conv = conversations.find((c) => c.id === conversationId);
         if (conv?.profilePicUrl) return conv.profilePicUrl;
 
-        const number = parsed.remoteJid.replace(/@.+$/, '').replace(/\D/g, '');
+        const inst = evoInst(parsed.connectionId);
+        const remoteJid = parsed.remoteJid;
+        const numberCandidates = [
+            remoteJid,
+            remoteJid.replace(/@.+$/, ''),
+            remoteJid.replace(/@.+$/, '').replace(/\D/g, ''),
+        ].filter((n, i, arr) => n && arr.indexOf(n) === i);
+
+        for (const number of numberCandidates) {
+            try {
+                const response = await api.post(`/chat/fetchProfilePictureUrl/${inst}`, { number });
+                const pic = parseProfilePicturePayload(response.data);
+                if (pic) {
+                    if (conv) {
+                        conv.profilePicUrl = pic;
+                        emitConversationsUpdate();
+                    }
+                    return pic;
+                }
+            } catch {
+                /* tenta próximo formato */
+            }
+        }
+
         try {
-            const response = await api.post(`/chat/fetchProfilePictureUrl/${evoInst(parsed.connectionId)}`, { number });
-            const pic = response.data?.profilePictureUrl || response.data?.url || response.data?.picture;
-            if (pic && String(pic).startsWith('http')) {
+            const response = await api.post(`/chat/fetchProfile/${inst}`, { number: remoteJid });
+            const pic = parseProfilePicturePayload(response.data);
+            if (pic) {
                 if (conv) {
-                    conv.profilePicUrl = String(pic);
+                    conv.profilePicUrl = pic;
                     emitConversationsUpdate();
                 }
-                return String(pic);
+                return pic;
             }
         } catch (error: any) {
             console.warn('[EvolutionChat] fetchProfilePicture:', error?.message || error);
@@ -742,6 +868,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         getConversations: () => [...conversations],
         emitConversationsUpdate,
         syncChatsForConnection,
+        enrichProfilePicturesForConnection,
         handleWebhookMessage,
         updateMessageStatus,
         sendMessage,

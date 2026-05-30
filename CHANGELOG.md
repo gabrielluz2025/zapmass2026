@@ -9,6 +9,16 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.4] — 2026-05-29
+
+### Corrigido — Conversas completas + fotos
+- **findChats paginado** (até 30 páginas) + **findContacts** como fallback — traz todas as conversas do celular por chip
+- **Fotos de perfil** — busca com JID completo (`@s.whatsapp.net` e `@lid`), batch após sync e fetch para todas as conversas na lista
+- **Importação** — não descarta mais chats válidos só por falta de `messages[]` no payload da Evolution
+- Contador do seletor alinhado à lista filtrada (sem inflar com duplicatas)
+
+---
+
 ## [2.3.3] — 2026-05-29
 
 ### Corrigido — Multi-canal (crítico)

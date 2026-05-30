@@ -1225,13 +1225,11 @@ export const ChatTab: React.FC<{
     });
   }, [pipelineView, selectedChatId, filteredConversations, convListVirtualizer]);
 
-  // Traz foto do WhatsApp para a lista (inclui conversas de disparo, onde antes nao pedia — sem foto de API).
-  // Com agenda: `resolveProfilePic` ja usa a foto do contato; aqui so complementa via servidor.
+  // Traz foto do WhatsApp para a lista — todas as conversas visíveis, não só as 40 primeiras.
   useEffect(() => {
     const now = Date.now();
-    const cooldownMs = 5 * 60 * 1000;
-    const candidates = filteredConversations.slice(0, 40);
-    for (const conv of candidates) {
+    const cooldownMs = 90_000;
+    for (const conv of filteredConversations) {
       if (!conv?.id || conv.id.endsWith('@g.us')) continue;
       if (conv.profilePicUrl) continue;
       if (resolveProfilePic(conv)) continue;
@@ -1899,7 +1897,7 @@ export const ChatTab: React.FC<{
               onChange={(e) => setSelectedConnectionId(e.target.value as string | 'ALL')}
             >
               <option value="ALL">
-                Todos os canais ({effectiveConversations.length})
+                Todos os canais ({filteredByConnection.length})
               </option>
               {connectedChannels.map((c) => (
                 <option key={c.id} value={c.id}>
