@@ -8,6 +8,7 @@ import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { trackLandingEvent } from '../../utils/marketingEvents';
 import { apiUrl } from '../../utils/apiBase';
+import { clearTrialSessionFlags, setTrialSessionForManager } from '../../utils/trialSession';
 
 /** Título e subtítulo padrão (landing + rota de login isolada). */
 export const loginCardDefaultCopy = {
@@ -43,20 +44,6 @@ const fieldInputClass =
 
 const fieldInputClassCompact =
   'mt-0.5 w-full rounded-lg px-3 py-2 text-[12.5px] outline-none transition-[box-shadow,border-color] focus:ring-2 focus:ring-emerald-500/25 focus:border-emerald-500/40 disabled:opacity-60';
-
-function setTrialSessionForManager(mode: 'trial' | 'customer'): void {
-  try {
-    if (mode === 'trial') {
-      sessionStorage.setItem('zapmass.startTrialAfterLogin', '1');
-      sessionStorage.removeItem('zapmass.tryTrialIfNeededAfterLogin');
-    } else {
-      sessionStorage.removeItem('zapmass.startTrialAfterLogin');
-      sessionStorage.setItem('zapmass.tryTrialIfNeededAfterLogin', '1');
-    }
-  } catch {
-    /* ignore */
-  }
-}
 
 export const LoginCard: React.FC<LoginCardProps> = ({
   title = loginCardDefaultCopy.title,
@@ -112,7 +99,35 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     try {
       methods = await fetchSignInMethodsForEmail(auth, em);
     } catch {
-      toast.error('Não foi possível verificar o e-mail. Tente de novo.');
+      /** Proteção contra enumeração do Firebase: tenta entrar; se não existir, cadastra. */
+      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
+      setLoading('email-signin');
+      try {
+        await signInWithEmailPassword(em, pw);
+        setPasswordAuth('');
+        setPasswordConfirmAuth('');
+        return;
+      } catch {
+        /* AuthContext já mostrou erro — segue para cadastro se senhas baterem */
+      } finally {
+        setLoading('idle');
+      }
+      if (passwordConfirmAuth !== pw) {
+        toast.error('As senhas não coincidem.');
+        return;
+      }
+      if (landingLayout) {
+        trackLandingEvent('landing_login_click', { login_kind: 'email_signup' });
+      }
+      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
+      setLoading('email-signup');
+      try {
+        await signUpWithEmailPassword(em, pw);
+        setPasswordAuth('');
+        setPasswordConfirmAuth('');
+      } finally {
+        setLoading('idle');
+      }
       return;
     }
 
@@ -188,8 +203,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
       trackLandingEvent('landing_login_click', { login_kind: 'staff' });
     }
     try {
-      sessionStorage.removeItem('zapmass.startTrialAfterLogin');
-      sessionStorage.removeItem('zapmass.tryTrialIfNeededAfterLogin');
+      clearTrialSessionFlags();
     } catch {
       /* ignore */
     }

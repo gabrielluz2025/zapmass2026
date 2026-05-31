@@ -53,12 +53,28 @@ export function registerBillingTrialRoutes(app: Express): void {
 
       const trialEndMs = d?.trialEndsAt?.toMillis?.() ?? null;
       if (d?.status === 'trialing' && trialEndMs != null && trialEndMs > now) {
-        return res.status(400).json({ ok: false, error: 'Seu teste gratuito ainda esta em andamento.' });
+        return res.json({
+          ok: true,
+          alreadyActive: true,
+          trialEndsAt: new Date(trialEndMs).toISOString()
+        });
+      }
+
+      /** Funcionário de equipa não inicia trial na conta do dono por engano. */
+      const linkSnap = await db.collection('userWorkspaceLinks').doc(uid).get();
+      if (linkSnap.exists) {
+        const ownerUid = linkSnap.data()?.ownerUid;
+        if (typeof ownerUid === 'string' && ownerUid.trim() && ownerUid.trim() !== uid) {
+          return res.status(403).json({
+            ok: false,
+            error: 'Somente o responsavel pela conta pode iniciar o teste gratuito.'
+          });
+        }
       }
 
       const trialMs = await getTrialDurationMs(db);
       const trialEnds = new Date(Date.now() + trialMs);
-      await mergeUserSubscription(uid, {
+      const merged = await mergeUserSubscription(uid, {
         status: 'trialing',
         provider: 'none',
         plan: null,
@@ -69,6 +85,10 @@ export function registerBillingTrialRoutes(app: Express): void {
         mercadoPagoChannelAddonPreapprovalId: FieldValue.delete(),
         mercadoPagoChannelAddonOneTimePaymentId: FieldValue.delete()
       } as any);
+
+      if (!merged) {
+        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      }
 
       void notifyAdminsNewClientSignup({ uid, source: 'trial' }).catch((e) => {
         console.error('[billing/trial/start] notify admins novo cliente', e);

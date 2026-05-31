@@ -30,7 +30,12 @@ export const SegmentOnboardingScreen: React.FC = () => {
       toast.success(`Preferência guardada. ${USE_SEGMENT_TOAST_DATA_SAFE}`);
     } catch (e) {
       console.error(e);
-      toast.error('Não foi possível guardar. Tente de novo ou verifique a ligação.');
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(
+        msg.includes('permission') || msg.includes('PERMISSION_DENIED')
+          ? 'Sem permissão para guardar preferência. Recarregue a página ou contacte o suporte.'
+          : 'Não foi possível guardar. Tente de novo ou verifique a ligação.'
+      );
     } finally {
       setSaving(false);
     }

@@ -717,39 +717,70 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     [m, performance]
   );
 
-  /** Funil e score: quando não há linhas no relatório, alinha com os contadores Firestore (evita 0 entregues vs hero com N sucessos). */
+  /** Funil e score: alinha entregues/lidas com contadores Firestore quando o relatório ainda não refletiu ack/resposta. */
   const uiPerformance = useMemo(() => {
-    if (performance.total > 0) return performance;
-    const sent = Math.max(
-      0,
-      metrics.effectiveProcessed,
-      (campaign.successCount || 0) + (campaign.failedCount || 0)
-    );
-    if (sent <= 0) return performance;
-    const failCount = Math.max(metrics.fail, performance.counts.FAILED);
-    const delivered = Math.min(sent, Math.max(0, metrics.ok));
-    const total = sent;
-    const successPct = total > 0 ? Math.round(((total - failCount) / total) * 100) : 0;
+    const base =
+      performance.total > 0
+        ? performance
+        : (() => {
+            const sent = Math.max(
+              0,
+              metrics.effectiveProcessed,
+              (campaign.successCount || 0) + (campaign.failedCount || 0)
+            );
+            if (sent <= 0) return performance;
+            const failCount = Math.max(metrics.fail, performance.counts.FAILED);
+            const delivered = Math.min(sent, Math.max(0, metrics.ok));
+            const total = sent;
+            const successPct = total > 0 ? Math.round(((total - failCount) / total) * 100) : 0;
+            const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
+            const counts: Record<ReportStatus, number> = {
+              PENDING: 0,
+              FAILED: failCount,
+              SENT: Math.max(0, total - failCount - delivered),
+              DELIVERED: delivered,
+              READ: 0,
+              REPLIED: 0
+            };
+            return {
+              ...performance,
+              total,
+              counts,
+              delivered,
+              read: 0,
+              replied: 0,
+              successPct,
+              deliveryPct,
+              readPct: 0,
+              replyPct: 0
+            };
+          })();
+
+    const total = Math.max(base.total, metrics.effectiveProcessed, metrics.ok);
+    const delivered = Math.max(base.delivered, Math.min(total, Math.max(0, metrics.ok)));
+    const read = Math.max(base.read, base.replied);
+    const replied = base.replied;
+    if (delivered === base.delivered && read === base.read && total === base.total) return base;
+
     const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
-    const counts: Record<ReportStatus, number> = {
-      PENDING: 0,
-      FAILED: failCount,
-      SENT: Math.max(0, total - failCount - delivered),
-      DELIVERED: delivered,
-      READ: 0,
-      REPLIED: 0
-    };
+    const readPct = total > 0 ? Math.round((read / total) * 100) : 0;
+    const replyPct = total > 0 ? Math.round((replied / total) * 100) : 0;
+
     return {
-      ...performance,
+      ...base,
       total,
-      counts,
       delivered,
-      read: 0,
-      replied: 0,
-      successPct,
+      read,
+      replied,
       deliveryPct,
-      readPct: 0,
-      replyPct: 0
+      readPct,
+      replyPct,
+      counts: {
+        ...base.counts,
+        DELIVERED: Math.max(base.counts.DELIVERED, delivered - base.counts.READ - base.counts.REPLIED),
+        READ: Math.max(base.counts.READ, read - replied),
+        REPLIED: replied
+      }
     };
   }, [performance, metrics, campaign.successCount, campaign.failedCount]);
 
@@ -1303,6 +1334,35 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           onClick={() => handleFilterClick('PENDING')}
         />
       </div>
+
+      {campaign.replyFlow?.enabled && isRunning && (campaign.replyFlow.steps?.length || 0) > 1 && (
+        <div
+          className="rounded-xl px-4 py-3 flex items-start gap-3"
+          style={{
+            background: 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(16,185,129,0.08))',
+            border: '1px solid rgba(245,158,11,0.28)'
+          }}
+        >
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(245,158,11,0.18)' }}
+          >
+            <Reply className="w-4 h-4" style={{ color: '#d97706' }} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
+              Fluxo por resposta ativo
+            </p>
+            <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+              Etapa 1 já enviada. Quando o contato responder
+              {campaign.replyFlow.steps?.[0]?.acceptAnyReply
+                ? ' (qualquer mensagem)'
+                : ' com a palavra-chave configurada'}
+              , a etapa 2 entra na fila automaticamente. Acompanhe nos logs ao vivo abaixo.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ============================ JORNADA DA MENSAGEM ============================ */}
       <div>

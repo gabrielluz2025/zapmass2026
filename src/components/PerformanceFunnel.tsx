@@ -260,7 +260,8 @@ export const PerformanceFunnel: React.FC<PerformanceFunnelProps> = ({
                 </span>
               </div>
               <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
-                <strong style={{ color: 'var(--text-1)' }}>{fmt(biggestLeak.drop)}</strong> {biggestLeak.drop === 1 ? 'pessoa' : 'pessoas'} não avançaram aqui.
+                <strong style={{ color: 'var(--text-1)' }}>{fmt(biggestLeak.drop)}</strong>{' '}
+                {biggestLeak.drop === 1 ? 'pessoa não avançou aqui.' : 'pessoas não avançaram aqui.'}
               </p>
               <div
                 className="mt-2.5 px-2.5 py-2 rounded-lg text-[11.5px] leading-relaxed flex items-start gap-1.5"

@@ -9,6 +9,33 @@ Formato: [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 ---
 
+## [2.3.7] — 2026-05-29
+
+### Corrigido — Teste grátis de 1 hora
+- **API idempotente** — segundo clique ou auto-start enquanto o trial já está activo deixa de mostrar erro
+- **Gate instantâneo** — após activar trial, o painel abre sem esperar o Firestore (estado optimista)
+- Mensagens claras: trial já usado, funcionário de equipa, ou falha de rede
+
+---
+
+## [2.3.6] — 2026-05-29
+
+### Corrigido — Entrada de cliente novo
+- **Cadastro por e-mail** na landing não bloqueia mais quando o Firebase impede verificação de e-mail (proteção contra enumeração)
+- **Teste grátis automático** ao clicar «Começar grátis» / «Inscrever-se» (Google, Facebook ou e-mail)
+- Mensagens mais claras se o servidor ainda não tiver Firebase Admin ou a sessão expirar ao ativar trial
+
+---
+
+## [2.3.5] — 2026-05-29
+
+### Corrigido — Lista estilo WhatsApp
+- **Horários** — contatos da agenda sem mensagem não recebem mais o horário do sync; exibição via timestamp real (Hoje, Ontem, dd/mm)
+- **Layout** — lista com 2 linhas como WhatsApp Web (nome + horário / preview da última mensagem), sem telefone no meio
+- **Fotos** — servidor espelha fotos do CDN WhatsApp em data URL (evita bloqueio no browser); busca por scroll na lista visível
+
+---
+
 ## [2.3.4] — 2026-05-29
 
 ### Corrigido — Conversas completas + fotos

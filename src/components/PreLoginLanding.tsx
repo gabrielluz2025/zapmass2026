@@ -25,7 +25,6 @@ import {
   X,
   Zap
 } from 'lucide-react';
-import { fetchSignInMethodsForEmail } from 'firebase/auth';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../services/firebase';
@@ -35,6 +34,8 @@ import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
 import { apiUrl } from '../utils/apiBase';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
+import { resolveEmailAuthStep } from '../utils/emailAuthFlow';
+import { clearTrialSessionFlags, landingCtaStartsTrial, setTrialSessionForManager } from '../utils/trialSession';
 import {
   WHATSAPP_META_CLOUD_OVERVIEW,
   WHATSAPP_META_POLICY,
@@ -91,7 +92,11 @@ const FacebookSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
     <path fill="#fff" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
   </svg>
 );
-const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({ onClose, trialLabel }) => {
+const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startTrialAfterLogin: boolean }> = ({
+  onClose,
+  trialLabel,
+  startTrialAfterLogin
+}) => {
   const { signInWithGoogle, signInWithFacebook, signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCustomToken } = useAuth();
 
   const [step, setStep]       = useState<QAPStep>('main');
@@ -114,12 +119,9 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({
     if (!trimmed.includes('@')) { toast.error('Informe um e-mail válido'); return; }
     setBusy(true);
     try {
-      const methods = await fetchSignInMethodsForEmail(auth, trimmed);
-      const hasPassword = methods.includes('password');
-      setStep(hasPassword ? 'pw-in' : 'pw-up');
+      const stepKind = await resolveEmailAuthStep(auth, trimmed);
+      setStep(stepKind === 'sign-in' ? 'pw-in' : 'pw-up');
       setTimeout(() => passRef.current?.focus(), 80);
-    } catch {
-      toast.error('E-mail inválido ou erro de rede. Tente novamente.');
     } finally {
       setBusy(false);
     }
@@ -128,7 +130,10 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({
   const handleSignIn = async () => {
     if (!password) { toast.error('Informe a senha'); return; }
     setBusy(true);
-    try { await signInWithEmailPassword(email.trim(), password); } finally { setBusy(false); }
+    try {
+      clearTrialSessionFlags();
+      await signInWithEmailPassword(email.trim(), password);
+    } finally { setBusy(false); }
   };
 
   const handleSignUp = async () => {
@@ -136,13 +141,17 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({
     if (password !== confirm) { toast.error('As senhas não coincidem'); return; }
     if (password.length < 6) { toast.error('Senha deve ter ao menos 6 caracteres'); return; }
     setBusy(true);
-    try { await signUpWithEmailPassword(email.trim(), password); } finally { setBusy(false); }
+    try {
+      if (startTrialAfterLogin) setTrialSessionForManager('trial');
+      await signUpWithEmailPassword(email.trim(), password);
+    } finally { setBusy(false); }
   };
 
   const handleOAuth = async (p: 'google' | 'facebook') => {
     setBusy(true);
     try {
-      if (p === 'google')   await signInWithGoogle();
+      if (startTrialAfterLogin) setTrialSessionForManager('trial');
+      if (p === 'google') await signInWithGoogle();
       else await signInWithFacebook();
     } finally { setBusy(false); }
   };
@@ -155,6 +164,7 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string }> = ({
     if (staffPass.length < 8) { toast.error('Senha deve ter ao menos 8 caracteres'); return; }
     setBusy(true);
     try {
+      clearTrialSessionFlags();
       const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -616,9 +626,11 @@ export const PreLoginLanding: React.FC = () => {
   const trialLabel = formatTrialHoursLabel(config.trialHours);
 
   const [authOpen, setAuthOpen] = useState(false);
+  const [authStartTrial, setAuthStartTrial] = useState(true);
 
   const openAuth = useCallback((ctaId: string) => {
     trackLandingEvent('landing_cta_click', { cta_id: ctaId });
+    setAuthStartTrial(landingCtaStartsTrial(ctaId));
     setAuthOpen(true);
   }, []);
 
@@ -1213,7 +1225,11 @@ export const PreLoginLanding: React.FC = () => {
             className="relative z-10 w-full animate-fade-in-up"
             style={{ maxWidth: 430, animationDuration: '220ms' }}
           >
-              <QuickAuthPanel onClose={() => setAuthOpen(false)} trialLabel={trialLabel} />
+              <QuickAuthPanel
+                onClose={() => setAuthOpen(false)}
+                trialLabel={trialLabel}
+                startTrialAfterLogin={authStartTrial}
+              />
           </div>
         </div>
       ) : null}

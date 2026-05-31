@@ -2,16 +2,18 @@ import React, { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
+import { useSubscription } from '../../context/SubscriptionContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { persistTrialEndFromServer } from '../../utils/trialLocalEnd';
+import { requestTrialStart } from '../../utils/startTrialClient';
 import { trackTrialStarted } from '../../utils/marketingEvents';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
-import { apiUrl } from '../../utils/apiBase';
 
 /** Se a landing marcou sessionStorage, inicia o teste de 1h uma vez apos o login. */
 export const TrialAutoStart: React.FC = () => {
   const { user } = useAuth();
   const { config } = useAppConfig();
+  const { applyTrialActivation } = useSubscription();
   const ran = useRef(false);
 
   useEffect(() => {
@@ -34,42 +36,27 @@ export const TrialAutoStart: React.FC = () => {
     }
 
     let cancelled = false;
-    (async () => {
-      try {
-        const idToken = await user.getIdToken();
-        const res = await fetch(apiUrl('/api/billing/trial/start'), {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${idToken}` }
-        });
-        const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        if (data.ok) {
-          persistTrialEndFromServer(typeof data.trialEndsAt === 'string' ? data.trialEndsAt : undefined);
-          trackTrialStarted(config.trialHours);
-          toast.success(`Teste de ${formatTrialHoursLabel(config.trialHours)} ativado! Aproveite o ZapMass.`);
-        } else {
-          const msg = typeof data.error === 'string' ? data.error : 'Nao foi possivel ativar o teste.';
-          // No modo "Já sou cliente", tentamos iniciar o teste somente se necessário.
-          // Se já houver assinatura/trial ativo, não exibimos erro para não confundir.
-          if (forceIfNeeded) {
-            const silenced = [
-              'Voce ja possui assinatura ativa.',
-              'Seu teste gratuito ainda esta em andamento.',
-              'O teste gratuito desta conta ja foi utilizado.'
-            ];
-            if (silenced.includes(msg)) return;
-          }
-          toast.error(msg);
-        }
-      } catch {
-        if (!cancelled) toast.error('Erro de rede ao ativar o teste.');
+    void (async () => {
+      const result = await requestTrialStart(() => user.getIdToken());
+      if (cancelled) return;
+      if (result.ok === false) {
+        if (!result.ignorable && !forceIfNeeded) toast.error(result.error);
+        return;
+      }
+      if (result.trialEndsAt) {
+        applyTrialActivation(result.trialEndsAt);
+        persistTrialEndFromServer(result.trialEndsAt);
+      }
+      if (!result.alreadyActive) {
+        trackTrialStarted(config.trialHours);
+        toast.success(`Teste de ${formatTrialHoursLabel(config.trialHours)} ativado! Aproveite o ZapMass.`);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [user, config.trialHours]);
+  }, [user, config.trialHours, applyTrialActivation]);
 
   return null;
 };

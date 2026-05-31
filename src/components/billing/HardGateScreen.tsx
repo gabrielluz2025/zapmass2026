@@ -3,11 +3,12 @@ import { CheckCircle2, Crown, Loader2, ShieldCheck, Sparkles, Zap } from 'lucide
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAppConfig } from '../../context/AppConfigContext';
+import { useSubscription } from '../../context/SubscriptionContext';
 import { formatTrialDurationPhrase, formatTrialHoursLabel } from '../../utils/trialCopy';
 import { persistTrialEndFromServer } from '../../utils/trialLocalEnd';
+import { requestTrialStart } from '../../utils/startTrialClient';
 import { Button } from '../ui';
 import { UpgradeProModal } from './UpgradeProModal';
-import { apiUrl } from '../../utils/apiBase';
 
 /**
  * Primeiro acesso pós-login: oferece teste gratuito OU assinatura Pro.
@@ -16,6 +17,7 @@ import { apiUrl } from '../../utils/apiBase';
 export const HardGateScreen: React.FC = () => {
   const { user, signOut } = useAuth();
   const { config } = useAppConfig();
+  const { applyTrialActivation } = useSubscription();
   const [trialLoading, setTrialLoading] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
@@ -25,21 +27,20 @@ export const HardGateScreen: React.FC = () => {
     if (!user) return;
     setTrialLoading(true);
     try {
-      const idToken = await user.getIdToken();
-      const res = await fetch(apiUrl('/api/billing/trial/start'), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${idToken}` }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível iniciar o teste.');
+      const result = await requestTrialStart(() => user.getIdToken());
+      if (result.ok === false) {
+        toast.error(result.error);
         return;
       }
-      persistTrialEndFromServer(typeof data.trialEndsAt === 'string' ? data.trialEndsAt : undefined);
-      toast.success(`Teste de ${formatTrialHoursLabel(config.trialHours)} ativado!`);
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro de rede.');
+      if (result.trialEndsAt) {
+        applyTrialActivation(result.trialEndsAt);
+        persistTrialEndFromServer(result.trialEndsAt);
+      }
+      toast.success(
+        result.alreadyActive
+          ? `Teste de ${formatTrialHoursLabel(config.trialHours)} já está activo!`
+          : `Teste de ${formatTrialHoursLabel(config.trialHours)} ativado!`
+      );
     } finally {
       setTrialLoading(false);
     }

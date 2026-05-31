@@ -41,6 +41,12 @@ import {
 } from './whatsappService.js';
 import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
 import {
+    buildEvolutionIncomingConvId,
+    extractEvolutionMessageBody,
+    normalizeEvolutionWebhookMessages,
+    resolvePhoneDigitsFromEvolutionMessage,
+} from './evolutionWebhookMessages.js';
+import {
     filterByConnectionScope,
     isLegacyConnectionId,
     ownsConnectionForUid
@@ -2454,6 +2460,8 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     ensureReplyFlowEngine();
     if (item.replyFlowOpen?.campaignId) {
+        const remoteJid =
+            phoneDigits.length >= 8 ? `${phoneDigits}@s.whatsapp.net` : undefined;
         replyFlowEngine.openSession({
             connectionId: item.connectionId,
             phoneDigits: item.replyFlowOpen.phoneDigits,
@@ -2462,6 +2470,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             vars: item.replyFlowOpen.vars,
             toRaw: item.to,
             convKey: `${item.connectionId}:${item.replyFlowOpen.phoneDigits}`,
+            remoteJid,
         });
     }
     if (item.replyFlowAfterSend) {
@@ -2871,50 +2880,62 @@ export function handleWebhook(event: any) {
             }
 
             case 'MESSAGES_UPSERT': {
-                const msg = data.messages?.[0];
-                const isFromMe = msg?.key?.fromMe;
-                const remoteJid = msg?.key?.remoteJid;
-                const messageId = msg?.key?.id;
-
                 chatStore.handleWebhookMessage(instance, data);
 
-                // Antes: io.emit broadcast vazava mensagens entre tenants.
-                // Agora: emite apenas para o dono da conexao (sala do socket).
-                const messageOwnerUid = resolveOwnerUid(instance);
-                if (messageOwnerUid) {
-                    publishOwnerEvent(messageOwnerUid, 'message-received', {
-                        connectionId: instance,
-                        message: data,
-                    });
-                } else {
-                    log('warn', 'message-received recebido para canal orfao - evento descartado', {
-                        instance,
-                    });
-                }
+                const items = normalizeEvolutionWebhookMessages(data);
+                for (const msg of items) {
+                    if (!msg?.key) continue;
+                    const isFromMe = Boolean(msg.key.fromMe);
+                    const remoteJid = String(msg.key.remoteJid || '');
+                    const messageId = msg.key.id;
 
-                if (isFromMe && messageId) {
-                    metrics.totalSent++;
-                    // Usar o ownerUid do canal para escopo correto — evita descarte silencioso.
-                    const sentOwnerUid = messageOwnerUid || resolveOwnerUid(instance);
-                    publishOwnerEvent(sentOwnerUid, 'campaign-progress', {
-                        successCount: metrics.totalSent,
-                        connectionId: instance,
-                    });
-                } else if (!isFromMe && remoteJid) {
-                    const jid = String(remoteJid);
-                    if (!jid.endsWith('@g.us')) {
-                        const phoneDigits = jid.split('@')[0].replace(/\D/g, '');
-                        const { bodyText, nonTextReply } = extractEvolutionReplyBody(msg?.message);
-                        ensureReplyFlowEngine();
-                        void replyFlowEngine.handleIncoming({
+                    const messageOwnerUid = resolveOwnerUid(instance);
+                    if (messageOwnerUid) {
+                        publishOwnerEvent(messageOwnerUid, 'message-received', {
                             connectionId: instance,
-                            phoneDigits,
-                            bodyText,
-                            nonTextReply,
-                            incomingConvId: `${instance}:${phoneDigits}`,
+                            message: msg,
                         });
-                        evolutionTrackIncomingReply(instance, phoneDigits);
+                    } else if (!isFromMe) {
+                        log('warn', 'message-received recebido para canal orfao - evento descartado', {
+                            instance,
+                        });
                     }
+
+                    if (isFromMe && messageId) {
+                        metrics.totalSent++;
+                        const sentOwnerUid = messageOwnerUid || resolveOwnerUid(instance);
+                        publishOwnerEvent(sentOwnerUid, 'campaign-progress', {
+                            successCount: metrics.totalSent,
+                            connectionId: instance,
+                        });
+                        continue;
+                    }
+
+                    if (isFromMe || !remoteJid || remoteJid.endsWith('@g.us')) continue;
+
+                    const phoneDigits = resolvePhoneDigitsFromEvolutionMessage(msg, chatStore, instance);
+                    if (phoneDigits.length < 8) {
+                        log('warn', 'Resposta recebida sem telefone resolvivel (LID?) — reply flow ignorado', {
+                            instance,
+                            remoteJid,
+                            hasAlt: Boolean(msg.key.remoteJidAlt || msg.key.senderPn),
+                        });
+                        continue;
+                    }
+
+                    const payload = (msg.message || msg.messageContent || {}) as Record<string, unknown>;
+                    const { bodyText, nonTextReply } = extractEvolutionMessageBody(payload);
+                    const incomingConvId = buildEvolutionIncomingConvId(instance, remoteJid, phoneDigits);
+
+                    ensureReplyFlowEngine();
+                    void replyFlowEngine.handleIncoming({
+                        connectionId: instance,
+                        phoneDigits,
+                        bodyText,
+                        nonTextReply,
+                        incomingConvId,
+                    });
+                    evolutionTrackIncomingReply(instance, phoneDigits);
                 }
                 break;
             }

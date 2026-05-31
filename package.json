@@ -1,7 +1,7 @@
 {
   "name": "zapmass-sender",
   "private": true,
-  "version": "2.3.10",
+  "version": "2.3.11",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server:dev:kill\" \"npm run client:dev:kill\"",

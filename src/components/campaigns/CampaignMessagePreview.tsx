@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, CheckCheck, Copy, MessageSquare } from 'lucide-react';
+import { ArrowDown, Check, CheckCheck, Copy, MessageSquare, Reply } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Campaign } from '../../types';
 
@@ -7,30 +7,51 @@ interface CampaignMessagePreviewProps {
   campaign: Campaign;
 }
 
+type SeqItem = {
+  text: string;
+  kind: 'out' | 'gate' | 'in';
+  meta?: string;
+  stepLabel?: string;
+};
+
 export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ campaign }) => {
   const initial = campaign.message || '';
   const stages = Array.isArray(campaign.messageStages) ? campaign.messageStages : [];
   const flowSteps = campaign.replyFlow?.enabled ? campaign.replyFlow.steps || [] : [];
+  const isReplyFlow = flowSteps.length > 0;
 
-  // Sequência completa: [inicial, ...stages extras, ...flowSteps (a partir da 2ª)]
-  type SeqItem = { text: string; type: 'initial' | 'stage' | 'flow'; meta?: string };
   const sequence = useMemo<SeqItem[]>(() => {
+    if (isReplyFlow) {
+      const out: SeqItem[] = [];
+      flowSteps.forEach((step, idx) => {
+        out.push({
+          text: step.body,
+          kind: 'out',
+          stepLabel: `Etapa ${idx + 1}`,
+          meta: idx === 0 ? 'Enviada ao iniciar' : 'Enviada após resposta'
+        });
+        if (idx < flowSteps.length - 1) {
+          const gate = step.acceptAnyReply
+            ? 'qualquer resposta'
+            : (step.validTokens || []).join(' / ') || 'resposta válida';
+          out.push({
+            text: '',
+            kind: 'gate',
+            meta: `Aguardando: ${gate}`
+          });
+        }
+      });
+      return out;
+    }
+
     const out: SeqItem[] = [];
-    if (initial) out.push({ text: initial, type: 'initial' });
+    if (initial) out.push({ text: initial, kind: 'out', stepLabel: 'Inicial' });
     stages.forEach((s, idx) => {
-      // stages[0] normalmente corresponde à mensagem inicial; ignoramos se for idêntica
       if (idx === 0 && s === initial) return;
-      out.push({ text: s, type: 'stage', meta: `Etapa ${idx + 1}` });
-    });
-    flowSteps.forEach((step, idx) => {
-      if (idx === 0) return; // a primeira etapa do flow já é a inicial
-      const tokens = step.acceptAnyReply
-        ? 'qualquer resposta'
-        : (step.validTokens || []).join(' / ') || 'resposta válida';
-      out.push({ text: step.body, type: 'flow', meta: `se responder: ${tokens}` });
+      out.push({ text: s, kind: 'out', stepLabel: `Etapa ${idx + 1}` });
     });
     return out;
-  }, [initial, stages, flowSteps]);
+  }, [initial, stages, flowSteps, isReplyFlow]);
 
   const hasMulti = sequence.length > 1;
   const [activeTab, setActiveTab] = useState<'single' | 'flow'>(hasMulti ? 'flow' : 'single');
@@ -43,11 +64,12 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
       const localRe = new RegExp(re.source, 'g');
       while ((m = localRe.exec(txt)) !== null) set.add(m[1]);
     };
-    sequence.forEach((s) => scan(s.text));
+    sequence.filter((s) => s.kind === 'out').forEach((s) => scan(s.text));
     return Array.from(set);
   }, [sequence]);
 
-  const totalChars = sequence.reduce((a, s) => a + s.text.length, 0);
+  const totalChars = sequence.filter((s) => s.kind === 'out').reduce((a, s) => a + s.text.length, 0);
+  const tNow = new Date(campaign.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
   const copy = (text: string) => {
     navigator.clipboard.writeText(text).then(
@@ -56,7 +78,7 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
     );
   };
 
-  const tNow = new Date(campaign.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const visible = activeTab === 'single' ? sequence.filter((s) => s.kind === 'out').slice(0, 1) : sequence;
 
   return (
     <div
@@ -75,10 +97,12 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
             <MessageSquare className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="min-w-0">
-            <h3 className="ui-title text-[14px]">Mensagem enviada</h3>
+            <h3 className="ui-title text-[14px]">
+              {isReplyFlow ? 'Fluxo por resposta' : 'Mensagem enviada'}
+            </h3>
             <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-              {sequence.length} bolha{sequence.length === 1 ? '' : 's'} • {totalChars} caracteres
-              {variables.length > 0 && ` • ${variables.length} variável${variables.length > 1 ? 'eis' : ''}`}
+              {flowSteps.length || sequence.filter((s) => s.kind === 'out').length} etapa
+              {(flowSteps.length || 1) === 1 ? '' : 's'} • {totalChars} caracteres
             </p>
           </div>
         </div>
@@ -89,6 +113,7 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
             style={{ background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}
           >
             <button
+              type="button"
               onClick={() => setActiveTab('single')}
               className="px-2 py-1 font-bold transition-colors rounded-md"
               style={{
@@ -99,6 +124,7 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
               Inicial
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('flow')}
               className="px-2 py-1 font-bold transition-colors rounded-md"
               style={{
@@ -106,95 +132,108 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
                 color: activeTab === 'flow' ? 'var(--text-1)' : 'var(--text-3)'
               }}
             >
-              Fluxo ({sequence.length})
+              Fluxo
             </button>
           </div>
         )}
       </div>
 
-      {/* "Telinha" estilo WhatsApp */}
       <div
         className="rounded-xl p-3 space-y-2 relative overflow-y-auto flex-1"
         style={{
           background: 'linear-gradient(180deg, #0b141a 0%, #111b21 100%)',
-          backgroundImage:
-            'repeating-linear-gradient(45deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 12px)',
-          minHeight: 140,
-          maxHeight: 300,
+          minHeight: 160,
+          maxHeight: 320,
           border: '1px solid rgba(255,255,255,0.06)'
         }}
       >
-        {sequence.length === 0 ? (
+        {visible.length === 0 ? (
           <div className="text-center text-[12px] py-6" style={{ color: 'rgba(255,255,255,0.4)' }}>
             (campanha sem mensagem configurada)
           </div>
-        ) : (activeTab === 'single' ? sequence.slice(0, 1) : sequence).map((s, idx) => (
-          <div key={idx} className="space-y-1">
-            {s.meta && (
-              <div className="flex justify-center">
-                <span
-                  className="text-[9.5px] font-mono px-2 py-0.5 rounded-full"
-                  style={{
-                    background: 'rgba(255,255,255,0.07)',
-                    color: 'rgba(255,255,255,0.55)'
-                  }}
-                >
-                  {s.meta}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-end">
-              <div
-                className="max-w-[85%] px-3 py-2 rounded-2xl rounded-br-sm text-[12.5px] whitespace-pre-wrap leading-relaxed"
-                style={{
-                  background: '#005c4b',
-                  color: '#e9edef',
-                  boxShadow: '0 1px 1px rgba(0,0,0,0.12)'
-                }}
-              >
-                {s.text || <span className="opacity-60 italic">(vazio)</span>}
-                <div className="text-[9.5px] mt-1 opacity-70 text-right flex items-center justify-end gap-0.5 font-mono">
-                  <span>{tNow}</span>
-                  {s.type === 'initial' ? (
-                    <CheckCheck className="w-3 h-3" style={{ color: '#53bdeb' }} />
-                  ) : (
-                    <Check className="w-3 h-3" />
-                  )}
+        ) : (
+          visible.map((s, idx) => {
+            if (s.kind === 'gate') {
+              return (
+                <div key={idx} className="flex flex-col items-center gap-1 py-1">
+                  <ArrowDown className="w-3.5 h-3.5" style={{ color: 'rgba(255,255,255,0.35)' }} />
+                  <div
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
+                    style={{
+                      background: 'rgba(245,158,11,0.15)',
+                      border: '1px solid rgba(245,158,11,0.35)',
+                      color: '#fcd34d'
+                    }}
+                  >
+                    <Reply className="w-3 h-3 shrink-0" />
+                    {s.meta}
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={idx} className="space-y-1">
+                {s.stepLabel && (
+                  <div className="flex justify-center">
+                    <span
+                      className="text-[9.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full"
+                      style={{
+                        background: 'rgba(255,255,255,0.08)',
+                        color: 'rgba(255,255,255,0.65)'
+                      }}
+                    >
+                      {s.stepLabel}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <div
+                    className="max-w-[88%] px-3 py-2 rounded-2xl rounded-br-sm text-[12.5px] whitespace-pre-wrap leading-relaxed"
+                    style={{
+                      background: '#005c4b',
+                      color: '#e9edef',
+                      boxShadow: '0 1px 1px rgba(0,0,0,0.12)'
+                    }}
+                  >
+                    {s.text || <span className="opacity-60 italic">(vazio)</span>}
+                    <div className="text-[9.5px] mt-1 opacity-70 text-right flex items-center justify-end gap-0.5 font-mono">
+                      <span>{tNow}</span>
+                      {idx === 0 ? (
+                        <CheckCheck className="w-3 h-3" style={{ color: '#53bdeb' }} />
+                      ) : (
+                        <Check className="w-3 h-3" />
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-        ))}
+            );
+          })
+        )}
       </div>
 
-      {/* Rodapé com variáveis + copiar */}
       <div
         className="mt-3 pt-3 flex items-center justify-between gap-2"
         style={{ borderTop: '1px solid var(--border-subtle)' }}
       >
-        <div className="flex flex-wrap gap-1 min-w-0">
-          {variables.length > 0 ? (
-            variables.map((v) => (
-              <span
-                key={v}
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                style={{
-                  background: 'rgba(59,130,246,0.12)',
-                  color: '#3b82f6',
-                  border: '1px solid rgba(59,130,246,0.25)'
-                }}
-              >
-                {`{{${v}}}`}
-              </span>
-            ))
-          ) : (
-            <span className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-              Sem variáveis dinâmicas
-            </span>
-          )}
-        </div>
+        <span className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+          {isReplyFlow
+            ? 'A etapa 2 só dispara quando o contato responde à etapa 1.'
+            : variables.length > 0
+            ? `${variables.length} variável${variables.length > 1 ? 'eis' : ''}`
+            : 'Sem variáveis dinâmicas'}
+        </span>
         <button
-          onClick={() => copy(sequence.map((s) => s.text).join('\n\n---\n\n'))}
+          type="button"
+          onClick={() =>
+            copy(
+              sequence
+                .filter((s) => s.kind === 'out')
+                .map((s) => s.text)
+                .join('\n\n---\n\n')
+            )
+          }
           className="text-[11px] font-semibold flex items-center gap-1 px-2 py-1 rounded-md transition-colors hover:bg-[var(--surface-2)] shrink-0"
           style={{ color: 'var(--text-2)' }}
         >

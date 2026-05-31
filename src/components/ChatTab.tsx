@@ -48,6 +48,7 @@ import { getAuth } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { dedupeConversationsById } from '../utils/conversationInboxTrim';
+import { formatChatListTime } from '../utils/formatChatListTime';
 import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { ClientPipelineBoard } from './chat/ClientPipelineBoard';
 import { ClientCrmPanel } from './chat/ClientCrmPanel';
@@ -238,17 +239,14 @@ function formatPhoneDisplay(digits: string): string {
   return `+${d}`;
 }
 
-/** Nunca exibir "Invalid Date" na lista — usa timestampMs como fallback. */
+/** Horário da lista — prioriza timestamp real (Ontem, dd/mm, hh:mm) como no WhatsApp. */
 function formatConversationListTime(conv: Conversation): string {
-  const raw = String(conv.lastMessageTime || '').trim();
-  if (raw && raw !== 'Invalid Date') return raw;
   const ts = conv.lastMessageTimestamp;
   if (typeof ts === 'number' && Number.isFinite(ts) && ts > 0) {
-    const date = new Date(ts);
-    if (!Number.isNaN(date.getTime())) {
-      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    }
+    return formatChatListTime(ts);
   }
+  const raw = String(conv.lastMessageTime || '').trim();
+  if (raw && raw !== 'Invalid Date') return raw;
   return '';
 }
 
@@ -1203,10 +1201,26 @@ export const ChatTab: React.FC<{
   const convListVirtualizer = useVirtualizer({
     count: pipelineView === 'lista' ? filteredConversations.length : 0,
     getScrollElement: () => conversationListScrollRef.current,
-    estimateSize: () => 94,
-    overscan: 6,
+    estimateSize: () => 76,
+    overscan: 8,
     getItemKey: (index) => filteredConversations[index]?.id ?? index
   });
+
+  const [avatarFetchTick, setAvatarFetchTick] = useState(0);
+  useEffect(() => {
+    const el = conversationListScrollRef.current;
+    if (!el || pipelineView !== 'lista') return;
+    let timer = 0;
+    const onScroll = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setAvatarFetchTick((n) => n + 1), 250);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      window.clearTimeout(timer);
+    };
+  }, [pipelineView, filteredConversations.length]);
 
   const listaScrollAnchorRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1225,20 +1239,40 @@ export const ChatTab: React.FC<{
     });
   }, [pipelineView, selectedChatId, filteredConversations, convListVirtualizer]);
 
-  // Traz foto do WhatsApp para a lista — todas as conversas visíveis, não só as 40 primeiras.
+  // Traz foto do WhatsApp para conversas visíveis na lista (scroll + overscan).
   useEffect(() => {
+    if (pipelineView !== 'lista') return;
     const now = Date.now();
-    const cooldownMs = 90_000;
-    for (const conv of filteredConversations) {
+    const cooldownMs = 120_000;
+    const visible = convListVirtualizer.getVirtualItems();
+    const indices = new Set<number>();
+    for (const row of visible) {
+      for (let i = row.index - 4; i <= row.index + 10; i++) {
+        if (i >= 0 && i < filteredConversations.length) indices.add(i);
+      }
+    }
+    for (let i = 0; i < Math.min(40, filteredConversations.length); i++) indices.add(i);
+    let requested = 0;
+    for (const idx of indices) {
+      if (requested >= 35) break;
+      const conv = filteredConversations[idx];
       if (!conv?.id || conv.id.endsWith('@g.us')) continue;
-      if (conv.profilePicUrl) continue;
-      if (resolveProfilePic(conv)) continue;
+      const pic = conv.profilePicUrl || resolveProfilePic(conv);
+      if (pic?.startsWith('data:')) continue;
       const lastFetch = avatarFetchAtRef.current.get(conv.id) || 0;
       if (now - lastFetch < cooldownMs) continue;
       avatarFetchAtRef.current.set(conv.id, now);
+      requested++;
       fetchConversationPicture(conv.id);
     }
-  }, [filteredConversations, fetchConversationPicture, resolveProfilePic]);
+  }, [
+    filteredConversations,
+    fetchConversationPicture,
+    resolveProfilePic,
+    convListVirtualizer,
+    pipelineView,
+    avatarFetchTick
+  ]);
 
   /** Ao selecionar conversa real: hidratar arquivo Firestore já (antes do scroll / load-chat-history pesado). */
   useEffect(() => {
@@ -1613,13 +1647,18 @@ export const ChatTab: React.FC<{
 
   const getLastMsgPreview = useCallback((conv: Conversation) => {
     const last = conv.messages[conv.messages.length - 1];
-    if (!last) return conv.lastMessage || '';
-    if (last.type === 'image') return 'Foto';
-    if (last.type === 'video') return 'Video';
-    if (last.type === 'audio') return 'Audio';
-    if (last.type === 'sticker') return 'Figurinha';
-    if (last.type === 'document') return 'Documento';
-    return conv.lastMessage || last.text || '';
+    if (last) {
+      if (last.type === 'image') return 'Foto';
+      if (last.type === 'video') return 'Vídeo';
+      if (last.type === 'audio') return 'Áudio';
+      if (last.type === 'sticker') return 'Figurinha';
+      if (last.type === 'document') return 'Documento';
+      const text = (last.text || conv.lastMessage || '').trim();
+      if (text) return text;
+    }
+    const preview = (conv.lastMessage || '').trim();
+    if (preview && preview !== '[Mídia]') return preview;
+    return '';
   }, []);
 
   const getLastMsgIcon = useCallback((conv: Conversation) => {
@@ -1967,7 +2006,7 @@ export const ChatTab: React.FC<{
                   const hasReminder = crmData.reminderAt && crmData.reminderAt > Date.now();
                   const hasNotes = !!(crmData.notes && crmData.notes.trim());
                   const disp = getConversationDisplay(conv);
-                  const { whatsappSubtitle: convWaSub, phoneSecondary: convPhoneSmall } = disp;
+                  const avatarSrc = getConvAvatar(conv);
                   return (
                     <div
                       key={`${conv.id}:${vRow.index}`}
@@ -1989,12 +2028,22 @@ export const ChatTab: React.FC<{
                       >
                         <div className="relative flex-shrink-0">
                           <img
-                            src={getConvAvatar(conv)}
+                            src={avatarSrc}
                             loading="lazy"
                             decoding="async"
                             className="wa-conv-avatar"
                             alt=""
                             referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              const img = e.currentTarget;
+                              if (img.dataset.fallback === '1') return;
+                              img.dataset.fallback = '1';
+                              const { primary } = disp;
+                              img.src = getAvatar(primary);
+                              if (conv.profilePicUrl?.startsWith('http')) {
+                                fetchConversationPicture(conv.id);
+                              }
+                            }}
                           />
                           {isGroup && (
                             <div
@@ -2037,24 +2086,10 @@ export const ChatTab: React.FC<{
                               {formatConversationListTime(conv)}
                             </span>
                           </div>
-                          {(convWaSub || convPhoneSmall) && (
-                            <p
-                              className="text-[11px] truncate leading-snug mt-0.5"
-                              style={{ color: 'var(--wa-text-3)', opacity: 0.92 }}
-                            >
-                              {convWaSub && <span title="Nome no WhatsApp / agenda do celular">{convWaSub}</span>}
-                              {convWaSub && convPhoneSmall && <span> · </span>}
-                              {convPhoneSmall && (
-                                <span className="font-mono tabular-nums" title="Telefone">
-                                  {convPhoneSmall}
-                                </span>
-                              )}
-                            </p>
-                          )}
-                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <div className="flex items-center justify-between gap-2 mt-0.5 min-h-[20px]">
                             <div className="flex items-center gap-1 min-w-0 flex-1">
                               {lastIcon}
-                              <p className="wa-conv-preview truncate">{lastMsgPreview}</p>
+                              <p className="wa-conv-preview truncate">{lastMsgPreview || '\u00A0'}</p>
                             </div>
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               {crmStatus && (

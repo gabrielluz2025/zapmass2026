@@ -1,6 +1,7 @@
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
+import { extractEvolutionMessageBody } from './evolutionWebhookMessages.js';
 
 export type ReplyFlowStepOption = {
     tokens: string[];
@@ -216,6 +217,7 @@ export class ReplyFlowEngine {
         vars: Record<string, string>;
         toRaw: string;
         convKey?: string;
+        remoteJid?: string;
     }) {
         const sessKey = `${params.connectionId}:${params.phoneDigits}`;
         const session: ReplyFlowSession = {
@@ -227,8 +229,16 @@ export class ReplyFlowEngine {
             registeredConvKey: params.convKey,
         };
         this.sessions.set(sessKey, session);
-        if (params.convKey) {
-            this.convToCanonical.set(params.convKey, sessKey);
+        const aliasKeys = new Set<string>();
+        if (params.convKey) aliasKeys.add(params.convKey);
+        aliasKeys.add(`${params.connectionId}:${params.phoneDigits}`);
+        const jid = String(params.remoteJid || '').trim();
+        if (jid.includes('@')) aliasKeys.add(`${params.connectionId}:${jid}`);
+        else if (params.phoneDigits.length >= 8) {
+            aliasKeys.add(`${params.connectionId}:${params.phoneDigits}@s.whatsapp.net`);
+        }
+        for (const k of aliasKeys) {
+            this.convToCanonical.set(k, sessKey);
         }
         this.adjustSessionCount(params.campaignId, 1);
     }
@@ -353,7 +363,17 @@ export class ReplyFlowEngine {
             }
         }
         if (!found) found = this.findSession(connectionId, phoneDigits);
-        if (!found) return;
+        if (!found) {
+            const activeOnConn = [...this.sessions.keys()].some((k) => k.startsWith(`${connectionId}:`));
+            if (activeOnConn) {
+                this.callbacks.onLog?.('Resposta recebida mas sem sessao de etapas correspondente', {
+                    connectionId,
+                    phoneDigits,
+                    incomingConvId,
+                });
+            }
+            return;
+        }
 
         const { key, session } = found;
         let def = this.defs.get(session.campaignId);
@@ -513,6 +533,14 @@ export class ReplyFlowEngine {
             ? key.slice(connectionId.length + 1)
             : phoneDigits;
 
+        this.callbacks.onLog?.('Proxima etapa enfileirada apos resposta', {
+            campaignId: session.campaignId,
+            connectionId,
+            phoneDigits,
+            fromStep: awaiting + 1,
+            toStep: nextIdx + 1,
+        });
+
         void this.callbacks.enqueue({
             to: session.toRaw,
             message: nextBody,
@@ -528,33 +556,5 @@ export function extractEvolutionReplyBody(message: Record<string, unknown> | und
     bodyText: string;
     nonTextReply: boolean;
 } {
-    if (!message) return { bodyText: '', nonTextReply: false };
-
-    const msg = message as {
-        conversation?: string;
-        extendedTextMessage?: { text?: string };
-        imageMessage?: { caption?: string };
-        videoMessage?: { caption?: string };
-        documentMessage?: { caption?: string };
-        audioMessage?: unknown;
-        stickerMessage?: unknown;
-    };
-
-    const text =
-        msg.conversation ||
-        msg.extendedTextMessage?.text ||
-        msg.imageMessage?.caption ||
-        msg.videoMessage?.caption ||
-        msg.documentMessage?.caption ||
-        '';
-
-    const bodyTrim = String(text || '').trim();
-    if (bodyTrim.length > 0) {
-        return { bodyText: bodyTrim, nonTextReply: false };
-    }
-
-    const hasMedia = Boolean(
-        msg.imageMessage || msg.videoMessage || msg.documentMessage || msg.audioMessage || msg.stickerMessage
-    );
-    return { bodyText: '', nonTextReply: hasMedia };
+    return extractEvolutionMessageBody(message);
 }

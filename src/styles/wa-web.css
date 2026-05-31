@@ -160,9 +160,9 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
 /* Lista de conversas — items */
 .wa-conv-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 13px;
-  padding: 10px 13px 10px 13px;
+  padding: 10px 13px 11px 13px;
   background: transparent;
   border: none;
   cursor: pointer;
