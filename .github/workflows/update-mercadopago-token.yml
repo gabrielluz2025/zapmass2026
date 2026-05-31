@@ -1,0 +1,56 @@
+# Atualiza o token Mercado Pago na VPS sem SSH manual.
+# Pré-requisito (uma vez): GitHub → Settings → Secrets → MERCADOPAGO_ACCESS_TOKEN
+name: Atualizar token Mercado Pago (VPS)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-token:
+    name: Gravar token na VPS e reiniciar API
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verificar secret configurado
+        run: |
+          if [ -z "${{ secrets.MERCADOPAGO_ACCESS_TOKEN }}" ]; then
+            echo "::error::Secret MERCADOPAGO_ACCESS_TOKEN nao configurado no GitHub."
+            echo "Va em Settings → Secrets and variables → Actions → New repository secret"
+            echo "Nome: MERCADOPAGO_ACCESS_TOKEN"
+            echo "Valor: Access Token APP_USR-… do painel Mercado Pago (Credenciais de producao)"
+            exit 1
+          fi
+          echo "Secret MERCADOPAGO_ACCESS_TOKEN presente."
+
+      - name: Atualizar token na VPS
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          MERCADOPAGO_ACCESS_TOKEN: ${{ secrets.MERCADOPAGO_ACCESS_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 5m
+          command_timeout: 15m
+          envs: MERCADOPAGO_ACCESS_TOKEN
+          script: |
+            set -euo pipefail
+            cd /opt/zapmass
+            git fetch --all --prune
+            git checkout -f main 2>/dev/null || git checkout -f origin/main
+            git pull --ff-only origin main || true
+            chmod +x deployment/set-mercadopago-token.sh deployment/verify-mercadopago-token.sh
+            bash deployment/set-mercadopago-token.sh
+
+      - name: Confirmar checkout publico
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 24); do
+            body=$(curl -fsS "https://zap-mass.com/api/health" || echo '{}')
+            echo "$body"
+            echo "$body" | grep -q '"mercadopagoCheckoutAvailable":true' && exit 0
+            sleep 10
+          done
+          echo "::warning::API ainda nao reporta checkout disponivel — token pode estar invalido no Mercado Pago."
+          exit 1
