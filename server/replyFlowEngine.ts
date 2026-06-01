@@ -50,6 +50,10 @@ export type ReplyFlowCallbacks = {
     isCampaignPaused?: (campaignId: string) => boolean;
     /** Chamado quando todas as sessões de uma campanha são encerradas (reply flow concluído). */
     onAllSessionsClosed?: (campaignId: string) => void;
+    /** Chamado quando uma sessão é criada ou seu estado muda (awaitingAfterStep) — para persistência. */
+    onSessionSave?: (connectionId: string, phoneDigits: string, session: ReplyFlowSession) => void;
+    /** Chamado quando uma sessão é descartada — para remoção da persistência. */
+    onSessionDisposed?: (connectionId: string, phoneDigits: string) => void;
 };
 
 export const normalizePhoneKey = (phone: string): string => (phone || '').replace(/\D/g, '');
@@ -241,6 +245,33 @@ export class ReplyFlowEngine {
             this.convToCanonical.set(k, sessKey);
         }
         this.adjustSessionCount(params.campaignId, 1);
+        this.callbacks.onSessionSave?.(params.connectionId, params.phoneDigits, session);
+    }
+
+    /** Restaura sessão perdida (ex.: após restart do servidor). Não incrementa contador se já existir. */
+    restoreSession(connectionId: string, phoneDigits: string, session: ReplyFlowSession): void {
+        const sessKey = `${connectionId}:${phoneDigits}`;
+        if (this.sessions.has(sessKey)) return;
+        this.sessions.set(sessKey, session);
+        if (session.registeredConvKey) {
+            this.convToCanonical.set(session.registeredConvKey, sessKey);
+        }
+        if (phoneDigits.length >= 8) {
+            this.convToCanonical.set(`${connectionId}:${phoneDigits}@s.whatsapp.net`, sessKey);
+        }
+        this.adjustSessionCount(session.campaignId, 1);
+    }
+
+    /** Retorna true se existe sessão em memória para este par connectionId:phone. */
+    hasSession(connectionId: string, phoneDigits: string): boolean {
+        if (this.sessions.has(`${connectionId}:${phoneDigits}`)) return true;
+        const incoming = String(phoneDigits || '').replace(/\D/g, '');
+        for (const key of this.sessions.keys()) {
+            if (!key.startsWith(`${connectionId}:`)) continue;
+            const sp = key.slice(connectionId.length + 1).replace(/\D/g, '');
+            if (sp === incoming) return true;
+        }
+        return false;
     }
 
     updateSessionAfterSend(connectionId: string, phoneDigits: string, newAwaitingAfterStep: number) {
@@ -248,6 +279,7 @@ export class ReplyFlowEngine {
         const sess = this.sessions.get(sessKey);
         if (sess) {
             sess.awaitingAfterStep = newAwaitingAfterStep;
+            this.callbacks.onSessionSave?.(connectionId, phoneDigits, sess);
         }
     }
 
@@ -285,6 +317,13 @@ export class ReplyFlowEngine {
         this.sessions.delete(canonicalKey);
         this.adjustSessionCount(session.campaignId, -1);
         this.maybeClearDef(session.campaignId);
+        // Extrai connectionId:phoneDigits do canonicalKey para notificar persistência
+        const colonIdx = canonicalKey.indexOf(':');
+        if (colonIdx > 0) {
+            const connectionId = canonicalKey.slice(0, colonIdx);
+            const phoneDigits = canonicalKey.slice(colonIdx + 1);
+            this.callbacks.onSessionDisposed?.(connectionId, phoneDigits);
+        }
     }
 
     private findSession(

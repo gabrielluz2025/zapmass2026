@@ -238,58 +238,69 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       throw new Error('Sem números');
     }
 
-    const id =
-      payload.launchMode === 'schedule' && payload.schedule
-        ? await scheduleCampaign(
-            payload.connectedIds[0],
-            payload.numbers,
-            payload.message,
-            payload.connectedIds,
-            payload.contactListMeta,
-            payload.name,
-            payload.schedule,
-            {
-              delaySeconds: payload.delaySeconds,
-              recipients: payload.recipients,
-              messageStages: payload.messageStages,
-              replyFlow: payload.replyFlow,
-              channelWeights: payload.channelWeights
-            }
-          )
-        : await startCampaign(
-            payload.connectedIds[0],
-            payload.numbers,
-            payload.message,
-            payload.connectedIds,
-            payload.contactListMeta,
-            payload.name,
-            {
-              delaySeconds: payload.delaySeconds,
-              recipients: payload.recipients,
-              messageStages: payload.messageStages,
-              replyFlow: payload.replyFlow,
-              channelWeights: payload.channelWeights,
-              mediaAttachment: payload.mediaAttachment
-            }
-          );
-    appendAudit({
-      action: 'campaign_create',
-      label: payload.name,
-      campaignId: id
-    });
+    try {
+      const id =
+        payload.launchMode === 'schedule' && payload.schedule
+          ? await scheduleCampaign(
+              payload.connectedIds[0],
+              payload.numbers,
+              payload.message,
+              payload.connectedIds,
+              payload.contactListMeta,
+              payload.name,
+              payload.schedule,
+              {
+                delaySeconds: payload.delaySeconds,
+                recipients: payload.recipients,
+                messageStages: payload.messageStages,
+                replyFlow: payload.replyFlow,
+                channelWeights: payload.channelWeights
+              }
+            )
+          : await startCampaign(
+              payload.connectedIds[0],
+              payload.numbers,
+              payload.message,
+              payload.connectedIds,
+              payload.contactListMeta,
+              payload.name,
+              {
+                delaySeconds: payload.delaySeconds,
+                recipients: payload.recipients,
+                messageStages: payload.messageStages,
+                replyFlow: payload.replyFlow,
+                channelWeights: payload.channelWeights,
+                mediaAttachment: payload.mediaAttachment
+              }
+            );
+      appendAudit({
+        action: 'campaign_create',
+        label: payload.name,
+        campaignId: id
+      });
 
-    const isAbA = payload.name.includes(' — Var A');
-    const isAbB = payload.name.includes(' — Var B');
-    if (isAbA) return;
-    if (isAbB) {
-      toast.success('Laboratório A/B: as duas campanhas foram iniciadas. Compare os resultados na lista.');
-    } else {
-      if (payload.launchMode !== 'schedule') {
-        toast.success('Campanha iniciada com sucesso.');
+      const isAbA = payload.name.includes(' — Var A');
+      const isAbB = payload.name.includes(' — Var B');
+      if (isAbA) return;
+      if (isAbB) {
+        toast.success('Laboratório A/B: as duas campanhas foram iniciadas. Compare os resultados na lista.');
+      } else {
+        if (payload.launchMode !== 'schedule') {
+          toast.success('Campanha iniciada com sucesso.');
+        }
       }
+      setViewState('list');
+      setSubTab('overview');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
+      if (msg.includes('Demoramos a confirmar no servidor')) {
+        toast.error(msg, { duration: 10000 });
+        setViewState('list');
+        setSubTab('overview');
+        return;
+      }
+      throw err;
     }
-    setViewState('list');
-    setSubTab('overview');
   };
 
   const onRiskAccepted = () => {

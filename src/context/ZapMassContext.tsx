@@ -148,10 +148,9 @@ function startCampaignAckTimeoutMs(
     const ms = 40_000 + (approxBytes / 100_000) * 1_000;
     return Math.min(900_000, Math.max(90_000, Math.ceil(ms)));
   }
-  /** ~ping/reconnect/handshake por canal (worst-case no servidor). */
+  /** Servidor responde callback cedo; margem curta caso o socket caia no meio do emit. */
   const n = Math.max(1, Math.min(24, Number(connectionIdsCount) || 1));
-  const serverHandshakeMs = Math.min(540_000, 42_000 + n * 54_000);
-  return Math.max(serverHandshakeMs, 75_000);
+  return Math.min(35_000, 12_000 + n * 2_000);
 }
 
 const INITIAL_METRICS: DashboardMetrics = {
@@ -1796,11 +1795,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     );
 
-    socket.on('campaign-error', ({ error }: { error?: string }) => {
+    socket.on('campaign-error', ({ error, campaignId }: { error?: string; campaignId?: string }) => {
       toast.error(error || 'Falha ao iniciar campanha.', {
         id: 'campaign-bootstrap',
         duration: 7500
       });
+      const uid = currentUidRef.current;
+      if (uid && campaignId) {
+        updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+          status: CampaignStatus.FAILED
+        }).catch(() => {});
+        setCampaigns((prev) =>
+          prev.map((c) => (c.id === campaignId ? { ...c, status: CampaignStatus.FAILED } : c))
+        );
+      }
     });
 
     socket.on(
@@ -3022,7 +3030,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ? options.messageStages.map((s) => String(s || '').trim()).filter((s) => s.length > 0)
         : [message.trim()].filter((s) => s.length > 0);
 
-    const campaignRef = await addDoc(collection(db, 'users', uid, 'campaigns'), {
+    const campaignPayload = {
       ownerUid: uid,
       name: campaignName || `Disparo ${new Date().toLocaleString()}`,
       message: stagesForDoc[0] || message,
@@ -3041,7 +3049,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ? { channelWeights: options.channelWeights }
         : {}),
       createdAt: new Date().toISOString()
-    });
+    };
+
+    const campaignRef = await Promise.race([
+      addDoc(collection(db, 'users', uid, 'campaigns'), campaignPayload),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
+          20_000
+        )
+      )
+    ]);
 
     try {
       const ackTimeoutMs = startCampaignAckTimeoutMs(

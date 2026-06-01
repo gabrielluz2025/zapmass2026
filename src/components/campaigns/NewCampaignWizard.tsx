@@ -1195,9 +1195,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     }
 
     setIsSubmitting(true);
+    const submitToastId = 'campaign-submit';
+    toast.loading('Iniciando disparo no servidor…', { id: submitToastId, duration: 120_000 });
     try {
       await runSingle();
+      toast.dismiss(submitToastId);
     } catch (err) {
+      toast.dismiss(submitToastId);
       const errorMessage = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
       toast.error(errorMessage);
     } finally {

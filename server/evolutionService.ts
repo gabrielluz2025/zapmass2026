@@ -23,6 +23,7 @@ import {
     pickWeightedChannel,
     sanitizeReplyFlowSteps,
     type CampaignRecipient,
+    type ReplyFlowSession,
 } from './replyFlowEngine.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import {
@@ -609,8 +610,47 @@ function parseConnectionStatePayload(data: unknown): string {
     return 'close';
 }
 
+const connectionStateCache = new Map<string, { state: string; at: number }>();
+const CONNECTION_STATE_CACHE_TTL_MS = 15_000;
+/** Probe curto em health checks — evita bloquear o event loop por 30s × N canais. */
+const CONNECTION_STATE_PROBE_TIMEOUT_MS = 8_000;
+
+function readCachedConnectionState(instanceName: string, maxAgeMs = CONNECTION_STATE_CACHE_TTL_MS): string | null {
+    const hit = connectionStateCache.get(instanceName);
+    if (!hit) return null;
+    if (Date.now() - hit.at > maxAgeMs) return null;
+    return hit.state;
+}
+
+function writeConnectionStateCache(instanceName: string, state: string) {
+    connectionStateCache.set(instanceName, { state: String(state || 'close').toLowerCase(), at: Date.now() });
+}
+
+function invalidateConnectionStateCache(instanceName: string) {
+    connectionStateCache.delete(instanceName);
+}
+
+/** Re-hidrata RAM a partir da Evolution quando o canal aparece online na UI mas sumiu do servidor (ex.: restart). */
+export async function refreshConnectionsForCampaign(connectionIds: string[]): Promise<void> {
+    const needsHydrate = connectionIds.some((id) => {
+        const mem = connections.get(id);
+        return !mem || mem.status !== 'open';
+    });
+    if (!needsHydrate) return;
+    await hydrateInstancesFromEvolution();
+}
+
+/** Verificação instantânea (RAM) — usada antes de probes lentos na Evolution. */
+export function anySelectedConnectionsOpenInMemory(connectionIds: string[]): boolean {
+    for (const id of connectionIds) {
+        if (connections.get(id)?.status === 'open') return true;
+    }
+    return false;
+}
+
 /** Estado aberto: memória da API + Evolution (evita disparo/pipeline bloqueados por polling atrasado). */
 export async function anySelectedConnectionsOpen(connectionIds: string[]): Promise<boolean> {
+    if (anySelectedConnectionsOpenInMemory(connectionIds)) return true;
     for (const id of connectionIds) {
         if (await isConnectionOpen(id)) return true;
     }
@@ -620,7 +660,8 @@ export async function anySelectedConnectionsOpen(connectionIds: string[]): Promi
 async function isConnectionOpen(instanceName: string): Promise<boolean> {
     const mem = connections.get(instanceName);
     if (mem?.status === 'open') return true;
-    const apiState = (await getConnectionState(instanceName)).toLowerCase();
+    const apiState = (await getConnectionState(instanceName, { timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
+        .toLowerCase();
     if (isEvolutionOpenState(apiState)) {
         if (mem) {
             applyConnectionStateUpdate(instanceName, 'open', {});
@@ -854,6 +895,11 @@ function applyConnectionStateUpdate(
         }
         log('warn', `Pairing preso (${Math.round(pairingAge / 1000)}s) — aplicando close: ${instance}`);
     }
+
+    if (prevStatus !== mapEvolutionState(state)) {
+        invalidateConnectionStateCache(instance);
+    }
+    writeConnectionStateCache(instance, state);
 
     const status =
         open ? 'ONLINE' : state === 'connecting' ? 'CONNECTING' : 'OFFLINE';
@@ -1202,7 +1248,9 @@ async function hydrateInstancesFromEvolution() {
             const prevStatus = existing?.status;
             let mappedState = mapEvolutionState(row.connectionStatus ?? row.state ?? row.status);
             if (existing?.status === 'open' && mappedState !== 'open') {
-                const verified = (await getConnectionState(instanceName)).toLowerCase();
+                const verified = (
+                    await getConnectionState(instanceName, { timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS })
+                ).toLowerCase();
                 if (isEvolutionOpenState(verified)) mappedState = 'open';
             }
             const phoneFromApi = phoneFromEvolutionRow(row);
@@ -1767,6 +1815,79 @@ export async function canControlCampaign(
     return ensureTenantOwnsCampaign(uid, campaignId, workspaceMemberUids, actingAuthUid);
 }
 
+// ── Redis reply-flow session persistence ──────────────────────────────────────
+const REPLYFLOW_SESSION_TTL_SECS = 7 * 24 * 3600; // 7 dias
+
+async function saveReplyFlowSessionToRedis(
+    connectionId: string,
+    phoneDigits: string,
+    session: ReplyFlowSession
+): Promise<void> {
+    const conn = getRedisConnection();
+    if (!conn) return;
+    try {
+        const key = `zapmass:rf:sess:${connectionId}:${phoneDigits}`;
+        await conn.setex(key, REPLYFLOW_SESSION_TTL_SECS, JSON.stringify(session));
+    } catch (e: any) {
+        log('warn', 'saveReplyFlowSessionToRedis falhou', { error: e?.message });
+    }
+}
+
+async function loadReplyFlowSessionFromRedis(
+    connectionId: string,
+    phoneDigits: string
+): Promise<ReplyFlowSession | null> {
+    const conn = getRedisConnection();
+    if (!conn) return null;
+    try {
+        const key = `zapmass:rf:sess:${connectionId}:${phoneDigits}`;
+        const raw = await conn.get(key);
+        if (!raw) return null;
+        const sess = JSON.parse(raw) as ReplyFlowSession;
+        if (!sess?.campaignId || sess.awaitingAfterStep == null) return null;
+        return sess;
+    } catch {
+        return null;
+    }
+}
+
+async function deleteReplyFlowSessionFromRedis(connectionId: string, phoneDigits: string): Promise<void> {
+    const conn = getRedisConnection();
+    if (!conn) return;
+    try {
+        await conn.del(`zapmass:rf:sess:${connectionId}:${phoneDigits}`);
+    } catch { /* ignora */ }
+}
+
+/** Tenta recuperar sessão de reply flow do Redis quando não está em RAM (ex.: após restart). */
+async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: string): Promise<void> {
+    if (!replyFlowEngine || replyFlowEngine.hasSession(connectionId, phoneDigits)) return;
+
+    // Tenta também a variante sem o 9 dígito BR (5511 9 XXXX-XXXX ↔ 5511 XXXX-XXXX)
+    const variants = new Set([phoneDigits]);
+    if (phoneDigits.length === 13 && phoneDigits.startsWith('55') && phoneDigits.charAt(4) === '9') {
+        variants.add(phoneDigits.slice(0, 4) + phoneDigits.slice(5));
+    } else if (phoneDigits.length === 12 && phoneDigits.startsWith('55')) {
+        variants.add(phoneDigits.slice(0, 4) + '9' + phoneDigits.slice(4));
+    }
+
+    for (const variant of variants) {
+        const sess = await loadReplyFlowSessionFromRedis(connectionId, variant);
+        if (sess) {
+            log('info', 'Sessão reply flow restaurada do Redis após restart', {
+                connectionId,
+                phoneDigits: variant,
+                campaignId: sess.campaignId,
+                awaitingAfterStep: sess.awaitingAfterStep,
+            });
+            // Recarrega a definição da campanha se necessário
+            replyFlowEngine.restoreSession(connectionId, variant, sess);
+            return;
+        }
+    }
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
 function ensureReplyFlowEngine() {
     if (replyFlowEngine) return;
     replyFlowEngine = new ReplyFlowEngine({
@@ -1794,6 +1915,12 @@ function ensureReplyFlowEngine() {
         onLog: (message, payload) =>
             emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
         isCampaignPaused: (campaignId) => pausedCampaigns.has(campaignId),
+        onSessionSave: (connectionId, phoneDigits, session) => {
+            void saveReplyFlowSessionToRedis(connectionId, phoneDigits, session);
+        },
+        onSessionDisposed: (connectionId, phoneDigits) => {
+            void deleteReplyFlowSessionFromRedis(connectionId, phoneDigits);
+        },
         // Quando todas as sessões de reply flow de uma campanha fecham, verifica se a
         // campanha pode agora ser marcada como concluída (pending já era 0).
         onAllSessionsClosed: (campaignId) => {
@@ -1830,6 +1957,10 @@ function ensureReplyFlowEngine() {
 async function filterActiveConnections(connectionIds: string[]): Promise<string[]> {
     const active: string[] = [];
     for (const connId of connectionIds) {
+        if (connections.get(connId)?.status === 'open') {
+            active.push(connId);
+            continue;
+        }
         if (await isConnectionOpen(connId)) active.push(connId);
         else {
             emitCampaignLog('WARN', `Canal excluído do disparo (indisponível): ${connId}`, { connectionId: connId });
@@ -2004,15 +2135,33 @@ async function setupWebhook(instanceName: string) {
 /**
  * Obtém status da conexão
  */
-export async function getConnectionState(instanceName: string): Promise<string> {
+export async function getConnectionState(
+    instanceName: string,
+    options?: { timeoutMs?: number; skipCache?: boolean; maxCacheAgeMs?: number }
+): Promise<string> {
+    const mem = connections.get(instanceName);
+    if (mem?.status === 'open') return 'open';
+
+    if (!options?.skipCache) {
+        const cached = readCachedConnectionState(instanceName, options?.maxCacheAgeMs);
+        if (cached) return cached;
+    }
+
     try {
-        const response = await api.get(`/instance/connectionState/${evoInst(instanceName)}`);
-        return parseConnectionStatePayload(response.data);
+        const response = await api.get(`/instance/connectionState/${evoInst(instanceName)}`, {
+            timeout: options?.timeoutMs ?? evolutionConfig.timeout,
+        });
+        const state = parseConnectionStatePayload(response.data);
+        writeConnectionStateCache(instanceName, state);
+        return state;
     } catch (error: any) {
         const status = error?.response?.status;
-        if (status === 404) return 'close';
-        const mem = connections.get(instanceName)?.status;
-        if (mem) return mem;
+        if (status === 404) {
+            writeConnectionStateCache(instanceName, 'close');
+            return 'close';
+        }
+        const memStatus = connections.get(instanceName)?.status;
+        if (memStatus) return memStatus;
         return 'close';
     }
 }
@@ -2252,6 +2401,8 @@ async function sendMessageInternal(
     }
 }
 
+const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 20_000;
+
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     const queue = getCampaignQueue();
     if (!queue) {
@@ -2271,7 +2422,7 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     // jobId estável: inclui stageIndex para evitar colisão entre etapas do mesmo contato.
     // O sufixo Date.now() permanece para evitar duplicação ao reenfileirar após pausa/retry.
     const stageTag = item.stageIndex != null ? `s${item.stageIndex}` : 's0';
-    await queue.add('send', item, {
+    const addPromise = queue.add('send', item, {
         jobId: `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${stageTag}__${Date.now()}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
@@ -2279,6 +2430,28 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         removeOnComplete: 1000,
         removeOnFail: 5000,
     });
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await Promise.race([
+            addPromise,
+            new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(
+                    () => reject(new Error('Tempo esgotado ao enfileirar mensagem (Redis lento ou indisponível).')),
+                    ENQUEUE_CAMPAIGN_TIMEOUT_MS
+                );
+            }),
+        ]);
+    } catch (err) {
+        bumpQueueSize(item.connectionId, -1);
+        if (item.campaignId) {
+            const pending = (campaignPendingJobs.get(item.campaignId) || 1) - 1;
+            if (pending <= 0) campaignPendingJobs.delete(item.campaignId);
+            else campaignPendingJobs.set(item.campaignId, pending);
+        }
+        throw err;
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+    }
 }
 
 async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
@@ -2538,13 +2711,15 @@ function ensureCampaignWorker() {
     const conn = getRedisConnection();
     if (!conn || campaignWorker) return;
 
-    // Concorrência 5: cada job aguarda delay humano internamente (~2-8s), então 5 slots
-    // paralelos resultam em throughput real de ~0.5-2 msg/s sem sobrecarregar a API Evolution.
-    // O limiter global limita a 10 jobs/segundo em toda a fila (burst ≤ 20).
+    // Concorrência configurável via CAMPAIGN_WORKER_CONCURRENCY (default 10).
+    // Cada job aguarda delay humano internamente, portanto aumentar a concorrência
+    // não sobrecarrega a Evolution — apenas aumenta o throughput paralelo.
+    // O limiter global limita a 20 jobs/segundo (burst ≤ 40) para evitar rate-limit.
+    const concurrency = Math.max(1, Math.min(50, parseInt(process.env.CAMPAIGN_WORKER_CONCURRENCY || '10', 10)));
     campaignWorker = new Worker<MessageQueueItem>('campaign-messages', processCampaignJob, {
         connection: conn.duplicate(),
-        concurrency: 5,
-        limiter: { max: 10, duration: 1000 },
+        concurrency,
+        limiter: { max: 20, duration: 1000 },
     });
 
     campaignWorker.on('failed', (job, err) => {
@@ -2649,19 +2824,6 @@ export async function startCampaign(
         typeof channelWeights === 'object' &&
         Object.keys(channelWeights).length > 0;
 
-    emitCampaignLog(
-        'INFO',
-        'Campanha iniciada',
-        {
-            campaignId: cid,
-            total: totalJobs,
-            connections: activeConnectionIds.length,
-            stages: stageCount,
-            replyFlow: useReplyFlow,
-        },
-        ownerUid
-    );
-
     campaignsById.set(cid, {
         ownerUid,
         total: totalJobs,
@@ -2672,7 +2834,6 @@ export async function startCampaign(
         isRunning: true,
     });
     evolutionRegisterCampaign(cid, ownerUid);
-    publishOwnerEvent(ownerUid, 'campaign-started', { total: totalJobs, campaignId: cid });
 
     const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds);
 
@@ -2725,6 +2886,20 @@ export async function startCampaign(
                 }
             }
         }
+
+        emitCampaignLog(
+            'INFO',
+            'Campanha iniciada',
+            {
+                campaignId: cid,
+                total: totalJobs,
+                connections: activeConnectionIds.length,
+                stages: stageCount,
+                replyFlow: useReplyFlow,
+            },
+            ownerUid
+        );
+        publishOwnerEvent(ownerUid, 'campaign-started', { total: totalJobs, campaignId: cid });
     } catch (err: any) {
         // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
         // e propaga para o socket handler avisar a UI.
@@ -2732,8 +2907,7 @@ export async function startCampaign(
             campaignId: cid,
             error: err?.message,
         });
-        const state = campaignsById.get(cid);
-        if (state) state.isRunning = false;
+        campaignsById.delete(cid);
         publishOwnerEvent(ownerUid, 'campaign-error', {
             campaignId: cid,
             error: err?.message || 'Falha ao enfileirar mensagens da campanha.',
@@ -2748,41 +2922,49 @@ export async function startCampaign(
  * Inicialização do serviço
  */
 async function reconcileConnectionHealth() {
-    for (const [id, conn] of connections.entries()) {
-        if (connectionWatchTimers.has(id) || qrWatchTimers.has(id)) continue;
-        const apiState = (await getConnectionState(id)).toLowerCase();
-        const memState = conn.status;
-        const paired = Boolean(conn.phoneNumber?.trim());
+    const entries = [...connections.entries()].filter(
+        ([id]) => !connectionWatchTimers.has(id) && !qrWatchTimers.has(id)
+    );
+    await Promise.all(
+        entries.map(async ([id, conn]) => {
+            const cached = readCachedConnectionState(id, 12_000);
+            const apiState = (
+                cached ??
+                (await getConnectionState(id, { timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
+            ).toLowerCase();
+            const memState = conn.status;
+            const paired = Boolean(conn.phoneNumber?.trim());
 
-        if (isEvolutionOpenState(apiState) && memState !== 'open') {
-            applyConnectionStateUpdate(id, 'open', {});
-            continue;
-        }
-
-        if (memState === 'connecting' || memState === 'created') {
-            const pairingAge = Date.now() - (pairingStartedAt.get(id) ?? 0);
-            if (isEvolutionOpenState(apiState)) {
+            if (isEvolutionOpenState(apiState) && memState !== 'open') {
                 applyConnectionStateUpdate(id, 'open', {});
-            } else if (apiState === 'connecting') {
-                watchConnectionUntilOpen(id);
-            } else if (apiState === 'close' && pairingAge > 50_000) {
-                log('info', `Health: pairing preso ${id} (${Math.round(pairingAge / 1000)}s)`);
-                applyConnectionStateUpdate(id, 'close', {});
-                if (paired) scheduleEvolutionAutoReconnect(id);
+                return;
             }
-            continue;
-        }
 
-        if (memState === 'open' && !isEvolutionOpenState(apiState)) {
-            log('info', `Health reconcile ${id}: mem=open api=${apiState}`);
-            applyConnectionStateUpdate(id, apiState === 'connecting' ? 'connecting' : 'close', {});
-            continue;
-        }
+            if (memState === 'connecting' || memState === 'created') {
+                const pairingAge = Date.now() - (pairingStartedAt.get(id) ?? 0);
+                if (isEvolutionOpenState(apiState)) {
+                    applyConnectionStateUpdate(id, 'open', {});
+                } else if (apiState === 'connecting') {
+                    watchConnectionUntilOpen(id);
+                } else if (apiState === 'close' && pairingAge > 50_000) {
+                    log('info', `Health: pairing preso ${id} (${Math.round(pairingAge / 1000)}s)`);
+                    applyConnectionStateUpdate(id, 'close', {});
+                    if (paired) scheduleEvolutionAutoReconnect(id);
+                }
+                return;
+            }
 
-        if (paired && memState === 'close' && !isEvolutionOpenState(apiState) && !autoReconnectState.has(id)) {
-            scheduleEvolutionAutoReconnect(id);
-        }
-    }
+            if (memState === 'open' && !isEvolutionOpenState(apiState)) {
+                log('info', `Health reconcile ${id}: mem=open api=${apiState}`);
+                applyConnectionStateUpdate(id, apiState === 'connecting' ? 'connecting' : 'close', {});
+                return;
+            }
+
+            if (paired && memState === 'close' && !isEvolutionOpenState(apiState) && !autoReconnectState.has(id)) {
+                scheduleEvolutionAutoReconnect(id);
+            }
+        })
+    );
 }
 
 export function init(socketIO: SocketIOServer) {
@@ -2928,6 +3110,8 @@ export function handleWebhook(event: any) {
                     const incomingConvId = buildEvolutionIncomingConvId(instance, remoteJid, phoneDigits);
 
                     ensureReplyFlowEngine();
+                    // Restaura sessão do Redis se foi perdida (restart do servidor)
+                    await tryRestoreReplyFlowSession(instance, phoneDigits);
                     void replyFlowEngine.handleIncoming({
                         connectionId: instance,
                         phoneDigits,

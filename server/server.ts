@@ -1219,7 +1219,7 @@ const registerSocketHandlers = () => {
       if (!connectionIds || connectionIds.length === 0) {
           const err = 'Nenhuma conexao selecionada.';
           callback?.({ ok: false, error: err });
-          socket.emit('campaign-error', { error: err });
+          socket.emit('campaign-error', { error: err, campaignId });
           notifyCampaignSocketError(uid, err, campaignId);
           return;
       }
@@ -1227,19 +1227,22 @@ const registerSocketHandlers = () => {
         userLog('campaign:error', { campaignId, reason: 'Nenhum numero informado' });
         const err = 'Nenhum número informado para disparo.';
         callback?.({ ok: false, error: err });
-        socket.emit('campaign-error', { error: err });
+        socket.emit('campaign-error', { error: err, campaignId });
         notifyCampaignSocketError(uid, err, campaignId);
         return;
       }
 
       if (connectionIds.some((id: string) => !ownsConnectionId(id))) {
         denyCrossTenant('start-campaign', { connectionIds });
-        callback?.({ ok: false, error: 'Conexao invalida para esta conta.' });
+        const err = 'Conexao invalida para esta conta.';
+        callback?.({ ok: false, error: err });
+        socket.emit('campaign-error', { error: err, campaignId });
         return;
       }
       if (!(await requireActiveSubscription())) {
         const err = 'Assine o Pro ou renove o periodo para disparar campanhas.';
         callback?.({ ok: false, error: err });
+        socket.emit('campaign-error', { error: err, campaignId });
         void persistUserNotification(uid, {
           title: 'Assinatura necessária',
           body: err,
@@ -1248,12 +1251,18 @@ const registerSocketHandlers = () => {
         }).catch(() => {});
         return;
       }
-      const hasConnected = await evolutionService.anySelectedConnectionsOpen(connectionIds);
+      if (!evolutionService.anySelectedConnectionsOpenInMemory(connectionIds)) {
+        await evolutionService.refreshConnectionsForCampaign(connectionIds).catch(() => undefined);
+      }
+      const hasConnected =
+        evolutionService.anySelectedConnectionsOpenInMemory(connectionIds) ||
+        (await evolutionService.anySelectedConnectionsOpen(connectionIds));
       if (!hasConnected) {
         userLog('campaign:error', { campaignId, reason: 'Nenhum canal conectado', connectionIds });
-        const err = 'Nenhum canal conectado disponível para disparo.';
+        const err =
+          'Canal offline no servidor. Abra Conexões, reconecte o chip ou atualize a página (F5) e tente de novo.';
         callback?.({ ok: false, error: err });
-        socket.emit('campaign-error', { error: err });
+        socket.emit('campaign-error', { error: err, campaignId });
         notifyCampaignSocketError(uid, err, campaignId);
         return;
       }
@@ -1282,31 +1291,41 @@ const registerSocketHandlers = () => {
             }
           : undefined;
 
-        const ok = await evolutionService.startCampaign(
-          numbers,
-          stages,
-          connectionIds,
-          campaignId,
-          recipients,
-          replyFlow,
-          uid,
-          channelWeights,
-          campaignMedia,
-          typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0
-            ? delaySeconds
-            : undefined
-        );
-        if (!ok) {
-          const errMsg = 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
-          callback?.({ ok: false, error: errMsg });
-          socket.emit('campaign-error', {
-            error: errMsg,
-            campaignId
-          });
-          notifyCampaignSocketError(uid, errMsg, campaignId);
-          return;
-        }
+        // Libera a UI imediatamente; enfileiramento continua em background.
         callback?.({ ok: true });
+
+        void (async () => {
+          try {
+            const ok = await evolutionService.startCampaign(
+              numbers,
+              stages,
+              connectionIds,
+              campaignId,
+              recipients,
+              replyFlow,
+              uid,
+              channelWeights,
+              campaignMedia,
+              typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0
+                ? delaySeconds
+                : undefined
+            );
+            if (!ok) {
+              const errMsg =
+                'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
+              socket.emit('campaign-error', {
+                error: errMsg,
+                campaignId
+              });
+              notifyCampaignSocketError(uid, errMsg, campaignId);
+            }
+          } catch (error: any) {
+            const messageText = error?.message || 'Falha ao iniciar campanha.';
+            userLog('campaign:error', { campaignId, reason: messageText, connectionIds });
+            socket.emit('campaign-error', { error: messageText, campaignId });
+            notifyCampaignSocketError(uid, messageText, campaignId);
+          }
+        })();
       } catch (error: any) {
         const messageText = error?.message || 'Falha ao iniciar campanha.';
         userLog('campaign:error', { campaignId, reason: messageText, connectionIds });
