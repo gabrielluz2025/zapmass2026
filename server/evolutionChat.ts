@@ -208,9 +208,10 @@ export function createEvolutionChat(api: AxiosInstance) {
         if (deletedConversationIds.has(conversationId)) return;
         let conv = conversations.find((c) => c.id === conversationId);
         if (!conv) {
+            const resolvedName = filterEvolutionName(meta?.contactName) || meta?.contactPhone || conversationId.split(':')[1] || '';
             conv = {
                 id: conversationId,
-                contactName: meta?.contactName || meta?.contactPhone || conversationId.split(':')[1] || 'Contato',
+                contactName: resolvedName,
                 contactPhone: meta?.contactPhone || '',
                 connectionId: meta?.connectionId || conversationId.split(':')[0] || '',
                 unreadCount: 0,
@@ -221,6 +222,12 @@ export function createEvolutionChat(api: AxiosInstance) {
                 tags: [],
             };
             conversations.push(conv);
+        } else {
+            // Atualiza nome se o atual é genérico/vazio e chegou uma versão melhor via pushName
+            const betterName = filterEvolutionName(meta?.contactName);
+            if (betterName && (!conv.contactName || !filterEvolutionName(conv.contactName))) {
+                conv.contactName = betterName;
+            }
         }
 
         const exists = conv.messages.some((m) => m.id === msg.id);
@@ -445,6 +452,20 @@ export function createEvolutionChat(api: AxiosInstance) {
         return fetched;
     }
 
+    /**
+     * Filtra nomes genéricos/inválidos que a Evolution API retorna quando não encontra o nome real do contato.
+     * Retorna undefined para que o próximo campo na cadeia seja tentado.
+     */
+    function filterEvolutionName(raw: unknown): string | undefined {
+        if (typeof raw !== 'string') return undefined;
+        const t = raw.trim();
+        if (!t) return undefined;
+        const lower = t.toLowerCase();
+        // Nomes genéricos/padrão que não identificam o contato
+        if (lower === 'contato' || lower === 'contact' || lower === 'unknown' || lower === 'desconhecido') return undefined;
+        return t;
+    }
+
     function mapEvolutionChatToConversation(connectionId: string, chat: any): Conversation | null {
         const remoteJid = chatRemoteJid(chat);
         if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') {
@@ -454,12 +475,14 @@ export function createEvolutionChat(api: AxiosInstance) {
 
         const jid = remoteJid;
         const id = buildConversationId(connectionId, jid);
+        // Usa filterEvolutionName para ignorar nomes genéricos ("Contato", "Contact" etc.)
+        // e cair para o próximo campo até chegar ao telefone como última instância.
         const name =
-            chat?.name ||
-            chat?.chatName ||
-            chat?.pushName ||
-            chat?.contactName ||
-            chat?.verifiedName ||
+            filterEvolutionName(chat?.name) ||
+            filterEvolutionName(chat?.chatName) ||
+            filterEvolutionName(chat?.pushName) ||
+            filterEvolutionName(chat?.contactName) ||
+            filterEvolutionName(chat?.verifiedName) ||
             jid.split('@')[0];
         const lastMsgRaw = chat?.lastMessage || chat?.messages?.[0];
         const lastChatMsg = lastMsgRaw ? evolutionRawToChatMessage(lastMsgRaw, true) : null;

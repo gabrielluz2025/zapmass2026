@@ -992,13 +992,19 @@ export const ChatTab: React.FC<{
     const map = new Map<string, { primary: string; whatsappSubtitle?: string; phoneSecondary?: string }>();
     const same = (a: string, b: string) =>
       a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ');
+    // Nomes genéricos que o Evolution API retorna quando não tem o nome real do contato
+    const GENERIC_WA_NAMES = new Set(['contato', 'contact', 'unknown', 'desconhecido']);
+    const isGenericName = (n: string) => GENERIC_WA_NAMES.has(n.toLowerCase());
+
     for (const conv of mergedConversations) {
-      const waName = (conv.contactName || '').trim();
+      const waNameRaw = (conv.contactName || '').trim();
+      // Tratar nomes genéricos da Evolution API ("Contato", "Contact" etc.) como vazio,
+      // para cair para phoneLabel ou nome do CRM.
+      const waName = isGenericName(waNameRaw) ? '' : waNameRaw;
       const systemName = resolveSystemNameForConv(conv);
       const friendlyStored =
         waName &&
-        !looksLikeDigitsOnlyContactLabel(waName) &&
-        waName.toLowerCase() !== 'contato'
+        !looksLikeDigitsOnlyContactLabel(waName)
           ? waName
           : '';
       // Para JIDs @lid, os dígitos são IDs internos do WhatsApp — não são telefones reais.
@@ -1011,7 +1017,8 @@ export const ChatTab: React.FC<{
       const phoneLabel = digits ? formatPhoneDisplay(digits) : '';
       // Quando só há número (sem nome amigável), usar phoneLabel como principal para exibir formatado
       const rawNumberOnly = !systemName && !friendlyStored && looksLikeDigitsOnlyContactLabel(waName);
-      const primary = systemName || friendlyStored || (rawNumberOnly ? phoneLabel : waName) || phoneLabel || 'Contato';
+      // Prioridade: 1) CRM (Firestore) 2) Nome do WhatsApp 3) Número formatado
+      const primary = systemName || friendlyStored || (rawNumberOnly ? phoneLabel : waName) || phoneLabel || waNameRaw || 'Contato';
 
       let whatsappSubtitle: string | undefined;
       // Mostrar o nome do WA como subtítulo apenas se for diferente do nome do sistema
@@ -1039,12 +1046,14 @@ export const ChatTab: React.FC<{
       const cached = displayInfoByConvId.get(conv.id);
       if (cached) return cached;
       // Fallback raríssimo (conversa veio de fora de mergedConversations, ex.: id sintético).
-      const waName = (conv.contactName || '').trim();
+      const waNameRaw = (conv.contactName || '').trim();
+      const GENERIC = new Set(['contato', 'contact', 'unknown', 'desconhecido']);
+      const waName = GENERIC.has(waNameRaw.toLowerCase()) ? '' : waNameRaw;
       const phoneLabel = (() => {
         const d = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
-        return d ? `+${d}` : '';
+        return d ? formatPhoneDisplay(d) : '';
       })();
-      const primary = waName || phoneLabel || 'Contato';
+      const primary = waName || phoneLabel || waNameRaw || 'Contato';
       return { primary };
     },
     [displayInfoByConvId]
