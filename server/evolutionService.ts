@@ -3042,9 +3042,8 @@ export async function startCampaign(
             } else {
                 for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
                     const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars);
-                    // Delay entre etapas: mínimo de 60s para que o contato receba as mensagens
-                    // com intervalo natural (evita spam e bloqueio pela Evolution/WhatsApp).
-                    const interStageMinDelay = Math.max(dispatchSettings.minDelayMs, 60_000);
+                    // Delay entre etapas: usa o mesmo intervalo configurado entre contatos.
+                    const interStageMinDelay = dispatchSettings.minDelayMs;
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
                     await enqueueCampaignItem(
                         {

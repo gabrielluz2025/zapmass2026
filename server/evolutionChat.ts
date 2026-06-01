@@ -97,6 +97,14 @@ export function createEvolutionChat(api: AxiosInstance) {
         return 'text';
     }
 
+    const MEDIA_TYPE_LABEL: Record<string, string> = {
+        image: '📷 Imagem',
+        video: '🎥 Vídeo',
+        audio: '🎵 Áudio',
+        sticker: '🎭 Figurinha',
+        document: '📎 Documento',
+    };
+
     function extractMessageText(message: Record<string, unknown> | undefined): string {
         if (!message) return '';
         const { bodyText } = extractEvolutionReplyBody(message as Parameters<typeof extractEvolutionReplyBody>[0]);
@@ -127,7 +135,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         const tsMs = tsRaw > 1_000_000_000_000 ? tsRaw : tsRaw * 1000;
         const fromMe = Boolean(key.fromMe);
         const type = inferMessageType(message);
-        const text = extractMessageText(message) || (type !== 'text' ? `[${type}]` : '');
+        const text = extractMessageText(message) || MEDIA_TYPE_LABEL[type] || '';
         const mediaUrl = skipMedia ? undefined : extractMediaUrl(message);
 
         return {
@@ -210,7 +218,8 @@ export function createEvolutionChat(api: AxiosInstance) {
 
         const exists = conv.messages.some((m) => m.id === msg.id);
         if (!exists) {
-            conv.messages = [...conv.messages.slice(-(MAX_MESSAGES - 1)), msg];
+            conv.messages = [...conv.messages.slice(-(MAX_MESSAGES - 1)), msg]
+                .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
         }
         conv.lastMessage = msg.text || conv.lastMessage;
         conv.lastMessageTime = msg.timestamp;

@@ -1158,7 +1158,7 @@ export const ChatTab: React.FC<{
         if (pa !== pb) return pb - pa;
         return (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0);
       });
-    return dedupeConversationsById(list);
+    // dedupeConversationsById já foi removido — deduplicação ocorre no servidor.
   }, [
     filteredByConnection,
     chatFilter,
@@ -2731,19 +2731,48 @@ export const ChatTab: React.FC<{
                   const isMe = msg.sender === 'me';
                   const prevMsg = selectedConversation.messages[idx - 1];
                   const showTail = !prevMsg || prevMsg.sender !== msg.sender;
+
+                  // Horário sempre hh:mm na bolha (nunca "Ontem" ou "dd/mm")
+                  const bubbleTime = msg.timestampMs && msg.timestampMs > 0
+                    ? new Date(msg.timestampMs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                    : msg.timestamp || '';
+
+                  // Separador de data: "Hoje", "Ontem" ou "dd/mm/aaaa"
+                  const msgDate = msg.timestampMs ? new Date(msg.timestampMs) : null;
+                  const prevDate = prevMsg?.timestampMs ? new Date(prevMsg.timestampMs) : null;
+                  const showDateSep = msgDate && (!prevDate || msgDate.toDateString() !== prevDate.toDateString());
+                  const today = new Date();
+                  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+                  const dateSepLabel = showDateSep
+                    ? msgDate.toDateString() === today.toDateString()
+                      ? 'Hoje'
+                      : msgDate.toDateString() === yesterday.toDateString()
+                        ? 'Ontem'
+                        : msgDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                    : null;
+
                   return (
-                    <div
-                      key={msg.id}
-                      className={showTail ? 'mt-2' : ''}
-                    >
-                      <WaBubble
-                        side={isMe ? 'out' : 'in'}
-                        showTail={showTail}
-                        status={isMe ? msg.status : undefined}
-                        time={msg.timestamp}
-                      >
-                        {renderMessageContent(msg)}
-                      </WaBubble>
+                    <div key={msg.id}>
+                      {dateSepLabel && (
+                        <div className="flex justify-center my-3">
+                          <span
+                            className="text-[11px] px-3 py-1 rounded-full shadow-sm select-none"
+                            style={{ background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
+                          >
+                            {dateSepLabel}
+                          </span>
+                        </div>
+                      )}
+                      <div className={showTail ? 'mt-2' : ''}>
+                        <WaBubble
+                          side={isMe ? 'out' : 'in'}
+                          showTail={showTail}
+                          status={isMe ? msg.status : undefined}
+                          time={bubbleTime}
+                        >
+                          {renderMessageContent(msg)}
+                        </WaBubble>
+                      </div>
                     </div>
                   );
                 })}
