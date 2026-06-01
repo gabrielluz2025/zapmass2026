@@ -52,23 +52,13 @@ export function createEvolutionChat(api: AxiosInstance) {
             console.warn('[evolutionChat] emitConversationsUpdate sem ownerUid — update suprimido para evitar cross-tenant.');
             return;
         }
-        // Debounce: evita rafaga de emits quando muitas conversas são atualizadas de uma vez.
+        // Debounce: agrupa emits rápidos em lote (ex: sync de 800+ conversas → 1 emit ao final).
         if (emitDebounceTimer) clearTimeout(emitDebounceTimer);
         emitDebounceTimer = setTimeout(() => {
             emitDebounceTimer = null;
             if (!io || !ownerUidForScope) return;
-            // Envia apenas conversas com conteúdo real — exclui shells vazios do findChats.
-            // Isso reduz o payload de ~1300 para apenas as conversas com mensagens/preview.
-            const payload = conversations.filter(
-                (c) =>
-                    (c.messages?.length || 0) > 0 ||
-                    (c.lastMessage || '').trim().length > 0 ||
-                    (typeof c.lastMessageTimestamp === 'number' &&
-                        Number.isFinite(c.lastMessageTimestamp) &&
-                        c.lastMessageTimestamp > 0)
-            );
-            io.to(`user:${ownerUidForScope}`).emit('conversations-update', payload);
-        }, 120);
+            io.to(`user:${ownerUidForScope}`).emit('conversations-update', [...conversations]);
+        }, 80);
     }
 
     function parseConversationId(conversationId: string): ParsedConversation | null {
@@ -475,11 +465,14 @@ export function createEvolutionChat(api: AxiosInstance) {
         const lastChatMsg = lastMsgRaw ? evolutionRawToChatMessage(lastMsgRaw, true) : null;
         const existing = conversations.find((c) => c.id === id);
 
+        // resolveChatRowTimestampMs usa fallback 0 quando não há timestamp; nesse caso,
+        // tenta preservar o existente ou usa Date.now() para que a conversa apareça na lista.
+        const resolvedTs = resolveChatRowTimestampMs(chat, existing?.lastMessageTimestamp ?? 0);
         const tsMs =
             (lastChatMsg?.timestampMs && Number.isFinite(lastChatMsg.timestampMs)
                 ? lastChatMsg.timestampMs
                 : undefined) ??
-            resolveChatRowTimestampMs(chat, existing?.lastMessageTimestamp ?? 0);
+            (resolvedTs > 0 ? resolvedTs : existing?.lastMessageTimestamp ?? 0);
 
         return {
             id,
@@ -518,10 +511,11 @@ export function createEvolutionChat(api: AxiosInstance) {
                 added++;
             }
 
-            // findChats nem sempre traz lastMessage — busca histórico recente para conversas vazias.
+            // findChats nem sempre traz lastMessage — busca histórico recente para as primeiras conversas.
+            // Limite de 10 (era 35) para acelerar o sync inicial e não travar em 800+ contatos.
             const emptyConvs = conversations
                 .filter((c) => c.connectionId === connectionId && (!c.messages || c.messages.length === 0))
-                .slice(0, 35);
+                .slice(0, 10);
             if (emptyConvs.length > 0) {
                 await Promise.all(
                     emptyConvs.map(async (conv) => {

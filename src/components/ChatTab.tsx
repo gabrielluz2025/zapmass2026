@@ -1133,8 +1133,6 @@ export const ChatTab: React.FC<{
 
   const filteredConversations = useMemo(() => {
     let list = filteredByConnection;
-    // "Todas" mostra apenas conversas com conteúdo real — shells vazios do findChats ficam ocultos.
-    if (chatFilter === 'all') list = list.filter((c) => originByConv.get(c.id) !== 'empty');
     if (chatFilter === 'unread') list = list.filter((c) => c.unreadCount > 0);
     if (chatFilter === 'groups') list = list.filter((c) => c.id.endsWith('@g.us'));
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');
