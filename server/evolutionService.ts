@@ -1614,7 +1614,7 @@ function deleteCampaignMediaFromDisk(campaignId: string): void {
     if (meta?._diskPath) {
         try { fs.unlinkSync(meta._diskPath); } catch { /* ignora */ }
     }
-    deleteCampaignMediaFromDisk(campaignId);
+    campaignMediaById.delete(campaignId);
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
