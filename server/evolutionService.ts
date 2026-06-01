@@ -3074,6 +3074,8 @@ export async function startCampaign(
             ownerUid
         );
         publishOwnerEvent(ownerUid, 'campaign-started', { total: totalJobs, campaignId: cid });
+        // Garante status RUNNING no Firestore independente de o socket chegar ao frontend.
+        void persistCampaignProgressToFirestore(ownerUid, cid, 0, 0, 0, 'RUNNING');
     } catch (err: any) {
         // Falha de enfileiramento (Redis fora, etc.): cancela campanha em RAM
         // e propaga para o socket handler avisar a UI.
@@ -3684,6 +3686,17 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     // Se o estado não estiver em RAM (ex: após restart), tenta restaurar do Redis.
     if (!campaignsById.has(campaignId)) {
         void ensureCampaignRuntimeInMemory(campaignId, ou);
+    }
+    // Garante status RUNNING no Firestore ao retomar (corrige campanhas presas em DRAFT/PENDENTE).
+    const state = campaignsById.get(campaignId);
+    if (ou) {
+        void persistCampaignProgressToFirestore(
+            ou, campaignId,
+            state?.successCount ?? 0,
+            state?.failCount ?? 0,
+            state?.processed ?? 0,
+            'RUNNING'
+        );
     }
     publishOwnerEvent(ou, 'campaign-resumed', { campaignId });
     ensureCampaignWorker();

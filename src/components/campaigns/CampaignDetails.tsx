@@ -427,6 +427,14 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
   const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
+  // Fluxo por resposta aguardando: campanha ativa (ou presa em DRAFT com envios já feitos)
+  // com pelo menos 1 mensagem enviada e ainda aguardando respostas para avançar às próximas etapas.
+  const isWaitingForReplies =
+    Boolean(campaign.replyFlow?.enabled) &&
+    !isDone &&
+    !isScheduled &&
+    (isRunning || isPaused ||
+      (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0));
 
   useEffect(() => {
     if (!isRunning) return;
@@ -445,6 +453,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     ? 'info'
     : isDone
     ? 'info'
+    : isWaitingForReplies
+    ? 'warning'
     : 'neutral';
   const accent = isRunning
     ? 'var(--brand-500)'
@@ -454,6 +464,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     ? '#6366f1'
     : isDone
     ? '#3b82f6'
+    : isWaitingForReplies
+    ? '#f59e0b'
     : 'var(--text-3)';
   const accentHex = isRunning
     ? '#10b981'
@@ -463,6 +475,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     ? '#6366f1'
     : isDone
     ? '#3b82f6'
+    : isWaitingForReplies
+    ? '#f59e0b'
     : '#94a3b8';
 
   const startedAt = useMemo(() => {
@@ -1054,7 +1068,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               Voltar
             </Button>
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              {!isDone && !isScheduled && (
+              {!isDone && !isScheduled && !isWaitingForReplies && (
                 <Button
                   variant={isRunning ? 'secondary' : 'primary'}
                   size="sm"
@@ -1062,6 +1076,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   onClick={() => onTogglePause(campaign.id)}
                 >
                   {isRunning ? 'Pausar' : 'Retomar'}
+                </Button>
+              )}
+              {isWaitingForReplies && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<Play className="w-4 h-4" />}
+                  onClick={() => onTogglePause(campaign.id)}
+                  title="Sincronizar status — confirma a campanha como ativa e aguardando respostas"
+                >
+                  Sincronizar status
                 </Button>
               )}
               <Button
@@ -1123,7 +1148,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 >
                   Mission Report
                 </span>
-                <Badge variant={statusVariant} dot={isRunning}>
+                <Badge variant={statusVariant} dot={isRunning || isWaitingForReplies}>
                   {isRunning
                     ? 'Em execução'
                     : isPaused
@@ -1132,6 +1157,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     ? 'Agendada'
                     : isDone
                     ? 'Concluída'
+                    : isWaitingForReplies
+                    ? 'Aguardando respostas'
                     : 'Pendente'}
                 </Badge>
               </div>
@@ -1348,7 +1375,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         />
       </div>
 
-      {campaign.replyFlow?.enabled && isRunning && (campaign.replyFlow.steps?.length || 0) > 1 && (
+      {campaign.replyFlow?.enabled && (isRunning || isWaitingForReplies) && (campaign.replyFlow.steps?.length || 0) > 1 && (
         <div
           className="rounded-xl px-4 py-3 flex items-start gap-3"
           style={{
@@ -1364,14 +1391,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           </div>
           <div className="min-w-0">
             <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
-              Fluxo por resposta ativo
+              Fluxo por resposta — aguardando respostas
             </p>
             <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-              Etapa 1 já enviada. Quando o contato responder
-              {campaign.replyFlow.steps?.[0]?.acceptAnyReply
-                ? ' (qualquer mensagem)'
+              Etapa 1 já foi enviada. A etapa 2 será disparada automaticamente assim que o contato
+              responder{campaign.replyFlow.steps?.[0]?.acceptAnyReply
+                ? ' (qualquer mensagem serve)'
                 : ' com a palavra-chave configurada'}
-              , a etapa 2 entra na fila automaticamente. Acompanhe nos logs ao vivo abaixo.
+              . Esta campanha <strong>não precisa de "Retomar"</strong> — ela avança sozinha ao receber a resposta.
+              Clique em "Sincronizar status" se o progresso estiver travado na tela.
             </p>
           </div>
         </div>

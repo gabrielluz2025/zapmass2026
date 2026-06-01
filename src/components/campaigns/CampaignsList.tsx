@@ -523,6 +523,11 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                   const isPaused = camp.status === CampaignStatus.PAUSED;
                   const isDone = camp.status === CampaignStatus.COMPLETED;
                   const isScheduled = camp.status === CampaignStatus.SCHEDULED;
+                  const isWaitingForReplies =
+                    Boolean(camp.replyFlow?.enabled) &&
+                    !isDone && !isScheduled &&
+                    (isRunning || isPaused ||
+                      (camp.status === CampaignStatus.DRAFT && (camp.processedCount ?? 0) > 0));
                   const eta = etaForCampaign(camp);
                   return (
                     <tr
@@ -542,9 +547,14 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                       <td className="px-3 py-2.5">
                         <Badge
                           variant={
-                            isRunning ? 'success' : isPaused ? 'warning' : isScheduled ? 'info' : isDone ? 'info' : 'neutral'
+                            isRunning ? 'success'
+                            : isPaused ? 'warning'
+                            : isScheduled ? 'info'
+                            : isDone ? 'info'
+                            : isWaitingForReplies ? 'warning'
+                            : 'neutral'
                           }
-                          dot={isRunning}
+                          dot={isRunning || isWaitingForReplies}
                         >
                           {isRunning
                             ? 'Ativa'
@@ -554,6 +564,8 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
                             ? 'Agendada'
                             : isDone
                             ? 'Concluída'
+                            : isWaitingForReplies
+                            ? 'Aguardando respostas'
                             : 'Pendente'}
                         </Badge>
                       </td>
@@ -732,6 +744,11 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
   const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
+  const isWaitingForReplies =
+    Boolean(campaign.replyFlow?.enabled) &&
+    !isDone && !isScheduled &&
+    (isRunning || isPaused ||
+      (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0));
   const spark = useMemo(() => buildSpark(campaign), [campaign]);
   const eta = etaForCampaign(campaign);
 
@@ -743,6 +760,8 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
     ? '#6366f1'
     : isDone
     ? '#3b82f6'
+    : isWaitingForReplies
+    ? '#f59e0b'
     : '#94a3b8';
 
   const pending = m.pending;
@@ -799,8 +818,15 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
             style={{ color: 'var(--text-3)' }}
           >
             <Badge
-              variant={isRunning ? 'success' : isPaused ? 'warning' : isScheduled ? 'info' : isDone ? 'info' : 'neutral'}
-              dot={isRunning}
+              variant={
+                isRunning ? 'success'
+                : isPaused ? 'warning'
+                : isScheduled ? 'info'
+                : isDone ? 'info'
+                : isWaitingForReplies ? 'warning'
+                : 'neutral'
+              }
+              dot={isRunning || isWaitingForReplies}
             >
               {isRunning
                 ? 'Executando'
@@ -810,6 +836,8 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
                 ? 'Agendada'
                 : isDone
                 ? 'Concluída'
+                : isWaitingForReplies
+                ? 'Aguardando respostas'
                 : 'Pendente'}
             </Badge>
             <span className="flex items-center gap-1">
