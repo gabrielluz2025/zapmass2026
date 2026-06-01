@@ -3033,7 +3033,7 @@ async function testConnection() {
 /**
  * Handler de webhooks (para receber eventos da Evolution API)
  */
-export function handleWebhook(event: any) {
+export async function handleWebhook(event: any) {
     try {
         const instance = resolveInstanceName(event?.instance ?? event?.instanceName);
         const data = event?.data ?? event;
