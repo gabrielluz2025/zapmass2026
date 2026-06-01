@@ -1133,6 +1133,8 @@ export const ChatTab: React.FC<{
 
   const filteredConversations = useMemo(() => {
     let list = filteredByConnection;
+    // "Todas" mostra apenas conversas com conteúdo real — shells vazios do findChats ficam ocultos.
+    if (chatFilter === 'all') list = list.filter((c) => originByConv.get(c.id) !== 'empty');
     if (chatFilter === 'unread') list = list.filter((c) => c.unreadCount > 0);
     if (chatFilter === 'groups') list = list.filter((c) => c.id.endsWith('@g.us'));
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');
@@ -1819,12 +1821,12 @@ export const ChatTab: React.FC<{
           </div>
         </div>
 
-        {/* Aviso compacto de origem (só quando há conversas suspeitas) */}
-        {(totalSystem > 0 || totalEmpty > 0) && (
+        {/* Aviso compacto de origem (só quando há disparos de campanha sem resposta para revisar) */}
+        {totalSystem > 0 && (
           <button
             type="button"
             onClick={() => {
-              setAuditCategory(totalSystem > 0 ? 'system' : 'empty');
+              setAuditCategory('system');
               setAuditSelection(new Set());
               setShowAudit(true);
             }}
@@ -1837,7 +1839,7 @@ export const ChatTab: React.FC<{
           >
             <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: '#f59e0b' }} />
             <span className="text-[12.5px] truncate flex-1">
-              {totalSystem + totalEmpty} conversa{totalSystem + totalEmpty === 1 ? '' : 's'} fora do celular · revisar
+              {totalSystem} conversa{totalSystem === 1 ? '' : 's'} de campanha sem resposta · revisar
             </span>
           </button>
         )}

@@ -22,6 +22,8 @@ export function createEvolutionChat(api: AxiosInstance) {
     const deletedConversationIds = new Set<string>();
     /** Evita corrida quando vários canais sincronizam findChats em paralelo. */
     let storeLock: Promise<void> = Promise.resolve();
+    /** Debounce de 120ms para evitar dezenas de emits em sequência (ex: sync inicial de 1300+ conversas). */
+    let emitDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     const withStoreLock = <T>(fn: () => Promise<T>): Promise<T> => {
         const run = storeLock.then(fn);
         storeLock = run.then(
@@ -45,13 +47,28 @@ export function createEvolutionChat(api: AxiosInstance) {
             notifyConversationsChanged();
             return;
         }
-        // Emitir apenas para a sala do dono — nunca broadcast global (risco cross-tenant).
-        if (io && ownerUidForScope) {
-            io.to(`user:${ownerUidForScope}`).emit('conversations-update', [...conversations]);
-        } else if (io) {
-            // Fallback seguro: não emite globalmente; apenas loga o aviso.
+        if (!io) return;
+        if (!ownerUidForScope) {
             console.warn('[evolutionChat] emitConversationsUpdate sem ownerUid — update suprimido para evitar cross-tenant.');
+            return;
         }
+        // Debounce: evita rafaga de emits quando muitas conversas são atualizadas de uma vez.
+        if (emitDebounceTimer) clearTimeout(emitDebounceTimer);
+        emitDebounceTimer = setTimeout(() => {
+            emitDebounceTimer = null;
+            if (!io || !ownerUidForScope) return;
+            // Envia apenas conversas com conteúdo real — exclui shells vazios do findChats.
+            // Isso reduz o payload de ~1300 para apenas as conversas com mensagens/preview.
+            const payload = conversations.filter(
+                (c) =>
+                    (c.messages?.length || 0) > 0 ||
+                    (c.lastMessage || '').trim().length > 0 ||
+                    (typeof c.lastMessageTimestamp === 'number' &&
+                        Number.isFinite(c.lastMessageTimestamp) &&
+                        c.lastMessageTimestamp > 0)
+            );
+            io.to(`user:${ownerUidForScope}`).emit('conversations-update', payload);
+        }, 120);
     }
 
     function parseConversationId(conversationId: string): ParsedConversation | null {
