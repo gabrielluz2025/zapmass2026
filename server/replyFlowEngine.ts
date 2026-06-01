@@ -362,16 +362,30 @@ export class ReplyFlowEngine {
         return null;
     }
 
-    private async loadDefFromFirestore(campaignId: string): Promise<{ steps: ReplyFlowStepDef[] } | null> {
+    private async loadDefFromFirestore(campaignId: string, ownerUid?: string): Promise<{ steps: ReplyFlowStepDef[] } | null> {
         try {
             const admin = getFirebaseAdmin();
             if (!admin) return null;
             const db = getFirestore(admin);
-            const snap = await db.collectionGroup('campaigns').where('__name__', '==', `campaigns/${campaignId}`).get();
-            if (!snap.empty) {
-                const data = snap.docs[0].data();
-                if (data?.replyFlow?.enabled && Array.isArray(data.replyFlow.steps)) {
-                    const sanitized = sanitizeReplyFlowSteps(data.replyFlow.steps);
+
+            let docData: Record<string, unknown> | undefined;
+
+            if (ownerUid) {
+                // Caminho direto quando ownerUid é conhecido — mais rápido e correto.
+                const docSnap = await db.doc(`users/${ownerUid}/campaigns/${campaignId}`).get();
+                if (docSnap.exists) docData = docSnap.data() as Record<string, unknown>;
+            }
+
+            if (!docData) {
+                // Fallback: busca pelo campo `id` na collectionGroup (sem __name__ que não funciona).
+                const snap = await db.collectionGroup('campaigns').where('id', '==', campaignId).limit(1).get();
+                if (!snap.empty) docData = snap.docs[0].data() as Record<string, unknown>;
+            }
+
+            if (docData?.replyFlow && typeof docData.replyFlow === 'object') {
+                const rf = docData.replyFlow as Record<string, unknown>;
+                if (rf.enabled && Array.isArray(rf.steps)) {
+                    const sanitized = sanitizeReplyFlowSteps(rf.steps as any[]);
                     if (sanitized.length > 0) {
                         this.defs.set(campaignId, { steps: sanitized });
                         return { steps: sanitized };
@@ -417,7 +431,7 @@ export class ReplyFlowEngine {
         const { key, session } = found;
         let def = this.defs.get(session.campaignId);
         if (!def?.steps?.length) {
-            def = (await this.loadDefFromFirestore(session.campaignId)) ?? undefined;
+            def = (await this.loadDefFromFirestore(session.campaignId, session.ownerUid)) ?? undefined;
         }
         if (!def?.steps?.length) {
             this.disposeSession(key, session);

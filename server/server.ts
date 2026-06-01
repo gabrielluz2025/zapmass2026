@@ -655,7 +655,11 @@ const runConnectionCommand = async (opts: { submit: () => Promise<void>; local: 
 };
 
 const registerSocketHandlers = () => {
-  waService.init(io);
+  // Motor Puppeteer só é inicializado quando ENGINE != 'evolution'.
+  // Com Evolution ativo, pular waService.init economiza ~300MB de RAM.
+  if (!useEvolutionEngine()) {
+    waService.init(io);
+  }
   evolutionService.init(io);
 
   const allowAnonymousSocket = (() => {

@@ -119,9 +119,11 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
               />
             )}
           </div>
+          {/* Indicador de status com animação: pulsante quando conectado, girando quando conectando */}
           <span
-            className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full flex items-center justify-center"
+            className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center ${isConnected ? 'animate-pulse' : ''}`}
             style={{ background: statusColor, border: '2px solid var(--surface)' }}
+            title={statusLabel}
           >
             {isConnecting && <Loader2 className="w-2 h-2 text-white animate-spin" />}
           </span>
@@ -140,10 +142,31 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
               {statusLabel}
             </span>
           </div>
-          <span className="text-[11px] font-mono truncate block" style={{ color: 'var(--text-3)' }}>
-            {connection.phoneNumber ||
-              (isConnected ? 'Sem número — reconecte' : 'Aguardando conexão...')}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono truncate" style={{ color: 'var(--text-3)' }}>
+              {connection.phoneNumber ||
+                (isConnected ? 'Sem número — reconecte' : 'Aguardando conexão...')}
+            </span>
+            {/* Alerta de limite diário: exibe quando >= 80% */}
+            {(() => {
+              const limit = (connection as any).dailyLimit;
+              const sent = connection.messagesSentToday || 0;
+              if (!limit || limit <= 0) return null;
+              const pct = Math.round((sent / limit) * 100);
+              if (pct < 80) return null;
+              return (
+                <span
+                  className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                  style={{
+                    background: pct >= 100 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                    color: pct >= 100 ? '#ef4444' : '#d97706'
+                  }}
+                >
+                  {pct}% limite
+                </span>
+              );
+            })()}
+          </div>
         </div>
 
         {/* Métricas em grid */}

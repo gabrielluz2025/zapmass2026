@@ -3051,6 +3051,81 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 </div>
               )}
 
+              {/* ── Saúde dos chips selecionados ── */}
+              {(() => {
+                const selectedConns = connections.filter((c) => selectedConnectionIds.includes(c.id));
+                const offlineConns = selectedConns.filter((c) => c.status !== ConnectionStatus.CONNECTED);
+                if (offlineConns.length === 0) return null;
+                return (
+                  <div
+                    className="rounded-lg p-3 flex items-start gap-2.5"
+                    style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}
+                  >
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#d97706' }} />
+                    <div>
+                      <p className="text-[12px] font-semibold mb-1" style={{ color: '#d97706' }}>
+                        {offlineConns.length} chip{offlineConns.length > 1 ? 's' : ''} selecionado{offlineConns.length > 1 ? 's' : ''} não {offlineConns.length > 1 ? 'estão conectados' : 'está conectado'}
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {offlineConns.map((c) => (
+                          <span
+                            key={c.id}
+                            className="text-[11px] px-1.5 py-0.5 rounded"
+                            style={{ background: 'rgba(245,158,11,0.14)', color: '#b45309' }}
+                          >
+                            {c.name || c.id}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+                        Reconecte os chips antes de iniciar ou o disparo pode falhar.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Teste rápido antes de disparar ── */}
+              <div
+                className="rounded-lg p-3"
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>
+                  Testar antes de disparar
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="tel"
+                    placeholder="Seu número com DDD (ex: 11999990000)"
+                    value={quickTestPhone}
+                    onChange={(e) => setQuickTestPhone(e.target.value)}
+                    className="flex-1 text-[13px] px-3 py-1.5 rounded-lg"
+                    style={{
+                      background: 'var(--surface-0)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-1)',
+                      outline: 'none'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={sendWizardQuickTest}
+                    disabled={quickTestBusy || !quickTestPhone.trim()}
+                    className="text-[12px] font-medium px-3 py-1.5 rounded-lg flex-shrink-0 disabled:opacity-50"
+                    style={{
+                      background: quickTestSentOk ? 'rgba(16,185,129,0.15)' : 'rgba(59,130,246,0.15)',
+                      color: quickTestSentOk ? '#059669' : '#2563eb',
+                      border: `1px solid ${quickTestSentOk ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)'}`
+                    }}
+                  >
+                    {quickTestBusy ? 'Enviando…' : quickTestSentOk ? 'Enviado!' : 'Enviar teste'}
+                  </button>
+                </div>
+                <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+                  Envia a 1ª mensagem com as variáveis preenchidas para o número informado. Confirme que chegou antes de disparar.
+                </p>
+              </div>
+
               <div className="space-y-3">
                 <ReviewRow label="Nome" value={abLabEnabled ? `${name} — Var A / Var B` : name} />
                 <ReviewRow

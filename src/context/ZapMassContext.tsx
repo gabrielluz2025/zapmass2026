@@ -1784,6 +1784,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         const ok = Number(successCount) || 0;
         const fail = Number(failCount) || 0;
+        const campaignName =
+          campaigns.find((c) => c.id === campaignId)?.name || 'Campanha';
         if (fail > 0) {
           toast.success(
             `Campanha terminada: ${ok} com sucesso · ${fail} falharam. Abra relatório ou «Registos do sistema» por número.`,
@@ -1792,6 +1794,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         } else {
           toast.success('Campanha finalizada!', { duration: 4500 });
         }
+        // Web Push: notifica mesmo com a aba em segundo plano ou minimizada.
+        try {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            const body =
+              fail > 0
+                ? `${ok} enviadas · ${fail} falharam`
+                : `${ok} mensagem${ok !== 1 ? 'ns' : ''} enviada${ok !== 1 ? 's' : ''} com sucesso`;
+            new Notification(`ZapMass — ${campaignName} concluída`, {
+              body,
+              icon: '/favicon.ico',
+              tag: `campaign-done-${campaignId}`,
+            });
+          } else if ('Notification' in window && Notification.permission === 'default') {
+            // Solicita permissão de forma silenciosa para futuras campanhas.
+            void Notification.requestPermission();
+          }
+        } catch { /* Notificações não suportadas — ignora silenciosamente */ }
       }
     );
 

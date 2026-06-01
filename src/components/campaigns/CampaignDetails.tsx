@@ -430,7 +430,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   useEffect(() => {
     if (!isRunning) return;
-    const id = setInterval(() => setNow(Date.now()), 5000);
+    // Atualiza a cada 1s para contador vivo de ETA e tempo decorrido.
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [isRunning]);
 
@@ -1186,8 +1187,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 />
                 <VitalStat
                   label={isRunning ? 'ETA' : 'Restantes'}
-                  value={isRunning && etaSec > 0 ? formatDuration(etaSec) : remaining.toLocaleString('pt-BR')}
-                  hint={isRunning ? 'previsto' : remaining > 0 ? 'aguardando' : 'concluído'}
+                  value={
+                    isRunning && etaSec > 0
+                      ? formatDuration(etaSec)
+                      : remaining.toLocaleString('pt-BR')
+                  }
+                  hint={
+                    isRunning && etaSec > 0
+                      ? `termina ~${new Date(Date.now() + etaSec * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                      : isRunning
+                      ? 'calculando…'
+                      : remaining > 0
+                      ? 'aguardando'
+                      : 'concluído'
+                  }
                   accent="#f59e0b"
                 />
                 <VitalStat

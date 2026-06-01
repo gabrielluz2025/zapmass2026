@@ -1330,6 +1330,8 @@ interface MessageQueueItem {
     to: string;
     message: string;
     campaignId?: string;
+    /** dono do tenant — persistido no job para restaurar campaignsById após restart */
+    ownerUid?: string;
     /** Índice da etapa (0-based) dentro de messageStages — usado no jobId para evitar colisão. */
     stageIndex?: number;
     media?: CampaignMediaPayload;
@@ -1570,7 +1572,51 @@ function evoInst(instanceName: string): string {
 
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
-const campaignMediaById = new Map<string, CampaignMediaPayload>();
+
+// ──── Mídia de campanha: armazenada em arquivo temporário em vez de RAM ───────
+// Evita OOM em campanhas simultâneas com imagens/áudios grandes.
+const campaignMediaById = new Map<string, CampaignMediaPayload & { _diskPath?: string }>();
+
+const CAMPAIGN_MEDIA_TEMP_DIR = path.join(
+    typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url)),
+    '../data/campaign-media'
+);
+
+function ensureCampaignMediaDir(): void {
+    try { fs.mkdirSync(CAMPAIGN_MEDIA_TEMP_DIR, { recursive: true }); } catch { /* ignora */ }
+}
+
+function saveCampaignMediaToDisk(campaignId: string, media: CampaignMediaPayload): string | null {
+    if (!media.base64) return null;
+    try {
+        ensureCampaignMediaDir();
+        const ext = media.fileName?.split('.').pop() || 'bin';
+        const filePath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, `${campaignId}.${ext}`);
+        fs.writeFileSync(filePath, Buffer.from(media.base64, 'base64'));
+        return filePath;
+    } catch (e: any) {
+        log('warn', 'Falha ao salvar mídia de campanha em disco — usando RAM como fallback', { campaignId, error: e?.message });
+        return null;
+    }
+}
+
+function loadCampaignMediaFromDisk(diskPath: string, mimeType: string, fileName: string, caption?: string): CampaignMediaPayload | null {
+    try {
+        const buf = fs.readFileSync(diskPath);
+        return { base64: buf.toString('base64'), mimeType, fileName, caption };
+    } catch {
+        return null;
+    }
+}
+
+function deleteCampaignMediaFromDisk(campaignId: string): void {
+    const meta = campaignMediaById.get(campaignId);
+    if (meta?._diskPath) {
+        try { fs.unlinkSync(meta._diskPath); } catch { /* ignora */ }
+    }
+    deleteCampaignMediaFromDisk(campaignId);
+}
+// ──────────────────────────────────────────────────────────────────────────────
 
 interface CampaignRuntimeState {
     ownerUid?: string;
@@ -1722,7 +1768,8 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
                 return;
             }
             state.isRunning = false;
-            campaignMediaById.delete(campaignId);
+            deleteCampaignMediaFromDisk(campaignId);
+            void deleteCampaignRuntimeFromRedis(campaignId);
             if (state.ownerUid) {
                 void persistCampaignProgressToFirestore(
                     state.ownerUid,
@@ -1742,6 +1789,8 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
         }
     } else {
         campaignPendingJobs.set(campaignId, pending);
+        // Atualiza snapshot Redis do progresso periódicamente.
+        void saveCampaignRuntimeToRedis(campaignId);
     }
 }
 
@@ -1859,6 +1908,92 @@ async function deleteReplyFlowSessionFromRedis(connectionId: string, phoneDigits
     } catch { /* ignora */ }
 }
 
+// ──── Persistência de Runtime de Campanha no Redis ────────────────────────────
+const CAMPAIGN_RUNTIME_TTL_SECS = 24 * 3600; // 24h
+
+interface CampaignRuntimeRedis extends CampaignRuntimeState {
+    campaignId: string;
+    savedAt: number;
+}
+
+async function saveCampaignRuntimeToRedis(campaignId: string): Promise<void> {
+    const conn = getRedisConnection();
+    if (!conn || !campaignId) return;
+    const state = campaignsById.get(campaignId);
+    if (!state) return;
+    try {
+        const payload: CampaignRuntimeRedis = { ...state, campaignId, savedAt: Date.now() };
+        await conn.setex(
+            `zapmass:campaign:runtime:${campaignId}`,
+            CAMPAIGN_RUNTIME_TTL_SECS,
+            JSON.stringify(payload)
+        );
+    } catch (e: any) {
+        log('warn', 'saveCampaignRuntimeToRedis falhou', { campaignId, error: e?.message });
+    }
+}
+
+async function loadCampaignRuntimeFromRedis(campaignId: string): Promise<CampaignRuntimeState | null> {
+    const conn = getRedisConnection();
+    if (!conn || !campaignId) return null;
+    try {
+        const raw = await conn.get(`zapmass:campaign:runtime:${campaignId}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as CampaignRuntimeRedis;
+        if (!parsed?.ownerUid || typeof parsed.total !== 'number') return null;
+        return {
+            ownerUid: parsed.ownerUid,
+            total: parsed.total,
+            processed: parsed.processed || 0,
+            successCount: parsed.successCount || 0,
+            failCount: parsed.failCount || 0,
+            lastLoggedProcessed: parsed.lastLoggedProcessed || 0,
+            isRunning: parsed.isRunning !== false,
+        };
+    } catch {
+        return null;
+    }
+}
+
+async function deleteCampaignRuntimeFromRedis(campaignId: string): Promise<void> {
+    const conn = getRedisConnection();
+    if (!conn || !campaignId) return;
+    try {
+        await conn.del(`zapmass:campaign:runtime:${campaignId}`);
+    } catch { /* ignora */ }
+}
+
+/**
+ * Garante que campaignsById tem entrada para a campanha.
+ * Se não estiver em RAM, tenta restaurar do Redis.
+ * Usado em processCampaignJob quando o servidor reiniciou durante um disparo ativo.
+ */
+async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUid?: string): Promise<void> {
+    if (!campaignId || campaignsById.has(campaignId)) return;
+    const fromRedis = await loadCampaignRuntimeFromRedis(campaignId);
+    if (fromRedis) {
+        campaignsById.set(campaignId, fromRedis);
+        log('info', `[reconcile] Runtime da campanha ${campaignId} restaurado do Redis`, { ownerUid: fromRedis.ownerUid });
+        return;
+    }
+    // Fallback: cria entrada mínima com ownerUid do job
+    const uid = fallbackOwnerUid;
+    if (uid) {
+        const pending = campaignPendingJobs.get(campaignId) || 1;
+        campaignsById.set(campaignId, {
+            ownerUid: uid,
+            total: pending,
+            processed: 0,
+            successCount: 0,
+            failCount: 0,
+            lastLoggedProcessed: 0,
+            isRunning: true,
+        });
+        log('info', `[reconcile] Runtime mínimo criado para campanha ${campaignId} (sem Redis)`, { ownerUid: uid });
+    }
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
 /** Tenta recuperar sessão de reply flow do Redis quando não está em RAM (ex.: após restart). */
 async function tryRestoreReplyFlowSession(connectionId: string, phoneDigits: string): Promise<void> {
     if (!replyFlowEngine || replyFlowEngine.hasSession(connectionId, phoneDigits)) return;
@@ -1895,11 +2030,13 @@ function ensureReplyFlowEngine() {
             // Delay mínimo de 3s entre a resposta do contato e o próximo envio do reply flow
             // para evitar rajadas na API Evolution e parecer menos robótico.
             const replyDelay = 3000 + Math.random() * 4000;
+            const ownerFromState = item.campaignId ? campaignsById.get(item.campaignId)?.ownerUid : undefined;
             void enqueueCampaignItem({
                 connectionId: item.connectionId,
                 to: item.to,
                 message: item.message,
                 campaignId: item.campaignId,
+                ownerUid: ownerFromState,
                 replyFlowAfterSend: item.replyFlowAfterSend,
             }, replyDelay);
         },
@@ -1931,7 +2068,8 @@ function ensureReplyFlowEngine() {
                 const state = campaignsById.get(campaignId);
                 if (state?.isRunning) {
                     state.isRunning = false;
-                    campaignMediaById.delete(campaignId);
+                    deleteCampaignMediaFromDisk(campaignId);
+                    void deleteCampaignRuntimeFromRedis(campaignId);
                     if (state.ownerUid) {
                         void persistCampaignProgressToFirestore(
                             state.ownerUid,
@@ -2472,6 +2610,11 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new DelayedError();
     }
 
+    // Garante estado em RAM para esta campanha — restaura do Redis se necessário (ex: após restart).
+    if (item.campaignId && !campaignsById.has(item.campaignId)) {
+        const fallback = item.ownerUid || item.replyFlowOpen?.ownerUid;
+        await ensureCampaignRuntimeInMemory(item.campaignId, fallback);
+    }
     const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
     const dispatchSettings = getTenantDispatchSettings(campaignState?.ownerUid);
 
@@ -2557,7 +2700,18 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     let mediaToSend = item.media;
     if (item.sendAsMedia && item.campaignId && campaignMediaById.has(item.campaignId)) {
-        mediaToSend = campaignMediaById.get(item.campaignId);
+        const meta = campaignMediaById.get(item.campaignId)!;
+        if ((meta as any)._diskPath) {
+            // Lê do arquivo temporário em disco (não fica base64 em RAM).
+            mediaToSend = loadCampaignMediaFromDisk(
+                (meta as any)._diskPath,
+                meta.mimeType,
+                meta.fileName,
+                meta.caption
+            ) ?? meta;
+        } else {
+            mediaToSend = meta;
+        }
     }
 
     let sendResult: { ok: boolean; messageId?: string } = { ok: false };
@@ -2788,7 +2942,24 @@ export async function startCampaign(
     const cid = campaignId || `campaign_${Date.now()}`;
 
     if (media?.base64 || media?.url) {
-        campaignMediaById.set(cid, media);
+        if (media.base64) {
+            // Salva base64 em disco para liberar RAM — lê novamente quando o job processar.
+            const diskPath = saveCampaignMediaToDisk(cid, media);
+            if (diskPath) {
+                // Guarda apenas metadados + caminho no disco (sem base64 em RAM).
+                campaignMediaById.set(cid, {
+                    mimeType: media.mimeType,
+                    fileName: media.fileName,
+                    caption: media.caption,
+                    _diskPath: diskPath,
+                } as CampaignMediaPayload & { _diskPath: string });
+            } else {
+                // Fallback: guarda em RAM se o disco falhou.
+                campaignMediaById.set(cid, media);
+            }
+        } else {
+            campaignMediaById.set(cid, media);
+        }
     }
 
     const sanitizedReplySteps =
@@ -2833,6 +3004,8 @@ export async function startCampaign(
         lastLoggedProcessed: 0,
         isRunning: true,
     });
+    // Persiste runtime no Redis imediatamente para sobreviver a restarts.
+    void saveCampaignRuntimeToRedis(cid);
     evolutionRegisterCampaign(cid, ownerUid);
 
     const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds);
@@ -2855,6 +3028,7 @@ export async function startCampaign(
                         to: num,
                         message: personalizedMessage,
                         campaignId: cid,
+                        ownerUid,
                         sendAsMedia: hasMedia,
                         replyFlowOpen: {
                             campaignId: cid,
@@ -2878,6 +3052,7 @@ export async function startCampaign(
                             to: num,
                             message: personalizedMessage,
                             campaignId: cid,
+                            ownerUid,
                             stageIndex,
                             sendAsMedia: hasMedia && stageIndex === 0,
                         },
@@ -2990,21 +3165,31 @@ export function init(socketIO: SocketIOServer) {
     void reconcilePendingJobsFromRedis();
 }
 
-/** Restaura campaignPendingJobs contando jobs active+waiting+delayed no Redis. */
+/** Restaura campaignPendingJobs E campaignsById para campanhas com jobs ativos no Redis. */
 async function reconcilePendingJobsFromRedis() {
     const queue = getCampaignQueue();
     if (!queue) return;
     try {
         const jobs = await queue.getJobs(['active', 'waiting', 'delayed']);
+        // Agrupa: counts + ownerUid por campaignId
         const counts = new Map<string, number>();
+        const ownerByC = new Map<string, string>();
         for (const j of jobs) {
             const cid = j.data?.campaignId;
-            if (cid) counts.set(cid, (counts.get(cid) || 0) + 1);
+            if (!cid) continue;
+            counts.set(cid, (counts.get(cid) || 0) + 1);
+            const uid = j.data?.ownerUid || j.data?.replyFlowOpen?.ownerUid;
+            if (uid && !ownerByC.has(cid)) ownerByC.set(cid, uid);
         }
+
         for (const [cid, count] of counts) {
             if (!campaignPendingJobs.has(cid)) {
                 campaignPendingJobs.set(cid, count);
-                log('info', `[reconcile] Campanha ${cid}: ${count} jobs pendentes restaurados do Redis.`);
+                log('info', `[reconcile] Campanha ${cid}: ${count} jobs pendentes restaurados.`);
+            }
+            // Restaura campaignsById para que finishCampaignJob emita campaign-finished corretamente.
+            if (!campaignsById.has(cid)) {
+                await ensureCampaignRuntimeInMemory(cid, ownerByC.get(cid));
             }
         }
     } catch (e: any) {
@@ -3033,7 +3218,16 @@ async function testConnection() {
 /**
  * Handler de webhooks (para receber eventos da Evolution API)
  */
+const WEBHOOK_PROCESSING_TIMEOUT_MS = 10_000;
+
 export async function handleWebhook(event: any) {
+    // Garante que nenhum webhook trava o event loop indefinidamente (ex: Redis lento).
+    const timeoutId = setTimeout(() => {
+        log('warn', '[webhook] Timeout de 10s atingido — processamento cancelado', {
+            event: String(event?.event || '').toUpperCase(),
+            instance: event?.instance ?? event?.instanceName,
+        });
+    }, WEBHOOK_PROCESSING_TIMEOUT_MS);
     try {
         const instance = resolveInstanceName(event?.instance ?? event?.instanceName);
         const data = event?.data ?? event;
@@ -3140,6 +3334,8 @@ export async function handleWebhook(event: any) {
 
     } catch (error: any) {
         log('error', 'Erro ao processar webhook', { error: error.message });
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
@@ -3484,8 +3680,12 @@ export function pauseCampaign(campaignId: string, ownerUid?: string) {
 
 export function resumeCampaign(campaignId: string, ownerUid?: string) {
     pausedCampaigns.delete(campaignId);
-    const ou = resolveCampaignOwnerUid(campaignId, ownerUid);
+    const ou = resolveCampaignOwnerUid(campaignId, ownerUid) || ownerUid;
     log('info', `▶️ Campanha retomada: ${campaignId}`, { ownerUid: ou });
+    // Se o estado não estiver em RAM (ex: após restart), tenta restaurar do Redis.
+    if (!campaignsById.has(campaignId)) {
+        void ensureCampaignRuntimeInMemory(campaignId, ou);
+    }
     publishOwnerEvent(ou, 'campaign-resumed', { campaignId });
     ensureCampaignWorker();
 }
