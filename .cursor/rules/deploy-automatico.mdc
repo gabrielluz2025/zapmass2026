@@ -1,0 +1,17 @@
+---
+description: Commit, push e deploy automáticos ao concluir tarefas no projeto
+alwaysApply: true
+---
+
+# Deploy e Git automáticos
+
+Quando implementar correções ou features neste repositório ZapMass:
+
+1. **Sempre commitar** ao terminar uma tarefa coerente (não deixar o usuário pedir "faça commit").
+2. **Sempre dar push** em `main` após commit bem-sucedido (`git push origin main`).
+3. O push em `main` dispara o workflow **Build + deploy VPS** (`.github/workflows/deploy.yml`) — não pedir ao usuário rodar SSH manual na VPS, salvo se o CI falhar.
+4. Após push, verificar com `gh run list` / `gh run watch` se o deploy passou; se falhar, investigar logs e corrigir (não só instruir o usuário).
+5. **Não** alterar `git config`, não usar `--force` em `main`, não commitar `.env` ou segredos.
+6. Mensagens de commit em português ou inglês alinhadas ao histórico do repo; foco no "porquê".
+
+Deploy manual na VPS só como fallback documentado se Actions estiver indisponível.
