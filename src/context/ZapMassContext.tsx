@@ -3046,7 +3046,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       };
       const timeoutId = setTimeout(() => {
         finish({ ok: false, total: 0, error: 'Tempo esgotado ao carregar historico.' });
-      }, 60_000);
+      }, 120_000);
       socket.emit(
         'load-chat-history',
         { conversationId, limit, includeMedia },

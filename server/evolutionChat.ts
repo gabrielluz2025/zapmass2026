@@ -6,9 +6,10 @@ import { saveMediaFromBase64 } from './mediaStorage.js';
 import { prepareConversationsForSocketEmit } from './conversationsEmit.js';
 import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
 import {
-  looksLikeLongLidDigits,
-  pickContactDisplayName
+    looksLikeLongLidDigits,
+    pickContactDisplayName
 } from '../src/utils/contactPhoneLookup.js';
+import { evolutionContactDisplayName, filterEvolutionContactLabel } from './evolutionContactName.js';
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 import {
     appendChatArchiveMessages,
@@ -491,10 +492,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 const jid = chatRemoteJidFromFindChatsRow(row);
                 if (!jid || seen.has(jid) || jid.endsWith('@g.us') || isGarbagePersonChatJid(jid)) continue;
                 seen.add(jid);
+                const bookName = evolutionContactDisplayName(row);
                 out.push({
                     ...row,
                     remoteJid: jid,
-                    name: row.pushName || row.name || row.verifiedName,
+                    name: bookName || row.pushName || row.name || row.verifiedName,
+                    notify: row.notify,
                 });
             }
         } catch (err: any) {
@@ -529,14 +532,93 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
      * Retorna undefined para que o próximo campo na cadeia seja tentado.
      */
     function filterEvolutionName(raw: unknown): string | undefined {
-        if (typeof raw !== 'string') return undefined;
-        const t = raw.trim();
-        if (!t) return undefined;
-        const lower = t.toLowerCase();
-        // Nomes genéricos/padrão que não identificam o contato
-        if (lower === 'contato' || lower === 'contact' || lower === 'unknown' || lower === 'desconhecido') return undefined;
-        if (looksLikeLongLidDigits(t)) return undefined;
-        return t;
+        return filterEvolutionContactLabel(raw);
+    }
+
+    function extractFindMessagesRecords(raw: unknown): {
+        records: any[];
+        pages: number;
+        currentPage: number;
+        total: number;
+    } {
+        if (Array.isArray(raw)) {
+            return { records: raw, pages: 1, currentPage: 1, total: raw.length };
+        }
+        if (!raw || typeof raw !== 'object') {
+            return { records: [], pages: 0, currentPage: 0, total: 0 };
+        }
+        const row = raw as Record<string, unknown>;
+        const bag =
+            row.messages && typeof row.messages === 'object'
+                ? (row.messages as Record<string, unknown>)
+                : row;
+        const records = Array.isArray(bag.records)
+            ? (bag.records as any[])
+            : Array.isArray(bag.messages)
+              ? (bag.messages as any[])
+              : Array.isArray(row.records)
+                ? (row.records as any[])
+                : [];
+        const pages = Number(bag.pages) || (records.length > 0 ? 1 : 0);
+        const currentPage = Number(bag.currentPage) || 1;
+        const total = Number(bag.total) || records.length;
+        return { records, pages, currentPage, total };
+    }
+
+    /** Agenda do celular (findContacts) → JID → nome salvo (ex.: "amor"). */
+    async function fetchPhonebookNameIndex(connectionId: string): Promise<Map<string, string>> {
+        const inst = evoInst(connectionId);
+        const index = new Map<string, string>();
+        const tryExtract = (raw: unknown): any[] => {
+            if (Array.isArray(raw)) return raw;
+            if (!raw || typeof raw !== 'object') return [];
+            const row = raw as Record<string, unknown>;
+            for (const key of ['contacts', 'records', 'data', 'response'] as const) {
+                const v = row[key];
+                if (Array.isArray(v)) return v;
+            }
+            return [];
+        };
+        for (let page = 1; page <= 20; page++) {
+            try {
+                const response = await api.post(`/chat/findContacts/${inst}`, {
+                    where: {},
+                    page,
+                    offset: 500,
+                    limit: 500,
+                });
+                const list = tryExtract(response.data);
+                if (list.length === 0) break;
+                for (const ct of list) {
+                    const row = ct as Record<string, unknown>;
+                    const jid = chatRemoteJidFromFindChatsRow(row);
+                    const name = evolutionContactDisplayName(row);
+                    if (jid && name) index.set(jid, name);
+                }
+                if (list.length < 500) break;
+            } catch (err: any) {
+                console.warn(`[EvolutionChat] findContacts phonebook ${connectionId} p${page}:`, err?.message || err);
+                break;
+            }
+        }
+        return index;
+    }
+
+    function applyPhonebookNamesToConnection(connectionId: string, index: Map<string, string>) {
+        if (index.size === 0) return;
+        for (const c of conversations) {
+            if (c.connectionId !== connectionId) continue;
+            const parsed = parseConversationId(c.id);
+            if (!parsed) continue;
+            const book = index.get(parsed.remoteJid);
+            if (!book) continue;
+            const next = pickContactDisplayName({
+                waName: book,
+                previous: c.contactName,
+                fallback: c.contactPhone || c.contactName || 'Contato',
+            });
+            if (next !== c.contactName) c.contactName = next;
+        }
     }
 
     /**
@@ -596,6 +678,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         // Usa filterEvolutionName para ignorar nomes genéricos ("Contato", "Contact" etc.)
         // e cair para o próximo campo até chegar ao telefone como última instância.
         const waName =
+            evolutionContactDisplayName(chat as Record<string, unknown>) ||
             filterEvolutionName(chat?.name) ||
             filterEvolutionName(chat?.chatName) ||
             filterEvolutionName(chat?.pushName) ||
@@ -696,6 +779,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 );
             }
 
+            const phonebook = await fetchPhonebookNameIndex(connectionId);
+            applyPhonebookNamesToConnection(connectionId, phonebook);
+
             if (ownerUidForScope) {
                 const enriched = await enrichConversationsWithCrmNames(ownerUidForScope, conversations);
                 conversations.splice(0, conversations.length, ...enriched);
@@ -737,29 +823,58 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         });
     }
 
-    async function fetchMessages(connectionId: string, remoteJid: string, limit: number): Promise<any[]> {
-        const body = {
-            where: { key: { remoteJid } },
-            limit,
-            page: 1,
-        };
-        try {
-            const response = await api.post(`/chat/findMessages/${evoInst(connectionId)}`, body);
-            const raw = response.data;
-            let messages: any[] = Array.isArray(raw)
-                ? raw
-                : Array.isArray(raw?.messages)
-                  ? raw.messages
-                  : Array.isArray(raw?.records)
-                    ? raw.records
-                    : [];
+    async function fetchMessages(
+        connectionId: string,
+        remoteJid: string,
+        maxTotal: number,
+        opts?: { beforeTimestampMs?: number }
+    ): Promise<any[]> {
+        const pageSize = 100;
+        const maxPages = Math.min(80, Math.ceil(maxTotal / pageSize) + 3);
+        const collected: any[] = [];
+        const seen = new Set<string>();
 
-            if (messages.length > limit * 2) {
-                messages = messages.filter(
-                    (m) => String(m?.key?.remoteJid || m?.remoteJid || '') === remoteJid
+        try {
+            for (let page = 1; page <= maxPages && collected.length < maxTotal; page++) {
+                const keyWhere: Record<string, unknown> = { remoteJid };
+                if (opts?.beforeTimestampMs && opts.beforeTimestampMs > 0) {
+                    const sec = Math.floor(opts.beforeTimestampMs / 1000);
+                    keyWhere.messageTimestamp = { lte: String(sec) };
+                }
+                const body = {
+                    where: { key: keyWhere },
+                    page,
+                    offset: pageSize,
+                    limit: pageSize,
+                };
+                const response = await api.post(
+                    `/chat/findMessages/${evoInst(connectionId)}`,
+                    body
                 );
+                const { records, pages, currentPage } = extractFindMessagesRecords(response.data);
+                if (records.length === 0) break;
+
+                for (const m of records) {
+                    const jid = String(m?.key?.remoteJid || m?.remoteJid || '');
+                    if (jid && jid !== remoteJid) continue;
+                    const id = String(m?.key?.id || m?.id || '');
+                    if (id) {
+                        if (seen.has(id)) continue;
+                        seen.add(id);
+                    }
+                    collected.push(m);
+                }
+
+                if (currentPage >= pages || records.length < pageSize) break;
             }
-            return messages;
+
+            return collected
+                .sort(
+                    (a, b) =>
+                        (Number(a?.messageTimestamp || a?.key?.messageTimestamp || 0) || 0) -
+                        (Number(b?.messageTimestamp || b?.key?.messageTimestamp || 0) || 0)
+                )
+                .slice(-maxTotal);
         } catch (error: any) {
             console.warn(`[EvolutionChat] findMessages ${connectionId}:`, error?.message || error);
             return [];
@@ -945,13 +1060,37 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
 
         const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
-        const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, requested);
+        let conv = conversations.find((c) => c.id === conversationId);
+        const oldestLocalMs =
+            conv?.messages?.length && conv.messages.length > 0
+                ? Math.min(...conv.messages.map((m) => m.timestampMs || 0).filter((t) => t > 0))
+                : undefined;
+
+        let fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, requested);
+        const beforeMerge = conv?.messages?.length || 0;
+
+        // Segunda passagem: mensagens mais antigas que as já em cache (paginação real no DB Evolution).
+        if (oldestLocalMs && oldestLocalMs > 0 && beforeMerge > 0) {
+            const older = await fetchMessages(parsed.connectionId, parsed.remoteJid, requested, {
+                beforeTimestampMs: oldestLocalMs - 1,
+            });
+            if (older.length > 0) {
+                const byId = new Map<string, any>();
+                for (const m of [...fetched, ...older]) {
+                    const id = String(m?.key?.id || m?.id || '');
+                    if (id) byId.set(id, m);
+                    else byId.set(`${Math.random()}`, m);
+                }
+                fetched = Array.from(byId.values());
+            }
+        }
+
         const converted = fetched
             .map((m) => evolutionRawToChatMessage(m, skipMedia))
             .filter((m): m is ChatMessage => Boolean(m))
             .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
 
-        let conv = conversations.find((c) => c.id === conversationId);
+        conv = conversations.find((c) => c.id === conversationId);
         if (!conv) {
             const last = converted[converted.length - 1];
             conv = {
@@ -971,6 +1110,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             conv = conversations.find((c) => c.id === conversationId);
         }
         if (!conv) return { ok: true, total: converted.length };
+
+        const phonebook = await fetchPhonebookNameIndex(parsed.connectionId);
+        const book = phonebook.get(parsed.remoteJid);
+        if (book) {
+            conv.contactName = pickContactDisplayName({
+                waName: book,
+                previous: conv.contactName,
+                fallback: conv.contactPhone || conv.contactName,
+            });
+        }
 
         const byId = new Map<string, ChatMessage>();
         for (const m of converted) byId.set(m.id, m);

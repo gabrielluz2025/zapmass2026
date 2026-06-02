@@ -1388,9 +1388,17 @@ export const ChatTab: React.FC<{
         }
         return;
       }
-      // Se carregou e nao aumentou o total, significa que chegamos no inicio
-      if (res.total <= prevCount + 2 && nextLevel >= HISTORY_LEVELS[HISTORY_LEVELS.length - 1]) {
+      // Só marca fim quando o total não cresceu após pedir o máximo de histórico.
+      const grew = res.total > prevCount;
+      if (!grew && nextLevel >= HISTORY_LEVELS[HISTORY_LEVELS.length - 1]) {
         setHistoryExhausted((prev) => new Set(prev).add(conversationId));
+      } else if (grew) {
+        setHistoryExhausted((prev) => {
+          if (!prev.has(conversationId)) return prev;
+          const next = new Set(prev);
+          next.delete(conversationId);
+          return next;
+        });
       }
     },
     [historyExhausted, loadChatHistory, conversations]
