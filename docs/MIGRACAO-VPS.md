@@ -95,6 +95,27 @@ O front deixa de usar `onSnapshot` em assinatura, notificações e perfil quando
 
 **Opcional depois:** remover dependências `firebase` do cliente; OAuth Google/Facebook só se voltar a oferecer login social na VPS.
 
+## Migração de produção (Firestore → Postgres)
+
+Na VPS, com Firebase Admin e Postgres ativos:
+
+```bash
+cd /opt/zapmass
+bash deployment/vps-migrate-production.sh          # migração real
+bash deployment/vps-migrate-production.sh --dry-run # só simular
+```
+
+O script:
+
+1. Define `ZAPMASS_AUTH_PROVIDER=dual`, `ZAPMASS_DATA_PROVIDER=vps`, `VITE_USE_VPS_DATA=true` (login Google/Facebook continua).
+2. Faz deploy com rebuild do front.
+3. Executa `server/migrateFirestoreToVps.ts` (assinatura, contatos, campanhas, chat, inbox, equipa, etc.).
+4. Renomeia pastas em `/app/data` de `{firebaseUid}__` para `{uuidPostgres}__` (sessões WhatsApp).
+
+UID Firebase → UUID Postgres é **determinístico** (UUID v5). Webhooks Mercado Pago e login Firebase seguem a funcionar com o mesmo UID na referência externa.
+
+Para desligar Firebase no login: depois de testar, use `ZAPMASS_AUTH_PROVIDER=vps` e `VITE_USE_VPS_AUTH=true` (utilizadores Google precisam definir senha VPS).
+
 ## Fase 6 — Oracle (futuro)
 
 - SQL portável no core; auth permanece na app/VPS

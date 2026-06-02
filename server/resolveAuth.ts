@@ -2,6 +2,11 @@ import type { Request } from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { vpsAuthEnabled } from './auth/authMode.js';
+import { vpsDataEnabled } from './auth/dataMode.js';
+import {
+  resolvePostgresTenantIdAsync,
+  resolveStaffAuthSubjectIdAsync
+} from './auth/firebaseUidMap.js';
 import { verifyAccessToken } from './auth/jwt.js';
 import type { AuthPrincipal } from './auth/types.js';
 import { findUserById } from './auth/userRepository.js';
@@ -33,6 +38,21 @@ async function resolveFirebasePrincipal(token: string): Promise<AuthPrincipal | 
       }
     }
     const email = typeof decoded.email === 'string' ? decoded.email : '';
+    if (vpsDataEnabled()) {
+      const tenantUid = await resolvePostgresTenantIdAsync(
+        role === 'staff' && ownerUid ? ownerUid : authUid
+      );
+      const mappedAuth =
+        role === 'staff' ? await resolveStaffAuthSubjectIdAsync(authUid) : tenantUid;
+      return {
+        provider: 'firebase',
+        authUid: mappedAuth,
+        tenantUid,
+        email,
+        role,
+        ownerUid: role === 'staff' ? tenantUid : undefined
+      };
+    }
     return { provider: 'firebase', authUid, tenantUid, email, role, ownerUid };
   } catch {
     return null;

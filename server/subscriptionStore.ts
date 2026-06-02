@@ -4,6 +4,7 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { addCalendarMonths } from './subscriptionPeriod.js';
 import { notifyAdminsNewSignupAfterPaidIfNeeded } from './adminNewSignupNotify.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import {
   getSubscriptionDocPg,
   mergeSubscriptionDocPg,
@@ -86,10 +87,15 @@ function normalizePartialForFirestore(partial: Partial<UserSubscriptionDoc>): Re
   return out;
 }
 
+function subscriptionTenantId(uid: string): string {
+  if (!usePostgresSubscriptions()) return uid;
+  return resolvePostgresTenantId(uid);
+}
+
 export async function getUserSubscription(uid: string): Promise<UserSubscriptionDoc | null> {
   if (!uid) return null;
   if (usePostgresSubscriptions()) {
-    const doc = await getSubscriptionDocPg(uid);
+    const doc = await getSubscriptionDocPg(subscriptionTenantId(uid));
     if (!doc) return null;
     return doc as unknown as UserSubscriptionDoc;
   }
@@ -106,12 +112,12 @@ export async function mergeUserSubscription(
 ): Promise<boolean> {
   if (!uid) return false;
   if (usePostgresSubscriptions()) {
-    const cur = (await getSubscriptionDocPg(uid)) || {};
+    const cur = (await getSubscriptionDocPg(subscriptionTenantId(uid))) || {};
     const merged = { ...cur, ...normalizePartialForPg(partial) };
     for (const [k, v] of Object.entries(partial)) {
       if (isFieldDelete(v) || v === null) delete merged[k];
     }
-    return mergeSubscriptionDocPg(uid, merged);
+    return mergeSubscriptionDocPg(subscriptionTenantId(uid), merged);
   }
   const app = getFirebaseAdmin();
   if (!app) {
@@ -137,7 +143,8 @@ export async function extendPaidSubscription(
   if (!uid) return false;
 
   if (usePostgresSubscriptions()) {
-    const cur = (await getSubscriptionDocPg(uid)) as unknown as UserSubscriptionDoc | null;
+    const tid = subscriptionTenantId(uid);
+    const cur = (await getSubscriptionDocPg(tid)) as unknown as UserSubscriptionDoc | null;
     const now = Date.now();
     let base = new Date();
     const existingEnd =
@@ -150,7 +157,7 @@ export async function extendPaidSubscription(
     const monthsToAdd = plan === 'monthly' ? 1 : 12;
     const endDate = addCalendarMonths(base, monthsToAdd);
     const wasRenewal = cur?.status === 'active' && existingEnd != null && existingEnd > now;
-    const ok = await mergeSubscriptionDocPg(uid, {
+    const ok = await mergeSubscriptionDocPg(tid, {
       ...normalizePartialForPg(extra),
       status: 'active',
       plan,
@@ -158,7 +165,7 @@ export async function extendPaidSubscription(
       trialEndsAt: null
     });
     if (ok) {
-      void notifyAdminsNewSignupAfterPaidIfNeeded(uid, { wasRenewal }).catch((e) => {
+      void notifyAdminsNewSignupAfterPaidIfNeeded(tid, { wasRenewal }).catch((e) => {
         console.error('[extendPaidSubscription] notify admins novo cliente', e);
       });
     }
@@ -208,7 +215,7 @@ export async function extendPaidSubscription(
 export async function tryClaimAdminNewClientNotify(uid: string): Promise<boolean> {
   if (!uid) return false;
   if (usePostgresSubscriptions()) {
-    return tryClaimAdminNewClientNotifyPg(uid);
+    return tryClaimAdminNewClientNotifyPg(subscriptionTenantId(uid));
   }
   const admin = getFirebaseAdmin();
   if (!admin) return false;
