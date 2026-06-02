@@ -80,7 +80,7 @@ import { registerVpsAuthRoutes } from './vpsAuthRoutes.js';
 import { registerVpsWorkspaceStaffRoutes } from './vpsWorkspaceStaffRoutes.js';
 import { runZapmassMigrations } from './db/migrate.js';
 import { resolveAuthPrincipal, getWorkspaceMembersForPrincipal } from './resolveAuth.js';
-import { vpsAuthEnabled } from './auth/authMode.js';
+import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { registerContactsDataRoutes } from './contactsRoutes.js';
 import { registerCampaignsDataRoutes } from './campaignsRoutes.js';
@@ -699,7 +699,7 @@ const registerSocketHandlers = () => {
         return;
       }
       const adminApp = getFirebaseAdmin();
-      if (adminApp && token) {
+      if (!vpsAuthRequired() && adminApp && token) {
         const decoded = await getAuth(adminApp).verifyIdToken(token);
         const authUid = decoded.uid;
         socket.data.authUid = authUid;

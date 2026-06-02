@@ -28,8 +28,8 @@ upsert_env() {
   echo "${k}=${v}" >> .env
   echo "    ~ ${k}"
 }
-upsert_env ZAPMASS_AUTH_PROVIDER dual
-upsert_env VITE_USE_VPS_AUTH false
+upsert_env ZAPMASS_AUTH_PROVIDER vps
+upsert_env VITE_USE_VPS_AUTH true
 upsert_env VITE_USE_VPS_DATA true
 
 echo ""

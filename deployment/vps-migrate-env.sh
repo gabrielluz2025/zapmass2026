@@ -4,28 +4,26 @@ set -euo pipefail
 cd /opt/zapmass
 [ -f .env ] || cp .env.example .env
 
-set_kv() {
+upsert_env() {
   local key="$1" val="$2"
   if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" .env 2>/dev/null; then
-    return 0
+    grep -vE "^[[:space:]]*(export[[:space:]]+)?${key}=" .env > .env.tmp && mv .env.tmp .env
   fi
   echo "${key}=${val}" >> .env
-  echo "==> adicionado ${key}"
+  echo "==> ${key}=${val}"
 }
 
-JWT="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)"
+JWT="$(grep -E '^ZAPMASS_JWT_SECRET=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"'"'"' ' || true)"
+[ -z "$JWT" ] && JWT="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)"
 PG_PASS="$(grep -E '^POSTGRES_PASSWORD=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\"'"'"' ' || echo 'evolution-secure-pass-2026')"
 
-# dual = Firebase (Google/e-mail) + JWT VPS; vps = só Postgres
-set_kv ZAPMASS_AUTH_PROVIDER dual
-set_kv ZAPMASS_DATA_PROVIDER vps
-set_kv VITE_USE_VPS_DATA true
-set_kv VITE_USE_VPS_AUTH false
-set_kv SWARM_ENABLED 0
-if ! grep -qE '^ZAPMASS_JWT_SECRET=' .env 2>/dev/null; then
-  set_kv ZAPMASS_JWT_SECRET "${JWT}"
-fi
-set_kv ZAPMASS_DATABASE_URL "postgresql://postgres:${PG_PASS}@postgres:5432/zapmass_db"
+upsert_env ZAPMASS_AUTH_PROVIDER vps
+upsert_env ZAPMASS_DATA_PROVIDER vps
+upsert_env VITE_USE_VPS_AUTH true
+upsert_env VITE_USE_VPS_DATA true
+upsert_env SWARM_ENABLED 0
+upsert_env ZAPMASS_JWT_SECRET "${JWT}"
+upsert_env ZAPMASS_DATABASE_URL "postgresql://postgres:${PG_PASS}@postgres:5432/zapmass_db"
 
-echo "==> Revise MERCADOPAGO_*, RESEND_*, chaves Firebase (se ainda precisar) e rode:"
-echo "    bash deployment/manual-pull-deploy.sh"
+echo "==> Modo 100% VPS (sem Firebase). Deploy: bash deployment/manual-pull-deploy.sh"
+echo "==> Começar do zero: ZAPMASS_RESET_DATA=1 bash deployment/vps-pure-no-firebase.sh"

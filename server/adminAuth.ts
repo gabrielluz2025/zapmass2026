@@ -7,6 +7,7 @@ import {
   isPlatformAdminDecoded,
   platformAdminDenyHint
 } from './adminIdentity.js';
+import { vpsAuthRequired } from './auth/authMode.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 
 export { adminEmailSet, adminUidSet } from './adminIdentity.js';
@@ -44,6 +45,14 @@ export async function assertAdminFromBearer(
     res.status(403).json({
       ok: false,
       error: 'Acesso restrito a administradores.',
+      hint: platformAdminDenyHint()
+    });
+    return null;
+  }
+  if (vpsAuthRequired()) {
+    res.status(401).json({
+      ok: false,
+      error: 'Token inválido ou expirado. Entre com e-mail e senha (modo VPS).',
       hint: platformAdminDenyHint()
     });
     return null;

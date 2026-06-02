@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import os from 'os';
+import { vpsDataRequired } from './auth/dataMode.js';
 import { assertAdminFromBearer } from './adminAuth.js';
 import { isFirebaseAdminConfigured } from './firebaseAdmin.js';
 import { getSystemMetrics } from './systemMetricsShared.js';
@@ -59,8 +60,8 @@ export function registerAdminOpsRoutes(app: Express): void {
       .filter((c) => String(c.status).toUpperCase() === 'CONNECTED').length;
     const cap = getChannelCapacityHeuristic(m.ramTotalGb);
 
-    const fbConfigured = isFirebaseAdminConfigured();
-    const fb = await pingFirebaseAdmin();
+    const fbConfigured = !vpsDataRequired() && isFirebaseAdminConfigured();
+    const fb = fbConfigured ? await pingFirebaseAdmin() : { ok: true as const };
     const mp = await getMercadoPagoHealthCached();
 
     const alerts = buildAlerts({

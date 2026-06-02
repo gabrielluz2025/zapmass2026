@@ -63,14 +63,18 @@ for k in EMAIL_FROM PUBLIC_APP_URL; do
 done
 
 auth="$(get_env ZAPMASS_AUTH_PROVIDER)"
+if [ "$auth" = "vps" ]; then
+  ok "ZAPMASS_AUTH_PROVIDER=vps (sem Firebase)"
+elif [ "$auth" = "dual" ]; then
+  ok "ZAPMASS_AUTH_PROVIDER=dual (Firebase + VPS)"
+else
+  echo "  INFO: auth Firebase (legado). Ativar VPS: bash deployment/vps-pure-no-firebase.sh"
+fi
 if [ "$auth" = "vps" ] || [ "$auth" = "dual" ]; then
-  ok "ZAPMASS_AUTH_PROVIDER=$auth"
-  for k in ZAPMASS_JWT_SECRET ZAPMASS_DATABASE_URL; do
+  for k in ZAPMASS_JWT_SECRET ZAPMASS_DATABASE_URL ZAPMASS_DATA_PROVIDER; do
     v="$(get_env "$k")"
     if [ -n "$v" ]; then ok "$k"; else miss "$k"; fi
   done
-else
-  echo "  INFO: auth Firebase (padrão). Migração VPS: bash deployment/vps-migrate-env.sh"
 fi
 
 echo ""

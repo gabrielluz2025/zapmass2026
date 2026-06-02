@@ -79,8 +79,8 @@ services:
       # precisam de Firestore (trial, billing, admin) retornam 503.
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       # Auth VPS (sem clientes: pode usar vps). firebase | vps | dual
-      ZAPMASS_AUTH_PROVIDER: ${ZAPMASS_AUTH_PROVIDER:-firebase}
-      ZAPMASS_DATA_PROVIDER: ${ZAPMASS_DATA_PROVIDER:-}
+      ZAPMASS_AUTH_PROVIDER: ${ZAPMASS_AUTH_PROVIDER:-vps}
+      ZAPMASS_DATA_PROVIDER: ${ZAPMASS_DATA_PROVIDER:-vps}
       ZAPMASS_DATABASE_URL: ${ZAPMASS_DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/zapmass_db}
       ZAPMASS_JWT_SECRET: ${ZAPMASS_JWT_SECRET:-}
       # Login funcionários (usuário/senha); ver .env.example

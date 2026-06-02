@@ -114,7 +114,19 @@ O script:
 
 UID Firebase → UUID Postgres é **determinístico** (UUID v5). Webhooks Mercado Pago e login Firebase seguem a funcionar com o mesmo UID na referência externa.
 
-Para desligar Firebase no login: depois de testar, use `ZAPMASS_AUTH_PROVIDER=vps` e `VITE_USE_VPS_AUTH=true` (utilizadores Google precisam definir senha VPS).
+## Modo 100% VPS (sem Firebase)
+
+```bash
+cd /opt/zapmass
+bash deployment/vps-pure-no-firebase.sh
+# Banco zapmass vazio (contas novas):
+# ZAPMASS_RESET_DATA=1 bash deployment/vps-pure-no-firebase.sh
+```
+
+- `ZAPMASS_AUTH_PROVIDER=vps`, `ZAPMASS_DATA_PROVIDER=vps`
+- Login só **e-mail/senha** + funcionários (Equipe)
+- `firebase-admin.json` **não é obrigatório**
+- Admin plataforma: `ADMIN_EMAILS` no `.env` (e-mail da conta registada na landing)
 
 ## Fase 6 — Oracle (futuro)
 

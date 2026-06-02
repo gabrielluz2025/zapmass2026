@@ -2,6 +2,7 @@ import os from 'os';
 import client from 'prom-client';
 import { getSystemMetrics } from './systemMetricsShared.js';
 import { buildAlerts, countAlertLevels, getChannelCapacityHeuristic } from './opsHealth.js';
+import { vpsDataRequired } from './auth/dataMode.js';
 import { isFirebaseAdminConfigured } from './firebaseAdmin.js';
 import { pingFirebaseAdmin } from './firebaseAdminProbe.js';
 
@@ -99,6 +100,12 @@ export const setConnectedSessionsGauge = (value: number) => {
 
 /** Chamado ~60s: ping Firebase e actualiza gauges de Auth (Prometheus + regras de alerta). */
 export async function refreshFirebaseProbeForMetrics(): Promise<void> {
+  if (vpsDataRequired()) {
+    firebaseConfiguredGauge.set(0);
+    firebasePingOkGauge.set(0);
+    lastFirebaseProbe = { ok: true };
+    return;
+  }
   const configured = isFirebaseAdminConfigured();
   firebaseConfiguredGauge.set(configured ? 1 : 0);
   if (!configured) {
@@ -136,7 +143,7 @@ export function updateOpsResourceGauges(connectedSessions: number): void {
   const cpus = os.cpus().length || 1;
   const heapMb = Math.round(mem.heapUsed / 1024 / 1024);
   const cap = getChannelCapacityHeuristic(m.ramTotalGb);
-  const fbConfigured = isFirebaseAdminConfigured();
+  const fbConfigured = !vpsDataRequired() && isFirebaseAdminConfigured();
 
   const alerts = buildAlerts({
     ramPct: m.ram,

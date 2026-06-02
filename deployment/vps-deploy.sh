@@ -85,12 +85,14 @@ if [ -f .env ]; then
   else
     echo "==> AVISO: MERCADOPAGO_ACCESS_TOKEN vazio após .env"
   fi
-  if [ -n "${FIREBASE_WEB_API_KEY:-}" ]; then
+  if [ "${ZAPMASS_AUTH_PROVIDER:-vps}" = "vps" ]; then
+    echo "==> Auth VPS (sem Firebase)"
+  elif [ -n "${FIREBASE_WEB_API_KEY:-}" ]; then
     echo "==> FIREBASE_WEB_API_KEY presente (prefixo ${FIREBASE_WEB_API_KEY:0:8}…; len=${#FIREBASE_WEB_API_KEY})"
   elif [ -n "${VITE_FIREBASE_API_KEY:-}" ]; then
     echo "==> VITE_FIREBASE_API_KEY presente p/ API (len=${#VITE_FIREBASE_API_KEY}; usar no stack deploy)"
   else
-    echo "==> AVISO: nem FIREBASE_WEB_API_KEY nem VITE_FIREBASE_API_KEY após .env — login Funcionário falha; ver .env.example"
+    echo "==> AVISO: modo dual/firebase sem FIREBASE_WEB_API_KEY — login funcionário legado pode falhar"
   fi
   if [ -n "${WWEBJS_WEB_VERSION_URL:-}" ]; then
     echo "==> WWEBJS_WEB_VERSION_URL exportada (${WWEBJS_WEB_VERSION_URL:0:88}…)"

@@ -162,8 +162,14 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
    */
   app.post('/api/workspace/staff/sign-in', staffSignInLimiter, async (req: Request, res: Response) => {
     if (await tryVpsStaffSignIn(req, res)) return;
-    if (vpsAuthRequired() && !getZapmassPool()) {
-      return res.status(503).json({ ok: false, error: 'Auth VPS indisponível (Postgres).' });
+    if (vpsAuthRequired()) {
+      if (!getZapmassPool()) {
+        return res.status(503).json({ ok: false, error: 'Auth VPS indisponível (Postgres).' });
+      }
+      return res.status(401).json({
+        ok: false,
+        error: 'E-mail do gestor, usuário ou senha incorretos. Peça ao gestor para criar o acesso em Equipe.'
+      });
     }
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
@@ -248,7 +254,11 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
     }
   });
 
-  /** Lista funcionários com senha (dono da conta). */
+  if (vpsAuthRequired()) {
+    return;
+  }
+
+  /** Lista funcionários com senha (dono da conta) — legado Firebase. */
   app.get('/api/workspace/staff-password-users', async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {

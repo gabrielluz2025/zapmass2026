@@ -15,7 +15,7 @@ import { clearTrialSessionFlags, setTrialSessionForManager } from '../../utils/t
 export const loginCardDefaultCopy = {
   title: 'Comece em um passo',
   subtitle:
-    'Responsável: rede social ou e-mail. Equipe: login criado pelo gestor em Funcionários — o formulário mostra o passo a passo.'
+    'Responsável: e-mail e senha (conta nova ou existente). Equipe: usuário e senha criados pelo gestor em Funcionários.'
 } as const;
 
 interface LoginCardProps {
@@ -60,6 +60,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     signInWithStaffCustomToken,
     signInWithStaffCredentials
   } = useAuth();
+  const vpsAuth = useVpsAuth();
   const { config } = useAppConfig();
   const [entryMode, setEntryMode] = useState<'admin' | 'staff'>('admin');
   const [loading, setLoading] = useState<LoadingState>('idle');
@@ -94,6 +95,38 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     }
     if (pw.length < 6) {
       toast.error('Senha com pelo menos 6 caracteres.');
+      return;
+    }
+
+    if (vpsAuth) {
+      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
+      setLoading('email-signin');
+      try {
+        await signInWithEmailPassword(em, pw);
+        setPasswordAuth('');
+        setPasswordConfirmAuth('');
+        return;
+      } catch {
+        /* tenta cadastro */
+      } finally {
+        setLoading('idle');
+      }
+      if (passwordConfirmAuth !== pw) {
+        toast.error('As senhas não coincidem.');
+        return;
+      }
+      if (landingLayout) {
+        trackLandingEvent('landing_login_click', { login_kind: 'email_signup' });
+      }
+      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
+      setLoading('email-signup');
+      try {
+        await signUpWithEmailPassword(em, pw);
+        setPasswordAuth('');
+        setPasswordConfirmAuth('');
+      } finally {
+        setLoading('idle');
+      }
       return;
     }
 
@@ -536,54 +569,58 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 </p>
               )}
 
-              <div className={`flex items-center gap-2 ${landingLayout ? '' : 'py-0.5'}`}>
-                <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
-                <span className={`whitespace-nowrap px-1 font-medium ${landingLayout ? 'text-[9px]' : 'text-[9.5px]'}`} style={{ color: 'var(--text-3)' }}>
-                  ou continue com
-                </span>
-                <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
-              </div>
+              {!vpsAuth && (
+                <>
+                  <div className={`flex items-center gap-2 ${landingLayout ? '' : 'py-0.5'}`}>
+                    <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
+                    <span className={`whitespace-nowrap px-1 font-medium ${landingLayout ? 'text-[9px]' : 'text-[9.5px]'}`} style={{ color: 'var(--text-3)' }}>
+                      ou continue com
+                    </span>
+                    <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
+                  </div>
 
-              <div className={`flex items-center justify-center ${landingLayout ? 'gap-2' : 'gap-2.5 sm:gap-3'}`} role="group" aria-label="Entrar com rede social">
-                <button
-                  type="button"
-                  title="Google"
-                  aria-label="Continuar com Google"
-                  onClick={() => void runOAuthLogin('google')}
-                  disabled={busy}
-                  className={`flex shrink-0 items-center justify-center rounded-full border transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 disabled:opacity-55 disabled:hover:translate-y-0 ${
-                    landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
-                  }`}
-                  style={{
-                    background: '#ffffff',
-                    borderColor: 'rgba(0,0,0,0.08)',
-                    boxShadow: '0 1px 5px rgba(0,0,0,0.05)'
-                  }}
-                >
-                  {oauthSpin(loading, 'google') ? (
-                    <Loader2 className="h-3 w-3 animate-spin text-zinc-600" />
-                  ) : (
-                    <GoogleLogo size={landingLayout ? 14 : 18} />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  title="Facebook"
-                  aria-label="Continuar com Facebook"
-                  onClick={() => void runOAuthLogin('facebook')}
-                  disabled={busy}
-                  className={`flex shrink-0 items-center justify-center rounded-full text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 disabled:opacity-55 disabled:hover:translate-y-0 ${
-                    landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
-                  }`}
-                  style={{ background: '#1877F2', boxShadow: '0 2px 7px rgba(24,119,242,0.22)' }}
-                >
-                  {oauthSpin(loading, 'facebook') ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <FacebookLogo tone="light" size={landingLayout ? 14 : 18} />
-                  )}
-                </button>
-              </div>
+                  <div className={`flex items-center justify-center ${landingLayout ? 'gap-2' : 'gap-2.5 sm:gap-3'}`} role="group" aria-label="Entrar com rede social">
+                    <button
+                      type="button"
+                      title="Google"
+                      aria-label="Continuar com Google"
+                      onClick={() => void runOAuthLogin('google')}
+                      disabled={busy}
+                      className={`flex shrink-0 items-center justify-center rounded-full border transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 disabled:opacity-55 disabled:hover:translate-y-0 ${
+                        landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
+                      }`}
+                      style={{
+                        background: '#ffffff',
+                        borderColor: 'rgba(0,0,0,0.08)',
+                        boxShadow: '0 1px 5px rgba(0,0,0,0.05)'
+                      }}
+                    >
+                      {oauthSpin(loading, 'google') ? (
+                        <Loader2 className="h-3 w-3 animate-spin text-zinc-600" />
+                      ) : (
+                        <GoogleLogo size={landingLayout ? 14 : 18} />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      title="Facebook"
+                      aria-label="Continuar com Facebook"
+                      onClick={() => void runOAuthLogin('facebook')}
+                      disabled={busy}
+                      className={`flex shrink-0 items-center justify-center rounded-full text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 disabled:opacity-55 disabled:hover:translate-y-0 ${
+                        landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
+                      }`}
+                      style={{ background: '#1877F2', boxShadow: '0 2px 7px rgba(24,119,242,0.22)' }}
+                    >
+                      {oauthSpin(loading, 'facebook') ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <FacebookLogo tone="light" size={landingLayout ? 14 : 18} />
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}
@@ -605,7 +642,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 <>
                   <Feature
                     icon={<ShieldCheck className="w-3.5 h-3.5" />}
-                    label="Responsável: Google, Facebook ou e-mail/senha (Firebase). Funcionários: aba Funcionário."
+                    label="Responsável: e-mail e senha na VPS. Funcionários: aba Funcionário."
                   />
                   <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente no navegador" />
                 </>
@@ -640,7 +677,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 <>
                   <Feature
                     icon={<ShieldCheck className="w-3.5 h-3.5" />}
-                    label="Responsável: Google, Facebook ou e-mail e senha — o sistema reconhece conta nova ou existente."
+                    label="Responsável: e-mail e senha — conta nova ou existente no servidor ZapMass."
                   />
                   <Feature icon={<Zap className="w-3.5 h-3.5" />} label="Sessão persistente: entra uma vez e fica logado" />
                 </>
@@ -648,7 +685,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 <>
                   <Feature
                     icon={<Lock className="w-3.5 h-3.5" />}
-                    label="Senha de funcionário validada no servidor (Firebase Auth) e ligada à conta do gestor."
+                    label="Senha de funcionário validada no servidor e ligada à conta do gestor."
                   />
                   <Feature icon={<Users className="w-3.5 h-3.5" />} label="Limite de 10 funcionários com senha — o gestor gere e revoga no painel." />
                 </>
