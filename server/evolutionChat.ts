@@ -466,6 +466,35 @@ export function createEvolutionChat(api: AxiosInstance) {
         return t;
     }
 
+    /**
+     * Tenta extrair um telefone real (não-LID) do registro da Evolution.
+     * Conversas @lid não têm telefone no JID, mas a Evolution costuma enviar o número
+     * real num campo alternativo (phoneNumber, number, jidAlt, pn, contact.phoneNumber etc.).
+     * Retorna apenas dígitos plausíveis (10–13) — descarta LIDs longos.
+     */
+    function extractRealPhoneDigits(chat: any): string {
+        if (!chat || typeof chat !== 'object') return '';
+        const candidates: unknown[] = [
+            chat.phoneNumber,
+            chat.number,
+            chat.pn,
+            chat.pnJid,
+            chat.jidAlt,
+            chat.altJid,
+            chat.remoteJidAlt,
+            chat.contact?.phoneNumber,
+            chat.contact?.number,
+            chat.contact?.jid,
+        ];
+        for (const c of candidates) {
+            if (c == null) continue;
+            const digits = String(c).split('@')[0].replace(/\D/g, '');
+            // Telefone plausível: 10–13 dígitos (BR/internacional), nunca LID longo (>15).
+            if (digits.length >= 10 && digits.length <= 13) return digits;
+        }
+        return '';
+    }
+
     function mapEvolutionChatToConversation(connectionId: string, chat: any): Conversation | null {
         const remoteJid = chatRemoteJid(chat);
         if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') {
@@ -497,10 +526,16 @@ export function createEvolutionChat(api: AxiosInstance) {
                 : undefined) ??
             (resolvedTs > 0 ? resolvedTs : existing?.lastMessageTimestamp ?? 0);
 
+        // contactPhone: usa o telefone do JID; se for @lid (sem telefone), tenta o número real
+        // de campos alternativos para que a UI mostre o número e cruze com o CRM.
+        const jidPhone = toPhoneDisplay(jid);
+        const altPhoneDigits = jidPhone ? '' : extractRealPhoneDigits(chat);
+        const contactPhone = jidPhone || (altPhoneDigits ? `+${altPhoneDigits}` : '') || existing?.contactPhone || '';
+
         return {
             id,
             contactName: String(name),
-            contactPhone: toPhoneDisplay(jid),
+            contactPhone,
             profilePicUrl: extractChatProfilePic(chat) || existing?.profilePicUrl,
             connectionId,
             unreadCount: Number(chat?.unreadCount ?? chat?.unread ?? existing?.unreadCount ?? 0) || 0,

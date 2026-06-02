@@ -998,27 +998,36 @@ export const ChatTab: React.FC<{
 
     for (const conv of mergedConversations) {
       const waNameRaw = (conv.contactName || '').trim();
-      // Tratar nomes genéricos da Evolution API ("Contato", "Contact" etc.) como vazio,
+      // Dígitos longos (>14) = LID interno do WhatsApp, não é telefone nem nome legível.
+      const waNameIsLidDigits = /^\d{14,}$/.test(normalizeDigits(waNameRaw)) && looksLikeDigitsOnlyContactLabel(waNameRaw);
+      // Tratar nomes genéricos da Evolution API ("Contato", "Contact" etc.) e LIDs como vazio,
       // para cair para phoneLabel ou nome do CRM.
-      const waName = isGenericName(waNameRaw) ? '' : waNameRaw;
+      const waName = isGenericName(waNameRaw) || waNameIsLidDigits ? '' : waNameRaw;
       const systemName = resolveSystemNameForConv(conv);
       const friendlyStored =
         waName &&
         !looksLikeDigitsOnlyContactLabel(waName)
           ? waName
           : '';
-      // Para JIDs @lid, os dígitos são IDs internos do WhatsApp — não são telefones reais.
-      // Usamos os dígitos apenas para cruzamento CRM (via buildPhoneDigitLookupKeys), nunca para exibição.
+      // Para JIDs @lid, os dígitos do ID são IDs internos do WhatsApp — não são telefones reais.
+      // Porém o servidor pode ter resolvido o telefone real em contactPhone (campo alternativo da Evolution).
       const convIsLid = isLidConvId(conv.id);
       const rawDigits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
-      // Só gera phoneLabel se NÃO for LID — evita exibir "+17432844387532" como se fosse número real
-      const digits = convIsLid ? '' : rawDigits;
+      // Para @lid: só aceita dígitos vindos de contactPhone (telefone real resolvido), nunca do ID (LID interno).
+      const lidPhoneDigits = (() => {
+        if (!convIsLid) return '';
+        const d = normalizeDigits(conv.contactPhone || '');
+        return d.length >= 10 && d.length <= 13 ? d : '';
+      })();
+      const digits = convIsLid ? lidPhoneDigits : rawDigits;
       // Formata o número para exibição amigável (ex.: +55 (11) 9 4955-0446)
       const phoneLabel = digits ? formatPhoneDisplay(digits) : '';
       // Quando só há número (sem nome amigável), usar phoneLabel como principal para exibir formatado
       const rawNumberOnly = !systemName && !friendlyStored && looksLikeDigitsOnlyContactLabel(waName);
-      // Prioridade: 1) CRM (Firestore) 2) Nome do WhatsApp 3) Número formatado
-      const primary = systemName || friendlyStored || (rawNumberOnly ? phoneLabel : waName) || phoneLabel || waNameRaw || 'Contato';
+      // Prioridade: 1) CRM (Firestore) 2) Nome do WhatsApp 3) Número formatado.
+      // Último recurso: waNameRaw só se não for LID interno; senão "Contato".
+      const lastResort = waNameIsLidDigits ? '' : waNameRaw;
+      const primary = systemName || friendlyStored || (rawNumberOnly ? phoneLabel : waName) || phoneLabel || lastResort || 'Contato';
 
       let whatsappSubtitle: string | undefined;
       // Mostrar o nome do WA como subtítulo apenas se for diferente do nome do sistema
