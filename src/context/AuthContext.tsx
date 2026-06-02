@@ -284,7 +284,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signInWithGoogle = async () => {
     if (useVpsAuth()) {
-      toast.error('Login com Google estará disponível na próxima fase. Use e-mail e senha.');
+      toast.error('Entre com e-mail e senha. Login social não está disponível nesta instalação.');
       return;
     }
     try {
@@ -303,7 +303,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signInWithFacebook = async () => {
     if (useVpsAuth()) {
-      toast.error('Login com Facebook estará disponível na próxima fase. Use e-mail e senha.');
+      toast.error('Entre com e-mail e senha. Login social não está disponível nesta instalação.');
       return;
     }
     try {

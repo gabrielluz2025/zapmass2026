@@ -32,10 +32,11 @@ services:
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         # Na VPS: `export VITE_GIT_REF=$(git rev-parse --short HEAD)` antes do up --build, ou o workflow de deploy define.
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
+        CACHEBUST: ${VITE_GIT_REF:-unknown}
         # GA4 opcional — incorporado no bundle pelo Vite (ver .env.example).
         VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
-        VITE_USE_VPS_AUTH: ${VITE_USE_VPS_AUTH:-}
-        VITE_USE_VPS_DATA: ${VITE_USE_VPS_DATA:-}
+        VITE_USE_VPS_AUTH: ${VITE_USE_VPS_AUTH:-true}
+        VITE_USE_VPS_DATA: ${VITE_USE_VPS_DATA:-true}
     init: true
     ports:
       - "${HOST_PORT:-3001}:3001"
@@ -206,9 +207,10 @@ services:
         VITE_ENFORCE_SUBSCRIPTION: ${VITE_ENFORCE_SUBSCRIPTION:-true}
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
+        CACHEBUST: ${VITE_GIT_REF:-unknown}
         VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
-        VITE_USE_VPS_AUTH: ${VITE_USE_VPS_AUTH:-}
-        VITE_USE_VPS_DATA: ${VITE_USE_VPS_DATA:-}
+        VITE_USE_VPS_AUTH: ${VITE_USE_VPS_AUTH:-true}
+        VITE_USE_VPS_DATA: ${VITE_USE_VPS_DATA:-true}
     command: ["./node_modules/.bin/tsx", "server/waWorker.ts"]
     init: true
     # Imagem HEALTHCHECK usa :3001 (API); o worker não escuta HTTP.

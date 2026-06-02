@@ -28,6 +28,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { auth } from '../services/firebase';
+import { useVpsAuth } from '../services/vpsAuth';
 import { useLandingDocumentMeta } from '../hooks/useLandingDocumentMeta';
 import { useAppConfig } from '../context/AppConfigContext';
 import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
@@ -97,7 +98,8 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
   trialLabel,
   startTrialAfterLogin
 }) => {
-  const { signInWithGoogle, signInWithFacebook, signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCustomToken } = useAuth();
+  const { signInWithGoogle, signInWithFacebook, signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCustomToken, signInWithStaffCredentials } = useAuth();
+  const vpsAuth = useVpsAuth();
 
   const [step, setStep]       = useState<QAPStep>('main');
   const [busy, setBusy]       = useState(false);
@@ -117,6 +119,11 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
   const handleEmailContinue = async () => {
     const trimmed = email.trim();
     if (!trimmed.includes('@')) { toast.error('Informe um e-mail válido'); return; }
+    if (vpsAuth) {
+      setStep('pw-up');
+      setTimeout(() => passRef.current?.focus(), 80);
+      return;
+    }
     setBusy(true);
     try {
       const stepKind = await resolveEmailAuthStep(auth, trimmed);
@@ -139,7 +146,7 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
   const handleSignUp = async () => {
     if (!password || !confirm) { toast.error('Preencha a senha e a confirmação'); return; }
     if (password !== confirm) { toast.error('As senhas não coincidem'); return; }
-    if (password.length < 6) { toast.error('Senha deve ter ao menos 6 caracteres'); return; }
+    if (password.length < 8) { toast.error('Senha deve ter ao menos 8 caracteres'); return; }
     setBusy(true);
     try {
       if (startTrialAfterLogin) setTrialSessionForManager('trial');
@@ -165,6 +172,10 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
     setBusy(true);
     try {
       clearTrialSessionFlags();
+      if (vpsAuth) {
+        await signInWithStaffCredentials(me, slug, staffPass);
+        return;
+      }
       const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -289,21 +300,29 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
             {trialLabel} grátis · sem cartão · sem instalação
           </p>
 
-          {/* Social buttons */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-            <button type="button" disabled={busy} onClick={() => void handleOAuth('google')}
-              style={{ ...oauthBtn('#fff', '0 2px 8px rgba(0,0,0,0.18)'), color: '#1f1f1f' }}>
-              <GoogleSVG size={18} />
-              Continuar com Google
-            </button>
-            <button type="button" disabled={busy} onClick={() => void handleOAuth('facebook')}
-              style={oauthBtn('#1877F2', '0 4px 14px rgba(24,119,242,0.3)')}>
-              <FacebookSVG size={18} />
-              Continuar com Facebook
-            </button>
-          </div>
+          {/* Social buttons (só modo Firebase legado) */}
+          {!vpsAuth && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+              <button type="button" disabled={busy} onClick={() => void handleOAuth('google')}
+                style={{ ...oauthBtn('#fff', '0 2px 8px rgba(0,0,0,0.18)'), color: '#1f1f1f' }}>
+                <GoogleSVG size={18} />
+                Continuar com Google
+              </button>
+              <button type="button" disabled={busy} onClick={() => void handleOAuth('facebook')}
+                style={oauthBtn('#1877F2', '0 4px 14px rgba(24,119,242,0.3)')}>
+                <FacebookSVG size={18} />
+                Continuar com Facebook
+              </button>
+            </div>
+          )}
 
-          {divider}
+          {!vpsAuth && divider}
+
+          {vpsAuth && (
+            <p style={{ fontSize: 12.5, color: D.text2, margin: '4px 0 0' }}>
+              Use e-mail e senha (mín. 8 caracteres). Se já tiver conta, confirme a senha; se não, crie uma nova.
+            </p>
+          )}
 
           {/* Email field */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

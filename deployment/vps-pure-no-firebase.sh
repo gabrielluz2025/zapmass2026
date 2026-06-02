@@ -46,16 +46,20 @@ SQL
 fi
 
 chmod +x deployment/*.sh 2>/dev/null || true
+export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo ""
-echo "==> Deploy"
+echo "==> Deploy (VITE_GIT_REF=${VITE_GIT_REF})"
 bash deployment/manual-pull-deploy.sh
 
-echo ""
-echo "==> Migração Firestore (opcional, se ainda tinha dados no Firebase)"
-if [ -f secrets/firebase-admin.json ]; then
-  docker compose exec -T zapmass npx tsx server/migrateFirestoreToVps.ts 2>/dev/null || true
+# Opcional: migração legado Firestore (ignorada se auth=vps e sem tenants no Firebase)
+if [ "${ZAPMASS_AUTH_PROVIDER:-vps}" = "vps" ] && [ "${SKIP_FIRESTORE_MIGRATE:-1}" != "0" ]; then
+  echo "==> Migração Firestore ignorada (modo VPS puro)"
 else
-  echo "    (sem firebase-admin.json — ignorado; crie contas novas na landing)"
+  if [ -f secrets/firebase-admin.json ]; then
+    docker compose exec -T zapmass npx tsx server/migrateFirestoreToVps.ts 2>/dev/null || true
+  else
+    echo "    (sem firebase-admin.json — ignorado)"
+  fi
 fi
 
 echo ""
