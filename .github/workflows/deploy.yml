@@ -165,8 +165,10 @@ jobs:
           timeout: 15m
           command_timeout: 140m
           script: |
-            set -euo pipefail
+            # bash explícito: PIPESTATUS + pipefail em /bin/sh quebra a captura do exit code do vps-deploy.sh
+            exec bash -euo pipefail <<'DEPLOY_EOF'
             export GITHUB_EVENT_NAME="${{ github.event_name }}"
+            export GITHUB_ACTIONS=true
             GHA_SHA="${{ github.sha }}"
             GHA_REF_NAME="${{ github.ref_name }}"
             echo "==> deploy: commit = ${GHA_SHA} (o mesmo que o job build testou) ref = ${GHA_REF_NAME}"
@@ -188,17 +190,19 @@ jobs:
             chmod +x deployment/vps-deploy.sh
             _log="/tmp/zapmass-gha-deploy-$$.log"
             set +e
-            bash deployment/vps-deploy.sh 2>&1 | tee "${_log}"
-            _code="${PIPESTATUS[0]}"
+            bash deployment/vps-deploy.sh >"${_log}" 2>&1
+            _code=$?
             set -e
+            cat "${_log}"
             if [ "${_code}" != "0" ]; then
-              echo "::error::vps-deploy.sh terminou com código ${_code} (causa real abaixo — não é o passo seguinte do workflow)."
-              echo "==> Últimas 80 linhas do deploy na VPS:"
+              echo "::error::vps-deploy.sh terminou com código ${_code} (causa real acima)."
+              echo "==> Últimas 80 linhas:"
               tail -n 80 "${_log}" 2>/dev/null || true
               rm -f "${_log}"
               exit "${_code}"
             fi
             rm -f "${_log}"
+            DEPLOY_EOF
 
       # 2ª tentativa só quando o TCP/SSH nem chegou (precheck falhou). Se vps-deploy.sh correu e saiu ≠0, repetir piora corrida na VPS.
       - name: Aguardar e repetir SSH (só falha de rede)
@@ -239,7 +243,7 @@ jobs:
       - name: Falhar job se o deploy na VPS falhou
         if: >-
           steps.deploy_try_1.outcome == 'failure' &&
-          steps.deploy_try_2.outcome != 'success'
+          (steps.deploy_try_2.outcome == 'failure' || steps.deploy_try_2.outcome == 'skipped')
         run: |
           if [ "${{ steps.ssh_precheck.outputs.reachable }}" = "false" ]; then
             echo "::error::SSH indisponivel: o runner do GitHub nao alcancou a VPS (dial tcp ... port 22 ... connection timed out)."

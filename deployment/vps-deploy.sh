@@ -448,6 +448,11 @@ fi
 # Healthcheck: até 6 min (Swarm rolling + start-period 180s no Dockerfile)
 HP="${HOST_PORT:-3001}"
 _HEALTH_TRIES="${DEPLOY_HEALTH_TRIES:-60}"
+if [ -n "${GITHUB_ACTIONS:-}" ] || [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+  _wait="${DEPLOY_HEALTH_INITIAL_WAIT:-15}"
+  echo "==> pausa ${_wait}s antes do healthcheck (deploy via GitHub Actions / container a subir)"
+  sleep "${_wait}"
+fi
 echo "==> aguardando API /api/health (porta publicada: ${HP}, até $((_HEALTH_TRIES * 6))s)"
 for i in $(seq 1 "${_HEALTH_TRIES}"); do
   code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HP}/api/health" || echo 000)
