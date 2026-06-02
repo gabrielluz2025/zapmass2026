@@ -5,6 +5,15 @@ set -euo pipefail
 
 cd /opt/zapmass
 
+# Evita dois deploys em paralelo (GitHub Actions + manual).
+_deploy_lock="/var/lock/zapmass-deploy.lock"
+mkdir -p /var/lock 2>/dev/null || true
+exec 9>"${_deploy_lock}"
+if ! flock -n 9; then
+  echo "ERRO: outro deploy ZapMass já está em execução (${_deploy_lock}). Aguarde e tente de novo."
+  exit 1
+fi
+
 # Garante que o arquivo .env existe para não quebrar o docker stack deploy/compose que o exige em env_file
 if [ ! -f .env ]; then
   echo "==> AVISO: .env não encontrado em /opt/zapmass! Criando um arquivo .env padrão a partir de .env.example..."
@@ -448,8 +457,11 @@ fi
 # Healthcheck: até 6 min (Swarm rolling + start-period 180s no Dockerfile)
 HP="${HOST_PORT:-3001}"
 _HEALTH_TRIES="${DEPLOY_HEALTH_TRIES:-60}"
+if [ -n "${GITHUB_ACTIONS:-}" ] && [ "${_HEALTH_TRIES}" -lt 45 ]; then
+  _HEALTH_TRIES=45
+fi
 if [ -n "${GITHUB_ACTIONS:-}" ] || [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
-  _wait="${DEPLOY_HEALTH_INITIAL_WAIT:-15}"
+  _wait="${DEPLOY_HEALTH_INITIAL_WAIT:-30}"
   echo "==> pausa ${_wait}s antes do healthcheck (deploy via GitHub Actions / container a subir)"
   sleep "${_wait}"
 fi

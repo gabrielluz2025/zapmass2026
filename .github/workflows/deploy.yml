@@ -147,11 +147,10 @@ jobs:
           else
             echo "reachable=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Runner nao alcancou ${VPS_HOST}:${VPS_PORT} apos 12 tentativas (~96s)."
-            echo "::warning::Provavel falha de firewall/rede (nao e erro de Docker nem vps-deploy.sh)."
+            echo "::warning::O deploy SSH ainda pode funcionar (nc no runner e falho na Hostinger)."
           fi
 
-      # Uma tentativa de vps-deploy.sh: repetir o script após falha (Docker/Swarm) piora corrida e OOM na VPS.
-      # Segunda ligação SSH abaixo: só quando a tentativa 1 falhou (tipicamente timeout TCP antes do script).
+      # Uma unica execucao de vps-deploy.sh — repetir apos falha piora OOM/corrida na VPS (run #884).
       - name: Deploy por SSH (tentativa 1)
         id: deploy_try_1
         if: github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true'
@@ -165,8 +164,7 @@ jobs:
           timeout: 15m
           command_timeout: 140m
           script: |
-            # bash explícito: PIPESTATUS + pipefail em /bin/sh quebra a captura do exit code do vps-deploy.sh
-            exec bash -euo pipefail <<'DEPLOY_EOF'
+            set -euo pipefail
             export GITHUB_EVENT_NAME="${{ github.event_name }}"
             export GITHUB_ACTIONS=true
             GHA_SHA="${{ github.sha }}"
@@ -202,57 +200,12 @@ jobs:
               exit "${_code}"
             fi
             rm -f "${_log}"
-            DEPLOY_EOF
-
-      # 2ª tentativa só quando o TCP/SSH nem chegou (precheck falhou). Se vps-deploy.sh correu e saiu ≠0, repetir piora corrida na VPS.
-      - name: Aguardar e repetir SSH (só falha de rede)
-        if: >-
-          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_try_1.outcome == 'failure' &&
-          steps.ssh_precheck.outputs.reachable == 'false'
-        run: |
-          echo "==> SSH inalcancavel na 1ª tentativa; aguardando 90s antes da 2ª ligação."
-          sleep 90
-
-      - name: Deploy por SSH (tentativa 2 — rede)
-        id: deploy_try_2
-        if: >-
-          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_try_1.outcome == 'failure' &&
-          steps.ssh_precheck.outputs.reachable == 'false'
-        continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 15m
-          command_timeout: 140m
-          script: |
-            set -euo pipefail
-            export GITHUB_EVENT_NAME="${{ github.event_name }}"
-            GHA_SHA="${{ github.sha }}"
-            echo "==> deploy (tentativa 2): commit = ${GHA_SHA}"
-            cd /opt/zapmass
-            git fetch --all --prune
-            git checkout -f "${GHA_SHA}"
-            chmod +x deployment/vps-deploy.sh
-            exec bash deployment/vps-deploy.sh
 
       - name: Falhar job se o deploy na VPS falhou
-        if: >-
-          steps.deploy_try_1.outcome == 'failure' &&
-          (steps.deploy_try_2.outcome == 'failure' || steps.deploy_try_2.outcome == 'skipped')
+        if: steps.deploy_try_1.outcome == 'failure'
         run: |
-          if [ "${{ steps.ssh_precheck.outputs.reachable }}" = "false" ]; then
-            echo "::error::SSH indisponivel: o runner do GitHub nao alcancou a VPS (dial tcp ... port 22 ... connection timed out)."
-            echo "::error::O vps-deploy.sh NAO chegou a correr. Sincronize o firewall Hostinger (botao Sincronizar) e libere TCP 22 para Any."
-            echo "::error::Deploy manual: cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
-          else
-            echo "::error::SSH OK, mas vps-deploy.sh terminou com erro na VPS. Abra «Deploy por SSH (tentativa 1)» — ultimas linhas com ERRO:/FALHA: (tail do script)."
-            echo "::error::Na VPS: cd /opt/zapmass && git pull && bash deployment/manual-pull-deploy.sh && docker compose logs zapmass --tail 80"
-          fi
+          echo "::error::vps-deploy.sh falhou na VPS. Veja o log completo em «Deploy por SSH (tentativa 1)» (ERRO:/FALHA:)."
+          echo "::error::Deploy manual: cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
           exit 1
 
       # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).
@@ -261,7 +214,7 @@ jobs:
         if: >-
           success() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          (steps.deploy_try_1.outcome == 'success' || steps.deploy_try_2.outcome == 'success')
+          steps.deploy_try_1.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
