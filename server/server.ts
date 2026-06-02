@@ -24,7 +24,7 @@ import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
-import { conversationsPayloadForViewer, slimConversationsForBroadcast } from './conversationsEmit.js';
+import { conversationsPayloadForViewer, socketConversationsPayload } from './conversationsEmit.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js';
 import { ensureAssignmentsLoaded, getWorkspaceMemberUidSet } from './inboxAssignments.js';
 import {
@@ -836,9 +836,7 @@ const registerSocketHandlers = () => {
       }
       socket.emit(
         'conversations-update',
-        slimConversationsForBroadcast(
-          conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
-        )
+        socketConversationsPayload(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
       );
     })();
     socket.emit('warmup-update', getWarmupStateForUid());
@@ -900,10 +898,10 @@ const registerSocketHandlers = () => {
               syncMeta,
             });
           }
-          socket.emit('conversations-update', slimConversationsForBroadcast(convPayload));
+          socket.emit('conversations-update', socketConversationsPayload(uid, authOp, convPayload));
           return;
         }
-        socket.emit('conversations-update', slimConversationsForBroadcast(conversationsPayloadForViewer(uid, authOp, waService.getConversations())));
+        socket.emit('conversations-update', socketConversationsPayload(uid, authOp, waService.getConversations()));
       })();
     });
 
@@ -997,9 +995,7 @@ const registerSocketHandlers = () => {
         await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
         socket.emit(
           'conversations-update',
-          slimConversationsForBroadcast(
-            conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
-          )
+          socketConversationsPayload(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
         );
       })();
     });

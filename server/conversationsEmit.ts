@@ -35,6 +35,33 @@ export function slimConversationsForBroadcast(list: Conversation[]): Conversatio
   });
 }
 
+/** Máximo de mensagens por conversa no payload socket (lista + tempo real). Histórico completo via load-chat-history. */
+const SOCKET_INBOX_MSG_TAIL = 8;
+
+/**
+ * Payload final para `conversations-update`: remove base64 pesado e limita mensagens por conversa.
+ * Sem isso, 2000+ chats com histórico em RAM viram JSON de dezenas de MB e travam o event loop (latência 90s+).
+ */
+export function prepareConversationsForSocketEmit(list: Conversation[]): Conversation[] {
+  return slimConversationsForBroadcast(list).map((c) => {
+    const msgs = Array.isArray(c.messages) ? c.messages : [];
+    if (msgs.length <= SOCKET_INBOX_MSG_TAIL) return c;
+    return { ...c, messages: msgs.slice(-SOCKET_INBOX_MSG_TAIL) };
+  });
+}
+
+/** Escopo tenant/staff + payload enxuto para socket. */
+export function socketConversationsPayload(
+  tenantUid: string,
+  authUid: string,
+  allConversations: Conversation[],
+  resolveConnectionOwner?: ConnectionOwnerResolver
+): Conversation[] {
+  return prepareConversationsForSocketEmit(
+    conversationsPayloadForViewer(tenantUid, authUid, allConversations, resolveConnectionOwner)
+  );
+}
+
 /**
  * Lista de conversas que cada socket deve ver: escopo de chip + regras de inbox (staff).
  */

@@ -569,13 +569,13 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
 
     chatStore.emitConversationsUpdate();
 
-    const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+    const { socketConversationsPayload } = await import('./conversationsEmit.js');
     const scoped = filterByConnectionScope(uid, getConnections());
     publishOwnerEvent(uid, 'connections-update', scoped);
     publishOwnerEvent(
         uid,
         'conversations-update',
-        conversationsPayloadForViewer(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
+        socketConversationsPayload(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
     );
 
     log('info', `syncConnectionsForOwner: ${scoped.length} canal(is), claimed=${claimed.join(',') || '-'}`);
@@ -677,7 +677,7 @@ function parseConnectionStateFromData(data: unknown): string {
 
 function emitScopedConversationsUpdate() {
     void (async () => {
-        const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+        const { socketConversationsPayload } = await import('./conversationsEmit.js');
         const all = chatStore.getConversations();
         const owners = new Set<string>();
         for (const c of all) {
@@ -693,7 +693,7 @@ function emitScopedConversationsUpdate() {
             publishOwnerEvent(
                 uid,
                 'conversations-update',
-                conversationsPayloadForViewer(uid, uid, all, resolveConnectionOwnerUid)
+                socketConversationsPayload(uid, uid, all, resolveConnectionOwnerUid)
             );
         }
         // Antes: io.emit broadcast de TODA a inbox quando nenhum owner
@@ -980,11 +980,11 @@ function applyConnectionStateUpdate(
                     'connections-update',
                     filterByConnectionScope(ou, getConnections())
                 );
-                const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+                const { socketConversationsPayload } = await import('./conversationsEmit.js');
                 publishOwnerEvent(
                     ou,
                     'conversations-update',
-                    conversationsPayloadForViewer(ou, ou, chatStore.getConversations(), resolveConnectionOwnerUid)
+                    socketConversationsPayload(ou, ou, chatStore.getConversations(), resolveConnectionOwnerUid)
                 );
             }
         })();
@@ -2432,11 +2432,11 @@ export async function deleteConnection(id: string): Promise<void> {
         const scoped = filterByConnectionScope(ownerUid, getConnections());
         publishOwnerEvent(ownerUid, 'connection-deleted', { id });
         publishOwnerEvent(ownerUid, 'connections-update', scoped);
-        const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+        const { socketConversationsPayload } = await import('./conversationsEmit.js');
         publishOwnerEvent(
             ownerUid,
             'conversations-update',
-            conversationsPayloadForViewer(ownerUid, ownerUid, chatStore.getConversations(), resolveConnectionOwnerUid)
+            socketConversationsPayload(ownerUid, ownerUid, chatStore.getConversations(), resolveConnectionOwnerUid)
         );
     } else if (io) {
         io.emit('connection-deleted', { id });
@@ -3475,11 +3475,11 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
     if (tasks.length > 0) {
         await Promise.all(tasks);
     }
-    const { conversationsPayloadForViewer } = await import('./conversationsEmit.js');
+    const { socketConversationsPayload } = await import('./conversationsEmit.js');
     publishOwnerEvent(
         uid,
         'conversations-update',
-        conversationsPayloadForViewer(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
+        socketConversationsPayload(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
     );
 
     if (syncedChats.length === 0 || Object.values(conversationCounts).every((n) => n === 0)) {

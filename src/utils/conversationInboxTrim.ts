@@ -80,11 +80,42 @@ export function mergeConversationsFromSocketUpdate(
       // Payload enxuto do servidor remove foto base64 (data:) — preserva a que o cliente já tinha.
       const withPic =
         !inc.profilePicUrl && p?.profilePicUrl ? { ...inc, profilePicUrl: p.profilePicUrl } : inc;
-      if (!p || !Array.isArray(p.messages) || p.messages.length <= withPic.messages.length) return withPic;
-      const tPrev = newestActivityMs(p);
-      const tInc = newestActivityMs(withPic);
-      if (tPrev >= tInc) return { ...withPic, messages: p.messages };
-      return withPic;
+
+      const mergedMeta: Conversation = {
+        ...withPic,
+        contactName: (withPic.contactName || p?.contactName || '').trim() || withPic.contactName,
+        contactPhone: withPic.contactPhone || p?.contactPhone || '',
+        lastMessage: (withPic.lastMessage || '').trim() ? withPic.lastMessage : p?.lastMessage || withPic.lastMessage,
+        lastMessageTime: withPic.lastMessageTime || p?.lastMessageTime || '',
+        lastMessageTimestamp: Math.max(
+          withPic.lastMessageTimestamp ?? 0,
+          p?.lastMessageTimestamp ?? 0,
+          newestActivityMs(withPic),
+          p ? newestActivityMs(p) : 0
+        ),
+        unreadCount:
+          typeof withPic.unreadCount === 'number'
+            ? withPic.unreadCount
+            : p?.unreadCount ?? withPic.unreadCount,
+      };
+
+      const prevMsgs = Array.isArray(p?.messages) ? p!.messages : [];
+      const incMsgs = Array.isArray(withPic.messages) ? withPic.messages : [];
+
+      if (prevMsgs.length === 0) {
+        return trimConversationMessagesTail(mergedMeta, maxTail);
+      }
+      if (incMsgs.length === 0) {
+        return { ...mergedMeta, messages: prevMsgs };
+      }
+
+      const byId = new Map<string, ChatMessage>();
+      for (const m of prevMsgs) byId.set(m.id, m);
+      for (const m of incMsgs) byId.set(m.id, m);
+      const mergedMsgs = Array.from(byId.values()).sort(
+        (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+      );
+      return trimConversationMessagesTail({ ...mergedMeta, messages: mergedMsgs }, maxTail);
     })
     .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
   if (h === lastIncomingHash && lastResult && lastResult.length === out.length && prev === lastResult) {

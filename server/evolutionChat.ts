@@ -3,6 +3,7 @@ import type { Server as SocketIOServer } from 'socket.io';
 import { Conversation, ChatMessage } from './types.js';
 import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
+import { prepareConversationsForSocketEmit } from './conversationsEmit.js';
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 
 const MAX_MESSAGES = 10000;
@@ -44,27 +45,6 @@ export function createEvolutionChat(api: AxiosInstance) {
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
-    /**
-     * Payload enxuto para o broadcast: remove base64 pesado (fotos de perfil `data:` e mídia
-     * `data:` das mensagens) que inflava o array em vários MB e travava o event loop ao serializar.
-     * As fotos chegam via evento `conversation-picture` / busca sob demanda; a mídia via loadMessageMedia.
-     * O merge no frontend preserva o que o cliente já tem (fotos/mídia/mensagens).
-     */
-    function slimConversationForBroadcast(conv: Conversation): Conversation {
-        const pic = conv.profilePicUrl;
-        const slimPic = pic && pic.startsWith('data:') ? undefined : pic;
-        let slimMessages = conv.messages;
-        if (Array.isArray(conv.messages) && conv.messages.some((m) => typeof m.mediaUrl === 'string' && m.mediaUrl.startsWith('data:'))) {
-            slimMessages = conv.messages.map((m) =>
-                typeof m.mediaUrl === 'string' && m.mediaUrl.startsWith('data:')
-                    ? { ...m, mediaUrl: undefined }
-                    : m
-            );
-        }
-        if (slimPic === pic && slimMessages === conv.messages) return conv;
-        return { ...conv, profilePicUrl: slimPic, messages: slimMessages };
-    }
-
     function emitConversationsUpdate() {
         if (notifyConversationsChanged) {
             notifyConversationsChanged();
@@ -82,7 +62,7 @@ export function createEvolutionChat(api: AxiosInstance) {
             if (!io || !ownerUidForScope) return;
             io.to(`user:${ownerUidForScope}`).emit(
                 'conversations-update',
-                conversations.map(slimConversationForBroadcast)
+                prepareConversationsForSocketEmit(conversations)
             );
         }, 80);
     }
@@ -231,7 +211,10 @@ export function createEvolutionChat(api: AxiosInstance) {
         msg: ChatMessage,
         meta?: { contactName?: string; contactPhone?: string; connectionId?: string; incrementUnread?: boolean }
     ) {
-        if (deletedConversationIds.has(conversationId)) return;
+        // Nova mensagem reabre conversa que o usuário tinha removido da lista local.
+        if (deletedConversationIds.has(conversationId)) {
+            deletedConversationIds.delete(conversationId);
+        }
         let conv = conversations.find((c) => c.id === conversationId);
         if (!conv) {
             const resolvedName = filterEvolutionName(meta?.contactName) || meta?.contactPhone || conversationId.split(':')[1] || '';

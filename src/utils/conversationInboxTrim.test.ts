@@ -44,4 +44,41 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     expect(out).toHaveLength(1);
     expect(out[0].connectionId).toBe(legacyChip);
   });
+
+  it('preserva historico local quando payload socket vem enxuto (sem messages) mas atualiza preview', () => {
+    const id = `${legacyChip}:5511999999999@s.whatsapp.net`;
+    const prev: Conversation[] = [
+      {
+        ...conv(legacyChip, tenantUid),
+        id,
+        messages: [
+          {
+            id: 'm1',
+            text: 'antiga',
+            timestamp: '10:00',
+            timestampMs: 1_700_000_000_000,
+            sender: 'them',
+            status: 'delivered',
+            type: 'text'
+          }
+        ],
+        lastMessage: 'antiga',
+        lastMessageTimestamp: 1_700_000_000_000
+      }
+    ];
+    const incoming: Conversation[] = [
+      {
+        ...conv(legacyChip, tenantUid),
+        id,
+        messages: [],
+        lastMessage: 'nova',
+        lastMessageTimestamp: 1_700_000_100_000
+      }
+    ];
+    const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
+    const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
+    expect(out[0].lastMessage).toBe('nova');
+    expect(out[0].messages).toHaveLength(1);
+    expect(out[0].messages[0].text).toBe('antiga');
+  });
 });
