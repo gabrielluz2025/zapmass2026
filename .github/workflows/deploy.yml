@@ -200,19 +200,22 @@ jobs:
             fi
             rm -f "${_log}"
 
-      - name: Aguardar e repetir SSH (só se tentativa 1 falhou)
+      # 2ª tentativa só quando o TCP/SSH nem chegou (precheck falhou). Se vps-deploy.sh correu e saiu ≠0, repetir piora corrida na VPS.
+      - name: Aguardar e repetir SSH (só falha de rede)
         if: >-
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_try_1.outcome == 'failure'
+          steps.deploy_try_1.outcome == 'failure' &&
+          steps.ssh_precheck.outputs.reachable == 'false'
         run: |
-          echo "==> tentativa 1 falhou; aguardando 90s antes da 2ª ligação SSH (firewall/fail2ban intermitente?)"
+          echo "==> SSH inalcancavel na 1ª tentativa; aguardando 90s antes da 2ª ligação."
           sleep 90
 
       - name: Deploy por SSH (tentativa 2 — rede)
         id: deploy_try_2
         if: >-
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_try_1.outcome == 'failure'
+          steps.deploy_try_1.outcome == 'failure' &&
+          steps.ssh_precheck.outputs.reachable == 'false'
         continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -240,12 +243,11 @@ jobs:
         run: |
           if [ "${{ steps.ssh_precheck.outputs.reachable }}" = "false" ]; then
             echo "::error::SSH indisponivel: o runner do GitHub nao alcancou a VPS (dial tcp ... port 22 ... connection timed out)."
-            echo "::error::O vps-deploy.sh NAO chegou a correr. Corrija firewall/painel Hostinger: permitir SSH (TCP 22) de qualquer IP — runners usam IPs variados."
-            echo "::error::Na VPS: sudo ufw allow 22/tcp; rever fail2ban; confirme sshd ativo. Teste: nc -zv IP 22"
-            echo "::error::Deploy manual (do seu PC, se SSH de la funcionar): cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
-          else
-            echo "::error::Ligacao SSH falhou ou vps-deploy.sh terminou com erro. Veja o passo «Deploy por SSH» (ERRO:/FALHA: ou connection timed out)."
+            echo "::error::O vps-deploy.sh NAO chegou a correr. Sincronize o firewall Hostinger (botao Sincronizar) e libere TCP 22 para Any."
             echo "::error::Deploy manual: cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
+          else
+            echo "::error::SSH OK, mas vps-deploy.sh terminou com erro na VPS. Abra «Deploy por SSH (tentativa 1)» — ultimas linhas com ERRO:/FALHA: (tail do script)."
+            echo "::error::Na VPS: cd /opt/zapmass && git pull && bash deployment/manual-pull-deploy.sh && docker compose logs zapmass --tail 80"
           fi
           exit 1
 
