@@ -9,11 +9,19 @@ Scripts em `deployment/`:
 | `vps-env-secrets.sh` | Mercado Pago + Resend (tokens seus) |
 | `manual-pull-deploy.sh` | Deploy após ajustar `.env` |
 
-## Ordem na VPS
+## Um comando só (recomendado)
+
+```bash
+cd /opt/zapmass && bash deployment/vps-finalizar-producao.sh
+```
+
+Ou copie o bloco em `deployment/COPIAR-E-COLAR-VPS.txt`.
+
+## Ordem manual (alternativa)
 
 ```bash
 cd /opt/zapmass
-git pull origin main   # ou só: bash deployment/manual-pull-deploy.sh
+bash deployment/manual-pull-deploy.sh
 bash deployment/vps-env-bootstrap.sh
 ```
 

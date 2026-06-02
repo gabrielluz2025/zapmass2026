@@ -1,0 +1,10 @@
+# Cole ESTE BLOCO INTEIRO no terminal SSH da VPS (Hostinger → Terminal)
+
+cd /opt/zapmass
+git fetch origin && git reset --hard origin/main
+chmod +x deployment/*.sh
+bash deployment/vps-finalizar-producao.sh
+
+# Se o script pedir o secret do webhook Mercado Pago (depois de criar no painel):
+# MERCADOPAGO_WEBHOOK_SECRET='cole_o_secret_do_painel' bash deployment/vps-env-secrets.sh
+# bash deployment/manual-pull-deploy.sh

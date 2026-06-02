@@ -243,4 +243,7 @@ volumes:
   zapmass-data:
   zapmass-redis:
   zapmass-evolution:
+  # Volume criado por deploy antigo (Swarm); reutilizar evita WARN no compose.
   zapmass-postgres:
+    external: true
+    name: zapmass_zapmass-postgres
