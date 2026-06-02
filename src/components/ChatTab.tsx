@@ -1151,6 +1151,10 @@ export const ChatTab: React.FC<{
 
   const filteredConversations = useMemo(() => {
     let list = filteredByConnection;
+    // Aba "Todas" = experiência WhatsApp Web: só conversas reais. Contatos da agenda sem
+    // mensagem (origem 'empty') ficam apenas na aba "Vazias". 'phone' exige preview/timestamp,
+    // então conversas reais nunca são escondidas por engano.
+    if (chatFilter === 'all') list = list.filter((c) => originByConv.get(c.id) !== 'empty');
     if (chatFilter === 'unread') list = list.filter((c) => c.unreadCount > 0);
     if (chatFilter === 'groups') list = list.filter((c) => c.id.endsWith('@g.us'));
     if (chatFilter === 'system') list = list.filter((c) => originByConv.get(c.id) === 'system');

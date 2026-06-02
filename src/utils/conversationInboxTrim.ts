@@ -77,11 +77,14 @@ export function mergeConversationsFromSocketUpdate(
   const out = dedupedIncoming
     .map((inc) => {
       const p = prevById.get(inc.id);
-      if (!p || !Array.isArray(p.messages) || p.messages.length <= inc.messages.length) return inc;
+      // Payload enxuto do servidor remove foto base64 (data:) — preserva a que o cliente já tinha.
+      const withPic =
+        !inc.profilePicUrl && p?.profilePicUrl ? { ...inc, profilePicUrl: p.profilePicUrl } : inc;
+      if (!p || !Array.isArray(p.messages) || p.messages.length <= withPic.messages.length) return withPic;
       const tPrev = newestActivityMs(p);
-      const tInc = newestActivityMs(inc);
-      if (tPrev >= tInc) return { ...inc, messages: p.messages };
-      return inc;
+      const tInc = newestActivityMs(withPic);
+      if (tPrev >= tInc) return { ...withPic, messages: p.messages };
+      return withPic;
     })
     .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
   if (h === lastIncomingHash && lastResult && lastResult.length === out.length && prev === lastResult) {

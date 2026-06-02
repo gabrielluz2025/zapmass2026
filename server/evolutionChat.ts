@@ -24,6 +24,8 @@ export function createEvolutionChat(api: AxiosInstance) {
     let storeLock: Promise<void> = Promise.resolve();
     /** Debounce de 120ms para evitar dezenas de emits em sequência (ex: sync inicial de 1300+ conversas). */
     let emitDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Contador de amostras de diagnóstico de conversas @lid (cap p/ não floodar logs). */
+    let lidDiagSamples = 0;
     const withStoreLock = <T>(fn: () => Promise<T>): Promise<T> => {
         const run = storeLock.then(fn);
         storeLock = run.then(
@@ -42,6 +44,27 @@ export function createEvolutionChat(api: AxiosInstance) {
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
+    /**
+     * Payload enxuto para o broadcast: remove base64 pesado (fotos de perfil `data:` e mídia
+     * `data:` das mensagens) que inflava o array em vários MB e travava o event loop ao serializar.
+     * As fotos chegam via evento `conversation-picture` / busca sob demanda; a mídia via loadMessageMedia.
+     * O merge no frontend preserva o que o cliente já tem (fotos/mídia/mensagens).
+     */
+    function slimConversationForBroadcast(conv: Conversation): Conversation {
+        const pic = conv.profilePicUrl;
+        const slimPic = pic && pic.startsWith('data:') ? undefined : pic;
+        let slimMessages = conv.messages;
+        if (Array.isArray(conv.messages) && conv.messages.some((m) => typeof m.mediaUrl === 'string' && m.mediaUrl.startsWith('data:'))) {
+            slimMessages = conv.messages.map((m) =>
+                typeof m.mediaUrl === 'string' && m.mediaUrl.startsWith('data:')
+                    ? { ...m, mediaUrl: undefined }
+                    : m
+            );
+        }
+        if (slimPic === pic && slimMessages === conv.messages) return conv;
+        return { ...conv, profilePicUrl: slimPic, messages: slimMessages };
+    }
+
     function emitConversationsUpdate() {
         if (notifyConversationsChanged) {
             notifyConversationsChanged();
@@ -57,7 +80,10 @@ export function createEvolutionChat(api: AxiosInstance) {
         emitDebounceTimer = setTimeout(() => {
             emitDebounceTimer = null;
             if (!io || !ownerUidForScope) return;
-            io.to(`user:${ownerUidForScope}`).emit('conversations-update', [...conversations]);
+            io.to(`user:${ownerUidForScope}`).emit(
+                'conversations-update',
+                conversations.map(slimConversationForBroadcast)
+            );
         }, 80);
     }
 
@@ -501,6 +527,22 @@ export function createEvolutionChat(api: AxiosInstance) {
             return null;
         }
         if (isGarbagePersonChatJid(remoteJid)) return null;
+
+        // DIAGNÓSTICO @lid: registra os campos que a Evolution envia para conversas @lid
+        // (sem telefone no JID), para descobrir onde está o número real. Limitado a 8 amostras/processo.
+        if (remoteJid.endsWith('@lid') && lidDiagSamples < 8 && chat && typeof chat === 'object') {
+            lidDiagSamples++;
+            const keys = Object.keys(chat);
+            const sample: Record<string, unknown> = {};
+            for (const k of keys) {
+                const v = (chat as Record<string, unknown>)[k];
+                if (v == null) continue;
+                if (typeof v === 'string') sample[k] = v.length > 80 ? `${v.slice(0, 80)}…(${v.length})` : v;
+                else if (typeof v === 'number' || typeof v === 'boolean') sample[k] = v;
+                else sample[k] = `[${typeof v}]`;
+            }
+            console.info(`[EvolutionChat][LID-DIAG ${lidDiagSamples}/8] ${connectionId} remoteJid=${remoteJid} keys=${keys.join(',')} sample=${JSON.stringify(sample)}`);
+        }
 
         const jid = remoteJid;
         const id = buildConversationId(connectionId, jid);

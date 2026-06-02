@@ -24,7 +24,7 @@ import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
-import { conversationsPayloadForViewer } from './conversationsEmit.js';
+import { conversationsPayloadForViewer, slimConversationsForBroadcast } from './conversationsEmit.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js';
 import { ensureAssignmentsLoaded, getWorkspaceMemberUidSet } from './inboxAssignments.js';
 import {
@@ -836,7 +836,9 @@ const registerSocketHandlers = () => {
       }
       socket.emit(
         'conversations-update',
-        conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+        slimConversationsForBroadcast(
+          conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+        )
       );
     })();
     socket.emit('warmup-update', getWarmupStateForUid());
@@ -898,10 +900,10 @@ const registerSocketHandlers = () => {
               syncMeta,
             });
           }
-          socket.emit('conversations-update', convPayload);
+          socket.emit('conversations-update', slimConversationsForBroadcast(convPayload));
           return;
         }
-        socket.emit('conversations-update', conversationsPayloadForViewer(uid, authOp, waService.getConversations()));
+        socket.emit('conversations-update', slimConversationsForBroadcast(conversationsPayloadForViewer(uid, authOp, waService.getConversations())));
       })();
     });
 
@@ -995,7 +997,9 @@ const registerSocketHandlers = () => {
         await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
         socket.emit(
           'conversations-update',
-          conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+          slimConversationsForBroadcast(
+            conversationsPayloadForViewer(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+          )
         );
       })();
     });
