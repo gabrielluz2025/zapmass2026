@@ -5,41 +5,13 @@
  *
  * Deduplicação: campo userSubscriptions.adminNewClientNotifiedAt (claim atómico).
  */
-import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { findUserById } from './auth/userRepository.js';
+import { vpsDataEnabled } from './auth/dataMode.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 import { sendNewClientSignupNotificationEmail } from './emailService.js';
-import type { UserSubscriptionDoc } from './subscriptionFirestore.js';
-
-const COLLECTION = 'userSubscriptions';
-
-/**
- * Reserva o slot de notificação (uma vez por UID). Devolve true se esta chamada ganhou o direito de enviar.
- */
-export async function tryClaimAdminNewClientNotify(uid: string): Promise<boolean> {
-  if (!uid) return false;
-  const admin = getFirebaseAdmin();
-  if (!admin) return false;
-  const db = getFirestore(admin);
-  const ref = db.collection(COLLECTION).doc(uid);
-  let claimed = false;
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    const d = snap.data() as UserSubscriptionDoc | undefined;
-    if (d?.adminNewClientNotifiedAt) return;
-    tx.set(
-      ref,
-      {
-        adminNewClientNotifiedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      } as Record<string, unknown>,
-      { merge: true }
-    );
-    claimed = true;
-  });
-  return claimed;
-}
+import { tryClaimAdminNewClientNotify } from './subscriptionStore.js';
 
 export type NewSignupSource = 'trial' | 'subscription';
 
@@ -56,12 +28,20 @@ export async function notifyAdminsNewClientSignup(params: {
 
   let email = '';
   let displayName = '';
-  try {
-    const rec = await getAuth(adminApp).getUser(uid);
-    email = rec.email || '';
-    displayName = (rec.displayName || '').trim();
-  } catch (e) {
-    console.warn('[adminNewSignupNotify] getUser', uid, e);
+  if (vpsDataEnabled()) {
+    const row = await findUserById(uid);
+    if (row) {
+      email = row.email || '';
+      displayName = (row.display_name || '').trim();
+    }
+  } else {
+    try {
+      const rec = await getAuth(adminApp).getUser(uid);
+      email = rec.email || '';
+      displayName = (rec.displayName || '').trim();
+    } catch (e) {
+      console.warn('[adminNewSignupNotify] getUser', uid, e);
+    }
   }
 
   const label = source === 'trial' ? 'Teste grátis iniciado' : 'Nova assinatura paga';

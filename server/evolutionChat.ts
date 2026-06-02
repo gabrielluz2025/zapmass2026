@@ -5,6 +5,20 @@ import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import { prepareConversationsForSocketEmit } from './conversationsEmit.js';
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
+import {
+    appendChatArchiveMessages,
+    isWaChatArchiveEnabled,
+    threadIdFromConversationId
+} from './chatArchiveStore.js';
+import {
+    hydrateChatArchiveForConversation as mergeHydrateChatArchive,
+    mergeChatArchiveIntoConversation
+} from './chatArchiveMerge.js';
+
+export type EvolutionChatArchiveCtx = {
+    resolveConnectionOwnerUid: (connectionId: string) => string | undefined;
+    ownerUidFromConnectionId: (connectionId: string) => string | undefined;
+};
 
 const MAX_MESSAGES = 10000;
 
@@ -14,7 +28,7 @@ function evoInst(instanceName: string): string {
     return encodeURIComponent(String(instanceName || '').trim());
 }
 
-export function createEvolutionChat(api: AxiosInstance) {
+export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionChatArchiveCtx) {
     let conversations: Conversation[] = [];
     let io: SocketIOServer | null = null;
     let notifyConversationsChanged: (() => void) | null = null;
@@ -163,11 +177,47 @@ export function createEvolutionChat(api: AxiosInstance) {
         };
     }
 
-    function upsertConversation(conv: Conversation) {
+    function allowDeletedConversation(conversationId: string) {
+        deletedConversationIds.delete(conversationId);
+    }
+
+    const persistConversationDeltaArchive = (
+        prev: Conversation | null | undefined,
+        next: Conversation
+    ): void => {
+        if (!isWaChatArchiveEnabled() || !archiveCtx) return;
+        if (!next?.connectionId || deletedConversationIds.has(next.id)) return;
+        const ownerUid =
+            archiveCtx.resolveConnectionOwnerUid(next.connectionId) ||
+            archiveCtx.ownerUidFromConnectionId(next.connectionId);
+        if (!ownerUid || ownerUid === 'anonymous') return;
+        const threadId = threadIdFromConversationId(next.id, next.contactPhone);
+        if (!threadId) return;
+        const prevIds = new Set((prev?.messages || []).map((m) => m.id));
+        const delta = (next.messages || []).filter((m) => m?.id && !prevIds.has(m.id));
+        if (delta.length === 0) return;
+        void appendChatArchiveMessages(ownerUid, threadId, {
+            contactName: next.contactName || 'Contato',
+            contactPhone: next.contactPhone || '',
+            connectionId: next.connectionId
+        }, delta).catch(() => undefined);
+    };
+
+    const evoChatArchiveHooks = () => ({
+        getConversations: () => conversations,
+        upsertConversation,
+        allowDeletedConversation,
+        emitConversationsUpdate,
+        resolveConnectionOwnerUid: archiveCtx!.resolveConnectionOwnerUid,
+        ownerUidFromConnectionId: archiveCtx!.ownerUidFromConnectionId,
+        maxMessages: MAX_MESSAGES
+    });
+
+    function upsertConversation(conv: Conversation, opts?: { skipArchive?: boolean }) {
         if (deletedConversationIds.has(conv.id)) return;
         const idx = conversations.findIndex((c) => c.id === conv.id);
+        const prev = idx >= 0 ? conversations[idx] : null;
         if (idx >= 0) {
-            const prev = conversations[idx];
             const prevTs = prev.lastMessageTimestamp || 0;
             const convTs = conv.lastMessageTimestamp || 0;
             const bestTs = Math.max(prevTs, convTs);
@@ -204,6 +254,9 @@ export function createEvolutionChat(api: AxiosInstance) {
         conversations.sort(
             (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
         );
+        if (!opts?.skipArchive) {
+            persistConversationDeltaArchive(prev ?? undefined, conversations.find((c) => c.id === conv.id) || conv);
+        }
     }
 
     function appendMessageToConversation(
@@ -590,7 +643,7 @@ export function createEvolutionChat(api: AxiosInstance) {
             for (const chat of chats) {
                 const conv = mapEvolutionChatToConversation(connectionId, chat);
                 if (!conv) continue;
-                upsertConversation(conv);
+                upsertConversation(conv, { skipArchive: true });
                 added++;
             }
 
@@ -846,6 +899,16 @@ export function createEvolutionChat(api: AxiosInstance) {
         emitConversationsUpdate();
     }
 
+    async function hydrateChatArchiveForConversation(
+        conversationId: string,
+        historyLimit = 400
+    ): Promise<{ ok: boolean; total: number; error?: string }> {
+        if (!archiveCtx) {
+            return { ok: false, total: 0, error: 'Arquivo de chat indisponível.' };
+        }
+        return mergeHydrateChatArchive(conversationId, historyLimit, evoChatArchiveHooks());
+    }
+
     async function loadChatHistory(
         conversationId: string,
         limit = 500,
@@ -853,6 +916,10 @@ export function createEvolutionChat(api: AxiosInstance) {
     ): Promise<{ ok: boolean; total: number; error?: string }> {
         const parsed = parseConversationId(conversationId);
         if (!parsed) return { ok: false, total: 0, error: 'conversationId inválido.' };
+
+        if (archiveCtx) {
+            await mergeChatArchiveIntoConversation(conversationId, limit, evoChatArchiveHooks());
+        }
 
         const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
         const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, requested);
@@ -1057,6 +1124,7 @@ export function createEvolutionChat(api: AxiosInstance) {
         sendMessage,
         sendMedia,
         loadChatHistory,
+        hydrateChatArchiveForConversation,
         loadMessageMedia,
         markAsRead,
         fetchConversationPicture,

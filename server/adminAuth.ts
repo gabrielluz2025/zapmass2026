@@ -7,14 +7,10 @@ import {
   isPlatformAdminDecoded,
   platformAdminDenyHint
 } from './adminIdentity.js';
+import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 
 export { adminEmailSet, adminUidSet } from './adminIdentity.js';
-
-export function parseBearer(req: Request): string | null {
-  const h = req.headers.authorization || '';
-  const m = /^Bearer\s+(.+)$/i.exec(h);
-  return m ? m[1].trim() : null;
-}
+export { parseBearer } from './resolveAuth.js';
 
 async function resolveEmailForAdminCheck(
   adminApp: NonNullable<ReturnType<typeof getFirebaseAdmin>>,
@@ -34,14 +30,27 @@ export async function assertAdminFromBearer(
   req: Request,
   res: Response
 ): Promise<{ uid: string; email: string } | null> {
-  const adminApp = getFirebaseAdmin();
-  if (!adminApp) {
-    res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-    return null;
-  }
   const token = parseBearer(req);
   if (!token) {
-    res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <Firebase ID token>.' });
+    res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <token>.' });
+    return null;
+  }
+  const principal = await resolveAuthPrincipal(token);
+  if (principal) {
+    const shape = { uid: principal.authUid, email: principal.email, admin: false };
+    if (isPlatformAdminDecoded(shape)) {
+      return { uid: principal.authUid, email: principal.email || principal.authUid };
+    }
+    res.status(403).json({
+      ok: false,
+      error: 'Acesso restrito a administradores.',
+      hint: platformAdminDenyHint()
+    });
+    return null;
+  }
+  const adminApp = getFirebaseAdmin();
+  if (!adminApp) {
+    res.status(503).json({ ok: false, error: 'Autenticação não configurada no servidor.' });
     return null;
   }
   try {
@@ -74,7 +83,7 @@ export async function assertAdminFromBearer(
     });
     return null;
   } catch {
-    res.status(401).json({ ok: false, error: 'Token Firebase invalido ou expirado.' });
+    res.status(401).json({ ok: false, error: 'Token inválido ou expirado.' });
     return null;
   }
 }
@@ -82,13 +91,38 @@ export async function assertAdminFromBearer(
 /** Confirma se o token atual é admin de plataforma (menu vs API). */
 export function registerAdminAuthRoutes(app: Express): void {
   app.get('/api/admin/session', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, admin: false, error: 'Firebase Admin nao configurado.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, admin: false, error: 'Bearer token obrigatorio.' });
+    }
+    const principal = await resolveAuthPrincipal(token);
+    if (principal) {
+      const admin = isPlatformAdminDecoded({
+        uid: principal.authUid,
+        email: principal.email,
+        admin: false
+      });
+      if (!admin) {
+        return res.status(403).json({
+          ok: false,
+          admin: false,
+          uid: principal.authUid,
+          email: principal.email || null,
+          hint: platformAdminDenyHint(),
+          serverHasAdminEmails: adminEmailSet().size > 0,
+          serverHasAdminUids: adminUidSet().size > 0
+        });
+      }
+      return res.json({
+        ok: true,
+        admin: true,
+        uid: principal.authUid,
+        email: principal.email || principal.authUid
+      });
+    }
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.status(503).json({ ok: false, admin: false, error: 'Autenticação não configurada.' });
     }
     try {
       const decoded = await getAuth(adminApp).verifyIdToken(token);

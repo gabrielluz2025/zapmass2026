@@ -4,8 +4,9 @@ import { getFirebaseAdmin } from './firebaseAdmin.js';
 import {
   extendPaidSubscription,
   mergeUserSubscription,
+  readAccessEndsAtDate,
   type SubscriptionPlan
-} from './subscriptionFirestore.js';
+} from './subscriptionStore.js';
 import { sendPaymentConfirmationEmail } from './emailService.js';
 import { issueInvoice, isNfeEnabled } from './nfeService.js';
 import { getMercadoPagoAccessToken } from './mercadoPagoAccess.js';
@@ -114,14 +115,7 @@ function mpPaymentMethodToOurMethod(paymentMethodId: string | undefined): 'pix' 
  * Usamos esse valor no email para nao calcular errado.
  */
 async function readAccessEndsAt(uid: string): Promise<Date | null> {
-  const app = getFirebaseAdmin();
-  if (!app) return null;
-  const db = getFirestore(app);
-  const snap = await db.collection('userSubscriptions').doc(uid).get();
-  const data = snap.data() as { accessEndsAt?: Timestamp | null } | undefined;
-  const ts = data?.accessEndsAt;
-  if (!ts) return null;
-  return ts.toDate();
+  return readAccessEndsAtDate(uid);
 }
 
 /**

@@ -1648,7 +1648,10 @@ const api: AxiosInstance = axios.create({
     },
 });
 
-const chatStore: EvolutionChatStore = createEvolutionChat(api);
+const chatStore: EvolutionChatStore = createEvolutionChat(api, {
+    resolveConnectionOwnerUid,
+    ownerUidFromConnectionId
+});
 
 // ================== FUNÇÕES AUXILIARES ==================
 
@@ -3501,6 +3504,13 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
     }
 
     return { syncedChats, skippedNotOpen, skippedNotOwned, claimed, conversationCounts };
+}
+
+export async function hydrateFirestoreChatArchiveForConversation(
+    conversationId: string,
+    historyLimit = 400
+): Promise<{ ok: boolean; total: number; error?: string }> {
+    return chatStore.hydrateChatArchiveForConversation(conversationId, historyLimit);
 }
 
 export async function loadChatHistory(

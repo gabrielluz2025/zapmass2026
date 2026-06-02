@@ -8,5 +8,9 @@ export function firestoreTimeToMs(v: unknown): number | null {
     const s = Number((v as { seconds: number }).seconds);
     if (Number.isFinite(s)) return s * 1000;
   }
+  if (typeof v === 'string') {
+    const n = Date.parse(v);
+    return Number.isFinite(n) ? n : null;
+  }
   return null;
 }

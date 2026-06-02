@@ -1,4 +1,5 @@
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
+import { fetchCampaignDoc, usePostgresCampaigns } from './campaignStore.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { extractEvolutionMessageBody } from './evolutionWebhookMessages.js';
@@ -371,9 +372,12 @@ export class ReplyFlowEngine {
             let docData: Record<string, unknown> | undefined;
 
             if (ownerUid) {
-                // Caminho direto quando ownerUid é conhecido — mais rápido e correto.
-                const docSnap = await db.doc(`users/${ownerUid}/campaigns/${campaignId}`).get();
-                if (docSnap.exists) docData = docSnap.data() as Record<string, unknown>;
+                if (usePostgresCampaigns()) {
+                    docData = (await fetchCampaignDoc(ownerUid, campaignId)) ?? undefined;
+                } else {
+                    const docSnap = await db.doc(`users/${ownerUid}/campaigns/${campaignId}`).get();
+                    if (docSnap.exists) docData = docSnap.data() as Record<string, unknown>;
+                }
             }
 
             if (!docData) {

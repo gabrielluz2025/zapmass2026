@@ -10,6 +10,8 @@ import React, {
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from './AuthContext';
+import { useVpsData } from '../services/vpsData';
+import { fetchAppProfile, saveAppProfileSegment } from '../services/appProfileApi';
 import { useWorkspace } from './WorkspaceContext';
 import { isPlatformAdminUser } from '../utils/adminAccess';
 import {
@@ -49,12 +51,33 @@ export const AppProfileProvider: React.FC<{ children: ReactNode }> = ({ children
   const [savedSegment, setSavedSegment] = useState<UseSegmentId | null>(null);
 
   const workspaceUid = effectiveWorkspaceUid;
+  const vpsData = useVpsData();
 
   useEffect(() => {
     if (workspaceLoading || !user || !workspaceUid) {
       setSavedSegment(null);
       setLoading(!user || workspaceLoading);
       return;
+    }
+
+    if (vpsData) {
+      let cancelled = false;
+      const load = async () => {
+        try {
+          const seg = await fetchAppProfile();
+          if (!cancelled) setSavedSegment(seg);
+        } catch (e) {
+          console.error('[AppProfileContext/VPS]', e);
+          if (!cancelled) setSavedSegment(null);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      };
+      setLoading(true);
+      void load();
+      return () => {
+        cancelled = true;
+      };
     }
 
     setLoading(true);
@@ -73,7 +96,7 @@ export const AppProfileProvider: React.FC<{ children: ReactNode }> = ({ children
       }
     );
     return () => unsub();
-  }, [user, workspaceUid, workspaceLoading]);
+  }, [user, workspaceUid, workspaceLoading, vpsData]);
 
   const segment: UseSegmentId = savedSegment ?? DEFAULT_USE_SEGMENT;
 
@@ -92,10 +115,15 @@ export const AppProfileProvider: React.FC<{ children: ReactNode }> = ({ children
       if (user.uid !== workspaceUid) {
         throw new Error('Apenas o dono da conta pode alterar o segmento.');
       }
+      if (vpsData) {
+        await saveAppProfileSegment(id);
+        setSavedSegment(id);
+        return;
+      }
       const ref = doc(db, 'users', workspaceUid, 'app_profile', 'main');
       await setDoc(ref, { useSegment: id }, { merge: true });
     },
-    [user, workspaceUid]
+    [user, workspaceUid, vpsData]
   );
 
   const value = useMemo(

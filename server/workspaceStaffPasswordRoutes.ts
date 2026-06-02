@@ -12,6 +12,9 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { staffSignInLimiter } from './httpRateLimit.js';
+import { tryVpsStaffSignIn } from './vpsStaffSignIn.js';
+import { vpsAuthRequired } from './auth/authMode.js';
+import { getZapmassPool } from './db/postgres.js';
 
 /**
  * Apenas desenvolvimento: nunca usar em produção multi-tenant.
@@ -158,6 +161,10 @@ export function registerWorkspaceStaffPasswordRoutes(app: Express): void {
    * Body: { managerEmail, loginName, password }
    */
   app.post('/api/workspace/staff/sign-in', staffSignInLimiter, async (req: Request, res: Response) => {
+    if (await tryVpsStaffSignIn(req, res)) return;
+    if (vpsAuthRequired() && !getZapmassPool()) {
+      return res.status(503).json({ ok: false, error: 'Auth VPS indisponível (Postgres).' });
+    }
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
       return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });

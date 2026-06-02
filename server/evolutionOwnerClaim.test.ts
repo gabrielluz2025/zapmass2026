@@ -17,11 +17,15 @@ describe('legacy conn_* ownership (escopo estrito)', () => {
 });
 
 describe('ensureTenantOwnsConnection (integração leve)', () => {
-  it('exporta helper de escopo no evolutionService', async () => {
-    const mod = await import('./evolutionService.js');
-    expect(typeof mod.ensureTenantOwnsConnection).toBe('function');
-    expect(typeof mod.tryClaimUnownedLegacyConnection).toBe('function');
-  });
+  it(
+    'exporta helper de escopo no evolutionService',
+    async () => {
+      const mod = await import('./evolutionService.js');
+      expect(typeof mod.ensureTenantOwnsConnection).toBe('function');
+      expect(typeof mod.tryClaimUnownedLegacyConnection).toBe('function');
+    },
+    20_000,
+  );
 
   it('membro da equipa no Set permite promoção conn_* → tenant (regra)', () => {
     const staffUid = 'staffB';

@@ -8,6 +8,13 @@ import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscription
 import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js';
 import { ConnectionStatus } from './types.js';
+import {
+  claimScheduledCampaign,
+  fetchDueScheduledCampaigns,
+  releaseScheduledCampaignLock,
+  updateCampaignFields,
+  usePostgresCampaigns
+} from './campaignStore.js';
 
 const RETRY_DELAY_MS = 5 * 60 * 1000;
 /** Evita duas réplicas da API iniciarem o mesmo SCHEDULE em paralelo (lock em Firestore). */
@@ -90,9 +97,26 @@ export function startScheduledCampaignRunner(): void {
 }
 
 async function runDueScheduledCampaigns(): Promise<void> {
+  if (!evolutionService.isMassCampaignEngineIdle()) return;
+
+  if (usePostgresCampaigns()) {
+    const rows = await fetchDueScheduledCampaigns(5);
+    for (const row of rows) {
+      if (!evolutionService.isMassCampaignEngineIdle()) return;
+      const data = {
+        ...row.doc,
+        name: row.name,
+        status: row.status,
+        ownerUid: row.tenant_id,
+        nextRunAt: row.next_run_at.toISOString()
+      };
+      await processOneCampaign(row.tenant_id, row.id, data, null);
+    }
+    return;
+  }
+
   const admin = getFirebaseAdmin();
   if (!admin) return;
-  if (!evolutionService.isMassCampaignEngineIdle()) return;
 
   const db = getFirestore(admin);
   const nowIso = new Date().toISOString();
@@ -121,33 +145,54 @@ async function runDueScheduledCampaigns(): Promise<void> {
 
   for (const row of sorted) {
     if (!evolutionService.isMassCampaignEngineIdle()) return;
-    await processOne(row.ref, row.data);
+    const path = parsePath(row.ref.path);
+    const ownerUid = path?.ownerUid || (typeof row.data.ownerUid === 'string' ? row.data.ownerUid : '');
+    const campaignId = path?.campaignId || row.ref.id;
+    if (!ownerUid) continue;
+    await processOneCampaign(ownerUid, campaignId, row.data, row.ref);
   }
 }
 
-async function processOne(ref: DocumentReference, data: Record<string, unknown>): Promise<void> {
-  const claimed = await tryClaimScheduledCampaign(ref);
+async function applyCampaignPatch(
+  ownerUid: string,
+  campaignId: string,
+  ref: DocumentReference | null,
+  patch: Record<string, unknown>
+): Promise<void> {
+  if (usePostgresCampaigns() || !ref) {
+    await updateCampaignFields(ownerUid, campaignId, patch);
+    return;
+  }
+  try {
+    await ref.update(patch);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function processOneCampaign(
+  ownerUid: string,
+  campaignId: string,
+  data: Record<string, unknown>,
+  ref: DocumentReference | null
+): Promise<void> {
+  const claimed = ref
+    ? await tryClaimScheduledCampaign(ref)
+    : await claimScheduledCampaign(ownerUid, campaignId, CAMPAIGN_LOCK_MS);
   if (!claimed) return;
 
   let transitionedToRunning = false;
   try {
-    const path = parsePath(ref.path);
-    const ownerUid =
-      path?.ownerUid || (typeof data.ownerUid === 'string' ? data.ownerUid : '');
     if (!ownerUid) return;
 
-    const campaignIdEarly = path?.campaignId || ref.id;
+    const campaignIdEarly = campaignId;
     const campaignName =
       typeof data.name === 'string' && data.name.trim().length > 0 ? data.name.trim() : 'Campanha agendada';
 
     if (!(await canUserDispatch(ownerUid))) {
-      try {
-        await ref.update({
-          nextRunAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()
-        });
-      } catch {
-        /* ignore */
-      }
+      await applyCampaignPatch(ownerUid, campaignId, ref, {
+        nextRunAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()
+      });
       emitScheduledCampaignUserNotice(ownerUid, {
         kind: 'subscription',
         campaignId: campaignIdEarly,
@@ -184,13 +229,9 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
       scoped.filter((c) => c.status === ConnectionStatus.CONNECTED).map((c) => c.id)
     );
     if (!connectionIds.some((id) => connectedIds.has(id))) {
-      try {
-        await ref.update({
-          nextRunAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
-        });
-      } catch {
-        /* ignore */
-      }
+      await applyCampaignPatch(ownerUid, campaignId, ref, {
+        nextRunAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      });
       emitScheduledCampaignUserNotice(ownerUid, {
         kind: 'no_chip',
         campaignId: campaignIdEarly,
@@ -222,7 +263,7 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     );
     if (!useReplyFlow && stages.length === 0) return;
 
-    const cid = path?.campaignId || ref.id;
+    const cid = campaignId;
     const delaySeconds = Number(snap?.delaySeconds ?? data.delaySeconds);
 
     const scheduledWeights =
@@ -245,14 +286,10 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
       );
       if (!started) {
         console.warn('[ScheduledCampaign] startCampaign não iniciou (canais indisponíveis ou fila vazia). Reagendando.');
-        try {
-          await ref.update({
-            status: 'SCHEDULED',
-            nextRunAt: new Date(Date.now() + RETRY_DELAY_MS).toISOString()
-          });
-        } catch {
-          /* ignore */
-        }
+        await applyCampaignPatch(ownerUid, campaignId, ref, {
+          status: 'SCHEDULED',
+          nextRunAt: new Date(Date.now() + RETRY_DELAY_MS).toISOString()
+        });
         emitScheduledCampaignUserNotice(ownerUid, {
           kind: 'retry',
           campaignId: cid,
@@ -262,14 +299,10 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
       }
     } catch (e) {
       console.error('[ScheduledCampaign] falha ao iniciar:', (e as Error)?.message || e);
-      try {
-        await ref.update({
-          status: 'SCHEDULED',
-          nextRunAt: new Date(Date.now() + RETRY_DELAY_MS).toISOString()
-        });
-      } catch {
-        /* ignore */
-      }
+      await applyCampaignPatch(ownerUid, campaignId, ref, {
+        status: 'SCHEDULED',
+        nextRunAt: new Date(Date.now() + RETRY_DELAY_MS).toISOString()
+      });
       emitScheduledCampaignUserNotice(ownerUid, {
         kind: 'retry',
         campaignId: cid,
@@ -279,18 +312,31 @@ async function processOne(ref: DocumentReference, data: Record<string, unknown>)
     }
 
     try {
-      await ref.update({
-        status: 'RUNNING',
-        processedCount: 0,
-        successCount: 0,
-        failedCount: 0,
-        [SCHEDULE_LAUNCH_LOCK]: FieldValue.delete()
-      } as Record<string, unknown>);
+      if (ref) {
+        await ref.update({
+          status: 'RUNNING',
+          processedCount: 0,
+          successCount: 0,
+          failedCount: 0,
+          [SCHEDULE_LAUNCH_LOCK]: FieldValue.delete()
+        } as Record<string, unknown>);
+      } else {
+        await updateCampaignFields(ownerUid, campaignId, {
+          status: 'RUNNING',
+          processedCount: 0,
+          successCount: 0,
+          failedCount: 0
+        });
+        await releaseScheduledCampaignLock(ownerUid, campaignId);
+      }
       transitionedToRunning = true;
     } catch (e) {
       console.warn('[ScheduledCampaign] não marcou RUNNING após fila iniciada:', (e as Error)?.message || e);
     }
   } finally {
-    if (!transitionedToRunning) await releaseScheduledCampaignLaunchLock(ref);
+    if (!transitionedToRunning) {
+      if (ref) await releaseScheduledCampaignLaunchLock(ref);
+      else await releaseScheduledCampaignLock(ownerUid, campaignId);
+    }
   }
 }

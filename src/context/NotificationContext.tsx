@@ -22,6 +22,13 @@ import {
 import { db } from '../services/firebase';
 import { useAuth } from './AuthContext';
 import { useWorkspace } from './WorkspaceContext';
+import { useVpsData } from '../services/vpsData';
+import {
+  apiDeleteNotification,
+  apiMarkAllNotificationsRead,
+  apiMarkNotificationRead,
+  fetchNotifications
+} from '../services/notificationsApi';
 
 export type AppNotificationKind = 'info' | 'success' | 'warning' | 'error';
 
@@ -96,12 +103,33 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [loading, setLoading] = useState(false);
 
   const dataUid = user?.uid ? effectiveWorkspaceUid ?? user.uid : null;
+  const vpsData = useVpsData();
 
   useEffect(() => {
     if (!user?.uid || !dataUid || wsLoading) {
       setNotifications([]);
       if (!wsLoading) setLoading(false);
       return;
+    }
+    if (vpsData) {
+      let cancelled = false;
+      const load = async () => {
+        try {
+          const { notifications: rows } = await fetchNotifications();
+          if (!cancelled) setNotifications(rows);
+        } catch (e) {
+          console.error('[notifications/VPS]', e);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      };
+      setLoading(true);
+      void load();
+      const t = setInterval(() => void load(), 45_000);
+      return () => {
+        cancelled = true;
+        clearInterval(t);
+      };
     }
     setLoading(true);
     const q = query(
@@ -124,7 +152,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       }
     );
     return () => unsub();
-  }, [user?.uid, dataUid, wsLoading]);
+  }, [user?.uid, dataUid, wsLoading, vpsData]);
 
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
@@ -132,12 +160,17 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     async (id: string) => {
       if (!dataUid) return;
       try {
-        await updateDoc(doc(db, 'users', dataUid, 'notifications', id), { read: true });
+        if (vpsData) {
+          await apiMarkNotificationRead(id);
+          setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+        } else {
+          await updateDoc(doc(db, 'users', dataUid, 'notifications', id), { read: true });
+        }
       } catch {
         /* ignore */
       }
     },
-    [dataUid]
+    [dataUid, vpsData]
   );
 
   const markAllAsRead = useCallback(async () => {
@@ -145,26 +178,36 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     const unread = notifications.filter((n) => !n.read);
     if (!unread.length) return;
     try {
-      const batch = writeBatch(db);
-      unread.forEach((n) => {
-        batch.update(doc(db, 'users', dataUid, 'notifications', n.id), { read: true });
-      });
-      await batch.commit();
+      if (vpsData) {
+        await apiMarkAllNotificationsRead();
+        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      } else {
+        const batch = writeBatch(db);
+        unread.forEach((n) => {
+          batch.update(doc(db, 'users', dataUid, 'notifications', n.id), { read: true });
+        });
+        await batch.commit();
+      }
     } catch {
       /* ignore */
     }
-  }, [dataUid, notifications]);
+  }, [dataUid, notifications, vpsData]);
 
   const remove = useCallback(
     async (id: string) => {
       if (!dataUid) return;
       try {
-        await deleteDoc(doc(db, 'users', dataUid, 'notifications', id));
+        if (vpsData) {
+          await apiDeleteNotification(id);
+          setNotifications((prev) => prev.filter((n) => n.id !== id));
+        } else {
+          await deleteDoc(doc(db, 'users', dataUid, 'notifications', id));
+        }
       } catch {
         /* ignore */
       }
     },
-    [dataUid]
+    [dataUid, vpsData]
   );
 
   const value = useMemo(

@@ -1,5 +1,8 @@
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
+import { vpsDataEnabled } from './auth/dataMode.js';
+import { getZapmassPool } from './db/postgres.js';
+import { loadDispatchSettingsPg, saveDispatchSettingsPg } from './repositories/tenantSettingsRepository.js';
 
 export interface TenantDispatchSettings {
     minDelayMs: number;
@@ -33,6 +36,10 @@ export const DEFAULT_TENANT_DISPATCH_SETTINGS: TenantDispatchSettings = {
 };
 
 const cache = new Map<string, TenantDispatchSettings>();
+
+function usePostgresTenantSettings(): boolean {
+    return vpsDataEnabled() && !!getZapmassPool();
+}
 
 function docRef(uid: string) {
     const admin = getFirebaseAdmin();
@@ -127,6 +134,20 @@ export async function loadTenantSettings(uid: string): Promise<TenantDispatchSet
     const cached = cache.get(uid);
     if (cached) return { ...cached };
 
+    if (usePostgresTenantSettings()) {
+        try {
+            const raw = await loadDispatchSettingsPg(uid);
+            const settings = normalizeStored(raw || undefined);
+            cache.set(uid, settings);
+            return { ...settings };
+        } catch (error: unknown) {
+            console.warn('[tenantSettings/PG] Falha ao carregar:', (error as Error)?.message || error);
+            const defaults = { ...DEFAULT_TENANT_DISPATCH_SETTINGS };
+            cache.set(uid, defaults);
+            return defaults;
+        }
+    }
+
     const ref = docRef(uid);
     if (!ref) {
         const defaults = { ...DEFAULT_TENANT_DISPATCH_SETTINGS };
@@ -158,23 +179,39 @@ export async function saveTenantSettings(
     const next = normalizeClientPayload(partial, current);
     cache.set(uid, next);
 
-    const ref = docRef(uid);
-    if (ref) {
+    if (usePostgresTenantSettings()) {
         try {
-            await ref.set(
-                {
-                    minDelayMs: next.minDelayMs,
-                    maxDelayMs: next.maxDelayMs,
-                    dailyLimit: next.dailyLimit,
-                    sleepMode: next.sleepMode,
-                    webhookUrl: next.webhookUrl,
-                    emailNotif: next.emailNotif,
-                    updatedAt: next.updatedAt,
-                },
-                { merge: true }
-            );
+            await saveDispatchSettingsPg(uid, {
+                minDelayMs: next.minDelayMs,
+                maxDelayMs: next.maxDelayMs,
+                dailyLimit: next.dailyLimit,
+                sleepMode: next.sleepMode,
+                webhookUrl: next.webhookUrl,
+                emailNotif: next.emailNotif,
+                updatedAt: next.updatedAt
+            });
         } catch (error: unknown) {
-            console.warn('[tenantSettings] Falha ao persistir:', (error as Error)?.message || error);
+            console.warn('[tenantSettings/PG] Falha ao persistir:', (error as Error)?.message || error);
+        }
+    } else {
+        const ref = docRef(uid);
+        if (ref) {
+            try {
+                await ref.set(
+                    {
+                        minDelayMs: next.minDelayMs,
+                        maxDelayMs: next.maxDelayMs,
+                        dailyLimit: next.dailyLimit,
+                        sleepMode: next.sleepMode,
+                        webhookUrl: next.webhookUrl,
+                        emailNotif: next.emailNotif,
+                        updatedAt: next.updatedAt
+                    },
+                    { merge: true }
+                );
+            } catch (error: unknown) {
+                console.warn('[tenantSettings] Falha ao persistir:', (error as Error)?.message || error);
+            }
         }
     }
     return { ...next };

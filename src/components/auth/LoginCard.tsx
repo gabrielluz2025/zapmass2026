@@ -4,6 +4,7 @@ import { Loader2, Lock, Mail, ShieldCheck, Sparkles, Users, Zap } from 'lucide-r
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { auth } from '../../services/firebase';
+import { useVpsAuth } from '../../services/vpsAuth';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { trackLandingEvent } from '../../utils/marketingEvents';
@@ -56,7 +57,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     signInWithFacebook,
     signInWithEmailPassword,
     signUpWithEmailPassword,
-    signInWithStaffCustomToken
+    signInWithStaffCustomToken,
+    signInWithStaffCredentials
   } = useAuth();
   const { config } = useAppConfig();
   const [entryMode, setEntryMode] = useState<'admin' | 'staff'>('admin');
@@ -209,6 +211,11 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     }
     setLoading('staff');
     try {
+      if (useVpsAuth()) {
+        await signInWithStaffCredentials(me, slug, staffPassword);
+        setStaffPassword('');
+        return;
+      }
       const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

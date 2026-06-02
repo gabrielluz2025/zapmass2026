@@ -76,6 +76,15 @@ import { persistUserNotification } from './userNotificationsFirestore.js';
 import { registerWorkspaceRoutes } from './workspaceRoutes.js';
 import { registerPublicInboxSurveyRoutes } from './publicInboxSurveyRoutes.js';
 import { registerWorkspaceStaffPasswordRoutes } from './workspaceStaffPasswordRoutes.js';
+import { registerVpsAuthRoutes } from './vpsAuthRoutes.js';
+import { registerVpsWorkspaceStaffRoutes } from './vpsWorkspaceStaffRoutes.js';
+import { runZapmassMigrations } from './db/migrate.js';
+import { resolveAuthPrincipal, getWorkspaceMembersForPrincipal } from './resolveAuth.js';
+import { vpsAuthEnabled } from './auth/authMode.js';
+import { vpsDataEnabled } from './auth/dataMode.js';
+import { registerContactsDataRoutes } from './contactsRoutes.js';
+import { registerCampaignsDataRoutes } from './campaignsRoutes.js';
+import { registerPlatformDataRoutes } from './platformRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
 import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { structuredLog } from './structuredLog.js';
@@ -329,6 +338,11 @@ registerAdminOpsRoutes(app);
 registerAdminConnectionsRoutes(app);
 registerPublicInboxSurveyRoutes(app);
 registerWorkspaceRoutes(app);
+registerVpsAuthRoutes(app);
+registerContactsDataRoutes(app);
+registerPlatformDataRoutes(app);
+registerCampaignsDataRoutes(app);
+registerVpsWorkspaceStaffRoutes(app);
 registerWorkspaceStaffPasswordRoutes(app);
 registerProductSuggestionRoutes(app);
 registerConnectionsSyncRoutes(app);
@@ -668,8 +682,23 @@ const registerSocketHandlers = () => {
 
   io.use(async (socket, next) => {
     try {
-      const adminApp = getFirebaseAdmin();
       const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
+      const principal = token ? await resolveAuthPrincipal(token) : null;
+      if (principal) {
+        socket.data.authUid = principal.authUid;
+        socket.data.uid = principal.tenantUid;
+        if (principal.tenantUid !== 'anonymous') {
+          try {
+            (socket.data as { workspaceMemberUids?: Set<string> }).workspaceMemberUids =
+              await getWorkspaceMembersForPrincipal(principal);
+          } catch (e) {
+            console.warn('[socket] workspaceMemberUids:', (e as Error)?.message || e);
+          }
+        }
+        next();
+        return;
+      }
+      const adminApp = getFirebaseAdmin();
       if (adminApp && token) {
         const decoded = await getAuth(adminApp).verifyIdToken(token);
         const authUid = decoded.uid;
@@ -928,7 +957,9 @@ const registerSocketHandlers = () => {
         const cap = Math.min(1500, Math.max(80, Number(limit) || 400));
         const resp = useWorkerRpc
           ? await hydrateFirestoreChatArchiveViaRedis(redisUrl!, conversationId, cap)
-          : await waService.hydrateFirestoreChatArchiveForConversation(conversationId, cap);
+          : useEvolutionChat()
+            ? await evolutionService.hydrateFirestoreChatArchiveForConversation(conversationId, cap)
+            : await waService.hydrateFirestoreChatArchiveForConversation(conversationId, cap);
         callback?.(resp);
       }
     );
@@ -1845,6 +1876,20 @@ const startServer = async (port: number): Promise<boolean> => {
 };
 
 const bootstrap = async () => {
+  if (vpsAuthEnabled() || vpsDataEnabled()) {
+    try {
+      await runZapmassMigrations();
+      console.log('[ZapmassDB] Migrations OK (auth/data VPS)');
+    } catch (e) {
+      console.error('[ZapmassDB] Falha nas migrations:', (e as Error)?.message || e);
+      const authVps = (process.env.ZAPMASS_AUTH_PROVIDER || '').trim().toLowerCase() === 'vps';
+      const dataVps = (process.env.ZAPMASS_DATA_PROVIDER || '').trim().toLowerCase() === 'vps';
+      if (authVps || dataVps) {
+        console.error('[ZapmassDB] Modo vps exige Postgres — verifique ZAPMASS_DATABASE_URL.');
+      }
+    }
+  }
+
   const started = await startServer(BASE_PORT);
   if (!started) {
     return;

@@ -1,57 +1,51 @@
 import type { Express, Request, Response } from 'express';
-import { getAuth } from 'firebase-admin/auth';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { getFirestore } from 'firebase-admin/firestore';
-import { mergeUserSubscription, type UserSubscriptionDoc } from './subscriptionFirestore.js';
+import { getUserSubscription, mergeUserSubscription } from './subscriptionStore.js';
 import { getTrialDurationMs } from './appConfigStore.js';
 import { notifyAdminsNewClientSignup } from './adminNewSignupNotify.js';
-
-const COLLECTION = 'userSubscriptions';
-
-function parseBearer(req: Request): string | null {
-  const h = req.headers.authorization || '';
-  const m = /^Bearer\s+(.+)$/i.exec(h);
-  return m ? m[1].trim() : null;
-}
+import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 
 export function registerBillingTrialRoutes(app: Express): void {
   app.post('/api/billing/trial/start', async (req: Request, res: Response) => {
     try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      const token = parseBearer(req);
+      if (!token) {
+        return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
       }
-
-      const idToken = parseBearer(req);
-      if (!idToken) {
-        return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <Firebase ID token>.' });
+      const principal = await resolveAuthPrincipal(token);
+      if (!principal) {
+        return res.status(401).json({ ok: false, error: 'Token inválido ou expirado.' });
       }
-
-      let uid: string;
-      try {
-        const decoded = await getAuth(adminApp).verifyIdToken(idToken);
-        uid = decoded.uid;
-      } catch {
-        return res.status(401).json({ ok: false, error: 'Token Firebase invalido ou expirado.' });
+      if (principal.role === 'staff') {
+        return res.status(403).json({
+          ok: false,
+          error: 'Somente o responsavel pela conta pode iniciar o teste gratuito.'
+        });
       }
+      const uid = principal.tenantUid;
 
-      const db = getFirestore(adminApp);
-      const ref = db.collection(COLLECTION).doc(uid);
-      const snap = await ref.get();
-      const d = snap.exists ? (snap.data() as UserSubscriptionDoc) : undefined;
+      const d = await getUserSubscription(uid);
 
       if (d?.freeTrialUsed) {
         return res.status(400).json({ ok: false, error: 'O teste gratuito desta conta ja foi utilizado.' });
       }
 
       const now = Date.now();
-      const accessEnd = d?.accessEndsAt?.toMillis?.() ?? null;
+      const accessEnd =
+        d?.accessEndsAt && typeof d.accessEndsAt === 'string'
+          ? Date.parse(d.accessEndsAt)
+          : typeof (d?.accessEndsAt as { toMillis?: () => number })?.toMillis === 'function'
+            ? (d!.accessEndsAt as { toMillis: () => number }).toMillis()
+            : null;
       if (d?.status === 'active' && accessEnd != null && accessEnd > now) {
         return res.status(400).json({ ok: false, error: 'Voce ja possui assinatura ativa.' });
       }
 
-      const trialEndMs = d?.trialEndsAt?.toMillis?.() ?? null;
+      const trialEndMs =
+        d?.trialEndsAt && typeof d.trialEndsAt === 'string'
+          ? Date.parse(d.trialEndsAt)
+          : typeof (d?.trialEndsAt as { toMillis?: () => number })?.toMillis === 'function'
+            ? (d!.trialEndsAt as { toMillis: () => number }).toMillis()
+            : null;
       if (d?.status === 'trialing' && trialEndMs != null && trialEndMs > now) {
         return res.json({
           ok: true,
@@ -60,34 +54,22 @@ export function registerBillingTrialRoutes(app: Express): void {
         });
       }
 
-      /** Funcionário de equipa não inicia trial na conta do dono por engano. */
-      const linkSnap = await db.collection('userWorkspaceLinks').doc(uid).get();
-      if (linkSnap.exists) {
-        const ownerUid = linkSnap.data()?.ownerUid;
-        if (typeof ownerUid === 'string' && ownerUid.trim() && ownerUid.trim() !== uid) {
-          return res.status(403).json({
-            ok: false,
-            error: 'Somente o responsavel pela conta pode iniciar o teste gratuito.'
-          });
-        }
-      }
-
-      const trialMs = await getTrialDurationMs(db);
+      const trialMs = await getTrialDurationMs();
       const trialEnds = new Date(Date.now() + trialMs);
       const merged = await mergeUserSubscription(uid, {
         status: 'trialing',
         provider: 'none',
         plan: null,
         includedChannels: 1,
-        trialEndsAt: Timestamp.fromDate(trialEnds),
+        trialEndsAt: trialEnds.toISOString(),
         freeTrialUsed: true,
         extraChannelSlots: 0,
-        mercadoPagoChannelAddonPreapprovalId: FieldValue.delete(),
-        mercadoPagoChannelAddonOneTimePaymentId: FieldValue.delete()
-      } as any);
+        mercadoPagoChannelAddonPreapprovalId: null as unknown as undefined,
+        mercadoPagoChannelAddonOneTimePaymentId: null as unknown as undefined
+      });
 
       if (!merged) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+        return res.status(503).json({ ok: false, error: 'Persistencia de assinatura indisponivel.' });
       }
 
       void notifyAdminsNewClientSignup({ uid, source: 'trial' }).catch((e) => {

@@ -3,6 +3,8 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { firestoreTimeToMs } from '../utils/firestoreTime';
 import { useAuth } from './AuthContext';
+import { useVpsData } from '../services/vpsData';
+import { fetchSubscription } from '../services/subscriptionApi';
 import { useWorkspace } from './WorkspaceContext';
 import { useAppConfig } from './AppConfigContext';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
@@ -73,7 +75,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
   }, [subscription, optimisticTrialEndsAt]);
 
-  const subscriptionUid = user?.uid ? effectiveWorkspaceUid ?? user.uid : null;
+  const vpsData = useVpsData();
 
   useEffect(() => {
     if (!user) {
@@ -84,6 +86,29 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     if (workspaceLoading) {
       setLoading(true);
       return;
+    }
+    if (vpsData) {
+      let cancelled = false;
+      const load = async () => {
+        try {
+          const sub = await fetchSubscription();
+          if (!cancelled) {
+            setSubscription(sub);
+            if (sub) setOptimisticTrialEndsAt(null);
+          }
+        } catch (e) {
+          console.error('[SubscriptionContext/VPS]', e);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      };
+      setLoading(true);
+      void load();
+      const t = setInterval(() => void load(), 30_000);
+      return () => {
+        cancelled = true;
+        clearInterval(t);
+      };
     }
     const subUid = effectiveWorkspaceUid ?? user.uid;
     const ref = doc(db, 'userSubscriptions', subUid);
@@ -104,7 +129,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       }
     );
     return () => unsub();
-  }, [user, effectiveWorkspaceUid, workspaceLoading]);
+  }, [user, effectiveWorkspaceUid, workspaceLoading, vpsData]);
 
   const hasFullAccess = useMemo(() => {
     if (!enforce) return true;

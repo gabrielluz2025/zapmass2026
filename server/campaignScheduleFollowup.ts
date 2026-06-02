@@ -1,6 +1,7 @@
+import { computeNextRunIso } from '../src/utils/campaignSchedule.js';
+import { fetchCampaignDoc, updateCampaignFields, usePostgresCampaigns } from './campaignStore.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { computeNextRunIso } from '../src/utils/campaignSchedule.js';
 
 /**
  * Quando uma campanha agendada termina, o cliente costuma marcar COMPLETED.
@@ -11,18 +12,17 @@ export async function onMassCampaignCompleteForSchedule(
   ownerUid: string | undefined
 ): Promise<void> {
   if (!campaignId || !ownerUid) return;
-  const admin = getFirebaseAdmin();
-  if (!admin) return;
-  const db = getFirestore(admin);
-  const ref = db.doc(`users/${ownerUid}/campaigns/${campaignId}`);
-  let snap;
-  try {
-    snap = await ref.get();
-  } catch {
-    return;
+  let data: Record<string, unknown> | null = null;
+  if (usePostgresCampaigns()) {
+    data = await fetchCampaignDoc(ownerUid, campaignId);
+  } else {
+    const admin = getFirebaseAdmin();
+    if (!admin) return;
+    const snap = await getFirestore(admin).doc(`users/${ownerUid}/campaigns/${campaignId}`).get();
+    if (!snap.exists) return;
+    data = snap.data() as Record<string, unknown>;
   }
-  if (!snap.exists) return;
-  const data = snap.data() as Record<string, unknown>;
+  if (!data) return;
   if (data.scheduleRepeatWeekly !== true) return;
 
   const weekly = data.weeklySchedule as { slots?: Array<{ dayOfWeek: number; time: string }> } | undefined;
@@ -34,7 +34,7 @@ export async function onMassCampaignCompleteForSchedule(
   if (!next) return;
 
   try {
-    await ref.update({
+    await updateCampaignFields(ownerUid, campaignId, {
       status: 'SCHEDULED',
       nextRunAt: next,
       lastRunAt: new Date().toISOString(),

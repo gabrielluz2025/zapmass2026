@@ -53,7 +53,32 @@ import {
   type QueryDocumentSnapshot,
   type DocumentData
 } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { useAuth } from './AuthContext';
+import { useVpsAuth } from '../services/vpsAuth';
+import { useVpsData } from '../services/vpsData';
+import {
+  apiBulkCreateContacts,
+  apiBulkUpdateContacts,
+  apiClearTenantContactsData,
+  apiCreateContact,
+  apiCreateContactList,
+  apiDeleteContact,
+  apiDeleteContactList,
+  apiUpdateContact,
+  apiUpdateContactList,
+  fetchContactLists,
+  fetchContacts,
+  fetchContactsCount
+} from '../services/contactsApi';
+import {
+  apiCreateCampaign,
+  apiDeleteAllCampaigns,
+  apiDeleteCampaign,
+  apiUpdateCampaign,
+  fetchCampaigns
+} from '../services/campaignsApi';
+import { getSessionIdToken } from '../utils/sessionAuth';
 import { auth, db } from '../services/firebase';
 import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
@@ -369,6 +394,7 @@ function useStableCallback<T extends (...args: any[]) => any>(fn: T): T {
 }
 
 export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { user: sessionUser } = useAuth();
   const { effectiveWorkspaceUid, loading: workspaceLoading } = useWorkspace();
   const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
   const [metrics, setMetrics] = useState<DashboardMetrics>(INITIAL_METRICS);
@@ -378,6 +404,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contactsSavedTotal, setContactsSavedTotal] = useState<number | null>(null);
   const [contactsSavedTotalLoading, setContactsSavedTotalLoading] = useState(false);
   const contactsLastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const contactsVpsOffsetRef = useRef(0);
+  const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
+  const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
+  const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
+
+  const patchCampaignPersist = useCallback((uid: string, campaignId: string, patch: Record<string, unknown>) => {
+    if (useVpsData()) {
+      void apiUpdateCampaign(campaignId, patch);
+      return;
+    }
+    void updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), patch).catch(() => {});
+  }, []);
+
+  reloadVpsCampaignsRef.current = async () => {
+    const uid = currentUidRef.current;
+    if (!uid || !useVpsData()) return;
+    try {
+      const list = await fetchCampaigns();
+      if (currentUidRef.current !== uid) return;
+      setCampaigns(healStuckRunningCampaignsList(list));
+    } catch (err) {
+      warnProd('[VPS] reload campaigns:', (err as Error)?.message || err);
+    }
+  };
   const [contactLists, setContactLists] = useState<ContactList[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const campaignsRef = useRef<Campaign[]>([]);
@@ -507,11 +557,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       clearTimeout(entry.timer);
       entry.timer = null;
     }
-    updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+    patchCampaignPersist(uid, campaignId, {
       processedCount: entry.payload.processedCount,
       successCount: entry.payload.successCount,
       failedCount: entry.payload.failedCount
-    }).catch(() => {});
+    });
   };
 
   const queueCampaignProgressPersist = (
@@ -550,16 +600,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (campaignFirestoreHealRef.current.has(c.id)) continue;
       campaignFirestoreHealRef.current.add(c.id);
       const m = getCampaignProgressMetrics(c);
-      void updateDoc(doc(db, 'users', uid, 'campaigns', c.id), {
+      patchCampaignPersist(uid, c.id, {
         status: CampaignStatus.COMPLETED,
         processedCount: m.effectiveProcessed,
         successCount: m.ok,
         failedCount: m.fail
-      }).catch(() => {
-        campaignFirestoreHealRef.current.delete(c.id);
       });
+      if (!useVpsData()) {
+        campaignFirestoreHealRef.current.delete(c.id);
+      }
     }
-  }, []);
+  }, [patchCampaignPersist]);
 
   /** `campaign-progress` / Firestore defasados: ninguem a correr, mas ainda isRunning; limpa a barra de estado. */
   useEffect(() => {
@@ -687,16 +738,54 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const requestUid = uid;
     setContactsSavedTotalLoading(true);
     try {
-      const agg = await getCountFromServer(query(collection(db, 'users', requestUid, 'contacts')));
-      if (currentUidRef.current !== requestUid) return;
-      setContactsSavedTotal(agg.data().count);
+      if (useVpsData()) {
+        const total = await fetchContactsCount();
+        if (currentUidRef.current !== requestUid) return;
+        setContactsSavedTotal(total);
+      } else {
+        const agg = await getCountFromServer(query(collection(db, 'users', requestUid, 'contacts')));
+        if (currentUidRef.current !== requestUid) return;
+        setContactsSavedTotal(agg.data().count);
+      }
     } catch (err) {
-      warnProd('[Firestore] contagem users/.../contacts:', (err as Error)?.message || err);
+      warnProd(
+        useVpsData() ? '[VPS] contagem contacts:' : '[Firestore] contagem users/.../contacts:',
+        (err as Error)?.message || err
+      );
       if (currentUidRef.current === requestUid) setContactsSavedTotal(null);
     } finally {
       if (currentUidRef.current === requestUid) setContactsSavedTotalLoading(false);
     }
   }, []);
+
+  reloadVpsContactsRef.current = async () => {
+    const uid = currentUidRef.current;
+    if (!uid || !useVpsData()) return;
+    const requestUid = uid;
+    try {
+      const { contacts, total, hasMore } = await fetchContacts({ limit: 5000, offset: 0 });
+      if (currentUidRef.current !== requestUid) return;
+      contactsVpsOffsetRef.current = contacts.length;
+      contactsLastDocRef.current = hasMore ? ({} as QueryDocumentSnapshot<DocumentData>) : null;
+      setContacts(contacts);
+      setContactsHasMore(hasMore);
+      setContactsSavedTotal(total);
+    } catch (err) {
+      warnProd('[VPS] reload contacts:', (err as Error)?.message || err);
+    }
+  };
+
+  reloadVpsContactListsRef.current = async () => {
+    const uid = currentUidRef.current;
+    if (!uid || !useVpsData()) return;
+    try {
+      const lists = await fetchContactLists();
+      if (currentUidRef.current !== uid) return;
+      setContactLists(lists);
+    } catch (err) {
+      warnProd('[VPS] reload contact lists:', (err as Error)?.message || err);
+    }
+  };
 
   const refreshContactsSavedTotalRef = useRef(refreshContactsSavedTotal);
   refreshContactsSavedTotalRef.current = refreshContactsSavedTotal;
@@ -746,74 +835,87 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
       if (needContacts) {
         contactsLastDocRef.current = null;
+        contactsVpsOffsetRef.current = 0;
         setContactsHasMore(false);
-        cleanupFirestore.push(
-          onSnapshot(
-            query(collection(db, 'users', uid, 'contacts'), orderBy('name')),
-            (snapshot) => {
-              if (currentUidRef.current !== uid) return;
-              b.userContacts = snapshot.docs.map((docSnap) =>
-                normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
-              );
-              setContacts(mergeContacts(b.userContacts, b.legacyContacts));
-            },
-            (err) => warnProd('[Firestore] users/.../contacts:', (err as Error)?.message || err)
-          )
-        );
-        if (!ignoreLegacy) {
+        if (useVpsData()) {
+          void reloadVpsContactsRef.current();
+          void refreshContactsSavedTotalRef.current();
+        } else {
           cleanupFirestore.push(
             onSnapshot(
-              query(collection(db, 'contacts'), orderBy('name')),
+              query(collection(db, 'users', uid, 'contacts'), orderBy('name')),
               (snapshot) => {
                 if (currentUidRef.current !== uid) return;
-                if (!allowLegacyNow()) {
-                  b.legacyContacts = [];
-                  setContacts(mergeContacts(b.userContacts, []));
-                  return;
-                }
-                b.legacyContacts = snapshot.docs.map((docSnap) =>
+                b.userContacts = snapshot.docs.map((docSnap) =>
                   normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
                 );
                 setContacts(mergeContacts(b.userContacts, b.legacyContacts));
               },
-              (err) => warnProd('[Firestore] /contacts (legado):', (err as Error)?.message || err)
+              (err) => warnProd('[Firestore] users/.../contacts:', (err as Error)?.message || err)
             )
           );
+          if (!ignoreLegacy) {
+            cleanupFirestore.push(
+              onSnapshot(
+                query(collection(db, 'contacts'), orderBy('name')),
+                (snapshot) => {
+                  if (currentUidRef.current !== uid) return;
+                  if (!allowLegacyNow()) {
+                    b.legacyContacts = [];
+                    setContacts(mergeContacts(b.userContacts, []));
+                    return;
+                  }
+                  b.legacyContacts = snapshot.docs.map((docSnap) =>
+                    normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
+                  );
+                  setContacts(mergeContacts(b.userContacts, b.legacyContacts));
+                },
+                (err) => warnProd('[Firestore] /contacts (legado):', (err as Error)?.message || err)
+              )
+            );
+          }
+          void refreshContactsSavedTotalRef.current();
         }
-        void refreshContactsSavedTotalRef.current();
       }
       if (needLists) {
-        cleanupFirestore.push(
-          onSnapshot(
-            query(collection(db, 'users', uid, 'contact_lists'), orderBy('createdAt', 'desc')),
-            (snapshot) => {
-              if (currentUidRef.current !== uid) return;
-              b.userLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
-              setContactLists(mergeContactLists(b.userLists, b.legacyLists));
-            },
-            (err) => warnProd('[Firestore] contact_lists (usuario):', (err as Error)?.message || err)
-          )
-        );
-        if (!ignoreLegacy) {
+        if (useVpsData()) {
+          void reloadVpsContactListsRef.current();
+        } else {
           cleanupFirestore.push(
             onSnapshot(
-              query(collection(db, 'contact_lists')),
+              query(collection(db, 'users', uid, 'contact_lists'), orderBy('createdAt', 'desc')),
               (snapshot) => {
                 if (currentUidRef.current !== uid) return;
-                if (!allowLegacyNow()) {
-                  b.legacyLists = [];
-                  setContactLists(mergeContactLists(b.userLists, []));
-                  return;
-                }
-                b.legacyLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
+                b.userLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
                 setContactLists(mergeContactLists(b.userLists, b.legacyLists));
               },
-              (err) => warnProd('[Firestore] /contact_lists (legado):', (err as Error)?.message || err)
+              (err) => warnProd('[Firestore] contact_lists (usuario):', (err as Error)?.message || err)
             )
           );
+          if (!ignoreLegacy) {
+            cleanupFirestore.push(
+              onSnapshot(
+                query(collection(db, 'contact_lists')),
+                (snapshot) => {
+                  if (currentUidRef.current !== uid) return;
+                  if (!allowLegacyNow()) {
+                    b.legacyLists = [];
+                    setContactLists(mergeContactLists(b.userLists, []));
+                    return;
+                  }
+                  b.legacyLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
+                  setContactLists(mergeContactLists(b.userLists, b.legacyLists));
+                },
+                (err) => warnProd('[Firestore] /contact_lists (legado):', (err as Error)?.message || err)
+              )
+            );
+          }
         }
       }
       if (needCampaigns) {
+        if (useVpsData()) {
+          void reloadVpsCampaignsRef.current();
+        } else {
         cleanupFirestore.push(
           onSnapshot(
             query(collection(db, 'users', uid, 'campaigns'), orderBy('createdAt', 'desc')),
@@ -852,6 +954,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             )
           );
         }
+        }
       }
     };
 
@@ -883,7 +986,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       conversationsSocketPendingRef.current = null;
     };
 
-    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+    const handleAuthUser = async (user: User | null) => {
       const newAuthUid = user?.uid ?? null;
       if (prevAuthUserRef.current !== newAuthUid) {
         prevAuthUserRef.current = newAuthUid;
@@ -919,9 +1022,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const dataUid = effectiveWorkspaceUid ?? user.uid;
       currentUidRef.current = dataUid;
       bindUser(dataUid);
-    });
+    };
 
-    const uidNow = auth.currentUser?.uid;
+    let unsubAuth = () => {};
+    if (useVpsAuth()) {
+      void handleAuthUser(sessionUser);
+    } else {
+      unsubAuth = onAuthStateChanged(auth, (u) => void handleAuthUser(u));
+    }
+
+    const uidNow = useVpsAuth() ? sessionUser?.uid : auth.currentUser?.uid;
     if (uidNow && !workspaceLoading) {
       bindUser(effectiveWorkspaceUid ?? uidNow);
     }
@@ -930,18 +1040,37 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       unsubAuth();
       stopAll();
     };
-  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading]);
+  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser]);
 
   const loadMoreContacts = useCallback(async (): Promise<void> => {
     const uid = currentUidRef.current;
     if (!uid) return;
     if (contactsLoadingMore) return;
     if (!contactsHasMore) return;
-    const last = contactsLastDocRef.current;
-    if (!last) return;
     const CONTACTS_PAGE_SIZE = 500;
     setContactsLoadingMore(true);
     try {
+      if (useVpsData()) {
+        const offset = contactsVpsOffsetRef.current;
+        const { contacts: nextDocs, hasMore } = await fetchContacts({
+          limit: CONTACTS_PAGE_SIZE,
+          offset
+        });
+        contactsVpsOffsetRef.current = offset + nextDocs.length;
+        setContactsHasMore(hasMore);
+        if (nextDocs.length > 0) {
+          setContacts((prev) => {
+            const byId = new Map(prev.map((c) => [c.id, c]));
+            for (const c of nextDocs) byId.set(c.id, c);
+            return Array.from(byId.values()).sort((a, b) =>
+              (a.name || '').localeCompare(b.name || '', 'pt-BR')
+            );
+          });
+        }
+        return;
+      }
+      const last = contactsLastDocRef.current;
+      if (!last) return;
       const snap = await getDocs(
         query(
           collection(db, 'users', uid, 'contacts'),
@@ -1054,21 +1183,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const syncBackendConnected = () => {
       setIsBackendConnected(!!socket.connected);
     };
-    if (auth.currentUser) {
-      auth.currentUser.getIdToken().then((token) => {
+    void getSessionIdToken().then((token) => {
+      if (token) {
         socket.auth = { token };
         if (!socket.connected) socket.connect();
-      }).catch(() => {
-        setIsBackendConnected(false);
-      });
-    }
+      }
+    }).catch(() => {
+      setIsBackendConnected(false);
+    });
 
     const syncConnectionsFromApi = async () => {
-      const u = auth.currentUser;
       const ownerUid = getOwnerUidForConnectionScope();
-      if (!u || !ownerUid || ownerUid === 'anonymous') return;
+      if (!ownerUid || ownerUid === 'anonymous') return;
       try {
-        const token = await u.getIdToken();
+        const token = await getSessionIdToken();
+        if (!token) return;
         const res = await fetch(apiUrl('/api/connections/sync'), {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` }
@@ -1516,12 +1645,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           if (uid) syncStuckCampaignsToFirestore(next, uid);
           return healStuckRunningCampaignsList(next);
         });
-        if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
-          status: CampaignStatus.RUNNING,
-          processedCount: 0,
-          successCount: 0,
-          failedCount: 0
-        }).catch(() => {});
+        if (uid) {
+          patchCampaignPersist(uid, campaignId, {
+            status: CampaignStatus.RUNNING,
+            processedCount: 0,
+            successCount: 0,
+            failedCount: 0
+          });
+        }
       }
     });
 
@@ -1650,21 +1781,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
             if (uid) {
               if (shouldReschedule && nextIso) {
-                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                patchCampaignPersist(uid, campaignId, {
                   status: CampaignStatus.SCHEDULED,
                   nextRunAt: nextIso,
                   lastRunAt: new Date().toISOString(),
                   processedCount: 0,
                   successCount: 0,
                   failedCount: 0
-                }).catch(() => {});
+                });
               } else {
-                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                patchCampaignPersist(uid, campaignId, {
                   status: CampaignStatus.COMPLETED,
                   successCount,
                   failedCount: failCount,
                   processedCount
-                }).catch(() => {});
+                });
               }
             }
 
@@ -1738,21 +1869,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
             if (uid) {
               if (shouldReschedule && nextIso) {
-                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                patchCampaignPersist(uid, campaignId, {
                   status: CampaignStatus.SCHEDULED,
                   nextRunAt: nextIso,
                   lastRunAt: new Date().toISOString(),
                   processedCount: 0,
                   successCount: 0,
                   failedCount: 0
-                }).catch(() => {});
+                });
               } else {
-                updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
+                patchCampaignPersist(uid, campaignId, {
                   status: CampaignStatus.COMPLETED,
                   successCount,
                   failedCount: failCount,
                   processedCount
-                }).catch(() => {});
+                });
               }
             }
 
@@ -1821,9 +1952,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       });
       const uid = currentUidRef.current;
       if (uid && campaignId) {
-        updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), {
-          status: CampaignStatus.FAILED
-        }).catch(() => {});
+        patchCampaignPersist(uid, campaignId, { status: CampaignStatus.FAILED });
         setCampaigns((prev) =>
           prev.map((c) => (c.id === campaignId ? { ...c, status: CampaignStatus.FAILED } : c))
         );
@@ -2059,7 +2188,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('campaign-paused', ({ campaignId }: { campaignId: string }) => {
       flushCampaignProgressToFirestore(campaignId, true);
       const uid = currentUidRef.current;
-      if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), { status: CampaignStatus.PAUSED }).catch(() => {});
+      if (uid) patchCampaignPersist(uid, campaignId, { status: CampaignStatus.PAUSED });
       clearCampaignProgressPersist(campaignId);
       setCampaigns((prev) => {
         const next = prev.map((c) => (c.id === campaignId ? { ...c, status: CampaignStatus.PAUSED } : c));
@@ -2073,7 +2202,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('campaign-resumed', ({ campaignId }: { campaignId: string }) => {
       flushCampaignProgressToFirestore(campaignId, true);
       const uid = currentUidRef.current;
-      if (uid) updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), { status: CampaignStatus.RUNNING }).catch(() => {});
+      if (uid) patchCampaignPersist(uid, campaignId, { status: CampaignStatus.RUNNING });
       clearCampaignProgressPersist(campaignId);
       setCampaigns((prev) => {
         const next = prev.map((c) => (c.id === campaignId ? { ...c, status: CampaignStatus.RUNNING } : c));
@@ -2157,9 +2286,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   /** Hidrata canais após auth + workspace — não depender só do primeiro socket.connect. */
   useEffect(() => {
-    const u = auth.currentUser;
-    if (!u?.uid || workspaceLoading) return;
-    const dataUid = effectiveWorkspaceUid ?? u.uid;
+    if (!sessionUser?.uid || workspaceLoading) return;
+    const dataUid = effectiveWorkspaceUid ?? sessionUser.uid;
     currentUidRef.current = dataUid;
 
     const runSync = () => void syncConnectionsFromApiRef.current();
@@ -2169,7 +2297,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const sock = socketRef.current;
     if (sock && !sock.connected) {
-      void u.getIdToken().then((token) => {
+      void getSessionIdToken().then((token) => {
+        if (!token) return;
         sock.auth = { token };
         if (!sock.connected) sock.connect();
       });
@@ -2179,7 +2308,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [effectiveWorkspaceUid, workspaceLoading, auth.currentUser?.uid]);
+  }, [effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 
   // --- ACTIONS ---
   const waitForSocketConnected = (timeoutMs: number) =>
@@ -2211,15 +2340,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const refreshSocketAuthToken = async (forceRefresh = false) => {
     const sock = socketRef.current;
     if (!sock) return;
-    const u = auth.currentUser;
-    if (u) {
-      try {
-        const token = await u.getIdToken(forceRefresh);
-        (sock as Socket & { auth: { token?: string } }).auth = { token };
-      } catch {
-        (sock as Socket & { auth: { token?: string } }).auth = {};
-      }
-    } else {
+    try {
+      const token = await getSessionIdToken(forceRefresh);
+      (sock as Socket & { auth: { token?: string } }).auth = token ? { token } : {};
+    } catch {
       (sock as Socket & { auth: { token?: string } }).auth = {};
     }
   };
@@ -2374,6 +2498,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addContact = async (contact: Contact, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
+    if (useVpsData()) {
+      const { id, ...payload } = contact;
+      const newId = await apiCreateContact(payload);
+      await reloadVpsContactsRef.current();
+      void refreshContactsSavedTotal();
+      if (!options?.silent) toast.success('Contato adicionado com sucesso!');
+      return newId;
+    }
     const { id, ...payload } = contact;
     const ref = await addDoc(collection(db, 'users', uid, 'contacts'), payload);
     void refreshContactsSavedTotal();
@@ -2387,6 +2519,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
     if (contactRows.length === 0) return [];
+    if (useVpsData()) {
+      const payloads = contactRows.map(({ id: _d, ...rest }) => rest);
+      const ids = await apiBulkCreateContacts(payloads);
+      await reloadVpsContactsRef.current();
+      void refreshContactsSavedTotal();
+      if (!options?.silent && contactRows.length > 0) {
+        toast.success(`${contactRows.length} contato(s) gravados em lote.`);
+      }
+      return ids;
+    }
     const ids: string[] = [];
     const collRef = collection(db, 'users', uid, 'contacts');
     let batch = writeBatch(db);
@@ -2418,6 +2560,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const removeContact = async (id: string, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para remover contato.');
+    if (useVpsData()) {
+      await apiDeleteContact(id);
+      await reloadVpsContactsRef.current();
+      void refreshContactsSavedTotal();
+      if (!options?.silent) toast.success('Contato removido.');
+      return;
+    }
     await deleteDoc(doc(db, 'users', uid, 'contacts', id)).catch(() => {});
     await deleteDoc(doc(db, 'contacts', id)).catch(() => {});
     void refreshContactsSavedTotal();
@@ -2433,6 +2582,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   ) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
+    if (useVpsData()) {
+      await apiUpdateContact(id, updates);
+      await reloadVpsContactsRef.current();
+      if (!options?.silent) toast.success('Contato atualizado com sucesso!');
+      return;
+    }
     const refUser = doc(db, 'users', uid, 'contacts', id);
     if (options?.assumeUserDoc) {
       await updateDoc(refUser, updates as Record<string, unknown>);
@@ -2465,6 +2620,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
     if (items.length === 0) return;
+    if (useVpsData()) {
+      await apiBulkUpdateContacts(items);
+      await reloadVpsContactsRef.current();
+      if (!options?.silent) toast.success('Contatos atualizados.');
+      return;
+    }
     let batch = writeBatch(db);
     let pending = 0;
     for (const { id, updates } of items) {
@@ -2527,11 +2688,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
 
     // Coleções suportadas e usadas hoje no app.
-    await deleteCollectionDocs(`users/${uid}/contacts`, 'contacts');
-    await deleteCollectionDocs(`users/${uid}/contact_lists`, 'contactLists');
+    if (useVpsData()) {
+      try {
+        const cleared = await apiClearTenantContactsData();
+        summary.contacts = cleared.contacts;
+        summary.contactLists = cleared.contactLists;
+        hadAnySuccess = true;
+      } catch (err: unknown) {
+        errors.push(`vps/contacts-data: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else {
+      await deleteCollectionDocs(`users/${uid}/contacts`, 'contacts');
+      await deleteCollectionDocs(`users/${uid}/contact_lists`, 'contactLists');
+    }
 
     // Campanhas: primeiro apaga logs de cada campanha, depois a campanha.
     try {
+      if (useVpsData()) {
+        summary.campaigns = await apiDeleteAllCampaigns();
+        hadAnySuccess = true;
+      } else {
       const campaignSnap = await getDocs(collection(db, 'users', uid, 'campaigns'));
       if (!campaignSnap.empty) {
         for (const campaignDoc of campaignSnap.docs) {
@@ -2551,6 +2727,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         if (pending > 0) await batch.commit();
         hadAnySuccess = true;
+      }
       }
     } catch (err: any) {
       errors.push(`users/${uid}/campaigns: ${err?.message || 'erro desconhecido'}`);
@@ -2618,6 +2795,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uniq = [...new Set(ids.filter(Boolean))];
     if (uniq.length === 0 && !options?.notesLine) return;
 
+    if (useVpsData()) {
+      const lists = await fetchContactLists();
+      const list = lists.find((l) => l.id === listId);
+      if (!list) {
+        throw new Error(
+          'Lista não encontrada. Recarregue a página e escolha de novo a lista em Contatos.'
+        );
+      }
+      const mergedIds = [...new Set([...(list.contactIds || []), ...uniq])];
+      await apiUpdateContactList(listId, { contactIds: mergedIds });
+      await reloadVpsContactListsRef.current();
+      return;
+    }
+
     const ref = doc(db, 'users', uid, 'contact_lists', listId);
 
     await runTransaction(db, async (transaction) => {
@@ -2649,6 +2840,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const createContactList = async (name: string, contactIds: string[], description?: string): Promise<string> => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para criar lista.');
+    if (useVpsData()) {
+      const listId = await apiCreateContactList({
+        name,
+        contactIds: [],
+        description: description || '',
+        createdAt: new Date().toISOString()
+      });
+      if (contactIds.length > 0) {
+        await appendContactIdsToContactList(listId, contactIds);
+      }
+      await reloadVpsContactListsRef.current();
+      return listId;
+    }
     const ref = await addDoc(collection(db, 'users', uid, 'contact_lists'), {
       name,
       contactIds: [],
@@ -2664,6 +2868,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteContactList = async (id: string) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para remover lista.');
+    if (useVpsData()) {
+      await apiDeleteContactList(id);
+      await reloadVpsContactListsRef.current();
+      return;
+    }
     const refUser = doc(db, 'users', uid, 'contact_lists', id);
     const refRoot = doc(db, 'contact_lists', id);
     const [snapUser, snapRoot] = await Promise.all([getDoc(refUser), getDoc(refRoot)]);
@@ -2693,6 +2902,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateContactList = async (id: string, updates: Partial<ContactList>) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar lista.');
+    if (useVpsData()) {
+      await apiUpdateContactList(id, updates);
+      await reloadVpsContactListsRef.current();
+      return;
+    }
     const refUser = doc(db, 'users', uid, 'contact_lists', id);
     const snapUser = await getDoc(refUser);
     if (snapUser.exists()) {
@@ -2909,9 +3123,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
       const u = currentUidRef.current;
       if (u) {
-        updateDoc(doc(db, 'users', u, 'campaigns', campaignId), {
-          status: CampaignStatus.PAUSED
-        }).catch(() => {});
+        patchCampaignPersist(u, campaignId, { status: CampaignStatus.PAUSED });
       }
       return next;
     });
@@ -2926,9 +3138,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
       const u = currentUidRef.current;
       if (u) {
-        updateDoc(doc(db, 'users', u, 'campaigns', campaignId), {
-          status: CampaignStatus.RUNNING
-        }).catch(() => {});
+        patchCampaignPersist(u, campaignId, { status: CampaignStatus.RUNNING });
       }
       return next;
     });
@@ -2943,9 +3153,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (campaign?.status === CampaignStatus.RUNNING) {
       socketRef.current?.emit('pause-campaign', { campaignId });
     }
-    await deleteCampaignLogsForUser(uid, campaignId);
-    // Nao apagar /campaigns/{id} na raiz — regras Firestore bloqueiam (allow: false).
-    await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignId));
+    if (useVpsData()) {
+      await apiDeleteCampaign(campaignId);
+      void reloadVpsCampaignsRef.current();
+    } else {
+      await deleteCampaignLogsForUser(uid, campaignId);
+      await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignId));
+    }
     toast.success('Campanha removida.');
   };
 
@@ -2959,21 +3173,28 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         socketRef.current?.emit('pause-campaign', { campaignId: id });
       }
     }
-    for (const id of campaignIds) {
-      await deleteCampaignLogsForUser(uid, id);
-    }
-    let batch = writeBatch(db);
-    let pending = 0;
-    for (const id of campaignIds) {
-      batch.delete(doc(db, 'users', uid, 'campaigns', id));
-      pending++;
-      if (pending >= 400) {
-        await batch.commit();
-        batch = writeBatch(db);
-        pending = 0;
+    if (useVpsData()) {
+      for (const id of campaignIds) {
+        await apiDeleteCampaign(id);
       }
+      void reloadVpsCampaignsRef.current();
+    } else {
+      for (const id of campaignIds) {
+        await deleteCampaignLogsForUser(uid, id);
+      }
+      let batch = writeBatch(db);
+      let pending = 0;
+      for (const id of campaignIds) {
+        batch.delete(doc(db, 'users', uid, 'campaigns', id));
+        pending++;
+        if (pending >= 400) {
+          await batch.commit();
+          batch = writeBatch(db);
+          pending = 0;
+        }
+      }
+      if (pending > 0) await batch.commit();
     }
-    if (pending > 0) await batch.commit();
     toast.success(`${campaignIds.length} campanha${campaignIds.length > 1 ? 's removidas' : ' removida'}.`);
   };
 
@@ -3070,15 +3291,31 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       createdAt: new Date().toISOString()
     };
 
-    const campaignRef = await Promise.race([
-      addDoc(collection(db, 'users', uid, 'campaigns'), campaignPayload),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
-          20_000
+    let campaignIdCreated: string;
+    if (useVpsData()) {
+      campaignIdCreated = await Promise.race([
+        apiCreateCampaign(campaignPayload),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
+            20_000
+          )
         )
-      )
-    ]);
+      ]);
+      void reloadVpsCampaignsRef.current();
+    } else {
+      const campaignRef = await Promise.race([
+        addDoc(collection(db, 'users', uid, 'campaigns'), campaignPayload),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
+            20_000
+          )
+        )
+      ]);
+      campaignIdCreated = campaignRef.id;
+    }
+    const campaignRef = { id: campaignIdCreated };
 
     try {
       const ackTimeoutMs = startCampaignAckTimeoutMs(
@@ -3166,7 +3403,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const msg = error instanceof Error ? error.message : String(error);
       const likelyStillRunning = msg.includes('Demoramos a confirmar no servidor');
       if (!likelyStillRunning) {
-        await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignRef.id)).catch(() => {});
+        if (useVpsData()) {
+          await apiDeleteCampaign(campaignRef.id).catch(() => {});
+          void reloadVpsCampaignsRef.current();
+        } else {
+          await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignRef.id)).catch(() => {});
+        }
       }
       throw error;
     }
@@ -3248,7 +3490,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           .filter((r) => r.phone.length >= 10)
       : undefined;
 
-    const campaignRef = await addDoc(collection(db, 'users', uid, 'campaigns'), {
+    const schedulePayload = {
       ownerUid: uid,
       name: campaignName || `Agendada — ${new Date().toLocaleString('pt-BR')}`,
       message: stagesForDoc[0] || message,
@@ -3286,9 +3528,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           ? { channelWeights: options.channelWeights }
           : {})
       }
-    });
+    };
+    const campaignId = useVpsData()
+      ? await apiCreateCampaign(schedulePayload)
+      : (await addDoc(collection(db, 'users', uid, 'campaigns'), schedulePayload)).id;
+    if (useVpsData()) void reloadVpsCampaignsRef.current();
     toast.success('Campanha agendada. O disparo ocorre no horário escolhido (servidor online).');
-    return campaignRef.id;
+    return campaignId;
   };
 
   const stableAddConnection = useStableCallback(addConnection);

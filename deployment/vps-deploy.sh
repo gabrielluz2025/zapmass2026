@@ -13,11 +13,11 @@ fi
 
 event="${GITHUB_EVENT_NAME:-push}"
 
-# Janela segura: só no cron. Hora do relógio do host (muitas VPS = UTC; use TZ=... no systemd/cron se quiser fuso local).
+# Janela segura: só no cron. Hora UTC (alinha com horários do GitHub Actions schedule).
 if [ "$event" = "schedule" ]; then
-  HOUR="$(date +%H)"
+  HOUR="$(date -u +%H)"
   if [ "$HOUR" -ge 6 ]; then
-    echo "==> (cron) Fora da janela segura de deploy (agora: ${HOUR}h no relógio do host)."
+    echo "==> (cron) Fora da janela segura de deploy (agora: ${HOUR}h UTC)."
     echo "==> (cron) Próximo ciclo do cron retoma."
     exit 0
   fi

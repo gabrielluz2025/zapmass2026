@@ -38,6 +38,8 @@ import {
 } from '../../types';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
+import { useVpsData } from '../../services/vpsData';
+import { fetchCampaignLogs, type CampaignLogDto } from '../../services/campaignsApi';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
@@ -343,9 +345,48 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return rows;
   };
 
+  const mapVpsLogs = (rows: CampaignLogDto[]): SystemLog[] =>
+    rows.map((d) => {
+      const lvl = String(d.level || 'info').toLowerCase();
+      const event =
+        lvl === 'error' ? 'campaign:error' : lvl === 'warn' ? 'campaign:warn' : 'campaign:info';
+      return {
+        timestamp: d.createdAt,
+        event,
+        payload: {
+          message: d.message || '',
+          campaignId: campaign.id,
+          to: d.to,
+          connectionId: d.connectionId,
+          error: d.error
+        }
+      };
+    });
+
   useEffect(() => {
-    if (!dataUid) { setPersistedLogs([]); return; }
+    if (!dataUid) {
+      setPersistedLogs([]);
+      return;
+    }
     let cancelled = false;
+    if (useVpsData()) {
+      fetchCampaignLogs(campaign.id, { limit: LOGS_PAGE, offset: 0 })
+        .then(({ logs, hasMore }) => {
+          if (cancelled) return;
+          setPersistedLogs(mapVpsLogs(logs));
+          setLogsLastDoc(null);
+          setLogsHasMore(hasMore);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setPersistedLogs([]);
+          toast.error('Nao foi possivel carregar logs persistidos da campanha.');
+          if (import.meta.env.DEV) console.warn('[CampaignDetails] logs VPS:', err);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
     const q = query(
       collection(db, 'users', dataUid, 'campaigns', campaign.id, 'logs'),
       orderBy('createdAt', 'desc'),
@@ -362,17 +403,36 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       .catch((err) => {
         if (cancelled) return;
         setPersistedLogs([]);
-        // Antes o erro era engolido silenciosamente — usuario via relatorio
-        // vazio sem saber o motivo. Agora avisa explicitamente.
         toast.error('Nao foi possivel carregar logs persistidos da campanha.');
         if (import.meta.env.DEV) console.warn('[CampaignDetails] logs load error:', err);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataUid, campaign.id]);
 
   const loadMoreLogs = async () => {
-    if (!dataUid || !logsLastDoc || logsLoadingMore) return;
+    if (!dataUid || logsLoadingMore) return;
+    if (useVpsData()) {
+      if (!logsHasMore) return;
+      setLogsLoadingMore(true);
+      try {
+        const offset = persistedLogs.length;
+        const { logs, hasMore } = await fetchCampaignLogs(campaign.id, {
+          limit: LOGS_PAGE,
+          offset
+        });
+        setPersistedLogs((prev) => [...prev, ...mapVpsLogs(logs)]);
+        setLogsHasMore(hasMore);
+      } catch {
+        toast.error('Falha ao carregar mais logs.');
+      } finally {
+        setLogsLoadingMore(false);
+      }
+      return;
+    }
+    if (!logsLastDoc) return;
     setLogsLoadingMore(true);
     try {
       const q = query(

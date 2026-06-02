@@ -2,7 +2,8 @@ import type { Express, Request, Response } from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { mergeUserSubscription } from './subscriptionFirestore.js';
+import { getUserSubscription, mergeUserSubscription } from './subscriptionStore.js';
+import { resolveBillingUser } from './billingAuth.js';
 import { channelAddonUnitPriceBrl } from './connectionLimits.js';
 import {
   getMercadoPagoAccessToken,
@@ -604,33 +605,12 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
 
   app.post('/api/billing/mercadopago/start', async (req: Request, res: Response) => {
     try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      const bodyEmail = typeof req.body?.payer_email === 'string' ? req.body.payer_email.trim() : '';
+      const billingUser = await resolveBillingUser(req, { bodyEmail });
+      if (!billingUser) {
+        return res.status(401).json({ ok: false, error: 'Token invalido ou expirado.' });
       }
-
-      const idToken = parseBearer(req);
-      if (!idToken) {
-        return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <Firebase ID token>.' });
-      }
-
-      let uid: string;
-      let email: string;
-      try {
-        const decoded = await getAuth(adminApp).verifyIdToken(idToken);
-        uid = decoded.uid;
-        const bodyEmail = typeof req.body?.payer_email === 'string' ? req.body.payer_email.trim() : '';
-        email = (decoded.email || bodyEmail || '').trim();
-      } catch {
-        return res.status(401).json({ ok: false, error: 'Token Firebase invalido ou expirado.' });
-      }
-
-      if (!email || !email.includes('@')) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Conta sem e-mail. Use login Google com e-mail ou envie payer_email no JSON do corpo.'
-        });
-      }
+      const { uid, email } = billingUser;
 
       const plan = (req.body?.plan as Plan) || 'monthly';
       if (plan !== 'monthly' && plan !== 'annual') {
@@ -644,12 +624,7 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       const channels = parseChannelTier(req.body?.channels);
       const tierArg = channels != null ? { channels } : {};
 
-      let payerDisplayName: string | null | undefined;
-      try {
-        payerDisplayName = (await getAuth(adminApp).getUser(uid)).displayName ?? undefined;
-      } catch {
-        payerDisplayName = undefined;
-      }
+      const payerDisplayName = billingUser.displayName;
 
       const result =
         method === 'recurring'
@@ -687,30 +662,12 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
    */
   app.post('/api/billing/mercadopago/channel-plan', async (req: Request, res: Response) => {
     try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      const bodyEmail = typeof req.body?.payer_email === 'string' ? req.body.payer_email.trim() : '';
+      const billingUser = await resolveBillingUser(req, { bodyEmail });
+      if (!billingUser) {
+        return res.status(401).json({ ok: false, error: 'Token invalido ou expirado.' });
       }
-      const idToken = parseBearer(req);
-      if (!idToken) {
-        return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <Firebase ID token>.' });
-      }
-      let uid: string;
-      let email: string;
-      try {
-        const decoded = await getAuth(adminApp).verifyIdToken(idToken);
-        uid = decoded.uid;
-        const bodyEmail = typeof req.body?.payer_email === 'string' ? req.body.payer_email.trim() : '';
-        email = (decoded.email || bodyEmail || '').trim();
-      } catch {
-        return res.status(401).json({ ok: false, error: 'Token Firebase invalido ou expirado.' });
-      }
-      if (!email || !email.includes('@')) {
-        return res.status(400).json({
-          ok: false,
-          error: 'Conta sem e-mail. Use login com e-mail ou envie payer_email no JSON do corpo.'
-        });
-      }
+      const { uid, email } = billingUser;
       const channels = parseChannelTier(req.body?.channels);
       if (!channels) {
         return res.status(400).json({ ok: false, error: 'channels deve ser 1, 2, 3, 4 ou 5.' });
@@ -719,9 +676,8 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
       const plan: Plan = planRaw === 'annual' ? 'annual' : 'monthly';
       const methodRaw = String(req.body?.method || 'card').toLowerCase();
       const method: 'pix' | 'card' = methodRaw === 'pix' ? 'pix' : 'card';
-      const db = getFirestore(adminApp);
-      const subSnap = await db.collection('userSubscriptions').doc(uid).get();
-      const sub = (subSnap.data() || {}) as Record<string, unknown>;
+      const subDoc = await getUserSubscription(uid);
+      const sub = (subDoc || {}) as Record<string, unknown>;
       const currentChannels = resolveCurrentChannelsFromSub(sub);
       const currentPlan: Plan = String(sub.plan || '') === 'annual' ? 'annual' : 'monthly';
       const accessEndMs = toMillis(sub.accessEndsAt);
@@ -751,12 +707,7 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
         checkoutDescription = `Upgrade pró-rata do ciclo atual (${Math.round(prorataRatio * 100)}% do período restante).`;
       }
 
-      let payerDisplayName: string | null | undefined;
-      try {
-        payerDisplayName = (await getAuth(adminApp).getUser(uid)).displayName ?? undefined;
-      } catch {
-        payerDisplayName = undefined;
-      }
+      const payerDisplayName = billingUser.displayName;
 
       const result = await createChannelTierPreference({
         uid,
@@ -801,26 +752,16 @@ export function registerBillingMercadoPagoRoutes(app: Express): void {
    */
   app.post('/api/billing/mercadopago/cancel-subscription', async (req: Request, res: Response) => {
     try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado.' });
-
-      const idToken = parseBearer(req);
-      if (!idToken) return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer <token>.' });
-
-      let uid: string;
-      try {
-        const decoded = await getAuth(adminApp).verifyIdToken(idToken);
-        uid = decoded.uid;
-      } catch {
-        return res.status(401).json({ ok: false, error: 'Token invalido.' });
+      const billingUser = await resolveBillingUser(req);
+      if (!billingUser) {
+        return res.status(401).json({ ok: false, error: 'Token invalido ou expirado.' });
       }
+      const { uid } = billingUser;
 
       const access = getMercadoPagoAccessToken();
       if (!access) return res.status(503).json({ ok: false, error: 'MERCADOPAGO_ACCESS_TOKEN ausente.' });
 
-      const db = getFirestore(adminApp);
-      const snap = await db.collection('userSubscriptions').doc(uid).get();
-      const data = snap.data() as { mercadoPagoPreapprovalId?: string } | undefined;
+      const data = await getUserSubscription(uid);
       const preapprovalId = data?.mercadoPagoPreapprovalId;
       if (!preapprovalId) {
         return res.status(404).json({ ok: false, error: 'Nenhuma assinatura recorrente ativa.' });

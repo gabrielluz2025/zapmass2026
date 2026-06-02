@@ -1,42 +1,32 @@
 import type { Express, Request, Response } from 'express';
-import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { vpsDataEnabled } from './auth/dataMode.js';
+import { getZapmassPool } from './db/postgres.js';
+import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 import { sendSuggestionNotificationEmail } from './emailService.js';
 
-function parseBearer(req: Request): string | null {
-  const h = req.headers.authorization || '';
-  const m = /^Bearer\s+(.+)$/i.exec(h);
-  return m ? m[1].trim() : null;
-}
-
-/** Origem pública usada para construir o link "Ver no painel do criador" no email. */
 function getPublicOrigin(req: Request): string {
   const env = (process.env.PUBLIC_APP_URL || process.env.APP_PUBLIC_URL || '').trim();
   if (env) return env.replace(/\/+$/, '');
-  // Fallback: tenta deduzir pelo header (pode ficar com IP interno; ainda assim útil).
   const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
   const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
   return host ? `${proto}://${host}` : '';
 }
 
-/**
- * Sugestões de melhoria (botão «Sugestão» no app).
- * Gravação via Admin SDK para não depender das regras de segurança do cliente no Firestore.
- */
 export function registerProductSuggestionRoutes(app: Express): void {
   app.post('/api/product-suggestion', async (req: Request, res: Response) => {
     try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Servidor sem Firebase Admin configurado.' });
-      }
       const token = parseBearer(req);
       if (!token) {
-        return res.status(401).json({ ok: false, error: 'Autenticação em falta (token Firebase).' });
+        return res.status(401).json({ ok: false, error: 'Autenticação em falta.' });
       }
-      const decoded = await getAuth(adminApp).verifyIdToken(token);
-      const uid = decoded.uid;
+      const principal = await resolveAuthPrincipal(token);
+      if (!principal) {
+        return res.status(401).json({ ok: false, error: 'Token inválido ou expirado.' });
+      }
+      const tenantId = principal.tenantUid;
+      const actorId = principal.authUid;
       const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
       if (text.length < 1) {
         return res.status(400).json({ ok: false, error: 'Escreva uma sugestão.' });
@@ -48,36 +38,41 @@ export function registerProductSuggestionRoutes(app: Express): void {
       const categoryRaw = typeof req.body?.category === 'string' ? req.body.category.trim().toLowerCase() : '';
       const allowedCat = new Set(['usability', 'campaigns', 'reports', 'integrations', 'other']);
       const category = allowedCat.has(categoryRaw) ? categoryRaw : 'other';
-      const email =
-        typeof decoded.email === 'string'
-          ? decoded.email.slice(0, 320)
-          : '';
-
-      const db = getFirestore(adminApp);
+      const email = (principal.email || '').slice(0, 320);
       const createdAt = new Date();
-      await db.collection('users').doc(uid).collection('suggestions').add({
-        text,
-        createdAt: FieldValue.serverTimestamp(),
-        screen,
-        category,
-        userEmail: email
-      });
 
-      // Notifica os criadores/admins por email — fire-and-forget, não bloqueia
-      // a resposta para o cliente nem falha o POST se o email não puder ser enviado.
+      if (vpsDataEnabled() && getZapmassPool()) {
+        await getZapmassPool()!.query(
+          `INSERT INTO zapmass.product_suggestions
+             (tenant_id, actor_subject_id, email, text, screen, category, created_at)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`,
+          [tenantId, actorId, email, text, screen, category, createdAt]
+        );
+      } else {
+        const adminApp = getFirebaseAdmin();
+        if (!adminApp) {
+          return res.status(503).json({ ok: false, error: 'Servidor sem Firebase Admin configurado.' });
+        }
+        const db = getFirestore(adminApp);
+        await db.collection('users').doc(tenantId).collection('suggestions').add({
+          text,
+          createdAt: FieldValue.serverTimestamp(),
+          screen,
+          category,
+          email
+        });
+      }
+
       const origin = getPublicOrigin(req);
-      const adminPanelUrl = origin ? `${origin}/?view=admin` : undefined;
       void sendSuggestionNotificationEmail({
+        suggesterUid: actorId,
         suggesterEmail: email,
-        suggesterUid: uid,
         text,
         screen,
         category,
         createdAt,
-        adminPanelUrl
-      }).catch((err) => {
-        console.error('[api/product-suggestion] notificação email falhou:', err);
-      });
+        adminPanelUrl: origin ? `${origin}/admin` : undefined
+      }).catch((e) => console.warn('[product-suggestion] email', e));
 
       return res.json({ ok: true });
     } catch (e: unknown) {

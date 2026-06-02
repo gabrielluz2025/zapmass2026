@@ -106,7 +106,25 @@ jobs:
     # 60m matava o job com build ainda a correr (appleboy/ssh-action).
     timeout-minutes: 150
     steps:
+      - name: Janela cron (UTC 00–05)
+        id: cron_window
+        if: github.event_name == 'schedule'
+        run: |
+          h=$(date -u +%H)
+          if [ "$h" -lt 6 ]; then
+            echo "within=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "within=false" >> "$GITHUB_OUTPUT"
+            echo "## Deploy cron ignorado (fora da janela 00:00–05:59 UTC)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Fora da janela — sem SSH
+        if: github.event_name == 'schedule' && steps.cron_window.outputs.within == 'false'
+        run: echo "==> Cron fora da janela UTC; deploy na VPS adiado (sem tentativa SSH)."
+
       - name: Pré-teste de conectividade SSH (runner -> VPS)
+        id: ssh_precheck
+        if: github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true'
         continue-on-error: true
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -124,16 +142,19 @@ jobs:
             echo "tentativa ${i}/12 falhou; aguardando 8s..."
             sleep 8
           done
-          if [ "${ok}" != "1" ]; then
+          if [ "${ok}" = "1" ]; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Runner nao alcancou ${VPS_HOST}:${VPS_PORT} apos 12 tentativas (~96s)."
-            echo "::warning::Isso prevê o erro 'dial tcp ... connection timed out' no SSH. Corrija firewall/host antes de continuar."
-            echo "::warning::Seguindo para tentativa real de SSH (pode funcionar em rota diferente)."
+            echo "::warning::Provavel falha de firewall/rede (nao e erro de Docker nem vps-deploy.sh)."
           fi
 
       # Uma tentativa de vps-deploy.sh: repetir o script após falha (Docker/Swarm) piora corrida e OOM na VPS.
-      # Segunda ligação SSH só para falha de transporte (timeout antes do script), não para exit 1 do deploy.
+      # Segunda ligação SSH abaixo: só quando a tentativa 1 falhou (tipicamente timeout TCP antes do script).
       - name: Deploy por SSH (tentativa 1)
         id: deploy_try_1
+        if: github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true'
         continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -165,19 +186,76 @@ jobs:
               exit 1
             fi
             chmod +x deployment/vps-deploy.sh
+            _log="/tmp/zapmass-gha-deploy-$$.log"
+            set +e
+            bash deployment/vps-deploy.sh 2>&1 | tee "${_log}"
+            _code="${PIPESTATUS[0]}"
+            set -e
+            if [ "${_code}" != "0" ]; then
+              echo "::error::vps-deploy.sh terminou com código ${_code} (causa real abaixo — não é o passo seguinte do workflow)."
+              echo "==> Últimas 80 linhas do deploy na VPS:"
+              tail -n 80 "${_log}" 2>/dev/null || true
+              rm -f "${_log}"
+              exit "${_code}"
+            fi
+            rm -f "${_log}"
+
+      - name: Aguardar e repetir SSH (só se tentativa 1 falhou)
+        if: >-
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.deploy_try_1.outcome == 'failure'
+        run: |
+          echo "==> tentativa 1 falhou; aguardando 90s antes da 2ª ligação SSH (firewall/fail2ban intermitente?)"
+          sleep 90
+
+      - name: Deploy por SSH (tentativa 2 — rede)
+        id: deploy_try_2
+        if: >-
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.deploy_try_1.outcome == 'failure'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 15m
+          command_timeout: 140m
+          script: |
+            set -euo pipefail
+            export GITHUB_EVENT_NAME="${{ github.event_name }}"
+            GHA_SHA="${{ github.sha }}"
+            echo "==> deploy (tentativa 2): commit = ${GHA_SHA}"
+            cd /opt/zapmass
+            git fetch --all --prune
+            git checkout -f "${GHA_SHA}"
+            chmod +x deployment/vps-deploy.sh
             exec bash deployment/vps-deploy.sh
 
       - name: Falhar job se o deploy na VPS falhou
-        if: steps.deploy_try_1.outcome == 'failure'
+        if: >-
+          steps.deploy_try_1.outcome == 'failure' &&
+          steps.deploy_try_2.outcome != 'success'
         run: |
-          echo "::error::vps-deploy.sh terminou com erro. O workflow «Recuperar VPS» corre em seguida se o deploy falhou."
-          echo "::error::Ver o log do passo «Deploy por SSH (tentativa 1)»."
+          if [ "${{ steps.ssh_precheck.outputs.reachable }}" = "false" ]; then
+            echo "::error::SSH indisponivel: o runner do GitHub nao alcancou a VPS (dial tcp ... port 22 ... connection timed out)."
+            echo "::error::O vps-deploy.sh NAO chegou a correr. Corrija firewall/painel Hostinger: permitir SSH (TCP 22) de qualquer IP — runners usam IPs variados."
+            echo "::error::Na VPS: sudo ufw allow 22/tcp; rever fail2ban; confirme sshd ativo. Teste: nc -zv IP 22"
+            echo "::error::Deploy manual (do seu PC, se SSH de la funcionar): cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
+          else
+            echo "::error::Ligacao SSH falhou ou vps-deploy.sh terminou com erro. Veja o passo «Deploy por SSH» (ERRO:/FALHA: ou connection timed out)."
+            echo "::error::Deploy manual: cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
+          fi
           exit 1
 
       # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).
       # Isto adiciona texto legível no separador "Summary" da execução.
       - name: Tag de versão automática após deploy bem-sucedido
-        if: success() && steps.deploy_try_1.outcome == 'success'
+        if: >-
+          success() &&
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          (steps.deploy_try_1.outcome == 'success' || steps.deploy_try_2.outcome == 'success')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

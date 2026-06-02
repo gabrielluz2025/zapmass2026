@@ -13,6 +13,11 @@ import {
 } from './appConfigStore.js';
 import { loadMergedUserInsightData } from './insightMerge.js';
 import { sendSuggestionReplyEmail } from './emailService.js';
+import {
+  listAdminAccessUsers,
+  listAdminAccessAudit,
+  putAdminAccessUser
+} from './adminAccessUsers.js';
 
 function sanitizePutBody(body: unknown): Partial<AppConfigGlobal> {
   if (!body || typeof body !== 'object') return {};
@@ -29,34 +34,6 @@ function sanitizePutBody(body: unknown): Partial<AppConfigGlobal> {
   }
   return out;
 }
-
-type AdminUserAccessRow = {
-  uid: string;
-  email: string;
-  status: string;
-  provider: string;
-  plan: string | null;
-  blocked: boolean;
-  manualGrant: boolean;
-  trialEndsAt: string | null;
-  accessEndsAt: string | null;
-  manualAccessEndsAt: string | null;
-  manualExtraChannelSlots: number;
-  manualExtraChannelSlotsEndsAt: string | null;
-  adminNote: string;
-  updatedAt: string | null;
-};
-
-type AdminAccessAuditRow = {
-  id: string;
-  targetUid: string;
-  targetEmail: string;
-  adminUid: string;
-  adminEmail: string;
-  action: string;
-  note: string;
-  createdAt: string | null;
-};
 
 type AdminUserInsights = {
   uid: string;
@@ -130,52 +107,11 @@ function asEpoch(v: unknown): number {
   return 0;
 }
 
-async function rowFromSubscriptionDoc(
-  uid: string,
-  data: Record<string, unknown> | undefined,
-  authEmailCache: Map<string, string>,
-  fallbackEmail = ''
-): Promise<AdminUserAccessRow> {
-  let email = fallbackEmail || authEmailCache.get(uid) || '';
-  if (!email) {
-    try {
-      const adminApp = getFirebaseAdmin();
-      if (adminApp) {
-        const user = await getAuth(adminApp).getUser(uid);
-        email = user.email || '';
-        if (email) authEmailCache.set(uid, email);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return {
-    uid,
-    email,
-    status: typeof data?.status === 'string' ? data.status : 'none',
-    provider: typeof data?.provider === 'string' ? data.provider : 'none',
-    plan: typeof data?.plan === 'string' ? data.plan : null,
-    blocked: data?.blocked === true,
-    manualGrant: data?.manualGrant === true,
-    trialEndsAt: tsToIso(data?.trialEndsAt),
-    accessEndsAt: tsToIso(data?.accessEndsAt),
-    manualAccessEndsAt: tsToIso(data?.manualAccessEndsAt),
-    manualExtraChannelSlots: Math.max(0, Math.min(3, Math.floor(Number(data?.manualExtraChannelSlots) || 0))),
-    manualExtraChannelSlotsEndsAt: tsToIso(data?.manualExtraChannelSlotsEndsAt),
-    adminNote: typeof data?.adminNote === 'string' ? data.adminNote : '',
-    updatedAt: tsToIso(data?.updatedAt)
-  };
-}
-
 export function registerAdminAppConfigRoutes(app: Express): void {
   app.get('/api/app-config', async (_req: Request, res: Response) => {
     try {
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.json({ ok: true, config: defaultAppConfig() });
-      }
-      const db = getFirestore(adminApp);
-      const config = await loadAppConfig(db);
+      const { loadAppConfigGlobal } = await import('./appConfigStore.js');
+      const config = await loadAppConfigGlobal();
       return res.json({ ok: true, config });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -189,16 +125,12 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
 
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-      }
       const partial = sanitizePutBody(req.body);
       if (Object.keys(partial).length === 0) {
         return res.status(400).json({ ok: false, error: 'Nenhum campo valido no corpo da requisicao.' });
       }
-      const db = getFirestore(adminApp);
-      const config = await saveAppConfigMerge(db, partial);
+      const { saveAppConfigGlobal } = await import('./appConfigStore.js');
+      const config = await saveAppConfigGlobal(partial);
       console.log('[api/admin/app-config] atualizado por', auth.email);
       return res.json({ ok: true, config });
     } catch (e: unknown) {
@@ -212,56 +144,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     try {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-      }
-      const db = getFirestore(adminApp);
       const search = String(req.query.search || '').trim().toLowerCase();
-      const snap = await db.collection('userSubscriptions').orderBy('updatedAt', 'desc').limit(500).get();
-      const authEmailCache = new Map<string, string>();
-      let rows = await Promise.all(
-        snap.docs.map((d) => rowFromSubscriptionDoc(d.id, d.data() as Record<string, unknown>, authEmailCache))
-      );
-      const adminEmails = adminEmailSet();
-      rows = rows.filter((r) => !r.email || !adminEmails.has(r.email.toLowerCase()));
-
-      if (search) {
-        rows = rows.filter((r) => r.uid.toLowerCase().includes(search) || r.email.toLowerCase().includes(search));
-      }
-
-      // Busca pontual por e-mail mesmo se ainda não existir doc em userSubscriptions.
-      if (search.includes('@') && !rows.some((r) => r.email.toLowerCase() === search)) {
-        try {
-          const u = await getAuth(adminApp).getUserByEmail(search);
-          const subSnap = await db.collection('userSubscriptions').doc(u.uid).get();
-          if (subSnap.exists) {
-            rows.unshift(
-              await rowFromSubscriptionDoc(u.uid, subSnap.data() as Record<string, unknown>, authEmailCache, u.email || search)
-            );
-          } else {
-            rows.unshift({
-              uid: u.uid,
-              email: u.email || search,
-              status: 'none',
-              provider: 'none',
-              plan: null,
-              blocked: false,
-              manualGrant: false,
-              trialEndsAt: null,
-              accessEndsAt: null,
-              manualAccessEndsAt: null,
-              manualExtraChannelSlots: 0,
-              manualExtraChannelSlotsEndsAt: null,
-              adminNote: '',
-              updatedAt: null
-            });
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-
+      const rows = await listAdminAccessUsers(search, adminEmailSet());
       return res.json({ ok: true, users: rows });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -274,128 +158,13 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     try {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
+      const body = (req.body || {}) as import('./adminAccessUsers.js').AdminAccessUserPutBody;
+      const result = await putAdminAccessUser(body, auth);
+      if ('error' in result) {
+        return res.status(result.status).json({ ok: false, error: result.error });
       }
-      const db = getFirestore(adminApp);
-      const body = (req.body || {}) as {
-        uid?: string;
-        email?: string;
-        blocked?: boolean;
-        manualGrant?: boolean;
-        grantDays?: number | null;
-        grantMode?: 'set' | 'extend';
-        manualExtraChannelSlots?: number | null;
-        channelGrantDays?: number | null;
-        channelGrantMonths?: number | null;
-        channelGrantMode?: 'set' | 'extend';
-        adminNote?: string;
-      };
-
-      let uid = String(body.uid || '').trim();
-      let email = String(body.email || '').trim().toLowerCase();
-      if (!uid && !email) {
-        return res.status(400).json({ ok: false, error: 'Informe uid ou email.' });
-      }
-      if (!uid && email) {
-        const u = await getAuth(adminApp).getUserByEmail(email);
-        uid = u.uid;
-        email = (u.email || email).toLowerCase();
-      }
-
-      const ref = db.collection('userSubscriptions').doc(uid);
-      const curSnap = await ref.get();
-      const cur = (curSnap.data() || {}) as Record<string, unknown>;
-      const updates: Record<string, unknown> = {
-        updatedAt: FieldValue.serverTimestamp()
-      };
-
-      if (typeof body.blocked === 'boolean') {
-        updates.blocked = body.blocked;
-      }
-      if (typeof body.adminNote === 'string') {
-        updates.adminNote = body.adminNote.trim();
-      }
-
-      if (typeof body.manualGrant === 'boolean') {
-        updates.manualGrant = body.manualGrant;
-        if (body.manualGrant) {
-          const days = Number(body.grantDays || 0);
-          if (Number.isFinite(days) && days > 0) {
-            const mode = body.grantMode === 'extend' ? 'extend' : 'set';
-            const currentManualEnd = tsToIso(cur.manualAccessEndsAt);
-            const currentManualMs = currentManualEnd ? new Date(currentManualEnd).getTime() : 0;
-            const baseMs = mode === 'extend' ? Math.max(Date.now(), currentManualMs || 0) : Date.now();
-            const end = new Date(baseMs + days * 24 * 60 * 60 * 1000);
-            updates.manualAccessEndsAt = Timestamp.fromDate(end);
-          } else {
-            updates.manualAccessEndsAt = null;
-          }
-          updates.status = 'active';
-          updates.provider = typeof cur.provider === 'string' ? cur.provider : 'none';
-          updates.plan = typeof cur.plan === 'string' ? cur.plan : null;
-          updates.manualGrantedAt = FieldValue.serverTimestamp();
-          updates.manualGrantedBy = auth.email;
-        } else {
-          updates.manualAccessEndsAt = FieldValue.delete();
-          updates.manualGrantedAt = FieldValue.delete();
-          updates.manualGrantedBy = FieldValue.delete();
-          if ((cur.provider || 'none') === 'none') {
-            updates.status = 'none';
-            updates.plan = null;
-          }
-        }
-      }
-
-      if (body.manualExtraChannelSlots != null) {
-        const slots = Math.max(0, Math.min(3, Math.floor(Number(body.manualExtraChannelSlots) || 0)));
-        updates.manualExtraChannelSlots = slots;
-        if (slots <= 0) {
-          updates.manualExtraChannelSlotsEndsAt = FieldValue.delete();
-        } else {
-          const addDays = Math.max(0, Math.floor(Number(body.channelGrantDays) || 0));
-          const addMonths = Math.max(0, Math.floor(Number(body.channelGrantMonths) || 0));
-          if (addDays > 0 || addMonths > 0) {
-            const mode = body.channelGrantMode === 'extend' ? 'extend' : 'set';
-            const currentEndIso = tsToIso(cur.manualExtraChannelSlotsEndsAt);
-            const currentEndMs = currentEndIso ? new Date(currentEndIso).getTime() : 0;
-            const baseMs = mode === 'extend' ? Math.max(Date.now(), currentEndMs || 0) : Date.now();
-            const end = new Date(baseMs);
-            if (addMonths > 0) end.setMonth(end.getMonth() + addMonths);
-            if (addDays > 0) end.setDate(end.getDate() + addDays);
-            updates.manualExtraChannelSlotsEndsAt = Timestamp.fromDate(end);
-          } else {
-            updates.manualExtraChannelSlotsEndsAt = null;
-          }
-        }
-      }
-
-      await ref.set(updates, { merge: true });
-      const next = await ref.get();
-      const row = await rowFromSubscriptionDoc(uid, next.data() as Record<string, unknown>, new Map(), email);
-
-      // Auditoria administrativa para rastrear ações críticas de acesso.
-      let action = 'update';
-      if (typeof body.blocked === 'boolean') {
-        action = body.blocked ? 'block' : 'unblock';
-      } else if (body.manualExtraChannelSlots != null) {
-        action = Number(body.manualExtraChannelSlots) > 0 ? 'grant-extra-channels' : 'revoke-extra-channels';
-      } else if (typeof body.manualGrant === 'boolean') {
-        action = body.manualGrant ? (body.grantMode === 'extend' ? 'extend-manual-access' : 'grant-manual-access') : 'revoke-manual-access';
-      }
-      await db.collection('adminAccessAudit').add({
-        targetUid: uid,
-        targetEmail: row.email || email || '',
-        adminUid: auth.uid,
-        adminEmail: auth.email,
-        action,
-        note: typeof body.adminNote === 'string' ? body.adminNote.trim() : '',
-        createdAt: FieldValue.serverTimestamp()
-      });
-
-      console.log('[api/admin/access-user] atualizado por', auth.email, '=>', uid);
-      return res.json({ ok: true, user: row });
+      console.log('[api/admin/access-user] atualizado por', auth.email, '=>', result.uid);
+      return res.json({ ok: true, user: result });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/admin/access-user]', msg);
@@ -407,27 +176,8 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     try {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-      }
-      const db = getFirestore(adminApp);
       const rawLimit = Number(req.query.limit || 100);
-      const limit = Number.isFinite(rawLimit) ? Math.max(10, Math.min(300, Math.round(rawLimit))) : 100;
-      const snap = await db.collection('adminAccessAudit').orderBy('createdAt', 'desc').limit(limit).get();
-      const rows: AdminAccessAuditRow[] = snap.docs.map((d) => {
-        const x = d.data() as Record<string, unknown>;
-        return {
-          id: d.id,
-          targetUid: typeof x.targetUid === 'string' ? x.targetUid : '',
-          targetEmail: typeof x.targetEmail === 'string' ? x.targetEmail : '',
-          adminUid: typeof x.adminUid === 'string' ? x.adminUid : '',
-          adminEmail: typeof x.adminEmail === 'string' ? x.adminEmail : '',
-          action: typeof x.action === 'string' ? x.action : 'update',
-          note: typeof x.note === 'string' ? x.note : '',
-          createdAt: tsToIso(x.createdAt)
-        };
-      });
+      const rows = await listAdminAccessAudit(rawLimit);
       return res.json({ ok: true, audit: rows });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);

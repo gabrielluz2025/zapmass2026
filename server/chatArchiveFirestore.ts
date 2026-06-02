@@ -87,7 +87,7 @@ function docToChatMessage(id: string, d: DocumentData): ChatMessage {
 /**
  * Anexa mensagens novas à thread `users/{ownerUid}/waChatThreads/{threadId}/messages/*`.
  */
-export async function appendChatArchiveMessages(
+export async function appendChatArchiveMessagesFirestore(
   ownerUid: string,
   threadId: string,
   meta: { contactName: string; contactPhone: string; connectionId: string },
@@ -127,7 +127,7 @@ export async function appendChatArchiveMessages(
 /**
  * Carrega até `limit` mensagens mais recentes do arquivo (cronológicas).
  */
-export async function loadChatArchiveMessages(
+export async function loadChatArchiveMessagesFirestore(
   ownerUid: string,
   threadId: string,
   limit: number = 500

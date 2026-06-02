@@ -1,115 +1,13 @@
-import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { addCalendarMonths } from './subscriptionPeriod.js';
-import { notifyAdminsNewSignupAfterPaidIfNeeded } from './adminNewSignupNotify.js';
-
-export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'none';
-/** Apenas Mercado Pago é usado para novas cobranças; `infinitepay` só em dados legados. */
-export type SubscriptionProvider = 'mercadopago' | 'infinitepay' | 'none';
-export type SubscriptionPlan = 'monthly' | 'annual' | null;
-
-export interface UserSubscriptionDoc {
-  status: SubscriptionStatus;
-  provider: SubscriptionProvider;
-  plan: SubscriptionPlan;
-  /** true = bloqueio administrativo; sem acesso. */
-  blocked?: boolean;
-  /** Liberação manual c/ fim; ver SubscriptionContext. */
-  manualAccessEndsAt?: Timestamp | null;
-  mercadoPagoPreapprovalId?: string;
-  mercadoPagoLastPaymentId?: string;
-  infinitePayReference?: string;
-  /** Fim do teste gratuito (1h). */
-  trialEndsAt?: Timestamp | null;
-  /** Fim do periodo pago atual (mensal = +1 mes calendario; anual = +12 meses). */
-  accessEndsAt?: Timestamp | null;
-  /** Quantidade de canais incluídos no plano contratado (1–5). */
-  includedChannels?: number;
-  /**
-   * Legado: canais extras contratados no modelo antigo (base 2 + add-on).
-   * Mantido para retrocompatibilidade.
-   */
-  extraChannelSlots?: number;
-  /** Preapproval do Mercado Pago dedicado ao add-on de canais (débito mensal do pacote de extras). */
-  mercadoPagoChannelAddonPreapprovalId?: string;
-  /** Pagamento MP aprovado do add-on de canais avulso (uma vez) — usado para validar extras em teste. */
-  mercadoPagoChannelAddonOneTimePaymentId?: string;
-  /** Slots extras concedidos manualmente pelo criador (0–3), podendo ter vencimento. */
-  manualExtraChannelSlots?: number;
-  /** Fim da concessão manual de slots extras. Se ausente, permanece sem prazo. */
-  manualExtraChannelSlotsEndsAt?: Timestamp | null;
-  /** Liberacao manual (admin); permite confiar em `extraChannelSlots` no doc quando aplicavel. */
-  manualGrant?: boolean;
-  /** Se true, o teste de 1h ja foi concedido nesta conta (nao repetir). */
-  freeTrialUsed?: boolean;
-  /** Quando o criador foi notificado (sino + email) sobre este novo cliente — evita duplicar. */
-  adminNewClientNotifiedAt?: Timestamp | null;
-  /** Id da ultima NFS-e emitida no NFE.io (quando nfe-io ativo). */
-  nfeLastInvoiceId?: string;
-  /** Status da ultima NFS-e (Processing|Issued|Cancelled|Error). */
-  nfeLastInvoiceStatus?: string;
-  /** URL do PDF da ultima NFS-e emitida (disponivel apos aprovacao da prefeitura). */
-  nfeLastInvoicePdfUrl?: string;
-}
-
-const COLLECTION = 'userSubscriptions';
-
-export async function mergeUserSubscription(uid: string, partial: Partial<UserSubscriptionDoc>): Promise<boolean> {
-  const app = getFirebaseAdmin();
-  if (!app) {
-    console.warn('[SubscriptionFirestore] Firebase Admin nao configurado — webhook ignorado para persistencia.');
-    return false;
-  }
-  const db = getFirestore(app);
-  await db.collection(COLLECTION).doc(uid).set(
-    {
-      ...partial,
-      updatedAt: FieldValue.serverTimestamp()
-    } as Record<string, unknown>,
-    { merge: true }
-  );
-  return true;
-}
-
-/**
- * Estende ou inicia periodo pago: soma 1 ou 12 meses calendario a partir do max(agora, accessEndsAt atual).
- */
-export async function extendPaidSubscription(
-  uid: string,
-  plan: 'monthly' | 'annual',
-  extra: Partial<UserSubscriptionDoc> = {}
-): Promise<boolean> {
-  const app = getFirebaseAdmin();
-  if (!app) {
-    console.warn('[SubscriptionFirestore] extendPaidSubscription: sem Firebase Admin.');
-    return false;
-  }
-  const db = getFirestore(app);
-  const ref = db.collection(COLLECTION).doc(uid);
-  const snap = await ref.get();
-  const cur = snap.data() as UserSubscriptionDoc | undefined;
-  const now = Date.now();
-  let base = new Date();
-  const existingEnd = cur?.accessEndsAt?.toMillis?.() ?? null;
-  if (existingEnd != null && existingEnd > now) {
-    base = new Date(existingEnd);
-  }
-  const monthsToAdd = plan === 'monthly' ? 1 : 12;
-  const endDate = addCalendarMonths(base, monthsToAdd);
-  await ref.set(
-    {
-      ...extra,
-      status: 'active',
-      plan,
-      accessEndsAt: Timestamp.fromDate(endDate),
-      trialEndsAt: FieldValue.delete(),
-      updatedAt: FieldValue.serverTimestamp()
-    } as Record<string, unknown>,
-    { merge: true }
-  );
-  const wasRenewal = cur?.status === 'active' && existingEnd != null && existingEnd > now;
-  void notifyAdminsNewSignupAfterPaidIfNeeded(uid, { wasRenewal }).catch((e) => {
-    console.error('[extendPaidSubscription] notify admins novo cliente', e);
-  });
-  return true;
-}
+/** @deprecated Importe de `subscriptionStore.js` — mantido para compatibilidade. */
+export {
+  extendPaidSubscription,
+  getUserSubscription,
+  mergeUserSubscription,
+  readAccessEndsAtDate,
+  tryClaimAdminNewClientNotify,
+  usePostgresSubscriptions,
+  type SubscriptionPlan,
+  type SubscriptionProvider,
+  type SubscriptionStatus,
+  type UserSubscriptionDoc
+} from './subscriptionStore.js';

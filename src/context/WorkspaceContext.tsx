@@ -10,6 +10,7 @@ import React, {
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from './AuthContext';
+import { getVpsAuthUser, useVpsAuth } from '../services/vpsAuth';
 
 type WorkspaceContextValue = {
   /** Carregando snapshot de userWorkspaceLinks. */
@@ -47,6 +48,16 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
   useEffect(() => {
     if (!user?.uid) {
       reset();
+      setLoading(false);
+      return;
+    }
+    if (useVpsAuth()) {
+      const vu = getVpsAuthUser();
+      if (vu?.role === 'staff' && vu.ownerUid) {
+        setOwnerFromLink(vu.ownerUid);
+      } else {
+        setOwnerFromLink(null);
+      }
       setLoading(false);
       return;
     }

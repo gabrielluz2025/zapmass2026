@@ -1,7 +1,7 @@
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import type { UserSubscriptionDoc } from './subscriptionFirestore.js';
+import { getUserSubscription, type UserSubscriptionDoc } from './subscriptionStore.js';
 import { filterByConnectionScope } from '../src/utils/connectionScope.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 import { adminUidSet, isPlatformAdminDecoded } from './adminIdentity.js';
@@ -31,12 +31,7 @@ export async function isUidTreatedAsServerAdmin(uid: string): Promise<boolean> {
 }
 
 export async function readUserSubscriptionForLimits(uid: string): Promise<UserSubscriptionDoc | null> {
-  const app = getFirebaseAdmin();
-  if (!app) return null;
-  const db = getFirestore(app);
-  const snap = await db.collection('userSubscriptions').doc(uid).get();
-  if (!snap.exists) return null;
-  return snap.data() as UserSubscriptionDoc;
+  return getUserSubscription(uid);
 }
 
 function nonEmptyString(v: unknown): v is string {

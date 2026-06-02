@@ -1,6 +1,15 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { vpsDataEnabled } from './auth/dataMode.js';
+import { getZapmassPool } from './db/postgres.js';
+import { isUidMemberOfTenantPg, listInboxAssignmentsPg } from './repositories/inboxAssignmentsRepository.js';
+import * as inboxPg from './repositories/inboxAssignmentsRepository.js';
+import { getWorkspaceMemberUidSetVps } from './auth/staffRepository.js';
 import type { Conversation } from './types.js';
+
+function usePostgresInbox(): boolean {
+  return vpsDataEnabled() && !!getZapmassPool();
+}
 
 const cache = new Map<string, Map<string, string>>();
 const loadedTenants = new Set<string>();
@@ -16,6 +25,11 @@ export async function ensureAssignmentsLoaded(tenantUid: string): Promise<void> 
 }
 
 export async function replenishAssignmentsCacheFromFirestore(tenantUid: string): Promise<void> {
+  if (usePostgresInbox()) {
+    cache.set(tenantUid, await listInboxAssignmentsPg(tenantUid));
+    loadedTenants.add(tenantUid);
+    return;
+  }
   const admin = getFirebaseAdmin();
   if (!admin) return;
   const snap = await admin
@@ -106,6 +120,16 @@ export async function inboxClaimConversation(
   conversationId: string,
   conversation: Conversation
 ): Promise<{ ok: true } | { ok: false; code: string }> {
+  if (usePostgresInbox()) {
+    const r = await inboxPg.inboxClaimConversationPg(
+      tenantUid,
+      staffAuthUid,
+      conversationId,
+      conversation.connectionId
+    );
+    if (r.ok) rememberClaim(tenantUid, conversationId, staffAuthUid);
+    return r;
+  }
   const admin = getFirebaseAdmin();
   if (!admin) return { ok: false, code: 'NO_ADMIN' };
 
@@ -153,10 +177,14 @@ export async function inboxClaimConversation(
 
 /** Dono ou membro ligado a este tenant (uid do dono nas links). */
 export async function isUidMemberOfTenant(
-  admin: NonNullable<ReturnType<typeof getFirebaseAdmin>>,
+  admin: NonNullable<ReturnType<typeof getFirebaseAdmin>> | null,
   tenantUid: string,
   candidateAuthUid: string
 ): Promise<boolean> {
+  if (usePostgresInbox()) {
+    return isUidMemberOfTenantPg(tenantUid, candidateAuthUid);
+  }
+  if (!admin) return candidateAuthUid === tenantUid;
   if (candidateAuthUid === tenantUid) return true;
   const snap = await admin.firestore().collection('userWorkspaceLinks').doc(candidateAuthUid).get();
   const ou = snap.exists ? snap.data()?.ownerUid : null;
@@ -165,13 +193,17 @@ export async function isUidMemberOfTenant(
 
 /** UIDs que podem operar o workspace (dono + equipa em userWorkspaceLinks). */
 export async function getWorkspaceMemberUidSet(
-  admin: NonNullable<ReturnType<typeof getFirebaseAdmin>>,
+  admin: NonNullable<ReturnType<typeof getFirebaseAdmin>> | null,
   tenantUid: string
 ): Promise<Set<string>> {
+  if (usePostgresInbox()) {
+    return getWorkspaceMemberUidSetVps(tenantUid);
+  }
   const uid = String(tenantUid || '').trim();
   const out = new Set<string>();
   if (!uid) return out;
   out.add(uid);
+  if (!admin) return out;
   try {
     const qs = await admin.firestore().collection('userWorkspaceLinks').where('ownerUid', '==', uid).get();
     for (const doc of qs.docs) {
@@ -191,6 +223,22 @@ export async function inboxTransferConversation(
   targetAuthUid: string,
   conversation: Conversation
 ): Promise<{ ok: true } | { ok: false; code: string }> {
+  if (usePostgresInbox()) {
+    const admin = getFirebaseAdmin();
+    if (!(await isUidMemberOfTenant(admin, tenantUid, targetAuthUid))) {
+      return { ok: false, code: 'TARGET_NOT_IN_WORKSPACE' };
+    }
+    const r = await inboxPg.inboxTransferConversationPg(
+      tenantUid,
+      actingAuthUid,
+      isOwnerActor,
+      conversationId,
+      targetAuthUid,
+      conversation.connectionId
+    );
+    if (r.ok) rememberClaim(tenantUid, conversationId, targetAuthUid);
+    return r;
+  }
   const admin = getFirebaseAdmin();
   if (!admin) return { ok: false, code: 'NO_ADMIN' };
   const t = String(targetAuthUid || '').trim();
@@ -254,6 +302,17 @@ export async function inboxFinishConversation(
   isOwner: boolean,
   satisfaction: InboxFinishSatisfaction
 ): Promise<{ ok: true } | { ok: false; code: string }> {
+  if (usePostgresInbox()) {
+    const r = await inboxPg.inboxFinishConversationPg(
+      tenantUid,
+      authUid,
+      conversationId,
+      isOwner,
+      satisfaction
+    );
+    if (r.ok) rememberRelease(tenantUid, conversationId);
+    return r;
+  }
   const admin = getFirebaseAdmin();
   if (!admin) return { ok: false, code: 'NO_ADMIN' };
 
@@ -313,6 +372,11 @@ export async function inboxReleaseConversation(
   conversationId: string,
   isOwner: boolean
 ): Promise<{ ok: true } | { ok: false; code: string }> {
+  if (usePostgresInbox()) {
+    const r = await inboxPg.inboxReleaseConversationPg(tenantUid, authUid, conversationId, isOwner);
+    if (r.ok) rememberRelease(tenantUid, conversationId);
+    return r;
+  }
   const admin = getFirebaseAdmin();
   if (!admin) return { ok: false, code: 'NO_ADMIN' };
 

@@ -18,6 +18,17 @@ import {
 import toast from 'react-hot-toast';
 import { auth, facebookProvider, googleProvider } from '../services/firebase';
 import { trackLoginSuccess } from '../utils/marketingEvents';
+import {
+  clearVpsSession,
+  getVpsAuthUser,
+  useVpsAuth,
+  vpsLogin,
+  vpsLogout,
+  vpsRegister,
+  vpsStaffLogin,
+  vpsRefreshAccessToken
+} from '../services/vpsAuth';
+import { vpsUserAsFirebaseUser } from '../utils/vpsFirebaseUserShim';
 
 interface AuthContextValue {
   user: User | null;
@@ -28,6 +39,12 @@ interface AuthContextValue {
   signUpWithEmailPassword: (email: string, password: string) => Promise<void>;
   /** Login de funcionário (token emitido pelo servidor após validar e-mail do gestor + usuário + senha). */
   signInWithStaffCustomToken: (customToken: string) => Promise<void>;
+  /** Login de funcionário (credenciais; modo VPS). */
+  signInWithStaffCredentials: (
+    managerEmail: string,
+    loginName: string,
+    password: string
+  ) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -39,6 +56,7 @@ const AuthContext = createContext<AuthContextValue>({
   signInWithEmailPassword: async () => {},
   signUpWithEmailPassword: async () => {},
   signInWithStaffCustomToken: async () => {},
+  signInWithStaffCredentials: async () => {},
   signOut: async () => {}
 });
 
@@ -215,6 +233,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (useVpsAuth()) {
+      const boot = async () => {
+        let v = getVpsAuthUser();
+        if (!v) {
+          await vpsRefreshAccessToken();
+          v = getVpsAuthUser();
+        }
+        setUser(v ? vpsUserAsFirebaseUser(v) : null);
+        setLoading(false);
+      };
+      void boot();
+      return;
+    }
+
     // Finaliza login via redirect (fallback quando o popup foi bloqueado).
     getRedirectResult(auth)
       .then(async (res) => {
@@ -251,6 +283,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const signInWithGoogle = async () => {
+    if (useVpsAuth()) {
+      toast.error('Login com Google estará disponível na próxima fase. Use e-mail e senha.');
+      return;
+    }
     try {
       await signInWithProviderPopupOrRedirect(googleProvider, {
         redirectToastId: 'google-redirect',
@@ -266,6 +302,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signInWithFacebook = async () => {
+    if (useVpsAuth()) {
+      toast.error('Login com Facebook estará disponível na próxima fase. Use e-mail e senha.');
+      return;
+    }
     try {
       const cred = await signInWithProviderPopupOrRedirect(facebookProvider, {
         redirectToastId: 'facebook-redirect',
@@ -282,6 +322,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signInWithEmailPassword = async (email: string, password: string) => {
+    if (useVpsAuth()) {
+      try {
+        const v = await vpsLogin(email, password);
+        setUser(vpsUserAsFirebaseUser(v));
+        trackLoginSuccess('email');
+        toast.success('Login realizado com sucesso.');
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Falha ao entrar.');
+        throw err;
+      }
+      return;
+    }
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
       trackLoginSuccess('email');
@@ -294,6 +346,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signUpWithEmailPassword = async (email: string, password: string) => {
+    if (useVpsAuth()) {
+      try {
+        const v = await vpsRegister(email, password);
+        setUser(vpsUserAsFirebaseUser(v));
+        trackLoginSuccess('email');
+        toast.success('Conta criada com sucesso.');
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Falha ao criar conta.');
+        throw err;
+      }
+      return;
+    }
     try {
       await createUserWithEmailAndPassword(auth, email.trim(), password);
       trackLoginSuccess('email');
@@ -301,6 +365,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (err: unknown) {
       console.error('[AuthContext] signUpWithEmailPassword:', err);
       toast.error(mapAuthErrorMessage(err));
+      throw err;
+    }
+  };
+
+  const signInWithStaffCredentials = async (
+    managerEmail: string,
+    loginName: string,
+    password: string
+  ) => {
+    try {
+      const v = await vpsStaffLogin(managerEmail, loginName, password);
+      setUser(vpsUserAsFirebaseUser(v));
+      trackLoginSuccess('staff');
+      toast.success('Acesso de funcionário ativado.');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível entrar.');
       throw err;
     }
   };
@@ -323,6 +403,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
+    if (useVpsAuth()) {
+      try {
+        await vpsLogout();
+        setUser(null);
+        toast.success('Voce saiu da conta.');
+      } catch (err: unknown) {
+        clearVpsSession();
+        setUser(null);
+        toast.error(err instanceof Error ? err.message : 'Falha ao sair.');
+      }
+      return;
+    }
     try {
       await firebaseSignOut(auth);
       toast.success('Voce saiu da conta.');
@@ -342,6 +434,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         signInWithEmailPassword,
         signUpWithEmailPassword,
         signInWithStaffCustomToken,
+        signInWithStaffCredentials,
         signOut
       }}
     >
