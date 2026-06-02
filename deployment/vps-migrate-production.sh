@@ -20,17 +20,17 @@ echo "==> 2/4 Variáveis .env (dual auth + dados VPS)"
 bash deployment/vps-migrate-env.sh
 
 # Produção: manter login Google/Facebook até fase seguinte
-set_kv() {
+upsert_env() {
   local k="$1" v="$2"
   if grep -qE "^[[:space:]]*(export[[:space:]]+)?${k}=" .env 2>/dev/null; then
-    sed -i "s|^[[:space:]]*\(export[[:space:]]\+\)\?${k}=.*|${k}=${v}|" .env 2>/dev/null || true
-  else
-    echo "${k}=${v}" >> .env
+    grep -vE "^[[:space:]]*(export[[:space:]]+)?${k}=" .env > .env.tmp && mv .env.tmp .env
   fi
+  echo "${k}=${v}" >> .env
+  echo "    ~ ${k}"
 }
-set_kv ZAPMASS_AUTH_PROVIDER dual
-set_kv VITE_USE_VPS_AUTH false
-set_kv VITE_USE_VPS_DATA true
+upsert_env ZAPMASS_AUTH_PROVIDER dual
+upsert_env VITE_USE_VPS_AUTH false
+upsert_env VITE_USE_VPS_DATA true
 
 echo ""
 echo "==> 3/4 Deploy (rebuild com VITE_USE_VPS_DATA)"

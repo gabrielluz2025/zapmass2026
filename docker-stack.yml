@@ -15,6 +15,8 @@ services:
         VITE_CREATOR_STUDIO: ${VITE_CREATOR_STUDIO:-}
         VITE_GIT_REF: ${VITE_GIT_REF:-unknown}
         VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
+        VITE_USE_VPS_AUTH: ${VITE_USE_VPS_AUTH:-}
+        VITE_USE_VPS_DATA: ${VITE_USE_VPS_DATA:-}
     ports:
       - target: 3001
         published: ${HOST_PORT:-3001}
@@ -29,6 +31,10 @@ services:
       # api = API sem Chromium; requer WA_WORKER_REPLICAS>=1, Redis, e ZAPMASS_API_SESSION_MODE=api no .env da VPS.
       SESSION_PROCESS_MODE: ${ZAPMASS_API_SESSION_MODE:-monolith}
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
+      ZAPMASS_AUTH_PROVIDER: ${ZAPMASS_AUTH_PROVIDER:-firebase}
+      ZAPMASS_DATA_PROVIDER: ${ZAPMASS_DATA_PROVIDER:-}
+      ZAPMASS_DATABASE_URL: ${ZAPMASS_DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-evolution-secure-pass-2026}@postgres:5432/zapmass_db}
+      ZAPMASS_JWT_SECRET: ${ZAPMASS_JWT_SECRET:-}
       FIREBASE_WEB_API_KEY: ${FIREBASE_WEB_API_KEY:-}
       # Mesmo valor que no frontend; no Swarm env_file não injeta — necessário no deploy. O servidor aceita esta ou FIREBASE_WEB_API_KEY.
       VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}

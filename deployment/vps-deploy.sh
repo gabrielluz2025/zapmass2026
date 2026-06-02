@@ -9,10 +9,20 @@ cd /opt/zapmass
 _deploy_lock="/var/lock/zapmass-deploy.lock"
 mkdir -p /var/lock 2>/dev/null || true
 exec 9>"${_deploy_lock}"
-if ! flock -n 9; then
-  echo "ERRO: outro deploy ZapMass já está em execução (${_deploy_lock}). Aguarde e tente de novo."
-  exit 1
-fi
+_flock_wait="${DEPLOY_FLOCK_WAIT_SEC:-600}"
+_flock_i=0
+while ! flock -n 9; do
+  _flock_i=$((_flock_i + 1))
+  if [ "${_flock_i}" -gt "${_flock_wait}" ]; then
+    echo "ERRO: outro deploy ZapMass ainda em execução após ${_flock_wait}s (${_deploy_lock})."
+    exit 1
+  fi
+  if [ "${_flock_i}" = "1" ] || [ $((_flock_i % 30)) -eq 0 ]; then
+    echo "==> aguardando lock de deploy (${_flock_i}s / ${_flock_wait}s)…"
+  fi
+  sleep 1
+done
+unset _flock_wait _flock_i
 
 # Garante que o arquivo .env existe para não quebrar o docker stack deploy/compose que o exige em env_file
 if [ ! -f .env ]; then
@@ -325,6 +335,8 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
       --build-arg VITE_CREATOR_STUDIO="${VITE_CREATOR_STUDIO:-}" \
       --build-arg VITE_GIT_REF="${VITE_GIT_REF}" \
       --build-arg VITE_GA_MEASUREMENT_ID="${VITE_GA_MEASUREMENT_ID:-}" \
+      --build-arg VITE_USE_VPS_AUTH="${VITE_USE_VPS_AUTH:-}" \
+      --build-arg VITE_USE_VPS_DATA="${VITE_USE_VPS_DATA:-}" \
       .; then
       _build_ok=1
       break

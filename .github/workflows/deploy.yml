@@ -201,10 +201,35 @@ jobs:
             fi
             rm -f "${_log}"
 
-      - name: Falhar job se o deploy na VPS falhou
+      - name: Deploy por SSH (tentativa 2 — após lock ou falha transitória)
+        id: deploy_try_2
         if: steps.deploy_try_1.outcome == 'failure'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 15m
+          command_timeout: 140m
+          script: |
+            set -euo pipefail
+            echo "==> segunda tentativa (aguarda 90s para libertar lock de deploy)"
+            sleep 90
+            export GITHUB_EVENT_NAME="${{ github.event_name }}"
+            export GITHUB_ACTIONS=true
+            GHA_SHA="${{ github.sha }}"
+            cd /opt/zapmass
+            git fetch --all --prune
+            git checkout -f "${GHA_SHA}"
+            chmod +x deployment/vps-deploy.sh
+            bash deployment/vps-deploy.sh
+
+      - name: Falhar job se o deploy na VPS falhou
+        if: steps.deploy_try_1.outcome == 'failure' && steps.deploy_try_2.outcome == 'failure'
         run: |
-          echo "::error::vps-deploy.sh falhou na VPS. Veja o log completo em «Deploy por SSH (tentativa 1)» (ERRO:/FALHA:)."
+          echo "::error::vps-deploy.sh falhou na VPS (2 tentativas). Veja «Deploy por SSH» (ERRO:/FALHA:)."
           echo "::error::Deploy manual: cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
           exit 1
 
@@ -214,7 +239,7 @@ jobs:
         if: >-
           success() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_try_1.outcome == 'success'
+          (steps.deploy_try_1.outcome == 'success' || steps.deploy_try_2.outcome == 'success')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
