@@ -865,7 +865,12 @@ const registerSocketHandlers = () => {
       }
       socket.emit(
         'conversations-update',
-        socketConversationsPayload(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+        await socketConversationsPayload(
+          uid,
+          authOp,
+          evolutionService.getConversations(),
+          resolveConnectionOwnerUid
+        )
       );
     })();
     socket.emit('warmup-update', getWarmupStateForUid());
@@ -927,10 +932,21 @@ const registerSocketHandlers = () => {
               syncMeta,
             });
           }
-          socket.emit('conversations-update', socketConversationsPayload(uid, authOp, convPayload));
+          socket.emit(
+            'conversations-update',
+            await socketConversationsPayload(
+              uid,
+              authOp,
+              evolutionService.getConversations(),
+              resolveConnectionOwnerUid
+            )
+          );
           return;
         }
-        socket.emit('conversations-update', socketConversationsPayload(uid, authOp, waService.getConversations()));
+        socket.emit(
+          'conversations-update',
+          await socketConversationsPayload(uid, authOp, waService.getConversations(), resolveConnectionOwnerUid)
+        );
       })();
     });
 
@@ -1026,7 +1042,12 @@ const registerSocketHandlers = () => {
         await evolutionService.syncOpenChatsForOwner(uid).catch(() => undefined);
         socket.emit(
           'conversations-update',
-          socketConversationsPayload(uid, authOp, evolutionService.getConversations(), resolveConnectionOwnerUid)
+          await socketConversationsPayload(
+            uid,
+            authOp,
+            evolutionService.getConversations(),
+            resolveConnectionOwnerUid
+          )
         );
       })();
     });

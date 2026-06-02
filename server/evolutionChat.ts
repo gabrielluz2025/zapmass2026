@@ -4,6 +4,11 @@ import { Conversation, ChatMessage } from './types.js';
 import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import { prepareConversationsForSocketEmit } from './conversationsEmit.js';
+import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
+import {
+  looksLikeLongLidDigits,
+  pickContactDisplayName
+} from '../src/utils/contactPhoneLookup.js';
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 import {
     appendChatArchiveMessages,
@@ -74,10 +79,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         emitDebounceTimer = setTimeout(() => {
             emitDebounceTimer = null;
             if (!io || !ownerUidForScope) return;
-            io.to(`user:${ownerUidForScope}`).emit(
-                'conversations-update',
-                prepareConversationsForSocketEmit(conversations)
-            );
+            void (async () => {
+                let payload = prepareConversationsForSocketEmit(conversations);
+                payload = await enrichConversationsWithCrmNames(ownerUidForScope!, payload);
+                io!.to(`user:${ownerUidForScope}`).emit('conversations-update', payload);
+            })();
         }, 80);
     }
 
@@ -225,7 +231,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             conversations[idx] = {
                 ...prev,
                 ...conv,
-                contactName: conv.contactName || prev.contactName,
+                contactName: pickContactDisplayName({
+                    waName: conv.contactName,
+                    previous: prev.contactName,
+                    fallback: prev.contactName || conv.contactName || 'Contato'
+                }),
                 contactPhone: conv.contactPhone || prev.contactPhone,
                 profilePicUrl: conv.profilePicUrl || prev.profilePicUrl,
                 lastMessageTimestamp: bestTs,
@@ -473,7 +483,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             const response = await api.post(`/chat/findContacts/${inst}`, {
                 where: {},
                 page: 1,
-                limit: 1000,
+                limit: 5000,
             });
             const list = tryExtract(response.data);
             for (const ct of list) {
@@ -525,6 +535,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const lower = t.toLowerCase();
         // Nomes genéricos/padrão que não identificam o contato
         if (lower === 'contato' || lower === 'contact' || lower === 'unknown' || lower === 'desconhecido') return undefined;
+        if (looksLikeLongLidDigits(t)) return undefined;
         return t;
     }
 
@@ -584,13 +595,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const id = buildConversationId(connectionId, jid);
         // Usa filterEvolutionName para ignorar nomes genéricos ("Contato", "Contact" etc.)
         // e cair para o próximo campo até chegar ao telefone como última instância.
-        const name =
+        const waName =
             filterEvolutionName(chat?.name) ||
             filterEvolutionName(chat?.chatName) ||
             filterEvolutionName(chat?.pushName) ||
             filterEvolutionName(chat?.contactName) ||
             filterEvolutionName(chat?.verifiedName) ||
-            jid.split('@')[0];
+            '';
         const lastMsgRaw = chat?.lastMessage || chat?.messages?.[0];
         const lastChatMsg = lastMsgRaw ? evolutionRawToChatMessage(lastMsgRaw, true) : null;
         const existing = conversations.find((c) => c.id === id);
@@ -612,7 +623,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         return {
             id,
-            contactName: String(name),
+            contactName: pickContactDisplayName({
+                waName: waName || undefined,
+                previous: existing?.contactName,
+                fallback: contactPhone || toPhoneDisplay(jid) || jid.split('@')[0] || 'Contato'
+            }),
             contactPhone,
             profilePicUrl: extractChatProfilePic(chat) || existing?.profilePicUrl,
             connectionId,
@@ -647,18 +662,21 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 added++;
             }
 
-            // findChats nem sempre traz lastMessage — busca histórico recente para as primeiras conversas.
-            // Limite de 10 (era 35) para acelerar o sync inicial e não travar em 800+ contatos.
-            const emptyConvs = conversations
-                .filter((c) => c.connectionId === connectionId && (!c.messages || c.messages.length === 0))
-                .slice(0, 10);
-            if (emptyConvs.length > 0) {
+            // Prefetch de histórico para conversas com pouco/no cache local (prioriza as mais recentes).
+            const sparseConvs = conversations
+                .filter(
+                    (c) =>
+                        c.connectionId === connectionId &&
+                        (!c.messages || c.messages.length <= 3)
+                )
+                .slice(0, 40);
+            if (sparseConvs.length > 0) {
                 await Promise.all(
-                    emptyConvs.map(async (conv) => {
+                    sparseConvs.map(async (conv) => {
                         const parsed = parseConversationId(conv.id);
                         if (!parsed) return;
                         try {
-                            const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, 30);
+                            const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, 80);
                             const converted = fetched
                                 .map((m) => evolutionRawToChatMessage(m, true))
                                 .filter((m): m is ChatMessage => Boolean(m))
@@ -666,7 +684,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                             if (converted.length === 0) return;
                             const target = conversations.find((c) => c.id === conv.id);
                             if (!target) return;
-                            target.messages = converted.slice(-80);
+                            target.messages = converted.slice(-120);
                             const last = converted[converted.length - 1];
                             target.lastMessage = last.text || target.lastMessage;
                             target.lastMessageTime = last.timestamp || target.lastMessageTime;
@@ -676,6 +694,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                         }
                     })
                 );
+            }
+
+            if (ownerUidForScope) {
+                const enriched = await enrichConversationsWithCrmNames(ownerUidForScope, conversations);
+                conversations.splice(0, conversations.length, ...enriched);
             }
 
             const pruned = pruneGarbageConversations(connectionId);

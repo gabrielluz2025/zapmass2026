@@ -4,6 +4,7 @@ import {
   enrichOwnerInboxClaims,
   tagStaffOwnClaims
 } from './inboxAssignments.js';
+import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
 import type { Conversation } from './types.js';
 
 /** Resolve dono de canal legado (`conn_*` sem `uid__`) para `filterByConnectionScope`. */
@@ -36,7 +37,7 @@ export function slimConversationsForBroadcast(list: Conversation[]): Conversatio
 }
 
 /** Máximo de mensagens por conversa no payload socket (lista + tempo real). Histórico completo via load-chat-history. */
-const SOCKET_INBOX_MSG_TAIL = 8;
+const SOCKET_INBOX_MSG_TAIL = 25;
 
 /**
  * Payload final para `conversations-update`: remove base64 pesado e limita mensagens por conversa.
@@ -50,16 +51,21 @@ export function prepareConversationsForSocketEmit(list: Conversation[]): Convers
   });
 }
 
-/** Escopo tenant/staff + payload enxuto para socket. */
-export function socketConversationsPayload(
+/** Escopo tenant/staff + nomes CRM + payload enxuto para socket. */
+export async function socketConversationsPayload(
   tenantUid: string,
   authUid: string,
   allConversations: Conversation[],
   resolveConnectionOwner?: ConnectionOwnerResolver
-): Conversation[] {
-  return prepareConversationsForSocketEmit(
-    conversationsPayloadForViewer(tenantUid, authUid, allConversations, resolveConnectionOwner)
+): Promise<Conversation[]> {
+  const scoped = conversationsPayloadForViewer(
+    tenantUid,
+    authUid,
+    allConversations,
+    resolveConnectionOwner
   );
+  const withNames = await enrichConversationsWithCrmNames(tenantUid, scoped);
+  return prepareConversationsForSocketEmit(withNames);
 }
 
 /**

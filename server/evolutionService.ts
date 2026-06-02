@@ -575,7 +575,7 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     publishOwnerEvent(
         uid,
         'conversations-update',
-        socketConversationsPayload(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
+        await socketConversationsPayload(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
     );
 
     log('info', `syncConnectionsForOwner: ${scoped.length} canal(is), claimed=${claimed.join(',') || '-'}`);
@@ -693,7 +693,7 @@ function emitScopedConversationsUpdate() {
             publishOwnerEvent(
                 uid,
                 'conversations-update',
-                socketConversationsPayload(uid, uid, all, resolveConnectionOwnerUid)
+                await socketConversationsPayload(uid, uid, all, resolveConnectionOwnerUid)
             );
         }
         // Antes: io.emit broadcast de TODA a inbox quando nenhum owner
@@ -984,7 +984,7 @@ function applyConnectionStateUpdate(
                 publishOwnerEvent(
                     ou,
                     'conversations-update',
-                    socketConversationsPayload(ou, ou, chatStore.getConversations(), resolveConnectionOwnerUid)
+                    await socketConversationsPayload(ou, ou, chatStore.getConversations(), resolveConnectionOwnerUid)
                 );
             }
         })();
@@ -2439,7 +2439,7 @@ export async function deleteConnection(id: string): Promise<void> {
         publishOwnerEvent(
             ownerUid,
             'conversations-update',
-            socketConversationsPayload(ownerUid, ownerUid, chatStore.getConversations(), resolveConnectionOwnerUid)
+            await socketConversationsPayload(ownerUid, ownerUid, chatStore.getConversations(), resolveConnectionOwnerUid)
         );
     } else if (io) {
         io.emit('connection-deleted', { id });
@@ -3482,7 +3482,7 @@ export async function syncOpenChatsForOwner(ownerUid: string): Promise<{
     publishOwnerEvent(
         uid,
         'conversations-update',
-        socketConversationsPayload(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
+        await socketConversationsPayload(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
     );
 
     if (syncedChats.length === 0 || Object.values(conversationCounts).every((n) => n === 0)) {

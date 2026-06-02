@@ -1396,19 +1396,18 @@ export const ChatTab: React.FC<{
     [historyExhausted, loadChatHistory, conversations]
   );
 
-  // Auto-carrega historico ao abrir um chat que ainda tem poucas mensagens.
+  // Auto-carrega histórico ao abrir chat com pouco cache (socket manda só um tail).
   useEffect(() => {
     if (!selectedChatId) return;
-    // Rascunhos locais não têm histórico no servidor — ignoramos.
     if (isSelectedDraft) return;
     const conv = conversations.find((c) => c.id === selectedChatId);
     if (!conv) return;
     const already = historyRequestedRef.current.get(selectedChatId) || 0;
-    if (already > 0) return;
-    // Primeiro carregamento quando temos menos que 60 mensagens cacheadas
-    if (conv.messages.length < 60) {
-      loadMoreHistoryFor(selectedChatId, true, true);
-    }
+    const msgCount = conv.messages.length;
+    if (msgCount >= 200) return;
+    // Re-tenta se ainda temos quase nada após um fetch anterior curto.
+    if (already > 0 && msgCount > 40) return;
+    loadMoreHistoryFor(selectedChatId, true, true);
   }, [selectedChatId, conversations, loadMoreHistoryFor, isSelectedDraft]);
 
   const handleLoadMediaOnDemand = async (messageId: string) => {
