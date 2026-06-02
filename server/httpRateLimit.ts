@@ -35,6 +35,15 @@ export const authLoginLimiter = rateLimit({
   message: { ok: false, error: 'Muitas tentativas de login. Aguarde alguns minutos.' }
 });
 
+/** Verificação de e-mail (login vs cadastro) — limita enumeração por IP. */
+export const authEmailStepLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Muitas consultas. Aguarde alguns minutos.' }
+});
+
 /** Tentativas de login staff por IP (abuse-resistant para instalação multi-tenant). */
 export const staffSignInLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

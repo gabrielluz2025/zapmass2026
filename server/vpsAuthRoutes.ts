@@ -17,7 +17,7 @@ import {
   refreshTokenTtlMs,
   signAccessToken
 } from './auth/jwt.js';
-import { authRegisterLimiter, authLoginLimiter } from './httpRateLimit.js';
+import { authRegisterLimiter, authLoginLimiter, authEmailStepLimiter } from './httpRateLimit.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 
 const REFRESH_COOKIE = 'zapmass_refresh';
@@ -105,6 +105,22 @@ export function registerVpsAuthRoutes(app: Express): void {
       authProvider: process.env.ZAPMASS_AUTH_PROVIDER || 'firebase',
       dataProvider: process.env.ZAPMASS_DATA_PROVIDER || 'auto',
       postgres: !!getZapmassPool()
+    });
+  });
+
+  app.post('/api/auth/email-step', authEmailStepLimiter, async (req: Request, res: Response) => {
+    if (!getZapmassPool()) {
+      return res.status(503).json({ ok: false, error: 'Postgres ZapMass não disponível.' });
+    }
+    const body = req.body as { email?: unknown };
+    const email = typeof body.email === 'string' ? body.email.trim() : '';
+    if (!email.includes('@')) {
+      return res.status(400).json({ ok: false, error: 'Informe um e-mail válido.' });
+    }
+    const existing = await findUserByEmail(email);
+    return res.json({
+      ok: true,
+      step: existing && !existing.disabled_at ? 'sign-in' : 'sign-up'
     });
   });
 

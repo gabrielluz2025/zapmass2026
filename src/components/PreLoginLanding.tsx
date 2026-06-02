@@ -35,7 +35,7 @@ import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
 import { apiUrl } from '../utils/apiBase';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
-import { resolveEmailAuthStep } from '../utils/emailAuthFlow';
+import { resolveEmailAuthStep, resolveEmailAuthStepVps } from '../utils/emailAuthFlow';
 import { clearTrialSessionFlags, landingCtaStartsTrial, setTrialSessionForManager } from '../utils/trialSession';
 import {
   WHATSAPP_META_CLOUD_OVERVIEW,
@@ -116,19 +116,32 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
 
   const goBack = () => { setStep('main'); setPass(''); setConfirm(''); };
 
+  const goToPasswordStep = (kind: 'sign-in' | 'sign-up') => {
+    setStep(kind === 'sign-in' ? 'pw-in' : 'pw-up');
+    setPass('');
+    setConfirm('');
+    setTimeout(() => passRef.current?.focus(), 80);
+  };
+
+  const goToSignIn = () => {
+    const trimmed = email.trim();
+    if (!trimmed.includes('@')) {
+      toast.error('Informe seu e-mail acima primeiro.');
+      emailRef.current?.focus();
+      return;
+    }
+    goToPasswordStep('sign-in');
+  };
+
   const handleEmailContinue = async () => {
     const trimmed = email.trim();
     if (!trimmed.includes('@')) { toast.error('Informe um e-mail válido'); return; }
-    if (vpsAuth) {
-      setStep('pw-up');
-      setTimeout(() => passRef.current?.focus(), 80);
-      return;
-    }
     setBusy(true);
     try {
-      const stepKind = await resolveEmailAuthStep(auth, trimmed);
-      setStep(stepKind === 'sign-in' ? 'pw-in' : 'pw-up');
-      setTimeout(() => passRef.current?.focus(), 80);
+      const stepKind = vpsAuth
+        ? await resolveEmailAuthStepVps(trimmed)
+        : await resolveEmailAuthStep(auth, trimmed);
+      goToPasswordStep(stepKind);
     } finally {
       setBusy(false);
     }
@@ -320,7 +333,7 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
 
           {vpsAuth && (
             <p style={{ fontSize: 12.5, color: D.text2, margin: '4px 0 0' }}>
-              Use e-mail e senha (mín. 8 caracteres). Se já tiver conta, confirme a senha; se não, crie uma nova.
+              Informe seu e-mail. Se já tiver conta, pedimos só a senha; se for novo, criamos com teste grátis.
             </p>
           )}
 
@@ -337,6 +350,31 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
             <button type="button" disabled={busy} onClick={() => void handleEmailContinue()} style={primaryBtn}>
               {busy ? <Loader2 size={16} className="animate-spin" /> : <><Mail size={15} />Continuar com e-mail<ArrowRight size={15} /></>}
             </button>
+            {vpsAuth && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={goToSignIn}
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  borderRadius: 12,
+                  border: `1px solid ${D.border}`,
+                  background: 'rgba(255,255,255,0.04)',
+                  color: D.text2,
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8
+                }}
+              >
+                <LogIn size={15} />
+                Já tenho conta — entrar com senha
+              </button>
+            )}
           </div>
 
           {/* Funcionário link */}
@@ -380,18 +418,20 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
       {step === 'pw-up' && (
         <>
           {emailChip}
-          <div style={{
-            padding: '7px 12px', borderRadius: 8, marginBottom: 4,
-            background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
-            fontSize: 12.5, color: D.greenLt, display: 'flex', alignItems: 'center', gap: 6
-          }}>
-            <Sparkles size={13} />
-            Conta nova · {trialLabel} grátis incluído, sem cartão!
-          </div>
+          {(startTrialAfterLogin || !vpsAuth) && (
+            <div style={{
+              padding: '7px 12px', borderRadius: 8, marginBottom: 4,
+              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+              fontSize: 12.5, color: D.greenLt, display: 'flex', alignItems: 'center', gap: 6
+            }}>
+              <Sparkles size={13} />
+              Conta nova · {trialLabel} grátis incluído, sem cartão!
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <input
               ref={passRef} type="password" autoComplete="new-password"
-              placeholder="Crie uma senha (mín. 6 caracteres)" value={password}
+              placeholder="Crie uma senha (mín. 8 caracteres)" value={password}
               onChange={e => setPass(e.target.value)} disabled={busy} style={inp}
               onKeyDown={e => { if (e.key === 'Enter') void handleSignUp(); }}
             />
@@ -403,8 +443,19 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
             />
           </div>
           <button type="button" disabled={busy} onClick={() => void handleSignUp()} style={primaryBtn}>
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <><UserPlus size={15} />Criar conta grátis</>}
+            {busy ? <Loader2 size={16} className="animate-spin" /> : (
+              <>
+                <UserPlus size={15} />
+                {startTrialAfterLogin ? 'Criar conta grátis' : 'Criar conta'}
+              </>
+            )}
           </button>
+          {vpsAuth && (
+            <button type="button" onClick={goToSignIn}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.greenLt, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
+              <LogIn size={13} /> Já tenho conta — entrar
+            </button>
+          )}
           <button type="button" onClick={goBack}
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
             <ArrowLeft size={13} /> Usar outro e-mail
