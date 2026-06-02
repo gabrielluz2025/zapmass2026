@@ -1299,18 +1299,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('connect_error', (err) => {
       setIsBackendConnected(false);
       console.error('❌ Erro na conexão Socket.IO:', err.message);
-      if (err?.message === 'unauthorized') {
-        const u = auth.currentUser;
-        if (u) {
-          u.getIdToken(true)
-            .then((token) => {
-              socket.auth = { token };
-              if (!socket.connected) socket.connect();
-            })
-            .catch(() => {
-              /* sem token valido, mantem desconectado */
-            });
-        }
+      const msg = String(err?.message || '').toLowerCase();
+      const authRelated =
+        msg === 'unauthorized' || msg.includes('jwt') || msg.includes('token') || msg.includes('expired');
+      if (authRelated) {
+        void getSessionIdToken(true)
+          .then((token) => {
+            socket.auth = token ? { token } : {};
+            if (!socket.connected) socket.connect();
+          })
+          .catch(() => {
+            /* sem token valido, mantem desconectado */
+          });
       }
     });
 

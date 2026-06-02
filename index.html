@@ -15,7 +15,8 @@
     <meta name="twitter:card" content="summary_large_image" />
     <!-- Origem da API (REST + Socket). `VITE_API_ORIGIN` no build tem prioridade; esta meta cobre Firebase sem .env no build.
          Self-host com outro backend: remova ou altere o content. -->
-    <meta name="zapmass-api-origin" content="https://zap-mass.com" />
+    <!-- Deixe vazio em self-host (mesma origem). Firebase: https://sua-api ou use VITE_API_ORIGIN no build. -->
+    <meta name="zapmass-api-origin" content="" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23059669'/%3E%3Cpath d='M20 20l24 0 0 16-12 0-8 8 0-8-4 0z' fill='white'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

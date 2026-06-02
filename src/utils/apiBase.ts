@@ -24,13 +24,31 @@ function readMetaApiOrigin(): string {
  * Ou meta `zapmass-api-origin` / `window.__ZAPMASS_API_ORIGIN__` (emergência sem rebuild completo).
  * Inclua o domínio do site em `ALLOWED_ORIGINS` no servidor (CORS).
  */
+function isFirebaseStaticHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h.endsWith('.web.app') || h.endsWith('.firebaseapp.com');
+}
+
+function isLocalDevHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1';
+}
+
 export function getApiOrigin(): string {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    // VPS / domínio próprio: API e Socket na mesma origem (nginx → Node).
+    // Evita meta/env antigos (ex.: zap-mass.com) quando o utilizador abre zap.mass.com.
+    if (!isFirebaseStaticHost(host) && !isLocalDevHost(host)) {
+      return trimSlash(window.location.origin);
+    }
+  }
   const fromEnv = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.trim();
   if (fromEnv) return trimSlash(fromEnv);
   const fromWindow = readRuntimeWindowApiOrigin();
   if (fromWindow) return fromWindow;
   const fromMeta = readMetaApiOrigin();
-  if (fromMeta) return fromMeta;
+  if (fromMeta) return trimSlash(fromMeta);
   return '';
 }
 

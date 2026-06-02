@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { WifiOff, Loader2 } from 'lucide-react';
-import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
+import { useZapMassCore, useZapMassUiSnapshot } from '../../context/ZapMassContext';
+import { getSessionIdToken } from '../../utils/sessionAuth';
 
 /**
  * Faixa abaixo da TopBar quando o socket cai por mais de 1.5s.
@@ -8,8 +9,22 @@ import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
  */
 export const ReconnectingBanner: React.FC = () => {
   const { isBackendConnected } = useZapMassUiSnapshot();
+  const { socket } = useZapMassCore();
   const [show, setShow] = useState(false);
   const [secondsOffline, setSecondsOffline] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+
+  const tryReconnect = useCallback(async () => {
+    if (!socket || retrying) return;
+    setRetrying(true);
+    try {
+      const token = await getSessionIdToken(true);
+      (socket as typeof socket & { auth: { token?: string } }).auth = token ? { token } : {};
+      if (!socket.connected) socket.connect();
+    } finally {
+      window.setTimeout(() => setRetrying(false), 1200);
+    }
+  }, [socket, retrying]);
 
   useEffect(() => {
     if (isBackendConnected) {
@@ -52,6 +67,14 @@ export const ReconnectingBanner: React.FC = () => {
           </span>
         )}
       </p>
+      <button
+        type="button"
+        onClick={() => void tryReconnect()}
+        disabled={retrying}
+        className="text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-md text-amber-800 hover:bg-amber-100 transition-colors disabled:opacity-50"
+      >
+        {retrying ? 'Ligando…' : 'Reconectar'}
+      </button>
       <button
         type="button"
         onClick={() => window.location.reload()}

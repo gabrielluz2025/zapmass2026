@@ -842,13 +842,25 @@ export const DashboardTab: React.FC = () => {
         <div className="relative z-10 px-5 py-6 sm:px-8 sm:py-7">
           {/* ── Status strip ── */}
           <div className="flex items-center gap-3 flex-wrap mb-5">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
-              style={{ background:'rgba(16,185,129,0.14)', color:'#10b981', border:'1px solid rgba(16,185,129,0.3)' }}>
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
+              style={
+                isBackendConnected
+                  ? { background: 'rgba(16,185,129,0.14)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }
+                  : { background: 'rgba(245,158,11,0.14)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)' }
+              }
+            >
               <span className="relative flex w-1.5 h-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                {isBackendConnected ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                  </>
+                ) : (
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500 animate-pulse" />
+                )}
               </span>
-              Sistema online
+              {isBackendConnected ? 'Servidor online' : 'Reconectando…'}
             </span>
             <span className="text-[11px] font-semibold" style={{ color:'rgba(255,255,255,0.35)' }}>
               <Clock className="w-3 h-3 inline-block mr-1" />
