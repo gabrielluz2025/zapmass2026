@@ -20,7 +20,7 @@ set_kv() {
 }
 
 # Domínio de produção (ajuste se usar só IP)
-set_kv ALLOWED_ORIGINS "https://zap-mass.com,https://www.zap-mass.com,https://zapflow25.web.app"
+set_kv ALLOWED_ORIGINS "https://zap-mass.com,https://www.zap-mass.com,https://zap.mass.com,https://www.zap.mass.com,http://2.24.210.220:3001,https://zapflow25.web.app"
 set_kv PUBLIC_APP_URL "https://zap-mass.com"
 set_kv MERCADOPAGO_BACK_URL "https://zap-mass.com"
 set_kv HOST_PORT "3001"
