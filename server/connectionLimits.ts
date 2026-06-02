@@ -5,6 +5,8 @@ import { getUserSubscription, type UserSubscriptionDoc } from './subscriptionSto
 import { filterByConnectionScope } from '../src/utils/connectionScope.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 import { adminUidSet, isPlatformAdminDecoded } from './adminIdentity.js';
+import { findUserById } from './auth/userRepository.js';
+import { isUuid } from './auth/firebaseUidMap.js';
 
 /** Incluídos no plano. */
 export const BASE_CONNECTION_SLOTS = 2;
@@ -15,6 +17,15 @@ export const MAX_EXTRA_CHANNEL_SLOTS = 3;
 export async function isUidTreatedAsServerAdmin(uid: string): Promise<boolean> {
   if (!uid || uid === 'anonymous') return false;
   if (adminUidSet().has(uid)) return true;
+
+  /** Modo VPS: uid é UUID Postgres — Firebase getUser(uid) falha; usa e-mail em zapmass.users. */
+  if (isUuid(uid)) {
+    const row = await findUserById(uid);
+    if (row?.email && isPlatformAdminDecoded({ uid, email: row.email })) {
+      return true;
+    }
+  }
+
   const app = getFirebaseAdmin();
   if (!app) return false;
   try {
