@@ -35,6 +35,9 @@ upsert_env ZAPMASS_JWT_SECRET "${JWT}"
 upsert_env ZAPMASS_DATABASE_URL "postgresql://postgres:${PG_PASS}@postgres:5432/zapmass_db"
 upsert_env SWARM_ENABLED 0
 
+# Admin plataforma (menu Painel do criador + APIs /api/admin/*)
+ADMIN_EMAIL="${ADMIN_EMAIL:-festaimportgabriel@gmail.com}" bash deployment/apply-admin-emails.sh
+
 if [ "${ZAPMASS_RESET_DATA:-0}" = "1" ]; then
   echo ""
   echo "==> ZAPMASS_RESET_DATA=1 — limpar schema zapmass (contas e dados)"
@@ -66,4 +69,4 @@ echo ""
 bash deployment/vps-check-env.sh
 echo ""
 echo "Pronto. Crie a primeira conta em: ${PUBLIC_APP_URL:-https://zap-mass.com}"
-echo "Admin plataforma: use ADMIN_EMAILS no .env (e-mail da conta que registar)."
+echo "Admin plataforma: entre com ${ADMIN_EMAIL:-festaimportgabriel@gmail.com} (mesmo e-mail em ADMIN_EMAILS)."
