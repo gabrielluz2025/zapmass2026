@@ -20,8 +20,10 @@ describe('resolveOutboundSendTarget', () => {
     ).toBe('5511999887766');
   });
 
-  it('@lid sem telefone envia JID completo', () => {
-    expect(resolveOutboundSendTarget('69385314111689@lid', {}).number).toBe('69385314111689@lid');
+  it('@lid sem telefone bloqueia envio (não manda @lid à API)', () => {
+    expect(() => resolveOutboundSendTarget('69385314111689@lid', {})).toThrow(
+      /não foi possível obter o número/i
+    );
   });
 
   it('prefere waJidAlt em chat @lid', () => {
@@ -34,7 +36,7 @@ describe('resolveOutboundSendTarget', () => {
 });
 
 describe('formatEvolutionHttpError', () => {
-  it('traduz exists:false da Evolution', () => {
+  it('traduz exists:false @lid para mensagem acionável', () => {
     const msg = formatEvolutionHttpError({
       response: {
         data: {
@@ -43,7 +45,6 @@ describe('formatEvolutionHttpError', () => {
       },
       message: 'Request failed with status code 400'
     });
-    expect(msg).toContain('Contato não encontrado');
-    expect(msg).toContain('123@lid');
+    expect(msg).toMatch(/não foi possível obter o número/i);
   });
 });

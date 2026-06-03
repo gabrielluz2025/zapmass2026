@@ -85,6 +85,7 @@ export function mergeConversationsFromSocketUpdate(
         ...withPic,
         contactName: (withPic.contactName || p?.contactName || '').trim() || withPic.contactName,
         contactPhone: withPic.contactPhone || p?.contactPhone || '',
+        waJidAlt: withPic.waJidAlt || p?.waJidAlt,
         lastMessage: (withPic.lastMessage || '').trim() ? withPic.lastMessage : p?.lastMessage || withPic.lastMessage,
         lastMessageTime: withPic.lastMessageTime || p?.lastMessageTime || '',
         lastMessageTimestamp: Math.max(

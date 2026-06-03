@@ -22,6 +22,15 @@ import {
     formatEvolutionHttpError,
     resolveOutboundSendTarget
 } from './evolutionChatSend.js';
+import {
+    hasResolvablePhone,
+    isLidJid,
+    mergeLidPeerFields,
+    peerFieldsFromEvolutionChatRow,
+    pickSendableWaJidAlt,
+    peerFromMessageKey,
+    resolveLidPeerFromEvolutionApi
+} from './evolutionLidResolve.js';
 import { resolvePhoneDigitsFromEvolutionMessage } from './evolutionWebhookMessages.js';
 import {
     appendChatArchiveMessages,
@@ -251,8 +260,22 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     previous: prev.contactName,
                     fallback: prev.contactName || conv.contactName || 'Contato'
                 }),
-                contactPhone: conv.contactPhone || prev.contactPhone,
-                waJidAlt: conv.waJidAlt || prev.waJidAlt,
+                contactPhone: (() => {
+                    const merged = mergeLidPeerFields(
+                        parseConversationId(conv.id)?.remoteJid || '',
+                        { contactPhone: conv.contactPhone, waJidAlt: conv.waJidAlt },
+                        { contactPhone: prev.contactPhone, waJidAlt: prev.waJidAlt }
+                    );
+                    return merged.contactPhone || prev.contactPhone || conv.contactPhone;
+                })(),
+                waJidAlt: (() => {
+                    const merged = mergeLidPeerFields(
+                        parseConversationId(conv.id)?.remoteJid || '',
+                        { contactPhone: conv.contactPhone, waJidAlt: conv.waJidAlt },
+                        { contactPhone: prev.contactPhone, waJidAlt: prev.waJidAlt }
+                    );
+                    return merged.waJidAlt || prev.waJidAlt || conv.waJidAlt;
+                })(),
                 profilePicUrl: conv.profilePicUrl || prev.profilePicUrl,
                 lastMessageTimestamp: bestTs,
                 lastMessage:
@@ -322,8 +345,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (betterName && (!conv.contactName || !filterEvolutionName(conv.contactName))) {
                 conv.contactName = betterName;
             }
-            if (meta?.contactPhone && !conv.contactPhone) conv.contactPhone = meta.contactPhone;
-            if (meta?.waJidAlt) conv.waJidAlt = meta.waJidAlt;
+            const parsedAppend = parseConversationId(conv.id);
+            if (parsedAppend) {
+                const merged = mergeLidPeerFields(
+                    parsedAppend.remoteJid,
+                    { contactPhone: meta?.contactPhone, waJidAlt: meta?.waJidAlt },
+                    { contactPhone: conv.contactPhone, waJidAlt: conv.waJidAlt }
+                );
+                if (merged.contactPhone) conv.contactPhone = merged.contactPhone;
+                if (merged.waJidAlt) conv.waJidAlt = merged.waJidAlt;
+            }
         }
 
         const exists = conv.messages.some((m) => m.id === msg.id);
@@ -731,11 +762,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         // contactPhone: usa o telefone do JID; se for @lid (sem telefone), tenta o número real
         // de campos alternativos para que a UI mostre o número e cruze com o CRM.
-        const jidPhone = toPhoneDisplay(jid);
-        const altPhoneDigits = jidPhone ? '' : extractRealPhoneDigits(chat);
-        const contactPhone = jidPhone || (altPhoneDigits ? `+${altPhoneDigits}` : '') || existing?.contactPhone || '';
-        const waJidAltRaw = chat?.remoteJidAlt || chat?.jidAlt || chat?.altJid || existing?.waJidAlt || '';
-        const waJidAlt = typeof waJidAltRaw === 'string' ? waJidAltRaw.trim() : '';
+        const peer = peerFieldsFromEvolutionChatRow(chat as Record<string, unknown>, {
+            contactPhone: existing?.contactPhone,
+            waJidAlt: existing?.waJidAlt
+        });
+        const contactPhone = peer.contactPhone || existing?.contactPhone || '';
+        const waJidAlt = peer.waJidAlt;
         const fallbackLabel =
             contactPhone || (jid.endsWith('@lid') ? 'Contato' : toPhoneDisplay(jid) || 'Contato');
 
@@ -856,6 +888,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 console.info(`[EvolutionChat] syncChats ${connectionId}: ${pics} foto(s) de perfil carregada(s)`);
             }
 
+            const lidFixed = await backfillLidConversationsForConnection(connectionId);
+            if (lidFixed > 0) {
+                console.info(`[EvolutionChat] syncChats ${connectionId}: ${lidFixed} chat(s) @lid com telefone resolvido`);
+            }
+
             if (!opts?.deferEmit) emitConversationsUpdate();
             if (chats.length > 0 && added === 0) {
                 console.warn(
@@ -870,6 +907,57 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             return 0;
         }
         });
+    }
+
+    async function backfillLidConversationsForConnection(connectionId: string): Promise<number> {
+        let updated = 0;
+        for (const c of conversations) {
+            if (c.connectionId !== connectionId || !c.id.includes('@lid')) continue;
+            const parsed = parseConversationId(c.id);
+            if (!parsed || !isLidJid(parsed.remoteJid)) continue;
+            const current = mergeLidPeerFields(parsed.remoteJid, c);
+            if (hasResolvablePhone(current)) continue;
+            const hit = await resolveLidPeerFromEvolutionApi(
+                api,
+                evoInst,
+                connectionId,
+                parsed.remoteJid
+            );
+            if (!hit || !hasResolvablePhone(hit)) continue;
+            const merged = mergeLidPeerFields(parsed.remoteJid, hit, c);
+            c.contactPhone = merged.contactPhone;
+            c.waJidAlt = merged.waJidAlt;
+            updated++;
+            if (updated >= 40) break;
+        }
+        return updated;
+    }
+
+    async function ensureSendablePeer(
+        conversationId: string,
+        parsed: ParsedConversation
+    ): Promise<{ contactPhone: string; waJidAlt?: string }> {
+        const conv = conversations.find((c) => c.id === conversationId);
+        let peer = mergeLidPeerFields(parsed.remoteJid, {
+            contactPhone: conv?.contactPhone,
+            waJidAlt: conv?.waJidAlt
+        });
+        if (isLidJid(parsed.remoteJid) && !hasResolvablePhone(peer)) {
+            const hit = await resolveLidPeerFromEvolutionApi(
+                api,
+                evoInst,
+                parsed.connectionId,
+                parsed.remoteJid
+            );
+            if (hit && hasResolvablePhone(hit)) {
+                peer = mergeLidPeerFields(parsed.remoteJid, hit, peer);
+                if (conv) {
+                    conv.contactPhone = peer.contactPhone;
+                    conv.waJidAlt = peer.waJidAlt;
+                }
+            }
+        }
+        return peer;
     }
 
     async function fetchMessages(
@@ -963,12 +1051,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 { getConversations: () => conversations },
                 instance
             );
-            const remoteJidAlt = msg.key?.remoteJidAlt ? String(msg.key.remoteJidAlt).trim() : '';
+            const waJidAlt = pickSendableWaJidAlt(
+                msg.key?.remoteJidAlt,
+                msg.key?.senderPn,
+                msg.key?.participant
+            );
             appendMessageToConversation(conversationId, chatMsg, {
                 connectionId: instance,
                 contactName: String(pushName),
-                contactPhone: phoneDigits ? `+${phoneDigits}` : toPhoneDisplay(remoteJid),
-                waJidAlt: remoteJidAlt || undefined,
+                contactPhone: phoneDigits ? `+${phoneDigits}` : '',
+                waJidAlt,
                 incrementUnread: !msg.key.fromMe,
             });
             appended = true;
@@ -998,8 +1090,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const trimmed = String(text || '').trim();
         if (!trimmed) throw new Error('Mensagem vazia.');
 
-        const conv = conversations.find((c) => c.id === conversationId);
-        const { number } = resolveOutboundSendTarget(parsed.remoteJid, conv);
+        const peer = await ensureSendablePeer(conversationId, parsed);
+        const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
 
         let response: { data?: { key?: { id?: string; _serialized?: string } } };
         try {
@@ -1025,10 +1117,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         };
 
         const effectiveId = buildConversationId(parsed.connectionId, parsed.remoteJid);
+        const convAfter = conversations.find((c) => c.id === conversationId);
         appendMessageToConversation(effectiveId, newMsg, {
             connectionId: parsed.connectionId,
-            contactPhone: conv?.contactPhone || toPhoneDisplay(parsed.remoteJid),
-            waJidAlt: conv?.waJidAlt,
+            contactPhone: peer.contactPhone || convAfter?.contactPhone || '',
+            waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
         });
         emitConversationsUpdate();
     }
@@ -1049,8 +1142,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             throw new Error('Arquivo inválido para envio.');
         }
 
-        const conv = conversations.find((c) => c.id === conversationId);
-        const { number } = resolveOutboundSendTarget(parsed.remoteJid, conv);
+        const peer = await ensureSendablePeer(conversationId, parsed);
+        const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
         const { url } = await saveMediaFromBase64(payload.dataBase64, payload.mimeType, payload.fileName);
 
         let type = 'document';
@@ -1098,10 +1191,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             timestampMs: nowMs,
         };
 
+        const convAfter = conversations.find((c) => c.id === conversationId);
         appendMessageToConversation(buildConversationId(parsed.connectionId, parsed.remoteJid), newMsg, {
             connectionId: parsed.connectionId,
-            contactPhone: conv?.contactPhone || toPhoneDisplay(parsed.remoteJid),
-            waJidAlt: conv?.waJidAlt,
+            contactPhone: peer.contactPhone || convAfter?.contactPhone || '',
+            waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
         });
         emitConversationsUpdate();
     }
@@ -1151,6 +1245,19 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     else byId.set(`${Math.random()}`, m);
                 }
                 fetched = Array.from(byId.values());
+            }
+        }
+
+        conv = conversations.find((c) => c.id === conversationId);
+        if (conv && isLidJid(parsed.remoteJid)) {
+            for (const m of fetched) {
+                const hit = peerFromMessageKey(m?.key as Record<string, unknown> | undefined);
+                if (hit && hasResolvablePhone(hit)) {
+                    const merged = mergeLidPeerFields(parsed.remoteJid, hit, conv);
+                    conv.contactPhone = merged.contactPhone;
+                    conv.waJidAlt = merged.waJidAlt;
+                    break;
+                }
             }
         }
 

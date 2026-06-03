@@ -1,26 +1,20 @@
-import { looksLikeLongLidDigits } from '../src/utils/contactPhoneLookup.js';
-import { normalizeChatRemoteJid } from './evolutionChatJid.js';
+import {
+  hasResolvablePhone,
+  isLidJid,
+  LID_SEND_BLOCKED_MSG,
+  mergeLidPeerFields,
+  normalizeOutboundDigits,
+  pickSendableWaJidAlt,
+  plausiblePhoneDigits
+} from './evolutionLidResolve.js';
 
-export function plausiblePhoneDigits(digits: string): boolean {
-  const d = String(digits || '').replace(/\D/g, '');
-  if (!d || looksLikeLongLidDigits(d)) return false;
-  return d.length >= 10 && d.length <= 15;
-}
-
-/** Mesma regra de campanhas: BR sem DDI ganha prefixo 55. */
-export function normalizeOutboundDigits(raw: string): string {
-  const digits = String(raw || '').replace(/[^0-9]/g, '');
-  if (!digits) return '';
-  if (digits.startsWith('55')) return digits;
-  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
-  return digits;
-}
+export { normalizeOutboundDigits, plausiblePhoneDigits };
 
 export type OutboundSendTarget = { number: string };
 
 /**
- * Resolve o campo `number` do sendText/sendMedia da Evolution.
- * Chats @lid: usa telefone real (waJidAlt/contactPhone) ou o JID @lid completo.
+ * Resolve o campo `number` do sendText/sendMedia da Evolution (somente telefone E.164).
+ * Nunca envia JID @lid — a API responde exists:false.
  */
 export function resolveOutboundSendTarget(
   remoteJid: string,
@@ -29,40 +23,31 @@ export function resolveOutboundSendTarget(
   const jid = String(remoteJid || '').trim();
   if (!jid) throw new Error('JID da conversa inválido.');
 
-  const tryPhone = (raw: string): string | null => {
-    const digits = raw.replace(/\D/g, '');
-    if (!plausiblePhoneDigits(digits)) return null;
-    return normalizeOutboundDigits(digits);
-  };
+  const peer = mergeLidPeerFields(jid, {
+    contactPhone: conv?.contactPhone,
+    waJidAlt: conv?.waJidAlt
+  });
 
-  if (jid.endsWith('@lid')) {
-    const altJid = normalizeChatRemoteJid(conv?.waJidAlt);
-    if (altJid && !altJid.endsWith('@lid')) {
-      const hit = tryPhone(altJid.split('@')[0]);
-      if (hit) return { number: hit };
-    }
-    const fromContact = tryPhone(conv?.contactPhone || '');
-    if (fromContact) return { number: fromContact };
-    return { number: jid };
+  if (hasResolvablePhone(peer)) {
+    const digits = normalizeOutboundDigits(peer.contactPhone.replace(/\D/g, ''));
+    return { number: digits };
   }
 
-  const fromJid = tryPhone(jid.split('@')[0]);
-  if (fromJid) return { number: fromJid };
+  if (isLidJid(jid)) {
+    throw new Error(LID_SEND_BLOCKED_MSG);
+  }
 
-  const fromContact = tryPhone(conv?.contactPhone || '');
-  if (fromContact) return { number: fromContact };
+  const fromJid = jid.split('@')[0].replace(/\D/g, '');
+  if (plausiblePhoneDigits(fromJid)) {
+    return { number: normalizeOutboundDigits(fromJid) };
+  }
 
-  const altJid = normalizeChatRemoteJid(conv?.waJidAlt);
+  const altJid = pickSendableWaJidAlt(conv?.waJidAlt);
   if (altJid) {
-    const hit = tryPhone(altJid.split('@')[0]);
-    if (hit) return { number: hit };
+    return { number: normalizeOutboundDigits(altJid.split('@')[0]) };
   }
 
-  if (jid.includes('@')) return { number: jid };
-
-  throw new Error(
-    'Não foi possível identificar o número deste contato. Atualize a lista de conversas.'
-  );
+  throw new Error(LID_SEND_BLOCKED_MSG);
 }
 
 export function formatEvolutionHttpError(err: unknown): string {
@@ -78,7 +63,9 @@ export function formatEvolutionHttpError(err: unknown): string {
         if (x && typeof x === 'object') {
           const row = x as { exists?: boolean; jid?: string };
           if (row.exists === false) {
-            return `Contato não encontrado no WhatsApp (${row.jid || 'JID inválido'})`;
+            const badJid = String(row.jid || '');
+            if (badJid.endsWith('@lid')) return LID_SEND_BLOCKED_MSG;
+            return `Contato não encontrado no WhatsApp (${badJid || 'número inválido'})`;
           }
         }
         try {
