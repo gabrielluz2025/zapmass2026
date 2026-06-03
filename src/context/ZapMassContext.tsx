@@ -104,7 +104,11 @@ import {
 } from '../utils/campaignIssueToast';
 import { normPhoneKey } from '../utils/brPhoneNormalize';
 import { getCampaignStageTotal } from '../utils/campaignStageCount';
-import { dedupeConversationsById, mergeConversationsFromSocketUpdate } from '../utils/conversationInboxTrim';
+import {
+  dedupeConversationsById,
+  mergeConversationDelta,
+  mergeConversationsFromSocketUpdate
+} from '../utils/conversationInboxTrim';
 import { devLog, devWarn, warnProd } from '../utils/logger';
 
 const FIRESTORE_BATCH_CHUNK = 280;
@@ -1453,12 +1457,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             (c) => c.status === ConnectionStatus.CONNECTED
           );
           if (hasConnected && socket.connected) {
-            socket.emit('request-conversations-sync');
+            socket.emit('request-conversations-sync', { full: false });
           }
           return;
         }
         setConversations((prev) => mergeConversationsFromSocketUpdate(prev, pending, ownsConnectionId));
       });
+    });
+
+    socket.on('conversation-delta', (delta: Conversation) => {
+      if (!delta?.id) return;
+      setConversations((prev) => mergeConversationDelta(prev, delta, ownsConnectionId));
     });
 
     socket.on('conversation-picture', ({ conversationId, profilePicUrl }: { conversationId: string; profilePicUrl?: string | null }) => {
@@ -2923,12 +2932,37 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   const sendMessage = (conversationId: string, text: string) => {
+    const trimmed = String(text || '').trim();
+    if (!trimmed) return;
+    const nowMs = Date.now();
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== conversationId) return c;
+        const pendingId = `pending-${nowMs}`;
+        const optimistic = {
+          id: pendingId,
+          text: trimmed,
+          timestamp: new Date(nowMs).toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          sender: 'me' as const,
+          status: 'sent' as const,
+          type: 'text' as const,
+          timestampMs: nowMs
+        };
+        const msgs = [...(c.messages || []), optimistic];
+        return {
+          ...c,
+          messages: msgs,
+          lastMessage: trimmed,
+          lastMessageTime: optimistic.timestamp,
+          lastMessageTimestamp: nowMs
+        };
+      })
+    );
     socketRef.current?.emit('ui-log', { action: 'send-message', conversationId });
-    socketRef.current?.emit('send-message', { conversationId, text });
-    // Antes mostravamos toast.success otimista, mas erros reais (canal
-    // desconectado, numero invalido) chegavam segundos depois via
-    // 'send-message-error' — UX contraditoria com sucesso seguido de erro.
-    // O feedback de envio agora vem da propria conversa atualizada.
+    socketRef.current?.emit('send-message', { conversationId, text: trimmed });
   };
 
   const sendMedia = (

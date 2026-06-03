@@ -137,3 +137,76 @@ export function mergeConversationsFromSocketUpdate(
 }
 
 export const conversationSyncTailLimit = SYNC_MSG_TAIL;
+
+function mergeOneConversation(
+  prev: Conversation | undefined,
+  inc: Conversation,
+  maxTail: number
+): Conversation {
+  const withPic =
+    !inc.profilePicUrl && prev?.profilePicUrl ? { ...inc, profilePicUrl: prev.profilePicUrl } : inc;
+
+  const mergedMeta: Conversation = {
+    ...withPic,
+    contactName: (withPic.contactName || prev?.contactName || '').trim() || withPic.contactName,
+    contactPhone: withPic.contactPhone || prev?.contactPhone || '',
+    waJidAlt: withPic.waJidAlt || prev?.waJidAlt,
+    lastMessage: (withPic.lastMessage || '').trim() ? withPic.lastMessage : prev?.lastMessage || withPic.lastMessage,
+    lastMessageTime: withPic.lastMessageTime || prev?.lastMessageTime || '',
+    lastMessageTimestamp: Math.max(
+      withPic.lastMessageTimestamp ?? 0,
+      prev?.lastMessageTimestamp ?? 0,
+      newestActivityMs(withPic),
+      prev ? newestActivityMs(prev) : 0
+    ),
+    unreadCount:
+      typeof withPic.unreadCount === 'number' ? withPic.unreadCount : prev?.unreadCount ?? withPic.unreadCount
+  };
+
+  const prevMsgs = Array.isArray(prev?.messages) ? prev!.messages : [];
+  const incMsgs = Array.isArray(withPic.messages) ? withPic.messages : [];
+
+  if (prevMsgs.length === 0) return trimConversationMessagesTail(mergedMeta, maxTail);
+  if (incMsgs.length === 0) return { ...mergedMeta, messages: prevMsgs };
+
+  const byId = new Map<string, ChatMessage>();
+  for (const m of prevMsgs) byId.set(m.id, m);
+  for (const m of incMsgs) {
+    const ex = byId.get(m.id);
+    if (ex) {
+      if (m.waRemoteJidAlt && !ex.waRemoteJidAlt) ex.waRemoteJidAlt = m.waRemoteJidAlt;
+      if (m.waSenderPn && !ex.waSenderPn) ex.waSenderPn = m.waSenderPn;
+      if (m.status && ex.sender === 'me') ex.status = m.status;
+      byId.set(m.id, ex);
+    } else {
+      byId.set(m.id, m);
+    }
+  }
+  const mergedMsgs = Array.from(byId.values()).sort(
+    (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+  );
+  return trimConversationMessagesTail({ ...mergedMeta, messages: mergedMsgs }, maxTail);
+}
+
+/** Atualização incremental (`conversation-delta`) — uma conversa por evento. */
+export function mergeConversationDelta(
+  prev: Conversation[],
+  delta: Conversation,
+  ownsConnectionId: (connectionId: string, connectionOwnerUid?: string) => boolean,
+  maxTail: number = SYNC_MSG_TAIL
+): Conversation[] {
+  const trimmed = trimConversationMessagesTail(delta, maxTail);
+  const scoped =
+    ownsConnectionId(trimmed.connectionId, trimmed.connectionOwnerUid) ||
+    (prev.length === 0 && trimmed.id);
+  if (!scoped) return prev;
+
+  const prevById = new Map(prev.map((c) => [c.id, c]));
+  const merged = mergeOneConversation(prevById.get(trimmed.id), trimmed, maxTail);
+  const next = prevById.has(trimmed.id)
+    ? prev.map((c) => (c.id === trimmed.id ? merged : c))
+    : [...prev, merged];
+  return dedupeConversationsById(next).sort(
+    (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+  );
+}

@@ -72,6 +72,25 @@
   background: #f59e0b;
 }
 
+.wa-chat-pro .wa-status-strip[data-slow='true'] {
+  background: #f0f9ff;
+  color: #0369a1;
+}
+
+.wa-chat-pro .wa-status-strip[data-slow='true'] .wa-status-dot {
+  background: #0ea5e9;
+}
+
+.wa-chat-pro .wa-bubble .wa-campaign-tag {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  margin-bottom: 2px;
+}
+
 .wa-chat-pro .wa-filter-unread {
   margin: 6px 12px 4px;
   padding: 7px 14px;

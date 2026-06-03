@@ -895,42 +895,25 @@ const registerSocketHandlers = () => {
       socket.emit('pong-latency', ts);
     });
 
-    /** Re-sincroniza conversas ao voltar ao separador (evita sensação de “não é tempo real”). */
-    socket.on('request-conversations-sync', () => {
+    /** Re-sincroniza conversas: `full` = findChats na Evolution; padrão = só reemit RAM (leve). */
+    socket.on('request-conversations-sync', (opts?: { full?: boolean }) => {
       void (async () => {
         if (uid && uid !== 'anonymous') {
           await ensureAssignmentsLoaded(uid).catch(() => undefined);
         }
+        const fullSync = opts?.full === true;
         if (useEvolutionChat()) {
-          let syncMeta: Awaited<ReturnType<typeof evolutionService.syncConnectionsForOwner>> | undefined;
-          if (uid && uid !== 'anonymous') {
-            syncMeta = await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
-          } else {
-            await evolutionService.syncAllOpenChats().catch(() => undefined);
+          if (fullSync && uid && uid !== 'anonymous') {
+            await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
+            return;
           }
-          const convPayload = conversationsPayloadForViewer(
-            uid,
-            authOp,
-            evolutionService.getConversations(),
-            resolveConnectionOwnerUid
-          );
-          const openChannels = filterByConnectionScope(uid, evolutionService.getConnections()).filter(
-            (c) => c.status === 'CONNECTED'
-          );
-          if (convPayload.length === 0 && openChannels.length > 0) {
-            structuredLog('warn', 'socket.conversations_empty_with_open_channel', {
-              tenantUid: uid,
-              authUid: authOp,
-              openChannelIds: openChannels.map((c) => c.id),
-              syncMeta,
-              ramConversations: evolutionService.getConversations().length,
-            });
-          } else if (convPayload.length > 0) {
-            structuredLog('info', 'socket.conversations_sync_ok', {
-              tenantUid: uid,
-              count: convPayload.length,
-              syncMeta,
-            });
+          if (fullSync) {
+            await evolutionService.syncAllOpenChats().catch(() => undefined);
+            return;
+          }
+          if (uid && uid !== 'anonymous') {
+            await evolutionService.reemitConversationsForOwner(uid).catch(() => undefined);
+            return;
           }
           socket.emit(
             'conversations-update',

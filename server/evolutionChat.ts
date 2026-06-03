@@ -3,7 +3,10 @@ import type { Server as SocketIOServer } from 'socket.io';
 import { Conversation, ChatMessage } from './types.js';
 import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
-import { prepareConversationsForSocketEmit } from './conversationsEmit.js';
+import {
+    prepareConversationsForSocketEmit,
+    socketConversationDeltaPayload
+} from './conversationsEmit.js';
 import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
 import {
     enrichConversationsWithCrmPhones,
@@ -117,6 +120,23 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 io!.to(`user:${ownerUidForScope}`).emit('conversations-update', payload);
             })();
         }, 80);
+    }
+
+    function emitConversationDelta(conversationId: string) {
+        if (notifyConversationsChanged) return;
+        if (!io || !ownerUidForScope) return;
+        const conv = conversations.find((c) => c.id === conversationId);
+        if (!conv) return;
+        void (async () => {
+            const payload = await socketConversationDeltaPayload(
+                ownerUidForScope!,
+                ownerUidForScope!,
+                conv,
+                archiveCtx?.resolveConnectionOwnerUid
+            );
+            if (!payload) return;
+            io!.to(`user:${ownerUidForScope}`).emit('conversation-delta', payload);
+        })();
     }
 
     function parseConversationId(conversationId: string): ParsedConversation | null {
@@ -1112,7 +1132,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     : [];
         if (items.length === 0) return;
 
-        let appended = false;
+        const touched = new Set<string>();
         for (const msg of items) {
             if (!msg?.key) continue;
 
@@ -1139,25 +1159,25 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 waJidAlt: rawPeer?.waJidAlt || chatMsg.waRemoteJidAlt || chatMsg.waSenderPn,
                 incrementUnread: !msg.key.fromMe,
             });
-            appended = true;
+            touched.add(conversationId);
         }
-        if (appended) emitConversationsUpdate();
+        for (const id of touched) emitConversationDelta(id);
     }
 
     function updateMessageStatus(messageId: string, evolutionStatus: number) {
-        let changed = false;
+        const touched = new Set<string>();
         for (const conv of conversations) {
             const msg = conv.messages.find((m) => m.id === messageId);
             if (!msg || msg.sender !== 'me') continue;
             if (evolutionStatus >= 4 && msg.status !== 'read') {
                 msg.status = 'read';
-                changed = true;
+                touched.add(conv.id);
             } else if (evolutionStatus >= 3 && msg.status === 'sent') {
                 msg.status = 'delivered';
-                changed = true;
+                touched.add(conv.id);
             }
         }
-        if (changed) emitConversationsUpdate();
+        for (const id of touched) emitConversationDelta(id);
     }
 
     async function sendMessage(conversationId: string, text: string): Promise<void> {
@@ -1199,7 +1219,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             contactPhone: peer.contactPhone || convAfter?.contactPhone || '',
             waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
         });
-        emitConversationsUpdate();
+        emitConversationDelta(effectiveId);
     }
 
     async function sendMedia(
@@ -1273,7 +1293,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             contactPhone: peer.contactPhone || convAfter?.contactPhone || '',
             waJidAlt: peer.waJidAlt || convAfter?.waJidAlt,
         });
-        emitConversationsUpdate();
+        emitConversationDelta(buildConversationId(parsed.connectionId, parsed.remoteJid));
     }
 
     async function hydrateChatArchiveForConversation(
@@ -1415,7 +1435,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 conv.waJidAlt = merged.waJidAlt;
             }
         }
-        emitConversationsUpdate();
+        emitConversationDelta(conversationId);
         return { ok: true, total: conv.messages.length };
     }
 
@@ -1568,6 +1588,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         init,
         getConversations: () => [...conversations],
         emitConversationsUpdate,
+        emitConversationDelta,
         syncChatsForConnection,
         enrichProfilePicturesForConnection,
         handleWebhookMessage,

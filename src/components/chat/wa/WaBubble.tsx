@@ -10,6 +10,8 @@ interface WaBubbleProps {
   status?: ChatMessage['status'];
   /** Hora curta exibida no canto inferior direito da bolha (ex.: "10:42"). */
   time?: string;
+  /** Mensagem originada de disparo de campanha. */
+  fromCampaign?: boolean;
   children: React.ReactNode;
 }
 
@@ -17,10 +19,20 @@ interface WaBubbleProps {
  * Bolha de mensagem com a aparência do WhatsApp Web.
  * Inclui a "cauda" SVG via CSS (data-tail) e os ticks ✓/✓✓ azuis para entregue/lido.
  */
-export const WaBubble: React.FC<WaBubbleProps> = ({ side, showTail, status, time, children }) => {
+export const WaBubble: React.FC<WaBubbleProps> = ({
+  side,
+  showTail,
+  status,
+  time,
+  fromCampaign,
+  children
+}) => {
   return (
     <div className={`flex ${side === 'out' ? 'justify-end' : 'justify-start'} px-3 my-[1px]`}>
       <div className="wa-bubble" data-side={side} data-tail={showTail ? 'true' : 'false'}>
+        {fromCampaign && side === 'out' ? (
+          <span className="wa-campaign-tag">Campanha</span>
+        ) : null}
         <span>{children}</span>
         <span className="wa-bubble-meta">
           {time}

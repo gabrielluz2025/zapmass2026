@@ -133,20 +133,20 @@ jobs:
           set -euo pipefail
           echo "==> teste TCP ${VPS_HOST}:${VPS_PORT}"
           ok=0
-          for i in $(seq 1 12); do
-            if nc -zvw5 "${VPS_HOST}" "${VPS_PORT}"; then
+          for i in $(seq 1 20); do
+            if nc -zvw8 "${VPS_HOST}" "${VPS_PORT}"; then
               echo "OK: porta SSH acessivel na tentativa ${i}."
               ok=1
               break
             fi
-            echo "tentativa ${i}/12 falhou; aguardando 8s..."
-            sleep 8
+            echo "tentativa ${i}/20 falhou; aguardando 10s..."
+            sleep 10
           done
           if [ "${ok}" = "1" ]; then
             echo "reachable=true" >> "$GITHUB_OUTPUT"
           else
             echo "reachable=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Runner nao alcancou ${VPS_HOST}:${VPS_PORT} apos 12 tentativas (~96s)."
+            echo "::warning::Runner nao alcancou ${VPS_HOST}:${VPS_PORT} apos 20 tentativas (~200s)."
             echo "::warning::O deploy SSH ainda pode funcionar (nc no runner e falho na Hostinger)."
           fi
 
@@ -203,10 +203,10 @@ jobs:
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure'
         run: |
-          echo "==> SSH falhou (ex.: dial tcp :22 connection timed out). Nova tentativa em 120s…"
-          sleep 120
+          echo "==> SSH falhou (ex.: dial tcp :22 connection timed out). Nova tentativa em 90s…"
+          sleep 90
 
-      - name: VPS — deploy retry SSH
+      - name: VPS — deploy retry SSH (2)
         id: deploy_vps_retry
         if: >-
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
@@ -246,14 +246,64 @@ jobs:
             fi
             bash deployment/gha-healthcheck.sh
 
+      - name: Aguardar retry SSH (3)
+        if: >-
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.deploy_vps.outcome == 'failure' &&
+          steps.deploy_vps_retry.outcome == 'failure'
+        run: |
+          echo "==> Segundo retry SSH falhou. Terceira tentativa em 180s…"
+          sleep 180
+
+      - name: VPS — deploy retry SSH (3)
+        id: deploy_vps_retry2
+        if: >-
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.deploy_vps.outcome == 'failure' &&
+          steps.deploy_vps_retry.outcome == 'failure'
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
+          timeout: 45m
+          command_timeout: 150m
+          script: |
+            set -euo pipefail
+            export GITHUB_EVENT_NAME="${{ github.event_name }}"
+            export GITHUB_ACTIONS=true
+            export ZAPMASS_DEPLOY_SKIP_HEALTHCHECK=1
+            export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
+            export DEPLOY_HEALTH_TRIES=200
+            export DEPLOY_HEALTH_INITIAL_WAIT=60
+            GHA_SHA="${{ github.sha }}"
+            echo "==> deploy RETRY 3 commit=${GHA_SHA}"
+            cd /opt/zapmass
+            git fetch --all --prune
+            git checkout -f "${GHA_SHA}"
+            export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
+            export GHA_SHA
+            chmod +x deployment/vps-deploy.sh deployment/gha-healthcheck.sh
+            _log="/tmp/zapmass-gha-deploy-retry3-$$.log"
+            set +e
+            bash deployment/vps-deploy.sh 2>&1 | tee "${_log}"
+            _build="${PIPESTATUS[0]}"
+            set -e
+            if [ "${_build}" != "0" ]; then
+              tail -n 60 "${_log}" || true
+              exit "${_build}"
+            fi
+            bash deployment/gha-healthcheck.sh
+
       - name: Falhar job se SSH/deploy falhou
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
-          steps.deploy_vps_retry.outcome != 'success'
+          !(steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         run: |
-          echo "::error::SSH/deploy falhou (timeout :22 ou script na VPS). Re-run failed jobs ou deploy manual na VPS."
+          echo "::error::SSH/deploy falhou apos 3 tentativas (timeout :22 ou script na VPS). Re-run failed jobs ou deploy manual na VPS."
           exit 1
 
       # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).
@@ -262,7 +312,7 @@ jobs:
         if: >-
           success() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          (steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success')
+          (steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

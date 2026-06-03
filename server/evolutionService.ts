@@ -583,6 +583,18 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     return { connections: scoped, claimed, syncedChats };
 }
 
+/** Reemite inbox do RAM para o socket — sem findChats (sync leve ao focar aba / reconectar). */
+export async function reemitConversationsForOwner(ownerUid: string): Promise<void> {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return;
+    const { socketConversationsPayload } = await import('./conversationsEmit.js');
+    publishOwnerEvent(
+        uid,
+        'conversations-update',
+        await socketConversationsPayload(uid, uid, chatStore.getConversations(), resolveConnectionOwnerUid)
+    );
+}
+
 function resolveInstanceName(raw: unknown): string {
     if (typeof raw === 'string') return raw.trim();
     if (raw && typeof raw === 'object') {
@@ -3737,6 +3749,7 @@ export default {
     syncAllOpenChats,
     syncOpenChatsForOwner,
     syncConnectionsForOwner,
+    reemitConversationsForOwner,
     assignConnectionOwner,
     listOrphanOpenConnectionIds,
     loadChatHistory,

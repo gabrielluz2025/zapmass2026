@@ -5,7 +5,7 @@ import type { Conversation } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import { formatListTime, inboxListTitle, unreadCount } from './lib/conversationDisplay';
 import { getLastMsgPreview } from './lib/chatPreview';
-import type { WaConnectionStatus } from './hooks/useWaRealtime';
+import type { WaSocketStatus } from './hooks/useWaRealtime';
 
 type Props = {
   conversations: Conversation[];
@@ -15,8 +15,9 @@ type Props = {
   selectedId: string | null;
   search: string;
   unreadOnly: boolean;
-  connectionStatus: WaConnectionStatus;
+  socketStatus: WaSocketStatus;
   chipsConnected: number;
+  syncing: boolean;
   onSearch: (q: string) => void;
   onToggleUnread: () => void;
   onRefresh: () => void;
@@ -32,8 +33,9 @@ export const WaInbox: React.FC<Props> = ({
   selectedId,
   search,
   unreadOnly,
-  connectionStatus,
+  socketStatus,
   chipsConnected,
+  syncing,
   onSearch,
   onToggleUnread,
   onRefresh,
@@ -55,12 +57,17 @@ export const WaInbox: React.FC<Props> = ({
     [allConversations]
   );
 
-  const statusText =
-    connectionStatus === 'online'
-      ? chipsConnected > 0
-        ? `Conectado · ${chipsConnected} número${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`
-        : 'Conectado ao servidor'
-      : 'Reconectando ao servidor…';
+  const statusText = useMemo(() => {
+    if (syncing) return 'Sincronizando conversas…';
+    if (socketStatus === 'offline') return 'Servidor desconectado';
+    if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
+    if (chipsConnected > 0) {
+      return `Painel online · ${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`;
+    }
+    return 'Painel online · conecte um chip em Conexões';
+  }, [syncing, socketStatus, chipsConnected]);
+
+  const stripOffline = socketStatus === 'offline' || syncing;
 
   return (
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
@@ -71,17 +78,18 @@ export const WaInbox: React.FC<Props> = ({
         <button
           type="button"
           className="wa-icon-btn"
-          title="Atualizar lista"
-          aria-label="Atualizar lista"
+          title="Sincronizar com o WhatsApp (completo)"
+          aria-label="Sincronizar com o WhatsApp"
           onClick={onRefresh}
         >
-          <RefreshCw className="w-5 h-5" />
+          <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
       <div
         className="wa-status-strip"
-        data-offline={connectionStatus !== 'online'}
+        data-offline={stripOffline ? 'true' : 'false'}
+        data-slow={socketStatus === 'slow' ? 'true' : 'false'}
         role="status"
       >
         <span className="wa-status-dot" aria-hidden />
@@ -104,37 +112,28 @@ export const WaInbox: React.FC<Props> = ({
       {totalUnread > 0 && (
         <button
           type="button"
-          className="wa-filter-unread"
-          data-active={unreadOnly}
+          className={`wa-filter-unread ${unreadOnly ? 'wa-filter-unread--on' : ''}`}
           onClick={onToggleUnread}
         >
-          {unreadOnly ? '← Ver todas as conversas' : `Não lidas (${totalUnread})`}
+          {unreadOnly ? 'Mostrar todas' : `Não lidas (${totalUnread})`}
         </button>
       )}
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+      <div ref={scrollRef} className="wa-conv-list flex-1 min-h-0 overflow-y-auto">
         {conversations.length === 0 ? (
-          <div className="py-20 px-8 text-center">
-            <MessageCircle className="w-11 h-11 mx-auto mb-4 opacity-35" style={{ color: 'var(--wa-text-3)' }} />
-            <p className="wa-conv-name text-[15px]">{unreadOnly ? 'Sem não lidas' : 'Nenhuma conversa'}</p>
-            <p className="wa-conv-preview mt-2">
-              {chipsConnected === 0
-                ? 'Conecte um chip em Conexões para sincronizar.'
-                : unreadOnly
-                  ? 'Todas as mensagens foram lidas.'
-                  : 'Use atualizar ou aguarde a sincronização.'}
-            </p>
-          </div>
+          <p className="text-center text-sm py-10 px-4" style={{ color: 'var(--wa-text-3)' }}>
+            Nenhuma conversa. Conecte um chip e use Atualizar, ou aguarde novas mensagens.
+          </p>
         ) : (
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+          <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
             {virtualizer.getVirtualItems().map((row) => {
               const conv = conversations[row.index];
               if (!conv) return null;
-              const disp = displayById.get(conv.id);
-              const primary = inboxListTitle(disp, conv);
-              const preview = getLastMsgPreview(conv) || 'Sem mensagens';
+              const display = displayById.get(conv.id);
+              const title = inboxListTitle(display, conv);
+              const preview = getLastMsgPreview(conv);
               const unread = unreadCount(conv);
-              const active = selectedId === conv.id;
+              const selected = conv.id === selectedId;
 
               return (
                 <button
@@ -142,41 +141,34 @@ export const WaInbox: React.FC<Props> = ({
                   type="button"
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  className="wa-conv-row absolute left-0 w-full"
-                  style={{
-                    height: row.size,
-                    transform: `translateY(${row.start}px)`
-                  }}
-                  data-active={active}
+                  className={`wa-conv-row absolute left-0 w-full text-left ${selected ? 'wa-conv-row--active' : ''}`}
+                  style={{ height: row.size, transform: `translateY(${row.start}px)` }}
                   onClick={() => onSelect(conv.id)}
                 >
                   <img
                     src={avatarById.get(conv.id) || ''}
                     alt=""
                     className="wa-conv-avatar"
+                    width={48}
+                    height={48}
                     loading="lazy"
                     onError={(e) => {
                       const el = e.currentTarget;
                       el.onerror = null;
-                      el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(primary)}&background=00a884&color=fff&size=200&bold=true`;
+                      el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=00a884&color=fff&size=200&bold=true`;
                     }}
                   />
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="wa-conv-name truncate">{primary}</span>
-                      <span className="wa-conv-time flex-shrink-0" data-unread={unread > 0}>
+                  <div className="wa-conv-body min-w-0 flex-1">
+                    <div className="flex justify-between gap-2 items-baseline">
+                      <span className="wa-conv-name truncate">{title}</span>
+                      <span className="wa-conv-time flex-shrink-0">
                         {formatListTime(conv)}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between gap-2 mt-0.5">
-                      <p
-                        className="wa-conv-preview truncate flex-1"
-                        style={{ fontWeight: unread > 0 ? 500 : 400, color: unread > 0 ? 'var(--wa-text)' : undefined }}
-                      >
-                        {preview}
-                      </p>
+                    <div className="flex justify-between gap-2 items-center mt-0.5">
+                      <span className="wa-conv-preview truncate">{preview}</span>
                       {unread > 0 && (
-                        <span className="wa-unread-badge">{unread > 99 ? '99+' : unread}</span>
+                        <span className="wa-unread-badge flex-shrink-0">{unread > 99 ? '99+' : unread}</span>
                       )}
                     </div>
                   </div>
@@ -186,6 +178,15 @@ export const WaInbox: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {conversations.length === 0 && chipsConnected === 0 && (
+        <div className="px-4 pb-4 text-center">
+          <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          <p className="text-xs" style={{ color: 'var(--wa-text-3)' }}>
+            Vá em Conexões e escaneie o QR do WhatsApp.
+          </p>
+        </div>
+      )}
     </aside>
   );
 };

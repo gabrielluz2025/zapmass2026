@@ -52,6 +52,7 @@ export const WaWebChatApp: React.FC<{
   );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draftConversations, setDraftConversations] = useState<Conversation[]>([]);
   const [search, setSearch] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -63,25 +64,26 @@ export const WaWebChatApp: React.FC<{
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
   const HISTORY_LEVELS = [200, 600, 1500, 3500, 8000];
 
-  const requestSync = useCallback(() => {
-    if (socket?.connected) socket.emit('request-conversations-sync');
+  const requestSync = useCallback((opts?: { full?: boolean }) => {
+    if (socket?.connected) socket.emit('request-conversations-sync', opts);
   }, [socket]);
 
-  const { status: connectionStatus } = useWaRealtime(socket, requestSync);
-  const live = connectionStatus === 'online' && isBackendConnected;
+  const { socketStatus, syncing, runResync } = useWaRealtime(socket, requestSync);
 
-  useEffect(() => {
-    requestSync();
-  }, [requestSync, connectedChannels.map((c) => c.id).sort().join('|')]);
+  const mergedConversations = useMemo(() => {
+    const realIds = new Set(conversations.map((c) => c.id));
+    const drafts = draftConversations.filter((d) => !realIds.has(d.id));
+    return dedupeConversationsById([...conversations, ...drafts]);
+  }, [conversations, draftConversations]);
 
   const sortedConversations = useMemo(() => {
-    const list = dedupeConversationsById(conversations);
+    const list = dedupeConversationsById(mergedConversations);
     return [...list].sort((a, b) => {
       const ta = a.lastMessageTimestamp ?? 0;
       const tb = b.lastMessageTimestamp ?? 0;
       return tb - ta;
     });
-  }, [conversations]);
+  }, [mergedConversations]);
 
   const displayById = useMemo(
     () => buildDisplayIndex(sortedConversations, contacts),
@@ -179,6 +181,101 @@ export const WaWebChatApp: React.FC<{
   }, [autoSelectedConversationId, sortedConversations, selectChat, onClearAutoSelected]);
 
   useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('zapmass.openChatByPhone');
+      if (!raw) return;
+      if (mergedConversations.length === 0 && connections.length === 0) return;
+      sessionStorage.removeItem('zapmass.openChatByPhone');
+
+      let phoneRaw = raw;
+      let contactName = '';
+      let profilePicUrl = '';
+      if (raw.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(raw) as {
+            phone?: string;
+            name?: string;
+            profilePicUrl?: string;
+          };
+          phoneRaw = parsed.phone || '';
+          contactName = (parsed.name || '').trim();
+          profilePicUrl = parsed.profilePicUrl || '';
+        } catch {
+          /* string pura */
+        }
+      }
+
+      const digits = (phoneRaw || '').replace(/\D/g, '');
+      if (!digits) return;
+
+      const matchesDigits = (cd: string) =>
+        !!cd &&
+        (cd === digits ||
+          cd.endsWith(digits) ||
+          digits.endsWith(cd) ||
+          (cd.length >= 10 && digits.length >= 10 && cd.slice(-10) === digits.slice(-10)));
+
+      const candidates = sortedConversations.filter((c) =>
+        matchesDigits((c.contactPhone || '').replace(/\D/g, ''))
+      );
+      if (candidates.length > 0) {
+        const best = candidates.sort(
+          (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+        )[0];
+        selectChat(best.id);
+        return;
+      }
+
+      const connectedList = connections.filter((c) => c.status === 'CONNECTED');
+      const chosen = connectedList[0] || connections[0];
+      const draftId = chosen ? `${chosen.id}:${digits}@c.us` : `draft:${digits}`;
+      const agendaHit = contacts.find((ct) => {
+        const cd = (ct.phone || '').replace(/\D/g, '');
+        return matchesDigits(cd);
+      });
+      const displayName =
+        (agendaHit?.name || '').trim() || contactName || `+${digits}`;
+      const draft: Conversation = {
+        id: draftId,
+        contactName: displayName,
+        contactPhone: digits,
+        profilePicUrl: profilePicUrl || agendaHit?.profilePicUrl || undefined,
+        connectionId: chosen?.id || '',
+        unreadCount: 0,
+        lastMessage: '',
+        lastMessageTime: '',
+        lastMessageTimestamp: Date.now(),
+        messages: [],
+        tags: []
+      };
+      setDraftConversations((prev) => (prev.some((d) => d.id === draftId) ? prev : [...prev, draft]));
+      selectChat(draftId);
+      if (!chosen) {
+        toast('Conversa aberta sem chip. Conecte um chip em Conexões para enviar.', {
+          icon: 'ℹ️',
+          duration: 4500
+        });
+      } else if (chosen.status !== 'CONNECTED') {
+        toast('Chip selecionado não está online. Conecte-o antes de enviar.', {
+          icon: '⚠️',
+          duration: 4500
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [mergedConversations.length, connections.length, sortedConversations, contacts, selectChat]);
+
+  useEffect(() => {
+    if (draftConversations.length === 0) return;
+    const realIds = new Set(conversations.map((c) => c.id));
+    const stillPending = draftConversations.filter((d) => !realIds.has(d.id));
+    if (stillPending.length !== draftConversations.length) {
+      setDraftConversations(stillPending);
+    }
+  }, [conversations, draftConversations]);
+
+  useEffect(() => {
     if (!selected?.id || selected.profilePicUrl) return;
     if (pictureFetchedRef.current.has(selected.id)) return;
     pictureFetchedRef.current.add(selected.id);
@@ -254,14 +351,20 @@ export const WaWebChatApp: React.FC<{
   );
 
   const handleRefresh = useCallback(() => {
-    requestSync();
-    toast.success('Sincronizando conversas…', { duration: 2000 });
-  }, [requestSync]);
+    runResync({ full: true });
+    requestSync({ full: true });
+    toast.success('Sincronizando com o WhatsApp…', { duration: 2500 });
+  }, [runResync, requestSync]);
 
   const selectedConnection = useMemo(
     () => connections.find((c) => c.id === selected?.connectionId) ?? null,
     [connections, selected?.connectionId]
   );
+
+  const selectedChipConnected = useMemo(() => {
+    if (!selected?.connectionId) return connectedChannels.length > 0;
+    return connectedChannels.some((c) => c.id === selected.connectionId);
+  }, [selected?.connectionId, connectedChannels]);
 
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selected ?? undefined), [selected]);
 
@@ -296,7 +399,8 @@ export const WaWebChatApp: React.FC<{
         selectedId={selectedId}
         search={search}
         unreadOnly={unreadOnly}
-        connectionStatus={live ? 'online' : 'offline'}
+        socketStatus={isBackendConnected ? socketStatus : 'offline'}
+        syncing={syncing}
         chipsConnected={connectedChannels.length}
         onSearch={setSearch}
         onToggleUnread={() => setUnreadOnly((v) => !v)}
@@ -312,7 +416,8 @@ export const WaWebChatApp: React.FC<{
         loadingHistory={loadingHistory}
         historyExhausted={selected ? !!historyExhausted[selected.id] : true}
         canSend={!!selected && connectedChannels.length > 0}
-        connectionStatus={live ? 'online' : 'offline'}
+        socketStatus={isBackendConnected ? socketStatus : 'offline'}
+        chipConnected={selectedChipConnected}
         showBack={mobileShowThread}
         onBack={() => setMobileShowThread(false)}
         onLoadOlder={loadOlder}

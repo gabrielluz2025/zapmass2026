@@ -40,16 +40,49 @@ export function slimConversationsForBroadcast(list: Conversation[]): Conversatio
 /** Máximo de mensagens por conversa no payload socket (lista + tempo real). Histórico completo via load-chat-history. */
 const SOCKET_INBOX_MSG_TAIL = 25;
 
+/** Limite de conversas no broadcast completo (evita JSON gigante na RAM). */
+const SOCKET_MAX_CONVERSATIONS = (() => {
+  const raw = Number(process.env.CHAT_SOCKET_MAX_CONVERSATIONS ?? 800);
+  if (!Number.isFinite(raw)) return 800;
+  return Math.max(200, Math.min(3000, Math.floor(raw)));
+})();
+
 /**
  * Payload final para `conversations-update`: remove base64 pesado e limita mensagens por conversa.
  * Sem isso, 2000+ chats com histórico em RAM viram JSON de dezenas de MB e travam o event loop (latência 90s+).
  */
+function trimConversationListForSocket(list: Conversation[]): Conversation[] {
+  if (list.length <= SOCKET_MAX_CONVERSATIONS) return list;
+  return [...list]
+    .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
+    .slice(0, SOCKET_MAX_CONVERSATIONS);
+}
+
 export function prepareConversationsForSocketEmit(list: Conversation[]): Conversation[] {
-  return slimConversationsForBroadcast(list).map((c) => {
+  return trimConversationListForSocket(slimConversationsForBroadcast(list)).map((c) => {
     const msgs = Array.isArray(c.messages) ? c.messages : [];
     if (msgs.length <= SOCKET_INBOX_MSG_TAIL) return c;
     return { ...c, messages: msgs.slice(-SOCKET_INBOX_MSG_TAIL) };
   });
+}
+
+export function prepareSingleConversationForSocketEmit(conv: Conversation): Conversation {
+  const [one] = prepareConversationsForSocketEmit([conv]);
+  return one;
+}
+
+/** Uma conversa para `conversation-delta` (escopo + CRM aplicado no caller). */
+export async function socketConversationDeltaPayload(
+  tenantUid: string,
+  authUid: string,
+  conv: Conversation,
+  resolveConnectionOwner?: ConnectionOwnerResolver
+): Promise<Conversation | null> {
+  const scoped = conversationsPayloadForViewer(tenantUid, authUid, [conv], resolveConnectionOwner);
+  if (scoped.length === 0) return null;
+  const withNames = await enrichConversationsWithCrmNames(tenantUid, scoped);
+  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, withNames);
+  return prepareSingleConversationForSocketEmit(withPhones[0]!);
 }
 
 /** Escopo tenant/staff + nomes CRM + payload enxuto para socket. */

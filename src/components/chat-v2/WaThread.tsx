@@ -8,6 +8,7 @@ import type { ConversationDisplay } from './lib/conversationDisplay';
 import { inboxListTitle } from './lib/conversationDisplay';
 import { formatDayLabel, formatMsgTime, messageDayKey } from './lib/messageTime';
 import { formatMessageBubbleText } from './lib/chatPreview';
+import type { WaSocketStatus } from './hooks/useWaRealtime';
 
 type VirtualRow =
   | { kind: 'date'; id: string; label: string }
@@ -37,7 +38,8 @@ type Props = {
   loadingHistory: boolean;
   historyExhausted: boolean;
   canSend: boolean;
-  connectionStatus: 'online' | 'offline';
+  socketStatus: WaSocketStatus;
+  chipConnected: boolean;
   showBack?: boolean;
   onBack?: () => void;
   onLoadOlder: () => void;
@@ -55,7 +57,8 @@ export const WaThread: React.FC<Props> = ({
   loadingHistory,
   historyExhausted,
   canSend,
-  connectionStatus,
+  socketStatus,
+  chipConnected,
   showBack,
   onBack,
   onLoadOlder,
@@ -109,10 +112,12 @@ export const WaThread: React.FC<Props> = ({
     );
   }
 
-  const headerSub =
-    display?.phoneSecondary ||
-    display?.whatsappSubtitle ||
-    (connectionStatus === 'online' ? 'online' : 'aguardando conexão');
+  const headerSub = useMemo(() => {
+    if (!chipConnected) return 'Chip WhatsApp desconectado — conecte em Conexões';
+    if (socketStatus === 'offline') return 'Servidor desconectado';
+    if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
+    return display?.phoneSecondary || display?.whatsappSubtitle || 'online';
+  }, [chipConnected, socketStatus, display?.phoneSecondary, display?.whatsappSubtitle]);
 
   return (
     <section
@@ -215,6 +220,7 @@ export const WaThread: React.FC<Props> = ({
                   showTail={grouped[vr.index]}
                   status={msg.status}
                   time={formatMsgTime(msg)}
+                  fromCampaign={msg.fromCampaign}
                 >
                   {formatMessageBubbleText(msg)}
                 </WaBubble>
