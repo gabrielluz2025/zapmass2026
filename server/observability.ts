@@ -5,6 +5,7 @@ import { buildAlerts, countAlertLevels, getChannelCapacityHeuristic } from './op
 import { vpsDataRequired } from './auth/dataMode.js';
 import { isFirebaseAdminConfigured } from './firebaseAdmin.js';
 import { pingFirebaseAdmin } from './firebaseAdminProbe.js';
+import { registerChatOpsMetrics } from './chatOpsMetrics.js';
 
 const register = new client.Registry();
 client.collectDefaultMetrics({ register, prefix: 'zapmass_' });
@@ -85,6 +86,7 @@ register.registerMetric(firebaseConfiguredGauge);
 register.registerMetric(firebasePingOkGauge);
 register.registerMetric(firebasePingMsGauge);
 register.registerMetric(opsAlertsGauge);
+registerChatOpsMetrics(register);
 
 export const markSessionCommandPublished = (type: string) => {
   sessionCommandsTotal.labels(type).inc();

@@ -169,8 +169,15 @@ function mergeOneConversation(
   if (prevMsgs.length === 0) return trimConversationMessagesTail(mergedMeta, maxTail);
   if (incMsgs.length === 0) return { ...mergedMeta, messages: prevMsgs };
 
+  const ackOutgoing = incMsgs.some(
+    (m) => m.sender === 'me' && m.id && !String(m.id).startsWith('pending-')
+  );
+  const basePrev = ackOutgoing
+    ? prevMsgs.filter((m) => !String(m.id).startsWith('pending-'))
+    : prevMsgs;
+
   const byId = new Map<string, ChatMessage>();
-  for (const m of prevMsgs) byId.set(m.id, m);
+  for (const m of basePrev) byId.set(m.id, m);
   for (const m of incMsgs) {
     const ex = byId.get(m.id);
     if (ex) {

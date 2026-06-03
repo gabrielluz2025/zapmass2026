@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation } from '../types';
-import { mergeConversationsFromSocketUpdate } from './conversationInboxTrim';
+import { mergeConversationDelta, mergeConversationsFromSocketUpdate } from './conversationInboxTrim';
 import { ownsConnectionForUid } from './connectionScope';
 
 const conv = (connectionId: string, connectionOwnerUid?: string): Conversation => ({
@@ -80,5 +80,49 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     expect(out[0].lastMessage).toBe('nova');
     expect(out[0].messages).toHaveLength(1);
     expect(out[0].messages[0].text).toBe('antiga');
+  });
+});
+
+describe('mergeConversationDelta (bolha pending)', () => {
+  it('remove mensagens pending-* quando chega ACK com id real', () => {
+    const id = 'conn_x:5511999999999@s.whatsapp.net';
+    const prev: Conversation[] = [
+      {
+        ...conv('conn_x', 'u1'),
+        id,
+        messages: [
+          {
+            id: 'pending-100',
+            text: 'oi',
+            timestamp: '12:00',
+            timestampMs: 100,
+            sender: 'me',
+            status: 'pending',
+            type: 'text'
+          }
+        ]
+      }
+    ];
+    const delta: Conversation = {
+      ...conv('conn_x', 'u1'),
+      id,
+      messages: [
+        {
+          id: 'ABCD1234',
+          text: 'oi',
+          timestamp: '12:00',
+          timestampMs: 105,
+          sender: 'me',
+          status: 'sent',
+          type: 'text'
+        }
+      ],
+      lastMessage: 'oi',
+      lastMessageTimestamp: 105
+    };
+    const out = mergeConversationDelta(prev, delta, () => true);
+    expect(out[0].messages).toHaveLength(1);
+    expect(out[0].messages[0].id).toBe('ABCD1234');
+    expect(out[0].messages[0].status).toBe('sent');
   });
 });

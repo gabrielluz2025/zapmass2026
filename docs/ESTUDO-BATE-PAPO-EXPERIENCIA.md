@@ -262,7 +262,7 @@ Base: **Evolution v2.2.0** (`atendai/evolution-api`) + Baileys. Melhorias releva
 | 0.2 | Ping: `slow` em ~25s, não offline em 8s | ✅ |
 | 0.3 | `send-message` → **delta** | ✅ |
 | 0.4 | `request-conversations-sync` leve vs completo | ✅ |
-| 0.5 | VPS: `WPP_LID_MODE=false` + Evolution **≥ 2.4** | ❌ infra |
+| 0.5 | VPS: `WPP_LID_MODE=false` + Evolution **≥ 2.4** | Script `deployment/upgrade-evolution-24.sh` + default stack 2.4.0 |
 | 0.6 | Documentar @lid + CRM | ✅ (este doc + suporte) |
 
 ### Fase 1 — Tempo real credível — ✅ maior parte
@@ -273,7 +273,7 @@ Base: **Evolution v2.2.0** (`atendai/evolution-api`) + Baileys. Melhorias releva
 | 1.2 | `messages.update` → ✓✓ | ✅ servidor; UI básica |
 | 1.3 | Contatos / Aniversariantes → telefone + rascunho | ✅ |
 | 1.4 | Badge **Campanha** | ✅ |
-| 1.5 | Optimistic UI | ✅ (`pending` cinza — opcional) |
+| 1.5 | Optimistic UI | ✅ bolha `pending` cinza até ACK |
 
 ### Fase 2 — Escala (3–6 semanas)
 
@@ -284,7 +284,7 @@ Base: **Evolution v2.2.0** (`atendai/evolution-api`) + Baileys. Melhorias releva
 | 2.2 | Busca de mensagens | ❌ |
 | 2.3 | Mídia: progresso upload | ❌ |
 | 2.4 | Multi-chip inbox unificado | Parcial |
-| 2.5 | Monitoramento sync / payload / @lid | ❌ |
+| 2.5 | Monitoramento sync / payload / @lid | ✅ Prometheus `zapmass_inbox_sync_*`, `zapmass_evolution_webhook_*`; `/api/health/deep` |
 
 ### Fase 3 — Estratégico (opcional)
 
@@ -313,7 +313,7 @@ Base: **Evolution v2.2.0** (`atendai/evolution-api`) + Baileys. Melhorias releva
 |------|--------|------|
 | Deploy GitHub → SSH :22 | Retries 3× + precheck 20× (`af3675d`) | Firewall Hostinger 0.0.0.0/0 |
 | Deploy manual | `deployment/manual-pull-deploy.sh` | Fallback |
-| Evolution v2.2.0 | Antiga para LID | Atualizar ≥ 2.4 na VPS |
+| Evolution v2.2.0 | Antiga para LID | `upgrade-evolution-24.sh` + `EVOLUTION_IMAGE=2.4.0` no stack |
 | `RESEND_API_KEY` vazio | E-mails off | Opcional |
 
 ---

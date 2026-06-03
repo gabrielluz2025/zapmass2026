@@ -2058,13 +2058,28 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     );
 
-    socket.on('send-message-error', ({ error }: { error?: string }) => {
-      const now = Date.now();
-      const minGapMs = 8000;
-      if (now - sendMessageErrorToastAtRef.current < minGapMs) return;
-      sendMessageErrorToastAtRef.current = now;
-      toast.error(error || 'Falha ao enviar mensagem.', { id: 'send-message-error', duration: 6000 });
-    });
+    socket.on(
+      'send-message-error',
+      ({ error, conversationId }: { error?: string; conversationId?: string }) => {
+        if (conversationId) {
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === conversationId
+                ? {
+                    ...c,
+                    messages: (c.messages || []).filter((m) => !String(m.id).startsWith('pending-'))
+                  }
+                : c
+            )
+          );
+        }
+        const now = Date.now();
+        const minGapMs = 8000;
+        if (now - sendMessageErrorToastAtRef.current < minGapMs) return;
+        sendMessageErrorToastAtRef.current = now;
+        toast.error(error || 'Falha ao enviar mensagem.', { id: 'send-message-error', duration: 6000 });
+      }
+    );
 
     socket.on('socket-operation-error', (p: { op?: string; error?: string }) => {
       const msg = p?.error || 'Operação falhou. Tente de novo.';
@@ -3006,7 +3021,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             minute: '2-digit'
           }),
           sender: 'me' as const,
-          status: 'sent' as const,
+          status: 'pending' as const,
           type: 'text' as const,
           timestampMs: nowMs
         };

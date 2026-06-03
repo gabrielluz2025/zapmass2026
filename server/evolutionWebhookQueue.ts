@@ -6,6 +6,11 @@ import { createHash } from 'crypto';
 import { Queue, Worker, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { normalizeEvolutionWebhookMessages } from './evolutionWebhookMessages.js';
+import {
+  markEvolutionWebhookJobProcessed,
+  recordEvolutionWebhookLagMs,
+  setEvolutionWebhookQueueDepth,
+} from './chatOpsMetrics.js';
 
 export type EvolutionWebhookJobPayload = {
   event: unknown;
@@ -124,13 +129,20 @@ export function ensureEvolutionWebhookWorker(): void {
     'evolution-webhook',
     async (job: Job<EvolutionWebhookJobPayload>) => {
       const lagMs = Date.now() - (job.data.receivedAt || Date.now());
+      recordEvolutionWebhookLagMs(lagMs);
       if (lagMs > 5000) {
         console.warn('[evolution-webhook-queue] job com fila alta', {
           lagMs,
           event: String((job.data.event as Record<string, unknown>)?.event || ''),
         });
       }
-      await processWebhook!(job.data.event);
+      try {
+        await processWebhook!(job.data.event);
+        markEvolutionWebhookJobProcessed(true);
+      } catch (err) {
+        markEvolutionWebhookJobProcessed(false);
+        throw err;
+      }
     },
     {
       connection: conn.duplicate(),
@@ -206,6 +218,36 @@ export async function enqueueEvolutionWebhook(
 /**
  * Enfileira ou processa na thread HTTP (fallback quando sem Redis).
  */
+export type EvolutionWebhookQueueMetrics = {
+  enabled: boolean;
+  waiting: number;
+  active: number;
+  delayed: number;
+  failed: number;
+};
+
+/** Profundidade da fila (BullMQ) — para /api/health/deep e Prometheus. */
+export async function getEvolutionWebhookQueueMetrics(): Promise<EvolutionWebhookQueueMetrics> {
+  const empty = { enabled: false, waiting: 0, active: 0, delayed: 0, failed: 0 };
+  if (!isEvolutionWebhookQueueEnabled()) return empty;
+  const queue = getWebhookQueue();
+  if (!queue) return empty;
+  try {
+    const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'failed');
+    const snap = {
+      enabled: true,
+      waiting: counts.waiting ?? 0,
+      active: counts.active ?? 0,
+      delayed: counts.delayed ?? 0,
+      failed: counts.failed ?? 0,
+    };
+    setEvolutionWebhookQueueDepth(snap);
+    return snap;
+  } catch {
+    return empty;
+  }
+}
+
 export async function dispatchEvolutionWebhook(event: unknown): Promise<{
   queued: boolean;
   processedSync?: boolean;

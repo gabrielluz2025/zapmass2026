@@ -277,6 +277,17 @@ html[data-mode='dark'] .wa-chat-wallpaper {
 }
 .wa-bubble[data-side='in']  { background: var(--wa-bubble-in); border-top-left-radius: 0; }
 .wa-bubble[data-side='out'] { background: var(--wa-bubble-out); border-top-right-radius: 0; }
+.wa-bubble[data-side='out'][data-status='pending'] {
+  background: #e9edef;
+  color: var(--wa-text-2, #667781);
+}
+html[data-mode='dark'] .wa-bubble[data-side='out'][data-status='pending'] {
+  background: #1f2c33;
+  color: rgba(233, 237, 239, 0.85);
+}
+.wa-tick-pending {
+  opacity: 0.65;
+}
 
 /* Tail (cauda) — SVG inline. Aparece só na primeira mensagem do bloco (data-tail='true'). */
 .wa-bubble[data-tail='true']::before {

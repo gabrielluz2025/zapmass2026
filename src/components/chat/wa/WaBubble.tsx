@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, CheckCheck } from 'lucide-react';
+import { Check, CheckCheck, Clock } from 'lucide-react';
 import type { ChatMessage } from '../../../types';
 
 interface WaBubbleProps {
@@ -29,13 +29,21 @@ export const WaBubble: React.FC<WaBubbleProps> = ({
 }) => {
   return (
     <div className={`flex ${side === 'out' ? 'justify-end' : 'justify-start'} px-3 my-[1px]`}>
-      <div className="wa-bubble" data-side={side} data-tail={showTail ? 'true' : 'false'}>
+      <div
+        className="wa-bubble"
+        data-side={side}
+        data-tail={showTail ? 'true' : 'false'}
+        data-status={side === 'out' && status ? status : undefined}
+      >
         {fromCampaign && side === 'out' ? (
           <span className="wa-campaign-tag">Campanha</span>
         ) : null}
         <span>{children}</span>
         <span className="wa-bubble-meta">
           {time}
+          {side === 'out' && status === 'pending' && (
+            <Clock className="wa-tick wa-tick-pending" strokeWidth={2.5} />
+          )}
           {side === 'out' && status === 'sent' && <Check className="wa-tick" strokeWidth={2.5} />}
           {side === 'out' && status === 'delivered' && <CheckCheck className="wa-tick" strokeWidth={2.5} />}
           {side === 'out' && status === 'read' && (

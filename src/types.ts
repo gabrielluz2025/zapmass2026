@@ -385,7 +385,7 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   sender: 'me' | 'them';
-  status: 'sent' | 'delivered' | 'read';
+  status: 'pending' | 'sent' | 'delivered' | 'read';
   type: 'text' | 'image' | 'audio' | 'sticker' | 'video' | 'document';
   mediaUrl?: string; // URL para imagem/sticker/video/document
   fromCampaign?: boolean; // true quando a mensagem foi enviada por um disparo de campanha

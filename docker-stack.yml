@@ -169,8 +169,8 @@ services:
       - zapmass_internal
 
   evolution:
-    # v2.2.0 (atendai) costuma retornar qrcode.count=0; 2.3.6 gera QR de forma confiável.
-    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.6}
+    # >= 2.4 melhora @lid; rollback: evoapicloud/evolution-api:v2.3.6 no .env
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.4.0}
     ports:
       - target: 8080
         published: 8080
@@ -204,6 +204,7 @@ services:
       - CONFIG_SESSION_PHONE_CLIENT=${CONFIG_SESSION_PHONE_CLIENT:-Chrome}
       - CONFIG_SESSION_PHONE_NAME=${CONFIG_SESSION_PHONE_NAME:-Chrome}
       - LOG_LEVEL=${EVOLUTION_LOG_LEVEL:-ERROR}
+      - WPP_LID_MODE=${WPP_LID_MODE:-false}
       - NODE_OPTIONS=--dns-result-order=ipv4first
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -70,6 +70,8 @@ import {
 import { metricsAccessMiddleware } from './metricsAccess.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
 import { getSystemMetrics } from './systemMetricsShared.js';
+import { getChatOpsMetricsSnapshot, recordInboxSyncDuration } from './chatOpsMetrics.js';
+import { getEvolutionWebhookQueueMetrics } from './evolutionWebhookQueue.js';
 import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
 import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
@@ -372,12 +374,17 @@ app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   }
   const sessionRouter = getSessionRouterMetrics();
   const whatsappWorkers = getWhatsappProcessWorkerCount();
+  const evolutionWebhookQueue = await getEvolutionWebhookQueueMetrics();
   res.json({
     status: 'ok',
     version: getAppVersion(),
     sessionProcessMode: process.env.SESSION_PROCESS_MODE || 'monolith',
     sessionBusRemote: isSessionBusRemote(),
     redis,
+    evolutionWebhookQueue,
+    chatOps: getChatOpsMetricsSnapshot(),
+    evolutionImage: process.env.EVOLUTION_IMAGE || null,
+    wppLidMode: process.env.WPP_LID_MODE ?? null,
     sessionRouter: {
       ...sessionRouter,
       whatsappProcessWorkers: whatsappWorkers
@@ -569,6 +576,7 @@ const emitSystemAndPromMetrics = () => {
   const connected = waService.getConnections().filter((conn) => conn.status === 'CONNECTED').length;
   setConnectedSessionsGauge(connected);
   updateOpsResourceGauges(connected);
+  void getEvolutionWebhookQueueMetrics();
 };
 emitSystemAndPromMetrics();
 setInterval(emitSystemAndPromMetrics, 10000);
@@ -945,38 +953,43 @@ const registerSocketHandlers = () => {
     /** Re-sincroniza conversas: `full` = findChats na Evolution; padrão = só reemit RAM (leve). */
     socket.on('request-conversations-sync', (opts?: { full?: boolean }) => {
       void (async () => {
-        if (uid && uid !== 'anonymous') {
-          await ensureAssignmentsLoaded(uid).catch(() => undefined);
-        }
+        const syncStarted = Date.now();
         const fullSync = opts?.full === true;
-        if (useEvolutionChat()) {
-          if (fullSync && uid && uid !== 'anonymous') {
-            await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
-            return;
-          }
-          if (fullSync) {
-            await evolutionService.syncAllOpenChats().catch(() => undefined);
-            return;
-          }
+        try {
           if (uid && uid !== 'anonymous') {
-            await evolutionService.reemitConversationsForOwner(uid).catch(() => undefined);
+            await ensureAssignmentsLoaded(uid).catch(() => undefined);
+          }
+          if (useEvolutionChat()) {
+            if (fullSync && uid && uid !== 'anonymous') {
+              await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
+              return;
+            }
+            if (fullSync) {
+              await evolutionService.syncAllOpenChats().catch(() => undefined);
+              return;
+            }
+            if (uid && uid !== 'anonymous') {
+              await evolutionService.reemitConversationsForOwner(uid).catch(() => undefined);
+              return;
+            }
+            socket.emit(
+              'conversations-update',
+              await socketConversationsPayload(
+                uid,
+                authOp,
+                evolutionService.getConversations(),
+                resolveConnectionOwnerUid
+              )
+            );
             return;
           }
           socket.emit(
             'conversations-update',
-            await socketConversationsPayload(
-              uid,
-              authOp,
-              evolutionService.getConversations(),
-              resolveConnectionOwnerUid
-            )
+            await socketConversationsPayload(uid, authOp, waService.getConversations(), resolveConnectionOwnerUid)
           );
-          return;
+        } finally {
+          recordInboxSyncDuration(Date.now() - syncStarted, fullSync);
         }
-        socket.emit(
-          'conversations-update',
-          await socketConversationsPayload(uid, authOp, waService.getConversations(), resolveConnectionOwnerUid)
-        );
       })();
     });
 
