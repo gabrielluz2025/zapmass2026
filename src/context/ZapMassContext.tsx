@@ -1470,6 +1470,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setConversations((prev) => mergeConversationDelta(prev, delta, ownsConnectionId));
     });
 
+    socket.on('conversations-removed', ({ conversationIds }: { conversationIds?: string[] }) => {
+      const ids = Array.isArray(conversationIds) ? conversationIds.filter(Boolean) : [];
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
+    });
+
     socket.on('conversation-picture', ({ conversationId, profilePicUrl }: { conversationId: string; profilePicUrl?: string | null }) => {
       if (!conversationId || !profilePicUrl) return;
       const pic = String(profilePicUrl);

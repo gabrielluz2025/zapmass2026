@@ -9,7 +9,7 @@ export type ChatArchiveMergeHooks = {
   getConversations: () => Conversation[];
   upsertConversation: (conv: Conversation, opts?: { skipArchive?: boolean }) => void;
   allowDeletedConversation: (conversationId: string) => void;
-  emitConversationsUpdate: () => void;
+  emitConversationDelta: (conversationId: string) => void;
   resolveConnectionOwnerUid: (connectionId: string) => string | undefined;
   ownerUidFromConnectionId: (connectionId: string) => string | undefined;
   maxMessages: number;
@@ -60,7 +60,7 @@ export async function mergeChatArchiveIntoConversation(
       tags: ['Arquivo']
     };
     hooks.upsertConversation(stub, { skipArchive: true });
-    hooks.emitConversationsUpdate();
+    hooks.emitConversationDelta(conversationId);
     return;
   }
 
@@ -90,7 +90,7 @@ export async function mergeChatArchiveIntoConversation(
     lastMessageTimestamp: lastM?.timestampMs ?? conv.lastMessageTimestamp
   };
   hooks.upsertConversation(nextConv, { skipArchive: true });
-  hooks.emitConversationsUpdate();
+  hooks.emitConversationDelta(conversationId);
 }
 
 export async function hydrateChatArchiveForConversation(

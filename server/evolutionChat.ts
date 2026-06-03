@@ -76,6 +76,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     let storeLock: Promise<void> = Promise.resolve();
     /** Debounce de 120ms para evitar dezenas de emits em sequência (ex: sync inicial de 1300+ conversas). */
     let emitDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const pendingDeltaIds = new Set<string>();
+    let deltaDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const DELTA_FLUSH_MAX = (() => {
+        const raw = Number(process.env.CHAT_DELTA_FLUSH_MAX ?? 80);
+        if (!Number.isFinite(raw)) return 80;
+        return Math.max(10, Math.min(200, Math.floor(raw)));
+    })();
     /** Contador de amostras de diagnóstico de conversas @lid (cap p/ não floodar logs). */
     let lidDiagSamples = 0;
     const phonebookCache = new Map<string, { at: number; index: PhonebookNameIndex }>();
@@ -98,6 +105,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
+    /** Lista completa — só sync findChats, delete em massa ou rajada grande de deltas. */
     function emitConversationsUpdate() {
         if (notifyConversationsChanged) {
             notifyConversationsChanged();
@@ -108,7 +116,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             console.warn('[evolutionChat] emitConversationsUpdate sem ownerUid — update suprimido para evitar cross-tenant.');
             return;
         }
-        // Debounce: agrupa emits rápidos em lote (ex: sync de 800+ conversas → 1 emit ao final).
+        pendingDeltaIds.clear();
+        if (deltaDebounceTimer) {
+            clearTimeout(deltaDebounceTimer);
+            deltaDebounceTimer = null;
+        }
         if (emitDebounceTimer) clearTimeout(emitDebounceTimer);
         emitDebounceTimer = setTimeout(() => {
             emitDebounceTimer = null;
@@ -122,7 +134,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }, 80);
     }
 
-    function emitConversationDelta(conversationId: string) {
+    function emitConversationDeltaNow(conversationId: string) {
         if (notifyConversationsChanged) return;
         if (!io || !ownerUidForScope) return;
         const conv = conversations.find((c) => c.id === conversationId);
@@ -137,6 +149,37 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (!payload) return;
             io!.to(`user:${ownerUidForScope}`).emit('conversation-delta', payload);
         })();
+    }
+
+    function flushConversationDeltas() {
+        deltaDebounceTimer = null;
+        const ids = [...pendingDeltaIds];
+        pendingDeltaIds.clear();
+        if (ids.length === 0) return;
+        if (ids.length > DELTA_FLUSH_MAX) {
+            emitConversationsUpdate();
+            return;
+        }
+        for (const id of ids) emitConversationDeltaNow(id);
+    }
+
+    function queueConversationDelta(conversationId: string) {
+        if (!conversationId) return;
+        pendingDeltaIds.add(conversationId);
+        if (deltaDebounceTimer) clearTimeout(deltaDebounceTimer);
+        deltaDebounceTimer = setTimeout(flushConversationDeltas, 50);
+    }
+
+    function emitConversationDelta(conversationId: string) {
+        queueConversationDelta(conversationId);
+    }
+
+    function emitConversationsRemoved(conversationIds: string[]) {
+        if (notifyConversationsChanged) return;
+        if (!io || !ownerUidForScope || conversationIds.length === 0) return;
+        io.to(`user:${ownerUidForScope}`).emit('conversations-removed', {
+            conversationIds: [...new Set(conversationIds)],
+        });
     }
 
     function parseConversationId(conversationId: string): ParsedConversation | null {
@@ -269,7 +312,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         getConversations: () => conversations,
         upsertConversation,
         allowDeletedConversation,
-        emitConversationsUpdate,
+        emitConversationDelta,
         resolveConnectionOwnerUid: archiveCtx!.resolveConnectionOwnerUid,
         ownerUidFromConnectionId: archiveCtx!.ownerUidFromConnectionId,
         maxMessages: MAX_MESSAGES
@@ -604,12 +647,24 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         });
         let fetched = 0;
         const batchSize = 6;
+        const pictureUpdatedIds: string[] = [];
         for (let i = 0; i < Math.min(targets.length, 300); i += batchSize) {
             const slice = targets.slice(i, i + batchSize);
-            const results = await Promise.all(slice.map((c) => fetchConversationPicture(c.id)));
+            const results = await Promise.all(
+                slice.map(async (c) => {
+                    const pic = await fetchConversationPicture(c.id, { silentEmit: true });
+                    return pic ? c.id : null;
+                })
+            );
+            for (const id of results) {
+                if (id) pictureUpdatedIds.push(id);
+            }
             fetched += results.filter(Boolean).length;
         }
-        if (fetched > 0 && !opts?.deferEmit) emitConversationsUpdate();
+        if (!opts?.deferEmit && pictureUpdatedIds.length > 0) {
+            for (const id of pictureUpdatedIds) queueConversationDelta(id);
+            flushConversationDeltas();
+        }
         return fetched;
     }
 
@@ -951,6 +1006,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 });
             }
 
+            // findChats: lista grande — um conversations-update debounced (sync completo intencional).
             if (!opts?.deferEmit) emitConversationsUpdate();
             if (chats.length > 0 && added === 0) {
                 console.warn(
@@ -1464,7 +1520,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 const mediaUrl = `data:${mime};base64,${base64}`;
                 if (local) {
                     local.mediaUrl = mediaUrl;
-                    emitConversationsUpdate();
+                    emitConversationDelta(conversationId);
                 }
                 return { ok: true, mediaUrl };
             }
@@ -1476,7 +1532,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (directUrl) {
             if (local) {
                 local.mediaUrl = directUrl;
-                emitConversationsUpdate();
+                emitConversationDelta(conversationId);
             }
             return { ok: true, mediaUrl: directUrl };
         }
@@ -1490,7 +1546,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const conv = conversations.find((c) => c.id === conversationId);
         if (conv) {
             conv.unreadCount = 0;
-            emitConversationsUpdate();
+            emitConversationDelta(conversationId);
         }
 
         const unreadThem = (conv?.messages || []).filter((m) => m.sender === 'them').slice(-5);
@@ -1509,7 +1565,10 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         }
     }
 
-    async function fetchConversationPicture(conversationId: string): Promise<string | null> {
+    async function fetchConversationPicture(
+        conversationId: string,
+        opts?: { silentEmit?: boolean }
+    ): Promise<string | null> {
         const parsed = parseConversationId(conversationId);
         if (!parsed) return null;
 
@@ -1519,7 +1578,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             const mirrored = await normalizeProfilePictureUrl(conv.profilePicUrl);
             if (mirrored) {
                 conv.profilePicUrl = mirrored;
-                emitConversationsUpdate();
+                if (!opts?.silentEmit) emitConversationDelta(conversationId);
                 return mirrored;
             }
         }
@@ -1539,7 +1598,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 if (pic) {
                     if (conv) {
                         conv.profilePicUrl = pic;
-                        emitConversationsUpdate();
+                        if (!opts?.silentEmit) emitConversationDelta(conversationId);
                     }
                     return pic;
                 }
@@ -1554,7 +1613,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (pic) {
                 if (conv) {
                     conv.profilePicUrl = pic;
-                    emitConversationsUpdate();
+                    if (!opts?.silentEmit) emitConversationDelta(conversationId);
                 }
                 return pic;
             }
@@ -1571,7 +1630,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         conversations = conversations.filter((c) => !idSet.has(c.id));
         conversationIds.forEach((id) => deletedConversationIds.add(id));
         const removed = before - conversations.length;
-        if (removed > 0) emitConversationsUpdate();
+        if (removed > 0) emitConversationsRemoved(conversationIds);
         return removed;
     }
 

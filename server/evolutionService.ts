@@ -568,8 +568,6 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
         await Promise.all(syncTasks);
     }
 
-    chatStore.emitConversationsUpdate();
-
     const { socketConversationsPayload } = await import('./conversationsEmit.js');
     const scoped = filterByConnectionScope(uid, getConnections());
     publishOwnerEvent(uid, 'connections-update', scoped);
