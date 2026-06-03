@@ -2,6 +2,7 @@
 
 /* WhatsApp Web skin para a aba "Pipeline" (ChatTab.tsx). */
 @import './styles/wa-web.css';
+@import './styles/wa-web-v2.css';
 @import './styles/aurora-shell.css';
 
 @tailwind base;
