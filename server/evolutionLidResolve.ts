@@ -1,6 +1,7 @@
 import type { AxiosInstance } from 'axios';
 import { looksLikeLongLidDigits, normalizePhoneDigits } from '../src/utils/contactPhoneLookup.js';
-import { normalizeChatRemoteJid } from './evolutionChatJid.js';
+import type { ChatMessage } from './types.js';
+import { chatRemoteJidFromFindChatsRow, normalizeChatRemoteJid } from './evolutionChatJid.js';
 
 export const LID_SEND_BLOCKED_MSG =
   'Não foi possível obter o número deste contato. Peça para ele enviar uma mensagem, abra o chat no WhatsApp do celular e clique em Atualizar na lista.';
@@ -108,10 +109,160 @@ function extractFindContactsList(raw: unknown): Record<string, unknown>[] {
 
 export function peerFromMessageKey(key: Record<string, unknown> | undefined): LidPeerFields | null {
   if (!key) return null;
-  const waJidAlt = pickSendableWaJidAlt(key.remoteJidAlt, key.senderPn, key.participant);
+  const waJidAlt = pickSendableWaJidAlt(
+    key.remoteJidAlt,
+    key.senderPn,
+    key.participant,
+    key.sender
+  );
   if (!waJidAlt) return null;
   const contactPhone = formatPhoneFromDigits(waJidAlt.split('@')[0]);
   return contactPhone ? { contactPhone, waJidAlt } : null;
+}
+
+/** Varre JSON da Evolution em busca de JID com telefone real (histórico sem key.remoteJidAlt). */
+export function deepScanPnJidFromRecord(raw: unknown, depth = 0): string | undefined {
+  if (depth > 10 || raw == null) return undefined;
+  if (typeof raw === 'string') {
+    const m = raw.match(/(\d{10,13})@(s\.whatsapp\.net|c\.us)/i);
+    if (m && plausiblePhoneDigits(m[1])) {
+      const host = m[0].toLowerCase().includes('c.us') ? 'c.us' : 's.whatsapp.net';
+      return `${normalizeOutboundDigits(m[1])}@${host}`;
+    }
+    return undefined;
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const hit = deepScanPnJidFromRecord(item, depth + 1);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+  if (typeof raw === 'object') {
+    for (const v of Object.values(raw as Record<string, unknown>)) {
+      const hit = deepScanPnJidFromRecord(v, depth + 1);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
+
+export function peerFromRawMessageRecord(raw: Record<string, unknown> | null | undefined): LidPeerFields | null {
+  if (!raw) return null;
+  const keyHit = peerFromMessageKey(
+    (raw.key && typeof raw.key === 'object' ? raw.key : undefined) as Record<string, unknown> | undefined
+  );
+  if (keyHit) return keyHit;
+  const topAlt = pickSendableWaJidAlt(
+    raw.remoteJidAlt,
+    raw.senderPn,
+    raw.participant,
+    raw.sender
+  );
+  if (topAlt) {
+    const contactPhone = formatPhoneFromDigits(topAlt.split('@')[0]);
+    if (contactPhone) return { contactPhone, waJidAlt: topAlt };
+  }
+  const scanned = deepScanPnJidFromRecord(raw);
+  if (scanned) {
+    const contactPhone = formatPhoneFromDigits(scanned.split('@')[0]);
+    if (contactPhone) return { contactPhone, waJidAlt: scanned };
+  }
+  return null;
+}
+
+/** Usa metadados guardados nas mensagens já sincronizadas no painel. */
+export function peerFromStoredMessages(messages: ChatMessage[] | undefined): LidPeerFields | null {
+  const list = messages || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m) continue;
+    const alt = pickSendableWaJidAlt(m.waRemoteJidAlt, m.waSenderPn);
+    if (!alt) continue;
+    const contactPhone = formatPhoneFromDigits(alt.split('@')[0]);
+    if (contactPhone) return { contactPhone, waJidAlt: alt };
+  }
+  return null;
+}
+
+function extractFindChatsList(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) return raw as Record<string, unknown>[];
+  if (!raw || typeof raw !== 'object') return [];
+  const row = raw as Record<string, unknown>;
+  for (const key of ['chats', 'records', 'data', 'response'] as const) {
+    const v = row[key];
+    if (Array.isArray(v)) return v as Record<string, unknown>[];
+  }
+  return [];
+}
+
+export async function resolveLidPeerFromFindChats(
+  api: AxiosInstance,
+  evoInst: (connectionId: string) => string,
+  connectionId: string,
+  lidJid: string
+): Promise<LidPeerFields | null> {
+  const inst = evoInst(connectionId);
+  const lid = String(lidJid || '').trim();
+  if (!isLidJid(lid)) return null;
+
+  for (let page = 1; page <= 30; page++) {
+    try {
+      const res = await api.post(`/chat/findChats/${inst}`, { page, limit: 500 });
+      const list = extractFindChatsList(res.data);
+      if (list.length === 0) break;
+      for (const chat of list) {
+        const jid = chatRemoteJidFromFindChatsRow(chat);
+        if (jid !== lid) continue;
+        const peer = peerFieldsFromEvolutionChatRow(chat);
+        if (hasResolvablePhone(peer)) return peer;
+        const scanned = deepScanPnJidFromRecord(chat);
+        if (scanned) {
+          const contactPhone = formatPhoneFromDigits(scanned.split('@')[0]);
+          if (contactPhone) return { contactPhone, waJidAlt: scanned };
+        }
+      }
+      if (list.length < 500) break;
+    } catch {
+      break;
+    }
+  }
+  return null;
+}
+
+async function resolveLidPeerFromBroadFindMessages(
+  api: AxiosInstance,
+  evoInst: (connectionId: string) => string,
+  connectionId: string,
+  lidJid: string
+): Promise<LidPeerFields | null> {
+  const inst = evoInst(connectionId);
+  const lid = String(lidJid || '').trim();
+
+  for (let page = 1; page <= 12; page++) {
+    try {
+      const res = await api.post(`/chat/findMessages/${inst}`, {
+        page,
+        offset: 80,
+        limit: 80,
+      });
+      const { records } = extractFindMessagesRecords(res.data);
+      if (records.length === 0) break;
+      for (const m of records) {
+        const rjid = String((m as Record<string, unknown>)?.key &&
+          typeof (m as Record<string, unknown>).key === 'object'
+          ? ((m as Record<string, unknown>).key as Record<string, unknown>).remoteJid
+          : '');
+        if (rjid !== lid) continue;
+        const hit = peerFromRawMessageRecord(m as Record<string, unknown>);
+        if (hit && hasResolvablePhone(hit)) return hit;
+      }
+      if (records.length < 80) break;
+    } catch {
+      break;
+    }
+  }
+  return null;
 }
 
 function peerFromContactRow(row: Record<string, unknown>): LidPeerFields | null {
@@ -148,21 +299,27 @@ export async function resolveLidPeerFromEvolutionApi(
   const lid = String(lidJid || '').trim();
   if (!isLidJid(lid)) return null;
 
+  const fromChats = await resolveLidPeerFromFindChats(api, evoInst, connectionId, lid);
+  if (fromChats && hasResolvablePhone(fromChats)) return fromChats;
+
   try {
     const msgRes = await api.post(`/chat/findMessages/${inst}`, {
       where: { key: { remoteJid: lid } },
       page: 1,
-      offset: 20,
-      limit: 20,
+      offset: 80,
+      limit: 80,
     });
     const { records } = extractFindMessagesRecords(msgRes.data);
     for (const m of records) {
-      const hit = peerFromMessageKey((m?.key || m) as Record<string, unknown>);
-      if (hit) return hit;
+      const hit = peerFromRawMessageRecord(m as Record<string, unknown>);
+      if (hit && hasResolvablePhone(hit)) return hit;
     }
   } catch {
-    /* tenta agenda */
+    /* tenta varredura ampla */
   }
+
+  const fromBroad = await resolveLidPeerFromBroadFindMessages(api, evoInst, connectionId, lid);
+  if (fromBroad && hasResolvablePhone(fromBroad)) return fromBroad;
 
   try {
     const ctRes = await api.post(`/chat/findContacts/${inst}`, {

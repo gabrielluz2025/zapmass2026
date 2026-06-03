@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deepScanPnJidFromRecord,
   mergeLidPeerFields,
   peerFieldsFromEvolutionChatRow,
+  peerFromStoredMessages,
   pickSendableWaJidAlt
 } from './evolutionLidResolve.js';
 
@@ -26,6 +28,32 @@ describe('mergeLidPeerFields', () => {
       waJidAlt: '5511888777666@s.whatsapp.net'
     });
     expect(peer.contactPhone).toBe('+5511888777666');
+  });
+});
+
+describe('peerFromStoredMessages', () => {
+  it('lê waSenderPn das mensagens em cache', () => {
+    const peer = peerFromStoredMessages([
+      {
+        id: '1',
+        text: 'oi',
+        timestamp: '10:00',
+        sender: 'them',
+        status: 'delivered',
+        type: 'text',
+        waSenderPn: '5511999887766@s.whatsapp.net'
+      }
+    ]);
+    expect(peer?.contactPhone).toBe('+5511999887766');
+  });
+});
+
+describe('deepScanPnJidFromRecord', () => {
+  it('acha JID em objeto aninhado', () => {
+    const jid = deepScanPnJidFromRecord({
+      payload: { nested: { x: '5511888777666@s.whatsapp.net' } }
+    });
+    expect(jid).toBe('5511888777666@s.whatsapp.net');
   });
 });
 

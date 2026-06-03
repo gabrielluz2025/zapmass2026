@@ -112,7 +112,16 @@ export function mergeConversationsFromSocketUpdate(
 
       const byId = new Map<string, ChatMessage>();
       for (const m of prevMsgs) byId.set(m.id, m);
-      for (const m of incMsgs) byId.set(m.id, m);
+      for (const m of incMsgs) {
+        const ex = byId.get(m.id);
+        if (ex) {
+          if (m.waRemoteJidAlt && !ex.waRemoteJidAlt) ex.waRemoteJidAlt = m.waRemoteJidAlt;
+          if (m.waSenderPn && !ex.waSenderPn) ex.waSenderPn = m.waSenderPn;
+          byId.set(m.id, ex);
+        } else {
+          byId.set(m.id, m);
+        }
+      }
       const mergedMsgs = Array.from(byId.values()).sort(
         (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
       );

@@ -57,6 +57,9 @@ export interface ChatMessage {
   fromCampaign?: boolean;
   campaignId?: string;
   timestampMs?: number;
+  /** Metadados WA para resolver @lid → telefone (não exibidos na UI). */
+  waRemoteJidAlt?: string;
+  waSenderPn?: string;
 }
 
 export interface Conversation {

@@ -391,6 +391,9 @@ export interface ChatMessage {
   fromCampaign?: boolean; // true quando a mensagem foi enviada por um disparo de campanha
   campaignId?: string;    // id da campanha que originou essa mensagem (quando aplicavel)
   timestampMs?: number;   // epoch em ms para ordenacao e comparacao precisa de respostas
+  /** Metadados WA para resolver @lid → telefone no servidor. */
+  waRemoteJidAlt?: string;
+  waSenderPn?: string;
 }
 
 export interface Conversation {
