@@ -93,6 +93,20 @@ export const WaThread: React.FC<Props> = ({
     return out;
   }, [messages]);
 
+  const headerSub = useMemo(() => {
+    if (!conversation) return '';
+    if (!chipConnected) return 'Chip WhatsApp desconectado — conecte em Conexões';
+    if (socketStatus === 'offline') return 'Servidor desconectado';
+    if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
+    return display?.phoneSecondary || display?.whatsappSubtitle || 'online';
+  }, [
+    conversation,
+    chipConnected,
+    socketStatus,
+    display?.phoneSecondary,
+    display?.whatsappSubtitle
+  ]);
+
   useEffect(() => {
     if (!scrollRef.current || messages.length === 0) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -111,13 +125,6 @@ export const WaThread: React.FC<Props> = ({
       </section>
     );
   }
-
-  const headerSub = useMemo(() => {
-    if (!chipConnected) return 'Chip WhatsApp desconectado — conecte em Conexões';
-    if (socketStatus === 'offline') return 'Servidor desconectado';
-    if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
-    return display?.phoneSecondary || display?.whatsappSubtitle || 'online';
-  }, [chipConnected, socketStatus, display?.phoneSecondary, display?.whatsappSubtitle]);
 
   return (
     <section
