@@ -1,0 +1,233 @@
+/**
+ * Fila BullMQ para webhooks Evolution — desacopla HTTP do processamento pesado.
+ * Campanhas usam fila separada (`campaign-messages`) para evitar starvation.
+ */
+import { createHash } from 'crypto';
+import { Queue, Worker, type Job } from 'bullmq';
+import IORedis from 'ioredis';
+import { normalizeEvolutionWebhookMessages } from './evolutionWebhookMessages.js';
+
+export type EvolutionWebhookJobPayload = {
+  event: unknown;
+  receivedAt: number;
+};
+
+let redisConnection: IORedis | null = null;
+let webhookQueue: Queue<EvolutionWebhookJobPayload> | null = null;
+let webhookWorker: Worker<EvolutionWebhookJobPayload> | null = null;
+let processWebhook: ((event: unknown) => Promise<void>) | null = null;
+
+function getRedisUrl(): string | null {
+  const url = process.env.REDIS_URL?.trim();
+  return url || null;
+}
+
+/** Fila ativa quando há REDIS_URL e não desligada explicitamente. */
+export function isEvolutionWebhookQueueEnabled(): boolean {
+  const raw = process.env.EVOLUTION_WEBHOOK_QUEUE_ENABLED?.trim().toLowerCase();
+  if (raw === '0' || raw === 'false' || raw === 'no') return false;
+  return Boolean(getRedisUrl());
+}
+
+function getRedisConnection(): IORedis | null {
+  const url = getRedisUrl();
+  if (!url) return null;
+  if (!redisConnection) {
+    redisConnection = new IORedis(url, {
+      maxRetriesPerRequest: null,
+      enableOfflineQueue: false,
+      retryStrategy: (times) => Math.min(times * 500, 5000),
+      reconnectOnError: () => true,
+    });
+    redisConnection.on('error', (err) => {
+      console.warn('[evolution-webhook-queue] redis error:', err?.message || err);
+    });
+  }
+  return redisConnection;
+}
+
+function getWebhookQueue(): Queue<EvolutionWebhookJobPayload> | null {
+  const conn = getRedisConnection();
+  if (!conn) return null;
+  if (!webhookQueue) {
+    webhookQueue = new Queue<EvolutionWebhookJobPayload>('evolution-webhook', { connection: conn });
+  }
+  return webhookQueue;
+}
+
+/** Idempotência / dedupe de rajadas (mesma mensagem ou mesmo update). */
+export function buildEvolutionWebhookJobId(event: unknown): string {
+  const ev = (event && typeof event === 'object' ? event : {}) as Record<string, unknown>;
+  const instance = String(ev.instance ?? ev.instanceName ?? 'unknown');
+  const eventName = String(ev.event || 'unknown').toUpperCase().replace(/\./g, '_');
+  const data = ev.data ?? ev;
+
+  if (eventName === 'MESSAGES_UPSERT') {
+    const items = normalizeEvolutionWebhookMessages(data);
+    const ids = items
+      .map((m) => m?.key?.id)
+      .filter((id): id is string => Boolean(id))
+      .join('_');
+    if (ids) return `MU:${instance}:${ids}`.slice(0, 220);
+  }
+
+  if (eventName === 'MESSAGES_UPDATE') {
+    const updates = Array.isArray(data) ? data : data ? [data] : [];
+    const parts = updates
+      .map((u: Record<string, unknown>) => {
+        const key = (u?.key as Record<string, unknown>) || {};
+        const messageId = key.id ?? u.keyId;
+        const status = (u?.update as Record<string, unknown>)?.status ?? u.status;
+        return messageId != null && status != null ? `${messageId}:${status}` : '';
+      })
+      .filter(Boolean);
+    if (parts.length) return `MUPD:${instance}:${parts.join('_')}`.slice(0, 220);
+  }
+
+  if (eventName === 'CONNECTION_UPDATE') {
+    const h = createHash('sha256')
+      .update(`${instance}:${JSON.stringify(data)}`)
+      .digest('hex')
+      .slice(0, 14);
+    return `CONN:${instance}:${h}`;
+  }
+
+  if (eventName === 'QRCODE_UPDATED') {
+    return `QR:${instance}:${createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 12)}`;
+  }
+
+  const h = createHash('sha256').update(JSON.stringify(ev)).digest('hex').slice(0, 16);
+  return `EV:${eventName}:${instance}:${h}`;
+}
+
+function isDuplicateJobError(err: unknown): boolean {
+  const msg = String((err as Error)?.message || err || '');
+  return /job.*already exists|duplicate/i.test(msg);
+}
+
+export function initEvolutionWebhookQueue(processor: (event: unknown) => Promise<void>): void {
+  processWebhook = processor;
+  ensureEvolutionWebhookWorker();
+}
+
+export function ensureEvolutionWebhookWorker(): void {
+  if (!isEvolutionWebhookQueueEnabled() || !processWebhook) return;
+  const conn = getRedisConnection();
+  if (!conn || webhookWorker) return;
+
+  const concurrency = Math.max(
+    1,
+    Math.min(32, parseInt(process.env.EVOLUTION_WEBHOOK_WORKER_CONCURRENCY || '8', 10))
+  );
+
+  webhookWorker = new Worker<EvolutionWebhookJobPayload>(
+    'evolution-webhook',
+    async (job: Job<EvolutionWebhookJobPayload>) => {
+      const lagMs = Date.now() - (job.data.receivedAt || Date.now());
+      if (lagMs > 5000) {
+        console.warn('[evolution-webhook-queue] job com fila alta', {
+          lagMs,
+          event: String((job.data.event as Record<string, unknown>)?.event || ''),
+        });
+      }
+      await processWebhook!(job.data.event);
+    },
+    {
+      connection: conn.duplicate(),
+      concurrency,
+      limiter: {
+        max: Math.max(10, parseInt(process.env.EVOLUTION_WEBHOOK_LIMITER_MAX || '40', 10)),
+        duration: 1000,
+      },
+    }
+  );
+
+  webhookWorker.on('failed', (job, err) => {
+    console.error('[evolution-webhook-queue] job falhou', {
+      event: String((job?.data?.event as Record<string, unknown>)?.event || ''),
+      error: err?.message,
+      attempts: job?.attemptsMade,
+    });
+  });
+
+  console.info(
+    `[evolution-webhook-queue] worker iniciado (concurrency=${concurrency}, queue=evolution-webhook)`
+  );
+}
+
+const ENQUEUE_TIMEOUT_MS = 8_000;
+
+/**
+ * Enfileira webhook. Retorna `queued: false` se Redis indisponível ou fila desligada.
+ */
+export async function enqueueEvolutionWebhook(
+  event: unknown
+): Promise<{ queued: boolean; reason?: string }> {
+  if (!isEvolutionWebhookQueueEnabled()) {
+    return { queued: false, reason: 'disabled' };
+  }
+  ensureEvolutionWebhookWorker();
+  const queue = getWebhookQueue();
+  if (!queue) return { queued: false, reason: 'no_redis' };
+
+  const jobId = buildEvolutionWebhookJobId(event);
+  const addPromise = queue.add(
+    'process',
+    { event, receivedAt: Date.now() },
+    {
+      jobId,
+      attempts: Math.max(1, parseInt(process.env.EVOLUTION_WEBHOOK_JOB_ATTEMPTS || '3', 10)),
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: 5000,
+      removeOnFail: 2000,
+    }
+  );
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      addPromise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Timeout ao enfileirar webhook (Redis lento).')),
+          ENQUEUE_TIMEOUT_MS
+        );
+      }),
+    ]);
+    return { queued: true };
+  } catch (err) {
+    if (isDuplicateJobError(err)) return { queued: true, reason: 'duplicate' };
+    throw err;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Enfileira ou processa na thread HTTP (fallback quando sem Redis).
+ */
+export async function dispatchEvolutionWebhook(event: unknown): Promise<{
+  queued: boolean;
+  processedSync?: boolean;
+  reason?: string;
+}> {
+  try {
+    const enq = await enqueueEvolutionWebhook(event);
+    if (enq.queued) return { queued: true, reason: enq.reason };
+
+    const allowSync =
+      process.env.EVOLUTION_WEBHOOK_SYNC_FALLBACK?.trim().toLowerCase() !== 'false';
+    if (allowSync && processWebhook) {
+      await processWebhook(event);
+      return { queued: false, processedSync: true, reason: enq.reason || 'fallback_sync' };
+    }
+    return { queued: false, reason: enq.reason || 'not_queued' };
+  } catch (err) {
+    console.error('[evolution-webhook-queue] enqueue falhou — fallback sync', (err as Error)?.message);
+    if (processWebhook) {
+      await processWebhook(event);
+      return { queued: false, processedSync: true, reason: 'enqueue_error_fallback' };
+    }
+    throw err;
+  }
+}

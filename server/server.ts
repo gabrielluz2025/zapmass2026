@@ -483,7 +483,7 @@ app.post('/api/backup', async (req, res) => {
   }
 });
 
-const handleEvolutionWebhookPost = (req: express.Request, res: express.Response) => {
+const handleEvolutionWebhookPost = async (req: express.Request, res: express.Response) => {
   try {
     const tok = process.env.EVOLUTION_WEBHOOK_TOKEN?.trim();
     if (tok) {
@@ -495,8 +495,12 @@ const handleEvolutionWebhookPost = (req: express.Request, res: express.Response)
         return res.status(401).json({ error: 'Unauthorized' });
       }
     }
-    void evolutionService.handleWebhook(req.body);
-    res.status(200).json({ received: true, handled: true });
+    const outcome = await evolutionService.dispatchWebhook(req.body);
+    res.status(200).json({
+      received: true,
+      queued: outcome.queued,
+      processedSync: outcome.processedSync ?? false,
+    });
   } catch (error) {
     console.error('[webhook/evolution]', error);
     res.status(500).json({ error: 'Webhook processing failed' });

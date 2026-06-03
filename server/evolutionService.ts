@@ -47,6 +47,7 @@ import {
     normalizeEvolutionWebhookMessages,
     resolvePhoneDigitsFromEvolutionMessage,
 } from './evolutionWebhookMessages.js';
+import { dispatchEvolutionWebhook, initEvolutionWebhookQueue } from './evolutionWebhookQueue.js';
 import {
     filterByConnectionScope,
     isLegacyConnectionId,
@@ -3162,6 +3163,7 @@ export function init(socketIO: SocketIOServer) {
     io = socketIO;
     chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
     ensureReplyFlowEngine();
+    initEvolutionWebhookQueue(handleWebhook);
     ensureCampaignWorker();
     log('info', 'Evolution API Service Initialized', {
         apiUrl: evolutionConfig.apiUrl,
@@ -3235,6 +3237,15 @@ async function testConnection() {
  * Handler de webhooks (para receber eventos da Evolution API)
  */
 const WEBHOOK_PROCESSING_TIMEOUT_MS = 10_000;
+
+/** Enfileira webhook (BullMQ) ou processa na thread HTTP se Redis indisponível. */
+export async function dispatchWebhook(event: unknown): Promise<{
+  queued: boolean;
+  processedSync?: boolean;
+  reason?: string;
+}> {
+  return dispatchEvolutionWebhook(event);
+}
 
 export async function handleWebhook(event: any) {
     // Garante que nenhum webhook trava o event loop indefinidamente (ex: Redis lento).
@@ -3743,6 +3754,7 @@ export default {
     applySettings,
     getConnectionState,
     handleWebhook,
+    dispatchWebhook,
     getConnections,
     getMetrics,
     getConversations,
