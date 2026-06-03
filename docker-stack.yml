@@ -169,8 +169,8 @@ services:
       - zapmass_internal
 
   evolution:
-    # >= 2.4 melhora @lid; rollback: evoapicloud/evolution-api:v2.3.6 no .env
-    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.4.0}
+    # v2.3.7 = ultima 2.3 no Hub (QR ok). v2.4.0-rc* exige licenca Evolution Foundation.
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7}
     ports:
       - target: 8080
         published: 8080

@@ -35,6 +35,18 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3001/api/health
 cd /opt/zapmass && bash deployment/manual-pull-deploy.sh
 ```
 
+## Evolution: tag `v2.4.0` não existe no Docker Hub
+
+Se `docker compose` falhar com `evoapicloud/evolution-api:v2.4.0: not found`:
+
+```bash
+cd /opt/zapmass
+bash deployment/fix-evolution-image-vps.sh   # define v2.3.7
+bash deployment/manual-pull-deploy.sh
+```
+
+Tags válidas: `v2.3.7` (recomendado). `2.4.0-rc2` exige licença gratuita na Evolution Foundation.
+
 ## Alternativa estável
 
 [Self-hosted runner](https://docs.github.com/en/actions/hosting-your-own-runners/about-self-hosted-runners) na VPS — o runner liga **para fora** aos servidores da GitHub, sem depender de SSH entrada dos IPs do Actions.
