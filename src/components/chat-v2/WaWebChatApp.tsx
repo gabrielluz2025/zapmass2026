@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MoreVertical, Plus, Wifi, WifiOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
@@ -10,13 +9,12 @@ import {
   normalizePhoneDigits
 } from '../../utils/contactPhoneLookup';
 import type { Conversation } from '../../types';
-import { WaInbox, type InboxFilter } from './WaInbox';
+import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
 import { useWaRealtime } from './hooks/useWaRealtime';
 import {
   avatarUrl,
   buildDisplayIndex,
-  isGroupConversation,
   phoneRawForContactLookup,
   unreadCount
 } from './lib/conversationDisplay';
@@ -45,7 +43,7 @@ export const WaWebChatApp: React.FC<{
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<InboxFilter>('all');
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyExhausted, setHistoryExhausted] = useState<Record<string, boolean>>({});
   const [mobileShowThread, setMobileShowThread] = useState(false);
@@ -57,7 +55,8 @@ export const WaWebChatApp: React.FC<{
     if (socket?.connected) socket.emit('request-conversations-sync');
   }, [socket]);
 
-  const { connected: socketLive, latencyMs } = useWaRealtime(socket, requestSync);
+  const { status: connectionStatus } = useWaRealtime(socket, requestSync);
+  const live = connectionStatus === 'online' && isBackendConnected;
 
   useEffect(() => {
     requestSync();
@@ -120,8 +119,7 @@ export const WaWebChatApp: React.FC<{
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return sortedConversations.filter((c) => {
-      if (filter === 'unread' && unreadCount(c) === 0) return false;
-      if (filter === 'groups' && !isGroupConversation(c)) return false;
+      if (unreadOnly && unreadCount(c) === 0) return false;
       if (!q) return true;
       const disp = displayById.get(c.id);
       const primary = disp?.primary?.toLowerCase() ?? '';
@@ -130,18 +128,21 @@ export const WaWebChatApp: React.FC<{
       const preview = (c.lastMessage || '').toLowerCase();
       return primary.includes(q) || sub.includes(q) || phone.includes(q) || preview.includes(q);
     });
-  }, [sortedConversations, search, filter, displayById]);
+  }, [sortedConversations, search, unreadOnly, displayById]);
 
   const selected = useMemo(
     () => sortedConversations.find((c) => c.id === selectedId) ?? null,
     [sortedConversations, selectedId]
   );
 
-  const selectChat = useCallback((id: string) => {
-    setSelectedId(id);
-    setMobileShowThread(true);
-    markAsRead(id);
-  }, [markAsRead]);
+  const selectChat = useCallback(
+    (id: string) => {
+      setSelectedId(id);
+      setMobileShowThread(true);
+      markAsRead(id);
+    },
+    [markAsRead]
+  );
 
   useEffect(() => {
     let id = autoSelectedConversationId?.trim() || '';
@@ -240,84 +241,45 @@ export const WaWebChatApp: React.FC<{
     [selected?.id, connectedChannels.length, sendMessage]
   );
 
-  const liveLabel =
-    socketLive && isBackendConnected
-      ? latencyMs != null
-        ? `Ao vivo · ${latencyMs} ms`
-        : 'Ao vivo'
-      : 'Reconectando…';
+  const handleRefresh = useCallback(() => {
+    requestSync();
+    toast.success('Sincronizando conversas…', { duration: 2000 });
+  }, [requestSync]);
 
   return (
     <div className="wa-v2-root flex h-[calc(100vh-5.5rem)] min-h-[480px] rounded-xl overflow-hidden border border-[#e9edef] shadow-lg">
       <WaInbox
         conversations={filtered}
+        allConversations={sortedConversations}
         displayById={displayById}
         avatarById={avatarById}
         selectedId={selectedId}
         search={search}
-        filter={filter}
+        unreadOnly={unreadOnly}
+        connectionStatus={live ? 'online' : 'offline'}
+        chipsConnected={connectedChannels.length}
         onSearch={setSearch}
-        onFilter={setFilter}
+        onToggleUnread={() => setUnreadOnly((v) => !v)}
+        onRefresh={handleRefresh}
         onSelect={selectChat}
         hideOnMobile={mobileShowThread}
       />
 
-      <div className="flex flex-col flex-1 min-w-0">
-        <div
-          className="wa-v2-header flex-shrink-0"
-          style={{ background: 'var(--wv2-panel)', borderBottom: '1px solid var(--wv2-divider)' }}
-        >
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-            style={{ background: 'linear-gradient(135deg, #00a884, #008069)' }}
-          >
-            ZM
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[15px] font-medium">Conversas</p>
-            <p className="text-[12px] flex items-center gap-1.5" style={{ color: 'var(--wv2-text-3)' }}>
-              <span
-                className="wa-v2-live-dot inline-block"
-                data-offline={!(socketLive && isBackendConnected)}
-              />
-              {liveLabel}
-              {connectedChannels.length > 0 && (
-                <span> · {connectedChannels.length} chip(s)</span>
-              )}
-            </p>
-          </div>
-          <button type="button" className="p-2 rounded-full hover:bg-black/5" title="Nova conversa (em breve)">
-            <Plus className="w-5 h-5" style={{ color: 'var(--wv2-text-2)' }} />
-          </button>
-          <button type="button" className="p-2 rounded-full hover:bg-black/5" title="Status da ligação">
-            {socketLive && isBackendConnected ? (
-              <Wifi className="w-5 h-5" style={{ color: 'var(--wv2-green)' }} />
-            ) : (
-              <WifiOff className="w-5 h-5" style={{ color: 'var(--wv2-danger)' }} />
-            )}
-          </button>
-          <button type="button" className="p-2 rounded-full hover:bg-black/5" aria-label="Menu">
-            <MoreVertical className="w-5 h-5" style={{ color: 'var(--wv2-text-2)' }} />
-          </button>
-        </div>
-
-        <WaThread
-          conversation={selected}
-          display={selected ? displayById.get(selected.id) ?? null : null}
-          avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
-          loadingHistory={loadingHistory}
-          historyExhausted={selected ? !!historyExhausted[selected.id] : true}
-          canSend={!!selected && connectedChannels.length > 0}
-          showBack={mobileShowThread}
-          onBack={() => setMobileShowThread(false)}
-          onLoadOlder={loadOlder}
-          onSend={handleSend}
-          hideOnMobile={!mobileShowThread}
-        />
-      </div>
+      <WaThread
+        conversation={selected}
+        display={selected ? displayById.get(selected.id) ?? null : null}
+        avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
+        loadingHistory={loadingHistory}
+        historyExhausted={selected ? !!historyExhausted[selected.id] : true}
+        canSend={!!selected && connectedChannels.length > 0}
+        showBack={mobileShowThread}
+        onBack={() => setMobileShowThread(false)}
+        onLoadOlder={loadOlder}
+        onSend={handleSend}
+        hideOnMobile={!mobileShowThread}
+      />
     </div>
   );
 };
 
-/** Compatível com import lazy existente em App.tsx */
 export default WaWebChatApp;

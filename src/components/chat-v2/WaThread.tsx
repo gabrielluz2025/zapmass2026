@@ -4,7 +4,7 @@ import { ArrowLeft, Check, CheckCheck, History, Loader2, Lock } from 'lucide-rea
 import type { ChatMessage, Conversation } from '../../types';
 import { WaAvatar } from './WaAvatar';
 import { WaComposer } from './WaComposer';
-import type { ConversationDisplay } from './lib/conversationDisplay';
+import { inboxListTitle, type ConversationDisplay } from './lib/conversationDisplay';
 
 function formatMsgTime(msg: ChatMessage): string {
   if (typeof msg.timestampMs === 'number' && msg.timestampMs > 0) {
@@ -72,7 +72,9 @@ export const WaThread: React.FC<Props> = ({
     getItemKey: (i) => messages[i]?.id ?? i
   });
 
-  const primary = display?.primary ?? conversation?.contactName ?? 'Contato';
+  const primary = conversation
+    ? inboxListTitle(display ?? undefined, conversation)
+    : 'Contato';
 
   useEffect(() => {
     if (!scrollRef.current || messages.length === 0) return;
@@ -96,11 +98,11 @@ export const WaThread: React.FC<Props> = ({
           className="max-w-md rounded-lg px-8 py-10"
           style={{ background: '#fff', boxShadow: '0 2px 8px rgba(11,20,26,0.08)' }}
         >
-          <h2 className="text-[28px] font-light mb-4" style={{ color: 'var(--wv2-green-dark)' }}>
-            ZapMass Web
+          <h2 className="text-[22px] font-light mb-3" style={{ color: 'var(--wv2-green-dark)' }}>
+            WhatsApp Web
           </h2>
           <p className="text-[14px] leading-relaxed" style={{ color: 'var(--wv2-text-2)' }}>
-            Envie e receba mensagens em tempo real. Selecione uma conversa à esquerda para começar.
+            Selecione uma conversa à esquerda para enviar e receber mensagens.
           </p>
           <p className="text-[13px] mt-6 flex items-center justify-center gap-2" style={{ color: 'var(--wv2-text-3)' }}>
             <Lock className="w-4 h-4" />

@@ -191,6 +191,17 @@ export function avatarUrl(name: string, pic?: string): string {
   );
 }
 
+/** Na lista/cabeçalho: evita vários "Contato" iguais — mostra telefone quando possível. */
+export function inboxListTitle(disp: ConversationDisplay | undefined, conv: Conversation): string {
+  const p = (disp?.primary || conv.contactName || '').trim();
+  if (p && p.toLowerCase() !== 'contato') return p;
+  if (disp?.phoneSecondary) return disp.phoneSecondary;
+  if (disp?.whatsappSubtitle) return disp.whatsappSubtitle;
+  const phone = (conv.contactPhone || '').trim();
+  if (phone && phone.length >= 8) return phone;
+  return 'Contato';
+}
+
 export function unreadCount(conv: Conversation): number {
   const n = conv.unreadCount;
   if (typeof n === 'number' && n > 0) return n;

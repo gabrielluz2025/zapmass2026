@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Send, Smile } from 'lucide-react';
+import { Send } from 'lucide-react';
 
 type Props = {
   disabled?: boolean;
@@ -9,7 +9,7 @@ type Props = {
 
 export const WaComposer: React.FC<Props> = ({
   disabled,
-  placeholder = 'Digite uma mensagem',
+  placeholder = 'Mensagem',
   onSend
 }) => {
   const [text, setText] = useState('');
@@ -25,14 +25,6 @@ export const WaComposer: React.FC<Props> = ({
 
   return (
     <div className="wa-v2-composer">
-      <button
-        type="button"
-        className="p-2 rounded-full opacity-60 hover:opacity-100"
-        aria-label="Emoji"
-        disabled={disabled}
-      >
-        <Smile className="w-6 h-6" style={{ color: 'var(--wv2-text-3)' }} />
-      </button>
       <textarea
         ref={ref}
         className="wa-v2-composer-input"

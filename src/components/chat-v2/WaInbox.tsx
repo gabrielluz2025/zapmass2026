@@ -1,35 +1,42 @@
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Search, MessageCircleMore, Users } from 'lucide-react';
+import { MessageCircleMore, RefreshCw, Search } from 'lucide-react';
 import type { Conversation } from '../../types';
 import { WaAvatar } from './WaAvatar';
 import type { ConversationDisplay } from './lib/conversationDisplay';
-import { formatListTime, isGroupConversation, unreadCount } from './lib/conversationDisplay';
-
-export type InboxFilter = 'all' | 'unread' | 'groups';
+import { formatListTime, inboxListTitle, unreadCount } from './lib/conversationDisplay';
+import type { WaConnectionStatus } from './hooks/useWaRealtime';
 
 type Props = {
   conversations: Conversation[];
+  allConversations: Conversation[];
   displayById: Map<string, ConversationDisplay>;
   avatarById: Map<string, string>;
   selectedId: string | null;
   search: string;
-  filter: InboxFilter;
+  unreadOnly: boolean;
+  connectionStatus: WaConnectionStatus;
+  chipsConnected: number;
   onSearch: (q: string) => void;
-  onFilter: (f: InboxFilter) => void;
+  onToggleUnread: () => void;
+  onRefresh: () => void;
   onSelect: (id: string) => void;
   hideOnMobile?: boolean;
 };
 
 export const WaInbox: React.FC<Props> = ({
   conversations,
+  allConversations,
   displayById,
   avatarById,
   selectedId,
   search,
-  filter,
+  unreadOnly,
+  connectionStatus,
+  chipsConnected,
   onSearch,
-  onFilter,
+  onToggleUnread,
+  onRefresh,
   onSelect,
   hideOnMobile
 }) => {
@@ -42,14 +49,44 @@ export const WaInbox: React.FC<Props> = ({
     getItemKey: (i) => conversations[i]?.id ?? i
   });
 
-  const filters: { id: InboxFilter; label: string }[] = [
-    { id: 'all', label: 'Todas' },
-    { id: 'unread', label: 'Não lidas' },
-    { id: 'groups', label: 'Grupos' }
-  ];
+  const totalUnread = useMemo(
+    () => allConversations.reduce((n, c) => n + unreadCount(c), 0),
+    [allConversations]
+  );
+
+  const statusLabel =
+    connectionStatus === 'online'
+      ? chipsConnected > 0
+        ? `${chipsConnected} chip conectado`
+        : 'Conectado'
+      : 'Reconectando…';
 
   return (
     <aside className="wa-v2-inbox" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
+      <div className="wa-v2-header flex-shrink-0">
+        <p className="text-[15px] font-medium flex-1">Conversas</p>
+        <span
+          className="text-[12px] flex items-center gap-1.5 mr-1"
+          style={{ color: 'var(--wv2-text-3)' }}
+          title={statusLabel}
+        >
+          <span
+            className="wa-v2-live-dot inline-block"
+            data-offline={connectionStatus !== 'online'}
+          />
+          {statusLabel}
+        </span>
+        <button
+          type="button"
+          className="p-2 rounded-full hover:bg-black/5"
+          title="Atualizar conversas"
+          onClick={onRefresh}
+          aria-label="Atualizar conversas"
+        >
+          <RefreshCw className="w-5 h-5" style={{ color: 'var(--wv2-text-2)' }} />
+        </button>
+      </div>
+
       <div className="wa-v2-search-wrap relative">
         <Search
           className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
@@ -57,32 +94,39 @@ export const WaInbox: React.FC<Props> = ({
         />
         <input
           className="wa-v2-search"
-          placeholder="Pesquisar ou começar uma nova conversa"
+          placeholder="Pesquisar"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
         />
       </div>
 
-      <div className="flex gap-1 px-3 py-2 overflow-x-auto border-b" style={{ borderColor: 'var(--wv2-divider)' }}>
-        {filters.map((f) => (
+      {totalUnread > 0 && (
+        <div className="px-3 pb-2">
           <button
-            key={f.id}
             type="button"
-            className="wa-v2-filter-pill"
-            data-active={filter === f.id}
-            onClick={() => onFilter(f.id)}
+            className="wa-v2-filter-pill w-full text-left"
+            data-active={unreadOnly}
+            onClick={onToggleUnread}
           >
-            {f.label}
+            {unreadOnly ? 'Mostrar todas' : `Não lidas (${totalUnread})`}
           </button>
-        ))}
-      </div>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
         {conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
             <MessageCircleMore className="w-10 h-10 mb-3 opacity-40" />
-            <p className="text-sm font-medium">Nenhuma conversa</p>
-            <p className="text-xs mt-1 opacity-70">Conecte um chip WhatsApp para sincronizar.</p>
+            <p className="text-sm font-medium">
+              {unreadOnly ? 'Nenhuma não lida' : 'Nenhuma conversa'}
+            </p>
+            <p className="text-xs mt-1 opacity-70">
+              {chipsConnected === 0
+                ? 'Conecte um chip em Conexões.'
+                : unreadOnly
+                  ? 'Você leu todas as mensagens.'
+                  : 'Aguarde a sincronização ou toque em atualizar.'}
+            </p>
           </div>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
@@ -90,11 +134,10 @@ export const WaInbox: React.FC<Props> = ({
               const conv = conversations[row.index];
               if (!conv) return null;
               const disp = displayById.get(conv.id);
-              const primary = disp?.primary ?? (conv.contactName || 'Contato');
+              const primary = inboxListTitle(disp, conv);
               const preview = (conv.lastMessage || '').trim() || '[Mídia]';
               const unread = unreadCount(conv);
               const active = selectedId === conv.id;
-              const isGroup = isGroupConversation(conv);
 
               return (
                 <div
@@ -111,9 +154,6 @@ export const WaInbox: React.FC<Props> = ({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-[16px] font-normal truncate" style={{ color: 'var(--wv2-text)' }}>
-                        {isGroup && (
-                          <Users className="inline w-3.5 h-3.5 mr-1 opacity-60" aria-hidden />
-                        )}
                         {primary}
                       </span>
                       <span
@@ -130,7 +170,9 @@ export const WaInbox: React.FC<Props> = ({
                       >
                         {preview}
                       </p>
-                      {unread > 0 && <span className="wa-v2-unread-badge">{unread > 99 ? '99+' : unread}</span>}
+                      {unread > 0 && (
+                        <span className="wa-v2-unread-badge">{unread > 99 ? '99+' : unread}</span>
+                      )}
                     </div>
                   </div>
                 </div>

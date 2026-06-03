@@ -1,54 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 
-/** Ping/pong + sync ao focar aba — sensação WhatsApp Web em tempo real. */
+export type WaConnectionStatus = 'online' | 'offline';
+
+/** Sync ao focar aba + estado conectado (sem exibir ms de ping — evita números absurdos). */
 export function useWaRealtime(socket: Socket | null, onResync: () => void) {
-  const [connected, setConnected] = useState(false);
-  const [latencyMs, setLatencyMs] = useState<number | null>(null);
-  const [lastUpdateAt, setLastUpdateAt] = useState<number>(Date.now());
-  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [status, setStatus] = useState<WaConnectionStatus>('offline');
+  const pingSentAtRef = useRef(0);
 
   const bump = useCallback(() => {
-    setLastUpdateAt(Date.now());
+    /* reservado para animações futuras */
   }, []);
 
   useEffect(() => {
     if (!socket) {
-      setConnected(false);
-      setLatencyMs(null);
+      setStatus('offline');
       return;
     }
 
     const onConnect = () => {
-      setConnected(true);
+      setStatus('online');
       onResync();
     };
-    const onDisconnect = () => setConnected(false);
-
+    const onDisconnect = () => setStatus('offline');
     const onConv = () => bump();
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('conversations-update', onConv);
-    setConnected(socket.connected);
+    setStatus(socket.connected ? 'online' : 'offline');
 
-    pingRef.current = setInterval(() => {
+    const pingTimer = setInterval(() => {
       if (!socket.connected) return;
-      const t0 = Date.now();
-      socket.emit('ping-latency', t0);
-    }, 8000);
+      pingSentAtRef.current = Date.now();
+      socket.emit('ping-latency', pingSentAtRef.current);
+    }, 15000);
 
     const onPong = (ts: number) => {
-      if (typeof ts === 'number' && ts > 0) {
-        setLatencyMs(Math.max(0, Date.now() - ts));
-      }
+      const base = typeof ts === 'number' && ts > 1e12 ? ts : pingSentAtRef.current;
+      const ms = Date.now() - base;
+      if (ms > 8000) setStatus('offline');
+      else if (socket.connected) setStatus('online');
     };
     socket.on('pong-latency', onPong);
 
     const onVis = () => {
-      if (document.visibilityState === 'visible' && socket.connected) {
-        onResync();
-      }
+      if (document.visibilityState === 'visible' && socket.connected) onResync();
     };
     document.addEventListener('visibilitychange', onVis);
 
@@ -58,9 +55,9 @@ export function useWaRealtime(socket: Socket | null, onResync: () => void) {
       socket.off('conversations-update', onConv);
       socket.off('pong-latency', onPong);
       document.removeEventListener('visibilitychange', onVis);
-      if (pingRef.current) clearInterval(pingRef.current);
+      clearInterval(pingTimer);
     };
   }, [socket, onResync, bump]);
 
-  return { connected, latencyMs, lastUpdateAt, bump };
+  return { status, bump };
 }
