@@ -5,8 +5,13 @@ cd /opt/zapmass
 
 echo "==> actualizar codigo"
 git fetch --all --prune 2>/dev/null || true
-git checkout -f main 2>/dev/null || git checkout -f origin/main 2>/dev/null || true
-git pull --ff-only origin main 2>/dev/null || git checkout -f "$(git rev-parse origin/main 2>/dev/null || echo main)"
+if [ -n "${GHA_SHA:-}" ]; then
+  echo "==> checkout commit deploy ${GHA_SHA}"
+  git checkout -f "${GHA_SHA}" 2>/dev/null || exit 1
+else
+  git checkout -f main 2>/dev/null || git checkout -f origin/main 2>/dev/null || true
+  git pull --ff-only origin main 2>/dev/null || git checkout -f "$(git rev-parse origin/main 2>/dev/null || echo main)"
+fi
 
 if [ -f .env ] && grep -qE '^REDIS_URL=' .env 2>/dev/null; then
   if ! grep -q 'host.docker.internal' .env 2>/dev/null; then

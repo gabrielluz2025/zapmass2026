@@ -324,6 +324,14 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     _build_extra+=(--no-cache)
     echo "==> ZAPMASS_DOCKER_BUILD_NO_CACHE=1 — build completo sem cache de camadas"
   fi
+  if [ "${ZAPMASS_SKIP_DOCKER_BUILD:-0}" = "1" ]; then
+    if docker image inspect zapmass:latest >/dev/null 2>&1; then
+      echo "==> ZAPMASS_SKIP_DOCKER_BUILD=1 — reutiliza imagem zapmass:latest (sem rebuild)"
+    else
+      echo "ERRO: ZAPMASS_SKIP_DOCKER_BUILD=1 mas zapmass:latest não existe."
+      exit 1
+    fi
+  else
   _build_ok=0
   for _build_try in 1 2 3; do
     echo "==> docker build (tentativa ${_build_try}/3)"
@@ -351,6 +359,7 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     exit 1
   fi
   unset _build_ok _build_try
+  fi
 
   _stack_ok=0
   for _stack_try in 1 2 3 4 5; do
@@ -395,7 +404,9 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
     wait_redis_host 25 || echo "AVISO: Redis host :6379 ainda não responde — healthcheck continuará."
   fi
   echo "==> aguardando stack deploy convergir (zapmass_api) — sem force --image (evita 0/1)"
-  if ! wait_swarm_service_replicas zapmass_api 1 45; then
+  _api_wait=45
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then _api_wait=70; fi
+  if ! wait_swarm_service_replicas zapmass_api 1 "${_api_wait}"; then
     recover_swarm_api_service || echo "AVISO: recuperacao da API falhou; ver docker service ps zapmass_api"
   fi
   # wa-worker: só escala se replicas > 0 (force --image quebrava corrida com stack deploy na API).
@@ -471,11 +482,11 @@ fi
 # Healthcheck: Swarm rolling + start-period 180s no Dockerfile — no GHA dar mais margem.
 HP="${HOST_PORT:-3001}"
 _HEALTH_TRIES="${DEPLOY_HEALTH_TRIES:-60}"
-if [ -n "${GITHUB_ACTIONS:-}" ] && [ "${_HEALTH_TRIES}" -lt 90 ]; then
-  _HEALTH_TRIES=90
+if [ -n "${GITHUB_ACTIONS:-}" ] && [ "${_HEALTH_TRIES}" -lt 120 ]; then
+  _HEALTH_TRIES=120
 fi
 if [ -n "${GITHUB_ACTIONS:-}" ] || [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
-  _wait="${DEPLOY_HEALTH_INITIAL_WAIT:-45}"
+  _wait="${DEPLOY_HEALTH_INITIAL_WAIT:-90}"
   echo "==> pausa ${_wait}s antes do healthcheck (deploy via GitHub Actions / container a subir)"
   sleep "${_wait}"
 fi
@@ -524,27 +535,31 @@ done
 echo "FALHA: API não respondeu 200 após $((_HEALTH_TRIES * 6))s — tentativa de recuperação rápida"
 if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
   recover_swarm_api_service || true
-  sleep 45
-  if _health_poll 25; then
+  sleep 60
+  if _health_poll 45; then
     echo "OK: API saudável após recover_swarm_api_service."
     exit 0
   fi
 fi
 echo "FALHA: API ainda indisponível após recuperação"
+export GHA_SHA="${GHA_SHA:-$(git rev-parse HEAD 2>/dev/null || echo '')}"
 if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
   echo "==> docker service ps + logs (swarm)"
   docker service ps zapmass_api || true
   docker service logs --since 10m --tail 200 zapmass_api || true
   if [ -f deployment/recover-api-swarm.sh ]; then
-    echo "==> tentativa automatica: SOS-API-FORA.sh"
-    chmod +x deployment/SOS-API-FORA.sh deployment/recover-api-swarm.sh
-    if [ -f deployment/SOS-API-FORA.sh ]; then
-      bash deployment/SOS-API-FORA.sh && exit 0
-    fi
-    echo "==> tentativa automatica: recover-api-swarm.sh"
+    chmod +x deployment/SOS-API-FORA.sh deployment/recover-api-swarm.sh 2>/dev/null || true
+    echo "==> tentativa automatica: recover-api-swarm.sh (commit ${GHA_SHA:-HEAD})"
     if bash deployment/recover-api-swarm.sh; then
-      echo "OK: API recuperada apos falha de healthcheck."
+      echo "OK: API recuperada apos recover-api-swarm.sh"
       exit 0
+    fi
+    if [ -f deployment/SOS-API-FORA.sh ]; then
+      echo "==> tentativa automatica: SOS-API-FORA.sh"
+      if bash deployment/SOS-API-FORA.sh; then
+        echo "OK: API recuperada apos SOS-API-FORA.sh"
+        exit 0
+      fi
     fi
   fi
 else

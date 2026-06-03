@@ -53,8 +53,8 @@ on:
       - "CHANGELOG.md"
       - "VERSION"
   schedule:
-    # Roda a cada 30 min para aplicar deploy pendente na janela da madrugada.
-    - cron: "*/30 * * * *"
+    # Só na madrugada UTC (evita deploy a cada 30 min falhar de dia).
+    - cron: "0,30 0-4 * * *"
   workflow_dispatch: {}
 
 # IMPORTANTE: NÃO usar cancel-in-progress:true aqui.
@@ -167,8 +167,8 @@ jobs:
             set -euo pipefail
             export GITHUB_EVENT_NAME="${{ github.event_name }}"
             export GITHUB_ACTIONS=true
-            export DEPLOY_HEALTH_TRIES=90
-            export DEPLOY_HEALTH_INITIAL_WAIT=45
+            export DEPLOY_HEALTH_TRIES=120
+            export DEPLOY_HEALTH_INITIAL_WAIT=90
             GHA_SHA="${{ github.sha }}"
             GHA_REF_NAME="${{ github.ref_name }}"
             echo "==> deploy: commit = ${GHA_SHA} (o mesmo que o job build testou) ref = ${GHA_REF_NAME}"
@@ -217,17 +217,18 @@ jobs:
           command_timeout: 140m
           script: |
             set -euo pipefail
-            echo "==> segunda tentativa (aguarda 90s para libertar lock de deploy)"
+            echo "==> segunda tentativa: sem rebuild Docker, só reinicia API + health"
             sleep 90
             export GITHUB_EVENT_NAME="${{ github.event_name }}"
             export GITHUB_ACTIONS=true
-            export DEPLOY_HEALTH_TRIES=90
-            export DEPLOY_HEALTH_INITIAL_WAIT=45
+            export DEPLOY_HEALTH_TRIES=80
+            export DEPLOY_HEALTH_INITIAL_WAIT=30
+            export ZAPMASS_SKIP_DOCKER_BUILD=1
             GHA_SHA="${{ github.sha }}"
             cd /opt/zapmass
             git fetch --all --prune
             git checkout -f "${GHA_SHA}"
-            chmod +x deployment/vps-deploy.sh
+            chmod +x deployment/vps-deploy.sh deployment/recover-api-swarm.sh
             bash deployment/vps-deploy.sh
 
       - name: Falhar job se o deploy na VPS falhou
