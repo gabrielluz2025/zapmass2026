@@ -6,6 +6,11 @@ import { saveMediaFromBase64 } from './mediaStorage.js';
 import { prepareConversationsForSocketEmit } from './conversationsEmit.js';
 import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
 import {
+    enrichConversationsWithCrmPhones,
+    resolveCrmPhonePeerForConversation,
+    scrubInvalidConversationPhone
+} from './contactPhoneEnrich.js';
+import {
     looksLikeLongLidDigits,
     normalizePhoneDigits,
     pickContactDisplayName
@@ -108,6 +113,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             void (async () => {
                 let payload = prepareConversationsForSocketEmit(conversations);
                 payload = await enrichConversationsWithCrmNames(ownerUidForScope!, payload);
+                payload = await enrichConversationsWithCrmPhones(ownerUidForScope!, payload);
                 io!.to(`user:${ownerUidForScope}`).emit('conversations-update', payload);
             })();
         }, 80);
@@ -860,6 +866,14 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                             target.lastMessage = last.text || target.lastMessage;
                             target.lastMessageTime = last.timestamp || target.lastMessageTime;
                             target.lastMessageTimestamp = last.timestampMs || target.lastMessageTimestamp;
+                            if (isLidJid(parsed.remoteJid)) {
+                                const fromMsgs = peerFromStoredMessages(target.messages);
+                                if (fromMsgs && hasResolvablePhone(fromMsgs)) {
+                                    const merged = mergeLidPeerFields(parsed.remoteJid, fromMsgs, target);
+                                    target.contactPhone = merged.contactPhone;
+                                    target.waJidAlt = merged.waJidAlt;
+                                }
+                            }
                         } catch {
                             /* ignore por conversa */
                         }
@@ -897,6 +911,24 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             const lidFixed = await backfillLidConversationsForConnection(connectionId);
             if (lidFixed > 0) {
                 console.info(`[EvolutionChat] syncChats ${connectionId}: ${lidFixed} chat(s) @lid com telefone resolvido`);
+            }
+
+            for (let i = 0; i < conversations.length; i++) {
+                const c = conversations[i];
+                if (c.connectionId !== connectionId) continue;
+                const parsed = parseConversationId(c.id);
+                if (!parsed) continue;
+                conversations[i] = scrubInvalidConversationPhone(c, parsed.remoteJid);
+            }
+            if (ownerUidForScope) {
+                const scopedIdx = conversations
+                    .map((c, i) => (c.connectionId === connectionId ? i : -1))
+                    .filter((i) => i >= 0);
+                const scoped = scopedIdx.map((i) => conversations[i]);
+                const withCrmPhones = await enrichConversationsWithCrmPhones(ownerUidForScope, scoped);
+                scopedIdx.forEach((idx, j) => {
+                    conversations[idx] = withCrmPhones[j] ?? conversations[idx];
+                });
             }
 
             if (!opts?.deferEmit) emitConversationsUpdate();
@@ -963,6 +995,17 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 peer = mergeLidPeerFields(parsed.remoteJid, fromStored, peer);
             }
         }
+        if (isLidJid(parsed.remoteJid) && !hasResolvablePhone(peer) && ownerUidForScope) {
+            const crmPeer = await resolveCrmPhonePeerForConversation(ownerUidForScope, {
+                id: conversationId,
+                contactName: conv?.contactName,
+                contactPhone: conv?.contactPhone,
+                waJidAlt: conv?.waJidAlt
+            });
+            if (crmPeer && hasResolvablePhone(crmPeer)) {
+                peer = mergeLidPeerFields(parsed.remoteJid, crmPeer, peer);
+            }
+        }
         if (isLidJid(parsed.remoteJid) && !hasResolvablePhone(peer)) {
             const hit = await resolveLidPeerFromEvolutionApi(
                 api,
@@ -972,6 +1015,20 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             );
             if (hit && hasResolvablePhone(hit)) {
                 peer = mergeLidPeerFields(parsed.remoteJid, hit, peer);
+            }
+        }
+        if (isLidJid(parsed.remoteJid) && !hasResolvablePhone(peer)) {
+            try {
+                const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, 80);
+                for (const m of fetched) {
+                    const hit = peerFromRawMessageRecord(m as Record<string, unknown>);
+                    if (hit && hasResolvablePhone(hit)) {
+                        peer = mergeLidPeerFields(parsed.remoteJid, hit, peer);
+                        break;
+                    }
+                }
+            } catch {
+                /* ignore */
             }
         }
         if (conv && hasResolvablePhone(peer)) {

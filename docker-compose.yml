@@ -120,7 +120,8 @@ services:
         condition: service_started
 
   evolution:
-    image: atendai/evolution-api:v2.2.0
+    # v2.2+ LID: prefira imagem mais recente via EVOLUTION_IMAGE no .env (ex. evoapicloud/evolution-api:2.4.0).
+    image: ${EVOLUTION_IMAGE:-atendai/evolution-api:v2.2.0}
     restart: unless-stopped
     # Antes os logs cresciam sem limite e podiam encher o disco da VPS.
     logging:
@@ -151,6 +152,8 @@ services:
       - CONFIG_SESSION_PHONE_VERSION=${CONFIG_SESSION_PHONE_VERSION:-2.3000.1035712111}
       - CONFIG_SESSION_PHONE_CLIENT=${CONFIG_SESSION_PHONE_CLIENT:-ZapMass}
       - CONFIG_SESSION_PHONE_NAME=${CONFIG_SESSION_PHONE_NAME:-Chrome}
+      # Reduz JID @lid sem telefone nos webhooks (quando suportado pela imagem Evolution).
+      - WPP_LID_MODE=${WPP_LID_MODE:-false}
       - LOG_LEVEL=${EVOLUTION_LOG_LEVEL:-ERROR}
       - NODE_OPTIONS=--dns-result-order=ipv4first
     volumes:

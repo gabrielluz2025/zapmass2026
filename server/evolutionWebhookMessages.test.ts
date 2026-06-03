@@ -32,6 +32,13 @@ describe('resolvePhoneDigitsFromEvolutionMessage', () => {
     });
     expect(digits).toBe('5511999887766');
   });
+
+  it('não usa dígitos longos de @lid como telefone', () => {
+    const digits = resolvePhoneDigitsFromEvolutionMessage({
+      key: { remoteJid: '251174049550446@lid' }
+    });
+    expect(digits).toBe('');
+  });
 });
 
 describe('extractEvolutionMessageBody', () => {

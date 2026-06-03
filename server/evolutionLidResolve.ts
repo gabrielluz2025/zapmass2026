@@ -289,6 +289,49 @@ function peerFromContactRow(row: Record<string, unknown>): LidPeerFields | null 
   return null;
 }
 
+/** Perfil Evolution/Baileys — às vezes expõe wid/wuid com @s.whatsapp.net para @lid. */
+export async function resolveLidPeerFromFetchProfile(
+  api: AxiosInstance,
+  evoInst: (connectionId: string) => string,
+  connectionId: string,
+  lidJid: string
+): Promise<LidPeerFields | null> {
+  const inst = evoInst(connectionId);
+  const lid = String(lidJid || '').trim();
+  if (!isLidJid(lid)) return null;
+  try {
+    const res = await api.post(`/chat/fetchProfile/${inst}`, { number: lid });
+    const scanned = deepScanPnJidFromRecord(res.data);
+    if (scanned) {
+      const contactPhone = formatPhoneFromDigits(scanned.split('@')[0]);
+      if (contactPhone) return { contactPhone, waJidAlt: scanned };
+    }
+    if (res.data && typeof res.data === 'object') {
+      const row = res.data as Record<string, unknown>;
+      for (const field of ['wid', 'wuid', 'id', 'remoteJid', 'number', 'phoneNumber', 'pn']) {
+        const alt = pickSendableWaJidAlt(row[field]);
+        if (alt) {
+          const contactPhone = formatPhoneFromDigits(alt.split('@')[0]);
+          if (contactPhone) return { contactPhone, waJidAlt: alt };
+        }
+        const digits = normalizePhoneDigits(String(row[field] ?? '').split('@')[0]);
+        if (plausiblePhoneDigits(digits) && !looksLikeLongLidDigits(digits)) {
+          const contactPhone = formatPhoneFromDigits(digits);
+          if (contactPhone) {
+            return {
+              contactPhone,
+              waJidAlt: `${normalizeOutboundDigits(digits)}@s.whatsapp.net`
+            };
+          }
+        }
+      }
+    }
+  } catch {
+    /* Evolution 2.2 pode não expor telefone — segue outros fallbacks */
+  }
+  return null;
+}
+
 export async function resolveLidPeerFromEvolutionApi(
   api: AxiosInstance,
   evoInst: (connectionId: string) => string,
@@ -298,6 +341,9 @@ export async function resolveLidPeerFromEvolutionApi(
   const inst = evoInst(connectionId);
   const lid = String(lidJid || '').trim();
   if (!isLidJid(lid)) return null;
+
+  const fromProfile = await resolveLidPeerFromFetchProfile(api, evoInst, connectionId, lid);
+  if (fromProfile && hasResolvablePhone(fromProfile)) return fromProfile;
 
   const fromChats = await resolveLidPeerFromFindChats(api, evoInst, connectionId, lid);
   if (fromChats && hasResolvablePhone(fromChats)) return fromChats;

@@ -5,6 +5,7 @@ import {
   tagStaffOwnClaims
 } from './inboxAssignments.js';
 import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
+import { enrichConversationsWithCrmPhones } from './contactPhoneEnrich.js';
 import type { Conversation } from './types.js';
 
 /** Resolve dono de canal legado (`conn_*` sem `uid__`) para `filterByConnectionScope`. */
@@ -65,7 +66,8 @@ export async function socketConversationsPayload(
     resolveConnectionOwner
   );
   const withNames = await enrichConversationsWithCrmNames(tenantUid, scoped);
-  return prepareConversationsForSocketEmit(withNames);
+  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, withNames);
+  return prepareConversationsForSocketEmit(withPhones);
 }
 
 /**

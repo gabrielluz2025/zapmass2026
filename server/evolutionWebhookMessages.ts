@@ -105,7 +105,10 @@ function digitsFromJidLike(raw: unknown): string {
   const s = String(raw || '').trim();
   if (!s || s.endsWith('@lid')) return '';
   const base = s.includes('@') ? s.split('@')[0] : s;
-  return base.replace(/\D/g, '');
+  const digits = base.replace(/\D/g, '');
+  if (digits.length >= 14) return '';
+  if (digits.length < 10 || digits.length > 13) return '';
+  return digits;
 }
 
 /** Resolve telefone do remetente — prioriza remoteJidAlt/senderPn (Evolution v2 + LID). */
