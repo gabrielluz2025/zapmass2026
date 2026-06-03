@@ -448,6 +448,68 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         upsertConversation(conv);
     }
 
+    function resolveConversationIdForPhone(connectionId: string, phoneDigits: string): string {
+        const target = normalizePhoneDigits(phoneDigits);
+        if (!target) return buildConversationId(connectionId, `${phoneDigits}@s.whatsapp.net`);
+        for (const c of conversations) {
+            if (c.connectionId !== connectionId) continue;
+            const cp = normalizePhoneDigits(c.contactPhone || '');
+            if (cp && cp === target) return c.id;
+            const jidPart = c.id.includes(':') ? c.id.slice(c.id.indexOf(':') + 1) : '';
+            const jidDigits = normalizePhoneDigits(jidPart.split('@')[0] || '');
+            if (jidDigits && jidDigits === target) return c.id;
+        }
+        return buildConversationId(connectionId, `${target}@s.whatsapp.net`);
+    }
+
+    /** Registra envio de campanha no store local para ACK (entregue/lido) e relatório na UI. */
+    function appendCampaignOutboundMessage(opts: {
+        connectionId: string;
+        phoneDigits: string;
+        messageId: string;
+        text: string;
+        campaignId: string;
+        messageType?: ChatMessage['type'];
+    }): void {
+        const digits = normalizePhoneDigits(opts.phoneDigits);
+        const conversationId = resolveConversationIdForPhone(opts.connectionId, digits || opts.phoneDigits);
+        const nowMs = Date.now();
+        const msgId = String(opts.messageId || '').trim() || `camp_${nowMs}_${Math.random().toString(36).slice(2, 8)}`;
+        const newMsg: ChatMessage = {
+            id: msgId,
+            text: opts.text,
+            timestamp: formatTime(nowMs),
+            sender: 'me',
+            status: 'sent',
+            type: opts.messageType || 'text',
+            fromCampaign: true,
+            campaignId: opts.campaignId,
+            timestampMs: nowMs,
+        };
+        appendMessageToConversation(conversationId, newMsg, {
+            connectionId: opts.connectionId,
+            contactPhone: digits.length >= 8 ? `+${digits}` : undefined,
+            contactName: digits.length >= 8 ? `+${digits}` : undefined,
+        });
+        const conv = conversations.find((c) => c.id === conversationId);
+        if (conv) {
+            const tags = conv.tags || [];
+            if (!tags.includes('Campanha')) conv.tags = [...tags, 'Campanha'];
+        }
+        emitConversationDelta(conversationId);
+    }
+
+    function messageIdsMatch(storedId: string, incomingId: string): boolean {
+        const a = String(storedId || '').trim();
+        const b = String(incomingId || '').trim();
+        if (!a || !b) return false;
+        if (a === b) return true;
+        if (a.endsWith(b) || b.endsWith(a)) return true;
+        const shortA = a.includes(':') ? a.split(':').pop()! : a;
+        const shortB = b.includes(':') ? b.split(':').pop()! : b;
+        return shortA === shortB || a.includes(shortB) || b.includes(shortA);
+    }
+
     function chatRemoteJid(chat: any): string | null {
         return chatRemoteJidFromFindChatsRow(chat);
     }
@@ -1223,7 +1285,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     function updateMessageStatus(messageId: string, evolutionStatus: number) {
         const touched = new Set<string>();
         for (const conv of conversations) {
-            const msg = conv.messages.find((m) => m.id === messageId);
+            const msg = conv.messages.find((m) => messageIdsMatch(m.id, messageId));
             if (!msg || msg.sender !== 'me') continue;
             if (evolutionStatus >= 4 && msg.status !== 'read') {
                 msg.status = 'read';
@@ -1651,6 +1713,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         syncChatsForConnection,
         enrichProfilePicturesForConnection,
         handleWebhookMessage,
+        appendCampaignOutboundMessage,
         updateMessageStatus,
         sendMessage,
         sendMedia,

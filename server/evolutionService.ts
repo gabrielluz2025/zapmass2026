@@ -2812,6 +2812,30 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             item.campaignId,
             campaignState?.ownerUid || item.replyFlowOpen?.ownerUid
         );
+        const campaignText =
+            mediaToSend?.caption || item.message || '[mídia]';
+        const campaignMsgType: ChatMessage['type'] = mediaToSend
+            ? mediaToSend.mimeType?.startsWith('image/')
+                ? 'image'
+                : mediaToSend.mimeType?.startsWith('video/')
+                  ? 'video'
+                  : mediaToSend.mimeType?.startsWith('audio/')
+                    ? 'audio'
+                    : 'document'
+            : 'text';
+        try {
+            chatStore.appendCampaignOutboundMessage({
+                connectionId: item.connectionId,
+                phoneDigits,
+                messageId: sendResult.messageId,
+                text: campaignText,
+                campaignId: item.campaignId,
+                messageType: campaignMsgType,
+            });
+        } catch (trackErr: unknown) {
+            const errMsg = trackErr instanceof Error ? trackErr.message : String(trackErr);
+            log('warn', 'Nao foi possivel registrar mensagem de campanha no chat', { errMsg });
+        }
     }
 
     emitCampaignLog(

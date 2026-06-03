@@ -118,7 +118,8 @@ const findCampaignMessage = (
   phone: string,
   campaignId: string,
   allowedConnectionIds: string[],
-  conversations: Conversation[]
+  conversations: Conversation[],
+  sentTimestampMsHint?: number
 ): { conv: Conversation; msg: ChatMessage; reply: ChatMessage | null } | null => {
   const target = cleanPhone(phone);
   if (!target) return null;
@@ -129,6 +130,9 @@ const findCampaignMessage = (
   });
   if (matches.length === 0) return null;
 
+  const pickLatest = (list: ChatMessage[]) =>
+    list.slice().sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0))[0] ?? null;
+
   let campaignMsg: ChatMessage | null = null;
   let campaignConv: Conversation | null = null;
   for (const conv of matches) {
@@ -136,13 +140,34 @@ const findCampaignMessage = (
       (m) => m.sender === 'me' && m.fromCampaign && m.campaignId === campaignId
     );
     if (list.length === 0) continue;
-    const msg = list.slice().sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0))[0];
+    const msg = pickLatest(list);
     if (msg) {
       campaignMsg = msg;
       campaignConv = conv;
       break;
     }
   }
+
+  // Envios Evolution legados sem fromCampaign: heurística por janela do log de envio.
+  if ((!campaignMsg || !campaignConv) && sentTimestampMsHint && sentTimestampMsHint > 0) {
+    const windowMs = 180_000;
+    for (const conv of matches) {
+      const list = (conv.messages || []).filter((m) => {
+        if (m.sender !== 'me') return false;
+        if (m.fromCampaign && m.campaignId && m.campaignId !== campaignId) return false;
+        const ts = m.timestampMs ?? 0;
+        return ts > 0 && Math.abs(ts - sentTimestampMsHint) <= windowMs;
+      });
+      if (list.length === 0) continue;
+      const msg = pickLatest(list);
+      if (msg) {
+        campaignMsg = msg;
+        campaignConv = conv;
+        break;
+      }
+    }
+  }
+
   if (!campaignMsg || !campaignConv) return null;
 
   const sendTs = campaignMsg.timestampMs ?? 0;
@@ -176,7 +201,7 @@ const buildRowsFromConversations = (
       (m) => m.sender === 'me' && m.fromCampaign && m.campaignId === campaign.id
     );
     if (msgs.length === 0) continue;
-    const ordered = msgs.slice().sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0));
+    const ordered = msgs.slice().sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0));
     const sent = ordered[0];
     const sentTs = sent.timestampMs ?? 0;
     const reply = (conv.messages || [])
@@ -587,7 +612,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const rows: ReportRow[] = [];
     byPhone.forEach((row) => {
       const contactName = findContactName(row.phone, contacts);
-      const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
+      const found = findCampaignMessage(
+        row.phone,
+        campaign.id,
+        allowedConns,
+        conversations,
+        row.sentTimestampMs
+      );
 
       let status: ReportStatus = row.status;
       let replyText: string | undefined;
