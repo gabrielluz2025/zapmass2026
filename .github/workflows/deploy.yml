@@ -150,115 +150,52 @@ jobs:
             echo "::warning::O deploy SSH ainda pode funcionar (nc no runner e falho na Hostinger)."
           fi
 
-      - name: VPS — build Docker + stack (sem health inline)
-        id: deploy_build
+      - name: VPS — deploy (build + health na mesma sessao SSH)
+        id: deploy_vps
         if: github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true'
-        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 30m
-          command_timeout: 120m
+          timeout: 45m
+          command_timeout: 150m
           script: |
             set -euo pipefail
             export GITHUB_EVENT_NAME="${{ github.event_name }}"
             export GITHUB_ACTIONS=true
             export ZAPMASS_DEPLOY_SKIP_HEALTHCHECK=1
+            export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
+            export DEPLOY_HEALTH_TRIES=200
+            export DEPLOY_HEALTH_INITIAL_WAIT=60
             GHA_SHA="${{ github.sha }}"
-            echo "==> build/stack commit=${GHA_SHA}"
+            echo "==> deploy commit=${GHA_SHA}"
             cd /opt/zapmass
             git fetch --all --prune
             if ! git rev-parse --verify -q "${GHA_SHA}^{commit}" >/dev/null; then
               git fetch --unshallow 2>/dev/null || git fetch --depth=500 origin 2>/dev/null || true
             fi
             git checkout -f "${GHA_SHA}"
-            chmod +x deployment/vps-deploy.sh
-            bash deployment/vps-deploy.sh
-
-      - name: VPS — healthcheck longo (ate ~25 min)
-        id: deploy_health
-        if: steps.deploy_build.outcome == 'success'
-        continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 30m
-          command_timeout: 30m
-          script: |
-            set -euo pipefail
-            export GITHUB_ACTIONS=true
-            export DEPLOY_HEALTH_TRIES=200
-            export DEPLOY_HEALTH_INITIAL_WAIT=60
-            export GHA_SHA="${{ github.sha }}"
-            cd /opt/zapmass
-            git checkout -f "${GHA_SHA}" 2>/dev/null || true
             export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
-            chmod +x deployment/gha-healthcheck.sh
+            export GHA_SHA
+            chmod +x deployment/vps-deploy.sh deployment/gha-healthcheck.sh
+            _log="/tmp/zapmass-gha-deploy-$$.log"
+            set +e
+            bash deployment/vps-deploy.sh 2>&1 | tee "${_log}"
+            _build="${PIPESTATUS[0]}"
+            set -e
+            if [ "${_build}" != "0" ]; then
+              echo "::error::vps-deploy.sh terminou com codigo ${_build}"
+              echo "==> ultimas linhas do deploy:"
+              tail -n 60 "${_log}" || true
+              echo "==> docker service ps zapmass_api (se Swarm):"
+              docker service ps zapmass_api --no-trunc 2>/dev/null | head -8 || true
+              docker service logs --tail 40 zapmass_api 2>/dev/null || true
+              exit "${_build}"
+            fi
+            echo "==> build/stack OK — healthcheck longo"
             bash deployment/gha-healthcheck.sh
-
-      - name: VPS — retry build se stack falhou
-        id: deploy_build_retry
-        if: steps.deploy_build.outcome == 'failure'
-        continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 30m
-          command_timeout: 120m
-          script: |
-            set -euo pipefail
-            sleep 90
-            export GITHUB_EVENT_NAME="${{ github.event_name }}"
-            export GITHUB_ACTIONS=true
-            export ZAPMASS_DEPLOY_SKIP_HEALTHCHECK=1
-            GHA_SHA="${{ github.sha }}"
-            cd /opt/zapmass
-            git fetch --all --prune && git checkout -f "${GHA_SHA}"
-            chmod +x deployment/vps-deploy.sh
-            bash deployment/vps-deploy.sh
-
-      - name: VPS — health após retry de build
-        id: deploy_health_retry
-        if: steps.deploy_build.outcome == 'failure' && steps.deploy_build_retry.outcome == 'success'
-        continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_SSH_PORT != '' && secrets.VPS_SSH_PORT || '22' }}
-          timeout: 30m
-          command_timeout: 30m
-          script: |
-            set -euo pipefail
-            export GITHUB_ACTIONS=true
-            export DEPLOY_HEALTH_TRIES=200
-            export GHA_SHA="${{ github.sha }}"
-            cd /opt/zapmass && git checkout -f "${GHA_SHA}" 2>/dev/null || true
-            export VITE_GIT_REF="$(git rev-parse --short HEAD 2>/dev/null || echo '')"
-            chmod +x deployment/gha-healthcheck.sh
-            bash deployment/gha-healthcheck.sh
-
-      - name: Falhar job se deploy ou health falhou
-        if: >-
-          always() && (
-            (steps.deploy_build.outcome == 'failure' && steps.deploy_build_retry.outcome != 'success') ||
-            (steps.deploy_build.outcome == 'success' && steps.deploy_health.outcome == 'failure') ||
-            (steps.deploy_build_retry.outcome == 'success' && steps.deploy_health_retry.outcome == 'failure')
-          )
-        run: |
-          echo "::error::Deploy/health na VPS falhou. Veja passos «VPS — build» e «VPS — healthcheck»."
-          echo "::error::Manual: cd /opt/zapmass && bash deployment/manual-pull-deploy.sh"
-          exit 1
 
       # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).
       # Isto adiciona texto legível no separador "Summary" da execução.
@@ -266,10 +203,7 @@ jobs:
         if: >-
           success() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          (
-            (steps.deploy_build.outcome == 'success' && steps.deploy_health.outcome == 'success') ||
-            (steps.deploy_build_retry.outcome == 'success' && steps.deploy_health_retry.outcome == 'success')
-          )
+          steps.deploy_vps.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

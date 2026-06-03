@@ -18,7 +18,7 @@ _poll() {
   local i code ver
   for i in $(seq 1 "${n}"); do
     code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HP}/api/health" || echo 000)
-    ver="$(curl -sf "http://127.0.0.1:${HP}/api/version" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
+    ver="$(curl -sf "http://127.0.0.1:${HP}/api/health" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
     echo "tentativa ${i}/${n}: HTTP ${code} version=${ver:-?}"
     if [ "${code}" = "200" ]; then
       if [ -n "${EXPECTED}" ] && [ -n "${ver}" ] && [ "${ver}" != "${EXPECTED}" ]; then

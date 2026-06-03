@@ -356,6 +356,8 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
   done
   if [ "${_build_ok}" != "1" ]; then
     echo "ERRO: docker build falhou após 3 tentativas."
+    echo "==> dica: VPS com pouca RAM — BUILDKIT_MAX_PARALLELISM=1 no .env; ou SOS_SKIP_BUILD=1 em recover manual"
+    docker service ps zapmass_api --no-trunc 2>/dev/null | head -5 || true
     exit 1
   fi
   unset _build_ok _build_try
