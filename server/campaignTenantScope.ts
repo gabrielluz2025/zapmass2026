@@ -1,4 +1,5 @@
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { fetchCampaignDoc, usePostgresCampaigns } from './campaignStore.js';
 
 /**
  * Escopo de campanha ativa por tenant (dono do workspace ou membro com ownerUid legado).
@@ -72,6 +73,39 @@ export async function lookupCampaignOwnerUidInFirestore(
   }
 
   return null;
+}
+
+/** Postgres (VPS): campanha em `zapmass.campaigns` por tenant_id. */
+export async function lookupCampaignOwnerUidInPostgres(
+  campaignId: string,
+  candidateOwnerUids: readonly string[]
+): Promise<string | null> {
+  if (!usePostgresCampaigns()) return null;
+  const cid = String(campaignId || '').trim();
+  if (!cid) return null;
+  const seen = new Set<string>();
+  for (const raw of candidateOwnerUids) {
+    const uid = String(raw || '').trim();
+    if (!uid || uid === 'anonymous' || seen.has(uid)) continue;
+    seen.add(uid);
+    try {
+      const doc = await fetchCampaignDoc(uid, cid);
+      if (doc) return uid;
+    } catch {
+      /* tenta proximo candidato */
+    }
+  }
+  return null;
+}
+
+/** Firestore ou Postgres conforme modo de dados do deploy. */
+export async function lookupCampaignOwnerUidInDatastore(
+  campaignId: string,
+  candidateOwnerUids: readonly string[]
+): Promise<string | null> {
+  const fromFs = await lookupCampaignOwnerUidInFirestore(campaignId, candidateOwnerUids);
+  if (fromFs) return fromFs;
+  return lookupCampaignOwnerUidInPostgres(campaignId, candidateOwnerUids);
 }
 
 /** Monta lista de UIDs para busca direta no Firestore (tenant, actor, equipa). */

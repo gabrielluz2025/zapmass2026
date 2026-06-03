@@ -60,7 +60,7 @@ import {
 import {
     canReconcileLegacyCampaignOwner,
     resolveCampaignTenantOwner,
-    lookupCampaignOwnerUidInFirestore,
+    lookupCampaignOwnerUidInDatastore,
     buildCampaignOwnerLookupUids,
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
@@ -1852,52 +1852,43 @@ export async function ensureTenantOwnsCampaign(
     const cid = String(campaignId || '').trim();
     if (!cid) return false;
     
-    const state = campaignsById.get(cid);
-    if (state) {
+    const reconcileOwner = (ownerUid: string | undefined): boolean => {
         let resolved = resolveCampaignTenantOwner(
             tenantUid,
-            state.ownerUid,
+            ownerUid,
             workspaceMemberUids,
             actingAuthUid
         );
-        if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, state.ownerUid, workspaceMemberUids)) {
+        if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, ownerUid, workspaceMemberUids)) {
             resolved = tenantUid;
         }
-        if (resolved) {
-            if (state.ownerUid !== resolved) {
-                state.ownerUid = resolved;
-                evolutionRegisterCampaign(cid, resolved);
-            }
-            return true;
+        if (!resolved) return false;
+        const memState = campaignsById.get(cid);
+        if (memState && memState.ownerUid !== resolved) {
+            memState.ownerUid = resolved;
         }
+        evolutionRegisterCampaign(cid, resolved);
+        return true;
+    };
+
+    const state = campaignsById.get(cid);
+    if (state && reconcileOwner(state.ownerUid)) return true;
+
+    const geoOwner = getCampaignGeoOwner(cid);
+    if (geoOwner && reconcileOwner(geoOwner)) return true;
+
+    if (!campaignsById.has(cid)) {
+        await ensureCampaignRuntimeInMemory(cid, tenantUid);
+        const restored = campaignsById.get(cid);
+        if (restored && reconcileOwner(restored.ownerUid)) return true;
     }
 
-    // Fallback Firestore: lookup direto em users/{uid}/campaigns/{id}
     try {
         const lookupUids = buildCampaignOwnerLookupUids(tenantUid, workspaceMemberUids, actingAuthUid);
-        const firestoreOwner = await lookupCampaignOwnerUidInFirestore(cid, lookupUids);
-
-        if (firestoreOwner) {
-            let resolved = resolveCampaignTenantOwner(
-                tenantUid,
-                firestoreOwner,
-                workspaceMemberUids,
-                actingAuthUid
-            );
-            if (!resolved && canReconcileLegacyCampaignOwner(tenantUid, firestoreOwner, workspaceMemberUids)) {
-                resolved = tenantUid;
-            }
-            if (resolved) {
-                const memState = campaignsById.get(cid);
-                if (memState && memState.ownerUid !== resolved) {
-                    memState.ownerUid = resolved;
-                    evolutionRegisterCampaign(cid, resolved);
-                }
-                return true;
-            }
-        }
+        const datastoreOwner = await lookupCampaignOwnerUidInDatastore(cid, lookupUids);
+        if (datastoreOwner && reconcileOwner(datastoreOwner)) return true;
     } catch (e: any) {
-        log('warn', 'Erro ao verificar dono da campanha no Firestore', { campaignId: cid, error: e.message });
+        log('warn', 'Erro ao verificar dono da campanha no datastore', { campaignId: cid, error: e.message });
     }
 
     return false;
