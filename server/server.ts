@@ -867,15 +867,21 @@ const registerSocketHandlers = () => {
       } else {
         emitScopedConnections();
       }
-      socket.emit(
-        'conversations-update',
-        await socketConversationsPayload(
-          uid,
-          authOp,
-          evolutionService.getConversations(),
-          resolveConnectionOwnerUid
-        )
-      );
+      const { isInboxPaginationEnabled } = await import('./inboxPagination.js');
+      if (useEvolutionChat() && isInboxPaginationEnabled() && uid && uid !== 'anonymous') {
+        const page = await evolutionService.getInboxPageForOwner(uid, authOp, { reset: true });
+        socket.emit('inbox-page', page);
+      } else {
+        socket.emit(
+          'conversations-update',
+          await socketConversationsPayload(
+            uid,
+            authOp,
+            evolutionService.getConversations(),
+            resolveConnectionOwnerUid
+          )
+        );
+      }
     })();
     socket.emit('warmup-update', getWarmupStateForUid());
     socket.emit('system-metrics', getSystemMetrics());
@@ -898,6 +904,43 @@ const registerSocketHandlers = () => {
     socket.on('ping-latency', (ts: number) => {
       socket.emit('pong-latency', ts);
     });
+
+    /** Carrega próxima página da inbox (cursor = lastMessageTimestamp da última linha). */
+    socket.on(
+      'request-inbox-page',
+      async (
+        opts: { cursor?: number | null; limit?: number } | undefined,
+        callback?: (page: Awaited<ReturnType<typeof evolutionService.getInboxPageForOwner>>) => void
+      ) => {
+        if (!uid || uid === 'anonymous') {
+          callback?.({
+            conversations: [],
+            nextCursor: null,
+            hasMore: false,
+            total: 0,
+          });
+          return;
+        }
+        await ensureAssignmentsLoaded(uid).catch(() => undefined);
+        const page = useEvolutionChat()
+          ? await evolutionService.getInboxPageForOwner(uid, authOp, {
+              cursor: opts?.cursor ?? null,
+              limit: opts?.limit,
+            })
+          : await (async () => {
+              const { socketInboxPagePayload } = await import('./conversationsEmit.js');
+              return socketInboxPagePayload(
+                uid,
+                authOp,
+                waService.getConversations(),
+                resolveConnectionOwnerUid,
+                { cursor: opts?.cursor ?? null, limit: opts?.limit }
+              );
+            })();
+        socket.emit('inbox-page', page);
+        callback?.(page);
+      }
+    );
 
     /** Re-sincroniza conversas: `full` = findChats na Evolution; padrão = só reemit RAM (leve). */
     socket.on('request-conversations-sync', (opts?: { full?: boolean }) => {

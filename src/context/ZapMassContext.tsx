@@ -285,6 +285,10 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   metrics: INITIAL_METRICS,
   birthdays: [],
   conversations: [],
+  inboxHasMore: false,
+  inboxLoadingMore: false,
+  inboxTotal: 0,
+  loadMoreInbox: async () => {},
   systemLogs: [],
   warmupQueue: [],
   warmedCount: 0,
@@ -345,7 +349,21 @@ const EMPTY_CORE: ZapMassCoreContextValue = (() => {
   return core;
 })();
 
-const ZAP_MASS_CONVERSATIONS_DEFAULT = { conversations: [] as Conversation[] };
+export type ZapMassConversationsSlice = {
+  conversations: Conversation[];
+  inboxHasMore: boolean;
+  inboxLoadingMore: boolean;
+  inboxTotal: number;
+  loadMoreInbox: () => void;
+};
+
+const ZAP_MASS_CONVERSATIONS_DEFAULT: ZapMassConversationsSlice = {
+  conversations: [],
+  inboxHasMore: false,
+  inboxLoadingMore: false,
+  inboxTotal: 0,
+  loadMoreInbox: () => {},
+};
 const ZapMassConversationsContext = createContext(ZAP_MASS_CONVERSATIONS_DEFAULT);
 
 const ZapMassCoreContext = createContext<ZapMassCoreContextValue>(EMPTY_CORE);
@@ -437,6 +455,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const campaignsRef = useRef<Campaign[]>([]);
   const [birthdays, setBirthdays] = useState<BirthdayContact[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [inboxHasMore, setInboxHasMore] = useState(false);
+  const [inboxLoadingMore, setInboxLoadingMore] = useState(false);
+  const [inboxTotal, setInboxTotal] = useState(0);
+  const inboxNextCursorRef = useRef<number | null>(null);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const [warmupQueue, setWarmupQueue] = useState<WarmupItem[]>([]);
   const [warmedCount, setWarmedCount] = useState(0);
@@ -969,6 +991,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     // alguns segundos apos troca de conta — vazamento entre sessoes em
     // browser compartilhado.
     const resetSessionState = () => {
+      inboxNextCursorRef.current = null;
+      setInboxHasMore(false);
+      setInboxLoadingMore(false);
+      setInboxTotal(0);
       setContacts([]);
       setContactLists([]);
       setCampaigns([]);
@@ -1103,6 +1129,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!u?.uid || workspaceLoading) return;
     const dataUid = effectiveWorkspaceUid ?? u.uid;
     if (currentUidRef.current !== dataUid) {
+      inboxNextCursorRef.current = null;
+      setInboxHasMore(false);
+      setInboxLoadingMore(false);
+      setInboxTotal(0);
       setContacts([]);
       setContactLists([]);
       setCampaigns([]);
@@ -1476,6 +1506,28 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const idSet = new Set(ids);
       setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
     });
+
+    socket.on(
+      'inbox-page',
+      (data: {
+        conversations?: Conversation[];
+        nextCursor?: number | null;
+        hasMore?: boolean;
+        total?: number;
+        reset?: boolean;
+      }) => {
+        const list = Array.isArray(data?.conversations) ? data.conversations : [];
+        inboxNextCursorRef.current =
+          data?.hasMore && data.nextCursor != null ? Number(data.nextCursor) : null;
+        setInboxHasMore(!!data?.hasMore);
+        setInboxTotal(Number(data?.total) || 0);
+        setConversations((prev) =>
+          data?.reset
+            ? mergeConversationsFromSocketUpdate([], list, ownsConnectionId)
+            : mergeConversationsFromSocketUpdate(prev, list, ownsConnectionId)
+        );
+      }
+    );
 
     socket.on('conversation-picture', ({ conversationId, profilePicUrl }: { conversationId: string; profilePicUrl?: string | null }) => {
       if (!conversationId || !profilePicUrl) return;
@@ -3138,6 +3190,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   };
 
+  const loadMoreInbox = useCallback(() => {
+    const socket = socketRef.current;
+    if (!socket?.connected || inboxLoadingMore || !inboxHasMore) return;
+    setInboxLoadingMore(true);
+    socket.emit(
+      'request-inbox-page',
+      { cursor: inboxNextCursorRef.current },
+      () => {
+        setInboxLoadingMore(false);
+      }
+    );
+  }, [inboxHasMore, inboxLoadingMore]);
+
   const deleteLocalConversations = (conversationIds: string[]): Promise<number> => {
     return new Promise((resolve) => {
       const socket = socketRef.current;
@@ -3631,7 +3696,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const connectionsSlice = useMemo(() => ({ connections }), [connections]);
 
-  const zapMassConversationsSlice = useMemo(() => ({ conversations }), [conversations]);
+  const stableLoadMoreInbox = useStableCallback(loadMoreInbox);
+
+  const zapMassConversationsSlice = useMemo<ZapMassConversationsSlice>(
+    () => ({
+      conversations,
+      inboxHasMore,
+      inboxLoadingMore,
+      inboxTotal,
+      loadMoreInbox: stableLoadMoreInbox,
+    }),
+    [conversations, inboxHasMore, inboxLoadingMore, inboxTotal, stableLoadMoreInbox]
+  );
 
   const zapMassCoreValue = useMemo<ZapMassCoreContextValue>(
     () => ({
@@ -3754,6 +3830,16 @@ export function useZapMassUiSnapshot(): ZapMassUiSnapshot {
 /** Lista de conversas/inbox isolada — `useZapMassCore()` não dispara quando o socket sincroniza o pipeline. */
 export function useZapMassConversations(): Conversation[] {
   return useContext(ZapMassConversationsContext).conversations;
+}
+
+export function useZapMassInboxPagination(): Omit<ZapMassConversationsSlice, 'conversations'> {
+  const slice = useContext(ZapMassConversationsContext);
+  return {
+    inboxHasMore: slice.inboxHasMore,
+    inboxLoadingMore: slice.inboxLoadingMore,
+    inboxTotal: slice.inboxTotal,
+    loadMoreInbox: slice.loadMoreInbox,
+  };
 }
 
 /** Resto do ZapMass sem `conversations` — usar em abas que não leem inbox (Warmup, Conexões, etc.). */

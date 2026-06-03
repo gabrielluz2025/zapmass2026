@@ -6,6 +6,15 @@ import {
 } from './inboxAssignments.js';
 import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
 import { enrichConversationsWithCrmPhones } from './contactPhoneEnrich.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
+import { usePostgresChatArchive } from './chatArchiveStore.js';
+import {
+  INBOX_PAGE_SIZE_DEFAULT,
+  sliceInboxPage,
+  sortConversationsByActivity,
+  type InboxPagePayload,
+} from './inboxPagination.js';
+import { listInboxThreadStubsPg } from './repositories/chatArchiveRepository.js';
 import type { Conversation } from './types.js';
 
 /** Resolve dono de canal legado (`conn_*` sem `uid__`) para `filterByConnectionScope`. */
@@ -101,6 +110,44 @@ export async function socketConversationsPayload(
   const withNames = await enrichConversationsWithCrmNames(tenantUid, scoped);
   const withPhones = await enrichConversationsWithCrmPhones(tenantUid, withNames);
   return prepareConversationsForSocketEmit(withPhones);
+}
+
+/** Página da inbox (RAM) com escopo + CRM + payload enxuto. */
+export async function socketInboxPagePayload(
+  tenantUid: string,
+  authUid: string,
+  allConversations: Conversation[],
+  resolveConnectionOwner?: ConnectionOwnerResolver,
+  opts?: { cursor?: number | null; limit?: number; reset?: boolean }
+): Promise<InboxPagePayload> {
+  let scoped = conversationsPayloadForViewer(
+    tenantUid,
+    authUid,
+    allConversations,
+    resolveConnectionOwner
+  );
+  if (opts?.cursor == null && usePostgresChatArchive()) {
+    try {
+      const pgStubs = await listInboxThreadStubsPg(resolvePostgresTenantId(tenantUid), {
+        limit: Math.min(200, (opts?.limit ?? INBOX_PAGE_SIZE_DEFAULT) * 3),
+      });
+      const ramIds = new Set(scoped.map((c) => c.id));
+      for (const stub of pgStubs) {
+        if (!ramIds.has(stub.id)) scoped.push(stub);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const sorted = sortConversationsByActivity(scoped);
+  const page = sliceInboxPage(sorted, { cursor: opts?.cursor, limit: opts?.limit ?? INBOX_PAGE_SIZE_DEFAULT });
+  const withNames = await enrichConversationsWithCrmNames(tenantUid, page.conversations);
+  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, withNames);
+  return {
+    ...page,
+    conversations: prepareConversationsForSocketEmit(withPhones),
+    reset: opts?.reset,
+  };
 }
 
 /**

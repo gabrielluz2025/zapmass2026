@@ -582,10 +582,32 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     return { connections: scoped, claimed, syncedChats };
 }
 
+/** Página da inbox (cursor = lastMessageTimestamp da última linha). */
+export async function getInboxPageForOwner(
+    ownerUid: string,
+    authUid: string,
+    opts?: { cursor?: number | null; limit?: number; reset?: boolean }
+) {
+    const { socketInboxPagePayload } = await import('./conversationsEmit.js');
+    return socketInboxPagePayload(
+        ownerUid,
+        authUid,
+        chatStore.getConversations(),
+        resolveConnectionOwnerUid,
+        opts
+    );
+}
+
 /** Reemite inbox do RAM para o socket — sem findChats (sync leve ao focar aba / reconectar). */
 export async function reemitConversationsForOwner(ownerUid: string): Promise<void> {
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous') return;
+    const { isInboxPaginationEnabled } = await import('./inboxPagination.js');
+    if (isInboxPaginationEnabled()) {
+        const page = await getInboxPageForOwner(uid, uid, { reset: true });
+        publishOwnerEvent(uid, 'inbox-page', page as unknown as Record<string, unknown>);
+        return;
+    }
     const { socketConversationsPayload } = await import('./conversationsEmit.js');
     publishOwnerEvent(
         uid,
@@ -3760,6 +3782,7 @@ export default {
     syncOpenChatsForOwner,
     syncConnectionsForOwner,
     reemitConversationsForOwner,
+    getInboxPageForOwner,
     assignConnectionOwner,
     listOrphanOpenConnectionIds,
     loadChatHistory,

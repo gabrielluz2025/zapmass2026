@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
-import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
+import {
+  useZapMassCore,
+  useZapMassConversations,
+  useZapMassInboxPagination,
+} from '../../context/ZapMassContext';
 import { ClientCrmPanel } from '../chat/ClientCrmPanel';
 import { WaContactDrawer } from '../chat/wa/WaContactDrawer';
 import { useClientCrm } from '../chat/useClientCrm';
@@ -34,6 +38,7 @@ export const WaWebChatApp: React.FC<{
   const { user } = useAuth();
   const crm = useClientCrm(user?.uid);
   const conversations = useZapMassConversations();
+  const { inboxHasMore, inboxLoadingMore, loadMoreInbox } = useZapMassInboxPagination();
   const {
     contacts,
     connections,
@@ -407,6 +412,9 @@ export const WaWebChatApp: React.FC<{
         onRefresh={handleRefresh}
         onSelect={selectChat}
         hideOnMobile={mobileShowThread}
+        inboxHasMore={inboxHasMore}
+        inboxLoadingMore={inboxLoadingMore}
+        onLoadMore={loadMoreInbox}
       />
 
       <WaThread

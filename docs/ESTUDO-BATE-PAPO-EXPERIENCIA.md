@@ -16,7 +16,7 @@ Documento para alinhar **o que temos hoje**, **por que frustra** (ex.: “Recone
 | Chip **conectado** = pode conversar | UI separa **chip** (`CONNECTED`) de **servidor** (socket slow/offline) | Evolution v2.2 + @lid na origem |
 | Abrir chat de **Contatos / Aniversariantes** | `openChatByPhone` + rascunho local no chat v2 | Cache JID↔PN persistente; reenvio guiado pós-falha LID |
 | Ver **disparos de campanha** no histórico | Badge **Campanha** em `fromCampaign` | Filtro “só pós-campanha” no inbox (legado tinha) |
-| Estabilidade em escala | Cap 800 conv no socket; virtualizer; delta no envio/webhook msg | Fila BullMQ para **webhooks**; paginação server-side inbox |
+| Estabilidade em escala | Inbox paginada + delta + fila webhook | Telemetria; Evolution 2.4+ na VPS |
 
 **Conclusão:** o produto **não está “quebrado” por falta de código**. O gargalo que resta para escala (milhares de msgs/dia) é **processamento síncrono de webhooks no event loop** + **full `conversations-update`** em sync/foto — não mais o ping >8s nem o envio disparando lista inteira.
 
@@ -41,7 +41,7 @@ Documento para alinhar **o que temos hoje**, **por que frustra** (ex.: “Recone
 | Fila Redis/BullMQ para **webhooks** | `evolutionWebhookQueue.ts`, `dispatchWebhook` | ✅ Feito (fila `evolution-webhook`, fallback sync sem Redis) |
 | Evolution ≥ 2.4 na VPS | — | ❌ Pendente (infra) |
 | Bolha `pending` até ACK | — | ❌ Melhoria |
-| Paginação server-side inbox | — | ❌ Fase 2 |
+| Paginação server-side inbox (`inbox-page`) | `inboxPagination.ts`, socket | ✅ Feito |
 
 **Commits na linha do tempo:** `1a9a374` (este estudo) → `f7f1b2e` (LID) → `af3675d` (fases 0–2 + deploy).
 
@@ -280,7 +280,7 @@ Base: **Evolution v2.2.0** (`atendai/evolution-api`) + Baileys. Melhorias releva
 | # | Ação | Status |
 |---|------|--------|
 | 2.0 | **Fila BullMQ para webhooks** (`evolution-webhook`) | ✅ |
-| 2.1 | Inbox paginado server-side + virtualizer | Virtualizer ✅; API cursor ❌ |
+| 2.1 | Inbox paginado server-side + virtualizer | ✅ `inbox-page` + scroll |
 | 2.2 | Busca de mensagens | ❌ |
 | 2.3 | Mídia: progresso upload | ❌ |
 | 2.4 | Multi-chip inbox unificado | Parcial |

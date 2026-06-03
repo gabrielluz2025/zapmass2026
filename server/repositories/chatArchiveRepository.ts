@@ -1,5 +1,5 @@
 import { getZapmassPool } from '../db/postgres.js';
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage, Conversation } from '../types.js';
 
 const MAX_TEXT_LEN = 12000;
 const MAX_MEDIA_PREVIEW = 512;
@@ -194,6 +194,63 @@ export async function loadChatArchiveMessagesPg(
     return out;
   } catch (e) {
     console.warn('[ChatArchive/PG] load falhou:', (e as Error)?.message || e);
+    return [];
+  }
+}
+
+type ThreadRow = {
+  thread_id: string;
+  contact_name: string;
+  contact_phone: string;
+  last_connection_id: string;
+  updated_ms: string;
+};
+
+/** Stubs de inbox a partir do Postgres (threads sem conversa na RAM). */
+export async function listInboxThreadStubsPg(
+  tenantId: string,
+  opts?: { cursorMs?: number | null; limit?: number }
+): Promise<Conversation[]> {
+  if (!isUuid(tenantId)) return [];
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const limit = Math.max(1, Math.min(150, opts?.limit ?? 60));
+  const cursorMs =
+    opts?.cursorMs != null && Number.isFinite(Number(opts.cursorMs)) ? Number(opts.cursorMs) : null;
+  try {
+    const r = await pool.query<ThreadRow>(
+      `SELECT thread_id, contact_name, contact_phone, last_connection_id,
+              (EXTRACT(EPOCH FROM updated_at) * 1000)::bigint::text AS updated_ms
+       FROM zapmass.wa_chat_threads
+       WHERE tenant_id = $1::uuid
+         AND ($2::bigint IS NULL OR (EXTRACT(EPOCH FROM updated_at) * 1000) < $2)
+       ORDER BY updated_at DESC
+       LIMIT $3`,
+      [tenantId, cursorMs, limit]
+    );
+    const out: Conversation[] = [];
+    for (const row of r.rows) {
+      const phone = (row.contact_phone || '').replace(/\D/g, '');
+      const conn = (row.last_connection_id || '').trim();
+      if (!conn || phone.length < 8) continue;
+      const id = `${conn}:${phone}@c.us`;
+      const ts = Number(row.updated_ms) || Date.now();
+      out.push({
+        id,
+        contactName: row.contact_name || `+${phone}`,
+        contactPhone: row.contact_phone || `+${phone}`,
+        connectionId: conn,
+        unreadCount: 0,
+        lastMessage: '',
+        lastMessageTime: '',
+        lastMessageTimestamp: ts,
+        messages: [],
+        tags: ['Arquivo'],
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn('[ChatArchive/PG] list threads falhou:', (e as Error)?.message || e);
     return [];
   }
 }

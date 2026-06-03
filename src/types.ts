@@ -448,6 +448,11 @@ export interface ZapMassContextType {
   metrics: DashboardMetrics;
   birthdays: BirthdayContact[];
   conversations: Conversation[];
+  /** Paginação da inbox (socket `inbox-page`). */
+  inboxHasMore?: boolean;
+  inboxLoadingMore?: boolean;
+  inboxTotal?: number;
+  loadMoreInbox?: () => void;
   systemLogs: SystemLog[];
   warmupQueue: WarmupItem[];
   warmedCount: number;

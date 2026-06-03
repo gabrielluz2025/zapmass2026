@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageCircle, RefreshCw, Search } from 'lucide-react';
 import type { Conversation } from '../../types';
@@ -23,6 +23,9 @@ type Props = {
   onRefresh: () => void;
   onSelect: (id: string) => void;
   hideOnMobile?: boolean;
+  inboxHasMore?: boolean;
+  inboxLoadingMore?: boolean;
+  onLoadMore?: () => void;
 };
 
 export const WaInbox: React.FC<Props> = ({
@@ -40,9 +43,25 @@ export const WaInbox: React.FC<Props> = ({
   onToggleUnread,
   onRefresh,
   onSelect,
-  hideOnMobile
+  hideOnMobile,
+  inboxHasMore,
+  inboxLoadingMore,
+  onLoadMore,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreLockRef = useRef(false);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !inboxHasMore || inboxLoadingMore || !onLoadMore || loadMoreLockRef.current) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!nearBottom) return;
+    loadMoreLockRef.current = true;
+    onLoadMore();
+    window.setTimeout(() => {
+      loadMoreLockRef.current = false;
+    }, 800);
+  }, [inboxHasMore, inboxLoadingMore, onLoadMore]);
   const virtualizer = useVirtualizer({
     count: conversations.length,
     getScrollElement: () => scrollRef.current,
@@ -119,7 +138,11 @@ export const WaInbox: React.FC<Props> = ({
         </button>
       )}
 
-      <div ref={scrollRef} className="wa-conv-list flex-1 min-h-0 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="wa-conv-list flex-1 min-h-0 overflow-y-auto"
+        onScroll={handleScroll}
+      >
         {conversations.length === 0 ? (
           <p className="text-center text-sm py-10 px-4" style={{ color: 'var(--wa-text-3)' }}>
             Nenhuma conversa. Conecte um chip e use Atualizar, ou aguarde novas mensagens.
@@ -176,6 +199,16 @@ export const WaInbox: React.FC<Props> = ({
               );
             })}
           </div>
+        )}
+        {inboxLoadingMore && (
+          <p className="text-center text-xs py-3" style={{ color: 'var(--wa-text-3)' }}>
+            Carregando mais conversas…
+          </p>
+        )}
+        {inboxHasMore && !inboxLoadingMore && conversations.length > 0 && (
+          <p className="text-center text-[11px] py-2 opacity-60" style={{ color: 'var(--wa-text-3)' }}>
+            Role para carregar mais
+          </p>
         )}
       </div>
 
