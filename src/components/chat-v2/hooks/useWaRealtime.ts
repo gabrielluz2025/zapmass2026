@@ -77,6 +77,7 @@ export function useWaRealtime(
     };
     socket.on('conversations-update', onConv);
     socket.on('conversation-delta', onConv);
+    socket.on('inbox-page', onConv);
 
     return () => {
       socket.off('connect', onConnect);
@@ -84,6 +85,7 @@ export function useWaRealtime(
       socket.off('pong-latency', onPong);
       socket.off('conversations-update', onConv);
       socket.off('conversation-delta', onConv);
+      socket.off('inbox-page', onConv);
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(pingTimer);
       if (syncingTimerRef.current) clearTimeout(syncingTimerRef.current);
