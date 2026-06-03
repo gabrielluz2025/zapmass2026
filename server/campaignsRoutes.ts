@@ -7,10 +7,13 @@ import {
   createCampaign,
   deleteAllCampaigns,
   deleteCampaign,
+  getCampaignDoc,
   listCampaignLogs,
   listCampaigns,
   mergeUpdateCampaign
 } from './repositories/campaignsRepository.js';
+import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
+import { recipientKeyForCampaignReport } from '../src/utils/campaignReportDedupe.js';
 
 export function registerCampaignsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -81,6 +84,48 @@ export function registerCampaignsDataRoutes(app: Express): void {
       }),
       hasMore: rows.length >= limit
     });
+  });
+
+  app.get('/api/campaigns/:id/inbound-replies', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    const doc = await getCampaignDoc(ctx.tenantId, campaignId);
+    if (!doc) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+
+    const allowed = Array.isArray(doc.selectedConnectionIds)
+      ? (doc.selectedConnectionIds as string[]).filter(Boolean)
+      : [];
+
+    const replies: Record<string, { replyText: string; replyTimestampMs: number }> = {};
+
+    try {
+      const { getConversations } = await import('./evolutionService.js');
+      const fromChat = buildCampaignInboundRepliesMap(campaignId, getConversations(), allowed);
+      Object.assign(replies, fromChat);
+    } catch (e) {
+      console.warn('[api/campaigns/inbound-replies] evolution:', e);
+    }
+
+    const logRows = await listCampaignLogs(ctx.tenantId, campaignId, { limit: 500, offset: 0 });
+    const replyLogMessages = new Set([
+      'Resposta recebida no fluxo por etapas',
+      'Resposta do contato'
+    ]);
+    for (const row of logRows) {
+      if (!replyLogMessages.has(row.message)) continue;
+      const p = row.payload || {};
+      const rk = recipientKeyForCampaignReport(String(p.to || p.phoneDigits || ''));
+      const preview = p.replyPreview != null ? String(p.replyPreview).trim() : '';
+      if (!rk || !preview) continue;
+      const ts = row.created_at.getTime();
+      const prev = replies[rk];
+      if (!prev || ts >= prev.replyTimestampMs) {
+        replies[rk] = { replyText: preview, replyTimestampMs: ts };
+      }
+    }
+
+    return res.json({ ok: true, replies });
   });
 
   app.delete('/api/tenant/campaigns-data', async (req: Request, res: Response) => {

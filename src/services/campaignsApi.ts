@@ -45,6 +45,19 @@ export type CampaignLogDto = {
   createdAt: string;
 };
 
+export type CampaignInboundReplyDto = {
+  replyText: string;
+  replyTimestampMs: number;
+};
+
+export async function fetchCampaignInboundReplies(
+  campaignId: string
+): Promise<Record<string, CampaignInboundReplyDto>> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/inbound-replies`;
+  const j = await apiFetchJson<{ replies?: Record<string, CampaignInboundReplyDto> }>(path);
+  return j.replies && typeof j.replies === 'object' ? j.replies : {};
+}
+
 export async function fetchCampaignLogs(
   campaignId: string,
   opts?: { limit?: number; offset?: number }

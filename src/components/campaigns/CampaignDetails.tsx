@@ -39,14 +39,21 @@ import {
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
 import { useVpsData } from '../../services/vpsData';
-import { fetchCampaignLogs, type CampaignLogDto } from '../../services/campaignsApi';
+import {
+  fetchCampaignInboundReplies,
+  fetchCampaignLogs,
+  type CampaignInboundReplyDto,
+  type CampaignLogDto
+} from '../../services/campaignsApi';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
 import {
   applyReplyHintsToReportRow,
+  applyServerInboundReplyToRow,
   buildReplyHintsFromLogs,
   CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_SENT_LOG_MESSAGE,
+  campaignReportReplyDetailLabel,
   logPayloadPhoneKey,
   sumCampaignGeoStats
 } from '../../utils/campaignReportFromLogs';
@@ -354,6 +361,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const { effectiveWorkspaceUid } = useWorkspace();
   const dataUid = effectiveWorkspaceUid ?? user?.uid ?? null;
   const [persistedLogs, setPersistedLogs] = useState<SystemLog[]>([]);
+  const [serverInboundReplies, setServerInboundReplies] = useState<
+    Record<string, CampaignInboundReplyDto>
+  >({});
   const [logsLastDoc, setLogsLastDoc] = useState<DocumentSnapshot | null>(null);
   const [logsHasMore, setLogsHasMore] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
@@ -400,6 +410,24 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         }
       };
     });
+
+  useEffect(() => {
+    if (!useVpsData() || !campaign.id) {
+      setServerInboundReplies({});
+      return;
+    }
+    let cancelled = false;
+    fetchCampaignInboundReplies(campaign.id)
+      .then((replies) => {
+        if (!cancelled) setServerInboundReplies(replies);
+      })
+      .catch(() => {
+        if (!cancelled) setServerInboundReplies({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [campaign.id]);
 
   useEffect(() => {
     if (!dataUid) {
@@ -682,7 +710,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }
 
       const rk = recipientKeyForCampaignReport(row.phone);
-      const withReply = applyReplyHintsToReportRow(
+      let merged = applyReplyHintsToReportRow(
         {
           ...row,
           contactName: contactName || `+${row.phone}`,
@@ -699,13 +727,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         },
         replyHints.get(rk)
       );
-      rows.push(withReply);
+      merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
+      rows.push(merged);
     });
 
     const rowsFromLogs = rows.sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
-    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations).map((row) =>
-      applyReplyHintsToReportRow(row, replyHints.get(recipientKeyForCampaignReport(row.phone)))
-    );
+    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations).map((row) => {
+      const rk = recipientKeyForCampaignReport(row.phone);
+      let merged = applyReplyHintsToReportRow(row, replyHints.get(rk));
+      merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
+      return merged;
+    });
     const mergedByPhone = new Map<string, ReportRow>();
     for (const row of rowsFromConversations)
       mergedByPhone.set(recipientKeyForCampaignReport(row.phone), row);
@@ -746,7 +778,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         legacyEstimate: true
       }))
     );
-  }, [logsForReport, campaign, campaign.selectedConnectionIds, contacts, contactLists, conversations]);
+  }, [
+    logsForReport,
+    campaign,
+    campaign.selectedConnectionIds,
+    contacts,
+    contactLists,
+    conversations,
+    serverInboundReplies
+  ]);
 
   const filteredReport = useMemo(() => {
     const term = detailSearch.trim().toLowerCase();
@@ -1925,7 +1965,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                               <span className="truncate block">"{replySnippet}"</span>
                             </div>
                           ) : (
-                            <span style={{ color: 'var(--text-3)' }}>—</span>
+                            <span
+                              className="text-[11.5px] leading-snug block max-w-[280px]"
+                              style={{ color: 'var(--text-3)' }}
+                            >
+                              {campaignReportReplyDetailLabel(item.status, item.replyText) || '—'}
+                            </span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">

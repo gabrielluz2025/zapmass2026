@@ -37,6 +37,7 @@ import {
     evolutionTrackIncomingReply,
     evolutionTrackMessageAck,
     evolutionTrackMessageSent,
+    logCampaignContactReply,
     getCampaignGeoOwner,
     publishOwnerEvent,
 } from './whatsappService.js';
@@ -1740,7 +1741,9 @@ function emitCampaignLog(
         const persistInfo =
             level === 'ERROR' ||
             (level === 'INFO' &&
-                (message === 'Mensagem enviada' || message === 'Resposta recebida no fluxo por etapas'));
+                (message === 'Mensagem enviada' ||
+                    message === 'Resposta recebida no fluxo por etapas' ||
+                    message === 'Resposta do contato'));
         if (persistInfo) {
             const toPersist = { ...(payload || {}) };
             if (!toPersist.to && toPersist.phoneDigits) {
@@ -3400,6 +3403,12 @@ export async function handleWebhook(event: any) {
                         incomingConvId,
                     });
                     evolutionTrackIncomingReply(instance, phoneDigits);
+                    const replyPreview =
+                        String(bodyText || '').slice(0, 80) ||
+                        (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
+                    if (replyPreview) {
+                        logCampaignContactReply(instance, phoneDigits, replyPreview);
+                    }
                 }
                 break;
             }

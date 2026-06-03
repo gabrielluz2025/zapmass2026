@@ -1341,7 +1341,9 @@ const emitCampaignLog = (level: 'INFO' | 'WARN' | 'ERROR', message: string, payl
     const persistInfo =
         level === 'ERROR' ||
         (level === 'INFO' &&
-            (message === 'Mensagem enviada' || message === 'Resposta recebida no fluxo por etapas'));
+            (message === 'Mensagem enviada' ||
+                message === 'Resposta recebida no fluxo por etapas' ||
+                message === 'Resposta do contato'));
     if (uid && cid && persistInfo) {
         const toPersist = { ...payload };
         if (!toPersist.to && toPersist.phoneDigits) {
@@ -6614,6 +6616,40 @@ export const canControlCampaign = async (
 
     return false;
 };
+
+/** Grava preview da resposta do contato nos logs da campanha (relatório). */
+export function logCampaignContactReply(
+    connectionId: string,
+    phoneDigits: string,
+    preview: string
+): void {
+    const phoneNorm = toPhoneKey(phoneDigits);
+    if (phoneNorm.length < 8) return;
+    const text = String(preview || '').trim().slice(0, 500);
+    if (!text) return;
+    for (const meta of campaignMsgMeta.values()) {
+        if (meta.connId !== connectionId || meta.phoneNorm !== phoneNorm) continue;
+        if (!meta.campaignId) continue;
+        const owner = campaignGeoOwnerById.get(meta.campaignId);
+        const payload = {
+            campaignId: meta.campaignId,
+            connectionId,
+            phoneDigits: phoneNorm,
+            replyPreview: text,
+            to: phoneNorm,
+        };
+        emitToOwnerUid('campaign-log', owner, {
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            message: 'Resposta do contato',
+            payload,
+        });
+        if (owner && meta.campaignId) {
+            void persistCampaignLogToFirestore(owner, meta.campaignId, 'INFO', 'Resposta do contato', payload);
+        }
+        return;
+    }
+}
 
 /** Registra campanha Evolution no mapa de geo/funil (antes do 1º envio). */
 export function evolutionRegisterCampaign(campaignId: string, ownerUid?: string): void {
