@@ -2740,16 +2740,21 @@ export const ContactsTab: React.FC = () => {
   ]);
 
   const handleSaveNewContact = async () => {
+    try {
     const canonicalName =
       normalizeContactPersonName((newContact.name || '').trim(), {
         stripPrefixes: true,
         titleCase: true
       }) || '';
-    if (!canonicalName || !newContact.phone) {
-      alert('Por favor, preencha ao menos Nome e Telefone.');
+    if (!canonicalName || !(newContact.phone || '').trim()) {
+      toast.error('Preencha ao menos Nome e WhatsApp.');
       return;
     }
     const cleanPhone = (newContact.phone || '').replace(/\D/g, '');
+    if (cleanPhone.length < 10) {
+      toast.error('Informe um WhatsApp válido com DDD (mínimo 10 dígitos).');
+      return;
+    }
     if (newContactTargetMode === 'existing' && !newContactTargetListId) {
       toast.error('Escolha uma lista de destino.');
       return;
@@ -2802,8 +2807,9 @@ export const ContactsTab: React.FC = () => {
         number: newContact.number || '',
         neighborhood: newContact.neighborhood || '',
         zipCode: newContact.zipCode || '',
-        church: newContact.church || '',
-        role: rolePayload,
+        ...(segment === 'religious'
+          ? { church: newContact.church || '', role: rolePayload }
+          : {}),
         profession: newContact.profession || '',
         birthday: newContact.birthday || '',
         email: newContact.email || '',
@@ -2836,8 +2842,9 @@ export const ContactsTab: React.FC = () => {
         number: newContact.number,
         neighborhood: newContact.neighborhood,
         zipCode: newContact.zipCode,
-        church: newContact.church,
-        role: rolePayload,
+        ...(segment === 'religious'
+          ? { church: newContact.church || '', role: rolePayload }
+          : {}),
         profession: newContact.profession,
         birthday: newContact.birthday,
         email: newContact.email,
@@ -2886,6 +2893,10 @@ export const ContactsTab: React.FC = () => {
     setNewContactNewListName('');
     setFollowUpDatetimeLocal('');
     setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm());
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Não foi possível salvar o contato.';
+      toast.error(msg);
+    }
   };
 
   const managedListForView = useMemo(
@@ -4150,7 +4161,7 @@ export const ContactsTab: React.FC = () => {
                        {editingContactId ? 'Editar Contato' : 'Novo Contato'}
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5 ml-10">
-                      {editingContactId ? 'Atualize os dados e salve as alteraÃ§Ãµes.' : 'Preencha os dados abaixo para cadastrar manualmente.'}
+                      {editingContactId ? 'Atualize os dados e salve as alterações.' : 'Preencha os dados abaixo para cadastrar manualmente.'}
                     </p>
                  </div>
                  <button onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm()); }} className="text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 p-1.5 rounded-full transition-colors">
@@ -4228,10 +4239,10 @@ export const ContactsTab: React.FC = () => {
                  {/* Divider */}
                  <div className="border-t border-slate-100 dark:border-slate-800"></div>
 
-                 {/* Section: EndereÃ§o */}
+                 {/* Section: Endereço */}
                  <div className="space-y-4">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                       <Home className="w-3.5 h-3.5" /> EndereÃ§o
+                       <Home className="w-3.5 h-3.5" /> Endereço
                     </h4>
 
                     <div className="bg-amber-50/40 p-4 rounded-xl border border-amber-100/50 space-y-4">
@@ -4248,7 +4259,7 @@ export const ContactsTab: React.FC = () => {
                              />
                           </div>
                           <div className="col-span-6 md:col-span-2">
-                             <label htmlFor="newContactNumber" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">NÃºmero</label>
+                             <label htmlFor="newContactNumber" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Número</label>
                              <input
                                id="newContactNumber"
                                type="text"
@@ -4304,10 +4315,11 @@ export const ContactsTab: React.FC = () => {
                     </div>
                  </div>
 
-                 {/* Divider */}
+                 {segment === 'religious' ? (
+                 <>
                  <div className="border-t border-slate-100 dark:border-slate-800"></div>
 
-                 {/* Section: Church Info */}
+                 {/* Section: Church Info (somente segmento religioso) */}
                  <div className="space-y-4">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                        <Church className="w-3.5 h-3.5" /> Dados Eclesiásticos
@@ -4337,48 +4349,17 @@ export const ContactsTab: React.FC = () => {
                           </div>
                        </div>
 
-                       {segment !== 'religious' ? (
-                       <div>
-                          <label htmlFor="newContactRole" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">
-                            Cargo na Igreja
-                            <span className="ml-2 text-[10px] font-medium text-slate-400 uppercase tracking-wider">Digite ou escolha</span>
-                          </label>
-                          <div className="relative">
-                             <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-600/60" />
-                             <input
-                               id="newContactRole"
-                               name="newContactRole"
-                               type="text"
-                               list="contact-role-suggestions"
-                               value={newContact.role}
-                               onChange={e => setNewContact({...newContact, role: e.target.value})}
-                               className="ui-input pl-10"
-                               placeholder="Ex: Lider de Celula, Diacono..."
-                               autoComplete="off"
-                             />
-                             <datalist id="contact-role-suggestions">
-                               {roleSuggestions.map(r => (
-                                 <option key={r} value={r} />
-                               ))}
-                             </datalist>
-                          </div>
-                          <p className="text-[11px] text-slate-400 mt-1">
-                            Pode digitar um cargo novo — ele vira sugestao da proxima vez.
-                          </p>
-                       </div>
-                       ) : (
                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
                          Cargo na igreja ao gravar: combina as funções marcadas na ficha abaixo com o complemento em texto livre (campo &quot;Complemento de função&quot;).
                        </p>
-                       )}
                     </div>
                  </div>
 
-                 {segment === 'religious' ? (
                    <ReligiousMemberProfileModalFields
                      form={religiousMemberForm}
                      onPatch={(p) => setReligiousMemberForm((prev) => ({ ...prev, ...p }))}
                    />
+                 </>
                  ) : null}
 
                  {/* Divider */}
@@ -4461,7 +4442,7 @@ export const ContactsTab: React.FC = () => {
                     </div>
 
                     <div>
-                       <label htmlFor="newContactNotes" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">ObservaÃ§Ãµes</label>
+                       <label htmlFor="newContactNotes" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Observações</label>
                        <textarea
                          id="newContactNotes"
                          name="newContactNotes"
@@ -4561,14 +4542,16 @@ export const ContactsTab: React.FC = () => {
 
               {/* Modal Footer */}
               <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 rounded-b-2xl flex justify-between items-center gap-4">
-                 <button 
+                 <button
+                    type="button"
                     onClick={() => { setIsModalOpen(false); setEditingContactId(null); setFollowUpDatetimeLocal(''); setNewContactTargetMode('none'); setNewContactTargetListId(''); setNewContactNewListName(''); setNewContact({ name: '', phone: '', city: '', state: '', street: '', number: '', neighborhood: '', zipCode: '', church: '', role: '', profession: '', birthday: '', email: '', notes: '', followUpNote: '' }); setReligiousMemberForm(emptyForm()); }}
                     className="px-6 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
                  >
                     Cancelar
                  </button>
-                 <button 
-                    onClick={handleSaveNewContact}
+                 <button
+                    type="button"
+                    onClick={() => void handleSaveNewContact()}
                     className="flex-1 px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 active:transform active:scale-95 transition-all shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2"
                  >
                     <Save className="w-4 h-4" /> {editingContactId ? 'Salvar alterações' : 'Salvar contato'}
