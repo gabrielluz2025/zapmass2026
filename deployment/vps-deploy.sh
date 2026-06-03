@@ -468,17 +468,32 @@ if [ -d /opt/zapmass/clientes ]; then
   docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
 fi
 
-# Healthcheck: até 6 min (Swarm rolling + start-period 180s no Dockerfile)
+# Healthcheck: Swarm rolling + start-period 180s no Dockerfile — no GHA dar mais margem.
 HP="${HOST_PORT:-3001}"
 _HEALTH_TRIES="${DEPLOY_HEALTH_TRIES:-60}"
-if [ -n "${GITHUB_ACTIONS:-}" ] && [ "${_HEALTH_TRIES}" -lt 45 ]; then
-  _HEALTH_TRIES=45
+if [ -n "${GITHUB_ACTIONS:-}" ] && [ "${_HEALTH_TRIES}" -lt 90 ]; then
+  _HEALTH_TRIES=90
 fi
 if [ -n "${GITHUB_ACTIONS:-}" ] || [ "${GITHUB_EVENT_NAME:-}" = "push" ] || [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
-  _wait="${DEPLOY_HEALTH_INITIAL_WAIT:-30}"
+  _wait="${DEPLOY_HEALTH_INITIAL_WAIT:-45}"
   echo "==> pausa ${_wait}s antes do healthcheck (deploy via GitHub Actions / container a subir)"
   sleep "${_wait}"
 fi
+
+_health_poll() {
+  local tries="$1"
+  local i code
+  for i in $(seq 1 "${tries}"); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HP}/api/health" || echo 000)
+    echo "tentativa $i: HTTP $code"
+    if [ "$code" = "200" ]; then
+      return 0
+    fi
+    sleep 6
+  done
+  return 1
+}
+
 echo "==> aguardando API /api/health (porta publicada: ${HP}, até $((_HEALTH_TRIES * 6))s)"
 for i in $(seq 1 "${_HEALTH_TRIES}"); do
   code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HP}/api/health" || echo 000)
@@ -506,7 +521,16 @@ for i in $(seq 1 "${_HEALTH_TRIES}"); do
   fi
   sleep 6
 done
-echo "FALHA: API não respondeu 200 após $((_HEALTH_TRIES * 6))s"
+echo "FALHA: API não respondeu 200 após $((_HEALTH_TRIES * 6))s — tentativa de recuperação rápida"
+if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
+  recover_swarm_api_service || true
+  sleep 45
+  if _health_poll 25; then
+    echo "OK: API saudável após recover_swarm_api_service."
+    exit 0
+  fi
+fi
+echo "FALHA: API ainda indisponível após recuperação"
 if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
   echo "==> docker service ps + logs (swarm)"
   docker service ps zapmass_api || true
