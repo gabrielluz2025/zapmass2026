@@ -19,6 +19,11 @@ import {
 } from './evolutionContactName.js';
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 import {
+    formatEvolutionHttpError,
+    resolveOutboundSendTarget
+} from './evolutionChatSend.js';
+import { resolvePhoneDigitsFromEvolutionMessage } from './evolutionWebhookMessages.js';
+import {
     appendChatArchiveMessages,
     isWaChatArchiveEnabled,
     threadIdFromConversationId
@@ -283,7 +288,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     function appendMessageToConversation(
         conversationId: string,
         msg: ChatMessage,
-        meta?: { contactName?: string; contactPhone?: string; connectionId?: string; incrementUnread?: boolean }
+        meta?: {
+            contactName?: string;
+            contactPhone?: string;
+            waJidAlt?: string;
+            connectionId?: string;
+            incrementUnread?: boolean;
+        }
     ) {
         // Nova mensagem reabre conversa que o usuário tinha removido da lista local.
         if (deletedConversationIds.has(conversationId)) {
@@ -311,6 +322,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (betterName && (!conv.contactName || !filterEvolutionName(conv.contactName))) {
                 conv.contactName = betterName;
             }
+            if (meta?.contactPhone && !conv.contactPhone) conv.contactPhone = meta.contactPhone;
+            if (meta?.waJidAlt) conv.waJidAlt = meta.waJidAlt;
         }
 
         const exists = conv.messages.some((m) => m.id === msg.id);
@@ -945,10 +958,17 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (!chatMsg) continue;
 
             const pushName = msg.pushName || remoteJid.split('@')[0];
+            const phoneDigits = resolvePhoneDigitsFromEvolutionMessage(
+                { key: msg.key },
+                { getConversations: () => conversations },
+                instance
+            );
+            const remoteJidAlt = msg.key?.remoteJidAlt ? String(msg.key.remoteJidAlt).trim() : '';
             appendMessageToConversation(conversationId, chatMsg, {
                 connectionId: instance,
                 contactName: String(pushName),
-                contactPhone: toPhoneDisplay(remoteJid),
+                contactPhone: phoneDigits ? `+${phoneDigits}` : toPhoneDisplay(remoteJid),
+                waJidAlt: remoteJidAlt || undefined,
                 incrementUnread: !msg.key.fromMe,
             });
             appended = true;
@@ -975,22 +995,28 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     async function sendMessage(conversationId: string, text: string): Promise<void> {
         const parsed = parseConversationId(conversationId);
         if (!parsed) throw new Error('conversationId inválido');
+        const trimmed = String(text || '').trim();
+        if (!trimmed) throw new Error('Mensagem vazia.');
 
-        const number = parsed.remoteJid.replace(/@.+$/, '').replace(/\D/g, '');
-        const response = await api.post(`/message/sendText/${evoInst(parsed.connectionId)}`, {
-            number,
-            text,
-            textMessage: {
-                text
-            },
-            delay: 1200,
-        });
+        const conv = conversations.find((c) => c.id === conversationId);
+        const { number } = resolveOutboundSendTarget(parsed.remoteJid, conv);
+
+        let response: { data?: { key?: { id?: string; _serialized?: string } } };
+        try {
+            response = await api.post(`/message/sendText/${evoInst(parsed.connectionId)}`, {
+                number,
+                text: trimmed,
+                delay: 1200,
+            });
+        } catch (err) {
+            throw new Error(formatEvolutionHttpError(err));
+        }
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         const nowMs = Date.now();
 
         const newMsg: ChatMessage = {
             id: messageId ? String(messageId) : `${nowMs}_${Math.random().toString(36).slice(2, 8)}`,
-            text,
+            text: trimmed,
             timestamp: formatTime(nowMs),
             sender: 'me',
             status: 'sent',
@@ -1001,7 +1027,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const effectiveId = buildConversationId(parsed.connectionId, parsed.remoteJid);
         appendMessageToConversation(effectiveId, newMsg, {
             connectionId: parsed.connectionId,
-            contactPhone: toPhoneDisplay(parsed.remoteJid),
+            contactPhone: conv?.contactPhone || toPhoneDisplay(parsed.remoteJid),
+            waJidAlt: conv?.waJidAlt,
         });
         emitConversationsUpdate();
     }
@@ -1022,7 +1049,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             throw new Error('Arquivo inválido para envio.');
         }
 
-        const number = parsed.remoteJid.replace(/@.+$/, '').replace(/\D/g, '');
+        const conv = conversations.find((c) => c.id === conversationId);
+        const { number } = resolveOutboundSendTarget(parsed.remoteJid, conv);
         const { url } = await saveMediaFromBase64(payload.dataBase64, payload.mimeType, payload.fileName);
 
         let type = 'document';
@@ -1032,16 +1060,20 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             else if (payload.mimeType.startsWith('audio/')) type = 'audio';
         }
 
-        // Evolution API v2: campos na raiz (SendMediaDto extends Metadata), sem wrapper mediaMessage
-        const response = await api.post(`/message/sendMedia/${evoInst(parsed.connectionId)}`, {
-            number,
-            delay: 1200,
-            mediatype: type,
-            mimetype: payload.mimeType,
-            caption: payload.caption || '',
-            media: url,
-            fileName: payload.fileName,
-        });
+        let response: { data?: { key?: { id?: string; _serialized?: string } } };
+        try {
+            response = await api.post(`/message/sendMedia/${evoInst(parsed.connectionId)}`, {
+                number,
+                delay: 1200,
+                mediatype: type,
+                mimetype: payload.mimeType,
+                caption: payload.caption || '',
+                media: url,
+                fileName: payload.fileName,
+            });
+        } catch (err) {
+            throw new Error(formatEvolutionHttpError(err));
+        }
 
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         const nowMs = Date.now();
@@ -1068,7 +1100,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
         appendMessageToConversation(buildConversationId(parsed.connectionId, parsed.remoteJid), newMsg, {
             connectionId: parsed.connectionId,
-            contactPhone: toPhoneDisplay(parsed.remoteJid),
+            contactPhone: conv?.contactPhone || toPhoneDisplay(parsed.remoteJid),
+            waJidAlt: conv?.waJidAlt,
         });
         emitConversationsUpdate();
     }
