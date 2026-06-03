@@ -397,6 +397,8 @@ export interface Conversation {
   id: string;
   contactName: string;
   contactPhone: string;
+  /** JID @s.whatsapp.net quando o chat principal é @lid (agenda / CRM). */
+  waJidAlt?: string;
   profilePicUrl?: string;
   connectionId: string; // Qual chip está conversando
   /** Dono do canal (ids legados `conn_*`); enviado pelo servidor para escopo antes de `connections-update`. */

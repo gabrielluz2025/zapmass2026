@@ -27,6 +27,10 @@ function phoneCandidatesFromConversation(conv: Conversation): string[] {
     if (t && !out.includes(t)) out.push(t);
   };
   push(conv.contactPhone || '');
+  if (conv.waJidAlt) {
+    const altDigits = conv.waJidAlt.split('@')[0] || '';
+    if (altDigits && !altDigits.endsWith('@lid')) push(altDigits);
+  }
   const stored = (conv.contactName || '').trim();
   const storedDigits = normalizePhoneDigits(stored);
   if (storedDigits.length >= 10 && storedDigits.length <= 13) push(`+${storedDigits}`);

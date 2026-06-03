@@ -9,7 +9,14 @@ import {
     looksLikeLongLidDigits,
     pickContactDisplayName
 } from '../src/utils/contactPhoneLookup.js';
-import { evolutionContactDisplayName, filterEvolutionContactLabel } from './evolutionContactName.js';
+import {
+    createPhonebookNameIndex,
+    evolutionContactDisplayName,
+    filterEvolutionContactLabel,
+    indexPhonebookRow,
+    resolvePhonebookName,
+    type PhonebookNameIndex
+} from './evolutionContactName.js';
 import { chatRemoteJidFromFindChatsRow, formatChatListTime, isGarbagePersonChatJid, resolveChatRowTimestampMs } from './evolutionChatJid.js';
 import {
     appendChatArchiveMessages,
@@ -47,6 +54,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     let emitDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     /** Contador de amostras de diagnóstico de conversas @lid (cap p/ não floodar logs). */
     let lidDiagSamples = 0;
+    const phonebookCache = new Map<string, { at: number; index: PhonebookNameIndex }>();
+    const PHONEBOOK_CACHE_MS = 120_000;
     const withStoreLock = <T>(fn: () => Promise<T>): Promise<T> => {
         const run = storeLock.then(fn);
         storeLock = run.then(
@@ -238,6 +247,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     fallback: prev.contactName || conv.contactName || 'Contato'
                 }),
                 contactPhone: conv.contactPhone || prev.contactPhone,
+                waJidAlt: conv.waJidAlt || prev.waJidAlt,
                 profilePicUrl: conv.profilePicUrl || prev.profilePicUrl,
                 lastMessageTimestamp: bestTs,
                 lastMessage:
@@ -565,10 +575,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         return { records, pages, currentPage, total };
     }
 
-    /** Agenda do celular (findContacts) → JID → nome salvo (ex.: "amor"). */
-    async function fetchPhonebookNameIndex(connectionId: string): Promise<Map<string, string>> {
+    async function fetchPhonebookNameIndex(connectionId: string, force = false): Promise<PhonebookNameIndex> {
+        const hit = phonebookCache.get(connectionId);
+        if (!force && hit && Date.now() - hit.at < PHONEBOOK_CACHE_MS) return hit.index;
+
         const inst = evoInst(connectionId);
-        const index = new Map<string, string>();
+        const index = createPhonebookNameIndex();
         const tryExtract = (raw: unknown): any[] => {
             if (Array.isArray(raw)) return raw;
             if (!raw || typeof raw !== 'object') return [];
@@ -579,7 +591,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             }
             return [];
         };
-        for (let page = 1; page <= 20; page++) {
+        for (let page = 1; page <= 30; page++) {
             try {
                 const response = await api.post(`/chat/findContacts/${inst}`, {
                     where: {},
@@ -590,10 +602,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 const list = tryExtract(response.data);
                 if (list.length === 0) break;
                 for (const ct of list) {
-                    const row = ct as Record<string, unknown>;
-                    const jid = chatRemoteJidFromFindChatsRow(row);
-                    const name = evolutionContactDisplayName(row);
-                    if (jid && name) index.set(jid, name);
+                    indexPhonebookRow(index, ct as Record<string, unknown>);
                 }
                 if (list.length < 500) break;
             } catch (err: any) {
@@ -601,21 +610,26 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 break;
             }
         }
+        phonebookCache.set(connectionId, { at: Date.now(), index });
         return index;
     }
 
-    function applyPhonebookNamesToConnection(connectionId: string, index: Map<string, string>) {
-        if (index.size === 0) return;
+    function applyPhonebookNamesToConnection(connectionId: string, index: PhonebookNameIndex) {
+        if (index.byJid.size === 0 && index.byPhone.size === 0) return;
         for (const c of conversations) {
             if (c.connectionId !== connectionId) continue;
             const parsed = parseConversationId(c.id);
             if (!parsed) continue;
-            const book = index.get(parsed.remoteJid);
+            const book = resolvePhonebookName(index, {
+                remoteJid: parsed.remoteJid,
+                contactPhone: c.contactPhone,
+                waJidAlt: c.waJidAlt
+            });
             if (!book) continue;
             const next = pickContactDisplayName({
                 waName: book,
                 previous: c.contactName,
-                fallback: c.contactPhone || c.contactName || 'Contato',
+                fallback: c.contactPhone || 'Contato'
             });
             if (next !== c.contactName) c.contactName = next;
         }
@@ -629,6 +643,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
      */
     function extractRealPhoneDigits(chat: any): string {
         if (!chat || typeof chat !== 'object') return '';
+        const lastKey = chat?.lastMessage?.key;
         const candidates: unknown[] = [
             chat.phoneNumber,
             chat.number,
@@ -637,6 +652,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             chat.jidAlt,
             chat.altJid,
             chat.remoteJidAlt,
+            lastKey?.remoteJidAlt,
+            lastKey?.senderPn,
+            lastKey?.participant,
             chat.contact?.phoneNumber,
             chat.contact?.number,
             chat.contact?.jid,
@@ -703,15 +721,20 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const jidPhone = toPhoneDisplay(jid);
         const altPhoneDigits = jidPhone ? '' : extractRealPhoneDigits(chat);
         const contactPhone = jidPhone || (altPhoneDigits ? `+${altPhoneDigits}` : '') || existing?.contactPhone || '';
+        const waJidAltRaw = chat?.remoteJidAlt || chat?.jidAlt || chat?.altJid || existing?.waJidAlt || '';
+        const waJidAlt = typeof waJidAltRaw === 'string' ? waJidAltRaw.trim() : '';
+        const fallbackLabel =
+            contactPhone || (jid.endsWith('@lid') ? 'Contato' : toPhoneDisplay(jid) || 'Contato');
 
         return {
             id,
             contactName: pickContactDisplayName({
                 waName: waName || undefined,
                 previous: existing?.contactName,
-                fallback: contactPhone || toPhoneDisplay(jid) || jid.split('@')[0] || 'Contato'
+                fallback: fallbackLabel
             }),
             contactPhone,
+            waJidAlt: waJidAlt || undefined,
             profilePicUrl: extractChatProfilePic(chat) || existing?.profilePicUrl,
             connectionId,
             unreadCount: Number(chat?.unreadCount ?? chat?.unread ?? existing?.unreadCount ?? 0) || 0,
@@ -737,10 +760,24 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 chats = await fetchAllChatsPaginated(connectionId);
             }
 
+            const phonebook = await fetchPhonebookNameIndex(connectionId, true);
+
             let added = 0;
             for (const chat of chats) {
                 const conv = mapEvolutionChatToConversation(connectionId, chat);
                 if (!conv) continue;
+                const book = resolvePhonebookName(phonebook, {
+                    remoteJid: parseConversationId(conv.id)?.remoteJid || '',
+                    contactPhone: conv.contactPhone,
+                    waJidAlt: conv.waJidAlt
+                });
+                if (book) {
+                    conv.contactName = pickContactDisplayName({
+                        waName: book,
+                        previous: conv.contactName,
+                        fallback: conv.contactPhone || 'Contato'
+                    });
+                }
                 upsertConversation(conv, { skipArchive: true });
                 added++;
             }
@@ -779,7 +816,6 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 );
             }
 
-            const phonebook = await fetchPhonebookNameIndex(connectionId);
             applyPhonebookNamesToConnection(connectionId, phonebook);
 
             if (ownerUidForScope) {
@@ -1112,12 +1148,16 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (!conv) return { ok: true, total: converted.length };
 
         const phonebook = await fetchPhonebookNameIndex(parsed.connectionId);
-        const book = phonebook.get(parsed.remoteJid);
+        const book = resolvePhonebookName(phonebook, {
+            remoteJid: parsed.remoteJid,
+            contactPhone: conv.contactPhone,
+            waJidAlt: conv.waJidAlt
+        });
         if (book) {
             conv.contactName = pickContactDisplayName({
                 waName: book,
                 previous: conv.contactName,
-                fallback: conv.contactPhone || conv.contactName,
+                fallback: conv.contactPhone || 'Contato'
             });
         }
 

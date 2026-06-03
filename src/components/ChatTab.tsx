@@ -997,9 +997,12 @@ export const ChatTab: React.FC<{
     const isGenericName = (n: string) => GENERIC_WA_NAMES.has(n.toLowerCase());
 
     for (const conv of mergedConversations) {
+      const convIsLid = isLidConvId(conv.id);
       const waNameRaw = (conv.contactName || '').trim();
-      // Dígitos longos (>14) = LID interno do WhatsApp, não é telefone nem nome legível.
-      const waNameIsLidDigits = /^\d{14,}$/.test(normalizeDigits(waNameRaw)) && looksLikeDigitsOnlyContactLabel(waNameRaw);
+      // Dígitos longos / @lid: ID interno do WhatsApp — não é nome legível.
+      const waNameIsLidDigits =
+        (convIsLid && /^\d{10,}$/.test(normalizeDigits(waNameRaw))) ||
+        (/^\d{14,}$/.test(normalizeDigits(waNameRaw)) && looksLikeDigitsOnlyContactLabel(waNameRaw));
       // Tratar nomes genéricos da Evolution API ("Contato", "Contact" etc.) e LIDs como vazio,
       // para cair para phoneLabel ou nome do CRM.
       const waName = isGenericName(waNameRaw) || waNameIsLidDigits ? '' : waNameRaw;
@@ -1011,7 +1014,6 @@ export const ChatTab: React.FC<{
           : '';
       // Para JIDs @lid, os dígitos do ID são IDs internos do WhatsApp — não são telefones reais.
       // Porém o servidor pode ter resolvido o telefone real em contactPhone (campo alternativo da Evolution).
-      const convIsLid = isLidConvId(conv.id);
       const rawDigits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
       // Para @lid: só aceita dígitos vindos de contactPhone (telefone real resolvido), nunca do ID (LID interno).
       const lidPhoneDigits = (() => {

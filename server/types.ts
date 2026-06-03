@@ -63,6 +63,8 @@ export interface Conversation {
   id: string;
   contactName: string;
   contactPhone: string;
+  /** JID alternativo (@s.whatsapp.net) quando o chat usa @lid — usado para cruzar agenda. */
+  waJidAlt?: string;
   profilePicUrl?: string;
   connectionId: string;
   /** Dono do canal (escopo `conn_*` legado); incluído no payload socket/HTTP. */
