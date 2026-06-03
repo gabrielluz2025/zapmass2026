@@ -1338,10 +1338,16 @@ const emitCampaignLog = (level: 'INFO' | 'WARN' | 'ERROR', message: string, payl
     });
     console.log(`[Campaign:${level}] ${message}`, payload || '');
 
-    if (uid && cid) {
-        if (level === 'ERROR' || (level === 'INFO' && message === 'Mensagem enviada')) {
-            void persistCampaignLogToFirestore(uid, cid, level, message, payload);
+    const persistInfo =
+        level === 'ERROR' ||
+        (level === 'INFO' &&
+            (message === 'Mensagem enviada' || message === 'Resposta recebida no fluxo por etapas'));
+    if (uid && cid && persistInfo) {
+        const toPersist = { ...payload };
+        if (!toPersist.to && toPersist.phoneDigits) {
+            toPersist.to = String(toPersist.phoneDigits).replace(/\D/g, '');
         }
+        void persistCampaignLogToFirestore(uid, cid, level, message, toPersist);
     }
 };
 
@@ -1528,7 +1534,8 @@ const incrementOwnerFunnel = (
     ownerUid: string | undefined,
     delta: Partial<Pick<PersistedFunnelStats, 'totalSent' | 'totalDelivered' | 'totalRead' | 'totalReplied'>>
 ) => {
-    const target = ownerFunnelStats(ownerUid);
+    const resolvedOwner = ownerUid || funnelStatsRecipientUid();
+    const target = ownerFunnelStats(resolvedOwner);
     if (!target) return;
     target.totalSent += Number(delta.totalSent) || 0;
     target.totalDelivered += Number(delta.totalDelivered) || 0;
@@ -1719,6 +1726,42 @@ const normalizeWwebMessageId = (raw: unknown): string => {
     return ser;
 };
 
+const campaignMessageIdsMatch = (storedId: string, incomingId: string): boolean => {
+    const a = String(storedId || '').trim();
+    const b = String(incomingId || '').trim();
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.endsWith(b) || b.endsWith(a)) return true;
+    const shortA = a.includes(':') ? a.split(':').pop()! : a;
+    const shortB = b.includes(':') ? b.split(':').pop()! : b;
+    return shortA === shortB || a.includes(shortB) || b.includes(shortA);
+};
+
+/** Resolve id do webhook para a chave usada em trackCampaignSend. */
+const resolveCampaignAckMessageId = (incomingId: string): string | null => {
+    const norm = normalizeWwebMessageId(incomingId);
+    if (!norm) return null;
+    if (campaignAckLevel.has(norm)) return norm;
+    for (const key of campaignAckLevel.keys()) {
+        if (campaignMessageIdsMatch(key, norm)) return key;
+    }
+    return null;
+};
+
+const registerCampaignAckAlias = (
+    aliasId: string,
+    canonicalId: string,
+    meta: { campaignId: string; uf: string; connId: string; phoneNorm: string }
+) => {
+    const alias = normalizeWwebMessageId(aliasId);
+    const canon = normalizeWwebMessageId(canonicalId);
+    if (!alias || !canon || alias === canon) return;
+    if (!campaignAckLevel.has(alias)) {
+        campaignAckLevel.set(alias, campaignAckLevel.get(canon) ?? 0);
+        campaignMsgMeta.set(alias, meta);
+    }
+};
+
 const trackCampaignSend = (msgId: string, conversationId: string, ts: number, phoneDigits: string, explicitCampaignId?: string) => {
     const normId = normalizeWwebMessageId(msgId);
     const cidForMeta = explicitCampaignId || currentCampaign.campaignId;
@@ -1743,12 +1786,16 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
         campaignAckLevel.set(normId, 0);
         if (cidForMeta) {
             const uf = phoneDigitsToUf(phoneDigits) || GEO_UNKNOWN_UF;
-            campaignMsgMeta.set(normId, {
+            const meta = {
                 campaignId: cidForMeta,
                 uf,
                 connId: connId || '',
                 phoneNorm
-            });
+            };
+            campaignMsgMeta.set(normId, meta);
+            if (typeof msgId === 'string' && msgId.trim() && msgId.trim() !== normId) {
+                registerCampaignAckAlias(msgId.trim(), normId, meta);
+            }
         }
     }
     const entry: PendingCampaignSend = {
@@ -1824,9 +1871,10 @@ const bumpCampaignGeo = (campaignId: string, uf: string, field: keyof CampaignGe
 // Niveis whatsapp-web.js: -1=ERROR, 0=PENDING, 1=SERVER, 2=DEVICE(entregue),
 // 3=READ(lido), 4=PLAYED(audio/video reproduzido).
 const handleCampaignAck = (msgId: string, ack: number) => {
-    if (!campaignAckLevel.has(msgId)) return;
-    const current = campaignAckLevel.get(msgId) || 0;
-    const meta = campaignMsgMeta.get(msgId);
+    const resolvedId = resolveCampaignAckMessageId(msgId) || normalizeWwebMessageId(msgId);
+    if (!resolvedId || !campaignAckLevel.has(resolvedId)) return;
+    const current = campaignAckLevel.get(resolvedId) || 0;
+    const meta = campaignMsgMeta.get(resolvedId);
     const ownerForMeta = meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined;
     const dk = funnelRecipientDedupKey(ownerForMeta, meta?.campaignId, meta?.connId || '', meta?.phoneNorm || '');
     let changed = false;
@@ -1841,10 +1889,10 @@ const handleCampaignAck = (msgId: string, ack: number) => {
             incrementOwnerFunnel(ownerForMeta, { totalDelivered: 1 });
             if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'delivered');
         }
-        campaignAckLevel.set(msgId, 1);
+        campaignAckLevel.set(resolvedId, 1);
         changed = true;
     }
-    if (ack >= 3 && (campaignAckLevel.get(msgId) || 0) < 2) {
+    if (ack >= 3 && (campaignAckLevel.get(resolvedId) || 0) < 2) {
         let countRead = true;
         if (dk) {
             if (funnelReadOnceByOwnerCampaignContact.has(dk)) countRead = false;
@@ -1855,19 +1903,83 @@ const handleCampaignAck = (msgId: string, ack: number) => {
             incrementOwnerFunnel(ownerForMeta, { totalRead: 1 });
             if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'read');
         }
-        campaignAckLevel.set(msgId, 2);
+        campaignAckLevel.set(resolvedId, 2);
         changed = true;
     }
     if (changed) {
         funnelStats.updatedAt = Date.now();
         scheduleFunnelSave();
-        emitFunnelStats(ownerForMeta);
+        emitFunnelStats(ownerForMeta || meta?.campaignId ? campaignGeoOwnerById.get(meta.campaignId) : undefined);
     }
+};
+
+/** Contabiliza resposta no funil/geo (uma vez por contato+campanha). */
+const applyCampaignReplyCount = (opts: {
+    campaignId?: string;
+    ownerUid?: string;
+    connId: string;
+    phoneNorm: string;
+    msgId?: string;
+    ufHint?: string;
+}): boolean => {
+    const cid = opts.campaignId;
+    if (!cid || !opts.connId || opts.phoneNorm.length < 10) return false;
+    const ownerUid = opts.ownerUid || campaignGeoOwnerById.get(cid);
+    const dedupKey = funnelRecipientDedupKey(ownerUid, cid, opts.connId, opts.phoneNorm);
+    if (dedupKey && funnelRepliedOnceByOwnerCampaignContact.has(dedupKey)) return true;
+
+    if (dedupKey) funnelRepliedOnceByOwnerCampaignContact.add(dedupKey);
+    funnelStats.totalReplied++;
+    funnelStats.updatedAt = Date.now();
+    incrementOwnerFunnel(ownerUid, { totalReplied: 1 });
+    const uf = opts.ufHint || phoneDigitsToUf(opts.phoneNorm) || GEO_UNKNOWN_UF;
+    bumpCampaignGeo(cid, uf, 'replied');
+
+    if (opts.msgId) {
+        const currentAck = campaignAckLevel.get(opts.msgId) || 0;
+        const dkPromo = funnelRecipientDedupKey(ownerUid, cid, opts.connId, opts.phoneNorm);
+        if (currentAck < 1) {
+            let countDel = true;
+            if (dkPromo) {
+                if (funnelDeliveredOnceByOwnerCampaignContact.has(dkPromo)) countDel = false;
+                else funnelDeliveredOnceByOwnerCampaignContact.add(dkPromo);
+            }
+            if (countDel) {
+                funnelStats.totalDelivered++;
+                incrementOwnerFunnel(ownerUid, { totalDelivered: 1 });
+                bumpCampaignGeo(cid, uf, 'delivered');
+            }
+        }
+        if (currentAck < 2) {
+            let countRead = true;
+            if (dkPromo) {
+                if (funnelReadOnceByOwnerCampaignContact.has(dkPromo)) countRead = false;
+                else funnelReadOnceByOwnerCampaignContact.add(dkPromo);
+            }
+            if (countRead) {
+                funnelStats.totalRead++;
+                incrementOwnerFunnel(ownerUid, { totalRead: 1 });
+                bumpCampaignGeo(cid, uf, 'read');
+            }
+        }
+        campaignAckLevel.set(opts.msgId, 2);
+    }
+
+    scheduleFunnelSave();
+    emitFunnelStats(ownerUid);
+    emitCampaignGeoNow(cid);
+    return true;
 };
 
 // Recebeu uma mensagem 'them' nesta conversa. Conta como reply do disparo
 // mais recente <= incomingTs ainda nao contabilizado.
-const handleIncomingForFunnel = (conversationId: string, incomingTs: number, phoneDigitsHint?: string) => {
+const handleIncomingForFunnel = (
+    conversationId: string,
+    incomingTs: number,
+    phoneDigitsHint?: string,
+    explicitCampaignId?: string,
+    explicitOwnerUid?: string
+): boolean => {
     const [connId, chatPart] = conversationId.split(':');
     const keys: string[] = [];
     const hint = phoneDigitsHint ? toPhoneKey(phoneDigitsHint) : '';
@@ -1878,83 +1990,84 @@ const handleIncomingForFunnel = (conversationId: string, incomingTs: number, pho
         list = pendingCampaignSendsByConv.get(k);
         if (list && list.length) break;
     }
-    if (!list || list.length === 0) return;
-    let candidate: PendingCampaignSend | null = null;
-    for (const send of list) {
-        if (send.counted) continue;
-        if (send.ts > incomingTs) continue;
-        if (!candidate || send.ts > candidate.ts) candidate = send;
-    }
-    if (candidate) {
-        const cid = candidate.campaignId;
-        const ownerUid = candidate.ownerUid || (cid ? campaignGeoOwnerById.get(cid) : undefined);
-        const phoneNorm =
-            (hint.length >= 10 ? hint : '') || (chatPart ? toPhoneKey(chatPart) : '');
-        const dedupKey =
-            cid && connId && phoneNorm.length >= 10
-                ? `${ownerUid || 'unknown'}__${cid}__${connId}__${phoneNorm}`
-                : '';
 
-        if (dedupKey && funnelRepliedOnceByOwnerCampaignContact.has(dedupKey)) {
+    const phoneNorm =
+        (hint.length >= 10 ? hint : '') || (chatPart ? toPhoneKey(chatPart) : '');
+    const ufHint = phoneDigitsToUf(phoneNorm || toPhoneKey(chatPart || '')) || GEO_UNKNOWN_UF;
+
+    if (list && list.length > 0) {
+        let candidate: PendingCampaignSend | null = null;
+        for (const send of list) {
+            if (send.counted) continue;
+            if (send.ts > incomingTs) continue;
+            if (explicitCampaignId && send.campaignId !== explicitCampaignId) continue;
+            if (!candidate || send.ts > candidate.ts) candidate = send;
+        }
+        if (candidate) {
+            const cid = explicitCampaignId || candidate.campaignId;
+            const ownerUid =
+                explicitOwnerUid ||
+                candidate.ownerUid ||
+                (cid ? campaignGeoOwnerById.get(cid) : undefined);
+            const dedupKey =
+                cid && connId && phoneNorm.length >= 10
+                    ? `${ownerUid || 'unknown'}__${cid}__${connId}__${phoneNorm}`
+                    : '';
+
+            if (dedupKey && funnelRepliedOnceByOwnerCampaignContact.has(dedupKey)) {
+                candidate.counted = true;
+                for (const send of list) {
+                    if (send.campaignId === cid && !send.counted) send.counted = true;
+                }
+                return true;
+            }
             candidate.counted = true;
-            for (const send of list) {
-                if (send.campaignId === cid && !send.counted) send.counted = true;
-            }
-            return;
+            return applyCampaignReplyCount({
+                campaignId: cid,
+                ownerUid,
+                connId: connId || '',
+                phoneNorm,
+                msgId: candidate.msgId,
+                ufHint,
+            });
         }
-
-        if (dedupKey) funnelRepliedOnceByOwnerCampaignContact.add(dedupKey);
-        candidate.counted = true;
-
-        funnelStats.totalReplied++;
-        funnelStats.updatedAt = Date.now();
-        const ownerForFunnel = ownerUid;
-        incrementOwnerFunnel(ownerForFunnel, { totalReplied: 1 });
-        const uf = phoneDigitsToUf(toPhoneKey(chatPart || '')) || GEO_UNKNOWN_UF;
-        if (cid) bumpCampaignGeo(cid, uf, 'replied');
-
-        /**
-         * Logica obvia: para responder, o contato precisou LER. Mas o ack=READ
-         * (visto azul duplo) so chega se a "Confirmacao de leitura" do contato
-         * estiver ATIVA — varia por usuario. Resultado pratico: o funil ficava
-         * mostrando "1 lida / 2 respostas", o que e logicamente impossivel.
-         *
-         * Quando contamos uma resposta, promovemos o ack desta mensagem para
-         * READ (e DELIVERED se ainda nao tinhamos), evitando a inconsistencia.
-         */
-        if (candidate.msgId) {
-            const currentAck = campaignAckLevel.get(candidate.msgId) || 0;
-            const dkPromo = funnelRecipientDedupKey(ownerForFunnel, cid, connId || '', phoneNorm);
-            if (currentAck < 1) {
-                let countDel = true;
-                if (dkPromo) {
-                    if (funnelDeliveredOnceByOwnerCampaignContact.has(dkPromo)) countDel = false;
-                    else funnelDeliveredOnceByOwnerCampaignContact.add(dkPromo);
-                }
-                if (countDel) {
-                    funnelStats.totalDelivered++;
-                    incrementOwnerFunnel(ownerForFunnel, { totalDelivered: 1 });
-                    if (cid) bumpCampaignGeo(cid, uf, 'delivered');
-                }
-            }
-            if (currentAck < 2) {
-                let countRead = true;
-                if (dkPromo) {
-                    if (funnelReadOnceByOwnerCampaignContact.has(dkPromo)) countRead = false;
-                    else funnelReadOnceByOwnerCampaignContact.add(dkPromo);
-                }
-                if (countRead) {
-                    funnelStats.totalRead++;
-                    incrementOwnerFunnel(ownerForFunnel, { totalRead: 1 });
-                    if (cid) bumpCampaignGeo(cid, uf, 'read');
-                }
-            }
-            campaignAckLevel.set(candidate.msgId, 2);
-        }
-
-        scheduleFunnelSave();
-        emitFunnelStats(ownerForFunnel);
     }
+
+    if (explicitCampaignId && phoneNorm.length >= 10) {
+        let msgId: string | undefined;
+        for (const [mid, meta] of campaignMsgMeta) {
+            if (meta.campaignId !== explicitCampaignId) continue;
+            if (meta.connId !== (connId || '')) continue;
+            if (meta.phoneNorm !== phoneNorm) continue;
+            msgId = mid;
+            break;
+        }
+        return applyCampaignReplyCount({
+            campaignId: explicitCampaignId,
+            ownerUid: explicitOwnerUid,
+            connId: connId || '',
+            phoneNorm,
+            msgId,
+            ufHint,
+        });
+    }
+
+    if (phoneNorm.length >= 10 && connId) {
+        for (const [mid, meta] of campaignMsgMeta) {
+            if (meta.connId !== connId) continue;
+            if (meta.phoneNorm !== phoneNorm) continue;
+            if (!meta.campaignId) continue;
+            return applyCampaignReplyCount({
+                campaignId: meta.campaignId,
+                ownerUid: campaignGeoOwnerById.get(meta.campaignId),
+                connId,
+                phoneNorm,
+                msgId: mid,
+                ufHint,
+            });
+        }
+    }
+    return false;
 };
 
 // --- GRACEFUL SHUTDOWN ---
@@ -6527,18 +6640,41 @@ export function evolutionTrackMessageSent(
     trackCampaignSend(messageId, convId, Date.now(), phoneDigits, campaignId);
 }
 
-/** Mapeia status Evolution/Baileys (3=entregue, 4=lido) para o funil interno. */
+/**
+ * Mapeia status Evolution/Baileys para niveis do funil (handleCampaignAck):
+ * ack 2+ = entregue, ack 3 = lido.
+ * Status 2 (SERVER_ACK) tambem conta como entregue — muitas instancias nao enviam DELIVERY_ACK separado.
+ */
 export function evolutionTrackMessageAck(messageId: string, evolutionStatus: number): void {
     let ack = 0;
     if (evolutionStatus >= 4) ack = 3;
     else if (evolutionStatus >= 3) ack = 2;
-    else if (evolutionStatus >= 2) ack = 1;
+    else if (evolutionStatus >= 2) ack = 2;
     if (ack > 0) handleCampaignAck(messageId, ack);
 }
 
 /** Contabiliza resposta do contato no funil de campanha. */
-export function evolutionTrackIncomingReply(connectionId: string, phoneDigits: string): void {
-    handleIncomingForFunnel(`${connectionId}:${phoneDigits}`, Date.now(), phoneDigits);
+export function evolutionTrackIncomingReply(
+    connectionId: string,
+    phoneDigits: string,
+    opts?: { campaignId?: string; ownerUid?: string }
+): void {
+    const counted = handleIncomingForFunnel(
+        `${connectionId}:${phoneDigits}`,
+        Date.now(),
+        phoneDigits,
+        opts?.campaignId,
+        opts?.ownerUid
+    );
+    if (!counted && opts?.campaignId) {
+        const phoneNorm = toPhoneKey(phoneDigits);
+        applyCampaignReplyCount({
+            campaignId: opts.campaignId,
+            ownerUid: opts.ownerUid,
+            connId: connectionId,
+            phoneNorm,
+        });
+    }
 }
 
 export const getConnectionState = (id: string) => {

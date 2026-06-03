@@ -64,15 +64,21 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const rows = await listCampaignLogs(ctx.tenantId, campaignId, { limit, offset });
     return res.json({
       ok: true,
-      logs: rows.map((r) => ({
-        id: r.id,
-        level: r.level,
-        message: r.message,
-        to: String(r.payload?.to || ''),
-        connectionId: String(r.payload?.connectionId || ''),
-        error: String(r.payload?.error || ''),
-        createdAt: r.created_at.toISOString()
-      })),
+      logs: rows.map((r) => {
+        const p = r.payload || {};
+        return {
+          id: r.id,
+          level: r.level,
+          message: r.message,
+          to: String(p.to || p.phoneDigits || ''),
+          connectionId: String(p.connectionId || ''),
+          error: String(p.error || ''),
+          phoneDigits: String(p.phoneDigits || ''),
+          replyPreview: p.replyPreview != null ? String(p.replyPreview) : undefined,
+          campaignId: String(p.campaignId || ''),
+          createdAt: r.created_at.toISOString()
+        };
+      }),
       hasMore: rows.length >= limit
     });
   });

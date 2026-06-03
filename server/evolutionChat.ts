@@ -1290,7 +1290,11 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (evolutionStatus >= 4 && msg.status !== 'read') {
                 msg.status = 'read';
                 touched.add(conv.id);
-            } else if (evolutionStatus >= 3 && msg.status === 'sent') {
+            } else if (evolutionStatus >= 3) {
+                if (msg.status === 'sent') msg.status = 'delivered';
+                else if (msg.status === 'delivered' && evolutionStatus >= 4) msg.status = 'read';
+                touched.add(conv.id);
+            } else if (evolutionStatus >= 2 && msg.status === 'sent') {
                 msg.status = 'delivered';
                 touched.add(conv.id);
             }

@@ -48,6 +48,13 @@ export type ReplyFlowCallbacks = {
         replyText: string
     ) => void;
     onLog?: (message: string, payload?: Record<string, unknown>) => void;
+    /** Telemetria de resposta (funil/geo) com campaignId da sessão ativa. */
+    onInboundReply?: (info: {
+        campaignId: string;
+        connectionId: string;
+        phoneDigits: string;
+        ownerUid?: string;
+    }) => void;
     isCampaignPaused?: (campaignId: string) => boolean;
     /** Chamado quando todas as sessões de uma campanha são encerradas (reply flow concluído). */
     onAllSessionsClosed?: (campaignId: string) => void;
@@ -443,6 +450,13 @@ export class ReplyFlowEngine {
         }
 
         if (this.callbacks.isCampaignPaused?.(session.campaignId)) return;
+
+        this.callbacks.onInboundReply?.({
+            campaignId: session.campaignId,
+            connectionId,
+            phoneDigits,
+            ownerUid: session.ownerUid,
+        });
 
         const steps = def.steps;
         const awaiting = session.awaitingAfterStep;

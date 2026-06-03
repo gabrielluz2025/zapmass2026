@@ -42,6 +42,15 @@ import { useVpsData } from '../../services/vpsData';
 import { fetchCampaignLogs, type CampaignLogDto } from '../../services/campaignsApi';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
+import {
+  applyReplyHintsToReportRow,
+  buildReplyHintsFromLogs,
+  CAMPAIGN_REPLY_LOG_MESSAGE,
+  CAMPAIGN_SENT_LOG_MESSAGE,
+  logPayloadPhoneKey,
+  sumCampaignGeoStats
+} from '../../utils/campaignReportFromLogs';
+import { pickBetterCampaignReportRow } from '../../utils/campaignReportDedupe';
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
@@ -126,7 +135,9 @@ const findCampaignMessage = (
 
   const matches = conversations.filter((conv) => {
     if (allowedConnectionIds.length > 0 && !allowedConnectionIds.includes(conv.connectionId)) return false;
-    return cleanPhone(conv.contactPhone) === target;
+    if (cleanPhone(conv.contactPhone) === target) return true;
+    const jidPart = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : '';
+    return cleanPhone(jidPart.split('@')[0] || '') === target;
   });
   if (matches.length === 0) return null;
 
@@ -334,7 +345,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   onTogglePause
 }) => {
   const conversations = useZapMassConversations();
-  const { contacts, contactLists } = useZapMassCore();
+  const { contacts, contactLists, campaignGeo } = useZapMassCore();
   const { user } = useAuth();
   // Para membros de equipa, user.uid != effectiveWorkspaceUid. Os logs sao
   // persistidos no path do workspace, entao precisamos usar o uid efetivo
@@ -382,6 +393,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           message: d.message || '',
           campaignId: campaign.id,
           to: d.to,
+          phoneDigits: d.phoneDigits,
+          replyPreview: d.replyPreview,
           connectionId: d.connectionId,
           error: d.error
         }
@@ -480,8 +493,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   const logsForReport = useMemo(() => {
     const dedupeKey = (l: SystemLog) => {
-      const p = (l.payload || {}) as { to?: string; message?: string };
-      return `${(l.timestamp || '').slice(0, 23)}|${cleanPhone(p.to || '')}|${p.message || ''}|${l.event}`;
+      const p = (l.payload || {}) as { to?: string; phoneDigits?: string; message?: string };
+      return `${(l.timestamp || '').slice(0, 23)}|${logPayloadPhoneKey(p)}|${p.message || ''}|${l.event}`;
     };
     const seen = new Set<string>();
     const out: SystemLog[] = [];
@@ -581,17 +594,28 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   // Detailed report (lógica preservada)
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
+    const replyHints = buildReplyHintsFromLogs(logsForReport, campaign.id);
     const byPhone = new Map<string, ReportRow>();
     logsForReport.forEach((log, idx) => {
       if (!log.payload || typeof log.payload !== 'object') return;
-      const p = log.payload as { campaignId?: string; to?: string; message?: string; error?: string; connectionId?: string };
-      if (p.campaignId !== campaign.id || !p.to) return;
+      const p = log.payload as {
+        campaignId?: string;
+        to?: string;
+        phoneDigits?: string;
+        message?: string;
+        error?: string;
+        connectionId?: string;
+      };
+      if (p.campaignId !== campaign.id) return;
 
       const isError = log.event.includes('error') || log.event.includes('warn');
-      const isSent = p.message === 'Mensagem enviada';
-      if (!isError && !isSent) return;
+      const isSent = p.message === CAMPAIGN_SENT_LOG_MESSAGE;
+      const isReplyLog = p.message === CAMPAIGN_REPLY_LOG_MESSAGE;
+      if (!isError && !isSent && !isReplyLog) return;
+      if (isReplyLog) return;
 
-      const phone = recipientKeyForCampaignReport(p.to);
+      const phone = logPayloadPhoneKey(p);
+      if (!phone) return;
       const existing = byPhone.get(phone);
       const ts = new Date(log.timestamp).getTime();
 
@@ -657,24 +681,31 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         }
       }
 
-      rows.push({
-        ...row,
-        contactName: contactName || `+${row.phone}`,
-        status,
-        sentTime,
-        sentTimestampMs,
-        replyText,
-        replyTime,
-        replyTimestampMs,
-        conversationId,
-        connectionId,
-        sentMessage,
-        profilePicUrl
-      });
+      const rk = recipientKeyForCampaignReport(row.phone);
+      const withReply = applyReplyHintsToReportRow(
+        {
+          ...row,
+          contactName: contactName || `+${row.phone}`,
+          status,
+          sentTime,
+          sentTimestampMs,
+          replyText,
+          replyTime,
+          replyTimestampMs,
+          conversationId,
+          connectionId,
+          sentMessage,
+          profilePicUrl
+        },
+        replyHints.get(rk)
+      );
+      rows.push(withReply);
     });
 
     const rowsFromLogs = rows.sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
-    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations);
+    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations).map((row) =>
+      applyReplyHintsToReportRow(row, replyHints.get(recipientKeyForCampaignReport(row.phone)))
+    );
     const mergedByPhone = new Map<string, ReportRow>();
     for (const row of rowsFromConversations)
       mergedByPhone.set(recipientKeyForCampaignReport(row.phone), row);
@@ -685,15 +716,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         mergedByPhone.set(rk, row);
         continue;
       }
-      // Log de falha tem prioridade para não mascarar erro.
       if (row.status === 'FAILED' && existing.status !== 'FAILED') {
         mergedByPhone.set(rk, { ...existing, ...row });
         continue;
       }
-      // Caso contrário, mantemos o registro mais novo.
-      if ((row.sentTimestampMs || 0) > (existing.sentTimestampMs || 0)) {
-        mergedByPhone.set(rk, { ...existing, ...row });
-      }
+      mergedByPhone.set(rk, pickBetterCampaignReportRow(existing, row));
     }
     const merged = dedupeCampaignReportRowsByRecipient(
       Array.from(mergedByPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
@@ -823,7 +850,14 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     [m, performance]
   );
 
-  /** Funil e score: alinha entregues/lidas com contadores Firestore quando o relatório ainda não refletiu ack/resposta. */
+  const campaignGeoTotals = useMemo(() => {
+    if (campaignGeo.campaignId !== campaign.id) {
+      return { delivered: 0, read: 0, replied: 0 };
+    }
+    return sumCampaignGeoStats(campaignGeo.byUf);
+  }, [campaignGeo, campaign.id]);
+
+  /** Funil e score: relatório + geo da campanha (não infla entregues só com successCount). */
   const uiPerformance = useMemo(() => {
     const base =
       performance.total > 0
@@ -862,11 +896,28 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             };
           })();
 
-    const total = Math.max(base.total, metrics.effectiveProcessed, metrics.ok);
-    const delivered = Math.max(base.delivered, Math.min(total, Math.max(0, metrics.ok)));
-    const read = Math.max(base.read, base.replied);
-    const replied = base.replied;
-    if (delivered === base.delivered && read === base.read && total === base.total) return base;
+    const total = Math.max(base.total, metrics.effectiveProcessed);
+    const geoDelivered = Math.max(
+      campaignGeoTotals.delivered,
+      campaignGeoTotals.read,
+      campaignGeoTotals.replied
+    );
+    const geoRead = Math.max(campaignGeoTotals.read, campaignGeoTotals.replied);
+    const geoReplied = campaignGeoTotals.replied;
+    const delivered =
+      base.total > 0
+        ? Math.max(base.delivered, geoDelivered)
+        : Math.max(base.delivered, Math.min(total, Math.max(0, metrics.ok)), geoDelivered);
+    const read = Math.max(base.read, geoRead);
+    const replied = Math.max(base.replied, geoReplied);
+    if (
+      delivered === base.delivered &&
+      read === base.read &&
+      replied === base.replied &&
+      total === base.total
+    ) {
+      return base;
+    }
 
     const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
     const readPct = total > 0 ? Math.round((read / total) * 100) : 0;
@@ -888,7 +939,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         REPLIED: replied
       }
     };
-  }, [performance, metrics, campaign.successCount, campaign.failedCount]);
+  }, [performance, metrics, campaign.successCount, campaign.failedCount, campaignGeoTotals]);
 
   const progress = metrics.progressPct;
   const successRate = metrics.successRatePct;

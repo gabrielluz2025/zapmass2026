@@ -7,7 +7,7 @@ export type ReportRowLike = {
   sentTimestampMs: number;
 };
 
-const STATUS_RANK: Record<string, number> = {
+export const CAMPAIGN_REPORT_STATUS_RANK: Record<string, number> = {
   REPLIED: 5,
   READ: 4,
   DELIVERED: 3,
@@ -15,6 +15,15 @@ const STATUS_RANK: Record<string, number> = {
   PENDING: 1,
   FAILED: 0
 };
+
+/** Mantém a linha com melhor status; empate → mais recente. */
+export function pickBetterCampaignReportRow<T extends ReportRowLike>(a: T, b: T): T {
+  const ra = CAMPAIGN_REPORT_STATUS_RANK[a.status] ?? -1;
+  const rb = CAMPAIGN_REPORT_STATUS_RANK[b.status] ?? -1;
+  if (ra > rb) return a;
+  if (rb > ra) return b;
+  return (a.sentTimestampMs || 0) >= (b.sentTimestampMs || 0) ? a : b;
+}
 
 export function recipientKeyForCampaignReport(phone: string): string {
   return normPhoneKey(phone) || phone.replace(/\D/g, '');
@@ -31,8 +40,8 @@ export function dedupeCampaignReportRowsByRecipient<T extends ReportRowLike>(row
       m.set(k, row);
       continue;
     }
-    const ra = STATUS_RANK[row.status] ?? -1;
-    const rb = STATUS_RANK[prev.status] ?? -1;
+    const ra = CAMPAIGN_REPORT_STATUS_RANK[row.status] ?? -1;
+    const rb = CAMPAIGN_REPORT_STATUS_RANK[prev.status] ?? -1;
     if (ra > rb) {
       m.set(k, row);
     } else if (ra === rb && (row.sentTimestampMs || 0) >= (prev.sentTimestampMs || 0)) {

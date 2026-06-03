@@ -49,6 +49,10 @@ import {
 } from './evolutionWebhookMessages.js';
 import { dispatchEvolutionWebhook, initEvolutionWebhookQueue } from './evolutionWebhookQueue.js';
 import {
+    extractEvolutionMessageUpdates,
+    parseEvolutionMessageStatus
+} from './evolutionMessageStatus.js';
+import {
     filterByConnectionScope,
     isLegacyConnectionId,
     ownsConnectionForUid
@@ -1733,8 +1737,16 @@ function emitCampaignLog(
     log(level === 'ERROR' ? 'error' : level === 'WARN' ? 'warn' : 'info', message, payload);
 
     if (uid && campaignId) {
-        if (level === 'ERROR' || (level === 'INFO' && message === 'Mensagem enviada')) {
-            void persistCampaignLogToFirestore(uid, campaignId, level, message, payload);
+        const persistInfo =
+            level === 'ERROR' ||
+            (level === 'INFO' &&
+                (message === 'Mensagem enviada' || message === 'Resposta recebida no fluxo por etapas'));
+        if (persistInfo) {
+            const toPersist = { ...(payload || {}) };
+            if (!toPersist.to && toPersist.phoneDigits) {
+                toPersist.to = String(toPersist.phoneDigits).replace(/\D/g, '');
+            }
+            void persistCampaignLogToFirestore(uid, campaignId, level, message, toPersist);
         }
     }
 }
@@ -2087,6 +2099,9 @@ function ensureReplyFlowEngine() {
         },
         onLog: (message, payload) =>
             emitCampaignLog('INFO', message, payload, payload?.ownerUid as string | undefined),
+        onInboundReply: ({ campaignId, connectionId, phoneDigits, ownerUid }) => {
+            evolutionTrackIncomingReply(connectionId, phoneDigits, { campaignId, ownerUid });
+        },
         isCampaignPaused: (campaignId) => pausedCampaigns.has(campaignId),
         onSessionSave: (connectionId, phoneDigits, session) => {
             void saveReplyFlowSessionToRedis(connectionId, phoneDigits, session);
@@ -3349,6 +3364,15 @@ export async function handleWebhook(event: any) {
                     }
 
                     if (isFromMe && messageId) {
+                        const msgRow = msg as Record<string, unknown>;
+                        const rawStatus =
+                            msgRow.status ??
+                            (msgRow.update as Record<string, unknown> | undefined)?.status;
+                        const evolutionStatus = parseEvolutionMessageStatus(rawStatus);
+                        if (evolutionStatus != null) {
+                            evolutionTrackMessageAck(String(messageId), evolutionStatus);
+                            chatStore.updateMessageStatus(String(messageId), evolutionStatus);
+                        }
                         metrics.totalSent++;
                         const sentOwnerUid = messageOwnerUid || resolveOwnerUid(instance);
                         publishOwnerEvent(sentOwnerUid, 'campaign-progress', {
@@ -3390,14 +3414,11 @@ export async function handleWebhook(event: any) {
             }
 
             case 'MESSAGES_UPDATE': {
-                const updates = Array.isArray(data) ? data : data ? [data] : [];
-                for (const upd of updates) {
-                    const messageId = upd?.key?.id || upd?.keyId;
-                    const updateStatus = upd?.update?.status ?? upd?.status;
-                    if (messageId != null && updateStatus != null) {
-                        evolutionTrackMessageAck(String(messageId), Number(updateStatus));
-                        chatStore.updateMessageStatus(String(messageId), Number(updateStatus));
-                    }
+                for (const { messageId, status } of extractEvolutionMessageUpdates(data)) {
+                    const evolutionStatus = parseEvolutionMessageStatus(status);
+                    if (evolutionStatus == null) continue;
+                    evolutionTrackMessageAck(messageId, evolutionStatus);
+                    chatStore.updateMessageStatus(messageId, evolutionStatus);
                 }
                 break;
             }

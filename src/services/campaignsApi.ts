@@ -37,6 +37,9 @@ export type CampaignLogDto = {
   level: string;
   message: string;
   to?: string;
+  phoneDigits?: string;
+  replyPreview?: string;
+  campaignId?: string;
   connectionId?: string;
   error?: string;
   createdAt: string;
