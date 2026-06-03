@@ -479,6 +479,17 @@ if [ -d /opt/zapmass/clientes ]; then
   docker ps --filter "name=^zapmass-cli-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
 fi
 
+# GitHub Actions: build/stack num passo; health longo em deployment/gha-healthcheck.sh
+if [ "${ZAPMASS_DEPLOY_SKIP_HEALTHCHECK:-0}" = "1" ]; then
+  echo "==> ZAPMASS_DEPLOY_SKIP_HEALTHCHECK=1 — build/stack OK; health no passo GHA seguinte"
+  if docker info --format '{{.Swarm.LocalNodeState}} {{.Swarm.ControlAvailable}}' 2>/dev/null | grep -qE '^active true$'; then
+    _api_wait=70
+    wait_swarm_service_replicas zapmass_api 1 "${_api_wait}" || recover_swarm_api_service || true
+  fi
+  echo "==> deploy concluido (sem health inline). Commit: ${VITE_GIT_REF:-?}"
+  exit 0
+fi
+
 # Healthcheck: Swarm rolling + start-period 180s no Dockerfile — no GHA dar mais margem.
 HP="${HOST_PORT:-3001}"
 _HEALTH_TRIES="${DEPLOY_HEALTH_TRIES:-60}"
