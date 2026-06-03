@@ -1,10 +1,10 @@
 import React, { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MessageCircleMore, RefreshCw, Search } from 'lucide-react';
+import { MessageCircle, RefreshCw, Search } from 'lucide-react';
 import type { Conversation } from '../../types';
-import { WaAvatar } from './WaAvatar';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import { formatListTime, inboxListTitle, unreadCount } from './lib/conversationDisplay';
+import { getLastMsgPreview } from './lib/chatPreview';
 import type { WaConnectionStatus } from './hooks/useWaRealtime';
 
 type Props = {
@@ -45,8 +45,9 @@ export const WaInbox: React.FC<Props> = ({
     count: conversations.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 72,
-    overscan: 8,
-    getItemKey: (i) => conversations[i]?.id ?? i
+    overscan: 10,
+    getItemKey: (i) => conversations[i]?.id ?? i,
+    measureElement: (el) => el.getBoundingClientRect().height
   });
 
   const totalUnread = useMemo(
@@ -54,78 +55,74 @@ export const WaInbox: React.FC<Props> = ({
     [allConversations]
   );
 
-  const statusLabel =
+  const statusText =
     connectionStatus === 'online'
       ? chipsConnected > 0
-        ? `${chipsConnected} chip conectado`
-        : 'Conectado'
-      : 'Reconectando…';
+        ? `Conectado · ${chipsConnected} número${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`
+        : 'Conectado ao servidor'
+      : 'Reconectando ao servidor…';
 
   return (
-    <aside className="wa-v2-inbox" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
-      <div className="wa-v2-header flex-shrink-0">
-        <p className="text-[15px] font-medium flex-1">Conversas</p>
-        <span
-          className="text-[12px] flex items-center gap-1.5 mr-1"
-          style={{ color: 'var(--wv2-text-3)' }}
-          title={statusLabel}
-        >
-          <span
-            className="wa-v2-live-dot inline-block"
-            data-offline={connectionStatus !== 'online'}
-          />
-          {statusLabel}
-        </span>
+    <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
+      <div className="wa-side-header flex items-center justify-between gap-2 px-3 flex-shrink-0">
+        <div className="flex-1 min-w-0">
+          <p className="wa-conv-name text-[17px] leading-tight">Conversas</p>
+        </div>
         <button
           type="button"
-          className="p-2 rounded-full hover:bg-black/5"
-          title="Atualizar conversas"
+          className="wa-icon-btn"
+          title="Atualizar lista"
+          aria-label="Atualizar lista"
           onClick={onRefresh}
-          aria-label="Atualizar conversas"
         >
-          <RefreshCw className="w-5 h-5" style={{ color: 'var(--wv2-text-2)' }} />
+          <RefreshCw className="w-5 h-5" />
         </button>
       </div>
 
-      <div className="wa-v2-search-wrap relative">
-        <Search
-          className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-          style={{ color: 'var(--wv2-text-3)' }}
-        />
-        <input
-          className="wa-v2-search"
-          placeholder="Pesquisar"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-        />
+      <div
+        className="wa-status-strip"
+        data-offline={connectionStatus !== 'online'}
+        role="status"
+      >
+        <span className="wa-status-dot" aria-hidden />
+        <span className="flex-1 truncate">{statusText}</span>
+      </div>
+
+      <div className="wa-search-wrap">
+        <label className="wa-search">
+          <Search className="w-[18px] h-[18px] flex-shrink-0 opacity-60" aria-hidden />
+          <span className="sr-only">Pesquisar conversas</span>
+          <input
+            type="search"
+            placeholder="Pesquisar conversa ou número"
+            value={search}
+            onChange={(e) => onSearch(e.target.value)}
+          />
+        </label>
       </div>
 
       {totalUnread > 0 && (
-        <div className="px-3 pb-2">
-          <button
-            type="button"
-            className="wa-v2-filter-pill w-full text-left"
-            data-active={unreadOnly}
-            onClick={onToggleUnread}
-          >
-            {unreadOnly ? 'Mostrar todas' : `Não lidas (${totalUnread})`}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="wa-filter-unread"
+          data-active={unreadOnly}
+          onClick={onToggleUnread}
+        >
+          {unreadOnly ? '← Ver todas as conversas' : `Não lidas (${totalUnread})`}
+        </button>
       )}
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
         {conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-            <MessageCircleMore className="w-10 h-10 mb-3 opacity-40" />
-            <p className="text-sm font-medium">
-              {unreadOnly ? 'Nenhuma não lida' : 'Nenhuma conversa'}
-            </p>
-            <p className="text-xs mt-1 opacity-70">
+          <div className="py-20 px-8 text-center">
+            <MessageCircle className="w-11 h-11 mx-auto mb-4 opacity-35" style={{ color: 'var(--wa-text-3)' }} />
+            <p className="wa-conv-name text-[15px]">{unreadOnly ? 'Sem não lidas' : 'Nenhuma conversa'}</p>
+            <p className="wa-conv-preview mt-2">
               {chipsConnected === 0
-                ? 'Conecte um chip em Conexões.'
+                ? 'Conecte um chip em Conexões para sincronizar.'
                 : unreadOnly
-                  ? 'Você leu todas as mensagens.'
-                  : 'Aguarde a sincronização ou toque em atualizar.'}
+                  ? 'Todas as mensagens foram lidas.'
+                  : 'Use atualizar ou aguarde a sincronização.'}
             </p>
           </div>
         ) : (
@@ -135,14 +132,17 @@ export const WaInbox: React.FC<Props> = ({
               if (!conv) return null;
               const disp = displayById.get(conv.id);
               const primary = inboxListTitle(disp, conv);
-              const preview = (conv.lastMessage || '').trim() || '[Mídia]';
+              const preview = getLastMsgPreview(conv) || 'Sem mensagens';
               const unread = unreadCount(conv);
               const active = selectedId === conv.id;
 
               return (
-                <div
+                <button
                   key={conv.id}
-                  className="wa-v2-chat-row absolute left-0 w-full"
+                  type="button"
+                  ref={virtualizer.measureElement}
+                  data-index={row.index}
+                  className="wa-conv-row absolute left-0 w-full"
                   style={{
                     height: row.size,
                     transform: `translateY(${row.start}px)`
@@ -150,32 +150,37 @@ export const WaInbox: React.FC<Props> = ({
                   data-active={active}
                   onClick={() => onSelect(conv.id)}
                 >
-                  <WaAvatar src={avatarById.get(conv.id) || ''} name={primary} />
-                  <div className="flex-1 min-w-0">
+                  <img
+                    src={avatarById.get(conv.id) || ''}
+                    alt=""
+                    className="wa-conv-avatar"
+                    loading="lazy"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      el.onerror = null;
+                      el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(primary)}&background=00a884&color=fff&size=200&bold=true`;
+                    }}
+                  />
+                  <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[16px] font-normal truncate" style={{ color: 'var(--wv2-text)' }}>
-                        {primary}
-                      </span>
-                      <span
-                        className="text-[12px] flex-shrink-0"
-                        style={{ color: unread > 0 ? 'var(--wv2-green)' : 'var(--wv2-text-3)' }}
-                      >
+                      <span className="wa-conv-name truncate">{primary}</span>
+                      <span className="wa-conv-time flex-shrink-0" data-unread={unread > 0}>
                         {formatListTime(conv)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2 mt-0.5">
                       <p
-                        className="text-[13px] truncate"
-                        style={{ color: 'var(--wv2-text-2)', fontWeight: unread > 0 ? 500 : 400 }}
+                        className="wa-conv-preview truncate flex-1"
+                        style={{ fontWeight: unread > 0 ? 500 : 400, color: unread > 0 ? 'var(--wa-text)' : undefined }}
                       >
                         {preview}
                       </p>
                       {unread > 0 && (
-                        <span className="wa-v2-unread-badge">{unread > 99 ? '99+' : unread}</span>
+                        <span className="wa-unread-badge">{unread > 99 ? '99+' : unread}</span>
                       )}
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

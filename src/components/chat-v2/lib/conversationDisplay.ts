@@ -191,15 +191,20 @@ export function avatarUrl(name: string, pic?: string): string {
   );
 }
 
-/** Na lista/cabeçalho: evita vários "Contato" iguais — mostra telefone quando possível. */
+/** Na lista/cabeçalho: evita vários "Contato" iguais — mostra telefone ou sufixo do JID. */
 export function inboxListTitle(disp: ConversationDisplay | undefined, conv: Conversation): string {
   const p = (disp?.primary || conv.contactName || '').trim();
   if (p && p.toLowerCase() !== 'contato') return p;
   if (disp?.phoneSecondary) return disp.phoneSecondary;
   if (disp?.whatsappSubtitle) return disp.whatsappSubtitle;
-  const phone = (conv.contactPhone || '').trim();
-  if (phone && phone.length >= 8) return phone;
-  return 'Contato';
+  const lookupDigits = normalizeDigits(phoneRawForContactLookup(conv));
+  if (lookupDigits.length >= 8) return formatPhoneDisplay(lookupDigits);
+  const phone = normalizeDigits(conv.contactPhone || '');
+  if (phone.length >= 8) return formatPhoneDisplay(phone);
+  const tail = conv.id.includes(':') ? conv.id.slice(conv.id.lastIndexOf(':') + 1) : conv.id;
+  const jidDigits = /^(\d{8,})@/i.exec(tail.trim());
+  if (jidDigits) return `+${jidDigits[1].slice(0, 4)}…${jidDigits[1].slice(-4)}`;
+  return 'Sem nome';
 }
 
 export function unreadCount(conv: Conversation): number {

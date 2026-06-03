@@ -1,37 +1,92 @@
 import React, { useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { Loader2, Paperclip, Send } from 'lucide-react';
+
+const ACCEPT =
+  'image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt';
 
 type Props = {
   disabled?: boolean;
-  placeholder?: string;
+  disabledHint?: string;
+  sendingMedia?: boolean;
   onSend: (text: string) => void;
+  onAttach?: (file: File, caption?: string) => void;
 };
 
 export const WaComposer: React.FC<Props> = ({
   disabled,
-  placeholder = 'Mensagem',
-  onSend
+  disabledHint,
+  sendingMedia,
+  onSend,
+  onAttach
 }) => {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const submit = () => {
     const t = text.trim();
-    if (!t || disabled) return;
+    if (!t || disabled || sendingMedia) return;
     onSend(t);
     setText('');
     if (ref.current) ref.current.style.height = 'auto';
   };
 
+  const pickFile = () => {
+    if (disabled || sendingMedia || !onAttach) return;
+    fileRef.current?.click();
+  };
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || disabled || !onAttach) return;
+    const caption = text.trim() || undefined;
+    if (caption) {
+      setText('');
+      if (ref.current) ref.current.style.height = 'auto';
+    }
+    onAttach(file, caption);
+  };
+
+  const busy = Boolean(sendingMedia);
+
   return (
-    <div className="wa-v2-composer">
+    <footer className="wa-composer">
+      {onAttach && (
+        <>
+          <input
+            ref={fileRef}
+            type="file"
+            className="sr-only"
+            accept={ACCEPT}
+            onChange={onFileChange}
+            tabIndex={-1}
+          />
+          <button
+            type="button"
+            className="wa-composer-attach"
+            disabled={disabled || busy}
+            onClick={pickFile}
+            aria-label="Anexar arquivo"
+            title="Anexar imagem, vídeo ou documento"
+          >
+            <Paperclip className="w-5 h-5" strokeWidth={2} />
+          </button>
+        </>
+      )}
       <textarea
         ref={ref}
-        className="wa-v2-composer-input"
+        className="wa-composer-input"
         rows={1}
-        placeholder={placeholder}
+        placeholder={
+          busy
+            ? 'Enviando arquivo…'
+            : disabled && disabledHint
+              ? disabledHint
+              : 'Digite uma mensagem'
+        }
         value={text}
-        disabled={disabled}
+        disabled={disabled || busy}
         onChange={(e) => {
           setText(e.target.value);
           const el = e.target;
@@ -47,13 +102,18 @@ export const WaComposer: React.FC<Props> = ({
       />
       <button
         type="button"
-        className="wa-v2-send-btn"
-        disabled={disabled || !text.trim()}
+        className="wa-composer-send"
+        data-mode={text.trim() ? 'send' : undefined}
+        disabled={disabled || busy || !text.trim()}
         onClick={submit}
-        aria-label="Enviar"
+        aria-label="Enviar mensagem"
       >
-        <Send className="w-5 h-5" />
+        {busy ? (
+          <Loader2 className="w-5 h-5 animate-spin" />
+        ) : (
+          <Send className="w-5 h-5" strokeWidth={2} />
+        )}
       </button>
-    </div>
+    </footer>
   );
 };

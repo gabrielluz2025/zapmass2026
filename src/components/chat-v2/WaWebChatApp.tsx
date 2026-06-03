@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
+import { ClientCrmPanel } from '../chat/ClientCrmPanel';
+import { WaContactDrawer } from '../chat/wa/WaContactDrawer';
+import { useClientCrm } from '../chat/useClientCrm';
+import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
@@ -16,19 +21,24 @@ import {
   avatarUrl,
   buildDisplayIndex,
   phoneRawForContactLookup,
+  inboxListTitle,
   unreadCount
 } from './lib/conversationDisplay';
+import { getConversationPipelineAgg } from './lib/chatPreview';
 import '../../styles/wa-web-v2.css';
 
 export const WaWebChatApp: React.FC<{
   autoSelectedConversationId?: string | null;
   onClearAutoSelected?: () => void;
 }> = ({ autoSelectedConversationId, onClearAutoSelected }) => {
+  const { user } = useAuth();
+  const crm = useClientCrm(user?.uid);
   const conversations = useZapMassConversations();
   const {
     contacts,
     connections,
     sendMessage,
+    sendMedia,
     markAsRead,
     loadChatHistory,
     fetchConversationPicture,
@@ -47,6 +57,8 @@ export const WaWebChatApp: React.FC<{
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyExhausted, setHistoryExhausted] = useState<Record<string, boolean>>({});
   const [mobileShowThread, setMobileShowThread] = useState(false);
+  const [showContactInfo, setShowContactInfo] = useState(false);
+  const { sending: sendingMedia, sendFile: sendChatFile } = useSendChatMedia(sendMedia);
   const pictureFetchedRef = useRef<Set<string>>(new Set());
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
   const HISTORY_LEVELS = [200, 600, 1500, 3500, 8000];
@@ -246,8 +258,36 @@ export const WaWebChatApp: React.FC<{
     toast.success('Sincronizando conversas…', { duration: 2000 });
   }, [requestSync]);
 
+  const selectedConnection = useMemo(
+    () => connections.find((c) => c.id === selected?.connectionId) ?? null,
+    [connections, selected?.connectionId]
+  );
+
+  const pipelineAgg = useMemo(() => getConversationPipelineAgg(selected ?? undefined), [selected]);
+
+  const handleSendMedia = useCallback(
+    (file: File, caption?: string) => {
+      if (!selected?.id) return;
+      if (connectedChannels.length === 0) {
+        toast.error('Nenhum chip WhatsApp conectado.');
+        return;
+      }
+      void sendChatFile(selected.id, file, caption);
+    },
+    [selected?.id, connectedChannels.length, sendChatFile]
+  );
+
+  useEffect(() => {
+    if (!selected) setShowContactInfo(false);
+  }, [selected?.id]);
+
+  const selectedDisplay = selected ? displayById.get(selected.id) : null;
+  const selectedTitle = selected
+    ? inboxListTitle(selectedDisplay, selected)
+    : '';
+
   return (
-    <div className="wa-v2-root flex h-[calc(100vh-5.5rem)] min-h-[480px] rounded-xl overflow-hidden border border-[#e9edef] shadow-lg">
+    <div className="wa-chat-pro wa-pipeline-root flex min-h-0">
       <WaInbox
         conversations={filtered}
         allConversations={sortedConversations}
@@ -267,17 +307,41 @@ export const WaWebChatApp: React.FC<{
 
       <WaThread
         conversation={selected}
-        display={selected ? displayById.get(selected.id) ?? null : null}
+        display={selectedDisplay ?? null}
         avatarSrc={selected ? avatarById.get(selected.id) || '' : ''}
         loadingHistory={loadingHistory}
         historyExhausted={selected ? !!historyExhausted[selected.id] : true}
         canSend={!!selected && connectedChannels.length > 0}
+        connectionStatus={live ? 'online' : 'offline'}
         showBack={mobileShowThread}
         onBack={() => setMobileShowThread(false)}
         onLoadOlder={loadOlder}
         onSend={handleSend}
+        onAttach={handleSendMedia}
+        sendingMedia={sendingMedia}
+        onOpenContactInfo={selected ? () => setShowContactInfo(true) : undefined}
         hideOnMobile={!mobileShowThread}
       />
+
+      {selected && (
+        <WaContactDrawer
+          open={showContactInfo}
+          title="Ficha do cliente"
+          subtitle={selectedTitle}
+          onClose={() => setShowContactInfo(false)}
+        >
+          <ClientCrmPanel
+            conversation={selected}
+            connectionName={selectedConnection?.name}
+            avatar={avatarById.get(selected.id) || ''}
+            crmData={crm.get(selected.id)}
+            pipelineAgg={pipelineAgg}
+            onClose={() => setShowContactInfo(false)}
+            onUpdate={(patch) => crm.update(selected.id, patch)}
+            onClear={() => crm.clear(selected.id)}
+          />
+        </WaContactDrawer>
+      )}
     </div>
   );
 };
