@@ -15,6 +15,7 @@ import {
   Phone,
   Plus,
   Search,
+  MessageSquare,
   Send,
   Smartphone,
   Sparkles,
@@ -50,8 +51,10 @@ import {
 } from '../../utils/contactTemperature';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
-import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
+import { CampaignFlowModePicker } from './CampaignFlowModePicker';
+import { CampaignMessageComposer } from './CampaignMessageComposer';
+import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
@@ -800,9 +803,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   };
 
   const insertInvalidReplyVariable = (variable: string) => {
-    const cur = messageStages[activeStageIdx]?.invalidReplyBody ?? '';
+    const stageIdx = campaignFlowMode === 'reply' ? 0 : activeStageIdx;
+    const cur = messageStages[stageIdx]?.invalidReplyBody ?? '';
     insertCampaignTokenIntoTextarea(invalidReplyRef.current, cur, variable, (next) =>
-      patchActiveStage({ invalidReplyBody: next })
+      setMessageStages((prev) => prev.map((s, i) => (i === stageIdx ? { ...s, invalidReplyBody: next } : s)))
     );
   };
 
@@ -1795,125 +1799,57 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
           {/* STEP 2: Message */}
           {step === 2 && (
-            <Card>
-              <h3 className="ui-title text-[15px] mb-1">Qual a mensagem?</h3>
-              <p className="ui-subtitle text-[12.5px] mb-4">
-                {campaignFlowMode === 'reply'
-                  ? 'Fluxo por respostas: a etapa 1 é enviada na abertura. Quando o contato responder, o sistema envia a etapa 2 (e assim por diante), conforme as regras abaixo. Opcional: exija respostas como 1 ou 2 e defina um texto se errar.'
-                  : 'Envio em sequência automática: cada contato recebe todas as etapas em ordem, uma após a outra, respeitando o intervalo anti-ban entre cada envio. Use variáveis dinâmicas para personalizar.'}
-              </p>
-
-              <label className="text-[11px] font-semibold uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-3)' }}>
-                Nome da campanha
-              </label>
-              <Input
-                placeholder="Ex: Promocao Janeiro - Base VIP"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mb-4"
-              />
-
-              <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-3)' }}>
-                Modo das etapas
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-                {[
-                  {
-                    id: 'reply' as const,
-                    title: 'Fluxo por respostas',
-                    desc: 'Aguarda a resposta do contato antes da próxima mensagem.'
-                  },
-                  {
-                    id: 'sequential' as const,
-                    title: 'Sequência automática',
-                    desc: 'Envia todas as etapas em fila, sem esperar resposta.'
-                  }
-                ].map((opt) => {
-                  const sel = campaignFlowMode === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setFlowMode(opt.id)}
-                      className="text-left p-3 rounded-xl transition-all"
-                      style={{
-                        background: sel ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
-                        border: sel ? '1.5px solid rgba(16,185,129,0.25)' : '1.5px solid var(--border-subtle)'
-                      }}
-                    >
-                      <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                        {opt.title}
-                      </p>
-                      <p className="text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-                        {opt.desc}
-                      </p>
-                    </button>
-                  );
-                })}
+            <Card className="cw-msg-step">
+              <div className="cw-msg-hero">
+                <div className="cw-msg-hero-icon" aria-hidden>
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="ui-title text-[15px] mb-0.5">Qual a mensagem?</h3>
+                  <p className="ui-subtitle text-[12px]">
+                    Defina o nome, o modo de envio e o conteúdo. Personalize com variáveis da sua base.
+                  </p>
+                </div>
               </div>
 
-              <div
-                className="mb-4 rounded-xl p-3.5 text-[12px] leading-relaxed"
-                style={{
-                  background: 'rgba(59, 130, 246, 0.06)',
-                  border: '1px solid rgba(59, 130, 246, 0.18)'
-                }}
-              >
-                <p className="font-semibold mb-1.5" style={{ color: 'var(--text-1)' }}>
-                  {campaignFlowMode === 'sequential' ? 'Sequência automática — como funciona' : 'Fluxo por respostas — como funciona'}
-                </p>
-                {campaignFlowMode === 'sequential' ? (
-                  <p style={{ color: 'var(--text-2)' }}>
-                    Todas as etapas entram na fila ao iniciar a campanha: cada contato recebe a etapa 1, depois a 2, etc.,{' '}
-                    <strong style={{ color: 'var(--text-1)' }}>sem precisar responder</strong>. O intervalo entre envios vale
-                    entre cada mensagem. Escolha este modo se você quer disparar várias mensagens em sequência.
-                  </p>
-                ) : (
-                  <p style={{ color: 'var(--text-2)' }}>
-                    Só a <strong style={{ color: 'var(--text-1)' }}>primeira</strong> etapa é enviada na abertura. As
-                    seguintes só saem <strong style={{ color: 'var(--text-1)' }}>depois que o contato responder</strong>{' '}
-                    e passar pela regra da etapa em espera (aceitar qualquer resposta ou palavras definidas em cada etapa).
-                    Se parecer que “travou na primeira mensagem”, confira estas regras ou troque para sequência automática.
-                    Em cada etapa você pode marcar efeito de CRM: quando a resposta for válida, registrar{' '}
-                    <strong style={{ color: 'var(--text-1)' }}>autorização de marketing</strong> (lead quente) ou{' '}
-                    <strong style={{ color: 'var(--text-1)' }}>lista negra</strong>, gravando o texto que a pessoa enviou.
-                  </p>
-                )}
+              <div className="cw-msg-section">
+                <p className="cw-msg-section-title">Nome da campanha</p>
+                <Input
+                  placeholder="Ex: Promoção Janeiro — Base VIP"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
               </div>
+
+              <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
 
               {campaignFlowMode === 'sequential' ? (
-                <>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    {messageStages.map((st, idx) => {
-                      const isAct = idx === activeStageIdx;
-                      return (
-                        <div key={st.id} className="flex items-center gap-1">
+                <div className="cw-msg-section">
+                  <p className="cw-msg-section-title">Etapas da sequência</p>
+                  <div className="cw-stage-rail">
+                    {messageStages.map((st, idx) => (
+                      <span key={st.id} className="inline-flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          className="cw-stage-pill"
+                          data-active={idx === activeStageIdx ? 'true' : 'false'}
+                          onClick={() => setActiveStageIdx(idx)}
+                        >
+                          Etapa {idx + 1}
+                        </button>
+                        {messageStages.length > 1 && (
                           <button
                             type="button"
-                            onClick={() => setActiveStageIdx(idx)}
-                            className="text-[11px] font-bold px-2.5 py-1 rounded-lg transition-all"
-                            style={{
-                              background: isAct ? 'var(--brand-500)' : 'var(--surface-1)',
-                              color: isAct ? '#fff' : 'var(--text-2)',
-                              border: isAct ? 'none' : '1px solid var(--border-subtle)'
-                            }}
+                            aria-label={`Remover etapa ${idx + 1}`}
+                            onClick={() => removeMessageStage(idx)}
+                            className="p-1 rounded-md"
+                            style={{ color: 'var(--text-3)' }}
                           >
-                            Etapa {idx + 1}
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                          {messageStages.length > 1 && (
-                            <button
-                              type="button"
-                              aria-label={`Remover etapa ${idx + 1}`}
-                              onClick={() => removeMessageStage(idx)}
-                              className="p-1 rounded-md transition-all hover:opacity-90"
-                              style={{ color: 'var(--text-3)' }}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
+                        )}
+                      </span>
+                    ))}
                     <Button
                       type="button"
                       variant="ghost"
@@ -1921,560 +1857,45 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       leftIcon={<Plus className="w-3.5 h-3.5" />}
                       onClick={addMessageStage}
                     >
-                      Etapa
+                      Nova etapa
                     </Button>
                   </div>
-
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                      Texto da etapa {activeStageIdx + 1}
-                    </label>
-                    <span
-                      className="text-[10.5px] font-mono tabular-nums px-2 py-0.5 rounded-md"
-                      style={{ background: 'var(--surface-1)', color: 'var(--text-3)' }}
-                    >
-                      {activeMessageBody.length} chars
-                    </span>
-                  </div>
-
-                  <CampaignMessageVariableChips onInsert={insertVariable} density="full" />
-
-                  <SegmentCampaignIdeas onApplyTemplate={(body) => setActiveMessageBody(body)} />
-
-                  <Textarea
-                    key={messageStages[activeStageIdx]?.id}
-                    ref={msgRef}
-                    placeholder="Ola {nome}! Temos uma oferta especial para voce em {cidade}..."
-                    value={activeMessageBody}
-                    onChange={(e) => setActiveMessageBody(e.target.value)}
-                    style={{ minHeight: '160px' }}
+                  <CampaignMessageComposer
+                    label={`Mensagem — etapa ${activeStageIdx + 1}`}
+                    placeholder="Olá {nome}! Temos uma oferta especial para você em {cidade}..."
+                    body={activeMessageBody}
+                    onBodyChange={setActiveMessageBody}
+                    textareaRef={msgRef}
+                    textareaKey={messageStages[activeStageIdx]?.id}
+                    onInsertVariable={insertVariable}
+                    onApplyTemplate={(body) => setActiveMessageBody(body)}
+                    showAttachment={activeStageIdx === 0}
+                    attachment={campaignAttachment}
+                    attachmentInputRef={attachmentInputRef}
+                    onPickAttachment={onPickAttachment}
+                    onRemoveAttachment={removeAttachment}
+                    launchMode={launchMode}
+                    minHeight={160}
                   />
-
-                  {/* ============================ ANEXO DA CAMPANHA ============================
-                      Foto / video / audio / arquivo enviado JUNTO com a 1a etapa, com o texto da 1a
-                      etapa funcionando como legenda. Para enviar links, basta colar a URL no
-                      texto — o WhatsApp gera o preview automaticamente. */}
-                  {activeStageIdx === 0 && (
-                    <div
-                      className="mt-3 rounded-xl p-3.5"
-                      style={{
-                        background: 'var(--surface-1)',
-                        border: '1px dashed var(--border-subtle)'
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div>
-                          <p className="text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                            Anexo da campanha
-                          </p>
-                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                            Foto, video, audio ou arquivo enviado junto com a 1a etapa. O texto acima vira a legenda.
-                          </p>
-                        </div>
-                        {!campaignAttachment && (
-                          <>
-                            <input
-                              ref={attachmentInputRef}
-                              type="file"
-                              className="hidden"
-                              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,application/*"
-                              onChange={(e) => onPickAttachment(e.target.files?.[0] || null)}
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => attachmentInputRef.current?.click()}
-                            >
-                              Anexar
-                            </Button>
-                          </>
-                        )}
-                      </div>
-
-                      {campaignAttachment ? (
-                        <div
-                          className="flex items-start gap-3 rounded-lg p-2.5"
-                          style={{
-                            background: 'var(--surface-0)',
-                            border: '1px solid var(--border-subtle)'
-                          }}
-                        >
-                          <div
-                            className="rounded-md overflow-hidden flex items-center justify-center shrink-0"
-                            style={{
-                              width: 72,
-                              height: 72,
-                              background: 'var(--surface-2)',
-                              border: '1px solid var(--border-subtle)'
-                            }}
-                          >
-                            {campaignAttachment.file.type.startsWith('image/') &&
-                            campaignAttachment.previewUrl ? (
-                              <img
-                                src={campaignAttachment.previewUrl}
-                                alt="anexo"
-                                className="w-full h-full object-cover"
-                              />
-                            ) : campaignAttachment.file.type.startsWith('video/') &&
-                              campaignAttachment.previewUrl ? (
-                              <video
-                                src={campaignAttachment.previewUrl}
-                                className="w-full h-full object-cover"
-                                muted
-                                playsInline
-                              />
-                            ) : (
-                              <FileSpreadsheet
-                                className="w-8 h-8"
-                                style={{ color: 'var(--text-3)' }}
-                              />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p
-                              className="text-[12.5px] font-semibold truncate"
-                              style={{ color: 'var(--text-1)' }}
-                              title={campaignAttachment.file.name}
-                            >
-                              {campaignAttachment.file.name}
-                            </p>
-                            <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                              {(campaignAttachment.file.size / (1024 * 1024)).toFixed(2)} MB ·{' '}
-                              {campaignAttachment.file.type || 'arquivo'}
-                            </p>
-                            <div className="mt-1.5 flex items-center gap-2">
-                              <Button
-                                type="button"
-                                size="xs"
-                                variant="ghost"
-                                onClick={removeAttachment}
-                              >
-                                Remover anexo
-                              </Button>
-                              {launchMode === 'schedule' && (
-                                <span
-                                  className="text-[10.5px] font-semibold"
-                                  style={{ color: '#f59e0b' }}
-                                >
-                                  Anexos so funcionam em disparo imediato
-                                </span>
-                              )}
-                              {campaignAttachment.sendAsDocument && (
-                                <span
-                                  className="text-[10.5px] font-semibold"
-                                  style={{ color: '#0ea5e9' }}
-                                >
-                                  Sera enviado como documento para maior entrega
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-[11.5px] flex items-start gap-2" style={{ color: 'var(--text-3)' }}>
-                          <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-500" />
-                          <span>
-                            Para enviar <strong>links</strong>, basta colar a URL no texto da etapa — o WhatsApp gera
-                            o preview automaticamente.
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="space-y-5 pt-1">
-                  {/* CARD 1: MENSAGEM INICIAL */}
-                  <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-sm space-y-4">
-                    <div className="flex items-center gap-2.5 pb-2.5 border-b border-[var(--border-subtle)]">
-                      <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-black">1</div>
-                      <div>
-                        <h4 className="text-sm font-bold" style={{ color: 'var(--text-1)' }}>Mensagem de Abertura (Início do Fluxo)</h4>
-                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Esta mensagem é enviada de imediato para iniciar o contato.</p>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Texto da Mensagem</label>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--surface-1)] text-[var(--text-3)]">
-                        {(messageStages[0]?.body || '').length} chars
-                      </span>
-                    </div>
-
-                    <CampaignMessageVariableChips onInsert={(variable) => {
-                      insertCampaignTokenIntoTextarea(msgRef.current, messageStages[0]?.body || '', variable, (next) =>
-                        setMessageStages((prev) => prev.map((s, i) => (i === 0 ? { ...s, body: next } : s)))
-                      )
-                    }} density="full" />
-
-                    <SegmentCampaignIdeas onApplyTemplate={(body) => {
-                      setMessageStages((prev) => prev.map((s, i) => (i === 0 ? { ...s, body } : s)))
-                    }} />
-
-                    <Textarea
-                      ref={msgRef}
-                      placeholder="Olá {nome}! Tudo bem? Responda com 1 para Sim ou 2 para Não..."
-                      value={messageStages[0]?.body || ''}
-                      onChange={(e) => {
-                        setMessageStages((prev) => prev.map((s, i) => (i === 0 ? { ...s, body: e.target.value } : s)))
-                      }}
-                      style={{ minHeight: '140px' }}
-                    />
-                    
-                    {/* Anexo da campanha */}
-                    <div className="pt-2 border-t border-[var(--border-subtle)]">
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div>
-                          <p className="text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                            Anexo da campanha (Opcional)
-                          </p>
-                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                            Foto, vídeo ou arquivo enviado junto com a mensagem de abertura.
-                          </p>
-                        </div>
-                        {!campaignAttachment && (
-                          <>
-                            <input
-                              ref={attachmentInputRef}
-                              type="file"
-                              className="hidden"
-                              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,application/*"
-                              onChange={(e) => onPickAttachment(e.target.files?.[0] || null)}
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => attachmentInputRef.current?.click()}
-                            >
-                              Anexar
-                            </Button>
-                          </>
-                        )}
-                      </div>
-
-                      {campaignAttachment ? (
-                        <div
-                          className="flex items-start gap-3 rounded-lg p-2.5"
-                          style={{
-                            background: 'var(--surface-1)',
-                            border: '1px solid var(--border-subtle)'
-                          }}
-                        >
-                          <div
-                            className="rounded-md overflow-hidden flex items-center justify-center shrink-0"
-                            style={{
-                              width: 60,
-                              height: 60,
-                              background: 'var(--surface-2)',
-                              border: '1px solid var(--border-subtle)'
-                            }}
-                          >
-                            {campaignAttachment.file.type.startsWith('image/') &&
-                            campaignAttachment.previewUrl ? (
-                              <img
-                                src={campaignAttachment.previewUrl}
-                                alt="anexo"
-                                className="w-full h-full object-cover"
-                              />
-                            ) : campaignAttachment.file.type.startsWith('video/') &&
-                              campaignAttachment.previewUrl ? (
-                              <video
-                                src={campaignAttachment.previewUrl}
-                                className="w-full h-full object-cover"
-                                muted
-                                playsInline
-                              />
-                            ) : (
-                              <FileSpreadsheet
-                                className="w-8 h-8"
-                                style={{ color: 'var(--text-3)' }}
-                              />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                              {campaignAttachment.file.name}
-                            </p>
-                            <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                              {(campaignAttachment.file.size / (1024 * 1024)).toFixed(2)} MB
-                            </p>
-                            <Button type="button" size="xs" variant="ghost" onClick={removeAttachment} className="mt-1">
-                              Remover
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                          Sem anexo. Cole links normais no texto acima para o WhatsApp gerar o preview.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* SETA VISUAL */}
-                  <div className="flex justify-center -my-2.5">
-                    <div className="h-6 w-0.5 bg-dashed border-l-2 border-emerald-500/40"></div>
-                  </div>
-
-                  {/* CARD 2: REGRA DE RESPOSTA */}
-                  <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-sm space-y-3.5">
-                    <div className="flex items-center gap-2.5 pb-2.5 border-b border-[var(--border-subtle)]">
-                      <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-black">2</div>
-                      <div>
-                        <h4 className="text-sm font-bold" style={{ color: 'var(--text-1)' }}>Regra de Resposta (Configuração do Robô)</h4>
-                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Escolha como o sistema deve agir quando o cliente responder à sua mensagem inicial.</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        className="flex flex-col items-start p-3 rounded-xl border text-left transition-all"
-                        style={{
-                          background: messageStages[0]?.acceptAnyReply ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
-                          borderColor: messageStages[0]?.acceptAnyReply ? 'var(--primary)' : 'var(--border-subtle)'
-                        }}
-                        onClick={() => {
-                          setMessageStages((prev) => {
-                            const first = { ...prev[0], acceptAnyReply: true, optionsMode: 'linear' as const };
-                            const second = prev[1] || newMessageStage();
-                            return [first, second];
-                          });
-                        }}
-                      >
-                        <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: 'var(--text-1)' }}>
-                          💬 Qualquer Resposta
-                        </span>
-                        <span className="text-[11px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
-                          Se o contato responder qualquer texto, ele recebe uma próxima mensagem de resposta automática (Fluxo Linear).
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="flex flex-col items-start p-3 rounded-xl border text-left transition-all"
-                        style={{
-                          background: (!messageStages[0]?.acceptAnyReply && messageStages[0]?.optionsMode === 'conditional') ? 'var(--surface-selected-brand)' : 'var(--surface-1)',
-                          borderColor: (!messageStages[0]?.acceptAnyReply && messageStages[0]?.optionsMode === 'conditional') ? 'var(--primary)' : 'var(--border-subtle)'
-                        }}
-                        onClick={() => {
-                          setMessageStages((prev) => {
-                            const first = { 
-                              ...prev[0], 
-                              acceptAnyReply: false, 
-                              optionsMode: 'conditional' as const,
-                              options: prev[0]?.options && prev[0].options.length > 0 ? prev[0].options : [newMessageStageOption()]
-                            };
-                            return [first];
-                          });
-                        }}
-                      >
-                        <span className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: 'var(--text-1)' }}>
-                          🤖 Menu de Opções (Múltipla Escolha)
-                        </span>
-                        <span className="text-[11px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
-                          Respostas direcionadas e específicas para opções exatas digitadas (Ex: se digitar 1, recebe X; se digitar 2, recebe Y).
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* SETA VISUAL */}
-                  <div className="flex justify-center -my-2.5">
-                    <div className="h-6 w-0.5 bg-dashed border-l-2 border-emerald-500/40"></div>
-                  </div>
-
-                  {/* CARD 3: AÇÕES DE RESPOSTA */}
-                  {messageStages[0]?.acceptAnyReply ? (
-                    <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-sm space-y-4">
-                      <div className="flex items-center gap-2.5 pb-2.5 border-b border-[var(--border-subtle)]">
-                        <div className="w-6 h-6 rounded-full bg-indigo-500 text-white flex items-center justify-center text-xs font-black">3</div>
-                        <div>
-                          <h4 className="text-sm font-bold" style={{ color: 'var(--text-1)' }}>Mensagem de Resposta Automática</h4>
-                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Esta mensagem será enviada automaticamente assim que o cliente responder à primeira mensagem.</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>Texto da Resposta</label>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--surface-1)] text-[var(--text-3)]">
-                          {(messageStages[1]?.body || '').length} chars
-                        </span>
-                      </div>
-
-                      <CampaignMessageVariableChips onInsert={(variable) => {
-                        insertCampaignTokenIntoTextarea(null, messageStages[1]?.body || '', variable, (next) =>
-                          setMessageStages((prev) => prev.map((s, i) => (i === 1 ? { ...s, body: next } : s)))
-                        )
-                      }} density="compact" />
-
-                      <Textarea
-                        placeholder="Obrigado por responder! Aqui estão as informações..."
-                        value={messageStages[1]?.body || ''}
-                        onChange={(e) => {
-                          setMessageStages((prev) => {
-                            const copy = [...prev];
-                            if (!copy[1]) copy[1] = newMessageStage();
-                            copy[1].body = e.target.value;
-                            return copy;
-                          });
-                        }}
-                        style={{ minHeight: '110px' }}
-                      />
-
-                      <div className="pt-3 mt-2 border-t border-[var(--border-subtle)] space-y-1.5">
-                        <label className="text-[11px] font-bold uppercase tracking-wider block" style={{ color: 'var(--text-3)' }}>
-                          Efeito no CRM ao responder
-                        </label>
-                        <select
-                          className="w-full rounded-lg border px-3 py-2 text-[12.5px]"
-                          style={{
-                            borderColor: 'var(--border)',
-                            background: 'var(--surface-0)',
-                            color: 'var(--text-1)'
-                          }}
-                          value={messageStages[0]?.marketingEffect || 'none'}
-                          onChange={(e) => {
-                            setMessageStages((prev) => prev.map((s, i) => (i === 0 ? { ...s, marketingEffect: e.target.value as any } : s)))
-                          }}
-                        >
-                          <option value="none">Nenhum efeito extra</option>
-                          <option value="opt_in">Autorizou marketing (lead quente) — grava o texto da resposta</option>
-                          <option value="opt_out">Lista negra — não autorizou disparos (grava o texto da resposta)</option>
-                        </select>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-sm space-y-5">
-                      <div className="flex items-center justify-between pb-2.5 border-b border-[var(--border-subtle)]">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-6 h-6 rounded-full bg-indigo-500 text-white flex items-center justify-center text-xs font-black">3</div>
-                          <div>
-                            <h4 className="text-sm font-bold" style={{ color: 'var(--text-1)' }}>Configuração do Menu de Opções</h4>
-                            <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Cadastre as respostas para cada opção válida digitada pelo cliente.</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border bg-[var(--surface-1)] hover:bg-[var(--surface-2)] transition flex items-center gap-1.5"
-                          style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-1)' }}
-                          onClick={addStageOption}
-                        >
-                          <Plus className="w-3.5 h-3.5" /> Adicionar Opção
-                        </button>
-                      </div>
-
-                      <div className="space-y-4">
-                        {(!messageStages[0]?.options || messageStages[0].options.length === 0) && (
-                          <div className="text-center py-6 border border-dashed rounded-xl border-[var(--border-subtle)] text-[12px] text-amber-500">
-                            Nenhuma opção cadastrada. Clique no botão acima para adicionar uma opção de resposta.
-                          </div>
-                        )}
-
-                        {Array.isArray(messageStages[0]?.options) &&
-                          messageStages[0].options.map((opt, oIdx) => (
-                            <div
-                              key={opt.id}
-                              className="p-4 rounded-xl border shadow-sm space-y-3 relative transition hover:border-[var(--primary)]"
-                              style={{
-                                borderColor: 'var(--border-subtle)',
-                                background: 'var(--surface-1)'
-                              }}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                                  Opção #{oIdx + 1}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="p-1 text-red-500 hover:text-red-700 hover:bg-red-500/10 rounded transition"
-                                  onClick={() => removeStageOption(opt.id)}
-                                  title="Excluir opção"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                  <label className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
-                                    Se o cliente responder com: (Ex: 1, sim)
-                                  </label>
-                                  <Input
-                                    placeholder="Ex: 1, sim (separar por vírgula)"
-                                    value={opt.tokensText}
-                                    onChange={(e) => updateStageOption(opt.id, { tokensText: e.target.value })}
-                                    className="h-9"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
-                                    Efeito CRM
-                                  </label>
-                                  <select
-                                    className="w-full rounded-lg border px-3 py-2 text-xs h-9"
-                                    style={{
-                                      borderColor: 'var(--border)',
-                                      background: 'var(--surface-0)',
-                                      color: 'var(--text-1)'
-                                    }}
-                                    value={opt.marketingEffect}
-                                    onChange={(e) =>
-                                      updateStageOption(opt.id, {
-                                        marketingEffect: e.target.value as any
-                                      })
-                                    }
-                                  >
-                                    <option value="none">Nenhum efeito extra</option>
-                                    <option value="opt_in">Autorizou marketing (lead quente)</option>
-                                    <option value="opt_out">Lista negra (descadastrar)</option>
-                                  </select>
-                                </div>
-                              </div>
-
-                              <div>
-                                <label className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
-                                  Mensagem de resposta automática:
-                                </label>
-                                <Textarea
-                                  placeholder="Excelente! Você escolheu Sim. Aqui está o link..."
-                                  value={opt.reply}
-                                  onChange={(e) => updateStageOption(opt.id, { reply: e.target.value })}
-                                  style={{ minHeight: '65px' }}
-                                  className="py-1.5"
-                                />
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-
-                      {/* SE A RESPOSTA NÃO FOR VÁLIDA */}
-                      <div className="pt-4 border-t border-[var(--border-subtle)] space-y-3">
-                        <div>
-                          <h5 className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>Se o cliente responder qualquer outra coisa (Mensagem de erro):</h5>
-                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Mensagem automática enviada se a resposta não bater com nenhuma opção acima.</p>
-                        </div>
-
-                        <CampaignMessageVariableChips onInsert={insertInvalidReplyVariable} density="compact" />
-                        <Textarea
-                          ref={invalidReplyRef}
-                          placeholder="Opção inválida. Digite 1 para sim ou 2 para não."
-                          value={messageStages[0]?.invalidReplyBody || ''}
-                          onChange={(e) => {
-                            setMessageStages((prev) => prev.map((s, i) => (i === 0 ? { ...s, invalidReplyBody: e.target.value } : s)))
-                          }}
-                          style={{ minHeight: '80px' }}
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
+              ) : (
+                <CampaignReplyFlowEditor
+                  stages={messageStages}
+                  setStages={setMessageStages}
+                  msgRef={msgRef}
+                  invalidReplyRef={invalidReplyRef}
+                  attachment={campaignAttachment}
+                  attachmentInputRef={attachmentInputRef}
+                  onPickAttachment={onPickAttachment}
+                  onRemoveAttachment={removeAttachment}
+                  launchMode={launchMode}
+                  newStageOption={newMessageStageOption}
+                  newMessageStage={newMessageStage}
+                  onInsertInvalidVariable={insertInvalidReplyVariable}
+                />
               )}
 
-              <div className="flex flex-wrap items-center gap-2 mt-3">
+              <div className="cw-msg-footer">
                 <Button
                   type="button"
                   variant="secondary"
@@ -2504,127 +1925,39 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 >
                   Guardar como modelo
                 </Button>
-              </div>
 
-              <div
-                className="mt-4 rounded-xl p-3.5 space-y-2"
-                style={{
-                  background:
-                    messageRisk.level === 'high'
-                      ? 'rgba(239,68,68,0.08)'
-                      : messageRisk.level === 'medium'
-                      ? 'rgba(245,158,11,0.1)'
-                      : 'var(--surface-1)',
-                  border: `1px solid ${
-                    messageRisk.level === 'high' ? 'rgba(239,68,68,0.35)' : 'var(--border-subtle)'
-                  }`
-                }}
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                    Copiloto de risco (local)
-                  </span>
-                  <Badge
-                    variant={
-                      messageRisk.level === 'high' ? 'danger' : messageRisk.level === 'medium' ? 'warning' : 'success'
-                    }
-                  >
-                    {messageRisk.level === 'high' ? 'Alto' : messageRisk.level === 'medium' ? 'Médio' : 'Baixo'}
-                  </Badge>
-                  <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }}>
-                    score {messageRisk.score}/100
-                  </span>
-                </div>
-                <ul className="text-[11.5px] space-y-1 list-disc pl-4" style={{ color: 'var(--text-2)' }}>
-                  {messageRisk.hints.map((h) => (
-                    <li key={h}>{h}</li>
-                  ))}
-                </ul>
-                {messageRisk.level !== 'low' && (
-                  <p className="text-[11px] flex items-start gap-1.5" style={{ color: 'var(--text-3)' }}>
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500 mt-0.5" />
-                    Revise o texto antes de escalar volume. Esta análise não substitui políticas da Meta nem o aceite de risco do app.
-                  </p>
-                )}
-              </div>
-
-              {campaignFlowMode === 'reply' && messageStages[activeStageIdx] && (
-                <div
-                  className="mt-4 p-3.5 rounded-xl space-y-3"
-                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                >
-                  <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                    Depois da etapa {activeStageIdx + 1}
-                  </p>
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={messageStages[activeStageIdx].acceptAnyReply}
-                      onChange={(e) => patchActiveStage({ acceptAnyReply: e.target.checked })}
-                    />
-                    <span className="text-[12.5px] leading-snug" style={{ color: 'var(--text-1)' }}>
-                      {activeStageIdx < messageStages.length - 1
-                        ? `Qualquer resposta (texto nao vazio) avanca para a etapa ${activeStageIdx + 2}.`
-                        : 'Apos esta etapa enviada, a proxima resposta do contato encerra o fluxo (nao ha mais mensagens automaticas).'}
+                <div className="cw-risk-panel" data-level={messageRisk.level}>
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                      Copiloto de risco
                     </span>
-                  </label>
-                  {!messageStages[activeStageIdx].acceptAnyReply && (
-                    <div className="space-y-2 pt-1">
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
-                          Respostas aceitas
-                        </label>
-                        <Input
-                          placeholder="Ex: 1, 2, sim, nao (virgula ou linha)"
-                          value={messageStages[activeStageIdx].validTokensText}
-                          onChange={(e) => patchActiveStage({ validTokensText: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
-                          Se nao for aceito, enviar
-                        </label>
-                        <CampaignMessageVariableChips onInsert={insertInvalidReplyVariable} density="compact" />
-                        <Textarea
-                          ref={invalidReplyRef}
-                          placeholder="Ex: Opcao invalida. Digite 1 para sim ou 2 para nao."
-                          value={messageStages[activeStageIdx].invalidReplyBody}
-                          onChange={(e) => patchActiveStage({ invalidReplyBody: e.target.value })}
-                          style={{ minHeight: '72px' }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                  <div className="pt-3 mt-2 border-t border-[var(--border-subtle)] space-y-1.5">
-                    <label className="text-[11px] font-semibold uppercase tracking-wider block" style={{ color: 'var(--text-3)' }}>
-                      Se a resposta for válida nesta etapa (CRM)
-                    </label>
-                    <select
-                      className="w-full rounded-lg border px-3 py-2 text-[12.5px]"
-                      style={{
-                        borderColor: 'var(--border)',
-                        background: 'var(--surface-0)',
-                        color: 'var(--text-1)'
-                      }}
-                      value={messageStages[activeStageIdx].marketingEffect}
-                      onChange={(e) =>
-                        patchActiveStage({
-                          marketingEffect: e.target.value as 'none' | 'opt_in' | 'opt_out'
-                        })
+                    <Badge
+                      variant={
+                        messageRisk.level === 'high' ? 'danger' : messageRisk.level === 'medium' ? 'warning' : 'success'
                       }
                     >
-                      <option value="none">Nenhum efeito extra</option>
-                      <option value="opt_in">Autorizou marketing (lead quente) — grava o texto da resposta</option>
-                      <option value="opt_out">Lista negra — não autorizou disparos (grava o texto da resposta)</option>
-                    </select>
-                    <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                      Combina com “Respostas aceitas” quando você usa opções numeradas (ex.: 1 = sim, 2 = não).
-                    </p>
+                      {messageRisk.level === 'high' ? 'Alto' : messageRisk.level === 'medium' ? 'Médio' : 'Baixo'}
+                    </Badge>
+                    <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                      {messageRisk.score}/100
+                    </span>
                   </div>
+                  {messageRisk.hints.length > 0 && (
+                    <ul className="text-[11px] space-y-0.5 list-disc pl-4 mb-1" style={{ color: 'var(--text-2)' }}>
+                      {messageRisk.hints.map((h) => (
+                        <li key={h}>{h}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {messageRisk.level !== 'low' && (
+                    <p className="text-[10.5px] flex items-start gap-1.5" style={{ color: 'var(--text-3)' }}>
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500 mt-0.5" />
+                      Revise o texto antes de escalar volume.
+                    </p>
+                  )}
                 </div>
-              )}
+              </div>
             </Card>
           )}
 
@@ -3322,7 +2655,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <p className="text-[12px] font-semibold" style={{ color: '#e9edef' }}>Contato</p>
                   <div className="flex items-center gap-1">
                     <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#10b981' }} />
-                    <p className="text-[10px]" style={{ color: '#10b981' }}>online</p>
+                    <p className="text-[10px]" style={{ color: '#8696a0' }}>prévia</p>
                   </div>
                 </div>
               </div>

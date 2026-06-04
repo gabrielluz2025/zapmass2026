@@ -5,6 +5,7 @@
 @import './styles/wa-web-v2.css';
 @import './styles/aurora-shell.css';
 @import './styles/dashboard-premium.css';
+@import './styles/campaign-wizard-message.css';
 
 @tailwind base;
 @tailwind components;
