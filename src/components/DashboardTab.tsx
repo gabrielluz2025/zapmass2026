@@ -163,16 +163,25 @@ const DashboardStat: React.FC<{
   gradient: [string, string];
   helper?: React.ReactNode;
   progress?: number;
-}> = ({ label, value, icon, gradient, helper, progress }) => {
+  onClick?: () => void;
+}> = ({ label, value, icon, gradient, helper, progress, onClick }) => {
   const r = 34;
   const circ = 2 * Math.PI * r;
   const pct = Math.max(2, Math.min(100, progress ?? 0));
   const offset = circ - (pct / 100) * circ;
   const uid = label.replace(/\s/g, '');
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div
-      className="relative flex flex-col items-center p-5 rounded-2xl group transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl animate-fade-in-up"
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={`zm-stat-card relative flex flex-col items-center p-5 rounded-2xl group w-full text-left border-0 ${
+        onClick
+          ? 'zm-stat-card--clickable cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
+          : ''
+      }`}
       style={{
+        ['--zm-stat-accent' as string]: gradient[0],
         background: `linear-gradient(145deg, color-mix(in srgb, ${gradient[0]} 7%, var(--surface-1)) 0%, var(--surface-0) 100%)`,
         border: `1px solid color-mix(in srgb, ${gradient[0]} 24%, var(--border))`,
         boxShadow: `0 6px 30px -14px ${gradient[0]}44`
@@ -185,7 +194,7 @@ const DashboardStat: React.FC<{
         aria-hidden
       />
       {/* Ring gauge */}
-      <div className="relative w-[88px] h-[88px] mb-3">
+      <div className="zm-stat-ring relative w-[88px] h-[88px] mb-3">
         <svg className="w-full h-full" viewBox="0 0 80 80" style={{ transform: 'rotate(-90deg)' }}>
           <defs>
             <linearGradient id={`sg-${uid}`} x1="0%" y1="0%" x2="100%" y2="0%">
@@ -221,7 +230,7 @@ const DashboardStat: React.FC<{
           {helper}
         </p>
       )}
-    </div>
+    </Tag>
   );
 };
 
@@ -239,8 +248,9 @@ const QuickAction: React.FC<{
     type="button"
     onClick={onClick}
     title={hint}
-    className="group relative flex flex-col items-center gap-2.5 px-4 py-4 rounded-2xl transition-all duration-200 hover:-translate-y-1.5 hover:shadow-2xl focus:outline-none focus-visible:ring-2 animate-fade-in-up"
+    className="zm-quick-tile group relative flex flex-col items-center gap-2.5 px-4 py-4 rounded-2xl focus:outline-none focus-visible:ring-2 w-full"
     style={{
+      ['--zm-tile-accent' as string]: gradient[0],
       background: 'var(--surface-0)',
       border: `1px solid color-mix(in srgb, ${gradient[0]} 22%, var(--border))`,
     }}
@@ -825,17 +835,24 @@ export const DashboardTab: React.FC = () => {
   const hour = now.getHours();
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
 
+  const funnelSectionRef = useRef<HTMLDivElement>(null);
+  const scrollToFunnel = () => {
+    funnelSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
-    <div className="space-y-5 pb-10">
+    <div className="zm-dashboard space-y-5 pb-10">
       {/* ========== HERO: Mission Control ========== */}
       <div
-        className="relative overflow-hidden rounded-[28px] animate-fade-in-up"
+        className="zm-dash-section zm-hero-mission relative overflow-hidden rounded-[28px]"
         style={{
           background: 'linear-gradient(145deg, #060e1a 0%, #0b1829 50%, #071220 100%)',
           border: '1px solid rgba(16,185,129,0.22)',
           boxShadow: '0 30px 90px -30px rgba(16,185,129,0.25), 0 0 0 1px rgba(16,185,129,0.08)'
         }}
       >
+        <div className="zm-hero-orb zm-hero-orb--green" aria-hidden />
+        <div className="zm-hero-orb zm-hero-orb--blue" aria-hidden />
         {/* Grid de linhas finas — textura de terminal */}
         <div
           className="absolute inset-0 pointer-events-none opacity-[0.04]"
@@ -942,15 +959,34 @@ export const DashboardTab: React.FC = () => {
                 { label:'Entregues', val:`${deliveryRate}%`, color:'#3b82f6', icon:<CheckCheck className="w-3.5 h-3.5" /> },
                 { label:'Lidas', val:`${readRate}%`, color:'#8b5cf6', icon:<CheckCheck className="w-3.5 h-3.5" /> },
                 { label:'Respostas', val: metrics.totalReplied.toLocaleString('pt-BR'), color:'#f59e0b', icon:<Reply className="w-3.5 h-3.5" /> },
-              ].map(k => (
-                <div key={k.label} className="rounded-xl px-3 py-3 flex flex-col gap-1 transition-all duration-200 hover:scale-[1.03]"
-                  style={{ background:`${k.color}12`, border:`1px solid ${k.color}28` }}>
+              ].map((k) => (
+                <button
+                  key={k.label}
+                  type="button"
+                  className="zm-hero-kpi rounded-xl px-3 py-3 flex flex-col gap-1 text-left"
+                  style={{ background: `${k.color}12`, border: `1px solid ${k.color}28` }}
+                  onClick={() =>
+                    k.label === 'Enviadas' ? setCurrentView('campaigns') : scrollToFunnel()
+                  }
+                  title={
+                    k.label === 'Enviadas'
+                      ? 'Abrir campanhas'
+                      : 'Ver funil de desempenho'
+                  }
+                >
                   <div className="flex items-center gap-1.5" style={{ color: k.color }}>
                     {k.icon}
-                    <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.4)' }}>{k.label}</span>
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-widest"
+                      style={{ color: 'rgba(255,255,255,0.4)' }}
+                    >
+                      {k.label}
+                    </span>
                   </div>
-                  <span className="text-[22px] font-black leading-none tabular-nums" style={{ color:'#fff' }}>{k.val}</span>
-                </div>
+                  <span className="text-[22px] font-black leading-none tabular-nums" style={{ color: '#fff' }}>
+                    {k.val}
+                  </span>
+                </button>
               ))}
             </div>
           </div>
@@ -984,13 +1020,15 @@ export const DashboardTab: React.FC = () => {
         </div>
       </div>
 
-      <SegmentExperiencePanel />
+      <div className="zm-dash-section">
+        <SegmentExperiencePanel />
+      </div>
 
       {/* Convites de equipa — visível desde o Painel */}
       <button
         type="button"
         onClick={() => setCurrentView('team')}
-        className="group w-full text-left rounded-2xl border px-4 py-4 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+        className="zm-dash-section group w-full text-left rounded-2xl border px-4 py-4 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
         style={{
           borderColor: 'rgba(16,185,129,0.35)',
           background:
@@ -1025,7 +1063,7 @@ export const DashboardTab: React.FC = () => {
       </button>
 
       {/* ========== QUICK ACTIONS: atalhos grandes coloridos ========== */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="zm-dash-section grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <QuickAction
           label="Campanhas"
           hint="Crie e acompanhe disparos em massa"
@@ -1057,7 +1095,7 @@ export const DashboardTab: React.FC = () => {
       </div>
 
       {/* STAT CARDS - com glow, progress e animação */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="zm-dash-section grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <DashboardStat
           label="Enviadas"
           value={animSent.toLocaleString('pt-BR')}
@@ -1065,6 +1103,7 @@ export const DashboardTab: React.FC = () => {
           gradient={['#10b981', '#059669']}
           helper={metrics.totalSent > 0 ? `${campaigns.length} campanha${campaigns.length > 1 ? 's' : ''} registrada${campaigns.length > 1 ? 's' : ''}` : 'Aguardando a primeira campanha'}
           progress={metrics.totalSent > 0 ? 100 : 0}
+          onClick={() => setCurrentView('campaigns')}
         />
         <DashboardStat
           label="Entregues"
@@ -1073,6 +1112,7 @@ export const DashboardTab: React.FC = () => {
           gradient={['#3b82f6', '#1d4ed8']}
           helper={metrics.totalSent > 0 ? `${deliveryRate}% dos envios chegaram` : 'Ainda sem envios'}
           progress={deliveryRate}
+          onClick={scrollToFunnel}
         />
         <DashboardStat
           label="Lidas"
@@ -1081,6 +1121,7 @@ export const DashboardTab: React.FC = () => {
           gradient={['#8b5cf6', '#6d28d9']}
           helper={metrics.totalSent > 0 ? `${readRate}% taxa de leitura` : 'Aguardando leituras'}
           progress={readRate}
+          onClick={scrollToFunnel}
         />
         <DashboardStat
           label="Respostas"
@@ -1089,9 +1130,11 @@ export const DashboardTab: React.FC = () => {
           gradient={['#f59e0b', '#d97706']}
           helper={metrics.totalSent > 0 ? `${replyRate}% engajamento` : 'Aguardando engajamento'}
           progress={replyRate}
+          onClick={scrollToFunnel}
         />
       </div>
 
+      <div className="zm-dash-section">
       <DashboardIntelPanel
         campaigns={campaigns}
         contacts={contacts}
@@ -1107,9 +1150,10 @@ export const DashboardTab: React.FC = () => {
         onOpenContacts={() => setCurrentView('contacts')}
         onNavigateToChat={(phone, name) => openChatNavigate(setCurrentView, phone, name)}
       />
+      </div>
 
       {campaignGeo && Object.keys(campaignGeo.byUf || {}).length > 0 && (
-        <Card>
+        <Card className="zm-dash-section">
           <div className="flex items-center gap-2.5 mb-4">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center brand-soft">
               <span className="text-base">🗺️</span>
@@ -1130,8 +1174,11 @@ export const DashboardTab: React.FC = () => {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
-        <Card className="lg:col-span-2">
+      <div
+        ref={funnelSectionRef}
+        className="zm-dash-section grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 scroll-mt-6"
+      >
+        <Card className="zm-funnel-panel lg:col-span-2">
           <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center brand-soft">

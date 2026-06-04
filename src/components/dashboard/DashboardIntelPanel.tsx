@@ -185,17 +185,25 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 px-0.5">
-        <Radar className="w-5 h-5 shrink-0" style={{ color: 'var(--brand-600)' }} />
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(59,130,246,0.15))',
+            border: '1px solid rgba(16,185,129,0.35)'
+          }}
+        >
+          <Radar className="w-5 h-5 shrink-0" style={{ color: 'var(--brand-500)' }} />
+        </div>
         <h2 className="ui-title text-[16px]" style={{ color: 'var(--text-1)' }}>
           Inteligência do painel
         </h2>
         <span className="text-[11px] w-full sm:w-auto" style={{ color: 'var(--text-3)' }}>
-          Radar, chips, CRM, tendência e metas (armazenadas neste navegador)
+          Radar, chips, CRM, tendência e metas — passe o mouse nos gráficos
         </span>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4">
-        <Card className="xl:col-span-4 p-4">
+        <Card className="zm-intel-card xl:col-span-4 p-4">
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="w-4 h-4" style={{ color: '#3b82f6' }} />
             <h3 className="ui-title text-[14px]">Radar de campanhas</h3>
@@ -265,7 +273,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </Button>
         </Card>
 
-        <Card className="xl:col-span-4 p-4">
+        <Card className="zm-intel-card xl:col-span-4 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Signal className="w-4 h-4" style={{ color: '#10b981' }} />
             <h3 className="ui-title text-[14px]">Saúde dos chips</h3>
@@ -335,7 +343,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </Button>
         </Card>
 
-        <Card className="xl:col-span-4 p-4 flex flex-col">
+        <Card className="zm-intel-card xl:col-span-4 p-4 flex flex-col">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4" style={{ color: '#8b5cf6' }} />
             <h3 className="ui-title text-[14px]">Envios últimos 7 dias</h3>
@@ -343,14 +351,15 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           <p className="text-[10px] mb-2" style={{ color: 'var(--text-3)' }}>
             Contados quando está aberto (incrementos do funil registados aqui neste navegador).
           </p>
-          <div className="h-28 flex items-end gap-1 flex-1">
-            {series7.map((s) => (
+          <div className="zm-intel-bars h-28 flex items-end gap-1 flex-1">
+            {series7.map((s, barIdx) => (
               <div key={s.date} className="flex-1 flex flex-col justify-end gap-1 min-w-0">
                 <div
-                  className="w-full rounded-t-md min-h-[6px]"
+                  className="zm-intel-bar w-full rounded-t-md min-h-[6px]"
                   style={{
                     height: `${Math.max(8, Math.round((s.count / maxBar) * 92))}%`,
-                    background: 'linear-gradient(180deg, #8b5cf6, rgba(139,92,246,0.35))'
+                    background: 'linear-gradient(180deg, #8b5cf6, rgba(139,92,246,0.35))',
+                    animationDelay: `${barIdx * 55}ms`
                   }}
                   title={`${s.date}: ${s.count}`}
                 />
@@ -393,7 +402,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </div>
         </Card>
 
-        <Card className="xl:col-span-6 p-4">
+        <Card className="zm-intel-card xl:col-span-6 p-4">
           <div className="flex items-center gap-2 mb-3">
             <HeartCrack className="w-4 h-4 text-rose-400" />
             <h3 className="ui-title text-[14px]">Precisam de atenção</h3>
@@ -452,7 +461,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </Button>
         </Card>
 
-        <Card className="xl:col-span-3 p-4">
+        <Card className="zm-intel-card xl:col-span-3 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Layers className="w-4 h-4" style={{ color: '#06b6d4' }} />
             <h3 className="ui-title text-[14px]">Qualidade da base</h3>
@@ -486,7 +495,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </ul>
         </Card>
 
-        <Card className="xl:col-span-3 p-4">
+        <Card className="zm-intel-card xl:col-span-3 p-4">
           <div className="flex items-center gap-2 mb-3">
             <UserRound className="w-4 h-4" style={{ color: '#94a3b8' }} />
             <h3 className="ui-title text-[14px]">Actividade recente</h3>

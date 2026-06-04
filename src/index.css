@@ -4,6 +4,7 @@
 @import './styles/wa-web.css';
 @import './styles/wa-web-v2.css';
 @import './styles/aurora-shell.css';
+@import './styles/dashboard-premium.css';
 
 @tailwind base;
 @tailwind components;
