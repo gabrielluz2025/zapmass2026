@@ -471,6 +471,87 @@
   color: #fff;
 }
 
+.cw-greeting-help {
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.cw-greeting-help-title {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  margin: 0 0 0.25rem;
+}
+
+.cw-greeting-help-steps {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.625rem;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.cw-greeting-help-steps strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.cw-greeting-kit-tab[aria-pressed='true'] {
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35);
+}
+
+.cw-greeting-active-panel {
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+}
+
+.cw-greeting-preview-chip {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.95;
+}
+
+.cw-greeting-insert-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  background: var(--brand-500);
+  color: #fff;
+}
+
+.cw-greeting-insert-btn:hover {
+  filter: brightness(1.06);
+}
+
+.cw-greeting-insert-preview {
+  margin: 0.4rem 0 0;
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+
+.cw-greeting-insert-preview code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.625rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: var(--surface-0);
+  color: var(--text-1);
+}
+
 .campaign-message-variable-chips .cw-vars-group-label {
   font-size: 0.625rem;
   font-weight: 600;

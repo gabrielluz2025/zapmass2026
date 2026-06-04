@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Check, FolderPlus, Plus, Trash2, X } from 'lucide-react';
+import { Check, FolderPlus, MousePointerClick, Plus, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { buildCampaignSpintax } from '../../../shared/campaignSpintax';
 import {
@@ -80,12 +80,24 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
     toast.success('Conjunto removido.');
   };
 
-  const insertPhrase = () => {
-    if (!activeKit) return;
-    const token = buildCampaignSpintax(activeKit.items);
+  const selectKit = (kitId: string) => {
+    setActiveKitId(kitId);
+  };
+
+  const insertToken = (items: string[]) => {
+    const token = buildCampaignSpintax(items);
     if (!token) return;
     onInsert(token.endsWith(' ') ? token : `${token} `);
+    toast.success('Inserido no texto da mensagem.');
   };
+
+  const kitButtonLabel = (kit: CampaignGreetingKit): string => {
+    const sameName = kits.filter((k) => k.name === kit.name).length;
+    if (sameName > 1) return `${kit.name} (${kit.items.length})`;
+    return kit.name;
+  };
+
+  const insertPreview = activeKit ? buildCampaignSpintax(activeKit.items) : null;
 
   return (
     <div className="cw-greeting-picker campaign-message-variable-chips">
@@ -162,74 +174,100 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
         </div>
       ) : (
         <>
-          {kits.length > 1 && (
-            <>
-              <p className="cw-vars-group-label">Conjunto</p>
-              <div className="flex flex-wrap gap-1 mb-1">
-                {kits.map((kit) => {
-                  const active = kit.id === (activeKit?.id ?? '');
-                  return (
-                    <span key={kit.id} className="inline-flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        className={`cw-vars-chip ${active ? 'cw-vars-chip--greeting' : 'cw-vars-chip--ficha'}`}
-                        onClick={() => setActiveKitId(kit.id)}
-                        title={`Conjunto ${kit.name}`}
-                      >
-                        {kit.name}
-                      </button>
-                      <button
-                        type="button"
-                        className="cw-greeting-remove"
-                        aria-label={`Excluir conjunto ${kit.name}`}
-                        onClick={(e) => deleteKit(kit.id, e)}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </span>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          <div className="cw-greeting-help">
+            <p className="cw-greeting-help-title">Como usar</p>
+            <ol className="cw-greeting-help-steps">
+              <li>Escolha o <strong>conjunto</strong> abaixo (cada um tem suas frases).</li>
+              <li>Clique em <strong>Inserir no texto</strong> — o trecho vai para a caixa da mensagem.</li>
+              <li>
+                No disparo, <strong>cada contato recebe só uma</strong> saudação (rodízio), para o WhatsApp não
+                tratar como spam.
+              </li>
+            </ol>
+          </div>
 
-          {activeKit && activeKit.items.length > 0 && (
-            <>
-              <p className="cw-vars-group-label">
-                {activeKit.items.length > 1
-                  ? 'Rodízio — cada contato recebe uma saudação'
-                  : 'Clique para inserir'}
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {activeKit.items.length > 1 ? (
+          <p className="cw-vars-group-label">1 — Escolha o conjunto</p>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {kits.map((kit) => {
+              const active = kit.id === activeKitId;
+              return (
+                <span key={kit.id} className="inline-flex items-center gap-0.5">
                   <button
                     type="button"
-                    className="cw-vars-chip cw-vars-chip--greeting"
-                    onClick={insertPhrase}
-                    title={`Inserir rodízio: ${activeKit.items.join(' / ')}`}
+                    className={`cw-vars-chip cw-greeting-kit-tab ${active ? 'cw-vars-chip--greeting' : 'cw-vars-chip--ficha'}`}
+                    aria-pressed={active}
+                    onClick={() => selectKit(kit.id)}
                   >
-                    {activeKit.items.join(' · ')}
+                    {kitButtonLabel(kit)}
                   </button>
-                ) : (
-                  activeKit.items.map((g) => (
+                  {kits.length > 1 && (
                     <button
-                      key={`${activeKit.id}-${g}`}
                       type="button"
-                      className="cw-vars-chip cw-vars-chip--greeting"
-                      onClick={insertPhrase}
-                      title={`Inserir "${g}" no texto`}
+                      className="cw-greeting-remove"
+                      aria-label={`Excluir conjunto ${kit.name}`}
+                      onClick={(e) => deleteKit(kit.id, e)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+
+          {activeKit && activeKit.items.length > 0 ? (
+            <div className="cw-greeting-active-panel" key={activeKit.id}>
+              <p className="cw-vars-group-label">
+                2 — Saudações do conjunto &quot;{activeKit.name}&quot;
+              </p>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {activeKit.items.map((g) => (
+                  <span
+                    key={`${activeKit.id}-preview-${g}`}
+                    className="cw-vars-chip cw-greeting-preview-chip"
+                    title="Frase deste conjunto"
+                  >
+                    {g}
+                  </span>
+                ))}
+              </div>
+
+              <p className="cw-vars-group-label">3 — Inserir na mensagem</p>
+              <button
+                type="button"
+                className="cw-greeting-insert-btn"
+                onClick={() => insertToken(activeKit.items)}
+              >
+                <MousePointerClick className="w-3.5 h-3.5 shrink-0" />
+                Inserir no texto
+              </button>
+              {insertPreview && activeKit.items.length > 1 && (
+                <p className="cw-greeting-insert-preview">
+                  No texto aparecerá: <code>{insertPreview}</code> — cada pessoa recebe uma opção.
+                </p>
+              )}
+              {activeKit.items.length > 1 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  <span className="text-[10px] w-full mb-0.5" style={{ color: 'var(--text-3)' }}>
+                    Ou insira só uma frase fixa:
+                  </span>
+                  {activeKit.items.map((g) => (
+                    <button
+                      key={`${activeKit.id}-one-${g}`}
+                      type="button"
+                      className="cw-vars-chip cw-vars-chip--ficha"
+                      onClick={() => insertToken([g])}
                     >
                       {g}
                     </button>
-                  ))
-                )}
-              </div>
-              {activeKit.items.length > 1 && (
-                <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
-                  No envio: uma opção por pessoa ({'{'}Olá|Oi|…{'}'}).
-                </p>
+                  ))}
+                </div>
               )}
-            </>
+            </div>
+          ) : (
+            <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+              Este conjunto não tem frases. Use <strong>Criar conjunto</strong> para adicionar.
+            </p>
           )}
         </>
       )}
