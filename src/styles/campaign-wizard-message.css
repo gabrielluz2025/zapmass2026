@@ -401,6 +401,132 @@
   margin-bottom: 0.35rem;
 }
 
+.cw-greeting-kit-create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.cw-greeting-kit-create-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.cw-greeting-builder {
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px dashed rgba(99, 102, 241, 0.35);
+  background: var(--surface-1);
+}
+
+.cw-greeting-add-phrase-btn,
+.cw-greeting-builder-cancel,
+.cw-greeting-builder-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+}
+
+.cw-greeting-add-phrase-btn {
+  background: var(--surface-0);
+  color: var(--text-1);
+  flex-shrink: 0;
+}
+
+.cw-greeting-builder-cancel {
+  background: var(--surface-0);
+  color: var(--text-2);
+}
+
+.cw-greeting-builder-confirm {
+  background: var(--brand-500);
+  border-color: transparent;
+  color: #fff;
+}
+
+.cw-greeting-kit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.cw-greeting-kit-card {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  border-radius: 0.65rem;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--surface-0);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.cw-greeting-kit-card[data-active='true'] {
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.15);
+}
+
+.cw-greeting-kit-card-main {
+  flex: 1;
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.cw-greeting-kit-name {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.cw-greeting-kit-meta {
+  display: block;
+  font-size: 0.625rem;
+  color: var(--text-3);
+  margin-top: 0.1rem;
+}
+
+.cw-greeting-kit-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.cw-greeting-kit-delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.cw-greeting-kit-phrases {
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+}
+
 .campaign-message-variable-chips .cw-vars-group-label {
   font-size: 0.625rem;
   font-weight: 600;
