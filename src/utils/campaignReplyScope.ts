@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../types';
 import {
   CAMPAIGN_SENT_LOG_MESSAGE,
+  campaignLogPayloadMatchesCampaign,
   type CampaignLogPayloadLike,
   logPayloadPhoneKey
 } from './campaignReportFromLogs';
@@ -51,7 +52,7 @@ export function hasCampaignSendLogForPhone(
   for (const log of logs) {
     if (!log.payload || typeof log.payload !== 'object') continue;
     const p = log.payload as CampaignLogPayloadLike;
-    if (p.campaignId !== cid) continue;
+    if (!campaignLogPayloadMatchesCampaign(p, cid)) continue;
     if (String(p.message || '') !== CAMPAIGN_SENT_LOG_MESSAGE) continue;
     if (logPayloadPhoneKey(p) !== rk) continue;
     return true;

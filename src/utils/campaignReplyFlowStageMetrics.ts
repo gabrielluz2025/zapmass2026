@@ -23,17 +23,6 @@ export type ReplyFlowStageFunnel = {
   replyPct: number;
 };
 
-type ReportRowLike = { phone: string; status: string };
-
-const STATUS_RANK: Record<string, number> = {
-  REPLIED: 5,
-  READ: 4,
-  DELIVERED: 3,
-  SENT: 2,
-  PENDING: 1,
-  FAILED: 0
-};
-
 const REPLY_MESSAGES = new Set([
   CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE
@@ -49,32 +38,20 @@ function sentStepFromLog(p: CampaignLogPayloadLike): number | null {
   return null;
 }
 
-function statusAtLeast(status: string, min: string): boolean {
-  return (STATUS_RANK[status] ?? -1) >= (STATUS_RANK[min] ?? 99);
-}
-
-/** Contatos que receberam envio nesta etapa + métricas (resposta ⇒ entregue e lida). */
+/** Métricas da etapa só pelos logs (resposta ⇒ entregue + lida). */
 function metricsForStagePhones(
   phones: Set<string>,
-  reportByPhone: Map<string, string>,
   repliedPhones: Set<string>
 ): { sent: number; delivered: number; read: number; replied: number } {
-  let delivered = 0;
-  let read = 0;
+  const sent = phones.size;
   let replied = 0;
   for (const phone of phones) {
-    const st = reportByPhone.get(phone) || 'SENT';
-    const hasReply = repliedPhones.has(phone) || st === 'REPLIED';
-    if (hasReply) {
-      replied++;
-      delivered++;
-      read++;
-      continue;
-    }
-    if (statusAtLeast(st, 'DELIVERED')) delivered++;
-    if (statusAtLeast(st, 'READ')) read++;
+    if (repliedPhones.has(phone)) replied++;
   }
-  return clampCampaignFunnelMetrics(phones.size, delivered, read, replied);
+  if (replied > 0) {
+    return clampCampaignFunnelMetrics(sent, sent, sent, replied);
+  }
+  return clampCampaignFunnelMetrics(sent, 0, 0, 0);
 }
 
 /**
@@ -84,8 +61,7 @@ function metricsForStagePhones(
 export function buildReplyFlowStageFunnels(
   campaignId: string,
   campaign: Pick<Campaign, 'replyFlow' | 'totalContacts'>,
-  logs: Array<{ timestamp: string; payload?: unknown }>,
-  reportRows: ReportRowLike[]
+  logs: Array<{ timestamp: string; payload?: unknown }>
 ): ReplyFlowStageFunnel[] {
   const steps = campaign.replyFlow?.enabled ? campaign.replyFlow.steps || [] : [];
   if (steps.length === 0) return [];
@@ -145,20 +121,10 @@ export function buildReplyFlowStageFunnels(
     if (stageIdx >= 0) repliedByStage[stageIdx].add(phone);
   }
 
-  const reportByPhone = new Map<string, string>();
-  for (const row of reportRows) {
-    const rk = recipientKeyForCampaignReport(row.phone);
-    if (!rk) continue;
-    const prev = reportByPhone.get(rk);
-    if (!prev || (STATUS_RANK[row.status] ?? -1) > (STATUS_RANK[prev] ?? -1)) {
-      reportByPhone.set(rk, row.status);
-    }
-  }
-
   return steps.map((step: CampaignReplyFlowStep, idx: number) => {
     const stageNumber = idx + 1;
     const phonesForStage = new Set<string>(sentByStage[idx]);
-    const clamped = metricsForStagePhones(phonesForStage, reportByPhone, repliedByStage[idx]);
+    const clamped = metricsForStagePhones(phonesForStage, repliedByStage[idx]);
 
     const bodyPreview = String(step.body || '').trim();
     const label =

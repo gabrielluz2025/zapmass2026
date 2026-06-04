@@ -36,9 +36,7 @@ describe('buildReplyFlowStageFunnels', () => {
         }
       }
     ];
-    const stages = buildReplyFlowStageFunnels('c1', campaign, logs, [
-      { phone: '5511991227881', status: 'SENT' }
-    ]);
+    const stages = buildReplyFlowStageFunnels('c1', campaign, logs);
     expect(stages[0].sent).toBe(1);
     expect(stages[0].replied).toBe(1);
     expect(stages[0].delivered).toBe(1);
@@ -67,9 +65,7 @@ describe('buildReplyFlowStageFunnels', () => {
         }
       }
     ];
-    const stages = buildReplyFlowStageFunnels('c1', campaign, logs, [
-      { phone: '5511991227881', status: 'SENT' }
-    ]);
+    const stages = buildReplyFlowStageFunnels('c1', campaign, logs);
     expect(stages[0].replied).toBe(1);
     expect(stages[0].delivered).toBe(1);
     expect(stages[0].read).toBe(1);
@@ -95,7 +91,7 @@ describe('buildReplyFlowStageFunnels', () => {
         payload: { campaignId: 'c1', message: CAMPAIGN_REPLY_LOG_MESSAGE, to: phone, replyPreview: 'ok' }
       }
     ];
-    const stages = buildReplyFlowStageFunnels('c1', campaign, logs, [{ phone, status: 'SENT' }]);
+    const stages = buildReplyFlowStageFunnels('c1', campaign, logs);
     expect(stages[0].sent).toBe(1);
     expect(stages[0].replied).toBe(1);
     expect(stages[0].replyPct).toBe(100);
@@ -134,7 +130,7 @@ describe('buildReplyFlowStageFunnels', () => {
         }
       }
     ];
-    const stages = buildReplyFlowStageFunnels('c1', campaign, logs, []);
+    const stages = buildReplyFlowStageFunnels('c1', campaign, logs);
     expect(stages[0].sent).toBe(1);
     expect(stages[0].replied).toBe(1);
     expect(stages[0].delivered).toBe(1);

@@ -61,15 +61,10 @@ import {
 } from '../../utils/campaignReportFromLogs';
 import { pickBetterCampaignReportRow } from '../../utils/campaignReportDedupe';
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
+import { buildPrimaryReportRowsFromLogs } from '../../utils/campaignReportBuilder';
 import { enrichCampaignReportRow } from '../../utils/campaignReportRowEnrichment';
 import { firstReplyAfterCampaignSend, hasCampaignSendLogForPhone } from '../../utils/campaignReplyScope';
-import {
-  campaignCreatedAtMs,
-  collectPlannedRecipientPhones,
-  collectSentPhonesFromCampaignLogs,
-  filterLogsForCampaignView,
-  isPhoneInCampaignReportScope
-} from '../../utils/campaignReportScope';
+import { campaignCreatedAtMs, filterLogsForCampaignView } from '../../utils/campaignReportScope';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
 import {
@@ -510,7 +505,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const cid = campaign.id;
     const belongsToCampaign = (l: SystemLog) => {
       if (!l.payload || typeof l.payload !== 'object') return false;
-      return campaignLogPayloadMatchesCampaign(l.payload as { campaignId?: string }, cid);
+      return String((l.payload as { campaignId?: string }).campaignId || '') === cid;
     };
     const dedupeKey = (l: SystemLog) => {
       const p = (l.payload || {}) as { to?: string; phoneDigits?: string; message?: string };
@@ -518,19 +513,30 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     };
     const seen = new Set<string>();
     const out: SystemLog[] = [];
+    const withCampaignPayload = (l: SystemLog): SystemLog => {
+      const p = (l.payload && typeof l.payload === 'object' ? l.payload : {}) as Record<string, unknown>;
+      return {
+        ...l,
+        payload: {
+          ...p,
+          campaignId: String(p.campaignId || cid),
+          message: String(p.message || '')
+        }
+      };
+    };
     for (const l of systemLogs) {
       if (!belongsToCampaign(l)) continue;
       const k = dedupeKey(l);
       if (seen.has(k)) continue;
       seen.add(k);
-      out.push(l);
+      out.push(withCampaignPayload(l));
     }
     for (const l of persistedLogs) {
       if (!belongsToCampaign(l)) continue;
       const k = dedupeKey(l);
       if (seen.has(k)) continue;
       seen.add(k);
-      out.push(l);
+      out.push(withCampaignPayload(l));
     }
     return out;
   }, [systemLogs, persistedLogs, campaign.id]);
@@ -636,287 +642,76 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       .reduce((acc, conn) => acc + Math.max(0, Number(conn.queueSize) || 0), 0);
   }, [campaign.selectedConnectionIds, connections]);
 
-  // Detailed report — escopo estrito: só destinatários desta campanha
+  // Detailed report — logs da campanha são a fonte principal (status + resposta)
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
     const scopedLogs = scopedCampaignLogs;
-    const sentPhones = collectSentPhonesFromCampaignLogs(scopedLogs, campaign.id);
-    const plannedPhones = collectPlannedRecipientPhones(campaign, contacts, contactLists);
-    const phoneInScope = (phone: string) =>
-      isPhoneInCampaignReportScope(phone, sentPhones, plannedPhones);
-
     const replyHints = buildReplyHintsFromLogs(scopedLogs, campaign.id);
-    const byPhone = new Map<string, ReportRow>();
 
-    scopedLogs.forEach((log, idx) => {
-      if (!log.payload || typeof log.payload !== 'object') return;
-      const p = log.payload as {
-        campaignId?: string;
-        to?: string;
-        phoneDigits?: string;
-        message?: string;
-        error?: string;
-        connectionId?: string;
-      };
-      if (!campaignLogPayloadMatchesCampaign(p, campaign.id)) return;
+    const primary = buildPrimaryReportRowsFromLogs(
+      scopedLogs,
+      campaign.id,
+      contacts,
+      campaign,
+      contactLists
+    );
 
-      const isError = log.event.includes('error') || log.event.includes('warn');
-      const isSent = p.message === CAMPAIGN_SENT_LOG_MESSAGE;
-      if (!isError && !isSent) return;
-
-      const phone = logPayloadPhoneKey(p);
-      if (!phone) return;
-      const existing = byPhone.get(phone);
-      const ts = new Date(log.timestamp).getTime();
-
-      if (existing && existing.status !== 'FAILED' && isError) return;
-
-      if (existing && isSent) {
-        byPhone.set(phone, {
-          ...existing,
-          sentTimestampMs: Math.min(existing.sentTimestampMs, ts),
-          connectionId: p.connectionId || existing.connectionId
-        });
-        return;
-      }
-
-      byPhone.set(phone, {
-        id: existing?.id || `${log.timestamp}-${idx}`,
-        phone,
-        contactName: '',
-        status: isError ? 'FAILED' : 'SENT',
-        sentTime: new Date(log.timestamp).toLocaleTimeString('pt-BR'),
-        sentTimestampMs: ts,
-        errorMessage: isError ? (p.error || p.message || 'Erro desconhecido') : undefined,
-        connectionId: p.connectionId
-      });
-    });
-
-    scopedLogs.forEach((log) => {
-      if (!log.payload || typeof log.payload !== 'object') return;
-      const p = log.payload as {
-        campaignId?: string;
-        to?: string;
-        phoneDigits?: string;
-        message?: string;
-        connectionId?: string;
-        replyPreview?: string;
-      };
-      if (!campaignLogPayloadMatchesCampaign(p, campaign.id)) return;
-      const isReplyLog =
-        p.message === CAMPAIGN_REPLY_LOG_MESSAGE ||
-        p.message === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE;
-      if (!isReplyLog) return;
-
-      const phone = logPayloadPhoneKey(p);
-      if (!phone) return;
-
-      const existing = byPhone.get(phone);
-      const ts = new Date(log.timestamp).getTime();
-      const preview = p.replyPreview;
-      const hint = {
-        phone,
-        replyTimestampMs: ts,
-        replyText: preview ? String(preview) : undefined,
-        connectionId: p.connectionId
-      };
-      if (existing) {
-        byPhone.set(phone, applyReplyHintsToReportRow(existing, hint));
-        return;
-      }
-      if (sentPhones.size === 0 || sentPhones.has(phone)) {
-        byPhone.set(phone, applyReplyHintsToReportRow(
-          {
-            id: `reply-log-${phone}`,
-            phone,
-            contactName: '',
-            status: 'SENT',
-            sentTime: '—',
-            sentTimestampMs: Math.max(0, ts - 1000),
-            connectionId: p.connectionId
-          } as ReportRow,
-          hint
-        ));
-      }
-    });
-
-    const rows: ReportRow[] = [];
-    byPhone.forEach((row) => {
-      const contactName = findContactName(row.phone, contacts);
-      const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
-
-      let status: ReportStatus = row.status;
-      let replyText: string | undefined;
-      let replyTime: string | undefined;
-      let replyTimestampMs: number | undefined;
-      let conversationId: string | undefined;
-      let connectionId: string | undefined = row.connectionId;
-      let sentMessage: string | undefined;
-      let profilePicUrl: string | undefined;
-      let sentTime = row.sentTime;
-      let sentTimestampMs = row.sentTimestampMs;
-
-      if (found) {
-        const { conv, msg, reply } = found;
-        conversationId = conv.id;
-        connectionId = conv.connectionId;
-        sentMessage = msg.text;
-        profilePicUrl = conv.profilePicUrl;
-        if (msg.timestampMs) {
-          sentTimestampMs = msg.timestampMs;
-          sentTime = new Date(msg.timestampMs).toLocaleTimeString('pt-BR');
-        }
-        if (reply) {
-          status = 'REPLIED';
-          replyText = reply.text;
-          replyTimestampMs = reply.timestampMs;
-          replyTime = reply.timestampMs
-            ? new Date(reply.timestampMs).toLocaleTimeString('pt-BR')
-            : reply.timestamp;
-        } else if (msg.status === 'read') {
-          status = 'READ';
-        } else if (msg.status === 'delivered') {
-          status = 'DELIVERED';
-        } else if (msg.status === 'sent' && row.status !== 'FAILED') {
-          status = 'SENT';
-        }
-      }
-
-      const rk = recipientKeyForCampaignReport(row.phone);
-      let merged = applyReplyHintsToReportRow(
-        {
-          ...row,
-          contactName: contactName || `+${row.phone}`,
-          status,
-          sentTime,
-          sentTimestampMs,
-          replyText,
-          replyTime,
-          replyTimestampMs,
-          conversationId,
-          connectionId,
-          sentMessage,
-          profilePicUrl
-        },
-        replyHints.get(rk)
+    if (primary.length === 0) {
+      const legacy = buildLegacyEstimateReportRows({ campaign, contacts, contactLists });
+      if (!legacy?.length) return [];
+      return dedupeCampaignReportRowsByRecipient(
+        legacy.map((r) => ({
+          id: r.id,
+          phone: r.phone,
+          contactName: r.contactName,
+          status: r.status,
+          sentTime: r.sentTime,
+          sentTimestampMs: r.sentTimestampMs,
+          errorMessage: r.errorMessage,
+          legacyEstimate: true
+        }))
       );
-      if (
-        hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk) ||
-        row.sentTime !== '—'
-      ) {
-        merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
-      }
-      if (!phoneInScope(row.phone)) return;
-      rows.push(merged);
-    });
+    }
 
-    const rowsFromLogs = rows.sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
-    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations)
-      .filter((row) => phoneInScope(row.phone))
-      .map((row) => {
-      const rk = recipientKeyForCampaignReport(row.phone);
-      let merged = applyReplyHintsToReportRow(row, replyHints.get(rk));
-      if (hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk) || row.sentTime !== '—') {
-        merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
-      }
-      return merged;
-    });
     const mergedByPhone = new Map<string, ReportRow>();
-    for (const row of rowsFromConversations)
-      mergedByPhone.set(recipientKeyForCampaignReport(row.phone), row);
-    for (const row of rowsFromLogs) {
-      const rk = recipientKeyForCampaignReport(row.phone);
+    for (const row of primary) {
+      mergedByPhone.set(recipientKeyForCampaignReport(row.phone), row as ReportRow);
+    }
+
+    for (const convRow of buildRowsFromConversations(campaign, contacts, conversations)) {
+      const rk = recipientKeyForCampaignReport(convRow.phone);
       const existing = mergedByPhone.get(rk);
       if (!existing) {
-        mergedByPhone.set(rk, row);
+        mergedByPhone.set(rk, applyReplyHintsToReportRow(convRow, replyHints.get(rk)));
         continue;
       }
-      if (row.status === 'FAILED' && existing.status !== 'FAILED') {
-        mergedByPhone.set(rk, { ...existing, ...row });
-        continue;
-      }
-      mergedByPhone.set(rk, pickBetterCampaignReportRow(existing, row));
+      mergedByPhone.set(rk, pickBetterCampaignReportRow(existing, convRow));
     }
-
-    for (const [rk, hint] of replyHints) {
-      if (!phoneInScope(rk)) continue;
-      const inbound = serverInboundReplies[rk];
-      const existing = mergedByPhone.get(rk);
-      const hasSend = hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk);
-      if (existing) {
-        let row = applyReplyHintsToReportRow(existing, hint);
-        if (hasSend || row.sentTime !== '—') {
-          row = applyServerInboundReplyToRow(row, inbound);
-        }
-        mergedByPhone.set(rk, row);
-        continue;
-      }
-      if (!hasSend) continue;
-      let row: ReportRow = {
-        id: `reply-hint-${rk}`,
-        phone: rk,
-        contactName: findContactName(rk, contacts) || `+${rk}`,
-        status: 'SENT',
-        sentTime: '—',
-        sentTimestampMs: Math.max(0, hint.replyTimestampMs - 1000),
-        connectionId: hint.connectionId
-      };
-      row = applyReplyHintsToReportRow(row, hint);
-      row = applyServerInboundReplyToRow(row, inbound);
-      mergedByPhone.set(rk, row);
-    }
-    for (const [rk, inbound] of Object.entries(serverInboundReplies)) {
-      if (!phoneInScope(rk)) continue;
-      if (!inbound?.replyText || mergedByPhone.has(rk)) continue;
-      if (!hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk)) continue;
-      let row: ReportRow = {
-        id: `reply-chat-${rk}`,
-        phone: rk,
-        contactName: findContactName(rk, contacts) || `+${rk}`,
-        status: 'SENT',
-        sentTime: '—',
-        sentTimestampMs: Math.max(0, inbound.replyTimestampMs - 1000)
-      };
-      row = applyServerInboundReplyToRow(row, inbound);
-      mergedByPhone.set(rk, row);
-    }
-
-    const mergedRaw = dedupeCampaignReportRowsByRecipient(
-      Array.from(mergedByPhone.values())
-        .filter((row) => phoneInScope(row.phone))
-        .sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
-    );
-    const merged = mergedRaw.map((row) =>
-      enrichCampaignReportRow(row, {
-        campaignId: campaign.id,
-        replyHint: replyHints.get(recipientKeyForCampaignReport(row.phone)),
-        scopedLogs,
-        conversations,
-        allowedConnectionIds: allowedConns
-      })
-    ) as ReportRow[];
-    if (merged.length > 0) return merged;
-
-    const legacy = buildLegacyEstimateReportRows({
-      campaign,
-      contacts,
-      contactLists
-    });
-    if (!legacy?.length) return merged;
 
     return dedupeCampaignReportRowsByRecipient(
-      legacy
-        .filter((r) => phoneInScope(r.phone))
-        .map((r) => ({
-        id: r.id,
-        phone: r.phone,
-        contactName: r.contactName,
-        status: r.status,
-        sentTime: r.sentTime,
-        sentTimestampMs: r.sentTimestampMs,
-        errorMessage: r.errorMessage,
-        legacyEstimate: true
-      }))
+      Array.from(mergedByPhone.values())
+        .map((row) => {
+          const rk = recipientKeyForCampaignReport(row.phone);
+          let out = enrichCampaignReportRow(row, {
+            campaignId: campaign.id,
+            replyHint: replyHints.get(rk),
+            scopedLogs,
+            conversations,
+            allowedConnectionIds: allowedConns
+          }) as ReportRow;
+          out = applyServerInboundReplyToRow(out, serverInboundReplies[rk]);
+          const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
+          if (found) {
+            out = {
+              ...out,
+              conversationId: found.conv.id,
+              profilePicUrl: found.conv.profilePicUrl,
+              sentMessage: found.msg.text || out.sentMessage
+            };
+          }
+          return out;
+        })
+        .sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
     );
   }, [
     scopedCampaignLogs,
@@ -1047,8 +842,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       timestamp: l.timestamp,
       payload: l.payload
     }));
-    return buildReplyFlowStageFunnels(campaign.id, campaign, stageLogs, detailedReport);
-  }, [campaign, scopedCampaignLogs, detailedReport]);
+    return buildReplyFlowStageFunnels(campaign.id, campaign, stageLogs);
+  }, [campaign, scopedCampaignLogs]);
 
   const useReplyFlowPrimaryFunnel = replyFlowStages.length > 0;
 
