@@ -46,6 +46,35 @@ describe('buildReplyFlowStageFunnels', () => {
     expect(stages[0].replyPct).toBe(100);
   });
 
+  it('conta resposta no fluxo sem currentStep (usa último envio da etapa)', () => {
+    const logs = [
+      {
+        timestamp: '2026-06-01T17:18:00Z',
+        payload: {
+          campaignId: 'c1',
+          message: CAMPAIGN_SENT_LOG_MESSAGE,
+          to: '5511991227881',
+          replyFlowStep: 1
+        }
+      },
+      {
+        timestamp: '2026-06-01T17:18:10Z',
+        payload: {
+          campaignId: 'c1',
+          message: CAMPAIGN_REPLY_LOG_MESSAGE,
+          to: '5511991227881',
+          replyPreview: 'sim'
+        }
+      }
+    ];
+    const stages = buildReplyFlowStageFunnels('c1', campaign, logs, [
+      { phone: '5511991227881', status: 'SENT' }
+    ]);
+    expect(stages[0].replied).toBe(1);
+    expect(stages[0].delivered).toBe(1);
+    expect(stages[0].read).toBe(1);
+  });
+
   it('não conta resposta de outra etapa sem envio correspondente', () => {
     const logs = [
       {

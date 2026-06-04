@@ -2,6 +2,7 @@ import type { Campaign, Contact, ContactList } from '../types';
 import { recipientKeyForCampaignReport } from './campaignReportDedupe';
 import {
   CAMPAIGN_SENT_LOG_MESSAGE,
+  campaignLogPayloadMatchesCampaign,
   type CampaignLogPayloadLike,
   logPayloadPhoneKey
 } from './campaignReportFromLogs';
@@ -17,7 +18,7 @@ export function collectSentPhonesFromCampaignLogs(
   for (const log of logs) {
     if (!log.payload || typeof log.payload !== 'object') continue;
     const p = log.payload as CampaignLogPayloadLike;
-    if (p.campaignId !== cid) continue;
+    if (!campaignLogPayloadMatchesCampaign(p, cid)) continue;
     if (String(p.message || '') !== CAMPAIGN_SENT_LOG_MESSAGE) continue;
     const rk = logPayloadPhoneKey(p);
     if (rk) out.add(rk);
@@ -85,7 +86,7 @@ export function filterLogsForCampaignView(
   return logs.filter((log) => {
     if (!log.payload || typeof log.payload !== 'object') return false;
     const p = log.payload as CampaignLogPayloadLike;
-    if (p.campaignId !== cid) return false;
+    if (!campaignLogPayloadMatchesCampaign(p, cid)) return false;
     if (minTimestampMs > 0) {
       const ts = Date.parse(log.timestamp);
       if (Number.isFinite(ts) && ts < minTimestampMs - 60_000) return false;

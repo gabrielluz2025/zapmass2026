@@ -55,6 +55,17 @@ export type ReplyHintFromLog = {
 };
 
 /** Índice de respostas confirmadas pelo fluxo por etapas (logs ao vivo ou persistidos). */
+/** Logs já filtrados por campanha podem omitir campaignId no payload. */
+export function campaignLogPayloadMatchesCampaign(
+  p: CampaignLogPayloadLike,
+  campaignId: string
+): boolean {
+  const cid = String(campaignId || '').trim();
+  if (!cid) return false;
+  if (!p.campaignId) return true;
+  return p.campaignId === cid;
+}
+
 export function buildReplyHintsFromLogs(
   logs: Array<{ timestamp: string; payload?: unknown }>,
   campaignId: string,
@@ -65,7 +76,7 @@ export function buildReplyHintsFromLogs(
   for (const log of logs) {
     if (!log.payload || typeof log.payload !== 'object') continue;
     const p = log.payload as CampaignLogPayloadLike;
-    if (p.campaignId !== campaignId) continue;
+    if (!campaignLogPayloadMatchesCampaign(p, campaignId)) continue;
     if (!REPLY_LOG_MESSAGES.has(String(p.message || ''))) continue;
     const phone = logPayloadPhoneKey(p);
     if (!phone) continue;

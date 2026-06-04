@@ -364,6 +364,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     snap.forEach((docRef) => {
       const d = docRef.data() as {
         level?: string; message?: string; to?: string;
+        phoneDigits?: string; replyPreview?: string;
+        replyFlowStep?: number; currentStep?: number;
         connectionId?: string; error?: string; createdAt?: unknown;
       };
       const createdRaw = d.createdAt;
@@ -375,7 +377,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         lvl === 'error' ? 'campaign:error' : lvl === 'warn' ? 'campaign:warn' : 'campaign:info';
       rows.push({
         timestamp: ts, event,
-        payload: { message: d.message || '', campaignId: campaign.id, to: d.to, connectionId: d.connectionId, error: d.error }
+        payload: {
+          message: d.message || '',
+          campaignId: campaign.id,
+          to: d.to || d.phoneDigits,
+          phoneDigits: d.phoneDigits,
+          replyPreview: d.replyPreview,
+          replyFlowStep: d.replyFlowStep,
+          currentStep: d.currentStep,
+          connectionId: d.connectionId,
+          error: d.error
+        }
       });
     });
     return rows;
@@ -949,18 +961,22 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const failedPerChip = new Map<string, number>();
     const perHour = new Map<number, number>();
 
+    const replyPhonesFromLogs = buildReplyHintsFromLogs(logsForReport, campaign.id);
     for (const r of detailedReport) {
-      counts[r.status]++;
+      const rk = recipientKeyForCampaignReport(r.phone);
+      const effectiveStatus =
+        r.status === 'REPLIED' || replyPhonesFromLogs.has(rk) ? 'REPLIED' : r.status;
+      counts[effectiveStatus]++;
       if (r.connectionId) {
         const cur = perChip.get(r.connectionId) || { sent: 0, replied: 0 };
         cur.sent++;
-        if (r.status === 'REPLIED') cur.replied++;
+        if (effectiveStatus === 'REPLIED') cur.replied++;
         perChip.set(r.connectionId, cur);
         if (r.status === 'FAILED') {
           failedPerChip.set(r.connectionId, (failedPerChip.get(r.connectionId) || 0) + 1);
         }
       }
-      if (r.status === 'REPLIED' && r.replyTimestampMs && r.sentTimestampMs) {
+      if (effectiveStatus === 'REPLIED' && r.replyTimestampMs && r.sentTimestampMs) {
         sumResponseMs += r.replyTimestampMs - r.sentTimestampMs;
         countResponses++;
       }
@@ -1003,7 +1019,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       successPct, deliveryPct, readPct, replyPct,
       avgResponseSec, chipBreakdown, hourBreakdown, peakHour, failedPerChip
     };
-  }, [detailedReport, connections]);
+  }, [detailedReport, connections, logsForReport, campaign.id]);
 
   const metrics = useMemo(
     () =>

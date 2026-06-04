@@ -3,6 +3,7 @@ import { CAMPAIGN_REPORT_STATUS_RANK, recipientKeyForCampaignReport } from './ca
 import {
   applyReplyHintsToReportRow,
   buildReplyHintsFromLogs,
+  campaignLogPayloadMatchesCampaign,
   type CampaignLogPayloadLike,
   CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE,
   CAMPAIGN_REPLY_LOG_MESSAGE,
@@ -56,22 +57,41 @@ export function latestReplyAfterAnyCampaignSend(
   return firstReplyAfterCampaignSend(messages, sendTs);
 }
 
-export function hasReplyLogForPhone(
-  logs: Array<{ payload?: unknown }>,
+/** Última resposta registrada nos logs da campanha (fluxo por etapas / contato). */
+export function latestReplyHintFromLogs(
+  logs: Array<{ timestamp: string; payload?: unknown }>,
   campaignId: string,
   phoneKey: string
-): boolean {
+): ReplyHintFromLog | undefined {
   const rk = recipientKeyForCampaignReport(phoneKey);
-  const cid = String(campaignId || '').trim();
-  if (!rk || !cid) return false;
+  if (!rk) return undefined;
+  let best: ReplyHintFromLog | undefined;
   for (const log of logs) {
     if (!log.payload || typeof log.payload !== 'object') continue;
     const p = log.payload as CampaignLogPayloadLike;
-    if (p.campaignId !== cid) continue;
+    if (!campaignLogPayloadMatchesCampaign(p, campaignId)) continue;
     if (!REPLY_LOG_MESSAGES.has(String(p.message || ''))) continue;
-    if (logPayloadPhoneKey(p) === rk) return true;
+    if (logPayloadPhoneKey(p) !== rk) continue;
+    const ts = new Date(log.timestamp).getTime();
+    const preview = p.replyPreview ? String(p.replyPreview).trim() : '';
+    if (!best || ts >= best.replyTimestampMs) {
+      best = {
+        phone: rk,
+        replyTimestampMs: ts,
+        replyText: preview || undefined,
+        connectionId: p.connectionId
+      };
+    }
   }
-  return false;
+  return best;
+}
+
+export function hasReplyLogForPhone(
+  logs: Array<{ timestamp: string; payload?: unknown }>,
+  campaignId: string,
+  phoneKey: string
+): boolean {
+  return Boolean(latestReplyHintFromLogs(logs, campaignId, phoneKey));
 }
 
 export type EnrichReportRowInput = {
@@ -102,14 +122,28 @@ export function enrichCampaignReportRow<T extends EnrichReportRowInput>(
   replyText?: string;
   replyTime?: string;
   replyTimestampMs?: number;
+  connectionId?: string;
 } {
   const rk = recipientKeyForCampaignReport(row.phone);
-  let out = applyReplyHintsToReportRow(row, opts.replyHint) as T & {
+  const fromLogs = latestReplyHintFromLogs(opts.scopedLogs, opts.campaignId, row.phone);
+  const mergedHint =
+    opts.replyHint && fromLogs
+      ? fromLogs.replyTimestampMs >= opts.replyHint.replyTimestampMs
+        ? fromLogs
+        : { ...opts.replyHint, replyText: opts.replyHint.replyText || fromLogs.replyText }
+      : fromLogs || opts.replyHint;
+
+  let out = applyReplyHintsToReportRow(row, mergedHint) as T & {
     status: ReportStatusLike;
     replyText?: string;
     replyTime?: string;
     replyTimestampMs?: number;
+    connectionId?: string;
   };
+
+  if (mergedHint?.connectionId && !out.connectionId) {
+    out = { ...out, connectionId: mergedHint.connectionId };
+  }
 
   const target = rk;
   const allowed = opts.allowedConnectionIds || [];
@@ -138,23 +172,17 @@ export function enrichCampaignReportRow<T extends EnrichReportRowInput>(
     }
   }
 
-  if (hasReplyLogForPhone(opts.scopedLogs, opts.campaignId, row.phone)) {
+  if (mergedHint || fromLogs) {
     out = { ...out, status: 'REPLIED' };
-    if (!out.replyText && opts.replyHint?.replyText) {
+    if (!out.replyText && (mergedHint?.replyText || fromLogs?.replyText)) {
+      const hint = mergedHint || fromLogs!;
       out = {
         ...out,
-        replyText: opts.replyHint.replyText,
-        replyTimestampMs: opts.replyHint.replyTimestampMs,
-        replyTime: new Date(opts.replyHint.replyTimestampMs).toLocaleTimeString('pt-BR')
+        replyText: hint.replyText,
+        replyTimestampMs: hint.replyTimestampMs,
+        replyTime: new Date(hint.replyTimestampMs).toLocaleTimeString('pt-BR')
       };
     }
-  }
-
-  if (out.status === 'REPLIED') {
-    out = {
-      ...out,
-      status: 'REPLIED'
-    };
   }
 
   return out;
