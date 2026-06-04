@@ -78,6 +78,12 @@ import { CampaignScoreCard } from './CampaignScoreCard';
 import { CampaignDetailInsights } from './CampaignDetailInsights';
 import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
+import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
+import {
+  buildReplyFlowStageFunnels,
+  isReplyFlowCampaign,
+  primaryFunnelFromReplyFlowStages
+} from '../../utils/campaignReplyFlowStageMetrics';
 
 interface CampaignDetailsProps {
   campaign: Campaign;
@@ -405,6 +411,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           to: d.to,
           phoneDigits: d.phoneDigits,
           replyPreview: d.replyPreview,
+          replyFlowStep: d.replyFlowStep,
+          currentStep: d.currentStep,
           connectionId: d.connectionId,
           error: d.error
         }
@@ -897,8 +905,19 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return sumCampaignGeoStats(campaignGeo.byUf);
   }, [campaignGeo, campaign.id]);
 
+  const replyFlowStages = useMemo(() => {
+    if (!isReplyFlowCampaign(campaign)) return [];
+    const stageLogs = logsForReport
+      .filter((l) => l.payload && typeof l.payload === 'object')
+      .filter((l) => (l.payload as { campaignId?: string }).campaignId === campaign.id)
+      .map((l) => ({ timestamp: l.timestamp, payload: l.payload }));
+    return buildReplyFlowStageFunnels(campaign.id, campaign, stageLogs, detailedReport);
+  }, [campaign, logsForReport, detailedReport]);
+
+  const useReplyFlowPrimaryFunnel = replyFlowStages.length > 0;
+
   /** Funil e score: relatório + geo da campanha (não infla entregues só com successCount). */
-  const uiPerformance = useMemo(() => {
+  const uiPerformanceBase = useMemo(() => {
     const base =
       performance.total > 0
         ? performance
@@ -980,6 +999,44 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }
     };
   }, [performance, metrics, campaign.successCount, campaign.failedCount, campaignGeoTotals]);
+
+  /** Fluxo por resposta: funil principal = etapa 1 por contato (não soma todos os envios da fila). */
+  const uiPerformance = useMemo(() => {
+    if (!useReplyFlowPrimaryFunnel) return uiPerformanceBase;
+    const fallbackTotal = Math.max(
+      campaign.totalContacts || 0,
+      uiPerformanceBase.total,
+      replyFlowStages[0]?.sent || 0
+    );
+    const primary = primaryFunnelFromReplyFlowStages(replyFlowStages, fallbackTotal);
+    const total = primary.sent;
+    const delivered = Math.max(primary.delivered, campaignGeoTotals.delivered);
+    const read = Math.max(primary.read, campaignGeoTotals.read);
+    const replied = Math.max(primary.replied, campaignGeoTotals.replied);
+    const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
+    const readPct = total > 0 ? Math.round((read / total) * 100) : 0;
+    const replyPct = total > 0 ? Math.round((replied / total) * 100) : 0;
+    return {
+      ...uiPerformanceBase,
+      total,
+      delivered,
+      read,
+      replied,
+      deliveryPct,
+      readPct,
+      replyPct,
+      successPct:
+        total > 0
+          ? Math.round(((total - uiPerformanceBase.counts.FAILED) / total) * 100)
+          : uiPerformanceBase.successPct,
+      counts: {
+        ...uiPerformanceBase.counts,
+        DELIVERED: delivered,
+        READ: read,
+        REPLIED: replied
+      }
+    };
+  }, [uiPerformanceBase, useReplyFlowPrimaryFunnel, replyFlowStages, campaign.totalContacts, campaignGeoTotals]);
 
   const progress = metrics.progressPct;
   const successRate = metrics.successRatePct;
@@ -1523,8 +1580,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         <KpiPill
           label="Entregues"
-          value={metrics.ok.toLocaleString('pt-BR')}
-          helper={`${successRate}% do total`}
+          value={(useReplyFlowPrimaryFunnel ? uiPerformance.delivered : metrics.ok).toLocaleString('pt-BR')}
+          helper={
+            useReplyFlowPrimaryFunnel
+              ? `${uiPerformance.deliveryPct}% (etapa 1)`
+              : `${successRate}% do total`
+          }
           color="#10b981"
           onClick={() => handleFilterClick('SENT_GROUP')}
         />
@@ -1602,17 +1663,31 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           <div>
             <h3 className="ui-title text-[15px]">Jornada da mensagem</h3>
             <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-              funil completo com taxas de conversão e benchmarks de mercado
+              {useReplyFlowPrimaryFunnel
+                ? 'etapa 1 por contato — etapas seguintes no painel abaixo'
+                : 'funil completo com taxas de conversão e benchmarks de mercado'}
             </p>
           </div>
         </div>
         <PerformanceFunnel
-          sent={uiPerformance.total || campaign.successCount + campaign.failedCount}
+          sent={
+            useReplyFlowPrimaryFunnel
+              ? uiPerformance.total
+              : uiPerformance.total || campaign.successCount + campaign.failedCount
+          }
           delivered={uiPerformance.delivered}
           read={uiPerformance.read}
           replied={uiPerformance.replied}
           height={340}
         />
+        {useReplyFlowPrimaryFunnel && (
+          <div className="mt-4">
+            <ReplyFlowStageFunnels
+              stages={replyFlowStages}
+              totalContacts={campaign.totalContacts || replyFlowStages[0]?.sent || 0}
+            />
+          </div>
+        )}
       </div>
 
       {/* ============================ SCORE + MESSAGE PREVIEW ============================ */}

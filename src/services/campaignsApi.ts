@@ -39,6 +39,8 @@ export type CampaignLogDto = {
   to?: string;
   phoneDigits?: string;
   replyPreview?: string;
+  replyFlowStep?: number;
+  currentStep?: number;
   campaignId?: string;
   connectionId?: string;
   error?: string;

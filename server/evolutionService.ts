@@ -2847,10 +2847,21 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
+    const replyFlowStep =
+        item.replyFlowOpen != null
+            ? 1
+            : item.replyFlowAfterSend != null
+              ? item.replyFlowAfterSend.newAwaitingAfterStep + 1
+              : undefined;
     emitCampaignLog(
         'INFO',
         'Mensagem enviada',
-        { campaignId: item.campaignId, to: phoneDigits, connectionId: item.connectionId },
+        {
+            campaignId: item.campaignId,
+            to: phoneDigits,
+            connectionId: item.connectionId,
+            ...(replyFlowStep != null ? { replyFlowStep } : {}),
+        },
         campaignState?.ownerUid
     );
 

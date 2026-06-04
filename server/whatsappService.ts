@@ -5544,9 +5544,17 @@ const processQueue = async () => {
                 console.log('[Queue] Nao foi possivel registrar mensagem na conversa:', trackErr?.message || trackErr);
             }
 
+            const replyFlowStep =
+                item.replyFlowOpen != null
+                    ? 1
+                    : item.replyFlowAfterSend != null
+                      ? item.replyFlowAfterSend.newAwaitingAfterStep + 1
+                      : undefined;
             emitCampaignLog('INFO', 'Mensagem enviada', {
                 to: formattedNum,
-                connectionId: item.connectionId
+                connectionId: item.connectionId,
+                campaignId: item.queueCampaignId || currentCampaign.campaignId,
+                ...(replyFlowStep != null ? { replyFlowStep } : {}),
             });
 
             if (item.replyFlowOpen && item.replyFlowOpen.campaignId) {

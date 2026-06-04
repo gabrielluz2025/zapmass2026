@@ -78,6 +78,8 @@ export function registerCampaignsDataRoutes(app: Express): void {
           error: String(p.error || ''),
           phoneDigits: String(p.phoneDigits || ''),
           replyPreview: p.replyPreview != null ? String(p.replyPreview) : undefined,
+          replyFlowStep: p.replyFlowStep != null ? Number(p.replyFlowStep) : undefined,
+          currentStep: p.currentStep != null ? Number(p.currentStep) : undefined,
           campaignId: String(p.campaignId || ''),
           createdAt: r.created_at.toISOString()
         };

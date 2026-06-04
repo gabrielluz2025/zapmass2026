@@ -38,6 +38,8 @@ export type CampaignLogPayloadLike = {
   error?: string;
   connectionId?: string;
   replyPreview?: string;
+  replyFlowStep?: number;
+  currentStep?: number;
 };
 
 export function logPayloadPhoneKey(p: CampaignLogPayloadLike): string {
