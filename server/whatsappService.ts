@@ -6658,18 +6658,18 @@ export const canControlCampaign = async (
 export function logCampaignContactReply(
     connectionId: string,
     phoneDigits: string,
-    preview: string
+    preview: string,
+    explicitCampaignId?: string
 ): void {
     const phoneNorm = toPhoneKey(phoneDigits);
     if (phoneNorm.length < 8) return;
     const text = String(preview || '').trim().slice(0, 500);
     if (!text) return;
-    for (const meta of campaignMsgMeta.values()) {
-        if (meta.connId !== connectionId || meta.phoneNorm !== phoneNorm) continue;
-        if (!meta.campaignId) continue;
-        const owner = campaignGeoOwnerById.get(meta.campaignId);
+
+    const emitForCampaign = (campaignId: string) => {
+        const owner = campaignGeoOwnerById.get(campaignId);
         const payload = {
-            campaignId: meta.campaignId,
+            campaignId,
             connectionId,
             phoneDigits: phoneNorm,
             replyPreview: text,
@@ -6681,9 +6681,21 @@ export function logCampaignContactReply(
             message: 'Resposta do contato',
             payload,
         });
-        if (owner && meta.campaignId) {
-            void persistCampaignLogToFirestore(owner, meta.campaignId, 'INFO', 'Resposta do contato', payload);
+        if (owner) {
+            void persistCampaignLogToFirestore(owner, campaignId, 'INFO', 'Resposta do contato', payload);
         }
+    };
+
+    const cid = String(explicitCampaignId || '').trim();
+    if (cid) {
+        emitForCampaign(cid);
+        return;
+    }
+
+    for (const meta of campaignMsgMeta.values()) {
+        if (meta.connId !== connectionId || meta.phoneNorm !== phoneNorm) continue;
+        if (!meta.campaignId) continue;
+        emitForCampaign(meta.campaignId);
         return;
     }
 }

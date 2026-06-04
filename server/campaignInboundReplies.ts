@@ -35,6 +35,7 @@ export function buildCampaignInboundRepliesMap(
     const phoneRaw = conv.contactPhone || jidPart.split('@')[0] || '';
     const rk = recipientKeyForCampaignReport(phoneRaw);
     if (!rk) continue;
+    if (!rk) continue;
 
     const msgs = conv.messages || [];
     let sendTs = 0;

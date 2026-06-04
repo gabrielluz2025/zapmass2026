@@ -292,6 +292,23 @@ export class ReplyFlowEngine {
         return false;
     }
 
+    /** Campanha ativa aguardando resposta deste contato (relatório / logs). */
+    resolveCampaignIdForIncoming(
+        connectionId: string,
+        phoneDigits: string,
+        incomingConvId?: string
+    ): string | undefined {
+        if (incomingConvId) {
+            const canonKey = this.convToCanonical.get(incomingConvId);
+            if (canonKey) {
+                const session = this.sessions.get(canonKey);
+                if (session?.campaignId) return session.campaignId;
+            }
+        }
+        const found = this.findSession(connectionId, phoneDigits);
+        return found?.session.campaignId;
+    }
+
     updateSessionAfterSend(connectionId: string, phoneDigits: string, newAwaitingAfterStep: number) {
         const sessKey = `${connectionId}:${phoneDigits}`;
         const sess = this.sessions.get(sessKey);
@@ -478,6 +495,8 @@ export class ReplyFlowEngine {
             campaignId: session.campaignId,
             connectionId,
             phoneDigits,
+            to: phoneDigits,
+            ownerUid: session.ownerUid,
             currentStep: awaiting + 1,
             totalSteps: steps.length,
             replyPreview: preview,

@@ -119,7 +119,8 @@ export function registerCampaignsDataRoutes(app: Express): void {
       const p = row.payload || {};
       const rk = recipientKeyForCampaignReport(String(p.to || p.phoneDigits || ''));
       const preview = p.replyPreview != null ? String(p.replyPreview).trim() : '';
-      if (!rk || !preview) continue;
+      if (!rk) continue;
+      if (!preview) continue;
       const ts = row.created_at.getTime();
       const prev = replies[rk];
       if (!prev || ts >= prev.replyTimestampMs) {

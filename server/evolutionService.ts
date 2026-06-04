@@ -3428,7 +3428,17 @@ export async function handleWebhook(event: any) {
                         String(bodyText || '').slice(0, 80) ||
                         (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
                     if (replyPreview) {
-                        logCampaignContactReply(instance, phoneDigits, replyPreview);
+                        const replyCampaignId = replyFlowEngine?.resolveCampaignIdForIncoming(
+                            instance,
+                            phoneDigits,
+                            incomingConvId
+                        );
+                        logCampaignContactReply(
+                            instance,
+                            phoneDigits,
+                            replyPreview,
+                            replyCampaignId
+                        );
                     }
                 }
                 break;
