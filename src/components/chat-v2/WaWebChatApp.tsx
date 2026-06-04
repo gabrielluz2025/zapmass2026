@@ -66,7 +66,8 @@ export const WaWebChatApp: React.FC<{
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
   const { sending: sendingMedia, sendFile: sendChatFile } = useSendChatMedia(sendMedia);
-  const pictureFetchedRef = useRef<Set<string>>(new Set());
+  /** Evita pedir a mesma foto várias vezes ao servidor (prefetch + chat aberto). */
+  const pictureAttemptedRef = useRef<Set<string>>(new Set());
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
   const HISTORY_LEVELS = [200, 600, 1500, 3500, 8000];
 
@@ -283,12 +284,61 @@ export const WaWebChatApp: React.FC<{
     }
   }, [conversations, draftConversations]);
 
+  const conversationNeedsRemotePicture = useCallback(
+    (conv: Conversation) => {
+      const pic = conv.profilePicUrl;
+      if (pic && (pic.startsWith('http') || pic.startsWith('data:'))) return false;
+      const raw = phoneRawForContactLookup(conv);
+      const nk = normPhoneKey(raw);
+      if (nk && profilePicByPhoneKey.has(nk)) return false;
+      return true;
+    },
+    [profilePicByPhoneKey]
+  );
+
+  const requestConversationPicture = useCallback(
+    (conversationId: string) => {
+      if (!conversationId || pictureAttemptedRef.current.has(conversationId)) return;
+      pictureAttemptedRef.current.add(conversationId);
+      fetchConversationPicture(conversationId);
+    },
+    [fetchConversationPicture]
+  );
+
+  /** Prefetch da lista (não espera clicar na conversa). */
+  useEffect(() => {
+    const MAX = 60;
+    const BATCH = 4;
+    const DELAY_MS = 400;
+    const queue: string[] = [];
+    for (const conv of sortedConversations) {
+      if (queue.length >= MAX) break;
+      if (!conversationNeedsRemotePicture(conv)) continue;
+      if (pictureAttemptedRef.current.has(conv.id)) continue;
+      queue.push(conv.id);
+    }
+    if (queue.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      for (let i = 0; i < queue.length; i += BATCH) {
+        if (cancelled) break;
+        const batch = queue.slice(i, i + BATCH);
+        for (const id of batch) requestConversationPicture(id);
+        await new Promise((r) => setTimeout(r, DELAY_MS));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sortedConversations, conversationNeedsRemotePicture, requestConversationPicture]);
+
   useEffect(() => {
     if (!selected?.id || selected.profilePicUrl) return;
-    if (pictureFetchedRef.current.has(selected.id)) return;
-    pictureFetchedRef.current.add(selected.id);
-    fetchConversationPicture(selected.id);
-  }, [selected?.id, selected?.profilePicUrl, fetchConversationPicture]);
+    if (!conversationNeedsRemotePicture(selected)) return;
+    requestConversationPicture(selected.id);
+  }, [selected?.id, selected?.profilePicUrl, conversationNeedsRemotePicture, requestConversationPicture]);
 
   const loadMoreHistory = useCallback(
     async (conversationId: string, silent = false) => {
