@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   dedupeCampaignReportRowsByRecipient,
+  pickBetterCampaignReportRow,
   recipientKeyForCampaignReport,
 } from './campaignReportDedupe';
 
-const makeRow = (phone: string, status: string, ts?: number) =>
-  ({ phone, status, timestamp: ts ?? Date.now() }) as any;
+const makeRow = (phone: string, status: string, ts?: number, replyText?: string) =>
+  ({ phone, status, sentTimestampMs: ts ?? Date.now(), replyText });
 
 describe('recipientKeyForCampaignReport', () => {
   it('normaliza telefone removendo dígito 9 extra em celulares BR', () => {
@@ -64,5 +65,25 @@ describe('dedupeCampaignReportRowsByRecipient', () => {
 
   it('retorna array vazio para entrada vazia', () => {
     expect(dedupeCampaignReportRowsByRecipient([])).toEqual([]);
+  });
+
+  it('preserva texto de resposta ao deduplicar SENT recente com REPLIED', () => {
+    const rows = [
+      makeRow('5511999990006', 'SENT', 2000),
+      makeRow('5511999990006', 'REPLIED', 1000, 'Boa tarde'),
+    ];
+    const out = dedupeCampaignReportRowsByRecipient(rows);
+    expect(out[0].status).toBe('REPLIED');
+    expect(out[0].replyText).toBe('Boa tarde');
+  });
+});
+
+describe('pickBetterCampaignReportRow', () => {
+  it('mantém REPLIED e replyText mesmo com SENT mais recente', () => {
+    const newer = makeRow('5511999990007', 'SENT', 3000);
+    const older = makeRow('5511999990007', 'REPLIED', 1000, 'resposta');
+    const out = pickBetterCampaignReportRow(newer, older);
+    expect(out.status).toBe('REPLIED');
+    expect(out.replyText).toBe('resposta');
   });
 });

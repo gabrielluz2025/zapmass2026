@@ -60,6 +60,7 @@ import {
 } from '../../utils/campaignReportFromLogs';
 import { pickBetterCampaignReportRow } from '../../utils/campaignReportDedupe';
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
+import { enrichCampaignReportRow } from '../../utils/campaignReportRowEnrichment';
 import { firstReplyAfterCampaignSend, hasCampaignSendLogForPhone } from '../../utils/campaignReplyScope';
 import {
   campaignCreatedAtMs,
@@ -653,6 +654,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
       if (existing && existing.status !== 'FAILED' && isError) return;
 
+      if (existing && isSent) {
+        byPhone.set(phone, {
+          ...existing,
+          sentTimestampMs: Math.min(existing.sentTimestampMs, ts),
+          connectionId: p.connectionId || existing.connectionId
+        });
+        return;
+      }
+
       byPhone.set(phone, {
         id: existing?.id || `${log.timestamp}-${idx}`,
         phone,
@@ -697,6 +707,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       if (existing) {
         byPhone.set(phone, applyReplyHintsToReportRow(existing, hint));
         return;
+      }
+      if (sentPhones.size === 0 || sentPhones.has(phone)) {
+        byPhone.set(phone, applyReplyHintsToReportRow(
+          {
+            id: `reply-log-${phone}`,
+            phone,
+            contactName: '',
+            status: 'SENT',
+            sentTime: '—',
+            sentTimestampMs: Math.max(0, ts - 1000),
+            connectionId: p.connectionId
+          } as ReportRow,
+          hint
+        ));
       }
     });
 
@@ -841,11 +865,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       mergedByPhone.set(rk, row);
     }
 
-    const merged = dedupeCampaignReportRowsByRecipient(
+    const mergedRaw = dedupeCampaignReportRowsByRecipient(
       Array.from(mergedByPhone.values())
         .filter((row) => phoneInScope(row.phone))
         .sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
     );
+    const merged = mergedRaw.map((row) =>
+      enrichCampaignReportRow(row, {
+        campaignId: campaign.id,
+        replyHint: replyHints.get(recipientKeyForCampaignReport(row.phone)),
+        scopedLogs,
+        conversations,
+        allowedConnectionIds: allowedConns
+      })
+    ) as ReportRow[];
     if (merged.length > 0) return merged;
 
     const legacy = buildLegacyEstimateReportRows({
@@ -1084,34 +1117,22 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     };
   }, [performance, metrics, campaign.successCount, campaign.failedCount, campaignGeoTotals]);
 
-  /** Fluxo por resposta: funil principal = melhor entre relatório, geo e etapa 1. */
+  /** Fluxo por resposta: funil principal por contato (etapa 1), não por total de envios na fila. */
   const uiPerformance = useMemo(() => {
     if (!useReplyFlowPrimaryFunnel) return uiPerformanceBase;
     const fromReport = aggregateFunnelFromReportRows(detailedReport);
     const primary = primaryFunnelFromReplyFlowStages(replyFlowStages);
+    const contactTotal = Math.max(
+      primary.sent,
+      fromReport.sent,
+      campaign.totalContacts || 0,
+      detailedReport.length
+    );
     const clamped = clampCampaignFunnelMetrics(
-      Math.max(fromReport.sent, primary.sent, performance.total, uiPerformanceBase.total),
-      Math.max(
-        fromReport.delivered,
-        primary.delivered,
-        performance.delivered,
-        uiPerformanceBase.delivered,
-        campaignGeoTotals.delivered
-      ),
-      Math.max(
-        fromReport.read,
-        primary.read,
-        performance.read,
-        uiPerformanceBase.read,
-        campaignGeoTotals.read
-      ),
-      Math.max(
-        fromReport.replied,
-        primary.replied,
-        performance.replied,
-        uiPerformanceBase.replied,
-        campaignGeoTotals.replied
-      )
+      contactTotal,
+      Math.max(fromReport.delivered, primary.delivered, campaignGeoTotals.delivered),
+      Math.max(fromReport.read, primary.read, campaignGeoTotals.read),
+      Math.max(fromReport.replied, primary.replied, campaignGeoTotals.replied)
     );
     return {
       ...uiPerformanceBase,
@@ -1138,8 +1159,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     useReplyFlowPrimaryFunnel,
     replyFlowStages,
     campaignGeoTotals,
-    detailedReport,
-    performance
+    campaign.totalContacts,
+    detailedReport
   ]);
 
   const progress = metrics.progressPct;
@@ -2028,13 +2049,19 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 {filteredReport.length > 0 ? (
                   filteredReport.map((item) => {
                     const meta = STATUS_META[item.status];
-                    const initials = (item.contactName || '+')
-                      .replace(/^\+/, '')
-                      .split(/\s+/)
-                      .map((p) => p[0])
-                      .join('')
-                      .slice(0, 2)
-                      .toUpperCase();
+                    const nameForInitials = (item.contactName || '').trim();
+                    const initials =
+                      nameForInitials &&
+                      !/^\+?\d[\d\s]*$/.test(nameForInitials) &&
+                      nameForInitials !== `+${item.phone}`
+                        ? nameForInitials
+                            .replace(/^\+/, '')
+                            .split(/\s+/)
+                            .map((p) => p[0])
+                            .join('')
+                            .slice(0, 2)
+                            .toUpperCase()
+                        : item.phone.slice(-2);
                     const replySnippet = item.replyText
                       ? item.replyText.length > 80
                         ? `${item.replyText.slice(0, 80)}…`

@@ -16,13 +16,34 @@ export const CAMPAIGN_REPORT_STATUS_RANK: Record<string, number> = {
   FAILED: 0
 };
 
-/** Mantém a linha com melhor status; empate → mais recente. */
-export function pickBetterCampaignReportRow<T extends ReportRowLike>(a: T, b: T): T {
+type RowWithReply = ReportRowLike & {
+  replyText?: string;
+  replyTime?: string;
+  replyTimestampMs?: number;
+  contactName?: string;
+  connectionId?: string;
+};
+
+function mergeReplyFields<T extends RowWithReply>(base: T, other: T): T {
+  return {
+    ...base,
+    replyText: base.replyText || other.replyText,
+    replyTime: base.replyTime || other.replyTime,
+    replyTimestampMs: base.replyTimestampMs || other.replyTimestampMs,
+    contactName: base.contactName || other.contactName,
+    connectionId: base.connectionId || other.connectionId
+  };
+}
+
+/** Mantém a linha com melhor status; empate → mais recente, preservando texto de resposta. */
+export function pickBetterCampaignReportRow<T extends RowWithReply>(a: T, b: T): T {
   const ra = CAMPAIGN_REPORT_STATUS_RANK[a.status] ?? -1;
   const rb = CAMPAIGN_REPORT_STATUS_RANK[b.status] ?? -1;
-  if (ra > rb) return a;
-  if (rb > ra) return b;
-  return (a.sentTimestampMs || 0) >= (b.sentTimestampMs || 0) ? a : b;
+  if (ra > rb) return mergeReplyFields(a, b);
+  if (rb > ra) return mergeReplyFields(b, a);
+  const newer = (a.sentTimestampMs || 0) >= (b.sentTimestampMs || 0) ? a : b;
+  const older = newer === a ? b : a;
+  return mergeReplyFields(newer, older);
 }
 
 export function recipientKeyForCampaignReport(phone: string): string {
@@ -40,13 +61,7 @@ export function dedupeCampaignReportRowsByRecipient<T extends ReportRowLike>(row
       m.set(k, row);
       continue;
     }
-    const ra = CAMPAIGN_REPORT_STATUS_RANK[row.status] ?? -1;
-    const rb = CAMPAIGN_REPORT_STATUS_RANK[prev.status] ?? -1;
-    if (ra > rb) {
-      m.set(k, row);
-    } else if (ra === rb && (row.sentTimestampMs || 0) >= (prev.sentTimestampMs || 0)) {
-      m.set(k, row);
-    }
+    m.set(k, pickBetterCampaignReportRow(prev, row));
   }
   return Array.from(m.values()).sort((a, b) => (b.sentTimestampMs || 0) - (a.sentTimestampMs || 0));
 }
