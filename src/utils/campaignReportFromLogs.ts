@@ -57,7 +57,9 @@ export type ReplyHintFromLog = {
 /** Índice de respostas confirmadas pelo fluxo por etapas (logs ao vivo ou persistidos). */
 export function buildReplyHintsFromLogs(
   logs: Array<{ timestamp: string; payload?: unknown }>,
-  campaignId: string
+  campaignId: string,
+  /** Só contabiliza resposta se houve envio nesta campanha para o telefone. */
+  sentPhones?: Set<string>
 ): Map<string, ReplyHintFromLog> {
   const out = new Map<string, ReplyHintFromLog>();
   for (const log of logs) {
@@ -67,6 +69,7 @@ export function buildReplyHintsFromLogs(
     if (!REPLY_LOG_MESSAGES.has(String(p.message || ''))) continue;
     const phone = logPayloadPhoneKey(p);
     if (!phone) continue;
+    if (sentPhones && sentPhones.size > 0 && !sentPhones.has(phone)) continue;
     const ts = new Date(log.timestamp).getTime();
     const prev = out.get(phone);
     if (!prev || ts >= prev.replyTimestampMs) {

@@ -60,6 +60,14 @@ import {
 } from '../../utils/campaignReportFromLogs';
 import { pickBetterCampaignReportRow } from '../../utils/campaignReportDedupe';
 import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } from '../../utils/campaignReportDedupe';
+import { firstReplyAfterCampaignSend, hasCampaignSendLogForPhone } from '../../utils/campaignReplyScope';
+import {
+  campaignCreatedAtMs,
+  collectPlannedRecipientPhones,
+  collectSentPhonesFromCampaignLogs,
+  filterLogsForCampaignView,
+  isPhoneInCampaignReportScope
+} from '../../utils/campaignReportScope';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
 import {
@@ -76,6 +84,11 @@ import * as XLSX from 'xlsx';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { PerformanceFunnel } from '../PerformanceFunnel';
 import { CampaignScoreCard } from './CampaignScoreCard';
+import {
+  aggregateFunnelFromReportRows,
+  clampCampaignFunnelMetrics,
+  funnelPct
+} from '../../utils/campaignFunnelMetrics';
 import { CampaignDetailInsights } from './CampaignDetailInsights';
 import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
@@ -141,8 +154,7 @@ const findCampaignMessage = (
   phone: string,
   campaignId: string,
   allowedConnectionIds: string[],
-  conversations: Conversation[],
-  sentTimestampMsHint?: number
+  conversations: Conversation[]
 ): { conv: Conversation; msg: ChatMessage; reply: ChatMessage | null } | null => {
   const target = recipientKeyForCampaignReport(phone);
   if (!target) return null;
@@ -173,38 +185,10 @@ const findCampaignMessage = (
     }
   }
 
-  // Envios Evolution legados sem fromCampaign: heurística por janela do log de envio.
-  if ((!campaignMsg || !campaignConv) && sentTimestampMsHint && sentTimestampMsHint > 0) {
-    const windowMs = 180_000;
-    for (const conv of matches) {
-      const list = (conv.messages || []).filter((m) => {
-        if (m.sender !== 'me') return false;
-        if (m.fromCampaign && m.campaignId && m.campaignId !== campaignId) return false;
-        const ts = m.timestampMs ?? 0;
-        return ts > 0 && Math.abs(ts - sentTimestampMsHint) <= windowMs;
-      });
-      if (list.length === 0) continue;
-      const msg = pickLatest(list);
-      if (msg) {
-        campaignMsg = msg;
-        campaignConv = conv;
-        break;
-      }
-    }
-  }
-
   if (!campaignMsg || !campaignConv) return null;
 
   const sendTs = campaignMsg.timestampMs ?? 0;
-  let reply: ChatMessage | null = null;
-  for (const conv of matches) {
-    const candidate = (conv.messages || [])
-      .filter((m) => m.sender === 'them' && (m.timestampMs ?? 0) >= sendTs)
-      .sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0))[0];
-    if (candidate && (!reply || (candidate.timestampMs ?? 0) < (reply.timestampMs ?? Infinity))) {
-      reply = candidate;
-    }
-  }
+  const reply = firstReplyAfterCampaignSend(campaignConv.messages, sendTs);
 
   return { conv: campaignConv, msg: campaignMsg, reply };
 };
@@ -229,9 +213,7 @@ const buildRowsFromConversations = (
     const ordered = msgs.slice().sort((a, b) => (b.timestampMs ?? 0) - (a.timestampMs ?? 0));
     const sent = ordered[0];
     const sentTs = sent.timestampMs ?? 0;
-    const reply = (conv.messages || [])
-      .filter((m) => m.sender === 'them' && (m.timestampMs ?? 0) >= sentTs)
-      .sort((a, b) => (a.timestampMs ?? 0) - (b.timestampMs ?? 0))[0];
+    const reply = firstReplyAfterCampaignSend(conv.messages, sentTs);
 
     let status: ReportStatus = 'SENT';
     if (reply) status = 'REPLIED';
@@ -511,6 +493,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   };
 
   const logsForReport = useMemo(() => {
+    const cid = campaign.id;
+    const belongsToCampaign = (l: SystemLog) => {
+      if (!l.payload || typeof l.payload !== 'object') return false;
+      return (l.payload as { campaignId?: string }).campaignId === cid;
+    };
     const dedupeKey = (l: SystemLog) => {
       const p = (l.payload || {}) as { to?: string; phoneDigits?: string; message?: string };
       return `${(l.timestamp || '').slice(0, 23)}|${logPayloadPhoneKey(p)}|${p.message || ''}|${l.event}`;
@@ -518,19 +505,21 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const seen = new Set<string>();
     const out: SystemLog[] = [];
     for (const l of systemLogs) {
+      if (!belongsToCampaign(l)) continue;
       const k = dedupeKey(l);
       if (seen.has(k)) continue;
       seen.add(k);
       out.push(l);
     }
     for (const l of persistedLogs) {
+      if (!belongsToCampaign(l)) continue;
       const k = dedupeKey(l);
       if (seen.has(k)) continue;
       seen.add(k);
       out.push(l);
     }
     return out;
-  }, [systemLogs, persistedLogs]);
+  }, [systemLogs, persistedLogs, campaign.id]);
 
   useEffect(() => {
     if (!useVpsData() || !campaign.id) {
@@ -628,12 +617,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       .reduce((acc, conn) => acc + Math.max(0, Number(conn.queueSize) || 0), 0);
   }, [campaign.selectedConnectionIds, connections]);
 
-  // Detailed report (lógica preservada)
+  // Detailed report — escopo estrito: só destinatários desta campanha
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
-    const replyHints = buildReplyHintsFromLogs(logsForReport, campaign.id);
+    const createdMs = campaignCreatedAtMs(campaign);
+    const scopedLogs = filterLogsForCampaignView(logsForReport, campaign.id, createdMs);
+    const sentPhones = collectSentPhonesFromCampaignLogs(scopedLogs, campaign.id);
+    const plannedPhones = collectPlannedRecipientPhones(campaign, contacts, contactLists);
+    const phoneInScope = (phone: string) =>
+      isPhoneInCampaignReportScope(phone, sentPhones, plannedPhones);
+
+    const replyHints = buildReplyHintsFromLogs(scopedLogs, campaign.id, sentPhones);
     const byPhone = new Map<string, ReportRow>();
-    logsForReport.forEach((log, idx) => {
+
+    scopedLogs.forEach((log, idx) => {
       if (!log.payload || typeof log.payload !== 'object') return;
       const p = log.payload as {
         campaignId?: string;
@@ -647,38 +644,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
       const isError = log.event.includes('error') || log.event.includes('warn');
       const isSent = p.message === CAMPAIGN_SENT_LOG_MESSAGE;
-      const isReplyLog =
-        p.message === CAMPAIGN_REPLY_LOG_MESSAGE ||
-        p.message === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE;
-      if (!isError && !isSent && !isReplyLog) return;
+      if (!isError && !isSent) return;
 
       const phone = logPayloadPhoneKey(p);
       if (!phone) return;
       const existing = byPhone.get(phone);
       const ts = new Date(log.timestamp).getTime();
-
-      if (isReplyLog) {
-        const preview = (p as { replyPreview?: string }).replyPreview;
-        const hint = {
-          phone,
-          replyTimestampMs: ts,
-          replyText: preview ? String(preview) : undefined,
-          connectionId: p.connectionId
-        };
-        const stub: ReportRow =
-          existing ??
-          ({
-            id: `reply-log-${phone}`,
-            phone,
-            contactName: '',
-            status: 'SENT',
-            sentTime: '—',
-            sentTimestampMs: Math.max(0, ts - 1000),
-            connectionId: p.connectionId
-          } as ReportRow);
-        byPhone.set(phone, applyReplyHintsToReportRow(stub, hint));
-        return;
-      }
 
       if (existing && existing.status !== 'FAILED' && isError) return;
 
@@ -694,16 +665,45 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       });
     });
 
+    scopedLogs.forEach((log) => {
+      if (!log.payload || typeof log.payload !== 'object') return;
+      const p = log.payload as {
+        campaignId?: string;
+        to?: string;
+        phoneDigits?: string;
+        message?: string;
+        connectionId?: string;
+        replyPreview?: string;
+      };
+      if (p.campaignId !== campaign.id) return;
+      const isReplyLog =
+        p.message === CAMPAIGN_REPLY_LOG_MESSAGE ||
+        p.message === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE;
+      if (!isReplyLog) return;
+
+      const phone = logPayloadPhoneKey(p);
+      if (!phone) return;
+      if (sentPhones.size > 0 && !sentPhones.has(phone)) return;
+
+      const existing = byPhone.get(phone);
+      const ts = new Date(log.timestamp).getTime();
+      const preview = p.replyPreview;
+      const hint = {
+        phone,
+        replyTimestampMs: ts,
+        replyText: preview ? String(preview) : undefined,
+        connectionId: p.connectionId
+      };
+      if (existing) {
+        byPhone.set(phone, applyReplyHintsToReportRow(existing, hint));
+        return;
+      }
+    });
+
     const rows: ReportRow[] = [];
     byPhone.forEach((row) => {
       const contactName = findContactName(row.phone, contacts);
-      const found = findCampaignMessage(
-        row.phone,
-        campaign.id,
-        allowedConns,
-        conversations,
-        row.sentTimestampMs
-      );
+      const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
 
       let status: ReportStatus = row.status;
       let replyText: string | undefined;
@@ -760,15 +760,25 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         },
         replyHints.get(rk)
       );
-      merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
+      if (
+        hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk) ||
+        row.sentTime !== '—'
+      ) {
+        merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
+      }
+      if (!phoneInScope(row.phone)) return;
       rows.push(merged);
     });
 
     const rowsFromLogs = rows.sort((a, b) => b.sentTimestampMs - a.sentTimestampMs);
-    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations).map((row) => {
+    const rowsFromConversations = buildRowsFromConversations(campaign, contacts, conversations)
+      .filter((row) => phoneInScope(row.phone))
+      .map((row) => {
       const rk = recipientKeyForCampaignReport(row.phone);
       let merged = applyReplyHintsToReportRow(row, replyHints.get(rk));
-      merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
+      if (hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk) || row.sentTime !== '—') {
+        merged = applyServerInboundReplyToRow(merged, serverInboundReplies[rk]);
+      }
       return merged;
     });
     const mergedByPhone = new Map<string, ReportRow>();
@@ -789,14 +799,19 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     }
 
     for (const [rk, hint] of replyHints) {
+      if (!phoneInScope(rk)) continue;
       const inbound = serverInboundReplies[rk];
       const existing = mergedByPhone.get(rk);
+      const hasSend = hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk);
       if (existing) {
         let row = applyReplyHintsToReportRow(existing, hint);
-        row = applyServerInboundReplyToRow(row, inbound);
+        if (hasSend || row.sentTime !== '—') {
+          row = applyServerInboundReplyToRow(row, inbound);
+        }
         mergedByPhone.set(rk, row);
         continue;
       }
+      if (!hasSend) continue;
       let row: ReportRow = {
         id: `reply-hint-${rk}`,
         phone: rk,
@@ -811,7 +826,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       mergedByPhone.set(rk, row);
     }
     for (const [rk, inbound] of Object.entries(serverInboundReplies)) {
+      if (!phoneInScope(rk)) continue;
       if (!inbound?.replyText || mergedByPhone.has(rk)) continue;
+      if (!hasCampaignSendLogForPhone(scopedLogs, campaign.id, rk)) continue;
       let row: ReportRow = {
         id: `reply-chat-${rk}`,
         phone: rk,
@@ -825,7 +842,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     }
 
     const merged = dedupeCampaignReportRowsByRecipient(
-      Array.from(mergedByPhone.values()).sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
+      Array.from(mergedByPhone.values())
+        .filter((row) => phoneInScope(row.phone))
+        .sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
     );
     if (merged.length > 0) return merged;
 
@@ -837,7 +856,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     if (!legacy?.length) return merged;
 
     return dedupeCampaignReportRowsByRecipient(
-      legacy.map((r) => ({
+      legacy
+        .filter((r) => phoneInScope(r.phone))
+        .map((r) => ({
         id: r.id,
         phone: r.phone,
         contactName: r.contactName,
@@ -851,9 +872,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [
     logsForReport,
     campaign,
-    campaign.selectedConnectionIds,
     contacts,
     contactLists,
+    campaign.selectedConnectionIds,
     conversations,
     serverInboundReplies
   ]);
@@ -1040,65 +1061,86 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       return base;
     }
 
-    const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
-    const readPct = total > 0 ? Math.round((read / total) * 100) : 0;
-    const replyPct = total > 0 ? Math.round((replied / total) * 100) : 0;
+    const clamped = clampCampaignFunnelMetrics(total, delivered, read, replied);
+    const deliveryPct = clamped.sent > 0 ? Math.round((clamped.delivered / clamped.sent) * 100) : 0;
+    const readPct = clamped.sent > 0 ? Math.round((clamped.read / clamped.sent) * 100) : 0;
+    const replyPct = clamped.sent > 0 ? Math.round((clamped.replied / clamped.sent) * 100) : 0;
 
     return {
       ...base,
-      total,
-      delivered,
-      read,
-      replied,
+      total: clamped.sent,
+      delivered: clamped.delivered,
+      read: clamped.read,
+      replied: clamped.replied,
       deliveryPct,
       readPct,
       replyPct,
       counts: {
         ...base.counts,
-        DELIVERED: Math.max(base.counts.DELIVERED, delivered - base.counts.READ - base.counts.REPLIED),
-        READ: Math.max(base.counts.READ, read - replied),
-        REPLIED: replied
+        DELIVERED: clamped.delivered,
+        READ: clamped.read,
+        REPLIED: clamped.replied
       }
     };
   }, [performance, metrics, campaign.successCount, campaign.failedCount, campaignGeoTotals]);
 
-  /** Fluxo por resposta: funil principal = etapa 1 por contato (não soma todos os envios da fila). */
+  /** Fluxo por resposta: funil principal = melhor entre relatório, geo e etapa 1. */
   const uiPerformance = useMemo(() => {
     if (!useReplyFlowPrimaryFunnel) return uiPerformanceBase;
-    const fallbackTotal = Math.max(
-      campaign.totalContacts || 0,
-      uiPerformanceBase.total,
-      replyFlowStages[0]?.sent || 0
+    const fromReport = aggregateFunnelFromReportRows(detailedReport);
+    const primary = primaryFunnelFromReplyFlowStages(replyFlowStages);
+    const clamped = clampCampaignFunnelMetrics(
+      Math.max(fromReport.sent, primary.sent, performance.total, uiPerformanceBase.total),
+      Math.max(
+        fromReport.delivered,
+        primary.delivered,
+        performance.delivered,
+        uiPerformanceBase.delivered,
+        campaignGeoTotals.delivered
+      ),
+      Math.max(
+        fromReport.read,
+        primary.read,
+        performance.read,
+        uiPerformanceBase.read,
+        campaignGeoTotals.read
+      ),
+      Math.max(
+        fromReport.replied,
+        primary.replied,
+        performance.replied,
+        uiPerformanceBase.replied,
+        campaignGeoTotals.replied
+      )
     );
-    const primary = primaryFunnelFromReplyFlowStages(replyFlowStages, fallbackTotal);
-    const total = primary.sent;
-    const delivered = Math.max(primary.delivered, campaignGeoTotals.delivered);
-    const read = Math.max(primary.read, campaignGeoTotals.read);
-    const replied = Math.max(primary.replied, campaignGeoTotals.replied);
-    const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
-    const readPct = total > 0 ? Math.round((read / total) * 100) : 0;
-    const replyPct = total > 0 ? Math.round((replied / total) * 100) : 0;
     return {
       ...uiPerformanceBase,
-      total,
-      delivered,
-      read,
-      replied,
-      deliveryPct,
-      readPct,
-      replyPct,
+      total: clamped.sent,
+      delivered: clamped.delivered,
+      read: clamped.read,
+      replied: clamped.replied,
+      deliveryPct: funnelPct(clamped.delivered, clamped.sent),
+      readPct: funnelPct(clamped.read, clamped.sent),
+      replyPct: funnelPct(clamped.replied, clamped.sent),
       successPct:
-        total > 0
-          ? Math.round(((total - uiPerformanceBase.counts.FAILED) / total) * 100)
+        clamped.sent > 0
+          ? Math.round(((clamped.sent - uiPerformanceBase.counts.FAILED) / clamped.sent) * 100)
           : uiPerformanceBase.successPct,
       counts: {
         ...uiPerformanceBase.counts,
-        DELIVERED: delivered,
-        READ: read,
-        REPLIED: replied
+        DELIVERED: clamped.delivered,
+        READ: clamped.read,
+        REPLIED: clamped.replied
       }
     };
-  }, [uiPerformanceBase, useReplyFlowPrimaryFunnel, replyFlowStages, campaign.totalContacts, campaignGeoTotals]);
+  }, [
+    uiPerformanceBase,
+    useReplyFlowPrimaryFunnel,
+    replyFlowStages,
+    campaignGeoTotals,
+    detailedReport,
+    performance
+  ]);
 
   const progress = metrics.progressPct;
   const successRate = metrics.successRatePct;
@@ -1740,7 +1782,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           delivered={uiPerformance.delivered}
           read={uiPerformance.read}
           replied={uiPerformance.replied}
-          height={340}
+          variant="bars"
         />
         {useReplyFlowPrimaryFunnel && (
           <div className="mt-4">
@@ -1760,13 +1802,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               delivered: uiPerformance.delivered,
               read: uiPerformance.read,
               replied: uiPerformance.replied,
-              total:
-                Math.max(
-                  uiPerformance.total || 0,
-                  campaign.totalContacts || 0,
-                  metrics.plannedSendTotal || 0,
-                  metrics.effectiveProcessed || 0
-                ) || 1,
+              sent: uiPerformance.total,
+              plannedContacts: campaign.totalContacts || metrics.plannedSendTotal || 0,
               throughputPerMin,
               failed: uiPerformance.counts.FAILED
             }}

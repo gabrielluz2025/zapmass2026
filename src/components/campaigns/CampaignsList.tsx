@@ -262,7 +262,11 @@ export const CampaignsList: React.FC<CampaignsListProps> = ({
       else if (onDelete) for (const id of ids) await onDelete(id);
       exitSelection();
     } catch (err) {
-      toast.error('Não foi possível remover. Tente novamente.');
+      const msg =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : 'Não foi possível remover. Tente novamente.';
+      toast.error(msg);
       console.error(err);
     } finally {
       setDeleting(false);

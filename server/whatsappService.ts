@@ -1434,6 +1434,8 @@ const campaignAckLevel = new Map<string, 0 | 1 | 2>();
 
 /** msgId -> campanha + UF + canal + telefone (dedup funil multi-etapa) */
 const campaignMsgMeta = new Map<string, { campaignId: string; uf: string; connId: string; phoneNorm: string }>();
+/** Último envio por chip+telefone — evita atribuir resposta à campanha errada. */
+const latestCampaignSendByConnPhone = new Map<string, { campaignId: string; ts: number }>();
 
 type CampaignGeoUf = { delivered: number; read: number; replied: number };
 const campaignGeoById = new Map<string, Record<string, CampaignGeoUf>>();
@@ -1801,6 +1803,13 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
             campaignMsgMeta.set(normId, meta);
             if (typeof msgId === 'string' && msgId.trim() && msgId.trim() !== normId) {
                 registerCampaignAckAlias(msgId.trim(), normId, meta);
+            }
+            const locKey = `${connId || ''}|${phoneNorm}`;
+            if (locKey.length > 2 && cidForMeta) {
+                const prev = latestCampaignSendByConnPhone.get(locKey);
+                if (!prev || ts >= prev.ts) {
+                    latestCampaignSendByConnPhone.set(locKey, { campaignId: cidForMeta, ts });
+                }
             }
         }
     }
@@ -6692,12 +6701,9 @@ export function logCampaignContactReply(
         return;
     }
 
-    for (const meta of campaignMsgMeta.values()) {
-        if (meta.connId !== connectionId || meta.phoneNorm !== phoneNorm) continue;
-        if (!meta.campaignId) continue;
-        emitForCampaign(meta.campaignId);
-        return;
-    }
+    const locKey = `${connectionId}|${phoneNorm}`;
+    const latest = latestCampaignSendByConnPhone.get(locKey);
+    if (latest?.campaignId) emitForCampaign(latest.campaignId);
 }
 
 /** Registra campanha Evolution no mapa de geo/funil (antes do 1º envio). */

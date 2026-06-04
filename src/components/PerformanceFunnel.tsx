@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { clampCampaignFunnelMetrics, funnelPct } from '../utils/campaignFunnelMetrics';
 import {
   Activity,
   AlertTriangle,
@@ -26,9 +27,11 @@ export interface PerformanceFunnelProps {
   replied: number;
   /** Tamanho do funil (altura do SVG em px). Default: 360. */
   height?: number;
+  /** `bars` = barras horizontais (estável); `svg` = funil trapezoidal legado. */
+  variant?: 'bars' | 'svg';
   /** Exibe painel lateral com KPI + insight de maior perda. */
   showSidePanel?: boolean;
-  /** Título sobre o painel lateral. */
+  /** Sem painel lateral (ex.: funil por etapa compacto). */
   compact?: boolean;
 }
 
@@ -45,22 +48,28 @@ export const PerformanceFunnel: React.FC<PerformanceFunnelProps> = ({
   read,
   replied,
   height = 360,
+  variant = 'bars',
   showSidePanel = true,
   compact = false
 }) => {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-  const stages: FunnelStageInput[] = useMemo(
-    () => [
-      { label: 'Enviadas', value: sent, color: '#10b981', icon: <Send className="w-3.5 h-3.5" /> },
-      { label: 'Entregues', value: delivered, color: '#3b82f6', icon: <CheckCheck className="w-3.5 h-3.5" /> },
-      { label: 'Lidas', value: read, color: '#8b5cf6', icon: <Eye className="w-3.5 h-3.5" /> },
-      { label: 'Respostas', value: replied, color: '#f59e0b', icon: <Reply className="w-3.5 h-3.5" /> }
-    ],
+  const metrics = useMemo(
+    () => clampCampaignFunnelMetrics(sent, delivered, read, replied),
     [sent, delivered, read, replied]
   );
 
-  const total = Math.max(sent, delivered, read, replied);
+  const stages: FunnelStageInput[] = useMemo(
+    () => [
+      { label: 'Enviadas', value: metrics.sent, color: '#10b981', icon: <Send className="w-3.5 h-3.5" /> },
+      { label: 'Entregues', value: metrics.delivered, color: '#3b82f6', icon: <CheckCheck className="w-3.5 h-3.5" /> },
+      { label: 'Lidas', value: metrics.read, color: '#8b5cf6', icon: <Eye className="w-3.5 h-3.5" /> },
+      { label: 'Respostas', value: metrics.replied, color: '#f59e0b', icon: <Reply className="w-3.5 h-3.5" /> }
+    ],
+    [metrics]
+  );
+
+  const total = metrics.sent;
   const isEmpty = total === 0;
 
   // Calcula os dois "ombros" de cada segmento trapezoidal, em % da largura total
@@ -83,7 +92,7 @@ export const PerformanceFunnel: React.FC<PerformanceFunnelProps> = ({
   }, [stages, isEmpty]);
 
   // Taxa final (replies / sent)
-  const conversionRate = sent > 0 ? (replied / sent) * 100 : 0;
+  const conversionRate = metrics.sent > 0 ? (metrics.replied / metrics.sent) * 100 : 0;
   const conversionRateRounded = Math.round(conversionRate * 10) / 10;
 
   const benchmarkStatus = useMemo(() => {
@@ -149,16 +158,12 @@ export const PerformanceFunnel: React.FC<PerformanceFunnelProps> = ({
     );
   }
 
-  return (
-    <div className={`flex ${compact ? 'flex-col' : 'flex-col lg:flex-row'} gap-5 lg:gap-6`}>
-      {/* FUNIL SVG */}
-      <div className="flex-1 min-w-0">
-        <FunnelSvg segments={segments} height={height} hoverIdx={hoverIdx} onHover={setHoverIdx} />
-      </div>
+  if (compact) {
+    return <CompactFunnelBars stages={stages} sent={metrics.sent} />;
+  }
 
-      {/* PAINEL LATERAL */}
-      {showSidePanel && (
-        <div className={`${compact ? 'w-full' : 'lg:w-[300px]'} shrink-0 flex flex-col gap-3`}>
+  const sidePanel = showSidePanel ? (
+        <div className="lg:w-[300px] w-full shrink-0 flex flex-col gap-3">
           {/* KPI — taxa de conversão global */}
           <div
             className="rounded-2xl p-4 relative overflow-hidden"
@@ -195,8 +200,8 @@ export const PerformanceFunnel: React.FC<PerformanceFunnelProps> = ({
               <span className="text-[20px] font-bold" style={{ color: benchmarkStatus.color }}>%</span>
             </div>
             <p className="relative text-[11.5px] mt-1" style={{ color: 'var(--text-3)' }}>
-              <strong style={{ color: 'var(--text-2)' }}>{fmt(replied)}</strong> respostas de{' '}
-              <strong style={{ color: 'var(--text-2)' }}>{fmt(sent)}</strong> envios
+              <strong style={{ color: 'var(--text-2)' }}>{fmt(metrics.replied)}</strong> respostas de{' '}
+              <strong style={{ color: 'var(--text-2)' }}>{fmt(metrics.sent)}</strong> envios
             </p>
 
             {/* Benchmark range visual */}
@@ -273,7 +278,25 @@ export const PerformanceFunnel: React.FC<PerformanceFunnelProps> = ({
             </div>
           )}
         </div>
-      )}
+  ) : null;
+
+  if (variant === 'bars') {
+    return (
+      <div className="flex flex-col lg:flex-row gap-5 lg:gap-6">
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <CompactFunnelBars stages={stages} sent={metrics.sent} />
+        </div>
+        {sidePanel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-5 lg:gap-6">
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <FunnelSvg segments={segments} height={height} hoverIdx={hoverIdx} onHover={setHoverIdx} />
+      </div>
+      {sidePanel}
     </div>
   );
 };
@@ -295,13 +318,13 @@ const FunnelSvg: React.FC<FunnelSvgProps> = ({ segments, height, hoverIdx, onHov
   const segmentHeight = (height - gap * (segments.length - 1)) / segments.length;
 
   return (
-    <div className="relative">
+    <div className="relative overflow-hidden">
       <svg
         viewBox={`0 0 ${VW} ${height}`}
         width="100%"
         height={height}
         preserveAspectRatio="xMidYMid meet"
-        className="overflow-visible"
+        className="overflow-hidden max-w-full"
       >
         <defs>
           {segments.map((s, i) => (
@@ -342,9 +365,8 @@ const FunnelSvg: React.FC<FunnelSvgProps> = ({ segments, height, hoverIdx, onHov
                 fill={`url(#funnel-grad-${i})`}
                 filter="url(#funnel-shadow)"
                 style={{
-                  transition: 'transform 300ms cubic-bezier(0.2,0.7,0.2,1)',
-                  transform: isActive ? `scale(1.03)` : 'scale(1)',
-                  transformOrigin: `${cx}px ${y + segmentHeight / 2}px`
+                  transition: 'opacity 200ms ease',
+                  opacity: isActive ? 1 : 0.92
                 }}
               />
               {/* Contorno sutil */}
@@ -451,6 +473,47 @@ const FunnelHoverCard: React.FC<{
     )}
   </div>
 );
+
+const CompactFunnelBars: React.FC<{ stages: FunnelStageInput[]; sent: number }> = ({ stages, sent }) => {
+  const max = Math.max(1, sent);
+  return (
+    <div className="space-y-2">
+      {stages.map((s) => {
+        const widthPct = funnelPct(s.value, max);
+        return (
+          <div key={s.label} className="flex items-center gap-2 min-w-0">
+            <span
+              className="w-[4.5rem] shrink-0 text-[10px] font-semibold truncate"
+              style={{ color: 'var(--text-2)' }}
+              title={s.label}
+            >
+              {s.label}
+            </span>
+            <div
+              className="flex-1 h-6 rounded-md overflow-hidden min-w-0"
+              style={{ background: 'var(--surface-2)' }}
+            >
+              <div
+                className="h-full rounded-md flex items-center justify-end px-1.5 transition-all duration-500"
+                style={{
+                  width: `${Math.max(s.value > 0 ? 8 : 0, widthPct)}%`,
+                  background: `linear-gradient(90deg, ${s.color}dd, ${s.color}99)`
+                }}
+              >
+                {widthPct >= 18 && (
+                  <span className="text-[10px] font-bold tabular-nums text-white drop-shadow-sm">{fmt(s.value)}</span>
+                )}
+              </div>
+            </div>
+            <span className="w-5 shrink-0 text-[10px] font-bold tabular-nums text-right" style={{ color: s.color }}>
+              {fmt(s.value)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const BenchmarkMark: React.FC<{ pos: number }> = ({ pos }) => (
   <div

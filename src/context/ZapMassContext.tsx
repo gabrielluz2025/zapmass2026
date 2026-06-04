@@ -73,6 +73,7 @@ import {
 } from '../services/contactsApi';
 import {
   apiCreateCampaign,
+  apiBulkDeleteCampaigns,
   apiDeleteAllCampaigns,
   apiDeleteCampaign,
   apiUpdateCampaign,
@@ -406,6 +407,24 @@ async function deleteCampaignLogsForUser(uid: string, campaignId: string): Promi
     }
   }
   if (pending > 0) await batch.commit();
+}
+
+function isCampaignApiDeleteRetryable(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return /404|não encontrada|not found|inválido/i.test(msg);
+}
+
+/** Postgres (API) + Firestore (legado): cobre campanhas só no banco ou só no Firebase. */
+async function purgeCampaignForUser(uid: string, campaignId: string): Promise<void> {
+  if (useVpsData()) {
+    try {
+      await apiDeleteCampaign(campaignId);
+    } catch (apiErr) {
+      if (!isCampaignApiDeleteRetryable(apiErr)) throw apiErr;
+    }
+  }
+  await deleteCampaignLogsForUser(uid, campaignId);
+  await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignId));
 }
 
 /** Referência estável: o corpo da função actualiza-se a cada render sem invalidar `useMemo` do Provider. */
@@ -3274,13 +3293,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (campaign?.status === CampaignStatus.RUNNING) {
       socketRef.current?.emit('pause-campaign', { campaignId });
     }
-    if (useVpsData()) {
-      await apiDeleteCampaign(campaignId);
-      void reloadVpsCampaignsRef.current();
-    } else {
-      await deleteCampaignLogsForUser(uid, campaignId);
-      await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignId));
-    }
+    await purgeCampaignForUser(uid, campaignId);
+    setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
+    void reloadVpsCampaignsRef.current();
     toast.success('Campanha removida.');
   };
 
@@ -3294,29 +3309,61 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         socketRef.current?.emit('pause-campaign', { campaignId: id });
       }
     }
-    if (useVpsData()) {
-      for (const id of campaignIds) {
-        await apiDeleteCampaign(id);
-      }
-      void reloadVpsCampaignsRef.current();
-    } else {
-      for (const id of campaignIds) {
-        await deleteCampaignLogsForUser(uid, id);
-      }
-      let batch = writeBatch(db);
-      let pending = 0;
-      for (const id of campaignIds) {
-        batch.delete(doc(db, 'users', uid, 'campaigns', id));
-        pending++;
-        if (pending >= 400) {
-          await batch.commit();
-          batch = writeBatch(db);
-          pending = 0;
+
+    const removed = new Set<string>();
+    const failures: string[] = [];
+
+    if (useVpsData() && campaignIds.length > 1) {
+      try {
+        const { deleted, missing } = await apiBulkDeleteCampaigns(campaignIds);
+        for (const id of deleted) removed.add(id);
+        for (const id of missing) {
+          try {
+            await purgeCampaignForUser(uid, id);
+            removed.add(id);
+          } catch {
+            failures.push(id);
+          }
+        }
+      } catch (bulkErr) {
+        if (!isCampaignApiDeleteRetryable(bulkErr)) throw bulkErr;
+        for (const id of campaignIds) {
+          try {
+            await purgeCampaignForUser(uid, id);
+            removed.add(id);
+          } catch {
+            failures.push(id);
+          }
         }
       }
-      if (pending > 0) await batch.commit();
+    } else {
+      for (const id of campaignIds) {
+        try {
+          await purgeCampaignForUser(uid, id);
+          removed.add(id);
+        } catch {
+          failures.push(id);
+        }
+      }
     }
-    toast.success(`${campaignIds.length} campanha${campaignIds.length > 1 ? 's removidas' : ' removida'}.`);
+
+    if (removed.size === 0) {
+      throw new Error(
+        failures.length > 0
+          ? 'Nenhuma campanha pôde ser removida. Atualize a página e tente de novo.'
+          : 'Nenhuma campanha selecionada.'
+      );
+    }
+
+    setCampaigns((prev) => prev.filter((c) => !removed.has(c.id)));
+    void reloadVpsCampaignsRef.current();
+
+    if (failures.length > 0) {
+      toast.error(`${failures.length} campanha(s) não foram removidas.`);
+    }
+    toast.success(
+      `${removed.size} campanha${removed.size > 1 ? 's removidas' : ' removida'}.`
+    );
   };
 
   const markWarmupReady = (numbers: string[]) => {

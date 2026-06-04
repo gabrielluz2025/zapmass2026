@@ -7,6 +7,7 @@ import {
   createCampaign,
   deleteAllCampaigns,
   deleteCampaign,
+  deleteCampaigns,
   getCampaignDoc,
   listCampaignLogs,
   listCampaigns,
@@ -53,9 +54,38 @@ export function registerCampaignsDataRoutes(app: Express): void {
   app.delete('/api/campaigns/:id', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const ok = await deleteCampaign(ctx.tenantId, String(req.params.id || '').trim());
-    if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
-    return res.json({ ok: true });
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ ok: false, error: 'ID inválido.' });
+    try {
+      const ok = await deleteCampaign(ctx.tenantId, id);
+      if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[api/campaigns DELETE]', id, e);
+      return res.status(500).json({ ok: false, error: 'Erro ao remover campanha.' });
+    }
+  });
+
+  app.post('/api/campaigns/bulk-delete', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = req.body as { ids?: unknown };
+    const ids = Array.isArray(body?.ids)
+      ? body.ids.map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Informe ao menos um id.' });
+    }
+    if (ids.length > 200) {
+      return res.status(400).json({ ok: false, error: 'Máximo de 200 campanhas por vez.' });
+    }
+    try {
+      const { deleted, missing } = await deleteCampaigns(ctx.tenantId, ids);
+      return res.json({ ok: true, deleted, missing });
+    } catch (e) {
+      console.error('[api/campaigns bulk-delete]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao remover campanhas.' });
+    }
   });
 
   app.get('/api/campaigns/:id/logs', async (req: Request, res: Response) => {

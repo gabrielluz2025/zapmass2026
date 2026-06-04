@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { isUuid } from '../auth/firebaseUidMap.js';
 import { getZapmassPool } from '../db/postgres.js';
 import type { Campaign } from '../../src/types.js';
 import {
@@ -90,12 +91,26 @@ export async function mergeUpdateCampaign(
 
 export async function deleteCampaign(tenantId: string, campaignId: string): Promise<boolean> {
   const pool = getZapmassPool();
-  if (!pool) return false;
+  if (!pool || !isUuid(campaignId)) return false;
   const r = await pool.query(
     `DELETE FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [tenantId, campaignId]
   );
   return (r.rowCount ?? 0) > 0;
+}
+
+export async function deleteCampaigns(
+  tenantId: string,
+  campaignIds: string[]
+): Promise<{ deleted: string[]; missing: string[] }> {
+  const deleted: string[] = [];
+  const missing: string[] = [];
+  for (const id of campaignIds) {
+    const ok = await deleteCampaign(tenantId, id);
+    if (ok) deleted.push(id);
+    else missing.push(id);
+  }
+  return { deleted, missing };
 }
 
 export async function deleteAllCampaigns(tenantId: string): Promise<number> {

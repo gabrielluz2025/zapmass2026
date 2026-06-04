@@ -1,6 +1,8 @@
 import type { Campaign, CampaignReplyFlowStep } from '../types';
+import { clampCampaignFunnelMetrics, funnelPct } from './campaignFunnelMetrics';
 import { recipientKeyForCampaignReport } from './campaignReportDedupe';
 import {
+  CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE,
   CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_SENT_LOG_MESSAGE,
   type CampaignLogPayloadLike
@@ -30,11 +32,6 @@ const STATUS_RANK: Record<string, number> = {
   FAILED: 0
 };
 
-function pct(num: number, den: number): number {
-  if (den <= 0) return 0;
-  return Math.min(100, Math.round((num / den) * 100));
-}
-
 function logPayload(p: unknown): CampaignLogPayloadLike {
   return (p && typeof p === 'object' ? p : {}) as CampaignLogPayloadLike;
 }
@@ -45,16 +42,50 @@ function sentStepFromLog(p: CampaignLogPayloadLike): number | null {
   return null;
 }
 
-function replyStepFromLog(p: CampaignLogPayloadLike, logMessage: string): number | null {
-  const step = Number(p.currentStep);
-  if (logMessage === CAMPAIGN_REPLY_LOG_MESSAGE && Number.isFinite(step) && step >= 1) {
-    return Math.floor(step);
+function replyStepFromLog(
+  p: CampaignLogPayloadLike,
+  logMessage: string,
+  stageCount: number
+): number | null {
+  const fromFlow = Number(p.currentStep);
+  const fromSend = Number(p.replyFlowStep);
+  if (logMessage === CAMPAIGN_REPLY_LOG_MESSAGE && Number.isFinite(fromFlow) && fromFlow >= 1) {
+    return Math.min(Math.floor(fromFlow), stageCount);
+  }
+  if (logMessage === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE) {
+    if (Number.isFinite(fromFlow) && fromFlow >= 1) return Math.min(Math.floor(fromFlow), stageCount);
+    if (Number.isFinite(fromSend) && fromSend >= 1) return Math.min(Math.floor(fromSend), stageCount);
+    return 1;
   }
   return null;
 }
 
 function statusAtLeast(status: string, min: string): boolean {
   return (STATUS_RANK[status] ?? -1) >= (STATUS_RANK[min] ?? 99);
+}
+
+/** Contatos que receberam envio nesta etapa + métricas (resposta ⇒ entregue e lida). */
+function metricsForStagePhones(
+  phones: Set<string>,
+  reportByPhone: Map<string, string>,
+  repliedPhones: Set<string>
+): { sent: number; delivered: number; read: number; replied: number } {
+  let delivered = 0;
+  let read = 0;
+  let replied = 0;
+  for (const phone of phones) {
+    const st = reportByPhone.get(phone) || 'SENT';
+    const hasReply = repliedPhones.has(phone) || st === 'REPLIED';
+    if (hasReply) {
+      replied++;
+      delivered++;
+      read++;
+      continue;
+    }
+    if (statusAtLeast(st, 'DELIVERED')) delivered++;
+    if (statusAtLeast(st, 'READ')) read++;
+  }
+  return clampCampaignFunnelMetrics(phones.size, delivered, read, replied);
 }
 
 /**
@@ -96,9 +127,24 @@ export function buildReplyFlowStageFunnels(
       sentByStage[sentStep - 1].add(phone);
     }
 
-    const replyStep = replyStepFromLog(p, msg);
+    const replyStep = replyStepFromLog(p, msg, stageCount);
     if (replyStep != null && replyStep >= 1 && replyStep <= stageCount) {
-      repliedByStage[replyStep - 1].add(phone);
+      const stageIdx = replyStep - 1;
+      if (
+        msg === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE ||
+        msg === CAMPAIGN_REPLY_LOG_MESSAGE
+      ) {
+        if (sentByStage[stageIdx].has(phone)) {
+          repliedByStage[stageIdx].add(phone);
+        } else {
+          for (let i = stageCount - 1; i >= 0; i--) {
+            if (sentByStage[i].has(phone)) {
+              repliedByStage[i].add(phone);
+              break;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -114,34 +160,8 @@ export function buildReplyFlowStageFunnels(
 
   return steps.map((step: CampaignReplyFlowStep, idx: number) => {
     const stageNumber = idx + 1;
-    const sent = sentByStage[idx].size;
-    const replied = repliedByStage[idx].size;
-
-    let delivered = 0;
-    let read = 0;
-    if (stageNumber === 1) {
-      for (const phone of sentByStage[idx]) {
-        const st = reportByPhone.get(phone) || 'SENT';
-        if (statusAtLeast(st, 'DELIVERED')) delivered++;
-        if (statusAtLeast(st, 'READ')) read++;
-      }
-      if (sent === 0 && reportByPhone.size > 0) {
-        delivered = [...reportByPhone.values()].filter((s) => statusAtLeast(s, 'DELIVERED')).length;
-        read = [...reportByPhone.values()].filter((s) => statusAtLeast(s, 'READ')).length;
-      }
-    } else {
-      for (const phone of sentByStage[idx]) {
-        const st = reportByPhone.get(phone);
-        if (st && statusAtLeast(st, 'DELIVERED')) delivered++;
-        if (st && statusAtLeast(st, 'READ')) read++;
-      }
-    }
-
-    const repliedFromReport =
-      stageNumber === 1
-        ? [...reportByPhone.values()].filter((s) => s === 'REPLIED').length
-        : 0;
-    const repliedFinal = Math.max(replied, repliedFromReport);
+    const phonesForStage = new Set<string>(sentByStage[idx]);
+    const clamped = metricsForStagePhones(phonesForStage, reportByPhone, repliedByStage[idx]);
 
     const bodyPreview = String(step.body || '').trim();
     const label =
@@ -150,13 +170,13 @@ export function buildReplyFlowStageFunnels(
     return {
       stageNumber,
       label,
-      sent,
-      delivered,
-      read,
-      replied: repliedFinal,
-      deliveryPct: pct(delivered, sent),
-      readPct: pct(read, sent),
-      replyPct: pct(repliedFinal, sent)
+      sent: clamped.sent,
+      delivered: clamped.delivered,
+      read: clamped.read,
+      replied: clamped.replied,
+      deliveryPct: funnelPct(clamped.delivered, clamped.sent),
+      readPct: funnelPct(clamped.read, clamped.sent),
+      replyPct: funnelPct(clamped.replied, clamped.sent)
     };
   });
 }
@@ -167,17 +187,9 @@ export function isReplyFlowCampaign(campaign: Pick<Campaign, 'replyFlow'>): bool
 
 /** Funil principal = etapa 1 por contato (evita 2 envios / 1 pessoa parecer 50% entrega). */
 export function primaryFunnelFromReplyFlowStages(
-  stages: ReplyFlowStageFunnel[],
-  fallbackTotal: number
+  stages: ReplyFlowStageFunnel[]
 ): { sent: number; delivered: number; read: number; replied: number } {
   const s1 = stages[0];
-  if (!s1) {
-    return { sent: fallbackTotal, delivered: 0, read: 0, replied: 0 };
-  }
-  return {
-    sent: Math.max(s1.sent, fallbackTotal),
-    delivered: s1.delivered,
-    read: s1.read,
-    replied: s1.replied
-  };
+  if (!s1) return clampCampaignFunnelMetrics(0, 0, 0, 0);
+  return clampCampaignFunnelMetrics(s1.sent, s1.delivered, s1.read, s1.replied);
 }

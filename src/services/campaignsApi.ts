@@ -25,6 +25,19 @@ export async function apiDeleteCampaign(id: string): Promise<void> {
   await apiFetchJson(`/api/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+export async function apiBulkDeleteCampaigns(
+  ids: string[]
+): Promise<{ deleted: string[]; missing: string[] }> {
+  const j = await apiFetchJson<{ deleted?: string[]; missing?: string[] }>(
+    '/api/campaigns/bulk-delete',
+    { method: 'POST', body: JSON.stringify({ ids }) }
+  );
+  return {
+    deleted: Array.isArray(j.deleted) ? j.deleted : [],
+    missing: Array.isArray(j.missing) ? j.missing : []
+  };
+}
+
 export async function apiDeleteAllCampaigns(): Promise<number> {
   const j = await apiFetchJson<{ campaigns?: number }>('/api/tenant/campaigns-data', {
     method: 'DELETE'

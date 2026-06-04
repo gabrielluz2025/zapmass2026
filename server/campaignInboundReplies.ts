@@ -1,5 +1,9 @@
 import type { ChatMessage, Conversation } from './types.js';
 import { recipientKeyForCampaignReport } from '../src/utils/campaignReportDedupe.js';
+import {
+  firstReplyAfterCampaignSend,
+  latestCampaignSendTimestampMs
+} from '../src/utils/campaignReplyScope.js';
 
 const MEDIA_LABEL: Record<string, string> = {
   image: '[Imagem]',
@@ -17,7 +21,8 @@ function replyDisplayText(msg: ChatMessage): string {
 }
 
 /**
- * Busca respostas do contato no histórico completo do servidor (sem limite de 25 msgs do socket).
+ * Respostas do contato só após envio **desta** campanha (fromCampaign + campaignId).
+ * Não usa mensagens manuais nem envios de outras campanhas como referência.
  */
 export function buildCampaignInboundRepliesMap(
   campaignId: string,
@@ -35,34 +40,19 @@ export function buildCampaignInboundRepliesMap(
     const phoneRaw = conv.contactPhone || jidPart.split('@')[0] || '';
     const rk = recipientKeyForCampaignReport(phoneRaw);
     if (!rk) continue;
-    if (!rk) continue;
 
     const msgs = conv.messages || [];
-    let sendTs = 0;
-    for (const m of msgs) {
-      if (m.sender !== 'me') continue;
-      if (m.fromCampaign && m.campaignId === cid) {
-        sendTs = Math.max(sendTs, m.timestampMs || 0);
-      }
-    }
-    if (!sendTs) {
-      for (const m of msgs) {
-        if (m.sender === 'me' && (m.timestampMs || 0) > 0) {
-          sendTs = sendTs ? Math.min(sendTs, m.timestampMs || sendTs) : m.timestampMs || 0;
-        }
-      }
-    }
+    const sendTs = latestCampaignSendTimestampMs(msgs, cid);
+    if (!sendTs) continue;
 
-    for (const m of msgs) {
-      if (m.sender !== 'them') continue;
-      const ts = m.timestampMs || 0;
-      if (sendTs > 0 && ts > 0 && ts < sendTs - 2000) continue;
-      const display = replyDisplayText(m);
-      if (!display) continue;
-      const prev = out[rk];
-      if (!prev || ts >= prev.replyTimestampMs) {
-        out[rk] = { replyText: display, replyTimestampMs: ts || Date.now() };
-      }
+    const reply = firstReplyAfterCampaignSend(msgs, sendTs);
+    if (!reply) continue;
+    const display = replyDisplayText(reply);
+    if (!display) continue;
+    const ts = reply.timestampMs || Date.now();
+    const prev = out[rk];
+    if (!prev || ts >= prev.replyTimestampMs) {
+      out[rk] = { replyText: display, replyTimestampMs: ts };
     }
   }
   return out;

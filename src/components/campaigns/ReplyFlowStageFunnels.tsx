@@ -37,7 +37,7 @@ export const ReplyFlowStageFunnels: React.FC<Props> = ({ stages, totalContacts }
         {stages.map((stage) => (
           <div
             key={stage.stageNumber}
-            className="rounded-xl p-3"
+            className="rounded-xl p-3 overflow-hidden"
             style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
           >
             <p className="text-[12px] font-bold mb-2 truncate" style={{ color: 'var(--text-1)' }} title={stage.label}>
