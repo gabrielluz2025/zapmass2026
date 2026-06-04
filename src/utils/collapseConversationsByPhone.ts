@@ -72,11 +72,20 @@ function mergeConversationCluster(cluster: Conversation[]): Conversation {
   let lastTime = '';
   let profilePic = primary.profilePicUrl;
   let waJidAlt = primary.waJidAlt;
+  let waPresence = primary.waPresence;
+  let waPresenceUpdatedAt = primary.waPresenceUpdatedAt ?? 0;
+  let waLastSeenMs = primary.waLastSeenMs ?? 0;
 
   for (const c of sorted) {
     unread += c.unreadCount || 0;
     if (!profilePic && c.profilePicUrl) profilePic = c.profilePicUrl;
     if (!waJidAlt && c.waJidAlt) waJidAlt = c.waJidAlt;
+    const pAt = c.waPresenceUpdatedAt ?? 0;
+    if (pAt >= waPresenceUpdatedAt) {
+      waPresenceUpdatedAt = pAt;
+      waPresence = c.waPresence ?? waPresence;
+    }
+    waLastSeenMs = Math.max(waLastSeenMs, c.waLastSeenMs ?? 0);
     const ts = newestActivityMs(c);
     if (ts >= bestTs) {
       bestTs = ts;
@@ -125,7 +134,10 @@ function mergeConversationCluster(cluster: Conversation[]): Conversation {
     lastMessageTime: lastTime || primary.lastMessageTime,
     lastMessageTimestamp: bestTs,
     messages,
-    tags
+    tags,
+    waPresence,
+    waPresenceUpdatedAt: waPresenceUpdatedAt || undefined,
+    waLastSeenMs: waLastSeenMs || undefined
   };
 }
 

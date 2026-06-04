@@ -414,6 +414,12 @@ export interface Conversation {
   tags: string[];
   /** Quem assumiu o atendimento (UID Firebase); definido pelo servidor na lista do inbox. */
   inboxClaimedByAuthUid?: string;
+  /** Presença WhatsApp (webhook PRESENCE_UPDATE). */
+  waPresence?: 'available' | 'unavailable' | 'composing' | 'recording' | 'paused';
+  /** Última vez visto (ms), quando `waPresence` é unavailable ou expirou. */
+  waLastSeenMs?: number;
+  /** Timestamp (ms) do último evento de presença recebido. */
+  waPresenceUpdatedAt?: number;
 }
 
 export interface SystemLog {

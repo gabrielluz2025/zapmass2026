@@ -5,6 +5,10 @@ import type { Conversation } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import { formatListTime, inboxListTitle, unreadCount } from './lib/conversationDisplay';
 import { getLastMsgPreview } from './lib/chatPreview';
+import {
+  formatContactPresenceSubtitle,
+  isContactPresenceOnline,
+} from '../../utils/evolutionPresence';
 import type { WaSocketStatus } from './hooks/useWaRealtime';
 
 type Props = {
@@ -154,9 +158,11 @@ export const WaInbox: React.FC<Props> = ({
               if (!conv) return null;
               const display = displayById.get(conv.id);
               const title = inboxListTitle(display, conv);
-              const preview = getLastMsgPreview(conv);
+              const presencePreview = formatContactPresenceSubtitle(conv);
+              const preview = presencePreview || getLastMsgPreview(conv);
               const unread = unreadCount(conv);
               const selected = conv.id === selectedId;
+              const online = isContactPresenceOnline(conv);
 
               return (
                 <button
@@ -168,6 +174,7 @@ export const WaInbox: React.FC<Props> = ({
                   style={{ height: row.size, transform: `translateY(${row.start}px)` }}
                   onClick={() => onSelect(conv.id)}
                 >
+                  <span className="wa-conv-avatar-wrap relative flex-shrink-0">
                   <img
                     src={avatarById.get(conv.id) || ''}
                     alt=""
@@ -181,6 +188,8 @@ export const WaInbox: React.FC<Props> = ({
                       el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=00a884&color=fff&size=200&bold=true`;
                     }}
                   />
+                  {online && <span className="wa-presence-dot" aria-hidden title="Online" />}
+                  </span>
                   <div className="wa-conv-body min-w-0 flex-1">
                     <div className="flex justify-between gap-2 items-baseline">
                       <span className="wa-conv-name truncate">{title}</span>
@@ -189,7 +198,11 @@ export const WaInbox: React.FC<Props> = ({
                       </span>
                     </div>
                     <div className="flex justify-between gap-2 items-center mt-0.5">
-                      <span className="wa-conv-preview truncate">{preview}</span>
+                      <span
+                        className={`wa-conv-preview truncate${presencePreview ? ' wa-conv-preview--presence' : ''}`}
+                      >
+                        {preview}
+                      </span>
                       {unread > 0 && (
                         <span className="wa-unread-badge flex-shrink-0">{unread > 99 ? '99+' : unread}</span>
                       )}

@@ -5,6 +5,7 @@ import type { Conversation } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
 import { WaComposer } from './WaComposer';
 import type { ConversationDisplay } from './lib/conversationDisplay';
+import { formatContactPresenceSubtitle } from '../../utils/evolutionPresence';
 import { inboxListTitle } from './lib/conversationDisplay';
 import { formatDayLabel, formatMsgTime, messageDayKey } from './lib/messageTime';
 import { formatMessageBubbleText } from './lib/chatPreview';
@@ -93,19 +94,34 @@ export const WaThread: React.FC<Props> = ({
     return out;
   }, [messages]);
 
+  const presenceLine = useMemo(
+    () => formatContactPresenceSubtitle(conversation),
+    [conversation?.waPresence, conversation?.waLastSeenMs, conversation?.waPresenceUpdatedAt]
+  );
+
   const headerSub = useMemo(() => {
     if (!conversation) return '';
     if (!chipConnected) return 'Chip WhatsApp desconectado — conecte em Conexões';
     if (socketStatus === 'offline') return 'Servidor desconectado';
     if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
-    return display?.phoneSecondary || display?.whatsappSubtitle || 'online';
+    if (presenceLine) return presenceLine;
+    return display?.phoneSecondary || display?.whatsappSubtitle || '';
   }, [
     conversation,
     chipConnected,
     socketStatus,
+    presenceLine,
     display?.phoneSecondary,
     display?.whatsappSubtitle
   ]);
+
+  const headerPresenceKind = useMemo(() => {
+    if (!presenceLine) return '';
+    if (presenceLine === 'online') return 'online';
+    if (presenceLine.startsWith('digitando') || presenceLine.startsWith('gravando')) return 'active';
+    if (presenceLine.startsWith('visto')) return 'last-seen';
+    return '';
+  }, [presenceLine]);
 
   useEffect(() => {
     if (!scrollRef.current || messages.length === 0) return;
@@ -151,7 +167,12 @@ export const WaThread: React.FC<Props> = ({
         />
         <div className="flex-1 min-w-0">
           <p className="wa-chat-header-title truncate">{primary}</p>
-          <p className="wa-chat-header-sub truncate">{headerSub}</p>
+          <p
+            className="wa-chat-header-sub truncate"
+            data-presence={headerPresenceKind || undefined}
+          >
+            {headerSub}
+          </p>
         </div>
         {onOpenContactInfo && (
           <button

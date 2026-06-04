@@ -80,4 +80,8 @@ export interface Conversation {
   tags: string[];
   /** Preenchido pelo servidor: UID Firebase de quem assumiu a conversa (inbox da equipa). */
   inboxClaimedByAuthUid?: string;
+  /** Presença WhatsApp (webhook PRESENCE_UPDATE). */
+  waPresence?: 'available' | 'unavailable' | 'composing' | 'recording' | 'paused';
+  waLastSeenMs?: number;
+  waPresenceUpdatedAt?: number;
 }

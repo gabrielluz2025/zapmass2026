@@ -183,6 +183,12 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
 .wa-conv-row:hover { background: var(--wa-hover); }
 .wa-conv-row[data-active='true'] { background: var(--wa-active); }
 
+.wa-conv-avatar-wrap {
+  width: 49px;
+  height: 49px;
+  flex-shrink: 0;
+}
+
 .wa-conv-avatar {
   width: 49px;
   height: 49px;
@@ -190,6 +196,18 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   object-fit: cover;
   flex-shrink: 0;
   background: var(--wa-divider);
+}
+
+.wa-presence-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #25d366;
+  border: 2px solid var(--wa-side-bg, #fff);
+  box-sizing: border-box;
 }
 
 .wa-conv-name {
@@ -203,6 +221,11 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   font-size: 14px;
   color: var(--wa-text-3);
   line-height: 1.3;
+}
+
+.wa-conv-preview--presence {
+  color: var(--wa-green-strong, #008069);
+  font-weight: 500;
 }
 
 .wa-conv-time {

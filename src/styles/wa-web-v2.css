@@ -191,6 +191,15 @@
   line-height: 1.3;
 }
 
+.wa-chat-pro .wa-chat-header-sub[data-presence='online'],
+.wa-chat-pro .wa-chat-header-sub[data-presence='active'] {
+  color: var(--wa-green-strong, #008069);
+}
+
+.wa-chat-pro .wa-chat-header-sub[data-presence='last-seen'] {
+  color: var(--wa-text-3);
+}
+
 .wa-chat-pro .wa-chat-pane {
   position: relative;
 }

@@ -162,7 +162,16 @@ function mergeOneConversation(
       prev ? newestActivityMs(prev) : 0
     ),
     unreadCount:
-      typeof withPic.unreadCount === 'number' ? withPic.unreadCount : prev?.unreadCount ?? withPic.unreadCount
+      typeof withPic.unreadCount === 'number' ? withPic.unreadCount : prev?.unreadCount ?? withPic.unreadCount,
+    waPresence:
+      (withPic.waPresenceUpdatedAt ?? 0) >= (prev?.waPresenceUpdatedAt ?? 0)
+        ? withPic.waPresence ?? prev?.waPresence
+        : prev?.waPresence ?? withPic.waPresence,
+    waPresenceUpdatedAt: Math.max(
+      withPic.waPresenceUpdatedAt ?? 0,
+      prev?.waPresenceUpdatedAt ?? 0
+    ) || undefined,
+    waLastSeenMs: Math.max(withPic.waLastSeenMs ?? 0, prev?.waLastSeenMs ?? 0) || undefined
   };
 
   const prevMsgs = Array.isArray(prev?.messages) ? prev!.messages : [];

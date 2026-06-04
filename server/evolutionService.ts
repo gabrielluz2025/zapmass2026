@@ -2291,6 +2291,7 @@ async function setupWebhook(instanceName: string) {
             'MESSAGES_UPSERT',
             'MESSAGES_UPDATE',
             'SEND_MESSAGE',
+            'PRESENCE_UPDATE',
         ];
         // Evolution API v2 exige objeto "webhook" na raiz (v1 usava campos flat → HTTP 400).
         // byEvents:false — todos os eventos vão para a mesma URL; com true a Evolution posta em
@@ -3431,6 +3432,15 @@ export async function handleWebhook(event: any) {
                     evolutionTrackMessageAck(messageId, evolutionStatus);
                     chatStore.updateMessageStatus(messageId, evolutionStatus);
                 }
+                break;
+            }
+
+            case 'PRESENCE_UPDATE': {
+                chatStore.handlePresenceUpdate(
+                    instance,
+                    data,
+                    typeof event?.date_time === 'string' ? event.date_time : undefined
+                );
                 break;
             }
         }

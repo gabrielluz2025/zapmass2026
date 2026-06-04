@@ -23,6 +23,10 @@ import {
     mergeConversationsPair
 } from '../src/utils/collapseConversationsByPhone.js';
 import {
+    parseEvolutionPresenceWebhook,
+    type WaContactPresence,
+} from '../src/utils/evolutionPresence.js';
+import {
     createPhonebookNameIndex,
     evolutionContactDisplayName,
     filterEvolutionContactLabel,
@@ -1382,6 +1386,45 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         for (const id of touched) emitConversationDelta(id);
     }
 
+    function applyPresenceFields(
+        conv: Conversation,
+        presence: WaContactPresence,
+        lastSeenMs: number | undefined,
+        updatedAt: number
+    ): void {
+        conv.waPresence = presence;
+        conv.waPresenceUpdatedAt = updatedAt;
+        if (lastSeenMs != null && Number.isFinite(lastSeenMs)) {
+            conv.waLastSeenMs = lastSeenMs;
+        } else if (presence === 'unavailable' || presence === 'paused') {
+            conv.waLastSeenMs = conv.waLastSeenMs ?? updatedAt;
+        }
+    }
+
+    function handlePresenceUpdate(instance: string, data: unknown, eventDateIso?: string): void {
+        const batch = parseEvolutionPresenceWebhook(data, eventDateIso);
+        if (!batch || batch.entries.length === 0) return;
+
+        const touched = new Set<string>();
+        for (const entry of batch.entries) {
+            let conversationId = buildConversationId(instance, entry.remoteJid);
+            const existing = conversations.find((c) => c.id === conversationId);
+            conversationId = resolveCanonicalConversationId(
+                instance,
+                conversationId,
+                existing
+                    ? { contactPhone: existing.contactPhone, waJidAlt: existing.waJidAlt }
+                    : undefined
+            );
+            const conv = conversations.find((c) => c.id === conversationId);
+            if (!conv) continue;
+
+            applyPresenceFields(conv, entry.presence, entry.lastSeenMs, batch.updatedAt);
+            touched.add(conversationId);
+        }
+        for (const id of touched) emitConversationDelta(id);
+    }
+
     async function sendMessage(conversationId: string, text: string): Promise<void> {
         const parsed = parseConversationId(conversationId);
         if (!parsed) throw new Error('conversationId inválido');
@@ -1797,6 +1840,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         syncChatsForConnection,
         enrichProfilePicturesForConnection,
         handleWebhookMessage,
+        handlePresenceUpdate,
         appendCampaignOutboundMessage,
         updateMessageStatus,
         sendMessage,
