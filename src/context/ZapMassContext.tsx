@@ -2146,7 +2146,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         {
           timestamp: log.timestamp,
           event: `campaign:${log.level.toLowerCase()}`,
-          payload: { message: log.message, ...log.payload }
+          payload: { ...(log.payload || {}), message: log.message || String((log.payload as { message?: string })?.message || '') }
         },
         ...prev
       ].slice(0, 200));

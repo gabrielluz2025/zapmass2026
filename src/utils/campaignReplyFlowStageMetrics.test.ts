@@ -46,7 +46,7 @@ describe('buildReplyFlowStageFunnels', () => {
     expect(stages[0].replyPct).toBe(100);
   });
 
-  it('conta resposta no fluxo sem currentStep (usa último envio da etapa)', () => {
+  it('conta resposta no fluxo sem currentStep (usa timestamp do envio)', () => {
     const logs = [
       {
         timestamp: '2026-06-01T17:18:00Z',
@@ -73,6 +73,35 @@ describe('buildReplyFlowStageFunnels', () => {
     expect(stages[0].replied).toBe(1);
     expect(stages[0].delivered).toBe(1);
     expect(stages[0].read).toBe(1);
+  });
+
+  it('atribui respostas por etapa com dois envios (fluxo completo)', () => {
+    const phone = '5547999127001';
+    const logs = [
+      {
+        timestamp: '2026-06-04T19:50:24Z',
+        payload: { campaignId: 'c1', message: CAMPAIGN_SENT_LOG_MESSAGE, to: phone, replyFlowStep: 1 }
+      },
+      {
+        timestamp: '2026-06-04T19:50:34Z',
+        payload: { campaignId: 'c1', message: CAMPAIGN_REPLY_LOG_MESSAGE, to: phone, replyPreview: 'oi' }
+      },
+      {
+        timestamp: '2026-06-04T19:50:41Z',
+        payload: { campaignId: 'c1', message: CAMPAIGN_SENT_LOG_MESSAGE, to: phone, replyFlowStep: 2 }
+      },
+      {
+        timestamp: '2026-06-04T19:50:46Z',
+        payload: { campaignId: 'c1', message: CAMPAIGN_REPLY_LOG_MESSAGE, to: phone, replyPreview: 'ok' }
+      }
+    ];
+    const stages = buildReplyFlowStageFunnels('c1', campaign, logs, [{ phone, status: 'SENT' }]);
+    expect(stages[0].sent).toBe(1);
+    expect(stages[0].replied).toBe(1);
+    expect(stages[0].replyPct).toBe(100);
+    expect(stages[1].sent).toBe(1);
+    expect(stages[1].replied).toBe(1);
+    expect(stages[1].replyPct).toBe(100);
   });
 
   it('não conta resposta de outra etapa sem envio correspondente', () => {

@@ -6,6 +6,7 @@ import {
   CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_SENT_LOG_MESSAGE,
   campaignLogPayloadMatchesCampaign,
+  logPayloadPhoneKey,
   type CampaignLogPayloadLike
 } from './campaignReportFromLogs';
 
@@ -33,6 +34,11 @@ const STATUS_RANK: Record<string, number> = {
   FAILED: 0
 };
 
+const REPLY_MESSAGES = new Set([
+  CAMPAIGN_REPLY_LOG_MESSAGE,
+  CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE
+]);
+
 function logPayload(p: unknown): CampaignLogPayloadLike {
   return (p && typeof p === 'object' ? p : {}) as CampaignLogPayloadLike;
 }
@@ -40,34 +46,6 @@ function logPayload(p: unknown): CampaignLogPayloadLike {
 function sentStepFromLog(p: CampaignLogPayloadLike): number | null {
   const explicit = Number(p.replyFlowStep);
   if (Number.isFinite(explicit) && explicit >= 1) return Math.floor(explicit);
-  return null;
-}
-
-function replyStepFromLog(
-  p: CampaignLogPayloadLike,
-  logMessage: string,
-  stageCount: number,
-  lastSentStageByPhone: number | undefined
-): number | null {
-  const fromFlow = Number(p.currentStep);
-  const fromSend = Number(p.replyFlowStep);
-  if (logMessage === CAMPAIGN_REPLY_LOG_MESSAGE) {
-    if (Number.isFinite(fromFlow) && fromFlow >= 1) {
-      return Math.min(Math.floor(fromFlow), stageCount);
-    }
-    if (Number.isFinite(lastSentStageByPhone) && lastSentStageByPhone >= 1) {
-      return Math.min(lastSentStageByPhone, stageCount);
-    }
-    return 1;
-  }
-  if (logMessage === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE) {
-    if (Number.isFinite(fromFlow) && fromFlow >= 1) return Math.min(Math.floor(fromFlow), stageCount);
-    if (Number.isFinite(fromSend) && fromSend >= 1) return Math.min(Math.floor(fromSend), stageCount);
-    if (Number.isFinite(lastSentStageByPhone) && lastSentStageByPhone >= 1) {
-      return Math.min(lastSentStageByPhone, stageCount);
-    }
-    return 1;
-  }
   return null;
 }
 
@@ -100,8 +78,8 @@ function metricsForStagePhones(
 }
 
 /**
- * Métricas por etapa do fluxo por resposta (contatos únicos, não total de envios na fila).
- * Etapa 1 usa também o relatório por contato para entregue/lido.
+ * Métricas por etapa do fluxo por resposta (contatos únicos).
+ * Respostas são atribuídas à etapa cujo envio ocorreu imediatamente antes (por timestamp).
  */
 export function buildReplyFlowStageFunnels(
   campaignId: string,
@@ -115,8 +93,8 @@ export function buildReplyFlowStageFunnels(
   const stageCount = steps.length;
   const sentByStage = Array.from({ length: stageCount }, () => new Set<string>());
   const repliedByStage = Array.from({ length: stageCount }, () => new Set<string>());
+  const sendTsByStage = Array.from({ length: stageCount }, () => new Map<string, number>());
   const sendCountByPhone = new Map<string, number>();
-  const lastSentStageByPhone = new Map<string, number>();
 
   const sortedLogs = [...logs].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -126,39 +104,45 @@ export function buildReplyFlowStageFunnels(
     const p = logPayload(log.payload);
     if (!campaignLogPayloadMatchesCampaign(p, campaignId)) continue;
     const msg = String(p.message || '');
-    const phone = recipientKeyForCampaignReport(String(p.to || p.phoneDigits || ''));
+    const phone = logPayloadPhoneKey(p);
     if (!phone) continue;
+    const ts = new Date(log.timestamp).getTime();
 
-    let sentStep = sentStepFromLog(p);
-    if (sentStep == null && msg === CAMPAIGN_SENT_LOG_MESSAGE) {
-      const n = (sendCountByPhone.get(phone) || 0) + 1;
-      sendCountByPhone.set(phone, n);
-      sentStep = Math.min(n, stageCount);
-    }
-    if (sentStep != null && sentStep >= 1 && sentStep <= stageCount) {
-      sentByStage[sentStep - 1].add(phone);
-      lastSentStageByPhone.set(phone, sentStep);
+    if (msg === CAMPAIGN_SENT_LOG_MESSAGE) {
+      let sentStep = sentStepFromLog(p);
+      if (sentStep == null) {
+        const n = (sendCountByPhone.get(phone) || 0) + 1;
+        sendCountByPhone.set(phone, n);
+        sentStep = Math.min(n, stageCount);
+      }
+      if (sentStep >= 1 && sentStep <= stageCount) {
+        const idx = sentStep - 1;
+        sentByStage[idx].add(phone);
+        const prev = sendTsByStage[idx].get(phone);
+        if (prev == null || ts < prev) sendTsByStage[idx].set(phone, ts);
+      }
+      continue;
     }
 
-    const replyStep = replyStepFromLog(p, msg, stageCount, lastSentStageByPhone.get(phone));
-    if (replyStep != null && replyStep >= 1 && replyStep <= stageCount) {
-      const stageIdx = replyStep - 1;
-      if (
-        msg === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE ||
-        msg === CAMPAIGN_REPLY_LOG_MESSAGE
-      ) {
-        if (sentByStage[stageIdx].has(phone)) {
-          repliedByStage[stageIdx].add(phone);
-        } else {
-          for (let i = stageCount - 1; i >= 0; i--) {
-            if (sentByStage[i].has(phone)) {
-              repliedByStage[i].add(phone);
-              break;
-            }
-          }
+    if (!REPLY_MESSAGES.has(msg)) continue;
+
+    let stageIdx = -1;
+    for (let i = stageCount - 1; i >= 0; i--) {
+      const sendTs = sendTsByStage[i].get(phone);
+      if (sendTs != null && sendTs <= ts + 500) {
+        stageIdx = i;
+        break;
+      }
+    }
+    if (stageIdx < 0) {
+      for (let i = stageCount - 1; i >= 0; i--) {
+        if (sentByStage[i].has(phone)) {
+          stageIdx = i;
+          break;
         }
       }
     }
+    if (stageIdx >= 0) repliedByStage[stageIdx].add(phone);
   }
 
   const reportByPhone = new Map<string, string>();

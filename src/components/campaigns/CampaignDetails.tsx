@@ -54,6 +54,7 @@ import {
   CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE,
   CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_SENT_LOG_MESSAGE,
+  campaignLogPayloadMatchesCampaign,
   campaignReportReplyDetailLabel,
   logPayloadPhoneKey,
   sumCampaignGeoStats
@@ -509,7 +510,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const cid = campaign.id;
     const belongsToCampaign = (l: SystemLog) => {
       if (!l.payload || typeof l.payload !== 'object') return false;
-      return (l.payload as { campaignId?: string }).campaignId === cid;
+      return campaignLogPayloadMatchesCampaign(l.payload as { campaignId?: string }, cid);
     };
     const dedupeKey = (l: SystemLog) => {
       const p = (l.payload || {}) as { to?: string; phoneDigits?: string; message?: string };
@@ -533,6 +534,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     }
     return out;
   }, [systemLogs, persistedLogs, campaign.id]);
+
+  const scopedCampaignLogs = useMemo(
+    () => filterLogsForCampaignView(logsForReport, campaign.id, campaignCreatedAtMs(campaign)),
+    [logsForReport, campaign.id, campaign.createdAt]
+  );
 
   useEffect(() => {
     if (!useVpsData() || !campaign.id) {
@@ -633,14 +639,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   // Detailed report — escopo estrito: só destinatários desta campanha
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
-    const createdMs = campaignCreatedAtMs(campaign);
-    const scopedLogs = filterLogsForCampaignView(logsForReport, campaign.id, createdMs);
+    const scopedLogs = scopedCampaignLogs;
     const sentPhones = collectSentPhonesFromCampaignLogs(scopedLogs, campaign.id);
     const plannedPhones = collectPlannedRecipientPhones(campaign, contacts, contactLists);
     const phoneInScope = (phone: string) =>
       isPhoneInCampaignReportScope(phone, sentPhones, plannedPhones);
 
-    const replyHints = buildReplyHintsFromLogs(scopedLogs, campaign.id, sentPhones);
+    const replyHints = buildReplyHintsFromLogs(scopedLogs, campaign.id);
     const byPhone = new Map<string, ReportRow>();
 
     scopedLogs.forEach((log, idx) => {
@@ -653,7 +658,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         error?: string;
         connectionId?: string;
       };
-      if (p.campaignId !== campaign.id) return;
+      if (!campaignLogPayloadMatchesCampaign(p, campaign.id)) return;
 
       const isError = log.event.includes('error') || log.event.includes('warn');
       const isSent = p.message === CAMPAIGN_SENT_LOG_MESSAGE;
@@ -697,7 +702,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         connectionId?: string;
         replyPreview?: string;
       };
-      if (p.campaignId !== campaign.id) return;
+      if (!campaignLogPayloadMatchesCampaign(p, campaign.id)) return;
       const isReplyLog =
         p.message === CAMPAIGN_REPLY_LOG_MESSAGE ||
         p.message === CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE;
@@ -705,7 +710,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
       const phone = logPayloadPhoneKey(p);
       if (!phone) return;
-      if (sentPhones.size > 0 && !sentPhones.has(phone)) return;
 
       const existing = byPhone.get(phone);
       const ts = new Date(log.timestamp).getTime();
@@ -915,7 +919,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }))
     );
   }, [
-    logsForReport,
+    scopedCampaignLogs,
     campaign,
     contacts,
     contactLists,
@@ -961,7 +965,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const failedPerChip = new Map<string, number>();
     const perHour = new Map<number, number>();
 
-    const replyPhonesFromLogs = buildReplyHintsFromLogs(logsForReport, campaign.id);
+    const replyPhonesFromLogs = buildReplyHintsFromLogs(scopedCampaignLogs, campaign.id);
     for (const r of detailedReport) {
       const rk = recipientKeyForCampaignReport(r.phone);
       const effectiveStatus =
@@ -1019,7 +1023,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       successPct, deliveryPct, readPct, replyPct,
       avgResponseSec, chipBreakdown, hourBreakdown, peakHour, failedPerChip
     };
-  }, [detailedReport, connections, logsForReport, campaign.id]);
+  }, [detailedReport, connections, scopedCampaignLogs, campaign.id]);
 
   const metrics = useMemo(
     () =>
@@ -1039,12 +1043,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   const replyFlowStages = useMemo(() => {
     if (!isReplyFlowCampaign(campaign)) return [];
-    const stageLogs = logsForReport
-      .filter((l) => l.payload && typeof l.payload === 'object')
-      .filter((l) => (l.payload as { campaignId?: string }).campaignId === campaign.id)
-      .map((l) => ({ timestamp: l.timestamp, payload: l.payload }));
+    const stageLogs = scopedCampaignLogs.map((l) => ({
+      timestamp: l.timestamp,
+      payload: l.payload
+    }));
     return buildReplyFlowStageFunnels(campaign.id, campaign, stageLogs, detailedReport);
-  }, [campaign, logsForReport, detailedReport]);
+  }, [campaign, scopedCampaignLogs, detailedReport]);
 
   const useReplyFlowPrimaryFunnel = replyFlowStages.length > 0;
 
@@ -1190,13 +1194,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const pendingKpi = isDone ? 0 : isRunning ? Math.max(remaining, pendingLive) : remaining;
   const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
 
-  const campaignLogs = useMemo(() => {
-    return logsForReport.filter((log) => {
-      if (!log.payload || typeof log.payload !== 'object') return false;
-      const payload = log.payload as { campaignId?: string };
-      return payload.campaignId === campaign.id;
-    });
-  }, [logsForReport, campaign.id]);
+  const campaignLogs = useMemo(() => scopedCampaignLogs, [scopedCampaignLogs]);
 
   const filteredCampaignLogs = useMemo(() => {
     if (logFilter === 'ALL') return campaignLogs;
