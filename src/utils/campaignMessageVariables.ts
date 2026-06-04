@@ -1,3 +1,4 @@
+import { resolveCampaignSpintax } from '../../shared/campaignSpintax';
 import { campaignClockVars } from './campaignClockVars';
 
 /** Variáveis inseríveis no texto de campanha (substituição no servidor via `applyMessageVars`). */
@@ -25,7 +26,7 @@ export const WIZARD_CAMPAIGN_VARS_FICHA: string[] = [
 /** Pré-visualização local no assistente (contato fictício + relógio de Brasília agora para data/hora/saudação). */
 export function applyCampaignMessagePreviewVars(text: string): string {
   const { data, horario, hora, saudacao } = campaignClockVars();
-  return text
+  const withVars = text
     .replace(/\{nome_completo\}/g, 'Maria Silva Santos')
     .replace(/\{nome\}/g, 'Maria')
     .replace(/\{telefone\}/g, '(11) 98888-7777')
@@ -42,6 +43,7 @@ export function applyCampaignMessagePreviewVars(text: string): string {
     .replace(/\{horario\}/g, horario)
     .replace(/\{saudacao\}/g, saudacao)
     .replace(/\{hora\}/g, hora);
+  return resolveCampaignSpintax(withVars, 0);
 }
 
 export function insertCampaignTokenIntoTextarea(

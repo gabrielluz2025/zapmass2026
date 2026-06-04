@@ -24,6 +24,7 @@ import {
 } from './campaignTenantScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
+import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
@@ -4371,7 +4372,12 @@ const buildRecipientVarsMap = (recipients?: CampaignRecipient[]): Map<string, Re
     return map;
 };
 
-const applyMessageVars = (template: string, phone: string, vars: Record<string, string> = {}): string => {
+const applyMessageVars = (
+    template: string,
+    phone: string,
+    vars: Record<string, string> = {},
+    rotationIndex?: number
+): string => {
     /** Data/hora/saudação em Brasília no instante da personalização (filas/disparos). Recipient pode sobrescrever via vars explícitos. */
     const clock = campaignClockVars();
     const safeVars: Record<string, string> = {
@@ -4387,7 +4393,11 @@ const applyMessageVars = (template: string, phone: string, vars: Record<string, 
         const v = safeVars[key.toLowerCase()];
         return typeof v === 'string' ? v : match;
     });
-    return out;
+    const rot =
+        typeof rotationIndex === 'number' && Number.isFinite(rotationIndex)
+            ? Math.floor(rotationIndex)
+            : campaignRotationIndexFromPhone(phone);
+    return resolveCampaignSpintax(out, rot);
 };
 
 type ReplyFlowStepOption = {
@@ -5077,7 +5087,7 @@ export const startCampaign = async (
         let addedForNumber = 0;
         const hasMedia = !!(campaignId && campaignMediaById.has(campaignId));
         if (useReplyFlow) {
-            const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
+            const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, index);
             enqueueQueueItem({
                 to: num,
                 message: personalizedMessage,
@@ -5093,7 +5103,7 @@ export const startCampaign = async (
             addedForNumber = 1;
         } else {
             templates.forEach((template, stageIndex) => {
-                const personalizedMessage = applyMessageVars(template, cleanPhone, vars);
+                const personalizedMessage = applyMessageVars(template, cleanPhone, vars, index);
 
                 enqueueQueueItem({
                     to: num,

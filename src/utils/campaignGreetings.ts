@@ -29,12 +29,18 @@ function normalizeItems(items: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of items) {
-    const t = String(raw || '').trim();
-    if (!t || t.length > 48) continue;
-    const key = t.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(t);
+    const base = String(raw || '').trim();
+    if (!base) continue;
+    const parts = base.includes(',') ? base.split(',').map((s) => s.trim()) : [base];
+    for (const part of parts) {
+      const t = part.replace(/[!?.]+$/u, '').trim();
+      if (!t || t.length > 48) continue;
+      const key = t.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+      if (out.length >= 32) break;
+    }
     if (out.length >= 32) break;
   }
   return out;

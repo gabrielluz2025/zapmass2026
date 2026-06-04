@@ -5,7 +5,7 @@ export default defineConfig({
     environment: 'node',
     pool: 'forks',
     fileParallelism: false,
-    include: ['server/**/*.test.ts', 'src/**/*.test.ts'],
+    include: ['server/**/*.test.ts', 'src/**/*.test.ts', 'shared/**/*.test.ts'],
     passWithNoTests: true
   }
 });

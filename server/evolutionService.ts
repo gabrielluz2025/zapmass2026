@@ -3111,7 +3111,7 @@ export async function startCampaign(
             const staggerDelay = i * dispatchSettings.minDelayMs;
 
             if (useReplyFlow) {
-                const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars);
+                const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
                 await enqueueCampaignItem(
                     {
                         connectionId: assignedConnectionId,
@@ -3131,7 +3131,7 @@ export async function startCampaign(
                 );
             } else {
                 for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
-                    const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars);
+                    const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars, i);
                     // Delay entre etapas: usa o mesmo intervalo configurado entre contatos.
                     const interStageMinDelay = dispatchSettings.minDelayMs;
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;

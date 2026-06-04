@@ -1,3 +1,4 @@
+import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { fetchCampaignDoc, usePostgresCampaigns } from './campaignStore.js';
@@ -86,7 +87,8 @@ export const buildRecipientVarsMap = (
 export const applyMessageVars = (
     template: string,
     phone: string,
-    vars: Record<string, string> = {}
+    vars: Record<string, string> = {},
+    rotationIndex?: number
 ): string => {
     const clock = campaignClockVars();
     const safeVars: Record<string, string> = {
@@ -102,7 +104,11 @@ export const applyMessageVars = (
         const v = safeVars[key.toLowerCase()];
         return typeof v === 'string' ? v : match;
     });
-    return out;
+    const rot =
+        typeof rotationIndex === 'number' && Number.isFinite(rotationIndex)
+            ? Math.floor(rotationIndex)
+            : campaignRotationIndexFromPhone(phone);
+    return resolveCampaignSpintax(out, rot);
 };
 
 export const sanitizeReplyFlowSteps = (

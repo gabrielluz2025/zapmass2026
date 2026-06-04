@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Check, FolderPlus, Plus, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { buildCampaignSpintax } from '../../../shared/campaignSpintax';
 import {
   createCampaignGreetingKit,
   loadCampaignGreetingKits,
@@ -79,8 +80,11 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
     toast.success('Conjunto removido.');
   };
 
-  const insertPhrase = (phrase: string) => {
-    onInsert(phrase.endsWith(' ') ? phrase : `${phrase} `);
+  const insertPhrase = () => {
+    if (!activeKit) return;
+    const token = buildCampaignSpintax(activeKit.items);
+    if (!token) return;
+    onInsert(token.endsWith(' ') ? token : `${token} `);
   };
 
   return (
@@ -192,21 +196,39 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
           {activeKit && activeKit.items.length > 0 && (
             <>
               <p className="cw-vars-group-label">
-                {kits.length > 1 ? `Frases — ${activeKit.name}` : 'Clique para inserir'}
+                {activeKit.items.length > 1
+                  ? 'Rodízio — cada contato recebe uma saudação'
+                  : 'Clique para inserir'}
               </p>
               <div className="flex flex-wrap gap-1">
-                {activeKit.items.map((g) => (
+                {activeKit.items.length > 1 ? (
                   <button
-                    key={`${activeKit.id}-${g}`}
                     type="button"
                     className="cw-vars-chip cw-vars-chip--greeting"
-                    onClick={() => insertPhrase(g)}
-                    title={`Inserir "${g}" no texto`}
+                    onClick={insertPhrase}
+                    title={`Inserir rodízio: ${activeKit.items.join(' / ')}`}
                   >
-                    {g}
+                    {activeKit.items.join(' · ')}
                   </button>
-                ))}
+                ) : (
+                  activeKit.items.map((g) => (
+                    <button
+                      key={`${activeKit.id}-${g}`}
+                      type="button"
+                      className="cw-vars-chip cw-vars-chip--greeting"
+                      onClick={insertPhrase}
+                      title={`Inserir "${g}" no texto`}
+                    >
+                      {g}
+                    </button>
+                  ))
+                )}
               </div>
+              {activeKit.items.length > 1 && (
+                <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
+                  No envio: uma opção por pessoa ({'{'}Olá|Oi|…{'}'}).
+                </p>
+              )}
             </>
           )}
         </>
