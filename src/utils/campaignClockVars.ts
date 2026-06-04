@@ -1,6 +1,7 @@
 /**
- * Valores `{data}`, `{horario}`, `{saudacao}` para campanhas — fuso America/Sao_Paulo.
- * Usado no servidor ao personalizar texto e na pré-visualização local do assistente.
+ * Valores de data/hora para campanhas — fuso America/Sao_Paulo.
+ * `{horario}` e `{saudacao}` = Bom dia / Boa tarde / Boa noite conforme o horário.
+ * `{hora}` = relógio (HH:mm).
  */
 export const CAMPAIGN_CLOCK_TIMEZONE = 'America/Sao_Paulo';
 
@@ -22,16 +23,16 @@ export function saudacaoFromHourBrazil(hour: number): string {
   return 'Boa noite';
 }
 
-/** Data (dd/mm/aaaa), horário (HH:mm) e saudação no instante `at`. */
+/** Data (dd/mm/aaaa), período do dia e hora civil no instante `at`. */
 export function campaignClockVars(at: Date = new Date()): Record<string, string> {
   const tz = CAMPAIGN_CLOCK_TIMEZONE;
   const data = at.toLocaleDateString('pt-BR', { timeZone: tz });
-  const horario = at.toLocaleTimeString('pt-BR', {
+  const hora = at.toLocaleTimeString('pt-BR', {
     timeZone: tz,
     hour: '2-digit',
     minute: '2-digit'
   });
   const hour = hourInTimeZone(at, tz);
-  const saudacao = saudacaoFromHourBrazil(hour);
-  return { data, horario, saudacao };
+  const periodo = saudacaoFromHourBrazil(hour);
+  return { data, hora, horario: periodo, saudacao: periodo };
 }

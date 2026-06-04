@@ -3353,6 +3353,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      followUpMediaAttachment?: {
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        sendMediaAsDocument?: boolean;
+      };
     }
   ) => {
     const uid = currentUidRef.current;
@@ -3440,7 +3446,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     try {
       const ackTimeoutMs = startCampaignAckTimeoutMs(
-        options?.mediaAttachment,
+        options?.mediaAttachment || options?.followUpMediaAttachment,
         targetConnections.length
       );
       const response = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
@@ -3495,7 +3501,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             delaySeconds: options?.delaySeconds,
             recipients: cleanRecipients,
             channelWeights: options?.channelWeights,
-            mediaAttachment: options?.mediaAttachment
+            mediaAttachment: options?.mediaAttachment,
+            followUpMediaAttachment: options?.followUpMediaAttachment
           },
           (result?: { ok?: boolean; error?: string }) => {
             if (result?.ok === true) {

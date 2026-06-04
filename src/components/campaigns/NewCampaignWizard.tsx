@@ -52,8 +52,6 @@ import {
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
-import { CampaignFlowModePicker } from './CampaignFlowModePicker';
-import { CampaignMessageComposer } from './CampaignMessageComposer';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
@@ -150,6 +148,13 @@ interface NewCampaignWizardProps {
       /** Quando true, força envio como documento para aumentar a entregabilidade. */
       sendMediaAsDocument?: boolean;
     };
+    /** Mídia da mensagem automática após a resposta (fluxo por respostas). */
+    followUpMediaAttachment?: {
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      sendMediaAsDocument?: boolean;
+    };
   }) => Promise<void>;
   /** Reidrata o assistente (clone / modelo). */
   initialDraft?: CampaignWizardDraft | null;
@@ -181,7 +186,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [name, setName] = useState('');
   const [messageStages, setMessageStages] = useState<MessageStageDraft[]>(() => [newMessageStage(), newMessageStage()]);
   const [activeStageIdx, setActiveStageIdx] = useState(0);
-  const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('sequential');
+  const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('reply');
   const [selectedListId, setSelectedListId] = useState('');
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   /** Distribuição de carga entre chips (somente modo sequencial, 2+ conectados). */
@@ -248,12 +253,24 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     sendAsDocument: boolean;
   } | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const [followUpAttachment, setFollowUpAttachment] = useState<{
+    file: File;
+    previewUrl: string | null;
+    sendAsDocument: boolean;
+  } | null>(null);
+  const followUpAttachmentInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     return () => {
       if (campaignAttachment?.previewUrl) URL.revokeObjectURL(campaignAttachment.previewUrl);
     };
   }, [campaignAttachment]);
+
+  useEffect(() => {
+    return () => {
+      if (followUpAttachment?.previewUrl) URL.revokeObjectURL(followUpAttachment.previewUrl);
+    };
+  }, [followUpAttachment]);
 
   const onPickAttachment = (file?: File | null) => {
     if (!file) return;
@@ -284,6 +301,35 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const removeAttachment = () => {
     if (campaignAttachment?.previewUrl) URL.revokeObjectURL(campaignAttachment.previewUrl);
     setCampaignAttachment(null);
+  };
+
+  const onPickFollowUpAttachment = (file?: File | null) => {
+    if (!file) return;
+    if (file.size > CAMPAIGN_ATTACHMENT_LIMIT_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      toast.error(
+        `Arquivo de ${sizeMb} MB excede o limite de ${CAMPAIGN_ATTACHMENT_LIMIT_MB} MB.`,
+        { duration: 6000 }
+      );
+      if (followUpAttachmentInputRef.current) followUpAttachmentInputRef.current.value = '';
+      return;
+    }
+    const sendAsDocument = mediaShouldSendAsDocument(file);
+    const fallbackHint = explainWhatsAppMediaFallback(file);
+    if (fallbackHint) toast(fallbackHint, { duration: 7000 });
+    if (followUpAttachment?.previewUrl) URL.revokeObjectURL(followUpAttachment.previewUrl);
+    const isMedia = file.type.startsWith('image/') || file.type.startsWith('video/');
+    setFollowUpAttachment({
+      file,
+      previewUrl: isMedia ? URL.createObjectURL(file) : null,
+      sendAsDocument
+    });
+    if (followUpAttachmentInputRef.current) followUpAttachmentInputRef.current.value = '';
+  };
+
+  const removeFollowUpAttachment = () => {
+    if (followUpAttachment?.previewUrl) URL.revokeObjectURL(followUpAttachment.previewUrl);
+    setFollowUpAttachment(null);
   };
 
   /** Le o arquivo do anexo como base64 para enviar pelo socket. */
@@ -877,8 +923,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     messageStages.length > 0 &&
     messageStages.every((s) => s.body.trim().length > 0) &&
     replyFlowGatesOk &&
-    (campaignFlowMode !== 'reply' || 
-      (messageStages[0]?.optionsMode === 'conditional' ? messageStages.length >= 1 : messageStages.length >= 2));
+    (messageStages[0]?.optionsMode === 'conditional' ? messageStages.length >= 1 : messageStages.length >= 2);
   const canGoFromChannels = connectedIds.length > 0;
   const abLabOk =
     !abLabEnabled ||
@@ -1054,51 +1099,70 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
      * o base64 no Firestore (limite de doc ~1 MB) ou subir para Storage.
      * Vamos avisar o usuario para escolher: ou tira o anexo ou tira o agendamento.
      */
-    if (campaignAttachment && launchMode === 'schedule') {
+    if ((campaignAttachment || followUpAttachment) && launchMode === 'schedule') {
       toast.error(
         'Anexos so funcionam em disparo imediato. Remova o anexo ou desative o agendamento.',
         { duration: 7000 }
       );
       return;
     }
-    let mediaPayload:
+    const buildMediaPayload = async (
+      att: { file: File; sendAsDocument: boolean } | null
+    ): Promise<
       | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
-      | undefined;
-    if (campaignAttachment?.file) {
-      const prepToast = 'campaign-attachment-prep';
+      | undefined
+    > => {
+      if (!att?.file) return undefined;
+      const prepToast = `campaign-attachment-prep-${Math.random().toString(36).slice(2, 8)}`;
       try {
         toast.loading('A preparar anexo…', { id: prepToast, duration: 60000 });
-        const prep = await prepareCampaignAttachmentForSend(campaignAttachment.file);
+        const prep = await prepareCampaignAttachmentForSend(att.file);
         toast.dismiss(prepToast);
-        for (const h of prep.hints) {
-          toast(h, { duration: 6000 });
-        }
+        for (const h of prep.hints) toast(h, { duration: 6000 });
         const read = await readAttachmentAsBase64(prep.file);
-        mediaPayload = {
+        return {
           ...read,
           ...(prep.sendMediaAsDocument ? { sendMediaAsDocument: true } : {})
         };
       } catch (err) {
         toast.dismiss(prepToast);
-        const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
-        toast.error(m);
-        return;
+        throw err;
       }
+    };
+    let mediaPayload:
+      | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
+      | undefined;
+    let followUpMediaPayload:
+      | { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
+      | undefined;
+    try {
+      mediaPayload = await buildMediaPayload(campaignAttachment);
+      followUpMediaPayload = await buildMediaPayload(followUpAttachment);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
+      toast.error(m);
+      return;
     }
     const stagesBodies = messageStages.map((s) => s.body.trim()).filter((b) => b.length > 0);
-    const replyFlow: CampaignReplyFlow | undefined =
-      campaignFlowMode === 'reply'
-        ? {
-            enabled: true,
-            steps: messageStages.map((s) => ({
-              body: s.body.trim(),
-              acceptAnyReply: s.acceptAnyReply,
-              validTokens: parseValidTokensText(s.validTokensText),
-              invalidReplyBody: s.invalidReplyBody.trim(),
-              marketingEffect: s.marketingEffect ?? 'none'
-            }))
-          }
-        : undefined;
+    const replyFlow: CampaignReplyFlow = {
+      enabled: true,
+      steps: messageStages.map((s) => ({
+        body: s.body.trim(),
+        acceptAnyReply: s.acceptAnyReply,
+        validTokens: parseValidTokensText(s.validTokensText),
+        invalidReplyBody: s.invalidReplyBody.trim(),
+        marketingEffect: s.marketingEffect ?? 'none',
+        ...(Array.isArray(s.options) && s.options.length > 0
+          ? {
+              options: s.options.map((opt) => ({
+                tokens: parseValidTokensText(opt.tokensText),
+                reply: opt.reply.trim(),
+                marketingEffect: opt.marketingEffect ?? 'none'
+              }))
+            }
+          : {})
+      }))
+    };
     const contactListMeta =
       sendMode === 'list' && selectedList
         ? { id: selectedList.id, name: selectedList.name }
@@ -1117,8 +1181,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         recipients: buildRecipients(),
         contactListMeta,
         delaySeconds,
-        ...(campaignFlowMode === 'sequential' ? { channelWeights: buildChannelWeightsPayload() } : {}),
-        ...(mediaPayload ? { mediaAttachment: mediaPayload } : {})
+        ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
+        ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {})
       };
       if (launchMode === 'schedule' && !abLabEnabled) {
         await onSubmit({
@@ -1807,7 +1871,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <div>
                   <h3 className="ui-title text-[15px] mb-0.5">Qual a mensagem?</h3>
                   <p className="ui-subtitle text-[12px]">
-                    Defina o nome, o modo de envio e o conteúdo. Personalize com variáveis da sua base.
+                    Mensagem de abertura, regra de resposta e próxima mensagem automática. Use saudações e variáveis.
                   </p>
                 </div>
               </div>
@@ -1821,79 +1885,24 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 />
               </div>
 
-              <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
-
-              {campaignFlowMode === 'sequential' ? (
-                <div className="cw-msg-section">
-                  <p className="cw-msg-section-title">Etapas da sequência</p>
-                  <div className="cw-stage-rail">
-                    {messageStages.map((st, idx) => (
-                      <span key={st.id} className="inline-flex items-center gap-0.5">
-                        <button
-                          type="button"
-                          className="cw-stage-pill"
-                          data-active={idx === activeStageIdx ? 'true' : 'false'}
-                          onClick={() => setActiveStageIdx(idx)}
-                        >
-                          Etapa {idx + 1}
-                        </button>
-                        {messageStages.length > 1 && (
-                          <button
-                            type="button"
-                            aria-label={`Remover etapa ${idx + 1}`}
-                            onClick={() => removeMessageStage(idx)}
-                            className="p-1 rounded-md"
-                            style={{ color: 'var(--text-3)' }}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      leftIcon={<Plus className="w-3.5 h-3.5" />}
-                      onClick={addMessageStage}
-                    >
-                      Nova etapa
-                    </Button>
-                  </div>
-                  <CampaignMessageComposer
-                    label={`Mensagem — etapa ${activeStageIdx + 1}`}
-                    placeholder="Olá {nome}! Temos uma oferta especial para você em {cidade}..."
-                    body={activeMessageBody}
-                    onBodyChange={setActiveMessageBody}
-                    textareaRef={msgRef}
-                    textareaKey={messageStages[activeStageIdx]?.id}
-                    onInsertVariable={insertVariable}
-                    onApplyTemplate={(body) => setActiveMessageBody(body)}
-                    showAttachment={activeStageIdx === 0}
-                    attachment={campaignAttachment}
-                    attachmentInputRef={attachmentInputRef}
-                    onPickAttachment={onPickAttachment}
-                    onRemoveAttachment={removeAttachment}
-                    launchMode={launchMode}
-                    minHeight={160}
-                  />
-                </div>
-              ) : (
-                <CampaignReplyFlowEditor
-                  stages={messageStages}
-                  setStages={setMessageStages}
-                  msgRef={msgRef}
-                  invalidReplyRef={invalidReplyRef}
-                  attachment={campaignAttachment}
-                  attachmentInputRef={attachmentInputRef}
-                  onPickAttachment={onPickAttachment}
-                  onRemoveAttachment={removeAttachment}
-                  launchMode={launchMode}
-                  newStageOption={newMessageStageOption}
-                  newMessageStage={newMessageStage}
-                  onInsertInvalidVariable={insertInvalidReplyVariable}
-                />
-              )}
+              <CampaignReplyFlowEditor
+                stages={messageStages}
+                setStages={setMessageStages}
+                msgRef={msgRef}
+                invalidReplyRef={invalidReplyRef}
+                attachment={campaignAttachment}
+                attachmentInputRef={attachmentInputRef}
+                onPickAttachment={onPickAttachment}
+                onRemoveAttachment={removeAttachment}
+                followUpAttachment={followUpAttachment}
+                followUpAttachmentInputRef={followUpAttachmentInputRef}
+                onPickFollowUpAttachment={onPickFollowUpAttachment}
+                onRemoveFollowUpAttachment={removeFollowUpAttachment}
+                launchMode={launchMode}
+                newStageOption={newMessageStageOption}
+                newMessageStage={newMessageStage}
+                onInsertInvalidVariable={insertInvalidReplyVariable}
+              />
 
               <div className="cw-msg-footer">
                 <Button

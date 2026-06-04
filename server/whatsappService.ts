@@ -25,6 +25,7 @@ import {
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
+import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 import {
     appendChatArchiveMessages,
@@ -685,6 +686,8 @@ interface QueueItem {
      * `queueCampaignId` para nao duplicar megabytes em cada item da fila.
      */
     sendAsMedia?: boolean;
+    /** Chave em `campaignMediaById` (pode diferir de `queueCampaignId` no follow-up). */
+    mediaStorageKey?: string;
 }
 
 /**
@@ -705,7 +708,7 @@ const MEDIA_CHANNEL_COOLDOWN_MS = 3500;
 const mediaChannelNextAvailableAt = new Map<string, number>();
 
 const isMediaQueueItem = (item: QueueItem | undefined | null): boolean =>
-    Boolean(item?.sendAsMedia && item?.queueCampaignId);
+    Boolean(item?.sendAsMedia && (item?.mediaStorageKey || item?.queueCampaignId));
 
 const enqueueQueueItem = (item: QueueItem) => {
     if (isMediaQueueItem(item)) mediaQueue.push(item);
@@ -4849,12 +4852,18 @@ const handleReplyFlowIncoming = async (
     const sessionPhoneKey = key.startsWith(`${connectionId}:`)
         ? key.slice(connectionId.length + 1)
         : phoneDigits;
+    const stepMediaKey = session.campaignId
+        ? campaignMediaStorageKey(session.campaignId, nextIdx)
+        : '';
+    const hasStepMedia = Boolean(stepMediaKey && campaignMediaById.has(stepMediaKey));
     void enqueueReplyFlowOutbound({
         to: session.toRaw,
         message: nextBody,
         connectionId,
         status: 'PENDING',
         queueCampaignId: session.campaignId,
+        sendAsMedia: hasStepMedia,
+        mediaStorageKey: hasStepMedia ? stepMediaKey : undefined,
         replyFlowAfterSend: { phoneDigits: sessionPhoneKey, newAwaitingAfterStep: nextIdx }
     });
 };
@@ -4898,7 +4907,8 @@ export const startCampaign = async (
     },
     ownerUidHint?: string,
     channelWeights?: Record<string, number>,
-    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
+    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean },
+    followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
 ): Promise<boolean> => {
     if (connectionIds.length === 0) return false;
     /**
@@ -4907,13 +4917,21 @@ export const startCampaign = async (
      * recuperar a midia na hora do envio — assim nao duplicamos megabytes
      * em cada destinatario.
      */
-    if (mediaAttachment && campaignId) {
-        campaignMediaById.set(campaignId, {
-            dataBase64: mediaAttachment.dataBase64,
-            mimeType: mediaAttachment.mimeType,
-            fileName: mediaAttachment.fileName || 'anexo',
-            ...(mediaAttachment.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {})
+    const storeCampaignMedia = (
+        key: string,
+        media?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean }
+    ) => {
+        if (!key || !media) return;
+        campaignMediaById.set(key, {
+            dataBase64: media.dataBase64,
+            mimeType: media.mimeType,
+            fileName: media.fileName || 'anexo',
+            ...(media.sendMediaAsDocument === true ? { sendMediaAsDocument: true } : {})
         });
+    };
+    if (campaignId) {
+        storeCampaignMedia(campaignId, mediaAttachment);
+        storeCampaignMedia(campaignMediaStorageKey(campaignId, 1), followUpMediaAttachment);
     }
 
     const sanitizedReplySteps =
@@ -5315,8 +5333,9 @@ const processQueue = async () => {
              */
             let payloadToSend: any = item.message;
             let sendOptsToUse: any = CAMPAIGN_TEXT_SEND_OPTS;
-            if (item.sendAsMedia && item.queueCampaignId) {
-                const media = campaignMediaById.get(item.queueCampaignId);
+            if (item.sendAsMedia) {
+                const mediaKey = item.mediaStorageKey || item.queueCampaignId;
+                const media = mediaKey ? campaignMediaById.get(mediaKey) : undefined;
                 if (media) {
                     try {
                         payloadToSend = new MessageMedia(

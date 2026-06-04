@@ -33,6 +33,10 @@ type Props = {
   attachmentInputRef: React.RefObject<HTMLInputElement | null>;
   onPickAttachment: (file: File | null) => void;
   onRemoveAttachment: () => void;
+  followUpAttachment?: CampaignAttachmentState | null;
+  followUpAttachmentInputRef?: React.RefObject<HTMLInputElement | null>;
+  onPickFollowUpAttachment?: (file: File | null) => void;
+  onRemoveFollowUpAttachment?: () => void;
   launchMode?: 'now' | 'schedule';
   newStageOption: () => ReplyStageOption;
   newMessageStage: () => ReplyMessageStage;
@@ -48,6 +52,10 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   attachmentInputRef,
   onPickAttachment,
   onRemoveAttachment,
+  followUpAttachment,
+  followUpAttachmentInputRef,
+  onPickFollowUpAttachment,
+  onRemoveFollowUpAttachment,
   launchMode,
   newStageOption,
   newMessageStage,
@@ -215,14 +223,27 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
             <div className="space-y-3">
               <CampaignMessageComposer
                 label="Texto da resposta automática"
-                placeholder="Obrigado por responder! Aqui estão as informações..."
+                placeholder="{horario} {nome}! Obrigado por responder. Aqui estão as informações..."
                 body={second?.body || ''}
                 onBodyChange={setSecondBody}
                 onInsertVariable={(variable) =>
                   insertCampaignTokenIntoTextarea(null, second?.body || '', variable, setSecondBody)
                 }
-                variablesDensity="compact"
+                variablesDensity="full"
                 showIdeas={false}
+                showGreetingPicker
+                showAttachment={
+                  Boolean(
+                    followUpAttachmentInputRef &&
+                      onPickFollowUpAttachment &&
+                      onRemoveFollowUpAttachment
+                  )
+                }
+                attachment={followUpAttachment ?? null}
+                attachmentInputRef={followUpAttachmentInputRef}
+                onPickAttachment={onPickFollowUpAttachment}
+                onRemoveAttachment={onRemoveFollowUpAttachment}
+                launchMode={launchMode}
                 minHeight={110}
               />
               <div className="pt-2 border-t border-[var(--border-subtle)]">

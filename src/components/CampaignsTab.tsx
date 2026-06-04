@@ -228,6 +228,12 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       fileName: string;
       sendMediaAsDocument?: boolean;
     };
+    followUpMediaAttachment?: {
+      dataBase64: string;
+      mimeType: string;
+      fileName: string;
+      sendMediaAsDocument?: boolean;
+    };
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -270,7 +276,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,
                 channelWeights: payload.channelWeights,
-                mediaAttachment: payload.mediaAttachment
+                mediaAttachment: payload.mediaAttachment,
+                followUpMediaAttachment: payload.followUpMediaAttachment
               }
             );
       appendAudit({

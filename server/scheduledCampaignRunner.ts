@@ -282,6 +282,7 @@ async function processOneCampaign(
         ownerUid,
         scheduledWeights,
         undefined,
+        undefined,
         Number.isFinite(delaySeconds) && delaySeconds > 0 ? delaySeconds : undefined
       );
       if (!started) {

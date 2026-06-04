@@ -1,5 +1,7 @@
 import React from 'react';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
+import { CampaignGreetingPicker } from './CampaignGreetingPicker';
+import { insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 import { SegmentCampaignIdeas } from '../segment/SegmentCampaignIdeas';
 import { Textarea } from '../ui';
 import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
@@ -23,6 +25,7 @@ type Props = {
   onRemoveAttachment?: () => void;
   launchMode?: 'now' | 'schedule';
   minHeight?: number;
+  showGreetingPicker?: boolean;
 };
 
 export const CampaignMessageComposer: React.FC<Props> = ({
@@ -42,8 +45,18 @@ export const CampaignMessageComposer: React.FC<Props> = ({
   onPickAttachment,
   onRemoveAttachment,
   launchMode,
-  minHeight = 140
-}) => (
+  minHeight = 140,
+  showGreetingPicker = true
+}) => {
+  const insertGreeting = (text: string) => {
+    if (textareaRef?.current) {
+      insertCampaignTokenIntoTextarea(textareaRef.current, body, text, onBodyChange);
+    } else {
+      onBodyChange(body + (body.length > 0 && !body.endsWith(' ') ? ' ' : '') + text);
+    }
+  };
+
+  return (
   <div className="cw-composer">
     <div className="cw-composer-head">
       <span className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
@@ -52,6 +65,7 @@ export const CampaignMessageComposer: React.FC<Props> = ({
       <span className="cw-char-badge">{body.length} caracteres</span>
     </div>
     <div className="cw-composer-body space-y-2">
+      {showGreetingPicker && <CampaignGreetingPicker onInsert={insertGreeting} />}
       <CampaignMessageVariableChips
         onInsert={onInsertVariable}
         density={variablesDensity}
@@ -81,4 +95,5 @@ export const CampaignMessageComposer: React.FC<Props> = ({
         )}
     </div>
   </div>
-);
+  );
+};

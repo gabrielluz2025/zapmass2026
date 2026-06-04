@@ -28,8 +28,14 @@ describe('campaignClockVars', () => {
     expect(vars.data).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
   });
 
-  it('horario está no formato HH:mm', () => {
+  it('horario é período do dia (Bom dia / Boa tarde / Boa noite)', () => {
     const vars = campaignClockVars(new Date('2026-05-08T14:00:00Z'));
-    expect(vars.horario).toMatch(/^\d{2}:\d{2}$/);
+    expect(['Bom dia', 'Boa tarde', 'Boa noite']).toContain(vars.horario);
+    expect(vars.saudacao).toBe(vars.horario);
+  });
+
+  it('hora está no formato HH:mm', () => {
+    const vars = campaignClockVars(new Date('2026-05-08T14:00:00Z'));
+    expect(vars.hora).toMatch(/^\d{2}:\d{2}$/);
   });
 });

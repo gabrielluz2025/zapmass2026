@@ -25,6 +25,7 @@ import {
     type CampaignRecipient,
     type ReplyFlowSession,
 } from './replyFlowEngine.js';
+import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import {
     getTenantDispatchSettings,
@@ -1374,6 +1375,8 @@ interface MessageQueueItem {
     stageIndex?: number;
     media?: CampaignMediaPayload;
     sendAsMedia?: boolean;
+    /** Chave em `campaignMediaById` (follow-up pode usar `id:reply-step:1`). */
+    mediaLookupKey?: string;
     replyFlowOpen?: {
         campaignId: string;
         phoneDigits: string;
@@ -2073,12 +2076,16 @@ function ensureReplyFlowEngine() {
             // para evitar rajadas na API Evolution e parecer menos robótico.
             const replyDelay = 3000 + Math.random() * 4000;
             const ownerFromState = item.campaignId ? campaignsById.get(item.campaignId)?.ownerUid : undefined;
+            const mediaKey = item.mediaStorageKey || '';
+            const sendAsMedia = Boolean(mediaKey && campaignMediaById.has(mediaKey));
             void enqueueCampaignItem({
                 connectionId: item.connectionId,
                 to: item.to,
                 message: item.message,
                 campaignId: item.campaignId,
                 ownerUid: ownerFromState,
+                sendAsMedia,
+                mediaLookupKey: mediaKey || undefined,
                 replyFlowAfterSend: item.replyFlowAfterSend,
             }, replyDelay);
         },
@@ -2745,8 +2752,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     log('info', 'Tentando envio', { to: item.to, connectionId: item.connectionId, campaignId: item.campaignId });
 
     let mediaToSend = item.media;
-    if (item.sendAsMedia && item.campaignId && campaignMediaById.has(item.campaignId)) {
-        const meta = campaignMediaById.get(item.campaignId)!;
+    const mediaLookup = item.mediaLookupKey || item.campaignId;
+    if (item.sendAsMedia && mediaLookup && campaignMediaById.has(mediaLookup)) {
+        const meta = campaignMediaById.get(mediaLookup)!;
         if ((meta as any)._diskPath) {
             // Lê do arquivo temporário em disco (não fica base64 em RAM).
             mediaToSend = loadCampaignMediaFromDisk(
@@ -3016,32 +3024,33 @@ export async function startCampaign(
     ownerUid?: string,
     channelWeights?: Record<string, number>,
     media?: CampaignMediaPayload,
+    followUpMedia?: CampaignMediaPayload,
     delaySeconds?: number
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
     const cid = campaignId || `campaign_${Date.now()}`;
 
-    if (media?.base64 || media?.url) {
-        if (media.base64) {
-            // Salva base64 em disco para liberar RAM — lê novamente quando o job processar.
-            const diskPath = saveCampaignMediaToDisk(cid, media);
+    const persistCampaignMediaPayload = (storageKey: string, payload?: CampaignMediaPayload) => {
+        if (!storageKey || !payload) return;
+        if (payload.base64) {
+            const diskPath = saveCampaignMediaToDisk(storageKey, payload);
             if (diskPath) {
-                // Guarda apenas metadados + caminho no disco (sem base64 em RAM).
-                campaignMediaById.set(cid, {
-                    mimeType: media.mimeType,
-                    fileName: media.fileName,
-                    caption: media.caption,
+                campaignMediaById.set(storageKey, {
+                    mimeType: payload.mimeType,
+                    fileName: payload.fileName,
+                    caption: payload.caption,
                     _diskPath: diskPath,
                 } as CampaignMediaPayload & { _diskPath: string });
             } else {
-                // Fallback: guarda em RAM se o disco falhou.
-                campaignMediaById.set(cid, media);
+                campaignMediaById.set(storageKey, payload);
             }
-        } else {
-            campaignMediaById.set(cid, media);
+        } else if (payload.url) {
+            campaignMediaById.set(storageKey, payload);
         }
-    }
+    };
+    persistCampaignMediaPayload(cid, media);
+    persistCampaignMediaPayload(campaignMediaStorageKey(cid, 1), followUpMedia);
 
     const sanitizedReplySteps =
         Boolean(replyFlow?.enabled && Array.isArray(replyFlow?.steps) && replyFlow.steps.length >= 1)

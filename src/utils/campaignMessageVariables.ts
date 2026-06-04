@@ -10,7 +10,7 @@ export const WIZARD_CAMPAIGN_VARS_PRIMARY: string[] = [
   '{profissao}',
   '{data}',
   '{horario}',
-  '{saudacao}'
+  '{hora}'
 ];
 
 export const WIZARD_CAMPAIGN_VARS_FICHA: string[] = [
@@ -24,7 +24,7 @@ export const WIZARD_CAMPAIGN_VARS_FICHA: string[] = [
 
 /** Pré-visualização local no assistente (contato fictício + relógio de Brasília agora para data/hora/saudação). */
 export function applyCampaignMessagePreviewVars(text: string): string {
-  const { data, horario, saudacao } = campaignClockVars();
+  const { data, horario, hora, saudacao } = campaignClockVars();
   return text
     .replace(/\{nome_completo\}/g, 'Maria Silva Santos')
     .replace(/\{nome\}/g, 'Maria')
@@ -40,7 +40,8 @@ export function applyCampaignMessagePreviewVars(text: string): string {
     .replace(/\{anos_casamento\}/g, '8')
     .replace(/\{data\}/g, data)
     .replace(/\{horario\}/g, horario)
-    .replace(/\{saudacao\}/g, saudacao);
+    .replace(/\{saudacao\}/g, saudacao)
+    .replace(/\{hora\}/g, hora);
 }
 
 export function insertCampaignTokenIntoTextarea(

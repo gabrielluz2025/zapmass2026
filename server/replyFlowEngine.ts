@@ -1,4 +1,5 @@
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
+import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { fetchCampaignDoc, usePostgresCampaigns } from './campaignStore.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -33,6 +34,9 @@ export type ReplyFlowOutboundItem = {
     message: string;
     connectionId: string;
     campaignId?: string;
+    sendAsMedia?: boolean;
+    /** Chave em `campaignMediaById` (ex.: `campaignId:reply-step:1`). */
+    mediaStorageKey?: string;
     replyFlowAfterSend?: { phoneDigits: string; newAwaitingAfterStep: number };
 };
 
@@ -612,11 +616,15 @@ export class ReplyFlowEngine {
             toStep: nextIdx + 1,
         });
 
+        const stepMediaKey = session.campaignId
+            ? campaignMediaStorageKey(session.campaignId, nextIdx)
+            : '';
         void this.callbacks.enqueue({
             to: session.toRaw,
             message: nextBody,
             connectionId,
             campaignId: session.campaignId,
+            mediaStorageKey: stepMediaKey || undefined,
             replyFlowAfterSend: { phoneDigits: sessionPhoneKey, newAwaitingAfterStep: nextIdx },
         });
     }

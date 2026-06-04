@@ -576,6 +576,12 @@ export interface ZapMassContextType {
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      followUpMediaAttachment?: {
+        dataBase64: string;
+        mimeType: string;
+        fileName: string;
+        sendMediaAsDocument?: boolean;
+      };
     }
   ) => Promise<string>;
   /** Grava campanha como agendada (sem socket); o servidor dispara no horário. */

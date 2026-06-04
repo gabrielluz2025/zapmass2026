@@ -1285,7 +1285,8 @@ const registerSocketHandlers = () => {
           delaySeconds,
           recipients,
           channelWeights,
-          mediaAttachment
+          mediaAttachment,
+          followUpMediaAttachment
         }: {
           numbers?: string[];
           message?: string;
@@ -1305,6 +1306,12 @@ const registerSocketHandlers = () => {
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
           channelWeights?: Record<string, number>;
           mediaAttachment?: {
+            dataBase64?: string;
+            mimeType?: string;
+            fileName?: string;
+            sendMediaAsDocument?: boolean;
+          };
+          followUpMediaAttachment?: {
             dataBase64?: string;
             mimeType?: string;
             fileName?: string;
@@ -1380,11 +1387,21 @@ const registerSocketHandlers = () => {
           return;
         }
         const sanitizedMedia = normalizeCampaignMediaAttachment(mediaAttachment);
+        const sanitizedFollowUpMedia = normalizeCampaignMediaAttachment(followUpMediaAttachment);
         const campaignMedia = sanitizedMedia
           ? {
               base64: sanitizedMedia.dataBase64,
               mimeType: sanitizedMedia.mimeType,
               fileName: sanitizedMedia.fileName,
+              ...(sanitizedMedia.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
+            }
+          : undefined;
+        const followUpMedia = sanitizedFollowUpMedia
+          ? {
+              base64: sanitizedFollowUpMedia.dataBase64,
+              mimeType: sanitizedFollowUpMedia.mimeType,
+              fileName: sanitizedFollowUpMedia.fileName,
+              ...(sanitizedFollowUpMedia.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
             }
           : undefined;
 
@@ -1403,6 +1420,7 @@ const registerSocketHandlers = () => {
               uid,
               channelWeights,
               campaignMedia,
+              followUpMedia,
               typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0
                 ? delaySeconds
                 : undefined

@@ -61,12 +61,12 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({
               key={v}
               type="button"
               title={
-                v === '{saudacao}'
-                  ? 'Saudação conforme o horário em Brasília'
-                  : v === '{horario}'
-                    ? 'Horário em Brasília (HH:mm) na fila'
+                v === '{horario}'
+                  ? 'Bom dia, Boa tarde ou Boa noite (horário de Brasília na fila)'
+                  : v === '{hora}'
+                    ? 'Hora em Brasília (HH:mm) no envio'
                     : v === '{data}'
-                      ? 'Data em Brasília na fila'
+                      ? 'Data em Brasília no envio'
                       : undefined
               }
               onClick={() => onInsert(v)}
