@@ -15,6 +15,9 @@ while ! flock -n 9; do
   _flock_i=$((_flock_i + 1))
   if [ "${_flock_i}" -gt "${_flock_wait}" ]; then
     echo "ERRO: outro deploy ZapMass ainda em execução após ${_flock_wait}s (${_deploy_lock})."
+    echo "==> Diagnóstico: bash deployment/deploy-lock-diagnose.sh"
+    echo "==> Se não houver deploy ativo: bash deployment/clear-stale-deploy-lock.sh"
+    echo "==> Depois: bash deployment/manual-pull-deploy.sh"
     exit 1
   fi
   if [ "${_flock_i}" = "1" ] || [ $((_flock_i % 30)) -eq 0 ]; then

@@ -3,6 +3,11 @@
 # Abra uma sessao SSH pelo seu PC (ou terminal browser do painel) e execute:
 #   cd /opt/zapmass && bash deployment/manual-pull-deploy.sh
 #
+# Se ficar "aguardando lock" 10 min e falhar:
+#   bash deployment/deploy-lock-diagnose.sh
+#   bash deployment/clear-stale-deploy-lock.sh   # só se não houver deploy ativo
+#   bash deployment/manual-pull-deploy.sh
+#
 # Isto alinha `main` com `origin/main` e corre o mesmo fluxo que deployment/vps-deploy.sh
 # (Docker / Swarm + healthcheck).
 #
