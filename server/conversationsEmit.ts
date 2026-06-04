@@ -16,6 +16,7 @@ import {
 } from './inboxPagination.js';
 import { listInboxThreadStubsPg } from './repositories/chatArchiveRepository.js';
 import type { Conversation } from './types.js';
+import { collapseConversationsByPhone } from '../src/utils/collapseConversationsByPhone.js';
 
 /** Resolve dono de canal legado (`conn_*` sem `uid__`) para `filterByConnectionScope`. */
 export type ConnectionOwnerResolver = (connectionId: string) => string | undefined;
@@ -68,7 +69,7 @@ function trimConversationListForSocket(list: Conversation[]): Conversation[] {
 }
 
 export function prepareConversationsForSocketEmit(list: Conversation[]): Conversation[] {
-  return trimConversationListForSocket(slimConversationsForBroadcast(list)).map((c) => {
+  return trimConversationListForSocket(slimConversationsForBroadcast(collapseConversationsByPhone(list))).map((c) => {
     const msgs = Array.isArray(c.messages) ? c.messages : [];
     if (msgs.length <= SOCKET_INBOX_MSG_TAIL) return c;
     return { ...c, messages: msgs.slice(-SOCKET_INBOX_MSG_TAIL) };

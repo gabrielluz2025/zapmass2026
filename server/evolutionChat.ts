@@ -19,6 +19,10 @@ import {
     pickContactDisplayName
 } from '../src/utils/contactPhoneLookup.js';
 import {
+    collapseConversationsByPhone,
+    mergeConversationsPair
+} from '../src/utils/collapseConversationsByPhone.js';
+import {
     createPhonebookNameIndex,
     evolutionContactDisplayName,
     filterEvolutionContactLabel,
@@ -105,6 +109,13 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         if (opts?.ownerUid) ownerUidForScope = opts.ownerUid;
     }
 
+    function collapseStoredConversations(): void {
+        const collapsed = collapseConversationsByPhone(conversations);
+        if (collapsed.length >= conversations.length) return;
+        conversations.length = 0;
+        conversations.push(...collapsed);
+    }
+
     /** Lista completa — só sync findChats, delete em massa ou rajada grande de deltas. */
     function emitConversationsUpdate() {
         if (notifyConversationsChanged) {
@@ -126,6 +137,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             emitDebounceTimer = null;
             if (!io || !ownerUidForScope) return;
             void (async () => {
+                collapseStoredConversations();
                 let payload = prepareConversationsForSocketEmit(conversations);
                 payload = await enrichConversationsWithCrmNames(ownerUidForScope!, payload);
                 payload = await enrichConversationsWithCrmPhones(ownerUidForScope!, payload);
@@ -318,7 +330,20 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         maxMessages: MAX_MESSAGES
     });
 
-    function upsertConversation(conv: Conversation, opts?: { skipArchive?: boolean }) {
+    function upsertConversation(incoming: Conversation, opts?: { skipArchive?: boolean }) {
+        const originalId = incoming.id;
+        const canonicalId = resolveCanonicalConversationId(
+            incoming.connectionId,
+            incoming.id,
+            { contactPhone: incoming.contactPhone, waJidAlt: incoming.waJidAlt }
+        );
+        let conv =
+            canonicalId !== incoming.id
+                ? { ...incoming, id: canonicalId }
+                : incoming;
+        if (canonicalId !== originalId) {
+            conv = removeDuplicateConversationId(originalId, conv);
+        }
         if (deletedConversationIds.has(conv.id)) return;
         const idx = conversations.findIndex((c) => c.id === conv.id);
         const prev = idx >= 0 ? conversations[idx] : null;
@@ -394,6 +419,25 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             incrementUnread?: boolean;
         }
     ) {
+        const connectionId = meta?.connectionId || conversationId.split(':')[0] || '';
+        const originalId = conversationId;
+        conversationId = resolveCanonicalConversationId(connectionId, conversationId, {
+            contactPhone: meta?.contactPhone,
+            waJidAlt: meta?.waJidAlt
+        });
+        if (conversationId !== originalId) {
+            deletedConversationIds.delete(conversationId);
+            const canon = conversations.find((c) => c.id === conversationId);
+            const orphan = conversations.find((c) => c.id === originalId);
+            if (orphan && canon) {
+                const idx = conversations.findIndex((c) => c.id === conversationId);
+                conversations[idx] = removeDuplicateConversationId(originalId, canon);
+            } else if (orphan) {
+                const oIdx = conversations.findIndex((c) => c.id === originalId);
+                conversations[oIdx] = { ...orphan, id: conversationId };
+                deletedConversationIds.delete(originalId);
+            }
+        }
         // Nova mensagem reabre conversa que o usuário tinha removido da lista local.
         if (deletedConversationIds.has(conversationId)) {
             deletedConversationIds.delete(conversationId);
@@ -460,6 +504,36 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             if (jidDigits && jidDigits === target) return c.id;
         }
         return buildConversationId(connectionId, `${target}@s.whatsapp.net`);
+    }
+
+    /** Uma thread por telefone: @lid e @s.whatsapp.net do mesmo contato viram o mesmo id. */
+    function resolveCanonicalConversationId(
+        connectionId: string,
+        conversationId: string,
+        peer?: { contactPhone?: string; waJidAlt?: string }
+    ): string {
+        const parsed = parseConversationId(conversationId);
+        if (!parsed || parsed.connectionId !== connectionId) return conversationId;
+        const existing = conversations.find((c) => c.id === conversationId);
+        const merged = mergeLidPeerFields(
+            parsed.remoteJid,
+            peer || {},
+            existing
+                ? { contactPhone: existing.contactPhone, waJidAlt: existing.waJidAlt }
+                : undefined
+        );
+        if (!hasResolvablePhone(merged)) return conversationId;
+        const digits = normalizePhoneDigits(merged.contactPhone);
+        return resolveConversationIdForPhone(connectionId, digits);
+    }
+
+    function removeDuplicateConversationId(dropId: string, keep: Conversation): Conversation {
+        const dropIdx = conversations.findIndex((c) => c.id === dropId);
+        if (dropIdx < 0) return keep;
+        const merged = mergeConversationsPair(keep, conversations[dropIdx]!);
+        conversations.splice(dropIdx, 1);
+        deletedConversationIds.add(dropId);
+        return merged;
     }
 
     /** Registra envio de campanha no store local para ACK (entregue/lido) e relatório na UI. */
@@ -1068,6 +1142,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                 });
             }
 
+            collapseStoredConversations();
+
             // findChats: lista grande — um conversations-update debounced (sync completo intencional).
             if (!opts?.deferEmit) emitConversationsUpdate();
             if (chats.length > 0 && added === 0) {
@@ -1257,7 +1333,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             const remoteJid = String(msg.key.remoteJid || '');
             if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue;
 
-            const conversationId = buildConversationId(instance, remoteJid);
+            let conversationId = buildConversationId(instance, remoteJid);
             const chatMsg = evolutionRawToChatMessage(msg, true);
             if (!chatMsg) continue;
 
@@ -1270,6 +1346,10 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                       { getConversations: () => conversations },
                       instance
                   );
+            conversationId = resolveCanonicalConversationId(instance, conversationId, {
+                contactPhone: phoneDigits.length >= 8 ? `+${phoneDigits}` : rawPeer?.contactPhone,
+                waJidAlt: rawPeer?.waJidAlt || chatMsg.waRemoteJidAlt || chatMsg.waSenderPn
+            });
             appendMessageToConversation(conversationId, chatMsg, {
                 connectionId: instance,
                 contactName: String(pushName),

@@ -11,6 +11,7 @@ import { WaContactDrawer } from '../chat/wa/WaContactDrawer';
 import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
+import { collapseConversationsByPhone } from '../../utils/collapseConversationsByPhone';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
 import {
@@ -78,11 +79,13 @@ export const WaWebChatApp: React.FC<{
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));
     const drafts = draftConversations.filter((d) => !realIds.has(d.id));
-    return dedupeConversationsById([...conversations, ...drafts]);
+    return collapseConversationsByPhone(
+      dedupeConversationsById([...conversations, ...drafts])
+    );
   }, [conversations, draftConversations]);
 
   const sortedConversations = useMemo(() => {
-    const list = dedupeConversationsById(mergedConversations);
+    const list = collapseConversationsByPhone(dedupeConversationsById(mergedConversations));
     return [...list].sort((a, b) => {
       const ta = a.lastMessageTimestamp ?? 0;
       const tb = b.lastMessageTimestamp ?? 0;

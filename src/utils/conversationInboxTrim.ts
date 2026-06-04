@@ -1,4 +1,5 @@
 import type { ChatMessage, Conversation } from '../types';
+import { collapseConversationsByPhone } from './collapseConversationsByPhone';
 
 /** Últimas N mensagens no estado em memória após cada `conversations-update` (liste + Contacts/temperatura). */
 const SYNC_MSG_TAIL = (() => {
@@ -132,8 +133,9 @@ export function mergeConversationsFromSocketUpdate(
     return prev;
   }
   lastIncomingHash = h;
-  lastResult = out;
-  return out;
+  const collapsed = collapseConversationsByPhone(out);
+  lastResult = collapsed;
+  return collapsed;
 }
 
 export const conversationSyncTailLimit = SYNC_MSG_TAIL;
@@ -213,7 +215,9 @@ export function mergeConversationDelta(
   const next = prevById.has(trimmed.id)
     ? prev.map((c) => (c.id === trimmed.id ? merged : c))
     : [...prev, merged];
-  return dedupeConversationsById(next).sort(
-    (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+  return collapseConversationsByPhone(
+    dedupeConversationsById(next).sort(
+      (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+    )
   );
 }
