@@ -68,7 +68,8 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
     resetBuilder();
   };
 
-  const deleteKit = (id: string) => {
+  const deleteKit = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (kits.length <= 1) {
       toast.error('Mantenha pelo menos um conjunto de saudações.');
       return;
@@ -83,16 +84,16 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
   };
 
   return (
-    <div className="cw-greeting-picker">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <p className="cw-vars-group-label mb-0">Conjuntos de saudações</p>
+    <div className="cw-greeting-picker campaign-message-variable-chips">
+      <div className="cw-greeting-picker-head">
+        <p className="cw-vars-group-label mb-0">Saudações</p>
         {!building && (
           <button
             type="button"
-            className="cw-greeting-kit-create-btn"
+            className="cw-greeting-kit-create-link"
             onClick={() => setBuilding(true)}
           >
-            <FolderPlus className="w-3.5 h-3.5" />
+            <FolderPlus className="w-3 h-3" />
             Criar conjunto
           </button>
         )}
@@ -100,31 +101,17 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
 
       {building ? (
         <div className="cw-greeting-builder">
-          <p className="text-[11px] font-semibold mb-2" style={{ color: 'var(--text-1)' }}>
-            Novo conjunto
-          </p>
-          <label className="text-[10px] font-semibold block mb-1" style={{ color: 'var(--text-3)' }}>
-            Nome do conjunto (ex: Igreja, Vendas, Informal)
-          </label>
+          <p className="cw-vars-group-label">Novo conjunto</p>
           <input
             type="text"
-            className="w-full rounded-lg border px-2.5 py-1.5 text-[12px] mb-2"
-            style={{
-              borderColor: 'var(--border-subtle)',
-              background: 'var(--surface-0)',
-              color: 'var(--text-1)'
-            }}
-            placeholder="Ex: Atendimento amigável"
+            className="cw-greeting-input"
+            placeholder="Nome (ex: Igreja, Vendas)"
             value={kitNameDraft}
             maxLength={48}
             onChange={(e) => setKitNameDraft(e.target.value)}
           />
-
-          <label className="text-[10px] font-semibold block mb-1" style={{ color: 'var(--text-3)' }}>
-            Saudações deste conjunto
-          </label>
           {builderItems.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
+            <div className="flex flex-wrap gap-1 mb-1.5">
               {builderItems.map((g) => (
                 <span key={g} className="inline-flex items-center gap-0.5">
                   <span className="cw-vars-chip cw-vars-chip--greeting">{g}</span>
@@ -140,17 +127,11 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
               ))}
             </div>
           )}
-
-          <div className="flex gap-1.5 mb-3">
+          <div className="flex gap-1 mb-2">
             <input
               type="text"
-              className="flex-1 rounded-lg border px-2.5 py-1.5 text-[12px]"
-              style={{
-                borderColor: 'var(--border-subtle)',
-                background: 'var(--surface-0)',
-                color: 'var(--text-1)'
-              }}
-              placeholder="Ex: Olá, Oi, Paz…"
+              className="cw-greeting-input flex-1"
+              placeholder="Frase (ex: Olá) — Enter adiciona"
               value={phraseDraft}
               maxLength={48}
               onChange={(e) => setPhraseDraft(e.target.value)}
@@ -161,66 +142,57 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
                 }
               }}
             />
-            <button type="button" className="cw-greeting-add-phrase-btn" onClick={addPhraseToBuilder}>
-              <Plus className="w-3.5 h-3.5" />
-              Adicionar
+            <button type="button" className="cw-greeting-mini-btn" onClick={addPhraseToBuilder}>
+              <Plus className="w-3 h-3" />
             </button>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="cw-greeting-builder-cancel" onClick={resetBuilder}>
+          <div className="flex flex-wrap gap-1">
+            <button type="button" className="cw-greeting-mini-btn" onClick={resetBuilder}>
               Cancelar
             </button>
-            <button
-              type="button"
-              className="cw-greeting-builder-confirm"
-              onClick={confirmNewKit}
-            >
-              <Check className="w-3.5 h-3.5" />
-              Confirmar e salvar
+            <button type="button" className="cw-greeting-mini-btn cw-greeting-mini-btn--primary" onClick={confirmNewKit}>
+              <Check className="w-3 h-3" />
+              Salvar
             </button>
           </div>
         </div>
       ) : (
         <>
-          <div className="cw-greeting-kit-list">
-            {kits.map((kit) => {
-              const active = kit.id === (activeKit?.id ?? '');
-              return (
-                <div
-                  key={kit.id}
-                  className="cw-greeting-kit-card"
-                  data-active={active ? 'true' : 'false'}
-                >
-                  <button
-                    type="button"
-                    className="cw-greeting-kit-card-main"
-                    onClick={() => setActiveKitId(kit.id)}
-                  >
-                    <span className="cw-greeting-kit-name">{kit.name}</span>
-                    <span className="cw-greeting-kit-meta">
-                      {kit.items.length} saudação{kit.items.length !== 1 ? 'ões' : ''}
+          {kits.length > 1 && (
+            <>
+              <p className="cw-vars-group-label">Conjunto</p>
+              <div className="flex flex-wrap gap-1 mb-1">
+                {kits.map((kit) => {
+                  const active = kit.id === (activeKit?.id ?? '');
+                  return (
+                    <span key={kit.id} className="inline-flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        className={`cw-vars-chip ${active ? 'cw-vars-chip--greeting' : 'cw-vars-chip--ficha'}`}
+                        onClick={() => setActiveKitId(kit.id)}
+                        title={`Conjunto ${kit.name}`}
+                      >
+                        {kit.name}
+                      </button>
+                      <button
+                        type="button"
+                        className="cw-greeting-remove"
+                        aria-label={`Excluir conjunto ${kit.name}`}
+                        onClick={(e) => deleteKit(kit.id, e)}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     </span>
-                  </button>
-                  {kits.length > 1 && (
-                    <button
-                      type="button"
-                      className="cw-greeting-kit-delete"
-                      aria-label={`Excluir conjunto ${kit.name}`}
-                      onClick={() => deleteKit(kit.id)}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
-          {activeKit && (
-            <div className="cw-greeting-kit-phrases mt-2">
-              <p className="text-[10px] mb-1.5" style={{ color: 'var(--text-3)' }}>
-                Clique para inserir no texto — conjunto &quot;{activeKit.name}&quot;
+          {activeKit && activeKit.items.length > 0 && (
+            <>
+              <p className="cw-vars-group-label">
+                {kits.length > 1 ? `Frases — ${activeKit.name}` : 'Clique para inserir'}
               </p>
               <div className="flex flex-wrap gap-1">
                 {activeKit.items.map((g) => (
@@ -229,13 +201,13 @@ export const CampaignGreetingPicker: React.FC<Props> = ({ onInsert }) => {
                     type="button"
                     className="cw-vars-chip cw-vars-chip--greeting"
                     onClick={() => insertPhrase(g)}
-                    title={`Inserir "${g}"`}
+                    title={`Inserir "${g}" no texto`}
                   >
                     {g}
                   </button>
                 ))}
               </div>
-            </div>
+            </>
           )}
         </>
       )}
