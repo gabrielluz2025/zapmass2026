@@ -25,6 +25,7 @@ const FILTER_LABELS: Record<string, string> = {
 type Props = {
   activeFilter: SmartFilterId;
   listName?: string;
+  listManageMode?: boolean;
   searchTerm: string;
   contactsSavedTotal: number | null;
   contactsSavedTotalLoading: boolean;
@@ -38,6 +39,7 @@ type Props = {
 export const ContactsWorkspaceToolbar: React.FC<Props> = ({
   activeFilter,
   listName,
+  listManageMode = false,
   searchTerm,
   contactsSavedTotal,
   contactsSavedTotalLoading,
@@ -70,7 +72,9 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
             {searchTerm.trim()
               ? `Busca: “${searchTerm.trim()}”`
-              : 'Segmente, selecione e dispare campanhas com precisão.'}
+              : listManageMode
+                ? 'Adicione ou remova contatos desta lista. Troque para Todos para ver a base completa.'
+                : 'Segmente, selecione e dispare campanhas com precisão.'}
           </p>
         </div>
 

@@ -23,6 +23,7 @@ import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
 import { ContactsListsRail } from './contacts/workspace/ContactsListsRail';
 import { ContactsSidebar, type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
 import { ContactsWorkspaceToolbar } from './contacts/workspace/ContactsWorkspaceToolbar';
+import { ContactsListManagePanel } from './contacts/workspace/ContactsListManagePanel';
 import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual';
 import { ContactsBulkBar } from './contacts/workspace/ContactsBulkBar';
 import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
@@ -843,7 +844,6 @@ export const ContactsTab: React.FC = () => {
   const [showCreateList, setShowCreateList] = useState(false);
   const [newListName, setNewListName] = useState('');
   /** Lista aberta para gerir membros (sub-aba Na lista / Adicionar). */
-  const [listManageId, setListManageId] = useState<string | null>(null);
   const [listManageSubTab, setListManageSubTab] = useState<'members' | 'add'>('members');
   const [listMemberSearch, setListMemberSearch] = useState('');
   const [listAddSearch, setListAddSearch] = useState('');
@@ -922,11 +922,14 @@ export const ContactsTab: React.FC = () => {
   const [newContactNewListName, setNewContactNewListName] = useState('');
 
   useEffect(() => {
-    if (listManageId && !contactLists.some((l) => l.id === listManageId)) {
-      setListManageId(null);
-      setListAddSelectedIds([]);
+    if (activeFilter.startsWith('list:')) {
+      const id = activeFilter.slice(5);
+      if (!contactLists.some((l) => l.id === id)) {
+        setActiveFilter('all');
+        setListAddSelectedIds([]);
+      }
     }
-  }, [contactLists, listManageId]);
+  }, [contactLists, activeFilter]);
 
   /** Abre a conversa deste contato no Chat (via handshake sessionStorage). */
   const openInChat = useCallback((contact: Contact) => {
@@ -1094,14 +1097,6 @@ export const ContactsTab: React.FC = () => {
       n++;
     }
     toast.success(`Tag "${tag}" removida de ${n} contato(s).`);
-  };
-
-  const openListManage = (listId: string) => {
-    setListManageId(listId);
-    setListManageSubTab('members');
-    setListMemberSearch('');
-    setListAddSearch('');
-    setListAddSelectedIds([]);
   };
 
   const toggleSelect = (id: string) =>
@@ -2133,7 +2128,7 @@ export const ContactsTab: React.FC = () => {
       await deleteContactList(id);
       toast.success('Lista removida com sucesso.');
       setActiveFilter((prev) => (prev === `list:${id}` ? 'all' : prev));
-      setListManageId((prev) => (prev === id ? null : prev));
+      setListAddSelectedIds([]);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao remover.';
       toast.error(msg);
@@ -2902,10 +2897,11 @@ export const ContactsTab: React.FC = () => {
     }
   };
 
-  const managedListForView = useMemo(
-    () => (listManageId ? contactLists.find((l) => l.id === listManageId) ?? null : null),
-    [contactLists, listManageId]
-  );
+  const managedListForView = useMemo(() => {
+    if (!activeFilter.startsWith('list:')) return null;
+    const id = activeFilter.slice(5);
+    return contactLists.find((l) => l.id === id) ?? null;
+  }, [contactLists, activeFilter]);
 
   const manageListMembers = useMemo(() => {
     const list = managedListForView;
@@ -3144,7 +3140,6 @@ export const ContactsTab: React.FC = () => {
     const list = contactLists.find((l) => l.id === listId);
     setActiveFilter(`list:${listId}`);
     setSelectedIds([]);
-    setListManageId(listId);
     setListManageSubTab((list?.contactIds?.length || 0) === 0 ? 'add' : 'members');
     setListAddSelectedIds([]);
     setListMemberSearch('');
@@ -3158,7 +3153,7 @@ export const ContactsTab: React.FC = () => {
     }
     setActiveFilter(id);
     setSelectedIds([]);
-    setListManageId(null);
+    setListAddSelectedIds([]);
   }, [handleOpenList]);
 
   const handleManageList = handleOpenList;
@@ -3373,7 +3368,7 @@ export const ContactsTab: React.FC = () => {
             />
 
       {/* ── People HQ — hero visual ── */}
-      {!listManageId && smartStats.total > 0 && (
+      {smartStats.total > 0 && (
         <div
           className="relative overflow-hidden rounded-[24px] animate-fade-in-up"
           style={{
@@ -3457,259 +3452,19 @@ export const ContactsTab: React.FC = () => {
         </div>
       )}
 
-      {!listManageId && (
-        <ContactsHeaderBar
-          stats={headerStats}
-          hideWeddingWeekPill={segment !== 'religious'}
-          onNewContact={openNewContactModal}
-          onImportXLSX={openImportXLSX}
-          onImportVcf={openImportVcf}
-          onSmartImport={openSmartImport}
-          onDownloadTemplate={handleDownloadTemplate}
-          onExport={handleExport}
-          onOpenInsights={openInsights}
-          onOpenNormalizeNames={openNameNormalizeModal}
-        />
-      )}
+      <ContactsHeaderBar
+        stats={headerStats}
+        hideWeddingWeekPill={segment !== 'religious'}
+        onNewContact={openNewContactModal}
+        onImportXLSX={openImportXLSX}
+        onImportVcf={openImportVcf}
+        onSmartImport={openSmartImport}
+        onDownloadTemplate={handleDownloadTemplate}
+        onExport={handleExport}
+        onOpenInsights={openInsights}
+        onOpenNormalizeNames={openNameNormalizeModal}
+      />
 
-      {listManageId && (
-        <SectionHeader
-          eyebrow={<><Users className="w-3 h-3" />Contatos</>}
-          title="Gestão de lista"
-          description="Administre os contatos vinculados a esta lista — edite, remova e adicione com facilidade."
-          icon={<Users className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
-        />
-      )}
-
-      {listManageId && managedListForView ? (
-        <div className="ui-card p-5 space-y-4">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div className="flex items-start gap-3 min-w-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setListManageId(null);
-                  setListAddSelectedIds([]);
-                }}
-                className="ui-btn shrink-0 flex items-center gap-1.5"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Voltar
-              </button>
-              <div className="min-w-0">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">{managedListForView.name}</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  {(managedListForView.contactIds?.length || 0).toLocaleString()} contato
-                  {(managedListForView.contactIds?.length || 0) !== 1 ? 's' : ''} na lista — o mesmo contato pode estar em várias listas sem duplicar na base.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 self-start">
-              <button
-                type="button"
-                onClick={() => handleCreateCampaignWithList(managedListForView)}
-                className="ui-btn-primary whitespace-nowrap text-xs"
-                title="Abrir wizard de campanha com esta lista"
-              >
-                <Rocket className="w-3.5 h-3.5" />
-                Criar campanha
-              </button>
-              <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => handleExportManagedListAs('xlsx')}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-slate-700 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700"
-                  title="Planilha com os mesmos campos do modelo (mensagens / mail merge)"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-600" />
-                  XLSX
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExportManagedListAs('vcf')}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/30 text-slate-700 dark:text-slate-200"
-                  title="vCard para agenda do telefone (mais pessoal)"
-                >
-                  <Smartphone className="w-3.5 h-3.5 text-sky-600" />
-                  vCard
-                </button>
-              </div>
-            <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-900/50">
-              <button
-                type="button"
-                onClick={() => setListManageSubTab('members')}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
-                  listManageSubTab === 'members'
-                    ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                Na lista
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setListManageSubTab('add');
-                  setListAddSelectedIds([]);
-                }}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
-                  listManageSubTab === 'add'
-                    ? 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                }`}
-              >
-                Adicionar
-              </button>
-            </div>
-            </div>
-          </div>
-
-          {listManageSubTab === 'members' ? (
-            <div className="space-y-3">
-              {managedListMissingCount > 0 && (
-                <div className="rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 flex flex-wrap items-center gap-2">
-                  <span className="text-[12px] text-amber-900 dark:text-amber-200 font-medium">
-                    {managedListMissingCount.toLocaleString('pt-BR')} contato(s) desta lista ainda não foram carregados (paginação).
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void loadMoreContacts?.()}
-                    disabled={!contactsHasMore || contactsLoadingMore || !loadMoreContacts}
-                    className="ml-auto ui-btn ui-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {contactsLoadingMore ? 'Carregando…' : 'Carregar mais'}
-                  </button>
-                </div>
-              )}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={listMemberSearch}
-                  onChange={(e) => setListMemberSearch(e.target.value)}
-                  placeholder="Filtrar por nome, telefone, cidade..."
-                  className="ui-input pl-9 w-full max-w-md"
-                />
-              </div>
-              <div className="max-h-[min(60vh,520px)] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
-                {manageListMembers.length === 0 ? (
-                  <p className="p-6 text-sm text-slate-400">Nenhum contato nesta busca ou lista vazia.</p>
-                ) : (
-                  manageListMembers.map((c) => (
-                    <div
-                      key={c.id}
-                      className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => beginEditContact(c)}
-                        className="min-w-0 flex-1 text-left rounded-lg -mx-1 px-1 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-colors"
-                        title="Ver e editar dados do contato"
-                      >
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{c.name}</p>
-                        <p className="text-xs text-slate-500 font-mono truncate">{c.phone}</p>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleRemoveContactFromList(listManageId, c)}
-                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 hover:opacity-90"
-                      >
-                        <UserMinus className="w-3.5 h-3.5" />
-                        Remover
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {contactsHasMore && (
-                <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                  <span>
-                    Base carregada parcialmente (paginação). Para encontrar mais contatos nesta busca, carregue mais.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void loadMoreContacts?.()}
-                    disabled={contactsLoadingMore || !loadMoreContacts}
-                    className="font-bold text-emerald-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {contactsLoadingMore ? 'Carregando…' : 'Carregar mais'}
-                  </button>
-                </div>
-              )}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    value={listAddSearch}
-                    onChange={(e) => setListAddSearch(e.target.value)}
-                    placeholder="Buscar na base para adicionar..."
-                    className="ui-input pl-9 w-full"
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={listAddSelectedIds.length === 0}
-                  onClick={() => void handleAddIdsToList(listManageId, listAddSelectedIds)}
-                  className="ui-btn-primary whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Incluir {listAddSelectedIds.length > 0 ? `(${listAddSelectedIds.length})` : ''}
-                </button>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <button type="button" onClick={toggleListAddSelectAll} className="font-bold text-emerald-600 hover:underline">
-                  {allAddPoolSelected ? 'Desmarcar visíveis' : 'Selecionar visíveis'}
-                </button>
-                <span>·</span>
-                <span>{manageListAddPool.length} disponíveis (fora da lista)</span>
-              </div>
-              <div className="max-h-[min(55vh,480px)] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
-                {manageListAddPool.length === 0 ? (
-                  <p className="p-6 text-sm text-slate-400">Todos os contatos validos ja estao nesta lista ou nada encontrado na busca.</p>
-                ) : (
-                  manageListAddPool.map((c) => {
-                    const sel = listAddSelectedIds.includes(c.id);
-                    return (
-                      <div
-                        key={c.id}
-                        className={`w-full flex items-center gap-2 sm:gap-3 px-3 py-2.5 transition-colors ${
-                          sel ? 'bg-emerald-50/80 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          aria-label={sel ? 'Desmarcar contato' : 'Selecionar contato'}
-                          onClick={() => toggleListAddSelect(c.id)}
-                          className="shrink-0 p-1 rounded-md text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-600/40"
-                        >
-                          {sel ? (
-                            <CheckSquare className="w-4 h-4 text-emerald-600" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => beginEditContact(c)}
-                          className="min-w-0 flex-1 text-left rounded-lg py-0.5 -mr-1 pr-1 hover:bg-slate-100/80 dark:hover:bg-slate-700/40 transition-colors"
-                          title="Ver e editar dados do contato"
-                        >
-                          <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{c.name}</p>
-                          <p className="text-xs text-slate-500 font-mono truncate">{c.phone}</p>
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
       <>
       {/* ========================================================
            NOVO LAYOUT: WORKSPACE (rail + sidebar + tabela virtualizada)
@@ -3745,6 +3500,7 @@ export const ContactsTab: React.FC = () => {
             activeFilter={activeFilter}
             listName={activeListName}
             searchTerm={searchTerm}
+            listManageMode={Boolean(managedListForView)}
             contactsSavedTotal={contactsSavedTotal ?? null}
             contactsSavedTotalLoading={contactsSavedTotalLoading}
             contactsLoaded={contacts.length}
@@ -3754,6 +3510,37 @@ export const ContactsTab: React.FC = () => {
             onRefreshTotals={() => void refreshContactsSavedTotal?.()}
           />
 
+          {managedListForView ? (
+            <ContactsListManagePanel
+              list={managedListForView}
+              subTab={listManageSubTab}
+              onSubTabChange={(tab) => {
+                setListManageSubTab(tab);
+                if (tab === 'add') setListAddSelectedIds([]);
+              }}
+              memberSearch={listMemberSearch}
+              onMemberSearchChange={setListMemberSearch}
+              addSearch={listAddSearch}
+              onAddSearchChange={setListAddSearch}
+              members={manageListMembers}
+              addPool={manageListAddPool}
+              addSelectedIds={listAddSelectedIds}
+              missingCount={managedListMissingCount}
+              contactsHasMore={contactsHasMore}
+              contactsLoadingMore={contactsLoadingMore}
+              allAddPoolSelected={allAddPoolSelected}
+              onCreateCampaign={() => handleCreateCampaignWithList(managedListForView)}
+              onExportXlsx={() => handleExportManagedListAs('xlsx')}
+              onExportVcf={() => handleExportManagedListAs('vcf')}
+              onLoadMore={loadMoreContacts}
+              onEditContact={beginEditContact}
+              onRemoveMember={(c) => void handleRemoveContactFromList(managedListForView.id, c)}
+              onToggleAddSelect={toggleListAddSelect}
+              onToggleAddSelectAll={toggleListAddSelectAll}
+              onAddSelected={() => void handleAddIdsToList(managedListForView.id, listAddSelectedIds)}
+            />
+          ) : (
+          <>
           {contactsSavedTotal != null &&
             contacts.length < contactsSavedTotal &&
             (contactsHasMore || contactsLoadingMore) && (
@@ -3903,20 +3690,23 @@ export const ContactsTab: React.FC = () => {
               </div>
             </div>
           )}
+          </>
+          )}
           </div>
       </div>
-      <ContactsBulkBar
-        count={selectedIds.length}
-        onClear={clearBulkSelection}
-        onCreateCampaign={handleCreateCampaignWithSelection}
-        onAddToList={handleBulkAddToList}
-        onAddTag={() => void handleBulkAddTag()}
-        onExport={handleBulkExport}
-        onDelete={() => void handleBulkDelete()}
-      />
+      {!managedListForView && (
+        <ContactsBulkBar
+          count={selectedIds.length}
+          onClear={clearBulkSelection}
+          onCreateCampaign={handleCreateCampaignWithSelection}
+          onAddToList={handleBulkAddToList}
+          onAddTag={() => void handleBulkAddTag()}
+          onExport={handleBulkExport}
+          onDelete={() => void handleBulkDelete()}
+        />
+      )}
 
       </>
-      )}
 
       {/* Drawer lateral de detalhe do contato */}
       <ContactDetailDrawer
