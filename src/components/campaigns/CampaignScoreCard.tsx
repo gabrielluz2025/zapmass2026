@@ -1,48 +1,42 @@
 import React, { useMemo } from 'react';
 import { Award, Info } from 'lucide-react';
 import { funnelPct } from '../../utils/campaignFunnelMetrics';
+import {
+  computeCampaignScore,
+  SCORE_SOFT_SPEED_CONTACT_CAP,
+  SCORE_TARGET_THROUGHPUT_PER_MIN,
+  type ScoreInputs
+} from '../../utils/campaignScoreMetrics';
 
-export interface ScoreInputs {
-  delivered: number;
-  read: number;
-  replied: number;
-  /** Mensagens enviadas (mesma base do funil). */
-  sent: number;
-  throughputPerMin: number;
-  failed: number;
-  /** Contatos planejados — só legenda, não entra no cálculo. */
-  plannedContacts?: number;
-}
+export type { ScoreInputs };
 
-// Pesos do score final (soma = 100%)
 const W_DELIVERY = 0.3;
 const W_READ = 0.3;
 const W_REPLY = 0.25;
 const W_SPEED = 0.15;
-
-const TARGET_THROUGHPUT = 4;
 
 interface CampaignScoreCardProps {
   inputs: ScoreInputs;
 }
 
 export const CampaignScoreCard: React.FC<CampaignScoreCardProps> = ({ inputs }) => {
-  const { score, breakdown, label, tone, sentBase } = useMemo(() => {
+  const { score, breakdown, label, tone, sentBase, softSpeedNote } = useMemo(() => {
     const sentBase = Math.max(0, inputs.sent);
     const hasSends = sentBase > 0;
-    const deliveryRate = hasSends ? Math.min(1, inputs.delivered / sentBase) : 0;
-    const readRate = hasSends ? Math.min(1, inputs.read / sentBase) : 0;
-    const replyRate = hasSends ? Math.min(1, inputs.replied / sentBase) : 0;
-    const speedPct = Math.min(1, inputs.throughputPerMin / TARGET_THROUGHPUT);
+    const computed = computeCampaignScore(inputs);
+    const s = computed.score;
+    const speedPct = computed.speedPct;
+    const scoreDelivery = computed.scoreDelivery;
+    const scoreRead = computed.scoreRead;
+    const scoreReply = computed.scoreReply;
+    const scoreSpeed = computed.scoreSpeed;
 
-    const scoreDelivery = deliveryRate * W_DELIVERY * 100;
-    const scoreRead = readRate * W_READ * 100;
-    const scoreReply = Math.min(1, replyRate / 0.1) * W_REPLY * 100;
-    const scoreSpeed = speedPct * W_SPEED * 100;
-
-    const s = hasSends
-      ? Math.round(scoreDelivery + scoreRead + scoreReply + scoreSpeed)
-      : 0;
+    const contactCap = Math.max(sentBase, inputs.plannedContacts || 0);
+    const softSpeedNote =
+      inputs.replyFlowMode &&
+      contactCap > 0 &&
+      contactCap <= SCORE_SOFT_SPEED_CONTACT_CAP &&
+      inputs.replied > 0;
 
     const breakdown = [
       {
@@ -103,7 +97,7 @@ export const CampaignScoreCard: React.FC<CampaignScoreCardProps> = ({ inputs }) 
       tone = '#f59e0b';
     }
 
-    return { score: s, breakdown, label, tone, sentBase };
+    return { score: s, breakdown, label, tone, sentBase, softSpeedNote };
   }, [inputs]);
 
   const size = 170;
@@ -218,7 +212,10 @@ export const CampaignScoreCard: React.FC<CampaignScoreCardProps> = ({ inputs }) 
                       </span>
                     ) : (
                       <span className="block text-[9.5px] font-normal opacity-80" style={{ color: 'var(--text-3)' }}>
-                        meta {TARGET_THROUGHPUT}/min · {b.value}/{b.max} pts
+                        {softSpeedNote && b.key === 'speed'
+                          ? 'fluxo por resposta · espera não penaliza'
+                          : `meta ${SCORE_TARGET_THROUGHPUT_PER_MIN}/min`}{' '}
+                        · {b.value}/{b.max} pts
                       </span>
                     )}
                   </span>
@@ -251,6 +248,10 @@ export const CampaignScoreCard: React.FC<CampaignScoreCardProps> = ({ inputs }) 
                   ? ` Campanha planejada: ${inputs.plannedContacts.toLocaleString('pt-BR')} contatos.`
                   : null}{' '}
                 Pontos: entrega 30%, leitura 30%, resposta 25% (10% de resposta = máximo), velocidade 15%.
+                {inputs.replyFlowMode &&
+                (inputs.plannedContacts || sentBase) <= SCORE_SOFT_SPEED_CONTACT_CAP
+                  ? ' Em fluxo por resposta (≤100 contatos), o tempo aguardando resposta não reduz o score de velocidade.'
+                  : null}
               </>
             ) : (
               <>Aguardando o primeiro envio para calcular a qualidade.</>

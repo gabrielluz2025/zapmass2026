@@ -1780,7 +1780,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               sent: uiPerformance.total,
               plannedContacts: campaign.totalContacts || metrics.plannedSendTotal || 0,
               throughputPerMin,
-              failed: uiPerformance.counts.FAILED
+              failed: uiPerformance.counts.FAILED,
+              replyFlowMode: useReplyFlowPrimaryFunnel
             }}
           />
         </div>
