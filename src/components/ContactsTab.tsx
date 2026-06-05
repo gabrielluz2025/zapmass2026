@@ -20,7 +20,9 @@ import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
 import { Badge, BrDateInput, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
 import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
+import { ContactsListsRail } from './contacts/workspace/ContactsListsRail';
 import { ContactsSidebar, type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
+import { ContactsWorkspaceToolbar } from './contacts/workspace/ContactsWorkspaceToolbar';
 import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual';
 import { ContactsBulkBar } from './contacts/workspace/ContactsBulkBar';
 import { ContactDetailDrawer } from './contacts/workspace/ContactDetailDrawer';
@@ -801,6 +803,7 @@ export const ContactsTab: React.FC = () => {
   useEffect(() => {
     try { localStorage.setItem('zapmass.contactsFilter', String(activeFilter)); } catch { /* ignore */ }
   }, [activeFilter]);
+  const [listsUiFocus, setListsUiFocus] = useState<'none' | 'tab' | 'create'>('none');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -3150,6 +3153,12 @@ export const ContactsTab: React.FC = () => {
     setListManageId(listId);
   }, []);
 
+  const activeListName = useMemo(() => {
+    if (!activeFilter.startsWith('list:')) return undefined;
+    const listId = activeFilter.slice(5);
+    return contactLists.find((l) => l.id === listId)?.name;
+  }, [activeFilter, contactLists]);
+
   const handleRowClick = useCallback((c: Contact) => {
     setSelectedContact(c);
   }, []);
@@ -3683,9 +3692,20 @@ export const ContactsTab: React.FC = () => {
       ) : (
       <>
       {/* ========================================================
-           NOVO LAYOUT: WORKSPACE (sidebar + tabela virtualizada)
+           NOVO LAYOUT: WORKSPACE (rail + sidebar + tabela virtualizada)
          ======================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+      <ContactsListsRail
+        lists={contactLists}
+        activeFilter={activeFilter}
+        onSelectFilter={(id) => {
+          setActiveFilter(id);
+          setSelectedIds([]);
+        }}
+        onOpenListsTab={() => setListsUiFocus('tab')}
+        onCreateList={() => setListsUiFocus('create')}
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
         <div className="lg:sticky lg:top-4 lg:self-start">
           <ContactsSidebar
             active={activeFilter}
@@ -3701,95 +3721,42 @@ export const ContactsTab: React.FC = () => {
             query={searchTerm}
             onQueryChange={setSearchTerm}
             hideWeddingFilters={segment !== 'religious'}
+            listsUiFocus={listsUiFocus}
+            onListsUiFocusHandled={() => setListsUiFocus('none')}
           />
         </div>
 
         <div className="flex flex-col gap-3 min-w-0">
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-1 h-full bg-[var(--brand-500)] opacity-50" />
-            <div className="px-5 py-4 flex flex-col gap-4">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <ContactsWorkspaceToolbar
+            activeFilter={activeFilter}
+            listName={activeListName}
+            searchTerm={searchTerm}
+            contactsSavedTotal={contactsSavedTotal ?? null}
+            contactsSavedTotalLoading={contactsSavedTotalLoading}
+            contactsLoaded={contacts.length}
+            filteredCount={totalAvailable}
+            contactsHasMore={contactsHasMore}
+            contactsLoadingMore={contactsLoadingMore}
+            onRefreshTotals={() => void refreshContactsSavedTotal?.()}
+          />
+
+          {contactsSavedTotal != null &&
+            contacts.length < contactsSavedTotal &&
+            (contactsHasMore || contactsLoadingMore) && (
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-900/30">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2.5">
-                    <h2 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
-                      {activeFilter.startsWith('list:') ? 'Lista selecionada' : 'Base de contatos'}
-                    </h2>
-                    {searchTerm.trim() && (
-                      <Badge variant="info" className="text-[10px] py-0.5 px-2 font-bold uppercase tracking-wider">
-                        Busca: {searchTerm.trim()}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-1 max-w-xl leading-relaxed">
-                    Visualização dinâmica dos seus contatos. Use os filtros na lateral para segmentar seu público e realizar disparos em massa com precisão.
+                  <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-bold leading-tight">
+                    Existem mais {(contactsSavedTotal - contacts.length).toLocaleString('pt-BR')} contatos na base ainda não carregados.
+                  </p>
+                  <p className="text-[10px] text-amber-700/70 dark:text-amber-400/60 mt-0.5">
+                    A tabela utiliza carregamento sob demanda para manter a performance. Clique em &quot;Carregar mais&quot; para buscar o restante.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => void refreshContactsSavedTotal?.()}
-                    disabled={contactsSavedTotalLoading || !refreshContactsSavedTotal}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all disabled:opacity-50"
-                    title="Sincronizar total com o Firestore"
-                  >
-                    <RotateCw className={`w-3.5 h-3.5 ${contactsSavedTotalLoading ? 'animate-spin' : ''}`} />
-                    Atualizar totais
-                  </button>
-                  {(contactsHasMore || contactsLoadingMore) && (
-                    <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50 shadow-sm transition-all animate-in fade-in zoom-in-95">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>{contactsLoadingMore ? 'Buscando blocos...' : 'Auto-carregamento ativo'}</span>
-                      <span className="ml-1 opacity-60 tabular-nums">
-                        {contacts.length.toLocaleString('pt-BR')} / {contactsSavedTotal?.toLocaleString('pt-BR') || '…'}
-                      </span>
-                    </div>
-                  )}
-                </div>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <StatBox
-                  icon={<Database className="w-4 h-4 text-slate-400" />}
-                  label="Na base (Firestore)"
-                  value={contactsSavedTotalLoading ? '...' : contactsSavedTotal?.toLocaleString('pt-BR') || '0'}
-                  sub="Total de documentos salvos"
-                  color="slate"
-                />
-                <StatBox
-                  icon={<Layers className="w-4 h-4 text-emerald-500" />}
-                  label="Carregados"
-                  value={contacts.length.toLocaleString('pt-BR')}
-                  sub="Disponíveis nesta sessão"
-                  color="emerald"
-                />
-                <StatBox
-                  icon={<Filter className="w-4 h-4 text-sky-500" />}
-                  label="No filtro atual"
-                  value={totalAvailable.toLocaleString('pt-BR')}
-                  sub="Prontos para ação"
-                  color="sky"
-                />
-              </div>
-
-              {contactsSavedTotal != null &&
-                contacts.length < contactsSavedTotal &&
-                (contactsHasMore || contactsLoadingMore) && (
-                  <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-900/30">
-                    <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-bold leading-tight">
-                        Existem mais {(contactsSavedTotal - contacts.length).toLocaleString('pt-BR')} contatos na base ainda não carregados.
-                      </p>
-                      <p className="text-[10px] text-amber-700/70 dark:text-amber-400/60 mt-0.5">
-                        A tabela utiliza carregamento sob demanda para manter a performance. Clique em &quot;Carregar mais&quot; para buscar o restante.
-                      </p>
-                    </div>
-                  </div>
-                )}
-            </div>
-          </div>
+            )}
           {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
               <span className="text-[12px] text-amber-900 dark:text-amber-200 font-medium">
@@ -5491,31 +5458,3 @@ export const ContactsTab: React.FC = () => {
   );
 };
 
-const StatBox: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub: string;
-  color: 'slate' | 'emerald' | 'sky';
-}> = ({ icon, label, value, sub, color }) => {
-  const colors = {
-    slate: 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 text-slate-900 dark:text-white',
-    emerald: 'border-emerald-200/60 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-900 dark:text-emerald-100',
-    sky: 'border-sky-200/60 dark:border-sky-900/40 bg-sky-50/50 dark:bg-sky-950/10 text-sky-900 dark:text-sky-100',
-  };
-
-  return (
-    <div className={`p-3 rounded-2xl border ${colors[color]} shadow-sm flex items-center gap-3`}>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-        color === 'slate' ? 'bg-white dark:bg-slate-800 shadow-sm' : 'bg-white/80 dark:bg-slate-900/50 shadow-sm'
-      }`}>
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <div className="text-[10px] font-bold uppercase tracking-wider opacity-60 truncate">{label}</div>
-        <div className="text-xl font-black tabular-nums leading-none my-0.5">{value}</div>
-        <div className="text-[9px] opacity-60 truncate">{sub}</div>
-      </div>
-    </div>
-  );
-};
