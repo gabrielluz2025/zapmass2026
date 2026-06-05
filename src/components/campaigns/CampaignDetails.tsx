@@ -96,12 +96,14 @@ import {
 import { CampaignDetailInsights } from './CampaignDetailInsights';
 import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
+import { CampaignStageRepliesCell } from './CampaignStageRepliesCell';
 import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
 import {
   buildReplyFlowStageFunnels,
   isReplyFlowCampaign,
   primaryFunnelFromReplyFlowStages
 } from '../../utils/campaignReplyFlowStageMetrics';
+import { buildStageRepliesByPhone, type StageReplyEntry } from '../../utils/campaignStageRepliesFromLogs';
 
 interface CampaignDetailsProps {
   campaign: Campaign;
@@ -126,6 +128,8 @@ interface ReportRow {
   replyText?: string;
   replyTime?: string;
   replyTimestampMs?: number;
+  /** Fluxo por resposta: uma entrada por etapa respondida. */
+  stageReplies?: StageReplyEntry[];
   conversationId?: string;
   connectionId?: string;
   sentMessage?: string;
@@ -715,6 +719,30 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       .reduce((acc, conn) => acc + Math.max(0, Number(conn.queueSize) || 0), 0);
   }, [campaign.selectedConnectionIds, connections]);
 
+  const replyFlowStepCount =
+    campaign.replyFlow?.enabled && (campaign.replyFlow.steps?.length ?? 0) > 0
+      ? campaign.replyFlow.steps!.length
+      : 0;
+
+  const stageRepliesByPhone = useMemo(() => {
+    if (replyFlowStepCount < 1) return new Map<string, StageReplyEntry[]>();
+    return buildStageRepliesByPhone(campaign.id, replyFlowStepCount, scopedCampaignLogs);
+  }, [campaign.id, replyFlowStepCount, scopedCampaignLogs]);
+
+  const attachStageReplies = (row: ReportRow): ReportRow => {
+    const rk = recipientKeyForCampaignReport(row.phone);
+    const stageReplies = rk ? stageRepliesByPhone.get(rk) : undefined;
+    if (!stageReplies?.length) return row;
+    const last = stageReplies[stageReplies.length - 1];
+    return {
+      ...row,
+      stageReplies,
+      replyText: row.replyText || last.replyText,
+      replyTime: row.replyTime || last.replyTime,
+      replyTimestampMs: row.replyTimestampMs || last.replyTimestampMs
+    };
+  };
+
   // Detailed report — VPS: snapshot persistido; ao vivo: logs + conversas
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
@@ -756,7 +784,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               sentMessage: found.msg.text || row.sentMessage
             };
           }
-          return row;
+          return attachStageReplies(row);
         })
       );
     }
@@ -821,7 +849,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           sentMessage: found.msg.text || out.sentMessage
         };
       }
-      return out;
+      return attachStageReplies(out);
     });
 
     return dedupeCampaignReportRowsByRecipient(enriched).sort(
@@ -836,7 +864,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     conversations,
     serverInboundReplies,
     serverSnapshot,
-    replyPhonesFromLogs
+    replyPhonesFromLogs,
+    stageRepliesByPhone
   ]);
 
   const filteredReport = useMemo(() => {
@@ -2120,17 +2149,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                             <span style={{ color: 'var(--danger)' }} className="truncate inline-block max-w-full">
                               {item.errorMessage || 'Erro desconhecido'}
                             </span>
-                          ) : replyTextResolved ? (
-                            <div
-                              className="px-2.5 py-1.5 rounded-lg inline-block max-w-full"
-                              style={{
-                                background: 'rgba(16,185,129,0.08)',
-                                border: '1px solid rgba(16,185,129,0.2)',
-                                color: 'var(--text-1)'
-                              }}
-                            >
-                              <span className="truncate block">"{replySnippet}"</span>
-                            </div>
+                          ) : item.stageReplies?.length || replyTextResolved ? (
+                            <CampaignStageRepliesCell
+                              stageReplies={item.stageReplies}
+                              fallbackText={replyTextResolved}
+                              compact
+                            />
                           ) : (
                             <span
                               className="text-[11.5px] leading-snug block max-w-[280px]"
@@ -2318,7 +2342,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               </div>
             </div>
 
-            {(openRow.sentMessage || openRow.replyText) && (
+            {(openRow.sentMessage || openRow.replyText || openRow.stageReplies?.length) && (
               <div
                 className="rounded-xl p-4 space-y-2"
                 style={{
@@ -2342,25 +2366,56 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     </div>
                   </div>
                 )}
-                {openRow.replyText && (
-                  <div className="flex justify-start">
-                    <div
-                      className="max-w-[80%] px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] whitespace-pre-wrap"
-                      style={{
-                        background: 'var(--surface-2)',
-                        color: 'var(--text-1)',
-                        border: '1px solid var(--border-subtle)'
-                      }}
-                    >
-                      {openRow.replyText}
+                {openRow.stageReplies?.length ? (
+                  <div className="space-y-2">
+                    {openRow.stageReplies.map((s) => (
+                      <div key={`${s.stageNumber}-${s.replyTimestampMs}`} className="flex justify-start">
+                        <div
+                          className="max-w-[85%] px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] whitespace-pre-wrap"
+                          style={{
+                            background: 'var(--surface-2)',
+                            color: 'var(--text-1)',
+                            border: '1px solid var(--border-subtle)'
+                          }}
+                        >
+                          <span
+                            className="text-[9.5px] font-bold uppercase tracking-wide block mb-1"
+                            style={{ color: '#d97706' }}
+                          >
+                            Resposta · Etapa {s.stageNumber}
+                          </span>
+                          {s.replyText || '—'}
+                          <div
+                            className="text-[10px] mt-1 text-right font-mono"
+                            style={{ color: 'var(--text-3)' }}
+                          >
+                            {s.replyTime}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  openRow.replyText && (
+                    <div className="flex justify-start">
                       <div
-                        className="text-[10px] mt-1 text-right font-mono"
-                        style={{ color: 'var(--text-3)' }}
+                        className="max-w-[80%] px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] whitespace-pre-wrap"
+                        style={{
+                          background: 'var(--surface-2)',
+                          color: 'var(--text-1)',
+                          border: '1px solid var(--border-subtle)'
+                        }}
                       >
-                        {openRow.replyTime}
+                        {openRow.replyText}
+                        <div
+                          className="text-[10px] mt-1 text-right font-mono"
+                          style={{ color: 'var(--text-3)' }}
+                        >
+                          {openRow.replyTime}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )
                 )}
               </div>
             )}

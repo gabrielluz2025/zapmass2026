@@ -136,7 +136,7 @@ function recordReply(
   state.repliedByStage[stageIdx].add(phone);
 }
 
-function collectStagePhoneState(
+export function collectStagePhoneState(
   campaignId: string,
   stageCount: number,
   logs: Array<{ timestamp: string; payload?: unknown }>
