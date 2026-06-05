@@ -2,7 +2,6 @@ import React from 'react';
 import {
   List as ListIcon,
   Plus,
-  Pencil,
   Trash2,
   Users,
   Rocket,
@@ -161,8 +160,9 @@ export const ContactsListsPanel: React.FC<Props> = ({
               >
                 <button
                   type="button"
-                  onClick={() => onSelectList(list.id)}
+                  onClick={() => onManageList(list.id)}
                   className="w-full flex items-start gap-3 px-3 py-3 text-left"
+                  title="Abrir lista para adicionar ou remover contatos"
                 >
                   <div
                     className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
@@ -182,20 +182,7 @@ export const ContactsListsPanel: React.FC<Props> = ({
                     </p>
                   </div>
                 </button>
-                <div
-                  className="flex items-center gap-1 px-2 pb-2"
-                  style={{ borderTop: '1px solid var(--border-subtle)' }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onManageList(list.id)}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold transition hover:bg-[var(--surface-2)]"
-                    style={{ color: 'var(--text-2)' }}
-                    title="Editar membros da lista"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    Editar
-                  </button>
+                <div className="flex items-center justify-end gap-1 px-2 pb-2">
                   <button
                     type="button"
                     onClick={() => onDeleteList(list.id, list.name)}
@@ -204,6 +191,7 @@ export const ContactsListsPanel: React.FC<Props> = ({
                     title="Apagar lista"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
+                    Apagar
                   </button>
                 </div>
               </div>
@@ -215,7 +203,7 @@ export const ContactsListsPanel: React.FC<Props> = ({
       {lists.length > 0 && (
         <p className="text-[10px] leading-relaxed px-1" style={{ color: 'var(--text-3)' }}>
           <Rocket className="w-3 h-3 inline -mt-0.5 mr-0.5" />
-          Abra uma lista e use <strong>Criar campanha</strong> na gestão para disparar só para esse grupo.
+          Clique em uma lista para <strong>adicionar ou remover</strong> contatos. Use <strong>Criar campanha</strong> na gestão para disparar só para esse grupo.
         </p>
       )}
     </div>

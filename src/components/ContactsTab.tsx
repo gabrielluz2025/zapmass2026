@@ -3140,18 +3140,38 @@ export const ContactsTab: React.FC = () => {
     setSelectedContact(fresh);
   }, [contacts, selectedContact?.id]);
 
+  const handleOpenList = useCallback((listId: string) => {
+    const list = contactLists.find((l) => l.id === listId);
+    setActiveFilter(`list:${listId}`);
+    setSelectedIds([]);
+    setListManageId(listId);
+    setListManageSubTab((list?.contactIds?.length || 0) === 0 ? 'add' : 'members');
+    setListAddSelectedIds([]);
+    setListMemberSearch('');
+    setListAddSearch('');
+  }, [contactLists]);
+
+  const handleSelectSmartFilter = useCallback((id: SmartFilterId) => {
+    if (id.startsWith('list:')) {
+      handleOpenList(id.slice(5));
+      return;
+    }
+    setActiveFilter(id);
+    setSelectedIds([]);
+    setListManageId(null);
+  }, [handleOpenList]);
+
+  const handleManageList = handleOpenList;
+
   const handleCreateListQuick = useCallback(async (name: string) => {
     try {
-      await createContactList(name, []);
+      const id = await createContactList(name, []);
       toast.success(`Lista "${name}" criada.`);
+      handleOpenList(id);
     } catch {
       toast.error('Não foi possível criar a lista.');
     }
-  }, [createContactList]);
-
-  const handleManageList = useCallback((listId: string) => {
-    setListManageId(listId);
-  }, []);
+  }, [createContactList, handleOpenList]);
 
   const activeListName = useMemo(() => {
     if (!activeFilter.startsWith('list:')) return undefined;
@@ -3697,10 +3717,7 @@ export const ContactsTab: React.FC = () => {
       <ContactsListsRail
         lists={contactLists}
         activeFilter={activeFilter}
-        onSelectFilter={(id) => {
-          setActiveFilter(id);
-          setSelectedIds([]);
-        }}
+        onSelectFilter={handleSelectSmartFilter}
         onOpenListsTab={() => setListsUiFocus('tab')}
         onCreateList={() => setListsUiFocus('create')}
       />
@@ -3709,10 +3726,7 @@ export const ContactsTab: React.FC = () => {
         <div className="lg:sticky lg:top-4 lg:self-start">
           <ContactsSidebar
             active={activeFilter}
-            onChange={(id) => {
-              setActiveFilter(id);
-              setSelectedIds([]);
-            }}
+            onChange={handleSelectSmartFilter}
             counts={sidebarCounts}
             lists={contactLists}
             onCreateList={(name) => void handleCreateListQuick(name)}
