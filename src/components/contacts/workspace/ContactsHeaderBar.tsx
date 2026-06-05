@@ -57,7 +57,7 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
   }, [importOpen]);
 
   return (
-    <div className="ui-card px-5 py-4 flex flex-col lg:flex-row gap-5 lg:items-center lg:justify-between shadow-sm relative overflow-hidden">
+    <div className="ui-card px-5 py-4 flex flex-col lg:flex-row gap-5 lg:items-center lg:justify-between shadow-sm relative overflow-visible">
       {/* Background Decor */}
       <div className="absolute top-0 right-0 w-64 h-64 bg-slate-100/50 dark:bg-slate-800/20 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
       
@@ -112,7 +112,7 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
             <ChevronDown className="w-3.5 h-3.5 opacity-60" />
           </button>
           {importOpen && (
-            <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 z-30 overflow-hidden ring-4 ring-black/5">
+            <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 z-[100] overflow-hidden ring-4 ring-black/5">
               <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Opções de entrada
               </div>
