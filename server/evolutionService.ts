@@ -27,6 +27,7 @@ import {
 } from './replyFlowEngine.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
+import { persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import {
     getTenantDispatchSettings,
     resolveCampaignDispatchSettings,
@@ -1833,6 +1834,7 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
                     state.processed,
                     'COMPLETED'
                 );
+                void persistCampaignReportSnapshot(state.ownerUid, campaignId);
                 publishOwnerEvent(state.ownerUid, 'campaign-finished', {
                     campaignId,
                     successCount: state.successCount,
@@ -2131,6 +2133,7 @@ function ensureReplyFlowEngine() {
                             state.processed,
                             'COMPLETED'
                         );
+                        void persistCampaignReportSnapshot(state.ownerUid, campaignId);
                         publishOwnerEvent(state.ownerUid, 'campaign-finished', {
                             campaignId,
                             successCount: state.successCount,

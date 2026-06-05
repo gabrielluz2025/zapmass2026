@@ -2,19 +2,13 @@ import type { Contact, ContactList, Campaign } from '../types';
 import { recipientKeyForCampaignReport } from './campaignReportDedupe';
 import {
   buildReplyHintsFromLogs,
-  CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE,
-  CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_SENT_LOG_MESSAGE,
+  isCampaignReplyLogPayload,
   campaignLogPayloadMatchesCampaign,
   logPayloadPhoneKey,
   type CampaignLogPayloadLike
 } from './campaignReportFromLogs';
 import { collectPlannedRecipientPhones, collectSentPhonesFromCampaignLogs } from './campaignReportScope';
-
-const REPLY_MESSAGES = new Set([
-  CAMPAIGN_REPLY_LOG_MESSAGE,
-  CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE
-]);
 
 export type LogRowInput = { timestamp: string; payload?: unknown };
 
@@ -58,7 +52,14 @@ export function buildPrimaryReportRowsFromLogs(
   const plannedPhones = collectPlannedRecipientPhones(campaign, contacts, contactLists);
   const replyHints = buildReplyHintsFromLogs(scopedLogs, cid);
 
-  const phones = new Set<string>([...sentPhones, ...plannedPhones, ...replyHints.keys()]);
+  const phones = new Set<string>();
+  if (sentPhones.size > 0) {
+    for (const p of sentPhones) phones.add(p);
+    for (const rk of replyHints.keys()) phones.add(rk);
+  } else {
+    for (const p of plannedPhones) phones.add(p);
+    for (const rk of replyHints.keys()) phones.add(rk);
+  }
 
   type Acc = {
     phone: string;
@@ -119,7 +120,7 @@ export function buildPrimaryReportRowsFromLogs(
       continue;
     }
 
-    if (REPLY_MESSAGES.has(msg)) {
+    if (isCampaignReplyLogPayload(p)) {
       acc.status = 'REPLIED';
       const preview = p.replyPreview ? String(p.replyPreview).trim() : '';
       if (!acc.replyTimestampMs || ts >= acc.replyTimestampMs) {

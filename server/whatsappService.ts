@@ -37,6 +37,7 @@ import { hydrateChatArchiveForConversation, mergeChatArchiveIntoConversation } f
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
+import { persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import {
     getTenantDispatchSettings,
     saveTenantSettings,
@@ -5806,6 +5807,7 @@ const processQueue = async () => {
 
     if (finishedOwner && finishedId) {
         void persistCampaignProgressToFirestore(finishedOwner, finishedId, okN, failN, proc, 'COMPLETED');
+        void persistCampaignReportSnapshot(finishedOwner, finishedId);
     }
 
     emitToOwnerUid('campaign-complete', finishedOwner, { 

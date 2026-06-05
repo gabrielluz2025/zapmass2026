@@ -9,12 +9,11 @@ const makeRow = (phone: string, status: string, ts?: number, replyText?: string)
   ({ phone, status, sentTimestampMs: ts ?? Date.now(), replyText });
 
 describe('recipientKeyForCampaignReport', () => {
-  it('normaliza telefone removendo dígito 9 extra em celulares BR', () => {
-    const k1 = recipientKeyForCampaignReport('5511987654321');
-    const k2 = recipientKeyForCampaignReport('55119987654321');
-    // ambos devem resultar em chave idêntica (normalização BR)
-    expect(typeof k1).toBe('string');
-    expect(k1.length).toBeGreaterThan(0);
+  it('unifica celular BR com e sem nono dígito após o DDD', () => {
+    const k1 = recipientKeyForCampaignReport('5547999127001');
+    const k2 = recipientKeyForCampaignReport('554799127001');
+    expect(k1).toBe(k2);
+    expect(k1).toBe('5547999127001');
   });
 
   it('retorna string vazia para número inválido', () => {

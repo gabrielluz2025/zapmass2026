@@ -15,6 +15,10 @@ import {
 } from './repositories/campaignsRepository.js';
 import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
 import { recipientKeyForCampaignReport } from '../src/utils/campaignReportDedupe.js';
+import {
+  buildCampaignReportSnapshot,
+  type CampaignReportSnapshot
+} from './campaignReportSnapshot.js';
 
 export function registerCampaignsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -118,6 +122,24 @@ export function registerCampaignsDataRoutes(app: Express): void {
     });
   });
 
+  app.get('/api/campaigns/:id/report', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    try {
+      const snapshot = await buildCampaignReportSnapshot(ctx.tenantId, campaignId);
+      if (!snapshot) {
+        return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      }
+      const { persistCampaignReportSnapshot } = await import('./campaignReportSnapshot.js');
+      void persistCampaignReportSnapshot(ctx.tenantId, campaignId);
+      return res.json({ ok: true, snapshot });
+    } catch (e) {
+      console.error('[api/campaigns/report]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao montar relatório.' });
+    }
+  });
+
   app.get('/api/campaigns/:id/inbound-replies', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
@@ -150,11 +172,15 @@ export function registerCampaignsDataRoutes(app: Express): void {
       const rk = recipientKeyForCampaignReport(String(p.to || p.phoneDigits || ''));
       const preview = p.replyPreview != null ? String(p.replyPreview).trim() : '';
       if (!rk) continue;
-      if (!preview) continue;
       const ts = row.created_at.getTime();
       const prev = replies[rk];
       if (!prev || ts >= prev.replyTimestampMs) {
-        replies[rk] = { replyText: preview, replyTimestampMs: ts };
+        replies[rk] = {
+          replyText:
+            preview ||
+            '[resposta recebida — sem texto legível na captura]',
+          replyTimestampMs: ts
+        };
       }
     }
 

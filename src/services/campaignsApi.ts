@@ -73,6 +73,44 @@ export async function fetchCampaignInboundReplies(
   return j.replies && typeof j.replies === 'object' ? j.replies : {};
 }
 
+export type CampaignReportSnapshotDto = {
+  builtAt: string;
+  logCount: number;
+  rows: Array<{
+    phone: string;
+    contactName: string;
+    status: string;
+    sentTime: string;
+    sentTimestampMs: number;
+    replyText?: string;
+    replyTime?: string;
+    replyTimestampMs?: number;
+    connectionId?: string;
+    errorMessage?: string;
+  }>;
+  replyPhones: Record<string, { replyText?: string; replyTimestampMs: number }>;
+  stageFunnels: Array<{
+    stageNumber: number;
+    label: string;
+    sent: number;
+    delivered: number;
+    read: number;
+    replied: number;
+    deliveryPct: number;
+    readPct: number;
+    replyPct: number;
+  }>;
+  totals: { sent: number; delivered: number; read: number; replied: number };
+};
+
+export async function fetchCampaignReport(
+  campaignId: string
+): Promise<CampaignReportSnapshotDto | null> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/report`;
+  const j = await apiFetchJson<{ ok?: boolean; snapshot?: CampaignReportSnapshotDto }>(path);
+  return j.snapshot && typeof j.snapshot === 'object' ? j.snapshot : null;
+}
+
 export async function fetchCampaignLogs(
   campaignId: string,
   opts?: { limit?: number; offset?: number }

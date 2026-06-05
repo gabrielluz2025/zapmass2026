@@ -155,6 +155,37 @@ export interface Campaign {
   contactListName?: string; 
   logs?: CampaignLog[];
   createdAt: string;
+  /** Relatório consolidado (VPS) — disponível após conclusão ou via GET /report. */
+  reportSnapshot?: {
+    builtAt: string;
+    logCount: number;
+    rows: Array<{
+      phone: string;
+      contactName: string;
+      status: string;
+      sentTime: string;
+      sentTimestampMs: number;
+      replyText?: string;
+      replyTime?: string;
+      replyTimestampMs?: number;
+      connectionId?: string;
+      errorMessage?: string;
+    }>;
+    replyPhones: Record<string, { replyText?: string; replyTimestampMs: number }>;
+    stageFunnels: Array<{
+      stageNumber: number;
+      label: string;
+      sent: number;
+      delivered: number;
+      read: number;
+      replied: number;
+      deliveryPct: number;
+      readPct: number;
+      replyPct: number;
+    }>;
+    totals: { sent: number; delivered: number; read: number; replied: number };
+  };
+  reportSnapshotAt?: string;
   delaySeconds?: number;
   /** IANA, ex. America/Sao_Paulo — usado com weeklySchedule. */
   scheduleTimeZone?: string;

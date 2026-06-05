@@ -20,8 +20,26 @@ dist-ssr
 .env.*
 !.env.example
 subscription.env
+secrets/
 **/firebase-adminsdk*.json
+**/firebase-admin.json
+**/firebase-admin.json.*
 **/serviceAccount*.json
+**/mercadopago_access_token
+
+# Backup / dados Postgres (volume Docker — nunca versionar)
+postgres_data/
+postgres_data_backup/
+**/pg_wal/
+**/pg_xact/
+**/pg_multixact/
+
+# Backups e lixo de editor na VPS
+*.bak
+*.bak.*
+**/*.bak.*
+server/*.bak.*
+src/**/*.bak
 
 # Dados locais / sessao WhatsApp
 data/

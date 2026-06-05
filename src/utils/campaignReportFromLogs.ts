@@ -14,6 +14,15 @@ const REPLY_LOG_MESSAGES = new Set([
   CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE
 ]);
 
+/** Reconhece logs de resposta mesmo com pequenas variações de texto (VPS/UI). */
+export function isCampaignReplyLogMessage(msg: string): boolean {
+  const m = String(msg || '').trim();
+  if (REPLY_LOG_MESSAGES.has(m)) return true;
+  if (m.includes('Resposta recebida no fluxo')) return true;
+  if (m.includes('Resposta do contato')) return true;
+  return false;
+}
+
 export function sumCampaignGeoStats(byUf: Record<string, CampaignGeoUfStats>): {
   delivered: number;
   read: number;
@@ -40,11 +49,47 @@ export type CampaignLogPayloadLike = {
   replyPreview?: string;
   replyFlowStep?: number;
   currentStep?: number;
+  nonTextReply?: boolean;
 };
+
+/** Log de resposta no fluxo (message na coluna ou só replyPreview/currentStep no payload). */
+export function isCampaignReplyLogPayload(p: CampaignLogPayloadLike): boolean {
+  if (isCampaignReplyLogMessage(String(p.message || ''))) return true;
+  const preview = String(p.replyPreview || '').trim();
+  if (preview.length > 0) return true;
+  if (p.nonTextReply && Number(p.currentStep) >= 1) return true;
+  return false;
+}
 
 export function logPayloadPhoneKey(p: CampaignLogPayloadLike): string {
   const raw = p.to || p.phoneDigits || '';
   return recipientKeyForCampaignReport(String(raw));
+}
+
+/** Status exibido no relatório: logs de resposta prevalecem sobre SENT/ACK atrasado. */
+export function effectiveCampaignReportStatus(
+  row: { phone: string; status: string },
+  replyHints: Map<string, ReplyHintFromLog>
+): string {
+  if (row.status === 'REPLIED') return 'REPLIED';
+  const rk = recipientKeyForCampaignReport(row.phone);
+  if (rk && replyHints.has(rk)) return 'REPLIED';
+  return row.status;
+}
+
+/** Contatos com resposta confirmada nos logs (independente do status da linha). */
+export function countRepliedFromLogsAndReport(
+  rows: Array<{ phone: string; status: string }>,
+  replyHints: Map<string, ReplyHintFromLog>
+): number {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const rk = recipientKeyForCampaignReport(row.phone);
+    if (!rk) continue;
+    if (effectiveCampaignReportStatus(row, replyHints) === 'REPLIED') keys.add(rk);
+  }
+  for (const rk of replyHints.keys()) keys.add(rk);
+  return keys.size;
 }
 
 export type ReplyHintFromLog = {
@@ -77,7 +122,7 @@ export function buildReplyHintsFromLogs(
     if (!log.payload || typeof log.payload !== 'object') continue;
     const p = log.payload as CampaignLogPayloadLike;
     if (!campaignLogPayloadMatchesCampaign(p, campaignId)) continue;
-    if (!REPLY_LOG_MESSAGES.has(String(p.message || ''))) continue;
+    if (!isCampaignReplyLogPayload(p)) continue;
     const phone = logPayloadPhoneKey(p);
     if (!phone) continue;
     if (sentPhones && sentPhones.size > 0 && !sentPhones.has(phone)) continue;
@@ -106,7 +151,7 @@ export function applyServerInboundReplyToRow<T extends { phone: string; status: 
   replyTime?: string;
   replyTimestampMs?: number;
 } {
-  if (!inbound?.replyText) return row as T & { status: string };
+  if (!inbound) return row as T & { status: string };
   const rank = CAMPAIGN_REPORT_STATUS_RANK;
   const hasBetterStatus = (rank[row.status] ?? -1) >= (rank.REPLIED ?? 5);
   const merged: T & {
@@ -116,7 +161,7 @@ export function applyServerInboundReplyToRow<T extends { phone: string; status: 
     replyTimestampMs?: number;
   } = {
     ...row,
-    replyText: inbound.replyText,
+    replyText: inbound.replyText || (row as { replyText?: string }).replyText,
     replyTime: new Date(inbound.replyTimestampMs).toLocaleTimeString('pt-BR'),
     replyTimestampMs: inbound.replyTimestampMs
   };

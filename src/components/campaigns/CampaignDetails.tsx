@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   BarChart3,
@@ -42,8 +42,10 @@ import { useVpsData } from '../../services/vpsData';
 import {
   fetchCampaignInboundReplies,
   fetchCampaignLogs,
+  fetchCampaignReport,
   type CampaignInboundReplyDto,
-  type CampaignLogDto
+  type CampaignLogDto,
+  type CampaignReportSnapshotDto
 } from '../../services/campaignsApi';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
@@ -56,6 +58,8 @@ import {
   CAMPAIGN_SENT_LOG_MESSAGE,
   campaignLogPayloadMatchesCampaign,
   campaignReportReplyDetailLabel,
+  countRepliedFromLogsAndReport,
+  effectiveCampaignReportStatus,
   logPayloadPhoneKey,
   sumCampaignGeoStats
 } from '../../utils/campaignReportFromLogs';
@@ -64,7 +68,10 @@ import { dedupeCampaignReportRowsByRecipient, recipientKeyForCampaignReport } fr
 import { buildPrimaryReportRowsFromLogs } from '../../utils/campaignReportBuilder';
 import { enrichCampaignReportRow } from '../../utils/campaignReportRowEnrichment';
 import { firstReplyAfterCampaignSend, hasCampaignSendLogForPhone } from '../../utils/campaignReplyScope';
-import { campaignCreatedAtMs, filterLogsForCampaignView } from '../../utils/campaignReportScope';
+import {
+  campaignRunWindowStartMs,
+  filterLogsForCampaignView
+} from '../../utils/campaignReportScope';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
 import {
@@ -347,6 +354,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const { effectiveWorkspaceUid } = useWorkspace();
   const dataUid = effectiveWorkspaceUid ?? user?.uid ?? null;
   const [persistedLogs, setPersistedLogs] = useState<SystemLog[]>([]);
+  const [serverSnapshot, setServerSnapshot] = useState<CampaignReportSnapshotDto | null>(
+    () => campaign.reportSnapshot ?? null
+  );
   const [serverInboundReplies, setServerInboundReplies] = useState<
     Record<string, CampaignInboundReplyDto>
   >({});
@@ -411,54 +421,74 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       };
     });
 
-  useEffect(() => {
+  const reloadServerReport = useCallback(async () => {
+    if (!useVpsData() || !campaign.id) return;
+    const snap = await fetchCampaignReport(campaign.id);
+    if (snap) setServerSnapshot(snap);
+  }, [campaign.id]);
+
+  const reloadPersistedLogs = useCallback(async () => {
     if (!dataUid) {
       setPersistedLogs([]);
       return;
     }
-    let cancelled = false;
     if (useVpsData()) {
-      fetchCampaignLogs(campaign.id, { limit: LOGS_PAGE, offset: 0 })
-        .then(({ logs, hasMore }) => {
-          if (cancelled) return;
-          setPersistedLogs(mapVpsLogs(logs));
-          setLogsLastDoc(null);
-          setLogsHasMore(hasMore);
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setPersistedLogs([]);
-          toast.error('Nao foi possivel carregar logs persistidos da campanha.');
-          if (import.meta.env.DEV) console.warn('[CampaignDetails] logs VPS:', err);
-        });
-      return () => {
-        cancelled = true;
-      };
+      const { logs, hasMore } = await fetchCampaignLogs(campaign.id, { limit: LOGS_PAGE, offset: 0 });
+      setPersistedLogs(mapVpsLogs(logs));
+      setLogsLastDoc(null);
+      setLogsHasMore(hasMore);
+      return;
     }
     const q = query(
       collection(db, 'users', dataUid, 'campaigns', campaign.id, 'logs'),
       orderBy('createdAt', 'desc'),
       limit(LOGS_PAGE)
     );
-    getDocs(q)
-      .then((snap) => {
-        if (cancelled) return;
-        setPersistedLogs(parseLogSnap(snap));
-        const last = snap.docs[snap.docs.length - 1] ?? null;
-        setLogsLastDoc(last);
-        setLogsHasMore(snap.docs.length === LOGS_PAGE);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setPersistedLogs([]);
-        toast.error('Nao foi possivel carregar logs persistidos da campanha.');
-        if (import.meta.env.DEV) console.warn('[CampaignDetails] logs load error:', err);
-      });
+    const snap = await getDocs(q);
+    setPersistedLogs(parseLogSnap(snap));
+    const last = snap.docs[snap.docs.length - 1] ?? null;
+    setLogsLastDoc(last);
+    setLogsHasMore(snap.docs.length === LOGS_PAGE);
+  }, [dataUid, campaign.id]);
+
+  useEffect(() => {
+    if (!dataUid) {
+      setPersistedLogs([]);
+      setServerSnapshot(null);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      reloadPersistedLogs(),
+      reloadServerReport().catch(() => null)
+    ]).catch((err) => {
+      if (cancelled) return;
+      setPersistedLogs([]);
+      toast.error('Nao foi possivel carregar logs persistidos da campanha.');
+      if (import.meta.env.DEV) console.warn('[CampaignDetails] logs load error:', err);
+    });
     return () => {
       cancelled = true;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataUid, campaign.id]);
+  }, [dataUid, reloadPersistedLogs, reloadServerReport]);
+
+  useEffect(() => {
+    if (!useVpsData() || campaign.status !== CampaignStatus.COMPLETED) return;
+    reloadServerReport().catch(() => {});
+  }, [campaign.status, campaign.id, reloadServerReport, persistedLogs.length]);
+
+  /** Após concluir, logs de resposta/ACK podem chegar depois — recarrega do servidor. */
+  useEffect(() => {
+    if (campaign.status !== CampaignStatus.COMPLETED) return;
+    const delays = [2500, 8000, 20000, 45000];
+    const timers = delays.map((ms) =>
+      setTimeout(() => {
+        reloadPersistedLogs().catch(() => {});
+        reloadServerReport().catch(() => {});
+      }, ms)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [campaign.status, campaign.id, reloadPersistedLogs, reloadServerReport]);
 
   const loadMoreLogs = async () => {
     if (!dataUid || logsLoadingMore) return;
@@ -532,7 +562,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       out.push(withCampaignPayload(l));
     }
     for (const l of persistedLogs) {
-      if (!belongsToCampaign(l)) continue;
       const k = dedupeKey(l);
       if (seen.has(k)) continue;
       seen.add(k);
@@ -541,10 +570,44 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return out;
   }, [systemLogs, persistedLogs, campaign.id]);
 
+  const campaignIsDone = campaign.status === CampaignStatus.COMPLETED;
+
   const scopedCampaignLogs = useMemo(
-    () => filterLogsForCampaignView(logsForReport, campaign.id, campaignCreatedAtMs(campaign)),
-    [logsForReport, campaign.id, campaign.createdAt]
+    () =>
+      filterLogsForCampaignView(
+        logsForReport,
+        campaign.id,
+        campaignIsDone ? 0 : campaignRunWindowStartMs(campaign)
+      ),
+    [logsForReport, campaign.id, campaign.createdAt, campaign.lastRunAt, campaignIsDone]
   );
+
+  const serverReplyHints = useMemo(() => {
+    const m = new Map<
+      string,
+      { phone: string; replyTimestampMs: number; replyText?: string; connectionId?: string }
+    >();
+    if (!serverSnapshot?.replyPhones) return m;
+    for (const [rk, v] of Object.entries(serverSnapshot.replyPhones)) {
+      m.set(rk, {
+        phone: rk,
+        replyTimestampMs: v.replyTimestampMs,
+        replyText: v.replyText
+      });
+    }
+    return m;
+  }, [serverSnapshot]);
+
+  const replyPhonesFromLogs = useMemo(() => {
+    const fromLogs = buildReplyHintsFromLogs(scopedCampaignLogs, campaign.id);
+    if (serverReplyHints.size === 0) return fromLogs;
+    const merged = new Map(fromLogs);
+    for (const [k, v] of serverReplyHints) {
+      const prev = merged.get(k);
+      if (!prev || v.replyTimestampMs >= prev.replyTimestampMs) merged.set(k, v);
+    }
+    return merged;
+  }, [scopedCampaignLogs, campaign.id, serverReplyHints]);
 
   useEffect(() => {
     if (!useVpsData() || !campaign.id) {
@@ -584,6 +647,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     !isScheduled &&
     (isRunning || isPaused ||
       (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0));
+
+  /** Campanha concluída ou aguardando respostas: sincroniza logs persistidos com ACK/respostas tardias. */
+  useEffect(() => {
+    if (!isDone && !isWaitingForReplies) return;
+    const id = setInterval(() => {
+      reloadPersistedLogs().catch(() => {});
+      reloadServerReport().catch(() => {});
+    }, 12_000);
+    return () => clearInterval(id);
+  }, [isDone, isWaitingForReplies, reloadPersistedLogs, reloadServerReport]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -642,11 +715,51 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       .reduce((acc, conn) => acc + Math.max(0, Number(conn.queueSize) || 0), 0);
   }, [campaign.selectedConnectionIds, connections]);
 
-  // Detailed report — logs da campanha são a fonte principal (status + resposta)
+  // Detailed report — VPS: snapshot persistido; ao vivo: logs + conversas
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
     const scopedLogs = scopedCampaignLogs;
-    const replyHints = buildReplyHintsFromLogs(scopedLogs, campaign.id);
+    const replyHints = replyPhonesFromLogs;
+
+    if (serverSnapshot?.rows?.length) {
+      return dedupeCampaignReportRowsByRecipient(
+        serverSnapshot.rows.map((r) => {
+          const rk = recipientKeyForCampaignReport(r.phone);
+          const hint = replyHints.get(rk);
+          let row: ReportRow = {
+            id: `snap-${rk}`,
+            phone: r.phone,
+            contactName:
+              r.contactName ||
+              findContactName(r.phone, contacts) ||
+              `+${r.phone}`,
+            status: effectiveCampaignReportStatus(
+              { phone: r.phone, status: r.status },
+              replyHints
+            ) as ReportStatus,
+            sentTime: r.sentTime,
+            sentTimestampMs: r.sentTimestampMs,
+            replyText: r.replyText || hint?.replyText,
+            replyTime: r.replyTime,
+            replyTimestampMs: r.replyTimestampMs || hint?.replyTimestampMs,
+            connectionId: r.connectionId || hint?.connectionId,
+            errorMessage: r.errorMessage
+          };
+          row = applyReplyHintsToReportRow(row, hint) as ReportRow;
+          row = applyServerInboundReplyToRow(row, serverInboundReplies[rk]);
+          const found = findCampaignMessage(r.phone, campaign.id, allowedConns, conversations);
+          if (found) {
+            row = {
+              ...row,
+              conversationId: found.conv.id,
+              profilePicUrl: found.conv.profilePicUrl,
+              sentMessage: found.msg.text || row.sentMessage
+            };
+          }
+          return row;
+        })
+      );
+    }
 
     const primary = buildPrimaryReportRowsFromLogs(
       scopedLogs,
@@ -688,30 +801,31 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       mergedByPhone.set(rk, pickBetterCampaignReportRow(existing, convRow));
     }
 
-    return dedupeCampaignReportRowsByRecipient(
-      Array.from(mergedByPhone.values())
-        .map((row) => {
-          const rk = recipientKeyForCampaignReport(row.phone);
-          let out = enrichCampaignReportRow(row, {
-            campaignId: campaign.id,
-            replyHint: replyHints.get(rk),
-            scopedLogs,
-            conversations,
-            allowedConnectionIds: allowedConns
-          }) as ReportRow;
-          out = applyServerInboundReplyToRow(out, serverInboundReplies[rk]);
-          const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
-          if (found) {
-            out = {
-              ...out,
-              conversationId: found.conv.id,
-              profilePicUrl: found.conv.profilePicUrl,
-              sentMessage: found.msg.text || out.sentMessage
-            };
-          }
-          return out;
-        })
-        .sort((a, b) => b.sentTimestampMs - a.sentTimestampMs)
+    const enriched = Array.from(mergedByPhone.values()).map((row) => {
+      const rk = recipientKeyForCampaignReport(row.phone);
+      let out = enrichCampaignReportRow(row, {
+        campaignId: campaign.id,
+        replyHint: replyHints.get(rk),
+        scopedLogs,
+        conversations,
+        allowedConnectionIds: allowedConns
+      }) as ReportRow;
+      out = applyReplyHintsToReportRow(out, replyHints.get(rk)) as ReportRow;
+      out = applyServerInboundReplyToRow(out, serverInboundReplies[rk]);
+      const found = findCampaignMessage(row.phone, campaign.id, allowedConns, conversations);
+      if (found) {
+        out = {
+          ...out,
+          conversationId: found.conv.id,
+          profilePicUrl: found.conv.profilePicUrl,
+          sentMessage: found.msg.text || out.sentMessage
+        };
+      }
+      return out;
+    });
+
+    return dedupeCampaignReportRowsByRecipient(enriched).sort(
+      (a, b) => b.sentTimestampMs - a.sentTimestampMs
     );
   }, [
     scopedCampaignLogs,
@@ -720,7 +834,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     contactLists,
     campaign.selectedConnectionIds,
     conversations,
-    serverInboundReplies
+    serverInboundReplies,
+    serverSnapshot,
+    replyPhonesFromLogs
   ]);
 
   const filteredReport = useMemo(() => {
@@ -732,17 +848,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         item.contactName.toLowerCase().includes(term) ||
         (item.replyText || '').toLowerCase().includes(term);
 
+      const rowStatus = effectiveCampaignReportStatus(item, replyPhonesFromLogs) as ReportStatus;
       let matchesFilter = true;
       if (detailFilter !== 'ALL') {
         if (detailFilter === 'SENT_GROUP') {
-          matchesFilter = ['SENT', 'DELIVERED', 'READ', 'REPLIED'].includes(item.status);
+          matchesFilter = ['SENT', 'DELIVERED', 'READ', 'REPLIED'].includes(rowStatus);
         } else {
-          matchesFilter = item.status === detailFilter;
+          matchesFilter = rowStatus === detailFilter;
         }
       }
       return matchesSearch && matchesFilter;
     });
-  }, [detailedReport, detailFilter, detailSearch]);
+  }, [detailedReport, detailFilter, detailSearch, replyPhonesFromLogs]);
 
   const hasLegacyEstimateRows = useMemo(
     () => detailedReport.some((r) => r.legacyEstimate),
@@ -760,11 +877,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const failedPerChip = new Map<string, number>();
     const perHour = new Map<number, number>();
 
-    const replyPhonesFromLogs = buildReplyHintsFromLogs(scopedCampaignLogs, campaign.id);
     for (const r of detailedReport) {
       const rk = recipientKeyForCampaignReport(r.phone);
-      const effectiveStatus =
-        r.status === 'REPLIED' || replyPhonesFromLogs.has(rk) ? 'REPLIED' : r.status;
+      const effectiveStatus = effectiveCampaignReportStatus(r, replyPhonesFromLogs);
       counts[effectiveStatus]++;
       if (r.connectionId) {
         const cur = perChip.get(r.connectionId) || { sent: 0, replied: 0 };
@@ -818,7 +933,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       successPct, deliveryPct, readPct, replyPct,
       avgResponseSec, chipBreakdown, hourBreakdown, peakHour, failedPerChip
     };
-  }, [detailedReport, connections, scopedCampaignLogs, campaign.id]);
+  }, [detailedReport, connections, replyPhonesFromLogs]);
 
   const metrics = useMemo(
     () =>
@@ -842,8 +957,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       timestamp: l.timestamp,
       payload: l.payload
     }));
-    return buildReplyFlowStageFunnels(campaign.id, campaign, stageLogs);
-  }, [campaign, scopedCampaignLogs]);
+    return buildReplyFlowStageFunnels(campaign.id, campaign, stageLogs, replyPhonesFromLogs);
+  }, [campaign, scopedCampaignLogs, replyPhonesFromLogs]);
 
   const useReplyFlowPrimaryFunnel = replyFlowStages.length > 0;
 
@@ -899,7 +1014,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         ? Math.max(base.delivered, geoDelivered)
         : Math.max(base.delivered, Math.min(total, Math.max(0, metrics.ok)), geoDelivered);
     const read = Math.max(base.read, geoRead);
-    const replied = Math.max(base.replied, geoReplied);
+    const replied = Math.max(
+      base.replied,
+      geoReplied,
+      countRepliedFromLogsAndReport(detailedReport, replyPhonesFromLogs)
+    );
     if (
       delivered === base.delivered &&
       read === base.read &&
@@ -930,24 +1049,48 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         REPLIED: clamped.replied
       }
     };
-  }, [performance, metrics, campaign.successCount, campaign.failedCount, campaignGeoTotals]);
+  }, [
+    performance,
+    metrics,
+    campaign.successCount,
+    campaign.failedCount,
+    campaignGeoTotals,
+    detailedReport,
+    replyPhonesFromLogs
+  ]);
 
   /** Fluxo por resposta: funil principal por contato (etapa 1), não por total de envios na fila. */
   const uiPerformance = useMemo(() => {
     if (!useReplyFlowPrimaryFunnel) return uiPerformanceBase;
-    const fromReport = aggregateFunnelFromReportRows(detailedReport);
-    const primary = primaryFunnelFromReplyFlowStages(replyFlowStages);
-    const contactTotal = Math.max(
-      primary.sent,
-      fromReport.sent,
-      campaign.totalContacts || 0,
-      detailedReport.length
+    const fromReport = aggregateFunnelFromReportRows(
+      detailedReport.map((r) => ({
+        status: effectiveCampaignReportStatus(r, replyPhonesFromLogs)
+      }))
     );
+    const primary = primaryFunnelFromReplyFlowStages(replyFlowStages);
+    const uniqueRecipients = new Set(
+      detailedReport
+        .map((r) => recipientKeyForCampaignReport(r.phone))
+        .filter((k) => Boolean(k))
+    );
+    const contactTotal = Math.max(
+      campaign.totalContacts || 0,
+      uniqueRecipients.size,
+      primary.sent,
+      fromReport.sent
+    );
+    const repliedContacts = countRepliedFromLogsAndReport(detailedReport, replyPhonesFromLogs);
     const clamped = clampCampaignFunnelMetrics(
       contactTotal,
       Math.max(fromReport.delivered, primary.delivered, campaignGeoTotals.delivered),
       Math.max(fromReport.read, primary.read, campaignGeoTotals.read),
-      Math.max(fromReport.replied, primary.replied, campaignGeoTotals.replied)
+      Math.max(
+        fromReport.replied,
+        primary.replied,
+        campaignGeoTotals.replied,
+        performance.replied,
+        repliedContacts
+      )
     );
     return {
       ...uiPerformanceBase,
@@ -975,7 +1118,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     replyFlowStages,
     campaignGeoTotals,
     campaign.totalContacts,
-    detailedReport
+    detailedReport,
+    replyPhonesFromLogs,
+    performance.replied
   ]);
 
   const progress = metrics.progressPct;
@@ -1857,7 +2002,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               <tbody>
                 {filteredReport.length > 0 ? (
                   filteredReport.map((item) => {
-                    const meta = STATUS_META[item.status];
+                    const rk = recipientKeyForCampaignReport(item.phone);
+                    const logHint = replyPhonesFromLogs.get(rk);
+                    const displayStatus = effectiveCampaignReportStatus(
+                      item,
+                      replyPhonesFromLogs
+                    ) as ReportStatus;
+                    const meta = STATUS_META[displayStatus];
                     const nameForInitials = (item.contactName || '').trim();
                     const initials =
                       nameForInitials &&
@@ -1871,14 +2022,19 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                             .slice(0, 2)
                             .toUpperCase()
                         : item.phone.slice(-2);
-                    const replySnippet = item.replyText
-                      ? item.replyText.length > 80
-                        ? `${item.replyText.slice(0, 80)}…`
-                        : item.replyText
+                    const replyTextResolved = item.replyText || logHint?.replyText;
+                    const replySnippet = replyTextResolved
+                      ? replyTextResolved.length > 80
+                        ? `${replyTextResolved.slice(0, 80)}…`
+                        : replyTextResolved
                       : '';
+                    const replyTs = item.replyTimestampMs || logHint?.replyTimestampMs;
+                    const replyTimeResolved =
+                      item.replyTime ||
+                      (replyTs ? new Date(replyTs).toLocaleTimeString('pt-BR') : undefined);
                     const replyLatency =
-                      item.replyTimestampMs && item.sentTimestampMs
-                        ? Math.round((item.replyTimestampMs - item.sentTimestampMs) / 1000)
+                      replyTs && item.sentTimestampMs
+                        ? Math.round((replyTs - item.sentTimestampMs) / 1000)
                         : null;
                     return (
                       <tr
@@ -1928,7 +2084,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <RowTimeline status={item.status} />
+                          <RowTimeline status={displayStatus} />
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant={meta.variant} dot>
@@ -1942,13 +2098,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                           <div className="text-[12.5px] font-mono" style={{ color: 'var(--text-2)' }}>
                             {item.sentTime}
                           </div>
-                          {item.replyTime && (
+                          {replyTimeResolved && (
                             <div
                               className="text-[10.5px] font-mono mt-0.5 inline-flex items-center gap-1"
                               style={{ color: '#10b981' }}
                             >
                               <Reply className="w-2.5 h-2.5" />
-                              {item.replyTime}
+                              {replyTimeResolved}
                               {replyLatency !== null && replyLatency > 0 && (
                                 <span className="opacity-70">· em {formatDuration(replyLatency)}</span>
                               )}
@@ -1959,11 +2115,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                           className="px-4 py-3 text-[12.5px] max-w-[320px]"
                           title={item.replyText || item.errorMessage || ''}
                         >
-                          {item.status === 'FAILED' ? (
+                          {displayStatus === 'FAILED' ? (
                             <span style={{ color: 'var(--danger)' }} className="truncate inline-block max-w-full">
                               {item.errorMessage || 'Erro desconhecido'}
                             </span>
-                          ) : item.replyText ? (
+                          ) : replyTextResolved ? (
                             <div
                               className="px-2.5 py-1.5 rounded-lg inline-block max-w-full"
                               style={{
@@ -1979,7 +2135,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                               className="text-[11.5px] leading-snug block max-w-[280px]"
                               style={{ color: 'var(--text-3)' }}
                             >
-                              {campaignReportReplyDetailLabel(item.status, item.replyText) || '—'}
+                              {campaignReportReplyDetailLabel(displayStatus, replyTextResolved) || '—'}
                             </span>
                           )}
                         </td>

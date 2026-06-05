@@ -5,20 +5,14 @@ import {
   buildReplyHintsFromLogs,
   campaignLogPayloadMatchesCampaign,
   type CampaignLogPayloadLike,
-  CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE,
-  CAMPAIGN_REPLY_LOG_MESSAGE,
   CAMPAIGN_SENT_LOG_MESSAGE,
+  isCampaignReplyLogMessage,
   logPayloadPhoneKey,
   type ReplyHintFromLog
 } from './campaignReportFromLogs';
 import { firstReplyAfterCampaignSend, latestCampaignSendTimestampMs } from './campaignReplyScope';
 
 export type ReportStatusLike = 'PENDING' | 'FAILED' | 'SENT' | 'DELIVERED' | 'READ' | 'REPLIED';
-
-const REPLY_LOG_MESSAGES = new Set([
-  CAMPAIGN_REPLY_LOG_MESSAGE,
-  CAMPAIGN_CONTACT_REPLY_LOG_MESSAGE
-]);
 
 function statusRank(status: string): number {
   return CAMPAIGN_REPORT_STATUS_RANK[status] ?? -1;
@@ -70,7 +64,7 @@ export function latestReplyHintFromLogs(
     if (!log.payload || typeof log.payload !== 'object') continue;
     const p = log.payload as CampaignLogPayloadLike;
     if (!campaignLogPayloadMatchesCampaign(p, campaignId)) continue;
-    if (!REPLY_LOG_MESSAGES.has(String(p.message || ''))) continue;
+    if (!isCampaignReplyLogMessage(String(p.message || ''))) continue;
     if (logPayloadPhoneKey(p) !== rk) continue;
     const ts = new Date(log.timestamp).getTime();
     const preview = p.replyPreview ? String(p.replyPreview).trim() : '';

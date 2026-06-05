@@ -64,6 +64,20 @@ export function campaignCreatedAtMs(campaign: Pick<Campaign, 'createdAt'>): numb
   return Number.isFinite(t) ? t : 0;
 }
 
+/** Início da janela de logs: última execução ou criação (evita cortar logs após reagendar). */
+export function campaignRunWindowStartMs(
+  campaign: Pick<Campaign, 'createdAt' | 'lastRunAt'>
+): number {
+  const candidates = [campaign.lastRunAt, campaign.createdAt];
+  let min = Number.MAX_SAFE_INTEGER;
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const t = Date.parse(String(raw));
+    if (Number.isFinite(t) && t < min) min = t;
+  }
+  return min === Number.MAX_SAFE_INTEGER ? 0 : min;
+}
+
 /** Mantém só contatos desta campanha (envio real ou planejados, nunca inbox inteiro). */
 export function isPhoneInCampaignReportScope(
   phoneKey: string,
