@@ -278,6 +278,27 @@
   opacity: 0.85;
 }
 
+.zm-channel-accent {
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(90deg, #059669, #10b981, #34d399);
+  opacity: 0.9;
+}
+
+.zm-account-accent {
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(90deg, #047857, #10b981, #6ee7b7);
+  opacity: 0.9;
+}
+
+.zm-ops-accent {
+  height: 3px;
+  width: 100%;
+  background: linear-gradient(90deg, #4338ca, #6366f1, #818cf8);
+  opacity: 0.9;
+}
+
 /* Envios 7 dias + meta mensal */
 .zm-send-trend-card {
   position: relative;

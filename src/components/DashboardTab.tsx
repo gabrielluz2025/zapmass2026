@@ -62,6 +62,12 @@ import {
 import { Card, CardHeader, Button, Badge, Modal, Textarea, Select } from './ui';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
+import { Sparkline } from './Sparkline';
+import {
+  buildChannelSpotlightRows,
+  computeAccountDashboardSummary,
+  computeAdminOpsSnapshot
+} from '../utils/dashboardAccountSummary';
 import { BrazilCampaignMap, GeoLayer } from './dashboard/BrazilCampaignMap';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
@@ -822,9 +828,17 @@ export const DashboardTab: React.FC = () => {
     metrics.totalRead === 0 &&
     metrics.totalReplied === 0;
 
-  const topSenders = useMemo(
-    () => [...connections].sort((a, b) => b.messagesSentToday - a.messagesSentToday).slice(0, 5),
-    [connections]
+  const channelSpotlight = useMemo(
+    () => buildChannelSpotlightRows(connections, warmupChipStats, 4),
+    [connections, warmupChipStats]
+  );
+  const accountSummary = useMemo(
+    () => computeAccountDashboardSummary(connections, campaigns, contacts, circuitBreakerOpenConnectionIds),
+    [connections, campaigns, contacts, circuitBreakerOpenConnectionIds]
+  );
+  const adminOps = useMemo(
+    () => computeAdminOpsSnapshot(connections, systemMetrics),
+    [connections, systemMetrics]
   );
 
   const animSent = useCountUp(metrics.totalSent);
@@ -1722,77 +1736,128 @@ export const DashboardTab: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5">
-        <Card className="lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="ui-title text-[15px]">Canais em destaque</h3>
-              <p className="ui-subtitle text-[12px]">Top envios de hoje</p>
-            </div>
-            <Badge variant="neutral">Hoje</Badge>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {topSenders.length === 0 ? (
-              <div className="col-span-full py-10 text-center">
-                <div
-                  className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.12))',
-                    border: '1px solid rgba(16,185,129,0.2)'
-                  }}
-                >
-                  <Smartphone className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />
-                </div>
-                <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
-                  Nenhum canal ativo ainda
-                </p>
-                <p className="text-[12px] mt-1 max-w-xs mx-auto" style={{ color: 'var(--text-3)' }}>
-                  Conecte seu primeiro WhatsApp na aba <strong style={{ color: 'var(--text-2)' }}>Canais</strong> para começar a enviar campanhas.
+        <Card className="lg:col-span-2 p-0 overflow-hidden">
+          <div className="zm-channel-accent" aria-hidden />
+          <div className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div>
+                <h3 className="ui-title text-[15px]">Canais em destaque</h3>
+                <p className="ui-subtitle text-[12px]">
+                  {accountSummary.totalChannels > 0
+                    ? `${accountSummary.sentToday.toLocaleString('pt-BR')} envios hoje · ${accountSummary.onlineChannels} online`
+                    : 'Top envios de hoje'}
                 </p>
               </div>
-            ) : (
-              topSenders.map((conn) => (
-                <div
-                  key={conn.id}
-                  className="p-3.5 rounded-xl flex items-center justify-between"
-                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
-                        {conn.name}
-                      </p>
-                      {conn.status === ConnectionStatus.CONNECTED ? (
-                        <Badge variant="success" dot />
-                      ) : (
-                        <Badge variant="danger" dot />
-                      )}
-                    </div>
-                    <p className="text-[11.5px] font-mono" style={{ color: 'var(--text-3)' }}>
-                      {conn.phoneNumber || 'Sem numero'}
-                    </p>
+              <div className="flex items-center gap-2">
+                <Badge variant="neutral">Hoje</Badge>
+                {accountSummary.totalChannels > 0 && (
+                  <Button type="button" size="xs" variant="ghost" onClick={() => setCurrentView('connections')}>
+                    Ver todos
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {channelSpotlight.length === 0 ? (
+                <div className="col-span-full py-10 text-center">
+                  <div
+                    className="mx-auto w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.12))',
+                      border: '1px solid rgba(16,185,129,0.2)'
+                    }}
+                  >
+                    <Smartphone className="w-7 h-7" style={{ color: 'var(--brand-600)' }} />
                   </div>
-                  <div className="text-right flex-shrink-0 ml-3">
-                    <p className="text-[20px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-                      {conn.messagesSentToday}
-                    </p>
-                    <p className="text-[9.5px] uppercase font-semibold tracking-widest mt-1" style={{ color: 'var(--text-3)' }}>
-                      envios
-                    </p>
-                  </div>
+                  <p className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
+                    Nenhum canal ativo ainda
+                  </p>
+                  <p className="text-[12px] mt-1 max-w-xs mx-auto" style={{ color: 'var(--text-3)' }}>
+                    Conecte seu primeiro WhatsApp na aba <strong style={{ color: 'var(--text-2)' }}>Canais</strong> para começar a enviar campanhas.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="mt-4"
+                    leftIcon={<Smartphone className="w-4 h-4" />}
+                    onClick={() => setCurrentView('connections')}
+                  >
+                    Conectar canal
+                  </Button>
                 </div>
-              ))
-            )}
+              ) : (
+                channelSpotlight.map((row) => {
+                  const conn = row.connection;
+                  const trendLabel =
+                    row.trendPct > 0 ? `+${row.trendPct}%` : row.trendPct < 0 ? `${row.trendPct}%` : 'estável';
+                  const trendColor = row.trendPct > 0 ? '#10b981' : row.trendPct < 0 ? '#f43f5e' : 'var(--text-3)';
+                  return (
+                    <div
+                      key={conn.id}
+                      className="p-3.5 rounded-xl"
+                      style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
+                              {conn.name}
+                            </p>
+                            {conn.status === ConnectionStatus.CONNECTED ? (
+                              <Badge variant="success" dot />
+                            ) : (
+                              <Badge variant="danger" dot />
+                            )}
+                            <span
+                              className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full"
+                              style={{ background: row.tempBg, color: row.tempColor }}
+                            >
+                              {row.tempLabel}
+                            </span>
+                          </div>
+                          <p className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
+                            {conn.phoneNumber || 'Sem número'}
+                          </p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-[20px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                            {row.sentToday}
+                          </p>
+                          <p className="text-[9px] uppercase font-semibold tracking-widest mt-1" style={{ color: 'var(--text-3)' }}>
+                            envios
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-end justify-between gap-2">
+                        <Sparkline values={row.spark} color={row.tempColor} width={88} height={24} id={`spot-${conn.id}`} />
+                        <div className="text-right">
+                          <p className="text-[9px]" style={{ color: trendColor }}>
+                            {trendLabel} vs ontem
+                          </p>
+                          <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                            {row.weekTotal.toLocaleString('pt-BR')} na semana
+                            {(conn.queueSize || 0) > 0 ? ` · fila ${conn.queueSize}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </Card>
 
         {!isAdmin ? (
           <Card
-            className="overflow-hidden"
+            className="overflow-hidden p-0"
             style={{
               background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
               borderColor: 'var(--border-subtle)'
             }}
           >
+            <div className="zm-account-accent" aria-hidden />
             <div className="p-1">
               <CardHeader
                 icon={
@@ -1803,8 +1868,8 @@ export const DashboardTab: React.FC = () => {
                     <Users className="w-[18px] h-[18px] text-emerald-600" aria-hidden />
                   </div>
                 }
-                title="Seus canais"
-                subtitle="Quantidade em uso no teu plano. Métricas de servidor são só para a equipa de administração."
+                title="Resumo da sua conta"
+                subtitle="Plano, envios de hoje e próximos passos — sem detalhes técnicos de servidor."
                 actions={
                   <Badge variant="neutral" className="text-[10px] hidden sm:inline-flex" dot={isBackendConnected}>
                     {isBackendConnected ? 'Sincronizado' : '…'}
@@ -1812,70 +1877,133 @@ export const DashboardTab: React.FC = () => {
                 }
               />
             </div>
-            <div className="px-4 pb-4 space-y-4">
+            <div className="px-4 pb-4 space-y-3">
               <div
-                className="flex items-baseline justify-center gap-1 flex-wrap"
-                style={{ color: 'var(--text-1)' }}
+                className="rounded-xl px-3 py-2.5"
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
               >
-                <span className="text-[40px] font-extrabold tabular-nums leading-none">{planScopedCount}</span>
-                <span className="text-[16px] font-medium" style={{ color: 'var(--text-3)' }}>
-                  / {maxPlanChannelSlots}
-                </span>
-                <span className="w-full text-center text-[11px] sm:w-auto sm:pl-1" style={{ color: 'var(--text-3)' }}>
-                  canais
-                </span>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[11px] font-semibold uppercase" style={{ color: 'var(--text-3)' }}>
+                    Canais no plano
+                  </span>
+                  <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>
+                    {planScopedCount} / {maxPlanChannelSlots}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden mt-2" style={{ background: 'var(--surface-2)' }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${planUsagePct}%`,
+                      background:
+                        atPlanChannelLimit || planUsagePct >= 80
+                          ? 'linear-gradient(90deg, var(--warning), #f59e0b)'
+                          : 'linear-gradient(90deg, var(--success), #10b981)'
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+                  {atPlanChannelLimit
+                    ? 'Limite atingido — adicione extras na assinatura.'
+                    : `Inclui ${BASE_CHANNEL_SLOTS} no plano${
+                        typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
+                          ? ` + ${subscription.extraChannelSlots} extra(s).`
+                          : '.'
+                      }`}
+                </p>
               </div>
-              {(() => {
-                const planLevel: 'ok' | 'warn' | 'full' =
-                  atPlanChannelLimit ? 'full' : planUsagePct >= 80 ? 'warn' : 'ok';
-                const planColor =
-                  planLevel === 'full' || planLevel === 'warn' ? 'var(--warning)' : 'var(--success)';
-                return (
-                  <>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          width: `${planUsagePct}%`,
-                          background: `linear-gradient(90deg, var(--success), ${planColor})`
-                        }}
-                      />
+
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  {
+                    label: 'Enviados hoje',
+                    value: accountSummary.sentToday.toLocaleString('pt-BR'),
+                    icon: <Send className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
+                  },
+                  {
+                    label: 'Canais online',
+                    value: `${accountSummary.onlineChannels}/${accountSummary.totalChannels}`,
+                    icon: <Wifi className="w-3.5 h-3.5" style={{ color: '#3b82f6' }} />
+                  },
+                  {
+                    label: 'Campanhas ativas',
+                    value: String(accountSummary.runningCampaigns + accountSummary.scheduledCampaigns),
+                    icon: <Rocket className="w-3.5 h-3.5" style={{ color: '#8b5cf6' }} />
+                  },
+                  {
+                    label: 'Lembretes hoje',
+                    value: String(accountSummary.followUpsToday),
+                    icon: <Calendar className="w-3.5 h-3.5" style={{ color: '#f59e0b' }} />
+                  }
+                ].map((kpi) => (
+                  <div
+                    key={kpi.label}
+                    className="rounded-xl px-2.5 py-2"
+                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      {kpi.icon}
+                      <span className="text-[9px] uppercase font-bold" style={{ color: 'var(--text-3)' }}>
+                        {kpi.label}
+                      </span>
                     </div>
-                    <p className="text-[11px] text-center" style={{ color: 'var(--text-3)' }}>
-                      {planLevel === 'full' ? (
-                        <span style={{ color: 'var(--warning)' }}>Limite do plano atingido.</span>
-                      ) : planLevel === 'warn' ? (
-                        <span style={{ color: 'var(--warning)' }}>Aproximando o limite do plano.</span>
-                      ) : (
-                        'Dentro do teu plano comercial.'
-                      )}
+                    <p className="text-[18px] font-black tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                      {kpi.value}
                     </p>
-                  </>
-                );
-              })()}
-              <p className="text-[10.5px] leading-snug text-center" style={{ color: 'var(--text-3)' }}>
-                Inclui <strong style={{ color: 'var(--text-2)' }}>{BASE_CHANNEL_SLOTS}</strong> no plano
-                {typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
-                  ? ` + ${subscription.extraChannelSlots} extra(s) contratado(s).`
-                  : '. Podes adicionar extras em Minha assinatura.'}
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
+                  </div>
+                ))}
+              </div>
+
+              <div
+                className="rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
+                style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.18)' }}
+              >
+                {accountSummary.offlineChannels > 0 ? (
+                  <p style={{ color: 'var(--text-2)' }}>
+                    <strong style={{ color: '#f59e0b' }}>{accountSummary.offlineChannels} canal(is) offline.</strong>{' '}
+                    Reconecte em Canais para não perder disparos.
+                  </p>
+                ) : bestWindow ? (
+                  <p style={{ color: 'var(--text-2)' }}>
+                    Melhor horário para disparar hoje: <strong>{bestWindow.label}</strong> (com base nas respostas recentes).
+                  </p>
+                ) : accountSummary.sentToday === 0 ? (
+                  <p style={{ color: 'var(--text-2)' }}>
+                    Ainda sem envios hoje. Crie uma campanha ou envie mensagens pelo Pipeline para começar.
+                  </p>
+                ) : (
+                  <p style={{ color: 'var(--text-2)' }}>
+                    Tudo sincronizado. Use Campanhas para escalar ou Contatos para retomar conversas quentes.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
                 <Button
                   type="button"
                   variant="secondary"
-                  className="flex-1"
+                  className="w-full"
                   onClick={() => setCurrentView('connections')}
                   leftIcon={<Smartphone className="w-4 h-4" />}
                 >
                   Gerir conexões
                 </Button>
-                {atPlanChannelLimit && (
+                <div className="flex gap-2">
                   <Button
                     type="button"
                     variant="primary"
                     className="flex-1"
-                    onClick={() => setCurrentView('subscription')}
+                    onClick={() => setCurrentView('campaigns')}
+                    leftIcon={<Rocket className="w-4 h-4" />}
                   >
+                    Campanhas
+                  </Button>
+                  <Button type="button" variant="ghost" className="flex-1" onClick={() => setCurrentView('contacts')}>
+                    Contatos
+                  </Button>
+                </div>
+                {atPlanChannelLimit && (
+                  <Button type="button" variant="primary" className="w-full" onClick={() => setCurrentView('subscription')}>
                     Assinatura e extras
                   </Button>
                 )}
@@ -1884,12 +2012,13 @@ export const DashboardTab: React.FC = () => {
           </Card>
         ) : (
           <Card
-            className="overflow-hidden"
+            className="overflow-hidden p-0"
             style={{
               background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
               borderColor: 'var(--border-subtle)'
             }}
           >
+            <div className="zm-ops-accent" aria-hidden />
             <div className="p-1">
               <CardHeader
                 icon={
@@ -1901,7 +2030,7 @@ export const DashboardTab: React.FC = () => {
                   </div>
                 }
                 title="Operações de servidor"
-                subtitle="Alertas de RAM, fila, canais offline e integrações passaram para a aba dedicada."
+                subtitle="Visão rápida da infra. Detalhes completos na aba Operações."
                 actions={
                   <Button type="button" size="sm" variant="primary" onClick={() => setCurrentView('admin-ops')}>
                     Abrir operações
@@ -1909,11 +2038,76 @@ export const DashboardTab: React.FC = () => {
                 }
               />
             </div>
-            <div className="px-4 pb-4 space-y-2">
-              <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                Nesta conta existem <strong style={{ color: 'var(--text-1)' }}>{planScopedCount}</strong> canais. O
-                detalhe técnico (host, Docker, métricas) está em <strong>Operações</strong> no menu.
+            <div className="px-4 pb-4 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  {
+                    label: 'RAM',
+                    value: adminOps.ramPct != null ? `${adminOps.ramPct}%` : '—',
+                    sub: adminOps.ramTotalGb != null ? `${adminOps.ramTotalGb} GB` : 'A sincronizar',
+                    warn: (adminOps.ramPct ?? 0) >= 85
+                  },
+                  {
+                    label: 'Latência',
+                    value: adminOps.latencyMs != null ? `${adminOps.latencyMs} ms` : '—',
+                    sub: 'Socket',
+                    warn: (adminOps.latencyMs ?? 0) >= 400
+                  },
+                  {
+                    label: 'Offline',
+                    value: String(adminOps.offlineChannels),
+                    sub: 'canais',
+                    warn: adminOps.offlineChannels > 0
+                  },
+                  {
+                    label: 'Fila',
+                    value: String(adminOps.queueTotal),
+                    sub: 'mensagens',
+                    warn: adminOps.queueTotal > 50
+                  }
+                ].map((kpi) => (
+                  <div
+                    key={kpi.label}
+                    className="rounded-xl px-2.5 py-2"
+                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <p className="text-[9px] uppercase font-bold" style={{ color: 'var(--text-3)' }}>
+                      {kpi.label}
+                    </p>
+                    <p
+                      className="text-[18px] font-black tabular-nums leading-none mt-0.5"
+                      style={{ color: kpi.warn ? '#f59e0b' : 'var(--text-1)' }}
+                    >
+                      {kpi.value}
+                    </p>
+                    <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                      {kpi.sub}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {adminOps.ramPct != null && (
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(100, adminOps.ramPct)}%`,
+                      background:
+                        adminOps.ramPct >= 85
+                          ? 'linear-gradient(90deg, #f59e0b, #f43f5e)'
+                          : 'linear-gradient(90deg, #6366f1, #818cf8)'
+                    }}
+                  />
+                </div>
+              )}
+
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                Conta com <strong style={{ color: 'var(--text-1)' }}>{planScopedCount}</strong> canais ·{' '}
+                <strong style={{ color: 'var(--text-1)' }}>{accountSummary.runningCampaigns}</strong> campanha(s) em
+                disparo. Host, Docker e integrações ficam na aba <strong>Operações</strong>.
               </p>
+
               <div
                 className="flex items-center gap-2 rounded-xl px-3 py-2 text-[11px]"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -1925,7 +2119,7 @@ export const DashboardTab: React.FC = () => {
                   <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
                 )}
                 <span style={{ color: 'var(--text-3)' }}>
-                  {isBackendConnected ? 'Backend online.' : 'A reconectar ao servidor…'}
+                  {isBackendConnected ? 'Backend online e sincronizado.' : 'A reconectar ao servidor…'}
                 </span>
               </div>
             </div>
