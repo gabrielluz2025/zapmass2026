@@ -27,8 +27,16 @@ export function registerLeadsGeoRoutes(app: Express): void {
   app.get('/api/leads-geo/summary', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
+    const q = req.query as Record<string, string | undefined>;
+    const layer = q.layer as 'neighborhood' | 'city' | 'ddd' | 'state' | undefined;
     try {
-      const summary = await buildLeadsGeoSummary(ctx.tenantId);
+      const summary = await buildLeadsGeoSummary(ctx.tenantId, {
+        layer,
+        state: q.state,
+        city: q.city,
+        ddd: q.ddd,
+        neighborhood: q.neighborhood
+      });
       return res.json({ ok: true, ...summary });
     } catch (e) {
       console.error('[api/leads-geo/summary]', e);
@@ -39,9 +47,15 @@ export function registerLeadsGeoRoutes(app: Express): void {
   app.post('/api/leads-geo/geocode-clusters', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const max = Number((req.body as { max?: number })?.max) || 40;
+    const body = (req.body || {}) as { max?: number; layer?: string; force?: boolean };
+    const max = Number(body.max) || 60;
+    const layer = body.layer as 'neighborhood' | 'city' | 'ddd' | 'state' | undefined;
     try {
-      const result = await geocodeLeadsGeoClusters(ctx.tenantId, { max });
+      const result = await geocodeLeadsGeoClusters(ctx.tenantId, {
+        max,
+        layer,
+        force: body.force === true
+      });
       return res.json({ ok: true, ...result });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
