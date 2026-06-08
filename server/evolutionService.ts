@@ -42,6 +42,7 @@ import {
     logCampaignContactReply,
     getCampaignGeoOwner,
     publishOwnerEvent,
+    recordConnectionDispatch,
 } from './whatsappService.js';
 import { createEvolutionChat, type EvolutionChatStore } from './evolutionChat.js';
 import {
@@ -2807,6 +2808,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
 
     if (conn) {
         conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
+        recordConnectionDispatch(item.connectionId);
         connectionsSettingsCache[item.connectionId] = {
             dailyLimit: conn.dailyLimit,
             growthRate: conn.growthRate,

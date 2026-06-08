@@ -1042,13 +1042,22 @@ export function emitScheduledCampaignUserNotice(
 
 export const getWarmupChipStats = (): WarmupChipStats[] => Array.from(warmupChipStats.values());
 
+/** Regista disparo do canal (campanha ou aquecimento) no histórico diário persistido. */
+export const recordConnectionDispatch = (connectionId: string) => {
+    const now = Date.now();
+    const stats = getOrCreateChipStats(connectionId);
+    if (!stats.firstWarmedAt) stats.firstWarmedAt = now;
+    stats.lastActiveAt = now;
+    stats.totalSent += 1;
+    ensureTodayEntry(stats).sent += 1;
+    scheduleWarmupStatsSave();
+    emitWarmupChipStats();
+};
+
 const recordWarmupSent = (fromId: string, toPhone: string) => {
     const now = Date.now();
+    recordConnectionDispatch(fromId);
     const fromStats = getOrCreateChipStats(fromId);
-    if (!fromStats.firstWarmedAt) fromStats.firstWarmedAt = now;
-    fromStats.lastActiveAt = now;
-    fromStats.totalSent += 1;
-    ensureTodayEntry(fromStats).sent += 1;
 
     // Se o destino eh um dos nossos proprios chips, contabiliza "recebida" nele
     const normalized = toPhone.replace(/\D/g, '');
@@ -1059,10 +1068,9 @@ const recordWarmupSent = (fromId: string, toPhone: string) => {
         toStats.lastActiveAt = now;
         toStats.totalReceived += 1;
         ensureTodayEntry(toStats).received += 1;
+        scheduleWarmupStatsSave();
+        emitWarmupChipStats();
     }
-
-    scheduleWarmupStatsSave();
-    emitWarmupChipStats();
 };
 
 const recordWarmupFailed = (fromId: string) => {
@@ -5716,6 +5724,7 @@ const processQueue = async () => {
                 connInfo.messagesSentToday = (connInfo.messagesSentToday || 0) + 1;
                 connInfo.totalMessagesSent = (connInfo.totalMessagesSent || 0) + 1;
             }
+            recordConnectionDispatch(item.connectionId);
             currentCampaign.successCount++;
             updateChannelMetrics(item.connectionId, true);
             recordCircuitBreakerSuccess(item.connectionId);

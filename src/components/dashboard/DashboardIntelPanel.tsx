@@ -2,7 +2,7 @@
  * Novos blocos do painel: radar de campanhas, saúde dos chips, alertas CRM,
  * envios últimos 7 dias, score da base, feed de actividade e meta mensal.
  */
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import type { Campaign, Contact, Conversation, SystemLog, WhatsAppConnection } from '../../types';
 import { ConnectionStatus } from '../../types';
 import {
@@ -20,17 +20,13 @@ import {
 import { Button, Card, Modal } from '../ui';
 import { computeCampaignRadar } from '../../utils/dashboardCampaignInsights';
 import {
-  buildMergedDailyBreakdownByDay,
   computeDailyBreakdownFromServer,
-  computeDailyCampaignBreakdown,
-  computeDailySendsFromCampaigns,
   dailySendMapFromRecord,
   daysInCurrentMonth,
   formatSendDayTooltip,
   getDailySendSeriesLastNDays,
-  getMergedMonthSentSoFar,
+  getFunnelMonthSentSoFar,
   getMonthlyGoal,
-  recordDashboardFunnelSentIncrement,
   setMonthlyGoal
 } from '../../utils/dashboardLocalStats';
 
@@ -152,37 +148,20 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   onNavigateToChat
 }) => {
   const deferredConversations = useDeferredValue(conversations);
-  const prevSentRef = useRef<number>(funnelStatsTotalSent);
   const [goalRevision, setGoalRevision] = useState(0);
   const [goalModal, setGoalModal] = useState(false);
   const [goalDraft, setGoalDraft] = useState('');
 
-  useEffect(() => {
-    prevSentRef.current = funnelStatsTotalSent;
-  }, [userUid]);
-
-  useEffect(() => {
-    if (!userUid) return;
-    recordDashboardFunnelSentIncrement(userUid, prevSentRef.current, funnelStatsTotalSent);
-    prevSentRef.current = funnelStatsTotalSent;
-  }, [userUid, funnelStatsTotalSent, funnelUpdatedAt]);
-
   const radar = useMemo(() => computeCampaignRadar(campaigns), [campaigns]);
 
-  const serverDailyBuckets = useMemo(() => dailySendMapFromRecord(funnelSentByDay), [funnelSentByDay]);
-  const campaignDailyBuckets = useMemo(() => computeDailySendsFromCampaigns(campaigns), [campaigns]);
-  const serverBreakdownByDay = useMemo(
+  const funnelDailyBuckets = useMemo(() => dailySendMapFromRecord(funnelSentByDay), [funnelSentByDay]);
+  const breakdownByDay = useMemo(
     () => computeDailyBreakdownFromServer(campaigns, funnelSentByDayByCampaign),
     [campaigns, funnelSentByDayByCampaign]
   );
-  const campaignBreakdownByDay = useMemo(() => computeDailyCampaignBreakdown(campaigns), [campaigns]);
-  const breakdownByDay = useMemo(
-    () => buildMergedDailyBreakdownByDay(campaigns, serverBreakdownByDay, campaignBreakdownByDay),
-    [campaigns, serverBreakdownByDay, campaignBreakdownByDay]
-  );
   const series7 = useMemo(
-    () => getDailySendSeriesLastNDays(userUid, 7, campaignDailyBuckets, serverDailyBuckets),
-    [userUid, funnelUpdatedAt, goalRevision, campaignDailyBuckets, serverDailyBuckets]
+    () => getDailySendSeriesLastNDays(7, funnelDailyBuckets),
+    [funnelUpdatedAt, goalRevision, funnelDailyBuckets]
   );
   const weekTotal = useMemo(() => series7.reduce((n, s) => n + s.count, 0), [series7]);
   const peakDay = useMemo(() => {
@@ -190,8 +169,8 @@ export const DashboardIntelPanel: React.FC<Props> = ({
     return series7.reduce((best, s) => (s.count > best.count ? s : best), series7[0]);
   }, [series7]);
   const monthSent = useMemo(
-    () => getMergedMonthSentSoFar(userUid, serverDailyBuckets, campaignDailyBuckets),
-    [userUid, funnelUpdatedAt, goalRevision, serverDailyBuckets, campaignDailyBuckets]
+    () => getFunnelMonthSentSoFar(funnelDailyBuckets),
+    [funnelUpdatedAt, goalRevision, funnelDailyBuckets]
   );
   const monthlyGoal = useMemo(() => getMonthlyGoal(userUid), [userUid, goalRevision]);
 
@@ -403,7 +382,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                   <h3 className="ui-title text-[14px]">Mensagens enviadas — 7 dias</h3>
                 </div>
                 <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Cada mensagem enviada com sucesso é contada no dia em que saiu — mesmo com o painel fechado.
+                  Mesmo contador de Enviadas do painel, separado por dia.
                 </p>
               </div>
               <div
@@ -461,8 +440,10 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
                   Nenhuma mensagem nesta semana
                 </p>
-                <p className="text-[10px] mt-1 max-w-[240px]" style={{ color: 'var(--text-3)' }}>
-                  Quando você disparar uma campanha, o total de mensagens enviadas aparece aqui, separado por dia.
+                <p className="text-[10px] mt-1 max-w-[260px]" style={{ color: 'var(--text-3)' }}>
+                  {funnelStatsTotalSent > 0
+                    ? 'Os envios desta semana ainda não entram no gráfico. Novas mensagens aparecem aqui no dia em que saírem.'
+                    : 'Quando você disparar uma campanha, cada mensagem enviada aparece no dia correspondente.'}
                 </p>
               </div>
             ) : (

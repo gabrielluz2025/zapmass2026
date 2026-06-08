@@ -98,8 +98,16 @@ const loadSort = (scope: string | null): SortKey => {
 };
 
 export const ConnectionsTab: React.FC = () => {
-  const { connections, addConnection, removeConnection, reconnectConnection, forceQr, renameConnection, updateConnectionSettings } =
-    useZapMassCore();
+  const {
+    connections,
+    addConnection,
+    removeConnection,
+    reconnectConnection,
+    forceQr,
+    renameConnection,
+    updateConnectionSettings,
+    warmupChipStats
+  } = useZapMassCore();
   const { user } = useAuth();
   const { effectiveWorkspaceUid } = useWorkspace();
   // Escopo das preferencias persistidas no localStorage. Antes pins/view/sort
@@ -1026,6 +1034,7 @@ export const ConnectionsTab: React.FC = () => {
                   </button>
                   <ConnectionCard
                     connection={connection}
+                    chipStats={warmupChipStats[connection.id]}
                     onDisconnect={removeConnection}
                     onReconnect={reconnectConnection}
                     onForceQr={forceQr}
@@ -1042,6 +1051,7 @@ export const ConnectionsTab: React.FC = () => {
               <ConnectionListRow
                 key={connection.id}
                 connection={connection}
+                chipStats={warmupChipStats[connection.id]}
                 isPinned={pinned.has(connection.id)}
                 isSelected={selected.has(connection.id)}
                 selectMode={selectMode}

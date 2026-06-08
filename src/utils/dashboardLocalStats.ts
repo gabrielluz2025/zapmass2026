@@ -172,39 +172,6 @@ export function computeDailyBreakdownFromServer(
   return map;
 }
 
-/** Prioridade: servidor (envio real) → campanhas (histórico) → navegador (sessão aberta). */
-export function mergeDailySendCount(
-  dayKey: string,
-  serverBuckets?: Map<string, number>,
-  campaignBuckets?: Map<string, number>,
-  localBuckets?: DashboardDailyBucket
-): number {
-  const fromServer = serverBuckets?.get(dayKey) || 0;
-  const fromCampaign = campaignBuckets?.get(dayKey) || 0;
-  const fromLocal = Number(localBuckets?.[dayKey]) || 0;
-  if (fromServer > 0) return Math.max(fromServer, fromLocal);
-  return Math.max(fromCampaign, fromLocal);
-}
-
-export function buildMergedDailyBreakdownByDay(
-  campaigns: Campaign[],
-  serverBreakdown: Map<string, DayCampaignBreakdown>,
-  campaignBreakdown: Map<string, DayCampaignBreakdown>
-): Map<string, DayCampaignBreakdown> {
-  const out = new Map<string, DayCampaignBreakdown>();
-  const keys = new Set([...serverBreakdown.keys(), ...campaignBreakdown.keys()]);
-  for (const dk of keys) {
-    const serverRow = serverBreakdown.get(dk);
-    if (serverRow && serverRow.total > 0) {
-      out.set(dk, serverRow);
-      continue;
-    }
-    const campaignRow = campaignBreakdown.get(dk);
-    if (campaignRow && campaignRow.total > 0) out.set(dk, campaignRow);
-  }
-  return out;
-}
-
 /** Texto amigável para tooltip da barra (sem jargão técnico). */
 export function formatSendDayTooltip(
   dateStr: string,
@@ -222,44 +189,24 @@ export function formatSendDayTooltip(
   return lines.join('\n');
 }
 
+/** Série diária só com o funil "Enviadas" do painel (contagem persistida no servidor). */
 export function getDailySendSeriesLastNDays(
-  uid: string | undefined,
   n: number,
-  campaignBuckets?: Map<string, number>,
-  serverBuckets?: Map<string, number>
+  funnelBuckets?: Map<string, number>
 ): { date: string; count: number }[] {
-  const local =
-    uid && typeof window !== 'undefined' ? parseDaily(localStorage.getItem(dailyKey(uid))).totalsByDay : {};
   const out: { date: string; count: number }[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() - i);
     const dk = dayKeyFromDate(d);
-    out.push({
-      date: dk,
-      count: mergeDailySendCount(dk, serverBuckets, campaignBuckets, local)
-    });
+    out.push({ date: dk, count: funnelBuckets?.get(dk) || 0 });
   }
   return out;
 }
 
-export function getMergedMonthSentSoFar(
-  uid: string | undefined,
-  serverBuckets?: Map<string, number>,
-  campaignBuckets?: Map<string, number>
-): number {
-  const now = new Date();
-  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const local =
-    uid && typeof window !== 'undefined' ? parseDaily(localStorage.getItem(dailyKey(uid))).totalsByDay : {};
-  let sum = 0;
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dk = `${ym}-${String(day).padStart(2, '0')}`;
-    sum += mergeDailySendCount(dk, serverBuckets, campaignBuckets, local);
-  }
-  return sum;
+export function getFunnelMonthSentSoFar(funnelBuckets: Map<string, number>): number {
+  return sumMonthFromDailyBuckets(funnelBuckets);
 }
 
 export function sumMonthFromDailyBuckets(buckets: Map<string, number>): number {

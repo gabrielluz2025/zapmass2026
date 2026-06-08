@@ -6,7 +6,7 @@ import {
   computeDailySendsFromCampaigns,
   formatSendDayTooltip,
   getDailySendSeriesLastNDays,
-  mergeDailySendCount
+  getFunnelMonthSentSoFar
 } from './dashboardLocalStats';
 
 const base = (over: Partial<Campaign>): Campaign =>
@@ -57,11 +57,22 @@ describe('computeDailySendsFromCampaigns', () => {
     expect(tip).toContain('Promoção');
   });
 
-  it('mergeDailySendCount prioriza contagem do servidor', () => {
-    const server = new Map([['2026-06-04', 12]]);
-    const campaign = new Map([['2026-06-04', 251]]);
-    expect(mergeDailySendCount('2026-06-04', server, campaign, {})).toBe(12);
-    expect(mergeDailySendCount('2026-06-05', server, campaign, {})).toBe(0);
+  it('getDailySendSeriesLastNDays ignora estimativas de campanha', () => {
+    const today = new Date();
+    const dk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const funnel = new Map([[dk, 7]]);
+    const series = getDailySendSeriesLastNDays(1, funnel);
+    expect(series[0].count).toBe(7);
+  });
+
+  it('getFunnelMonthSentSoFar soma só o funil do servidor', () => {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const funnel = new Map([
+      [`${ym}-01`, 3],
+      [`${ym}-02`, 2]
+    ]);
+    expect(getFunnelMonthSentSoFar(funnel)).toBe(5);
   });
 
   it('computeDailyBreakdownFromServer resolve nome da campanha', () => {
@@ -72,12 +83,4 @@ describe('computeDailySendsFromCampaigns', () => {
     expect(map.get('2026-06-04')?.campaigns[0]).toEqual({ name: 'Black Friday', count: 3 });
   });
 
-  it('getDailySendSeriesLastNDays usa servidor quando disponível', () => {
-    const today = new Date();
-    const dk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const server = new Map([[dk, 5]]);
-    const series = getDailySendSeriesLastNDays(undefined, 1, undefined, server);
-    expect(series).toHaveLength(1);
-    expect(series[0].count).toBe(5);
-  });
 });

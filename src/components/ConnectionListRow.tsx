@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Battery,
   BatteryLow,
@@ -16,9 +16,13 @@ import {
   ShieldCheck,
   Trash2,
   Wifi,
-  WifiOff
+  WifiOff,
+  Flame,
+  Thermometer,
+  Snowflake
 } from 'lucide-react';
-import { WhatsAppConnection, ConnectionStatus } from '../types';
+import { WhatsAppConnection, ConnectionStatus, WarmupChipStats } from '../types';
+import { buildChannelDispatchInsights } from '../utils/channelDispatchInsights';
 
 const formatUptime = (connectedSince?: number): string => {
   if (!connectedSince) return '—';
@@ -31,6 +35,7 @@ const formatUptime = (connectedSince?: number): string => {
 
 export interface ConnectionListRowProps {
   connection: WhatsAppConnection;
+  chipStats?: WarmupChipStats;
   isPinned: boolean;
   isSelected: boolean;
   selectMode: boolean;
@@ -43,6 +48,7 @@ export interface ConnectionListRowProps {
 
 export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
   connection,
+  chipStats,
   isPinned,
   isSelected,
   selectMode,
@@ -61,6 +67,16 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
   const statusLabel = isConnected ? 'Online' : isConnecting ? (isQrReady ? 'QR ativo' : 'Conectando') : 'Offline';
   const healthScore = connection.healthScore ?? 100;
   const battery = connection.batteryLevel ?? null;
+  const dispatchInsights = useMemo(
+    () => buildChannelDispatchInsights(connection, chipStats),
+    [connection, chipStats, connection.messagesSentToday]
+  );
+  const TempIcon =
+    dispatchInsights.temp.temp === 'hot'
+      ? Flame
+      : dispatchInsights.temp.temp === 'warm'
+        ? Thermometer
+        : Snowflake;
 
   return (
     <div
@@ -134,6 +150,17 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
           <div className="flex items-center gap-2">
             <span className="text-[13.5px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
               {connection.name}
+            </span>
+            <span
+              className="text-[9px] font-black px-1.5 py-0.5 rounded-full shrink-0 inline-flex items-center gap-0.5"
+              style={{
+                background: dispatchInsights.temp.bg,
+                color: dispatchInsights.temp.color
+              }}
+              title={`${dispatchInsights.weekTotal} disparos na semana`}
+            >
+              <TempIcon className="w-3 h-3" />
+              {dispatchInsights.temp.label}
             </span>
             <span
               className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full shrink-0"

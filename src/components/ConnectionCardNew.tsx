@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings, Flame, Thermometer, Snowflake, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { QRCodeModal } from './QRCodeModal';
 import { QrCanvas } from './QrCanvas';
-import { WhatsAppConnection, ConnectionStatus } from '../types';
+import { Sparkline } from './Sparkline';
+import { WhatsAppConnection, ConnectionStatus, WarmupChipStats } from '../types';
+import { buildChannelDispatchInsights, formatChannelSparkDay } from '../utils/channelDispatchInsights';
 
 const formatUptime = (connectedSince?: number): string => {
   if (!connectedSince) return '—';
@@ -15,6 +17,7 @@ const formatUptime = (connectedSince?: number): string => {
 
 interface ConnectionCardProps {
   connection: WhatsAppConnection;
+  chipStats?: WarmupChipStats;
   onDisconnect: (id: string) => void;
   onReconnect: (id: string) => void;
   onForceQr: (id: string) => void;
@@ -29,7 +32,8 @@ interface ConnectionCardProps {
 }
 
 export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({ 
-  connection, 
+  connection,
+  chipStats,
   onDisconnect, 
   onReconnect,
   onForceQr,
@@ -115,6 +119,22 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   const statusColor = isConnected ? '#10b981' : isConnecting ? '#f59e0b' : '#ef4444';
   const statusLabel = isConnected ? 'Online' : isConnecting ? 'Conectando' : 'Offline';
   const healthScore = connection.healthScore ?? 100;
+  const dispatchInsights = useMemo(
+    () => buildChannelDispatchInsights(connection, chipStats),
+    [connection, chipStats, connection.messagesSentToday]
+  );
+  const TempIcon =
+    dispatchInsights.temp.temp === 'hot'
+      ? Flame
+      : dispatchInsights.temp.temp === 'warm'
+        ? Thermometer
+        : Snowflake;
+  const TrendIcon =
+    dispatchInsights.temp.trendPct > 0
+      ? TrendingUp
+      : dispatchInsights.temp.trendPct < 0
+        ? TrendingDown
+        : Minus;
 
   return (
     <>
@@ -379,6 +399,70 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                 </div>
               </div>
             )}
+
+            <div
+              className="p-3 rounded-xl border"
+              style={{
+                background: dispatchInsights.temp.bg,
+                borderColor: `${dispatchInsights.temp.color}33`
+              }}
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="min-w-0">
+                  <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Ritmo — 7 dias</p>
+                  <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                    {dispatchInsights.weekTotal.toLocaleString('pt-BR')} disparos na semana
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full"
+                    style={{ background: `${dispatchInsights.temp.color}22`, color: dispatchInsights.temp.color }}
+                  >
+                    <TempIcon className="w-3 h-3" />
+                    {dispatchInsights.temp.label}
+                  </span>
+                  <span
+                    className="inline-flex items-center gap-0.5 text-[9px] font-bold tabular-nums"
+                    style={{
+                      color:
+                        dispatchInsights.temp.trendPct > 0
+                          ? '#10b981'
+                          : dispatchInsights.temp.trendPct < 0
+                            ? '#ef4444'
+                            : 'var(--text-3)'
+                    }}
+                    title="Comparado com ontem"
+                  >
+                    <TrendIcon className="w-3 h-3" />
+                    {dispatchInsights.temp.trendPct > 0 ? '+' : ''}
+                    {dispatchInsights.temp.trendPct}%
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <Sparkline
+                  id={`conn-${connection.id}`}
+                  values={dispatchInsights.last7.map((d) => d.sent)}
+                  color={dispatchInsights.temp.color}
+                  width={148}
+                  height={34}
+                />
+                <div className="text-right shrink-0">
+                  <p className="text-[8px] font-bold uppercase text-slate-400">Hoje</p>
+                  <p className="text-sm font-black tabular-nums" style={{ color: dispatchInsights.temp.color }}>
+                    {dispatchInsights.sentToday.toLocaleString('pt-BR')}
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-between mt-1.5 px-0.5">
+                {dispatchInsights.last7.map((d) => (
+                  <span key={d.date} className="text-[7px] font-bold uppercase text-slate-400 w-4 text-center">
+                    {formatChannelSparkDay(d.date)}
+                  </span>
+                ))}
+              </div>
+            </div>
 
             <div className="grid grid-cols-2 gap-2.5">
               <div className="p-3 rounded-xl" style={{ background: 'var(--surface-2)' }}>
