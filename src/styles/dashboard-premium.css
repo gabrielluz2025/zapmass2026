@@ -241,6 +241,22 @@
   filter: brightness(1.15);
 }
 
+.zm-radar-accent,
+.zm-chip-health-accent {
+  height: 3px;
+  width: 100%;
+}
+
+.zm-radar-accent {
+  background: linear-gradient(90deg, #2563eb, #3b82f6, #60a5fa);
+  opacity: 0.9;
+}
+
+.zm-chip-health-accent {
+  background: linear-gradient(90deg, #059669, #10b981, #34d399);
+  opacity: 0.9;
+}
+
 /* Envios 7 dias + meta mensal */
 .zm-send-trend-card {
   position: relative;

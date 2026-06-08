@@ -3,22 +3,36 @@
  * envios últimos 7 dias, score da base, feed de actividade e meta mensal.
  */
 import React, { useDeferredValue, useMemo, useState } from 'react';
-import type { Campaign, Contact, Conversation, SystemLog, WhatsAppConnection } from '../../types';
+import type { Campaign, Contact, Conversation, SystemLog, WarmupChipStats, WhatsAppConnection } from '../../types';
 import { ConnectionStatus } from '../../types';
 import {
   Activity,
   AlertTriangle,
+  CalendarClock,
   ChevronRight,
+  Flame,
   Goal,
   HeartCrack,
   Layers,
   Radar,
+  Send,
   Signal,
+  Snowflake,
+  Thermometer,
   TrendingUp,
-  UserRound
+  Trophy,
+  UserRound,
+  Zap
 } from 'lucide-react';
 import { Button, Card, Modal } from '../ui';
-import { computeCampaignRadar } from '../../utils/dashboardCampaignInsights';
+import { Sparkline } from '../Sparkline';
+import {
+  campaignStatusLabel,
+  computeCampaignFleetSummary,
+  computeCampaignRadar,
+  formatCampaignWhen
+} from '../../utils/dashboardCampaignInsights';
+import { buildChannelDispatchInsights } from '../../utils/channelDispatchInsights';
 import {
   computeDailyBreakdownFromServer,
   dailySendMapFromRecord,
@@ -132,6 +146,7 @@ interface Props {
   funnelReadByDay?: Record<string, number>;
   funnelRepliedByDay?: Record<string, number>;
   funnelSentByDayByCampaign?: Record<string, Record<string, number>>;
+  warmupChipStats?: Record<string, WarmupChipStats>;
   userUid?: string;
   circuitBreakerOpenIds: string[];
   onOpenCampaigns: () => void;
@@ -153,6 +168,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   funnelReadByDay,
   funnelRepliedByDay,
   funnelSentByDayByCampaign,
+  warmupChipStats,
   userUid,
   circuitBreakerOpenIds,
   onOpenCampaigns,
@@ -166,6 +182,29 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   const [goalDraft, setGoalDraft] = useState('');
 
   const radar = useMemo(() => computeCampaignRadar(campaigns), [campaigns]);
+  const fleetSummary = useMemo(() => computeCampaignFleetSummary(campaigns), [campaigns]);
+
+  const chipFleet = useMemo(() => {
+    const breakers = new Set(circuitBreakerOpenIds);
+    let online = 0;
+    let sentToday = 0;
+    let queue = 0;
+    let hot = 0;
+    let warm = 0;
+    let cold = 0;
+    let blocked = 0;
+    for (const conn of connections) {
+      if (conn.status === ConnectionStatus.CONNECTED) online++;
+      sentToday += conn.messagesSentToday || 0;
+      queue += conn.queueSize || 0;
+      if (breakers.has(conn.id)) blocked++;
+      const temp = buildChannelDispatchInsights(conn, warmupChipStats?.[conn.id]).temp.temp;
+      if (temp === 'hot') hot++;
+      else if (temp === 'warm') warm++;
+      else cold++;
+    }
+    return { online, total: connections.length, sentToday, queue, hot, warm, cold, blocked };
+  }, [connections, warmupChipStats, circuitBreakerOpenIds]);
 
   const funnelDailyBuckets = useMemo(() => dailySendMapFromRecord(funnelSentByDay), [funnelSentByDay]);
   const deliveredBuckets = useMemo(() => dailySendMapFromRecord(funnelDeliveredByDay), [funnelDeliveredByDay]);
@@ -268,145 +307,271 @@ export const DashboardIntelPanel: React.FC<Props> = ({
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4">
-        <Card className="zm-intel-card xl:col-span-4 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="w-4 h-4" style={{ color: '#3b82f6' }} />
-            <h3 className="ui-title text-[14px]">Radar de campanhas</h3>
-          </div>
-          <div className="space-y-3 text-[12.5px]" style={{ color: 'var(--text-2)' }}>
-            <div>
-              <p className="font-bold text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
-                Última actividade
-              </p>
-              {radar.lastTouched ? (
-                <>
-                  <p className="font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                    {radar.lastTouched.name}
-                  </p>
-                  <p className="text-[11px]">
-                    Estado: <span className="font-mono">{radar.lastTouched.status}</span>
-                    {(radar.lastTouched.lastRunAt || radar.lastTouched.createdAt) && (
-                      <span className="ml-1 opacity-90">
-                        ·{' '}
-                        {new Date(
-                          radar.lastTouched.lastRunAt || radar.lastTouched.createdAt!
-                        ).toLocaleString('pt-BR')}
-                      </span>
-                    )}
-                  </p>
-                </>
-              ) : (
-                <p>Nenhuma campanha registada.</p>
-              )}
+        <Card className="zm-intel-card zm-radar-card xl:col-span-4 p-0 overflow-hidden">
+          <div className="zm-radar-accent" aria-hidden />
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="w-4 h-4" style={{ color: '#3b82f6' }} />
+              <h3 className="ui-title text-[14px]">Radar de campanhas</h3>
             </div>
-            <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
-            <div>
-              <p className="font-bold text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
-                Melhor taxa de envio bem-sucedido
-              </p>
-              {radar.bestSuccess ? (
-                <>
-                  <p className="font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                    {radar.bestSuccess.name}
-                  </p>
-                  <p className="text-[11px]">{radar.bestSuccessPct}% de sucesso (concluída)</p>
-                </>
-              ) : (
-                <p>Sem campanhas concluídas com dados suficientes.</p>
-              )}
-            </div>
-            <div className="h-px" style={{ background: 'var(--border-subtle)' }} />
-            <div>
-              <p className="font-bold text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
-                Próximo agendamento
-              </p>
-              {radar.nextScheduled ? (
-                <>
-                  <p className="font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                    {radar.nextScheduled.campaign.name}
-                  </p>
-                  <p className="text-[11px]">{new Date(radar.nextScheduled.nextRunAt).toLocaleString('pt-BR')}</p>
-                </>
-              ) : (
-                <p>Sem disparos agendados.</p>
-              )}
-            </div>
-          </div>
-          <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenCampaigns}>
-            Abrir campanhas
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </Card>
+            <p className="text-[10px] mb-3 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+              Resumo rápido do que suas campanhas fizeram e o que vem a seguir.
+            </p>
 
-        <Card className="zm-intel-card xl:col-span-4 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Signal className="w-4 h-4" style={{ color: '#10b981' }} />
-            <h3 className="ui-title text-[14px]">Saúde dos chips</h3>
-          </div>
-          <p className="text-[11px] mb-3" style={{ color: 'var(--text-3)' }}>
-            Ritmo vs. referência (~{RATE_CAP_MESSAGES_PER_HOUR}/h). «Breaker» quando o servidor bloqueia o canal temporariamente.
-          </p>
-          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-            {connections.slice(0, 12).map((conn) => {
-              const online = conn.status === ConnectionStatus.CONNECTED;
-              const pct = Math.min(
-                100,
-                Math.round((Math.min(conn.messagesSentToday || 0, RATE_CAP_MESSAGES_PER_HOUR) / RATE_CAP_MESSAGES_PER_HOUR) * 100)
-              );
-              const open = breakerSet.has(conn.id);
-              let sinceLbl = '';
-              if (online && conn.connectedSince) {
-                const sec = Math.max(0, Math.floor((Date.now() - conn.connectedSince) / 1000));
-                if (sec < 86400) sinceLbl = `${Math.floor(sec / 3600)}h online`;
-                else sinceLbl = `${Math.floor(sec / 86400)}d online`;
-              } else if (online) sinceLbl = 'Online';
-              else sinceLbl = conn.status.replace('_', ' ');
-              return (
-                <div key={conn.id} className="rounded-xl p-2.5 border" style={{ borderColor: 'var(--border-subtle)' }}>
-                  <div className="flex justify-between gap-2 text-[11px] mb-1">
-                    <span className="font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                      {conn.name}
-                    </span>
-                    {open ? (
-                      <span className="text-rose-500 font-bold shrink-0 flex items-center gap-0.5">
-                        <AlertTriangle className="w-3 h-3" /> Breaker
-                      </span>
-                    ) : (
-                      <span style={{ color: online ? '#10b981' : 'var(--text-3)' }} className="shrink-0">
-                        {online ? 'OK' : conn.status}
-                      </span>
-                    )}
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{
-                        width: `${pct}%`,
-                        background: open ? '#f43f5e' : '#3b82f6'
-                      }}
-                    />
-                  </div>
-                  <div className="flex justify-between mt-1 text-[10px]" style={{ color: 'var(--text-3)' }}>
-                    <span>
-                      Hoje: {conn.messagesSentToday ?? 0} · Fila {conn.queueSize ?? 0}
-                    </span>
-                    <span className="truncate max-w-[45%]" title={sinceLbl}>
-                      {sinceLbl}
-                    </span>
-                  </div>
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {[
+                { label: 'Em disparo', val: fleetSummary.running, color: '#10b981' },
+                { label: 'Agendadas', val: fleetSummary.scheduled, color: '#3b82f6' },
+                { label: 'Concluídas', val: fleetSummary.completed, color: '#8b5cf6' }
+              ].map((k) => (
+                <div
+                  key={k.label}
+                  className="rounded-lg px-2 py-1.5 text-center"
+                  style={{
+                    background: `color-mix(in srgb, ${k.color} 10%, var(--surface-1))`,
+                    border: `1px solid color-mix(in srgb, ${k.color} 22%, transparent)`
+                  }}
+                >
+                  <p className="text-[15px] font-black tabular-nums leading-none" style={{ color: k.color }}>
+                    {k.val}
+                  </p>
+                  <p className="text-[8px] font-bold uppercase mt-0.5" style={{ color: 'var(--text-3)' }}>
+                    {k.label}
+                  </p>
                 </div>
-              );
-            })}
-            {!connections.length && (
-              <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
-                Nenhum canal ligado nesta conta.
+              ))}
+            </div>
+
+            <div className="space-y-2.5">
+              <div
+                className="rounded-xl p-2.5 border"
+                style={{
+                  borderColor: 'var(--border-subtle)',
+                  background: 'color-mix(in srgb, #3b82f6 5%, var(--surface-1))'
+                }}
+              >
+                <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+                  <Zap className="w-3 h-3" /> Última campanha
+                </p>
+                {radar.lastTouched ? (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-[12px] truncate" style={{ color: 'var(--text-1)' }}>
+                        {radar.lastTouched.name}
+                      </p>
+                      <span
+                        className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                        style={{ background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}
+                      >
+                        {campaignStatusLabel(radar.lastTouched.status)}
+                      </span>
+                    </div>
+                    <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
+                      <Send className="w-3 h-3 inline -mt-0.5 mr-0.5" />
+                      {(radar.lastTouched.successCount || 0).toLocaleString('pt-BR')} enviadas
+                      {formatCampaignWhen(radar.lastTouched) ? ` · ${formatCampaignWhen(radar.lastTouched)}` : ''}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nenhuma campanha ainda.</p>
+                )}
+              </div>
+
+              <div
+                className="rounded-xl p-2.5 border"
+                style={{
+                  borderColor: 'var(--border-subtle)',
+                  background: 'color-mix(in srgb, #10b981 5%, var(--surface-1))'
+                }}
+              >
+                <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+                  <Trophy className="w-3 h-3" /> Melhor desempenho
+                </p>
+                {radar.bestSuccess ? (
+                  <>
+                    <p className="font-semibold text-[12px] truncate" style={{ color: 'var(--text-1)' }}>
+                      {radar.bestSuccess.name}
+                    </p>
+                    <p className="text-[10px] mt-0.5" style={{ color: '#10b981' }}>
+                      {radar.bestSuccessPct}% das mensagens enviadas com sucesso
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Aguardando campanha concluída.</p>
+                )}
+              </div>
+
+              <div
+                className="rounded-xl p-2.5 border"
+                style={{
+                  borderColor: 'var(--border-subtle)',
+                  background: 'color-mix(in srgb, #f59e0b 5%, var(--surface-1))'
+                }}
+              >
+                <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+                  <CalendarClock className="w-3 h-3" /> Próximo disparo
+                </p>
+                {radar.nextScheduled ? (
+                  <>
+                    <p className="font-semibold text-[12px] truncate" style={{ color: 'var(--text-1)' }}>
+                      {radar.nextScheduled.campaign.name}
+                    </p>
+                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                      {new Date(radar.nextScheduled.nextRunAt).toLocaleString('pt-BR')}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Nada agendado por agora.</p>
+                )}
+              </div>
+            </div>
+
+            {weekHasData && (
+              <p className="text-[10px] mt-3 px-2 py-1.5 rounded-lg" style={{ background: 'var(--surface-1)', color: 'var(--text-3)' }}>
+                Esta semana: <strong style={{ color: 'var(--text-2)' }}>{weekTotals.sent.toLocaleString('pt-BR')}</strong> enviadas
+                {weekTotals.replied > 0 && (
+                  <span> · <strong style={{ color: '#a78bfa' }}>{weekTotals.replied}</strong> respostas</span>
+                )}
               </p>
             )}
+
+            <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenCampaigns}>
+              Abrir campanhas
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
-          <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenConnections}>
-            Gerir conexões
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+        </Card>
+
+        <Card className="zm-intel-card zm-chip-health-card xl:col-span-4 p-0 overflow-hidden">
+          <div className="zm-chip-health-accent" aria-hidden />
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Signal className="w-4 h-4" style={{ color: '#10b981' }} />
+              <h3 className="ui-title text-[14px]">Saúde dos chips</h3>
+            </div>
+            <p className="text-[10px] mb-3 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+              Ritmo de envio, temperatura do canal e alertas de proteção anti-ban.
+            </p>
+
+            {connections.length > 0 && (
+              <div
+                className="rounded-xl px-2.5 py-2 mb-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]"
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+              >
+                <span style={{ color: 'var(--text-2)' }}>
+                  <strong>{chipFleet.online}</strong>/{chipFleet.total} online
+                </span>
+                <span style={{ color: 'var(--text-2)' }}>
+                  Hoje: <strong>{chipFleet.sentToday.toLocaleString('pt-BR')}</strong> envios
+                </span>
+                <span style={{ color: 'var(--text-3)' }}>Fila: {chipFleet.queue}</span>
+                <span className="flex items-center gap-1.5 flex-wrap" style={{ color: 'var(--text-3)' }}>
+                  <span className="inline-flex items-center gap-0.5"><Flame className="w-3 h-3 text-emerald-500" />{chipFleet.hot}</span>
+                  <span className="inline-flex items-center gap-0.5"><Thermometer className="w-3 h-3 text-orange-500" />{chipFleet.warm}</span>
+                  <span className="inline-flex items-center gap-0.5"><Snowflake className="w-3 h-3 text-sky-400" />{chipFleet.cold}</span>
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+              {connections.slice(0, 12).map((conn) => {
+                const online = conn.status === ConnectionStatus.CONNECTED;
+                const insights = buildChannelDispatchInsights(conn, warmupChipStats?.[conn.id]);
+                const TempIcon =
+                  insights.temp.temp === 'hot' ? Flame : insights.temp.temp === 'warm' ? Thermometer : Snowflake;
+                const paceCap = conn.dailyLimit && conn.dailyLimit > 0 ? conn.dailyLimit : RATE_CAP_MESSAGES_PER_HOUR;
+                const pct = Math.min(100, Math.round(((conn.messagesSentToday || 0) / paceCap) * 100));
+                const open = breakerSet.has(conn.id);
+                const paceLabel =
+                  open
+                    ? 'Canal pausado pelo sistema — aguarde'
+                    : pct >= 85
+                      ? 'Ritmo alto — cuidado com o limite'
+                      : pct >= 40
+                        ? 'Ritmo moderado'
+                        : 'Ritmo tranquilo';
+                return (
+                  <div
+                    key={conn.id}
+                    className="rounded-xl p-2.5 border"
+                    style={{
+                      borderColor: open ? 'rgba(244,63,94,0.35)' : `${insights.temp.color}33`,
+                      background: open ? 'rgba(244,63,94,0.06)' : insights.temp.bg
+                    }}
+                  >
+                    <div className="flex justify-between gap-2 items-start mb-1.5">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-[11px] truncate" style={{ color: 'var(--text-1)' }}>
+                          {conn.name}
+                        </p>
+                        <p className="text-[9px] mt-0.5" style={{ color: open ? '#f43f5e' : 'var(--text-3)' }}>
+                          {paceLabel}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded-full"
+                          style={{ background: `${insights.temp.color}22`, color: insights.temp.color }}
+                        >
+                          <TempIcon className="w-3 h-3" />
+                          {insights.temp.label}
+                        </span>
+                        {open ? (
+                          <span className="text-rose-500 font-bold text-[9px] flex items-center gap-0.5">
+                            <AlertTriangle className="w-3 h-3" /> Pausado
+                          </span>
+                        ) : (
+                          <span
+                            className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                            style={{
+                              background: online ? 'rgba(16,185,129,0.15)' : 'var(--surface-2)',
+                              color: online ? '#10b981' : 'var(--text-3)'
+                            }}
+                          >
+                            {online ? 'Online' : 'Offline'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-end justify-between gap-2">
+                      <Sparkline
+                        id={`intel-${conn.id}`}
+                        values={insights.last7.map((d) => d.sent)}
+                        color={insights.temp.color}
+                        width={100}
+                        height={26}
+                      />
+                      <div className="text-right shrink-0">
+                        <p className="text-[9px]" style={{ color: 'var(--text-3)' }}>Hoje</p>
+                        <p className="text-[13px] font-black tabular-nums" style={{ color: insights.temp.color }}>
+                          {insights.sentToday.toLocaleString('pt-BR')}
+                        </p>
+                        <p className="text-[8px]" style={{ color: 'var(--text-3)' }}>Fila {conn.queueSize ?? 0}</p>
+                      </div>
+                    </div>
+                    <div className="h-1 rounded-full overflow-hidden mt-1.5" style={{ background: 'var(--surface-3)' }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${pct}%`,
+                          background: open ? '#f43f5e' : pct >= 85 ? '#f59e0b' : insights.temp.color
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              {!connections.length && (
+                <p className="text-[12px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
+                  Nenhum canal conectado. Adicione um chip para começar.
+                </p>
+              )}
+            </div>
+            <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenConnections}>
+              Gerir conexões
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
         </Card>
 
         <Card className="zm-intel-card zm-send-trend-card xl:col-span-4 p-0 flex flex-col overflow-hidden">

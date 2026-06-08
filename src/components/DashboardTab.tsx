@@ -296,7 +296,8 @@ export const DashboardTab: React.FC = () => {
     isBackendConnected,
     systemLogs,
     circuitBreakerOpenConnectionIds,
-    campaignGeo
+    campaignGeo,
+    warmupChipStats
   } = useZapMassCore();
   const [geoLayer, setGeoLayer] = useState<GeoLayer>('delivered');
   const { setCurrentView } = useAppView();
@@ -1148,6 +1149,7 @@ export const DashboardTab: React.FC = () => {
         funnelReadByDay={funnelStats.readByDay}
         funnelRepliedByDay={funnelStats.repliedByDay}
         funnelSentByDayByCampaign={funnelStats.sentByDayByCampaign}
+        warmupChipStats={warmupChipStats}
         userUid={user?.uid}
         circuitBreakerOpenIds={circuitBreakerOpenConnectionIds}
         onOpenCampaigns={() => setCurrentView('campaigns')}
