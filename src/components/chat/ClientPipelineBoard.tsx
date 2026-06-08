@@ -129,11 +129,14 @@ const KanbanColumnBody: React.FC<KanbanColumnBodyProps> = memo(function KanbanCo
                     decoding="async"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[12.5px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
+                    <p
+                      className={`leading-tight truncate ${waSub ? 'text-[14px] font-extrabold' : 'text-[12.5px] font-bold'}`}
+                      style={{ color: 'var(--text-1)' }}
+                    >
                       {primary}
                     </p>
                     {waSub && (
-                      <p className="text-[10px] truncate opacity-90 mt-0.5" style={{ color: 'var(--text-3)' }} title="Nome no WhatsApp">
+                      <p className="text-[10px] truncate opacity-80 mt-0.5" style={{ color: 'var(--text-3)' }} title="Nome salvo no celular">
                         {waSub}
                       </p>
                     )}

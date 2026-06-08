@@ -65,6 +65,8 @@ export interface ChatMessage {
 export interface Conversation {
   id: string;
   contactName: string;
+  /** Nome no celular/WhatsApp (mantido ao cruzar com a base por telefone). */
+  waContactName?: string;
   contactPhone: string;
   /** JID alternativo (@s.whatsapp.net) quando o chat usa @lid — usado para cruzar agenda. */
   waJidAlt?: string;

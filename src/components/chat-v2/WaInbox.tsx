@@ -69,7 +69,12 @@ export const WaInbox: React.FC<Props> = ({
   const virtualizer = useVirtualizer({
     count: conversations.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 72,
+    estimateSize: (i) => {
+      const conv = conversations[i];
+      if (!conv) return 72;
+      const disp = displayById.get(conv.id);
+      return disp?.fromDatabase && disp?.whatsappSubtitle ? 88 : 72;
+    },
     overscan: 10,
     getItemKey: (i) => conversations[i]?.id ?? i,
     measureElement: (el) => el.getBoundingClientRect().height
@@ -191,9 +196,23 @@ export const WaInbox: React.FC<Props> = ({
                   {online && <span className="wa-presence-dot" aria-hidden title="Online" />}
                   </span>
                   <div className="wa-conv-body min-w-0 flex-1">
-                    <div className="flex justify-between gap-2 items-baseline">
-                      <span className="wa-conv-name truncate">{title}</span>
-                      <span className="wa-conv-time flex-shrink-0">
+                    <div className="flex justify-between gap-2 items-start">
+                      <div className="min-w-0 flex-1">
+                        <span
+                          className={`wa-conv-name truncate block${display?.fromDatabase ? ' wa-conv-name--crm' : ''}`}
+                        >
+                          {title}
+                        </span>
+                        {display?.fromDatabase && display.whatsappSubtitle && (
+                          <span
+                            className="wa-conv-wa-alias truncate block"
+                            title="Nome salvo no celular"
+                          >
+                            {display.whatsappSubtitle}
+                          </span>
+                        )}
+                      </div>
+                      <span className="wa-conv-time flex-shrink-0 pt-0.5">
                         {formatListTime(conv)}
                       </span>
                     </div>

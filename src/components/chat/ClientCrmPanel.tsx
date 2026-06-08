@@ -36,6 +36,10 @@ interface Props {
   avatar: string;
   crmData: ClientCrmData;
   pipelineAgg: { sent: number; delivered: number; read: number; replies: number } | null;
+  /** Nome da base (prioridade sobre `conversation.contactName`). */
+  displayTitle?: string;
+  /** Nome salvo no celular, quando diferente do da base. */
+  whatsappAlias?: string;
   onClose: () => void;
   onUpdate: (patch: Partial<ClientCrmData>) => void;
   onClear: () => void;
@@ -47,10 +51,13 @@ export const ClientCrmPanel: React.FC<Props> = ({
   avatar,
   crmData,
   pipelineAgg,
+  displayTitle,
+  whatsappAlias,
   onClose: _closeFromParent,
   onUpdate,
   onClear
 }) => {
+  const title = (displayTitle || conversation.contactName || '').trim() || 'Contato';
   const [notesDraft, setNotesDraft] = useState(crmData.notes || '');
   const [newTag, setNewTag] = useState('');
   const notesTimer = useRef<number | null>(null);
@@ -187,7 +194,7 @@ export const ClientCrmPanel: React.FC<Props> = ({
             >
               <img
                 src={avatar}
-                alt={conversation.contactName}
+                alt={title}
                 className="w-[128px] h-[128px] rounded-full object-cover block"
                 style={{ border: '3px solid var(--surface-0)' }}
               />
@@ -206,9 +213,17 @@ export const ClientCrmPanel: React.FC<Props> = ({
               </span>
             )}
           </div>
-          <h3 className="relative text-[19px] font-extrabold mt-4" style={{ color: 'var(--text-1)' }}>
-            {conversation.contactName}
+          <h3
+            className={`relative mt-4 ${whatsappAlias ? 'text-[22px] font-extrabold' : 'text-[19px] font-extrabold'}`}
+            style={{ color: 'var(--text-1)' }}
+          >
+            {title}
           </h3>
+          {whatsappAlias && (
+            <p className="relative text-[12px] mt-1" style={{ color: 'var(--text-3)' }} title="Nome salvo no celular">
+              {whatsappAlias}
+            </p>
+          )}
           <button
             type="button"
             onClick={copyPhone}

@@ -430,6 +430,8 @@ export interface ChatMessage {
 export interface Conversation {
   id: string;
   contactName: string;
+  /** Nome salvo no celular/WhatsApp antes de substituir por `contactName` da base. */
+  waContactName?: string;
   contactPhone: string;
   /** JID @s.whatsapp.net quando o chat principal é @lid (agenda / CRM). */
   waJidAlt?: string;

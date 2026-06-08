@@ -12,6 +12,8 @@ export type ConversationDisplay = {
   primary: string;
   whatsappSubtitle?: string;
   phoneSecondary?: string;
+  /** Nome principal veio da base de contatos (cruzamento por telefone). */
+  fromDatabase?: boolean;
 };
 
 function normalizeDigits(raw: string): string {
@@ -132,12 +134,18 @@ export function buildDisplayIndex(
 
   for (const conv of conversations) {
     const convIsLid = isLidConvId(conv.id);
-    const waNameRaw = (conv.contactName || '').trim();
+    const systemName = resolveSystemName(conv, systemContactNameByDigits);
+    const waSavedOnPhone = (conv.waContactName || '').trim();
+    let waNameRaw = waSavedOnPhone;
+    if (!waNameRaw) {
+      const cn = (conv.contactName || '').trim();
+      if (cn && systemName && !same(cn, systemName)) waNameRaw = cn;
+      else if (cn && !systemName) waNameRaw = cn;
+    }
     const waNameIsLidDigits =
       (convIsLid && /^\d{10,}$/.test(normalizeDigits(waNameRaw))) ||
       (/^\d{14,}$/.test(normalizeDigits(waNameRaw)) && looksLikeDigitsOnlyContactLabel(waNameRaw));
     const waName = GENERIC.has(waNameRaw.toLowerCase()) || waNameIsLidDigits ? '' : waNameRaw;
-    const systemName = resolveSystemName(conv, systemContactNameByDigits);
     const friendlyStored =
       waName && !looksLikeDigitsOnlyContactLabel(waName) ? waName : '';
     const rawDigits = normalizeDigits(phoneRawForContactLookup(conv) || digitsForContactMatch(conv));
@@ -150,17 +158,29 @@ export function buildDisplayIndex(
     const phoneLabel = digits ? formatPhoneDisplay(digits) : '';
     const rawNumberOnly = !systemName && !friendlyStored && looksLikeDigitsOnlyContactLabel(waName);
     const lastResort = waNameIsLidDigits ? '' : waNameRaw;
+    const crmPrimary = (systemName || (conv.waContactName ? (conv.contactName || '').trim() : '')).trim();
     const primary =
-      systemName ||
+      crmPrimary ||
       friendlyStored ||
       (rawNumberOnly ? phoneLabel : waName) ||
       phoneLabel ||
       lastResort ||
       'Contato';
 
+    const fromDatabase = Boolean(
+      (systemName && same(primary, systemName)) ||
+        (conv.waContactName && crmPrimary && same(primary, crmPrimary))
+    );
+
     let whatsappSubtitle: string | undefined;
-    if (systemName && waName && !looksLikeDigitsOnlyContactLabel(waName) && !same(systemName, waName)) {
-      whatsappSubtitle = waName;
+    const waSubtitleCandidate = waSavedOnPhone || waName;
+    if (
+      crmPrimary &&
+      waSubtitleCandidate &&
+      !looksLikeDigitsOnlyContactLabel(waSubtitleCandidate) &&
+      !same(crmPrimary, waSubtitleCandidate)
+    ) {
+      whatsappSubtitle = waSubtitleCandidate;
     }
 
     let phoneSecondary: string | undefined;
@@ -169,7 +189,7 @@ export function buildDisplayIndex(
       phoneSecondary = phoneFmt;
     }
 
-    map.set(conv.id, { primary, whatsappSubtitle, phoneSecondary });
+    map.set(conv.id, { primary, whatsappSubtitle, phoneSecondary, fromDatabase });
   }
   return map;
 }

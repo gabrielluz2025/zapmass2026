@@ -1,4 +1,6 @@
-/** Histórico local do painel — envios por dia (derivado do funil) e meta mensal. Perfil por utilizador Firebase. */
+/** Histórico local do painel — envios por dia (campanhas + incrementos ao vivo) e meta mensal. */
+
+import type { Campaign } from '../types';
 
 const STORAGE_PREFIX = 'zapmass.dashboard.v2';
 
@@ -52,16 +54,77 @@ export function recordDashboardFunnelSentIncrement(uid: string | undefined, prev
   localStorage.setItem(key, JSON.stringify(data));
 }
 
-export function getDailySendSeriesLastNDays(uid: string | undefined, n: number): { date: string; count: number }[] {
-  if (!uid || typeof window === 'undefined') return [];
-  const data = parseDaily(localStorage.getItem(dailyKey(uid)));
+function dayKeyFromDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function dayKeyFromTimestamp(raw: unknown): string | null {
+  if (raw == null) return null;
+  const d =
+    raw instanceof Date
+      ? raw
+      : typeof raw === 'number'
+        ? new Date(raw)
+        : new Date(String(raw));
+  if (!Number.isFinite(d.getTime())) return null;
+  return dayKeyFromDate(d);
+}
+
+/** Agrega envios SUCCESS das campanhas (logs + snapshot) por dia local. */
+export function computeDailySendsFromCampaigns(campaigns: Campaign[]): Map<string, number> {
+  const bucket = new Map<string, number>();
+  const bump = (dk: string | null) => {
+    if (!dk) return;
+    bucket.set(dk, (bucket.get(dk) || 0) + 1);
+  };
+
+  for (const c of campaigns) {
+    let counted = 0;
+    const logs = c.logs || [];
+    if (logs.length > 0) {
+      for (const l of logs) {
+        if (l.type !== 'SUCCESS') continue;
+        bump(dayKeyFromTimestamp(l.timestamp));
+        counted++;
+      }
+    }
+    if (counted === 0) {
+      for (const row of c.reportSnapshot?.rows || []) {
+        if (!row.sentTimestampMs && !row.sentTime) continue;
+        bump(
+          row.sentTimestampMs
+            ? dayKeyFromTimestamp(row.sentTimestampMs)
+            : dayKeyFromTimestamp(row.sentTime)
+        );
+        counted++;
+      }
+    }
+    if (counted > 0) continue;
+    const bulk = Math.max(0, Number(c.successCount) || 0);
+    if (bulk <= 0) continue;
+    const dk = dayKeyFromTimestamp(c.lastRunAt || c.createdAt);
+    if (!dk) continue;
+    bucket.set(dk, (bucket.get(dk) || 0) + bulk);
+  }
+  return bucket;
+}
+
+export function getDailySendSeriesLastNDays(
+  uid: string | undefined,
+  n: number,
+  campaignBuckets?: Map<string, number>
+): { date: string; count: number }[] {
+  const local =
+    uid && typeof window !== 'undefined' ? parseDaily(localStorage.getItem(dailyKey(uid))).totalsByDay : {};
   const out: { date: string; count: number }[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() - i);
-    const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    out.push({ date: dk, count: data.totalsByDay[dk] || 0 });
+    const dk = dayKeyFromDate(d);
+    const fromCampaign = campaignBuckets?.get(dk) || 0;
+    const fromLocal = Number(local[dk]) || 0;
+    out.push({ date: dk, count: Math.max(fromCampaign, fromLocal) });
   }
   return out;
 }

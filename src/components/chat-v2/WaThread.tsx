@@ -166,7 +166,11 @@ export const WaThread: React.FC<Props> = ({
           }}
         />
         <div className="flex-1 min-w-0">
-          <p className="wa-chat-header-title truncate">{primary}</p>
+          <p
+            className={`wa-chat-header-title truncate${display?.fromDatabase ? ' wa-chat-header-title--crm' : ''}`}
+          >
+            {primary}
+          </p>
           <p
             className="wa-chat-header-sub truncate"
             data-presence={headerPresenceKind || undefined}

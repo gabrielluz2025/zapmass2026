@@ -185,6 +185,12 @@
   line-height: 1.25;
 }
 
+.wa-chat-pro .wa-chat-header-title--crm {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
 .wa-chat-pro .wa-chat-header-sub {
   font-size: 13px;
   color: var(--wa-text-3);

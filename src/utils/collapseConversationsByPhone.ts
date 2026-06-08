@@ -115,6 +115,13 @@ function mergeConversationCluster(cluster: Conversation[]): Conversation {
     fallback: primary.contactPhone || 'Contato'
   });
 
+  const waContactName =
+    sorted.map((c) => c.waContactName).find((n) => n && !looksLikeLongLidDigits(n)) ||
+    sorted
+      .map((c) => c.contactName)
+      .find((n) => n && !looksLikeLongLidDigits(n) && n !== contactName) ||
+    primary.waContactName;
+
   const contactPhone =
     sorted.map((c) => c.contactPhone).find((p) => normalizePhoneDigits(p || '').length >= 8) ||
     primary.contactPhone;
@@ -126,6 +133,7 @@ function mergeConversationCluster(cluster: Conversation[]): Conversation {
   return {
     ...primary,
     contactName,
+    ...(waContactName && waContactName !== contactName ? { waContactName } : {}),
     contactPhone,
     waJidAlt,
     profilePicUrl: profilePic,

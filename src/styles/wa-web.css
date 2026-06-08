@@ -217,6 +217,20 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   letter-spacing: -0.005em;
 }
 
+.wa-conv-name--crm {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.wa-conv-wa-alias {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--wa-text-3);
+  line-height: 1.25;
+  margin-top: 1px;
+}
+
 .wa-conv-preview {
   font-size: 14px;
   color: var(--wa-text-3);

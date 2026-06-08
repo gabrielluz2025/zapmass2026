@@ -502,6 +502,8 @@ export const WaWebChatApp: React.FC<{
             avatar={avatarById.get(selected.id) || ''}
             crmData={crm.get(selected.id)}
             pipelineAgg={pipelineAgg}
+            displayTitle={selectedTitle}
+            whatsappAlias={selectedDisplay?.whatsappSubtitle}
             onClose={() => setShowContactInfo(false)}
             onUpdate={(patch) => crm.update(selected.id, patch)}
             onClear={() => crm.clear(selected.id)}

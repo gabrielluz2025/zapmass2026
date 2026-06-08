@@ -4,7 +4,6 @@ import type { Conversation } from './types.js';
 import {
   buildCrmNameIndex,
   normalizePhoneDigits,
-  pickContactDisplayName,
   resolveCrmNameFromIndex
 } from '../src/utils/contactPhoneLookup.js';
 
@@ -31,13 +30,17 @@ function phoneCandidatesFromConversation(conv: Conversation): string[] {
     const altDigits = conv.waJidAlt.split('@')[0] || '';
     if (altDigits && !altDigits.endsWith('@lid')) push(altDigits);
   }
-  const stored = (conv.contactName || '').trim();
+  const stored = (conv.waContactName || conv.contactName || '').trim();
   const storedDigits = normalizePhoneDigits(stored);
   if (storedDigits.length >= 10 && storedDigits.length <= 13) push(`+${storedDigits}`);
   const idPart = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : '';
   const fromJid = idPart.split('@')[0] || '';
   if (fromJid && !idPart.endsWith('@lid')) push(fromJid);
   return out;
+}
+
+function sameLabel(a: string, b: string): boolean {
+  return a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ');
 }
 
 export async function enrichConversationsWithCrmNames(
@@ -50,12 +53,15 @@ export async function enrichConversationsWithCrmNames(
 
   return list.map((conv) => {
     const crm = resolveCrmNameFromIndex(index, ...phoneCandidatesFromConversation(conv));
-    const nextName = pickContactDisplayName({
-      crmName: crm,
-      waName: conv.contactName,
-      previous: conv.contactName
-    });
-    if (nextName === conv.contactName) return conv;
-    return { ...conv, contactName: nextName };
+    if (!crm) return conv;
+    const waLabel = (conv.waContactName || conv.contactName || '').trim();
+    if (!waLabel || sameLabel(crm, waLabel)) {
+      return { ...conv, contactName: crm };
+    }
+    return {
+      ...conv,
+      contactName: crm,
+      waContactName: waLabel
+    };
   });
 }

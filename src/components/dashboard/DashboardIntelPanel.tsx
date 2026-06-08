@@ -20,6 +20,7 @@ import {
 import { Button, Card, Modal } from '../ui';
 import { computeCampaignRadar } from '../../utils/dashboardCampaignInsights';
 import {
+  computeDailySendsFromCampaigns,
   daysInCurrentMonth,
   getDailySendSeriesLastNDays,
   getMonthlyGoal,
@@ -142,7 +143,11 @@ export const DashboardIntelPanel: React.FC<Props> = ({
 
   const radar = useMemo(() => computeCampaignRadar(campaigns), [campaigns]);
 
-  const series7 = useMemo(() => getDailySendSeriesLastNDays(userUid, 7), [userUid, funnelUpdatedAt, goalRevision]);
+  const campaignDailyBuckets = useMemo(() => computeDailySendsFromCampaigns(campaigns), [campaigns]);
+  const series7 = useMemo(
+    () => getDailySendSeriesLastNDays(userUid, 7, campaignDailyBuckets),
+    [userUid, funnelUpdatedAt, goalRevision, campaignDailyBuckets]
+  );
   const monthSent = useMemo(() => getMonthSentSoFar(userUid), [userUid, funnelUpdatedAt, goalRevision]);
   const monthlyGoal = useMemo(() => getMonthlyGoal(userUid), [userUid, goalRevision]);
 
@@ -294,7 +299,8 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 const sec = Math.max(0, Math.floor((Date.now() - conn.connectedSince) / 1000));
                 if (sec < 86400) sinceLbl = `${Math.floor(sec / 3600)}h online`;
                 else sinceLbl = `${Math.floor(sec / 86400)}d online`;
-              } else sinceLbl = conn.status.replace('_', ' ');
+              } else if (online) sinceLbl = 'Online';
+              else sinceLbl = conn.status.replace('_', ' ');
               return (
                 <div key={conn.id} className="rounded-xl p-2.5 border" style={{ borderColor: 'var(--border-subtle)' }}>
                   <div className="flex justify-between gap-2 text-[11px] mb-1">
@@ -349,19 +355,21 @@ export const DashboardIntelPanel: React.FC<Props> = ({
             <h3 className="ui-title text-[14px]">Envios últimos 7 dias</h3>
           </div>
           <p className="text-[10px] mb-2" style={{ color: 'var(--text-3)' }}>
-            Contados quando está aberto (incrementos do funil registados aqui neste navegador).
+            Envios reais das campanhas (logs SUCCESS) + incrementos ao vivo com o painel aberto.
           </p>
           <div className="zm-intel-bars h-28 flex items-end gap-1 flex-1">
             {series7.map((s, barIdx) => (
               <div key={s.date} className="flex-1 flex flex-col justify-end gap-1 min-w-0">
                 <div
-                  className="zm-intel-bar w-full rounded-t-md min-h-[6px]"
+                  className="zm-intel-bar w-full rounded-t-md"
                   style={{
-                    height: `${Math.max(8, Math.round((s.count / maxBar) * 92))}%`,
+                    height: s.count > 0 ? `${Math.max(12, Math.round((s.count / maxBar) * 92))}%` : '3px',
+                    minHeight: s.count > 0 ? 6 : 3,
+                    opacity: s.count > 0 ? 1 : 0.35,
                     background: 'linear-gradient(180deg, #8b5cf6, rgba(139,92,246,0.35))',
                     animationDelay: `${barIdx * 55}ms`
                   }}
-                  title={`${s.date}: ${s.count}`}
+                  title={`${s.date}: ${s.count.toLocaleString('pt-BR')} envio${s.count === 1 ? '' : 's'}`}
                 />
                 <span className="text-[8px] text-center truncate opacity-70" style={{ color: 'var(--text-3)' }}>
                   {s.date.slice(-2)}
