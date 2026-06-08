@@ -364,6 +364,10 @@ export interface Contact {
   number?: string;
   neighborhood?: string;
   zipCode?: string;
+  /** Coordenadas (Google Geocoding / cache no CRM). */
+  latitude?: number;
+  longitude?: number;
+  geocodedAt?: string;
   church?: string;
   role?: string;
   profession?: string;

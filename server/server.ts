@@ -85,6 +85,7 @@ import { resolveAuthPrincipal, getWorkspaceMembersForPrincipal } from './resolve
 import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { registerContactsDataRoutes } from './contactsRoutes.js';
+import { registerLeadsGeoRoutes } from './leadsGeoRoutes.js';
 import { registerCampaignsDataRoutes } from './campaignsRoutes.js';
 import { registerPlatformDataRoutes } from './platformRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
@@ -342,6 +343,7 @@ registerPublicInboxSurveyRoutes(app);
 registerWorkspaceRoutes(app);
 registerVpsAuthRoutes(app);
 registerContactsDataRoutes(app);
+registerLeadsGeoRoutes(app);
 registerPlatformDataRoutes(app);
 registerCampaignsDataRoutes(app);
 registerVpsWorkspaceStaffRoutes(app);
