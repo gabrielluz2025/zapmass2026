@@ -90,7 +90,7 @@ export const WaInbox: React.FC<Props> = ({
     if (socketStatus === 'offline') return 'Servidor desconectado';
     if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
     if (chipsConnected > 0) {
-      return `Painel online · ${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`;
+      return `Painel online · ${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''} · sync automático`;
     }
     return 'Painel online · conecte um chip em Conexões';
   }, [syncing, socketStatus, chipsConnected]);

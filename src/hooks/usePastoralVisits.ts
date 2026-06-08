@@ -1,58 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  updateDoc,
-  type QueryDocumentSnapshot
-} from 'firebase/firestore';
-import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import type { PastoralVisit } from '../types/pastoralVisit';
-import { parsePastoralVisitStatus } from '../utils/pastoralVisitHelpers';
-
-const COLLECTION = 'pastoral_visits';
-const MAX_DOCS = 500;
-
-const PERMISSION_HINT =
-  'O Firestore ainda não tem as regras com `pastoral_visits` publicadas neste projeto.\n\n' +
-  'Na pasta do repositório (com Firebase CLI autenticado no projeto certo), execute:\n' +
-  '  npm run deploy:firestore-rules\n\n' +
-  'Ou: Firebase Console → Firestore → Regras → colar o conteúdo de `firestore.rules` do repositório e Publicar.';
-
-function mapPastoralLoadError(err: unknown): string {
-  const code = typeof err === 'object' && err && 'code' in err ? String((err as { code?: string }).code) : '';
-  const msg = err instanceof Error ? err.message : String(err || '');
-  if (code === 'permission-denied' || /permission|insufficient permissions/i.test(msg)) {
-    return PERMISSION_HINT;
-  }
-  return msg || 'Erro ao carregar visitas';
-}
-
-function docToVisit(d: QueryDocumentSnapshot): PastoralVisit {
-  const data = d.data();
-  return {
-    id: d.id,
-    contactId: String(data.contactId ?? ''),
-    phone: String(data.phone ?? ''),
-    contactName: String(data.contactName ?? ''),
-    scheduledStartMs: Number(data.scheduledStartMs) || 0,
-    scheduledEndMs: Number(data.scheduledEndMs) || 0,
-    status: parsePastoralVisitStatus(data.status),
-    doneAtMs: data.doneAtMs != null ? Number(data.doneAtMs) : null,
-    communionNeeded: Boolean(data.communionNeeded),
-    communionDoneAtMs: data.communionDoneAtMs != null ? Number(data.communionDoneAtMs) : null,
-    notes: String(data.notes ?? ''),
-    createdAtMs: Number(data.createdAtMs) || Date.now(),
-    updatedAtMs: Number(data.updatedAtMs) || Date.now()
-  };
-}
+import {
+  addPastoralVisit,
+  deletePastoralVisit,
+  listPastoralVisits,
+  updatePastoralVisit
+} from '../utils/pastoralVisitsStorage';
 
 export type PastoralVisitCreateInput = {
   contactId: string;
@@ -76,6 +31,14 @@ export function usePastoralVisits(opts: UsePastoralVisitsOpts = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const reload = useCallback(() => {
+    if (!dataUid) {
+      setVisits([]);
+      return;
+    }
+    setVisits(listPastoralVisits(dataUid));
+  }, [dataUid]);
+
   useEffect(() => {
     if (!enabled) {
       setVisits([]);
@@ -92,69 +55,52 @@ export function usePastoralVisits(opts: UsePastoralVisitsOpts = {}) {
     }
     setLoading(true);
     setError(null);
-    const q = query(
-      collection(db, 'users', dataUid, COLLECTION),
-      orderBy('scheduledStartMs', 'desc'),
-      limit(MAX_DOCS)
-    );
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setVisits(snap.docs.map(docToVisit));
-        setLoading(false);
-      },
-      (err) => {
-        console.error('[usePastoralVisits]', err);
-        setError(mapPastoralLoadError(err));
-        setLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [dataUid, workspaceLoading, enabled]);
+    try {
+      reload();
+    } catch (err) {
+      console.error('[usePastoralVisits]', err);
+      setError(err instanceof Error ? err.message : 'Erro ao carregar visitas');
+    } finally {
+      setLoading(false);
+    }
+  }, [dataUid, workspaceLoading, enabled, reload]);
 
   const addVisit = useCallback(
     async (input: PastoralVisitCreateInput) => {
       if (!enabled) throw new Error('Função indisponível');
       if (!dataUid) throw new Error('Sem sessão');
-      const now = Date.now();
-      await addDoc(collection(db, 'users', dataUid, COLLECTION), {
+      addPastoralVisit(dataUid, {
         contactId: input.contactId,
         phone: input.phone,
         contactName: input.contactName,
         scheduledStartMs: input.scheduledStartMs,
         scheduledEndMs: input.scheduledEndMs,
-        status: 'scheduled',
-        doneAtMs: null,
         communionNeeded: input.communionNeeded,
-        communionDoneAtMs: null,
-        notes: input.notes.trim(),
-        createdAtMs: now,
-        updatedAtMs: now
+        notes: input.notes.trim()
       });
+      reload();
     },
-    [dataUid, enabled]
+    [dataUid, enabled, reload]
   );
 
   const updateVisit = useCallback(
     async (id: string, patch: Record<string, string | number | boolean | null>) => {
       if (!enabled) throw new Error('Função indisponível');
       if (!dataUid) throw new Error('Sem sessão');
-      const payload: Record<string, string | number | boolean | null> = { updatedAtMs: Date.now() };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v !== undefined) payload[k] = v;
-      }
-      await updateDoc(doc(db, 'users', dataUid, COLLECTION, id), payload);
+      updatePastoralVisit(dataUid, id, patch);
+      reload();
     },
-    [dataUid, enabled]
+    [dataUid, enabled, reload]
   );
 
   const deleteVisit = useCallback(
     async (id: string) => {
       if (!enabled) throw new Error('Função indisponível');
       if (!dataUid) throw new Error('Sem sessão');
-      await deleteDoc(doc(db, 'users', dataUid, COLLECTION, id));
+      deletePastoralVisit(dataUid, id);
+      reload();
     },
-    [dataUid, enabled]
+    [dataUid, enabled, reload]
   );
 
   const value = useMemo(

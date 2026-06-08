@@ -12,9 +12,9 @@ export type VpsAuthUser = {
 const ACCESS_KEY = 'zapmass_access_token';
 const USER_KEY = 'zapmass_auth_user';
 
-/** Padrão: auth VPS. Desligar só com VITE_USE_VPS_AUTH=false no build/.env. */
+/** Auth 100% VPS (Firebase removido do frontend). */
 export function useVpsAuth(): boolean {
-  return import.meta.env.VITE_USE_VPS_AUTH !== 'false';
+  return true;
 }
 
 export function getVpsAccessToken(): string | null {

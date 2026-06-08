@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { SessionUser } from '../types/sessionUser';
 import { Activity, AlertTriangle, Cpu, HardDrive, Radio, RefreshCw, Server, Shield, Wifi } from 'lucide-react';
 import { Card, CardHeader, Badge, Button, RingGauge } from './ui';
 import { apiUrl } from '../utils/apiBase';
@@ -108,7 +108,7 @@ function formatFirebaseLatency(ms: number | undefined): string {
   return `${ms} ms`;
 }
 
-export const AdminOpsMonitor: React.FC<{ user: User | null }> = ({ user }) => {
+export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }) => {
   const [data, setData] = useState<AdminOpsSnapshot | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

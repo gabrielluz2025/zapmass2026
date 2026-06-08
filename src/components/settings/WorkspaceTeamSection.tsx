@@ -15,9 +15,9 @@ import { Badge, Button, Card, CardHeader, Input } from '../ui';
 import { StaffPasswordAccountsPanel } from './StaffPasswordAccountsPanel';
 import { WorkspaceTeamMembersPanel } from './WorkspaceTeamMembersPanel';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { auth } from '../../services/firebase';
+import { useAuth } from '../../context/AuthContext';
 import { apiFetchJson } from '../../utils/apiFetchAuth';
-import { getVpsAuthUser, useVpsAuth } from '../../services/vpsAuth';
+import { getVpsAuthUser } from '../../services/vpsAuth';
 
 type Props = {
   variant?: 'embedded' | 'standalone';
@@ -27,6 +27,7 @@ type OwnerTab = 'password' | 'invite';
 type Audience = 'owner' | 'invitee';
 
 export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) => {
+  const { user } = useAuth();
   const { loading, authUid, isTeamMember, effectiveWorkspaceUid } = useWorkspace();
   const [busy, setBusy] = useState(false);
   const [inviteBusy, setInviteBusy] = useState(false);
@@ -40,7 +41,7 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
   const bumpTeamOverview = () => setTeamReload((n) => n + 1);
 
   const isOwnerPerspective = Boolean(authUid && !isTeamMember);
-  const sessionEmail = useVpsAuth() ? getVpsAuthUser()?.email || '' : auth.currentUser?.email || '';
+  const sessionEmail = getVpsAuthUser()?.email || user?.email || '';
 
   const handleCreateInvite = async () => {
     setInviteBusy(true);
@@ -229,7 +230,7 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
                       variant="primary"
                       size="lg"
                       leftIcon={busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
-                      disabled={busy || !auth.currentUser}
+                      disabled={busy || !user}
                       onClick={handleRedeem}
                       className="sm:min-w-[140px]"
                     >
@@ -280,7 +281,7 @@ export const WorkspaceTeamSection: React.FC<Props> = ({ variant = 'embedded' }) 
                         variant="primary"
                         size="lg"
                         leftIcon={<Send className="w-4 h-4" />}
-                        disabled={inviteBusy || !auth.currentUser}
+                        disabled={inviteBusy || !user}
                         onClick={handleCreateInvite}
                       >
                         {inviteBusy ? 'A gerar…' : 'Gerar código de convite'}

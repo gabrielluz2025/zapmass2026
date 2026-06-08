@@ -3,11 +3,18 @@ import type { Socket } from 'socket.io-client';
 
 export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
+/** Reemit inbox do servidor (leve) enquanto a aba está visível. */
+const AUTO_LIGHT_SYNC_MS = 45_000;
+/** findChats completo em background (complementa webhooks / tempo real). */
+const AUTO_FULL_SYNC_MS = 5 * 60_000;
+
 /** Socket + sync leve; não confundir com chip WhatsApp CONNECTED. */
 export function useWaRealtime(
   socket: Socket | null,
-  onResync: (opts?: { full?: boolean }) => void
+  onResync: (opts?: { full?: boolean }) => void,
+  opts?: { chipsConnected?: number }
 ) {
+  const chipsConnected = opts?.chipsConnected ?? 0;
   const [socketStatus, setSocketStatus] = useState<WaSocketStatus>('offline');
   const [syncing, setSyncing] = useState(false);
   const pingSentAtRef = useRef(0);
@@ -69,6 +76,19 @@ export function useWaRealtime(
     };
     document.addEventListener('visibilitychange', onVis);
 
+    const lightSyncTimer = setInterval(() => {
+      if (document.visibilityState !== 'visible' || !socket.connected) return;
+      runResync({ full: false });
+    }, AUTO_LIGHT_SYNC_MS);
+
+    const fullSyncTimer =
+      chipsConnected > 0
+        ? setInterval(() => {
+            if (document.visibilityState !== 'visible' || !socket.connected) return;
+            runResync({ full: true });
+          }, AUTO_FULL_SYNC_MS)
+        : null;
+
     const onConv = () => {
       if (syncingTimerRef.current) {
         clearTimeout(syncingTimerRef.current);
@@ -88,9 +108,11 @@ export function useWaRealtime(
       socket.off('inbox-page', onConv);
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(pingTimer);
+      clearInterval(lightSyncTimer);
+      if (fullSyncTimer) clearInterval(fullSyncTimer);
       if (syncingTimerRef.current) clearTimeout(syncingTimerRef.current);
     };
-  }, [socket, runResync]);
+  }, [socket, runResync, chipsConnected]);
 
   return { socketStatus, syncing, runResync };
 }

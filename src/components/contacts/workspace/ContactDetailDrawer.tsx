@@ -7,12 +7,9 @@ import {
 import { formatFollowUpLabel, parseFollowUpMs, localStartOfTodayMs } from '../../../utils/followUp';
 import type { Contact, ContactCampaignDelivery, ReligiousMemberProfile } from '../../../types';
 import { useAppProfile } from '../../../context/AppProfileContext';
-import { useWorkspace } from '../../../context/WorkspaceContext';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../../utils/weddingAnniversary';
 import { useZapMassCore } from '../../../context/ZapMassContext';
 import toast from 'react-hot-toast';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
-import { db } from '../../../services/firebase';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -149,7 +146,6 @@ export const ContactDetailDrawer: React.FC<Props> = ({
   onAddToList
 }) => {
   const { segment } = useAppProfile();
-  const { effectiveWorkspaceUid } = useWorkspace();
   const { updateContact } = useZapMassCore();
   const [marketingBusy, setMarketingBusy] = useState(false);
   const [campaignDeliveries, setCampaignDeliveries] = useState<ContactCampaignDelivery[]>([]);
@@ -261,37 +257,21 @@ export const ContactDetailDrawer: React.FC<Props> = ({
   }, [contact, updateContact]);
 
   useEffect(() => {
-    if (!contact?.id || !effectiveWorkspaceUid) {
+    const preview = contact?.campaignTablePreview;
+    if (!preview?.campaignId) {
       setCampaignDeliveries([]);
       return;
     }
-    const uid = effectiveWorkspaceUid;
-    const snapQuery = query(
-      collection(db, 'users', uid, 'contacts', contact.id, 'campaignDeliveries'),
-      orderBy('updatedAt', 'desc')
-    );
-    const unsub = onSnapshot(
-      snapQuery,
-      (snap) => {
-        const rows: ContactCampaignDelivery[] = [];
-        snap.forEach((docSnap) => {
-          const raw = docSnap.data() as Record<string, unknown>;
-          rows.push({
-            campaignId: docSnap.id,
-            campaignName: typeof raw.campaignName === 'string' ? raw.campaignName : '',
-            sentCount: Math.max(0, Math.floor(Number(raw.sentCount) || 0)),
-            totalStages: Math.max(1, Math.floor(Number(raw.totalStages) || 1)),
-            updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined
-          });
-        });
-        setCampaignDeliveries(rows);
-      },
-      () => {
-        setCampaignDeliveries([]);
+    setCampaignDeliveries([
+      {
+        campaignId: preview.campaignId,
+        campaignName: preview.campaignName || '',
+        sentCount: preview.sent,
+        totalStages: preview.totalStages,
+        updatedAt: preview.updatedAt
       }
-    );
-    return () => unsub();
-  }, [contact?.id, effectiveWorkspaceUid]);
+    ]);
+  }, [contact?.id, contact?.campaignTablePreview]);
 
   if (!contact) return null;
 

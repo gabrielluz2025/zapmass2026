@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { SessionUser } from '../../types/sessionUser';
 import { Copy, Info, Mail, RefreshCw, Shield, Unplug, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Card, CardHeader, Badge, Button } from '../ui';
@@ -84,7 +84,7 @@ function countByStatus(rows: Row[], status: string): number {
   return rows.filter((r) => r.status.toUpperCase() === u).length;
 }
 
-export const AdminConnectionsOverview: React.FC<{ user: User | null }> = ({ user }) => {
+export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = ({ user }) => {
   const [rows, setRows] = useState<Row[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

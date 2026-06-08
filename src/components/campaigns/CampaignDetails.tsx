@@ -38,7 +38,6 @@ import {
 } from '../../types';
 import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
-import { useVpsData } from '../../services/vpsData';
 import {
   fetchCampaignInboundReplies,
   fetchCampaignLogs,
@@ -74,16 +73,6 @@ import {
 } from '../../utils/campaignReportScope';
 import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfill';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
-import {
-  collection,
-  DocumentSnapshot,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  startAfter,
-} from 'firebase/firestore';
-import { db } from '../../services/firebase';
 import * as XLSX from 'xlsx';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { PerformanceFunnel } from '../PerformanceFunnel';
@@ -364,44 +353,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [serverInboundReplies, setServerInboundReplies] = useState<
     Record<string, CampaignInboundReplyDto>
   >({});
-  const [logsLastDoc, setLogsLastDoc] = useState<DocumentSnapshot | null>(null);
   const [logsHasMore, setLogsHasMore] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const LOGS_PAGE = 200;
-
-  const parseLogSnap = (snap: ReturnType<typeof getDocs> extends Promise<infer S> ? S : never): SystemLog[] => {
-    const rows: SystemLog[] = [];
-    snap.forEach((docRef) => {
-      const d = docRef.data() as {
-        level?: string; message?: string; to?: string;
-        phoneDigits?: string; replyPreview?: string;
-        replyFlowStep?: number; currentStep?: number;
-        connectionId?: string; error?: string; createdAt?: unknown;
-      };
-      const createdRaw = d.createdAt;
-      const ts =
-        parseFirestoreDateToIso(createdRaw) ||
-        (typeof createdRaw === 'string' ? createdRaw : new Date().toISOString());
-      const lvl = String(d.level || 'info').toLowerCase();
-      const event =
-        lvl === 'error' ? 'campaign:error' : lvl === 'warn' ? 'campaign:warn' : 'campaign:info';
-      rows.push({
-        timestamp: ts, event,
-        payload: {
-          message: d.message || '',
-          campaignId: campaign.id,
-          to: d.to || d.phoneDigits,
-          phoneDigits: d.phoneDigits,
-          replyPreview: d.replyPreview,
-          replyFlowStep: d.replyFlowStep,
-          currentStep: d.currentStep,
-          connectionId: d.connectionId,
-          error: d.error
-        }
-      });
-    });
-    return rows;
-  };
 
   const mapVpsLogs = (rows: CampaignLogDto[]): SystemLog[] =>
     rows.map((d) => {
@@ -426,7 +380,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     });
 
   const reloadServerReport = useCallback(async () => {
-    if (!useVpsData() || !campaign.id) return;
+    if (!campaign.id) return;
     const snap = await fetchCampaignReport(campaign.id);
     if (snap) setServerSnapshot(snap);
   }, [campaign.id]);
@@ -436,23 +390,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       setPersistedLogs([]);
       return;
     }
-    if (useVpsData()) {
-      const { logs, hasMore } = await fetchCampaignLogs(campaign.id, { limit: LOGS_PAGE, offset: 0 });
-      setPersistedLogs(mapVpsLogs(logs));
-      setLogsLastDoc(null);
-      setLogsHasMore(hasMore);
-      return;
-    }
-    const q = query(
-      collection(db, 'users', dataUid, 'campaigns', campaign.id, 'logs'),
-      orderBy('createdAt', 'desc'),
-      limit(LOGS_PAGE)
-    );
-    const snap = await getDocs(q);
-    setPersistedLogs(parseLogSnap(snap));
-    const last = snap.docs[snap.docs.length - 1] ?? null;
-    setLogsLastDoc(last);
-    setLogsHasMore(snap.docs.length === LOGS_PAGE);
+    const { logs, hasMore } = await fetchCampaignLogs(campaign.id, { limit: LOGS_PAGE, offset: 0 });
+    setPersistedLogs(mapVpsLogs(logs));
+    setLogsHasMore(hasMore);
   }, [dataUid, campaign.id]);
 
   useEffect(() => {
@@ -477,7 +417,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [dataUid, reloadPersistedLogs, reloadServerReport]);
 
   useEffect(() => {
-    if (!useVpsData() || campaign.status !== CampaignStatus.COMPLETED) return;
+    if (campaign.status !== CampaignStatus.COMPLETED) return;
     reloadServerReport().catch(() => {});
   }, [campaign.status, campaign.id, reloadServerReport, persistedLogs.length]);
 
@@ -495,39 +435,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [campaign.status, campaign.id, reloadPersistedLogs, reloadServerReport]);
 
   const loadMoreLogs = async () => {
-    if (!dataUid || logsLoadingMore) return;
-    if (useVpsData()) {
-      if (!logsHasMore) return;
-      setLogsLoadingMore(true);
-      try {
-        const offset = persistedLogs.length;
-        const { logs, hasMore } = await fetchCampaignLogs(campaign.id, {
-          limit: LOGS_PAGE,
-          offset
-        });
-        setPersistedLogs((prev) => [...prev, ...mapVpsLogs(logs)]);
-        setLogsHasMore(hasMore);
-      } catch {
-        toast.error('Falha ao carregar mais logs.');
-      } finally {
-        setLogsLoadingMore(false);
-      }
-      return;
-    }
-    if (!logsLastDoc) return;
+    if (!dataUid || logsLoadingMore || !logsHasMore) return;
     setLogsLoadingMore(true);
     try {
-      const q = query(
-        collection(db, 'users', dataUid, 'campaigns', campaign.id, 'logs'),
-        orderBy('createdAt', 'desc'),
-        startAfter(logsLastDoc),
-        limit(LOGS_PAGE)
-      );
-      const snap = await getDocs(q);
-      setPersistedLogs((prev) => [...prev, ...parseLogSnap(snap)]);
-      const last = snap.docs[snap.docs.length - 1] ?? null;
-      setLogsLastDoc(last);
-      setLogsHasMore(snap.docs.length === LOGS_PAGE);
+      const offset = persistedLogs.length;
+      const { logs, hasMore } = await fetchCampaignLogs(campaign.id, {
+        limit: LOGS_PAGE,
+        offset
+      });
+      setPersistedLogs((prev) => [...prev, ...mapVpsLogs(logs)]);
+      setLogsHasMore(hasMore);
     } catch {
       toast.error('Falha ao carregar mais logs.');
     } finally {
@@ -614,7 +531,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }, [scopedCampaignLogs, campaign.id, serverReplyHints]);
 
   useEffect(() => {
-    if (!useVpsData() || !campaign.id) {
+    if (!campaign.id) {
       setServerInboundReplies({});
       return;
     }

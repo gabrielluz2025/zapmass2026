@@ -32,31 +32,8 @@ import {
   CampaignGeoState,
   CampaignGeoUfStats
 } from '../types';
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  getCountFromServer,
-  query,
-  orderBy,
-  limit,
-  startAfter,
-  setDoc,
-  updateDoc,
-  writeBatch,
-  increment,
-  runTransaction,
-  type QueryDocumentSnapshot,
-  type DocumentData
-} from 'firebase/firestore';
-import { onAuthStateChanged, type User } from 'firebase/auth';
 import { useAuth } from './AuthContext';
-import { useVpsAuth } from '../services/vpsAuth';
-import { useVpsData } from '../services/vpsData';
+import type { SessionUser } from '../types/sessionUser';
 import {
   apiBulkCreateContacts,
   apiBulkUpdateContacts,
@@ -80,7 +57,6 @@ import {
   fetchCampaigns
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
-import { auth, db } from '../services/firebase';
 import { useWorkspace } from './WorkspaceContext';
 import { ownsConnectionForUid } from '../utils/connectionScope';
 import {
@@ -90,7 +66,6 @@ import {
 import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
-import { mergeCampaigns, mergeContactLists, mergeContacts } from '../utils/mergeLegacyUserDocs';
 import {
   getCampaignProgressMetrics,
   healStuckRunningCampaignsList,
@@ -111,46 +86,6 @@ import {
   mergeConversationsFromSocketUpdate
 } from '../utils/conversationInboxTrim';
 import { devLog, devWarn, warnProd } from '../utils/logger';
-
-const FIRESTORE_BATCH_CHUNK = 280;
-
-/** Persiste subcoleção campaignDeliveries + resumo no documento do contato (coluna da lista). */
-async function persistCampaignDeliveryAndPreview(
-  uid: string,
-  contactId: string,
-  campaignId: string,
-  campaignsSnapshot: Campaign[]
-): Promise<void> {
-  const campaignDoc = campaignsSnapshot.find((x) => x.id === campaignId);
-  const totalStages = getCampaignStageTotal(campaignDoc);
-  const cname = String(campaignDoc?.name || 'Campanha').slice(0, 200);
-  const delRef = doc(db, 'users', uid, 'contacts', contactId, 'campaignDeliveries', campaignId);
-  await setDoc(
-    delRef,
-    {
-      sentCount: increment(1),
-      totalStages,
-      campaignName: cname,
-      updatedAt: new Date().toISOString()
-    },
-    { merge: true }
-  );
-  const snap = await getDoc(delRef);
-  const sent = Math.max(0, Math.floor(Number(snap.data()?.sentCount) || 0));
-  const pending = Math.max(0, totalStages - sent);
-  const contactRef = doc(db, 'users', uid, 'contacts', contactId);
-  await updateDoc(contactRef, {
-    campaignMessagesReceived: increment(1),
-    campaignTablePreview: {
-      campaignId,
-      campaignName: cname.slice(0, 120),
-      sent,
-      totalStages,
-      pending,
-      updatedAt: new Date().toISOString()
-    }
-  } as Record<string, unknown>);
-}
 
 async function yieldToUiThread(): Promise<void> {
   await new Promise<void>((resolve) => {
@@ -373,63 +308,17 @@ const ZAP_MASS_CONVERSATIONS_DEFAULT: ZapMassConversationsSlice = {
 const ZapMassConversationsContext = createContext(ZAP_MASS_CONVERSATIONS_DEFAULT);
 
 const ZapMassCoreContext = createContext<ZapMassCoreContextValue>(EMPTY_CORE);
-const legacyIgnoreKey = (uid: string) => `zapmass.ignoreLegacyData:${uid}`;
-const allowLegacyMerge = (): boolean => {
-  // Segurança multi-tenant: desabilitado por padrão de forma rígida
-  // para impedir mistura entre contas.
-  return false;
-};
-
-const belongsToUidCampaign = (
-  uid: string,
-  raw: Record<string, unknown>
-): boolean => {
-  const ownerUid = typeof raw.ownerUid === 'string' ? raw.ownerUid : '';
-  if (ownerUid) return ownerUid === uid;
-
-  const connIds = Array.isArray(raw.selectedConnectionIds)
-    ? (raw.selectedConnectionIds as unknown[]).map((x) => String(x || '')).filter(Boolean)
-    : [];
-  // Sem owner e sem conexao vinculada => registro suspeito/contaminado. Bloqueia.
-  if (connIds.length === 0) return false;
-
-  return connIds.some((id) => ownsConnectionForUid(uid, id));
-};
-
-/** Apaga subcolecao logs antes de remover a campanha (batch com limite Firestore). */
-async function deleteCampaignLogsForUser(uid: string, campaignId: string): Promise<void> {
-  const logsSnap = await getDocs(collection(db, 'users', uid, 'campaigns', campaignId, 'logs'));
-  if (logsSnap.empty) return;
-  let batch = writeBatch(db);
-  let pending = 0;
-  for (const logDoc of logsSnap.docs) {
-    batch.delete(logDoc.ref);
-    pending++;
-    if (pending >= 400) {
-      await batch.commit();
-      batch = writeBatch(db);
-      pending = 0;
-    }
-  }
-  if (pending > 0) await batch.commit();
-}
-
 function isCampaignApiDeleteRetryable(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err || '');
   return /404|não encontrada|not found|inválido/i.test(msg);
 }
 
-/** Postgres (API) + Firestore (legado): cobre campanhas só no banco ou só no Firebase. */
-async function purgeCampaignForUser(uid: string, campaignId: string): Promise<void> {
-  if (useVpsData()) {
-    try {
-      await apiDeleteCampaign(campaignId);
-    } catch (apiErr) {
-      if (!isCampaignApiDeleteRetryable(apiErr)) throw apiErr;
-    }
+async function purgeCampaignForUser(_uid: string, campaignId: string): Promise<void> {
+  try {
+    await apiDeleteCampaign(campaignId);
+  } catch (apiErr) {
+    if (!isCampaignApiDeleteRetryable(apiErr)) throw apiErr;
   }
-  await deleteCampaignLogsForUser(uid, campaignId);
-  await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignId));
 }
 
 /** Referência estável: o corpo da função actualiza-se a cada render sem invalidar `useMemo` do Provider. */
@@ -449,23 +338,18 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contactsLoadingMore, setContactsLoadingMore] = useState(false);
   const [contactsSavedTotal, setContactsSavedTotal] = useState<number | null>(null);
   const [contactsSavedTotalLoading, setContactsSavedTotalLoading] = useState(false);
-  const contactsLastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const contactsVpsOffsetRef = useRef(0);
   const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
 
-  const patchCampaignPersist = useCallback((uid: string, campaignId: string, patch: Record<string, unknown>) => {
-    if (useVpsData()) {
-      void apiUpdateCampaign(campaignId, patch);
-      return;
-    }
-    void updateDoc(doc(db, 'users', uid, 'campaigns', campaignId), patch).catch(() => {});
+  const patchCampaignPersist = useCallback((_uid: string, campaignId: string, patch: Record<string, unknown>) => {
+    void apiUpdateCampaign(campaignId, patch);
   }, []);
 
   reloadVpsCampaignsRef.current = async () => {
     const uid = currentUidRef.current;
-    if (!uid || !useVpsData()) return;
+    if (!uid) return;
     try {
       const list = await fetchCampaigns();
       if (currentUidRef.current !== uid) return;
@@ -560,18 +444,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   /** Atraso antes de marcar UI como offline — evita OFFLINE a piscar em quedas < ~3s (sleep da CPU / troca de aba). */
   const offlineBadgeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasConnectedOnceRef = useRef(false);
-  const currentUidRef = useRef<string | null>(auth.currentUser?.uid ?? null);
-  const prevAuthUserRef = useRef<string | null>(auth.currentUser?.uid ?? null);
+  const currentUidRef = useRef<string | null>(sessionUser?.uid ?? null);
+  const prevAuthUserRef = useRef<string | null>(sessionUser?.uid ?? null);
   const bindUserRef = useRef<(uid: string) => void>(() => {});
-  /** Mescla Firestore legado (coleções na raiz) com `users/{uid}/...`. */
-  const fbMergeRef = useRef({
-    userContacts: [] as Contact[],
-    legacyContacts: [] as Contact[],
-    userLists: [] as ContactList[],
-    legacyLists: [] as ContactList[],
-    userCampaigns: [] as Campaign[],
-    legacyCampaigns: [] as Campaign[]
-  });
   const campaignProgressPersistRef = useRef<Record<string, {
     timer: ReturnType<typeof setTimeout> | null;
     lastWriteAt: number;
@@ -656,9 +531,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         successCount: m.ok,
         failedCount: m.fail
       });
-      if (!useVpsData()) {
-        campaignFirestoreHealRef.current.delete(c.id);
-      }
     }
   }, [patchCampaignPersist]);
 
@@ -788,20 +660,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const requestUid = uid;
     setContactsSavedTotalLoading(true);
     try {
-      if (useVpsData()) {
-        const total = await fetchContactsCount();
-        if (currentUidRef.current !== requestUid) return;
-        setContactsSavedTotal(total);
-      } else {
-        const agg = await getCountFromServer(query(collection(db, 'users', requestUid, 'contacts')));
-        if (currentUidRef.current !== requestUid) return;
-        setContactsSavedTotal(agg.data().count);
-      }
+      const total = await fetchContactsCount();
+      if (currentUidRef.current !== requestUid) return;
+      setContactsSavedTotal(total);
     } catch (err) {
-      warnProd(
-        useVpsData() ? '[VPS] contagem contacts:' : '[Firestore] contagem users/.../contacts:',
-        (err as Error)?.message || err
-      );
+      warnProd('[VPS] contagem contacts:', (err as Error)?.message || err);
       if (currentUidRef.current === requestUid) setContactsSavedTotal(null);
     } finally {
       if (currentUidRef.current === requestUid) setContactsSavedTotalLoading(false);
@@ -810,13 +673,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   reloadVpsContactsRef.current = async () => {
     const uid = currentUidRef.current;
-    if (!uid || !useVpsData()) return;
+    if (!uid) return;
     const requestUid = uid;
     try {
       const { contacts, total, hasMore } = await fetchContacts({ limit: 5000, offset: 0 });
       if (currentUidRef.current !== requestUid) return;
       contactsVpsOffsetRef.current = contacts.length;
-      contactsLastDocRef.current = hasMore ? ({} as QueryDocumentSnapshot<DocumentData>) : null;
       setContacts(contacts);
       setContactsHasMore(hasMore);
       setContactsSavedTotal(total);
@@ -827,7 +689,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   reloadVpsContactListsRef.current = async () => {
     const uid = currentUidRef.current;
-    if (!uid || !useVpsData()) return;
+    if (!uid) return;
     try {
       const lists = await fetchContactLists();
       if (currentUidRef.current !== uid) return;
@@ -840,172 +702,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const refreshContactsSavedTotalRef = useRef(refreshContactsSavedTotal);
   refreshContactsSavedTotalRef.current = refreshContactsSavedTotal;
 
-  // --- FIREBASE SYNC ---
+  // --- Dados do tenant (API Postgres) ---
   useEffect(() => {
-    let cleanupFirestore: Array<() => void> = [];
-
-    const stopAll = () => {
-      cleanupFirestore.forEach((fn) => fn());
-      cleanupFirestore = [];
-    };
-
-    /**
-     * Com sessão ativa mantemos contactos, listas e campanhas sincronizados com Firestore.
-     * Não dependemos da aba visível: re-subscrever só em algumas vistas + `stopAll` a cada troca
-     * de aba derrubava os listeners de `contacts` e voltava a descarregar milhares de docs → UI travava.
-     */
     const bindUser = (uid: string) => {
-      const needContacts = true;
-      const needLists = true;
-      const needCampaigns = true;
-
-      stopAll();
       setCircuitBreakerOpenIds(new Set());
-      const b = fbMergeRef.current;
-      const ignoreLegacy = !allowLegacyMerge() || (() => {
-        try {
-          return localStorage.getItem(legacyIgnoreKey(uid)) === '1';
-        } catch {
-          return false;
-        }
-      })();
-      const allowLegacyNow = () => {
-        try {
-          return localStorage.getItem(legacyIgnoreKey(uid)) !== '1';
-        } catch {
-          return true;
-        }
-      };
-      b.userContacts = [];
-      b.legacyContacts = [];
-      b.userLists = [];
-      b.legacyLists = [];
-      b.userCampaigns = [];
-      b.legacyCampaigns = [];
-
-      if (needContacts) {
-        contactsLastDocRef.current = null;
-        contactsVpsOffsetRef.current = 0;
-        setContactsHasMore(false);
-        if (useVpsData()) {
-          void reloadVpsContactsRef.current();
-          void refreshContactsSavedTotalRef.current();
-        } else {
-          cleanupFirestore.push(
-            onSnapshot(
-              query(collection(db, 'users', uid, 'contacts'), orderBy('name')),
-              (snapshot) => {
-                if (currentUidRef.current !== uid) return;
-                b.userContacts = snapshot.docs.map((docSnap) =>
-                  normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
-                );
-                setContacts(mergeContacts(b.userContacts, b.legacyContacts));
-              },
-              (err) => warnProd('[Firestore] users/.../contacts:', (err as Error)?.message || err)
-            )
-          );
-          if (!ignoreLegacy) {
-            cleanupFirestore.push(
-              onSnapshot(
-                query(collection(db, 'contacts'), orderBy('name')),
-                (snapshot) => {
-                  if (currentUidRef.current !== uid) return;
-                  if (!allowLegacyNow()) {
-                    b.legacyContacts = [];
-                    setContacts(mergeContacts(b.userContacts, []));
-                    return;
-                  }
-                  b.legacyContacts = snapshot.docs.map((docSnap) =>
-                    normalizeContactDoc(docSnap.id, docSnap.data() as Record<string, any>)
-                  );
-                  setContacts(mergeContacts(b.userContacts, b.legacyContacts));
-                },
-                (err) => warnProd('[Firestore] /contacts (legado):', (err as Error)?.message || err)
-              )
-            );
-          }
-          void refreshContactsSavedTotalRef.current();
-        }
-      }
-      if (needLists) {
-        if (useVpsData()) {
-          void reloadVpsContactListsRef.current();
-        } else {
-          cleanupFirestore.push(
-            onSnapshot(
-              query(collection(db, 'users', uid, 'contact_lists'), orderBy('createdAt', 'desc')),
-              (snapshot) => {
-                if (currentUidRef.current !== uid) return;
-                b.userLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
-                setContactLists(mergeContactLists(b.userLists, b.legacyLists));
-              },
-              (err) => warnProd('[Firestore] contact_lists (usuario):', (err as Error)?.message || err)
-            )
-          );
-          if (!ignoreLegacy) {
-            cleanupFirestore.push(
-              onSnapshot(
-                query(collection(db, 'contact_lists')),
-                (snapshot) => {
-                  if (currentUidRef.current !== uid) return;
-                  if (!allowLegacyNow()) {
-                    b.legacyLists = [];
-                    setContactLists(mergeContactLists(b.userLists, []));
-                    return;
-                  }
-                  b.legacyLists = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as ContactList));
-                  setContactLists(mergeContactLists(b.userLists, b.legacyLists));
-                },
-                (err) => warnProd('[Firestore] /contact_lists (legado):', (err as Error)?.message || err)
-              )
-            );
-          }
-        }
-      }
-      if (needCampaigns) {
-        if (useVpsData()) {
-          void reloadVpsCampaignsRef.current();
-        } else {
-        cleanupFirestore.push(
-          onSnapshot(
-            query(collection(db, 'users', uid, 'campaigns'), orderBy('createdAt', 'desc')),
-            (snapshot) => {
-              if (currentUidRef.current !== uid) return;
-              b.userCampaigns = snapshot.docs
-                .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Record<string, unknown> & Campaign))
-                .filter((row) => belongsToUidCampaign(uid, row))
-                .map((row) => row as Campaign);
-              const mergedUserLegacy = mergeCampaigns(b.userCampaigns, b.legacyCampaigns);
-              syncStuckCampaignsToFirestore(mergedUserLegacy, uid);
-              setCampaigns(healStuckRunningCampaignsList(mergedUserLegacy));
-            },
-            (err) => warnProd('[Firestore] campaigns (usuario):', (err as Error)?.message || err)
-          )
-        );
-        if (!ignoreLegacy) {
-          cleanupFirestore.push(
-            onSnapshot(
-              query(collection(db, 'campaigns')),
-              (snapshot) => {
-                if (currentUidRef.current !== uid) return;
-                if (!allowLegacyNow()) {
-                  b.legacyCampaigns = [];
-                  const m = mergeCampaigns(b.userCampaigns, []);
-                  syncStuckCampaignsToFirestore(m, uid);
-                  setCampaigns(healStuckRunningCampaignsList(m));
-                  return;
-                }
-                b.legacyCampaigns = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Campaign));
-                const mergedL = mergeCampaigns(b.userCampaigns, b.legacyCampaigns);
-                syncStuckCampaignsToFirestore(mergedL, uid);
-                setCampaigns(healStuckRunningCampaignsList(mergedL));
-              },
-              (err) => warnProd('[Firestore] /campaigns (legado):', (err as Error)?.message || err)
-            )
-          );
-        }
-        }
-      }
+      contactsVpsOffsetRef.current = 0;
+      setContactsHasMore(false);
+      void reloadVpsContactsRef.current();
+      void refreshContactsSavedTotalRef.current();
+      void reloadVpsContactListsRef.current();
+      void reloadVpsCampaignsRef.current();
     };
 
     bindUserRef.current = bindUser;
@@ -1040,7 +746,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       conversationsSocketPendingRef.current = null;
     };
 
-    const handleAuthUser = async (user: User | null) => {
+    const handleAuthUser = async (user: SessionUser | null) => {
       const newAuthUid = user?.uid ?? null;
       if (prevAuthUserRef.current !== newAuthUid) {
         prevAuthUserRef.current = newAuthUid;
@@ -1066,7 +772,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         sock.connect();
       }
       if (!user?.uid) {
-        stopAll();
         resetSessionState();
         return;
       }
@@ -1078,22 +783,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       bindUser(dataUid);
     };
 
-    let unsubAuth = () => {};
-    if (useVpsAuth()) {
-      void handleAuthUser(sessionUser);
-    } else {
-      unsubAuth = onAuthStateChanged(auth, (u) => void handleAuthUser(u));
-    }
+    void handleAuthUser(sessionUser);
 
-    const uidNow = useVpsAuth() ? sessionUser?.uid : auth.currentUser?.uid;
+    const uidNow = sessionUser?.uid;
     if (uidNow && !workspaceLoading) {
       bindUser(effectiveWorkspaceUid ?? uidNow);
     }
 
-    return () => {
-      unsubAuth();
-      stopAll();
-    };
+    return () => {};
   }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser]);
 
   const loadMoreContacts = useCallback(async (): Promise<void> => {
@@ -1104,43 +801,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const CONTACTS_PAGE_SIZE = 500;
     setContactsLoadingMore(true);
     try {
-      if (useVpsData()) {
-        const offset = contactsVpsOffsetRef.current;
-        const { contacts: nextDocs, hasMore } = await fetchContacts({
-          limit: CONTACTS_PAGE_SIZE,
-          offset
-        });
-        contactsVpsOffsetRef.current = offset + nextDocs.length;
-        setContactsHasMore(hasMore);
-        if (nextDocs.length > 0) {
-          setContacts((prev) => {
-            const byId = new Map(prev.map((c) => [c.id, c]));
-            for (const c of nextDocs) byId.set(c.id, c);
-            return Array.from(byId.values()).sort((a, b) =>
-              (a.name || '').localeCompare(b.name || '', 'pt-BR')
-            );
-          });
-        }
-        return;
-      }
-      const last = contactsLastDocRef.current;
-      if (!last) return;
-      const snap = await getDocs(
-        query(
-          collection(db, 'users', uid, 'contacts'),
-          orderBy('name'),
-          startAfter(last),
-          limit(CONTACTS_PAGE_SIZE)
-        )
-      );
-      const nextDocs = snap.docs.map((d) => normalizeContactDoc(d.id, d.data() as Record<string, any>));
-      contactsLastDocRef.current = snap.docs.length ? snap.docs[snap.docs.length - 1] : contactsLastDocRef.current;
-      setContactsHasMore(snap.docs.length >= CONTACTS_PAGE_SIZE);
+      const offset = contactsVpsOffsetRef.current;
+      const { contacts: nextDocs, hasMore } = await fetchContacts({
+        limit: CONTACTS_PAGE_SIZE,
+        offset
+      });
+      contactsVpsOffsetRef.current = offset + nextDocs.length;
+      setContactsHasMore(hasMore);
       if (nextDocs.length > 0) {
         setContacts((prev) => {
           const byId = new Map(prev.map((c) => [c.id, c]));
           for (const c of nextDocs) byId.set(c.id, c);
-          return Array.from(byId.values()).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+          return Array.from(byId.values()).sort((a, b) =>
+            (a.name || '').localeCompare(b.name || '', 'pt-BR')
+          );
         });
       }
     } finally {
@@ -1149,7 +823,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [contactsHasMore, contactsLoadingMore]);
 
   useEffect(() => {
-    const u = auth.currentUser;
+    const u = sessionUser;
     if (!u?.uid || workspaceLoading) return;
     const dataUid = effectiveWorkspaceUid ?? u.uid;
     if (currentUidRef.current !== dataUid) {
@@ -1177,7 +851,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   useEffect(() => {
     /** Workspace (userWorkspaceLinks) tem de resolver antes do socket — senão o filtro usa authUid e bloqueia canais/conversas do tenant. */
     if (workspaceLoading) return undefined;
-    const resolvedWorkspaceUid = effectiveWorkspaceUid ?? auth.currentUser?.uid ?? null;
+    const resolvedWorkspaceUid = effectiveWorkspaceUid ?? sessionUser?.uid ?? null;
     if (!resolvedWorkspaceUid) return undefined;
     currentUidRef.current = resolvedWorkspaceUid;
 
@@ -1194,7 +868,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         connectionsRef.current.find((c) => c.id === connectionId)?.ownerUid ??
         ownerFromId;
       if (ownsConnectionForUid(tenantUid, connectionId, meta)) return true;
-      const authUid = auth.currentUser?.uid;
+      const authUid = sessionUser?.uid;
       if (
         authUid &&
         meta === authUid &&
@@ -2205,9 +1879,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               const idx = prev.findIndex((c) => normPhoneKey(c.phone) === pkey);
               if (idx < 0) return prev;
               const row = prev[idx];
-              void persistCampaignDeliveryAndPreview(uid, row.id, payload.campaignId, campaignsRef.current).catch(
-                () => {}
-              );
               const campaignDoc = campaignsRef.current.find((x) => x.id === payload.campaignId);
               const totalStages = getCampaignStageTotal(campaignDoc);
               const cname = String(campaignDoc?.name || 'Campanha').slice(0, 120);
@@ -2216,18 +1887,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               const optimisticSent = same ? (prevP?.sent ?? 0) + 1 : 1;
               const optimisticPending = Math.max(0, totalStages - optimisticSent);
               const at = new Date().toISOString();
+              const preview = {
+                campaignId: payload.campaignId,
+                campaignName: cname,
+                sent: optimisticSent,
+                totalStages,
+                pending: optimisticPending,
+                updatedAt: at
+              };
+              void apiUpdateContact(row.id, {
+                campaignMessagesReceived: (row.campaignMessagesReceived || 0) + 1,
+                campaignTablePreview: preview
+              }).catch(() => {});
               const next = [...prev];
               next[idx] = {
                 ...row,
                 campaignMessagesReceived: (row.campaignMessagesReceived || 0) + 1,
-                campaignTablePreview: {
-                  campaignId: payload.campaignId,
-                  campaignName: cname,
-                  sent: optimisticSent,
-                  totalStages,
-                  pending: optimisticPending,
-                  updatedAt: at
-                }
+                campaignTablePreview: preview
               };
               return next;
             });
@@ -2266,8 +1942,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
                   marketingOptOut: true,
                   marketingOptIn: false
                 };
-          const ref = doc(db, 'users', uid, 'contacts', c.id);
-          void updateDoc(ref, updates as Record<string, unknown>).catch(() => {});
+          void apiUpdateContact(c.id, updates).catch(() => {});
           const next = [...prev];
           next[idx] = { ...c, ...updates };
           return next;
@@ -2348,19 +2023,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!socket.connected) {
         if (now - lastReconnectNudgeMs < 1200) return;
         lastReconnectNudgeMs = now;
-        const u = auth.currentUser;
-        if (u) {
-          u.getIdToken(false)
-            .then((token) => {
-              (socket as Socket & { auth: { token?: string } }).auth = { token };
-              if (!socket.connected) socket.connect();
-            })
-            .catch(() => {
-              if (!socket.connected) socket.connect();
-            });
-        } else {
-          socket.connect();
-        }
+        void getSessionIdToken(false)
+          .then((token) => {
+            (socket as Socket & { auth: { token?: string } }).auth = token ? { token } : {};
+            if (!socket.connected) socket.connect();
+          })
+          .catch(() => {
+            if (!socket.connected) socket.connect();
+          });
         return;
       }
       if (now - lastConvResyncMs < 4500) return;
@@ -2408,7 +2078,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
-  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading]);
+  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser]);
 
   /** Hidrata canais após auth + workspace — não depender só do primeiro socket.connect. */
   useEffect(() => {
@@ -2624,81 +2294,35 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addContact = async (contact: Contact, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
-    if (useVpsData()) {
-      const { id, ...payload } = contact;
-      const newId = await apiCreateContact(payload);
-      await reloadVpsContactsRef.current();
-      void refreshContactsSavedTotal();
-      if (!options?.silent) toast.success('Contato adicionado com sucesso!');
-      return newId;
-    }
     const { id, ...payload } = contact;
-    const ref = await addDoc(collection(db, 'users', uid, 'contacts'), payload);
+    const newId = await apiCreateContact(payload);
+    await reloadVpsContactsRef.current();
     void refreshContactsSavedTotal();
-    if (!options?.silent) {
-      toast.success('Contato adicionado com sucesso!');
-    }
-    return ref.id;
+    if (!options?.silent) toast.success('Contato adicionado com sucesso!');
+    return newId;
   };
 
   const bulkAddContacts = async (contactRows: Contact[], options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
     if (contactRows.length === 0) return [];
-    if (useVpsData()) {
-      const payloads = contactRows.map(({ id: _d, ...rest }) => rest);
-      const ids = await apiBulkCreateContacts(payloads);
-      await reloadVpsContactsRef.current();
-      void refreshContactsSavedTotal();
-      if (!options?.silent && contactRows.length > 0) {
-        toast.success(`${contactRows.length} contato(s) gravados em lote.`);
-      }
-      return ids;
-    }
-    const ids: string[] = [];
-    const collRef = collection(db, 'users', uid, 'contacts');
-    let batch = writeBatch(db);
-    let pending = 0;
-    for (const contact of contactRows) {
-      const { id: _discard, ...payload } = contact;
-      const ref = doc(collRef);
-      batch.set(ref, payload as Record<string, unknown>);
-      ids.push(ref.id);
-      pending++;
-      if (pending >= FIRESTORE_BATCH_CHUNK) {
-        await batch.commit();
-        await yieldToUiThread();
-        batch = writeBatch(db);
-        pending = 0;
-      }
-    }
-    if (pending > 0) {
-      await batch.commit();
-      await yieldToUiThread();
-    }
+    const payloads = contactRows.map(({ id: _d, ...rest }) => rest);
+    const ids = await apiBulkCreateContacts(payloads);
+    await reloadVpsContactsRef.current();
+    void refreshContactsSavedTotal();
     if (!options?.silent && contactRows.length > 0) {
       toast.success(`${contactRows.length} contato(s) gravados em lote.`);
     }
-    void refreshContactsSavedTotal();
     return ids;
   };
 
   const removeContact = async (id: string, options?: { silent?: boolean }) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para remover contato.');
-    if (useVpsData()) {
-      await apiDeleteContact(id);
-      await reloadVpsContactsRef.current();
-      void refreshContactsSavedTotal();
-      if (!options?.silent) toast.success('Contato removido.');
-      return;
-    }
-    await deleteDoc(doc(db, 'users', uid, 'contacts', id)).catch(() => {});
-    await deleteDoc(doc(db, 'contacts', id)).catch(() => {});
+    await apiDeleteContact(id);
+    await reloadVpsContactsRef.current();
     void refreshContactsSavedTotal();
-    if (!options?.silent) {
-      toast.success('Contato removido.');
-    }
+    if (!options?.silent) toast.success('Contato removido.');
   };
 
   const updateContact = async (
@@ -2708,35 +2332,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   ) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
-    if (useVpsData()) {
-      await apiUpdateContact(id, updates);
-      await reloadVpsContactsRef.current();
-      if (!options?.silent) toast.success('Contato atualizado com sucesso!');
-      return;
-    }
-    const refUser = doc(db, 'users', uid, 'contacts', id);
-    if (options?.assumeUserDoc) {
-      await updateDoc(refUser, updates as Record<string, unknown>);
-      if (!options?.silent) {
-        toast.success('Contato atualizado com sucesso!');
-      }
-      return;
-    }
-    const snapUser = await getDoc(refUser);
-    if (snapUser.exists()) {
-      await updateDoc(refUser, updates as Record<string, unknown>);
-    } else {
-      const snapRoot = await getDoc(doc(db, 'contacts', id));
-      if (snapRoot.exists()) {
-        const base = snapRoot.data() as Record<string, unknown>;
-        await setDoc(refUser, { ...base, ...updates }, { merge: true });
-      } else {
-        await updateDoc(refUser, updates as Record<string, unknown>);
-      }
-    }
-    if (!options?.silent) {
-      toast.success('Contato atualizado com sucesso!');
-    }
+    await apiUpdateContact(id, updates);
+    await reloadVpsContactsRef.current();
+    if (!options?.silent) toast.success('Contato atualizado com sucesso!');
   };
 
   const bulkUpdateContacts = async (
@@ -2746,32 +2344,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
     if (items.length === 0) return;
-    if (useVpsData()) {
-      await apiBulkUpdateContacts(items);
-      await reloadVpsContactsRef.current();
-      if (!options?.silent) toast.success('Contatos atualizados.');
-      return;
-    }
-    let batch = writeBatch(db);
-    let pending = 0;
-    for (const { id, updates } of items) {
-      const refUser = doc(db, 'users', uid, 'contacts', id);
-      batch.update(refUser, updates as Record<string, unknown>);
-      pending++;
-      if (pending >= FIRESTORE_BATCH_CHUNK) {
-        await batch.commit();
-        await yieldToUiThread();
-        batch = writeBatch(db);
-        pending = 0;
-      }
-    }
-    if (pending > 0) {
-      await batch.commit();
-      await yieldToUiThread();
-    }
-    if (!options?.silent) {
-      toast.success(`${items.length} contato(s) atualizados em lote.`);
-    }
+    await apiBulkUpdateContacts(items);
+    await reloadVpsContactsRef.current();
+    if (!options?.silent) toast.success('Contatos atualizados.');
   };
 
   const clearAllUserData = async () => {
@@ -2790,73 +2365,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       errors: 0
     };
 
-    const deleteCollectionDocs = async (collPath: string, counterKey?: keyof typeof summary) => {
-      try {
-        const snap = await getDocs(collection(db, collPath));
-        if (snap.empty) return;
-        if (counterKey) summary[counterKey] += snap.docs.length;
-        let batch = writeBatch(db);
-        let pending = 0;
-        for (const row of snap.docs) {
-          batch.delete(row.ref);
-          pending++;
-          if (pending >= 400) {
-            await batch.commit();
-            batch = writeBatch(db);
-            pending = 0;
-          }
-        }
-        if (pending > 0) await batch.commit();
-        hadAnySuccess = true;
-      } catch (err: any) {
-        errors.push(`${collPath}: ${err?.message || 'erro desconhecido'}`);
-      }
-    };
-
-    // Coleções suportadas e usadas hoje no app.
-    if (useVpsData()) {
-      try {
-        const cleared = await apiClearTenantContactsData();
-        summary.contacts = cleared.contacts;
-        summary.contactLists = cleared.contactLists;
-        hadAnySuccess = true;
-      } catch (err: unknown) {
-        errors.push(`vps/contacts-data: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    } else {
-      await deleteCollectionDocs(`users/${uid}/contacts`, 'contacts');
-      await deleteCollectionDocs(`users/${uid}/contact_lists`, 'contactLists');
+    try {
+      const cleared = await apiClearTenantContactsData();
+      summary.contacts = cleared.contacts;
+      summary.contactLists = cleared.contactLists;
+      hadAnySuccess = true;
+    } catch (err: unknown) {
+      errors.push(`vps/contacts-data: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Campanhas: primeiro apaga logs de cada campanha, depois a campanha.
     try {
-      if (useVpsData()) {
-        summary.campaigns = await apiDeleteAllCampaigns();
-        hadAnySuccess = true;
-      } else {
-      const campaignSnap = await getDocs(collection(db, 'users', uid, 'campaigns'));
-      if (!campaignSnap.empty) {
-        for (const campaignDoc of campaignSnap.docs) {
-          await deleteCollectionDocs(`users/${uid}/campaigns/${campaignDoc.id}/logs`, 'campaignLogs');
-        }
-        summary.campaigns += campaignSnap.docs.length;
-        let batch = writeBatch(db);
-        let pending = 0;
-        for (const campaignDoc of campaignSnap.docs) {
-          batch.delete(campaignDoc.ref);
-          pending++;
-          if (pending >= 400) {
-            await batch.commit();
-            batch = writeBatch(db);
-            pending = 0;
-          }
-        }
-        if (pending > 0) await batch.commit();
-        hadAnySuccess = true;
-      }
-      }
-    } catch (err: any) {
-      errors.push(`users/${uid}/campaigns: ${err?.message || 'erro desconhecido'}`);
+      summary.campaigns = await apiDeleteAllCampaigns();
+      hadAnySuccess = true;
+    } catch (err: unknown) {
+      errors.push(`vps/campaigns: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     if (!hadAnySuccess && errors.length > 0) {
@@ -2897,11 +2419,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         /* ignore */
       }
     }
-    try {
-      localStorage.setItem(legacyIgnoreKey(uid), '1');
-    } catch {
-      /* ignore */
-    }
     void refreshContactsSavedTotal();
     return summary;
   };
@@ -2921,129 +2438,49 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uniq = [...new Set(ids.filter(Boolean))];
     if (uniq.length === 0 && !options?.notesLine) return;
 
-    if (useVpsData()) {
-      const lists = await fetchContactLists();
-      const list = lists.find((l) => l.id === listId);
-      if (!list) {
-        throw new Error(
-          'Lista não encontrada. Recarregue a página e escolha de novo a lista em Contatos.'
-        );
-      }
-      const mergedIds = [...new Set([...(list.contactIds || []), ...uniq])];
-      await apiUpdateContactList(listId, { contactIds: mergedIds });
-      await reloadVpsContactListsRef.current();
-      return;
+    const lists = await fetchContactLists();
+    const list = lists.find((l) => l.id === listId);
+    if (!list) {
+      throw new Error(
+        'Lista não encontrada. Recarregue a página e escolha de novo a lista em Contatos.'
+      );
     }
-
-    const ref = doc(db, 'users', uid, 'contact_lists', listId);
-
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(ref);
-      if (!snap.exists()) {
-        throw new Error(
-          'Lista não encontrada no seu utilizador. Recarregue a página e escolha de novo a lista em Contatos.'
-        );
-      }
-      const data = snap.data() as Record<string, unknown>;
-      const rawIds = data.contactIds;
-      const cur: string[] = Array.isArray(rawIds)
-        ? rawIds.filter((x): x is string => typeof x === 'string' && Boolean(x.trim()))
-        : [];
-      const mergedIds = [...new Set([...cur, ...uniq])];
-
-      const patch: Record<string, unknown> = {
-        contactIds: mergedIds,
-        lastUpdated: new Date().toISOString()
-      };
-      if (options?.notesLine) {
-        const prevNotes = String(data.notes ?? '');
-        patch.notes = `${prevNotes}\n${options.notesLine}`.trim();
-      }
-      transaction.update(ref, patch);
-    });
+    const mergedIds = [...new Set([...(list.contactIds || []), ...uniq])];
+    const patch: Partial<ContactList> = { contactIds: mergedIds };
+    if (options?.notesLine) {
+      const prevNotes = String(list.description ?? '');
+      patch.description = `${prevNotes}\n${options.notesLine}`.trim();
+    }
+    await apiUpdateContactList(listId, patch);
+    await reloadVpsContactListsRef.current();
   };
 
   const createContactList = async (name: string, contactIds: string[], description?: string): Promise<string> => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para criar lista.');
-    if (useVpsData()) {
-      const uniqIds = [...new Set(contactIds.filter(Boolean))];
-      const listId = await apiCreateContactList({
-        name,
-        contactIds: uniqIds,
-        description: description || '',
-        createdAt: new Date().toISOString()
-      });
-      await reloadVpsContactListsRef.current();
-      return listId;
-    }
-    const ref = await addDoc(collection(db, 'users', uid, 'contact_lists'), {
+    const uniqIds = [...new Set(contactIds.filter(Boolean))];
+    const listId = await apiCreateContactList({
       name,
-      contactIds: [],
+      contactIds: uniqIds,
       description: description || '',
-      createdAt: new Date().toISOString(),
+      createdAt: new Date().toISOString()
     });
-    if (contactIds.length > 0) {
-      await appendContactIdsToContactList(ref.id, contactIds);
-    }
-    return ref.id;
+    await reloadVpsContactListsRef.current();
+    return listId;
   };
 
   const deleteContactList = async (id: string) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para remover lista.');
-    if (useVpsData()) {
-      await apiDeleteContactList(id);
-      await reloadVpsContactListsRef.current();
-      return;
-    }
-    const refUser = doc(db, 'users', uid, 'contact_lists', id);
-    const refRoot = doc(db, 'contact_lists', id);
-    const [snapUser, snapRoot] = await Promise.all([getDoc(refUser), getDoc(refRoot)]);
-    const errors: string[] = [];
-    if (snapUser.exists()) {
-      try {
-        await deleteDoc(refUser);
-      } catch (e: unknown) {
-        errors.push(`users/${uid}/contact_lists/${id}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    if (snapRoot.exists()) {
-      try {
-        await deleteDoc(refRoot);
-      } catch (e: unknown) {
-        errors.push(`contact_lists/${id}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    if (!snapUser.exists() && !snapRoot.exists()) {
-      throw new Error('Lista não encontrada (Firestore).');
-    }
-    if (errors.length > 0) {
-      throw new Error(errors.join(' · '));
-    }
+    await apiDeleteContactList(id);
+    await reloadVpsContactListsRef.current();
   };
 
   const updateContactList = async (id: string, updates: Partial<ContactList>) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar lista.');
-    if (useVpsData()) {
-      await apiUpdateContactList(id, updates);
-      await reloadVpsContactListsRef.current();
-      return;
-    }
-    const refUser = doc(db, 'users', uid, 'contact_lists', id);
-    const snapUser = await getDoc(refUser);
-    if (snapUser.exists()) {
-      await updateDoc(refUser, updates as Record<string, unknown>);
-    } else {
-      const snapRoot = await getDoc(doc(db, 'contact_lists', id));
-      if (snapRoot.exists()) {
-        const base = snapRoot.data() as Record<string, unknown>;
-        await setDoc(refUser, { ...base, ...updates }, { merge: true });
-      } else {
-        await updateDoc(refUser, updates as Record<string, unknown>);
-      }
-    }
+    await apiUpdateContactList(id, updates);
+    await reloadVpsContactListsRef.current();
   };
 
   const sendMessage = (conversationId: string, text: string) => {
@@ -3335,7 +2772,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const removed = new Set<string>();
     const failures: string[] = [];
 
-    if (useVpsData() && campaignIds.length > 1) {
+    if (campaignIds.length > 1) {
       try {
         const { deleted, missing } = await apiBulkDeleteCampaigns(campaignIds);
         for (const id of deleted) removed.add(id);
@@ -3487,30 +2924,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       createdAt: new Date().toISOString()
     };
 
-    let campaignIdCreated: string;
-    if (useVpsData()) {
-      campaignIdCreated = await Promise.race([
-        apiCreateCampaign(campaignPayload),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
-            20_000
-          )
+    const campaignIdCreated = await Promise.race([
+      apiCreateCampaign(campaignPayload),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
+          20_000
         )
-      ]);
-      void reloadVpsCampaignsRef.current();
-    } else {
-      const campaignRef = await Promise.race([
-        addDoc(collection(db, 'users', uid, 'campaigns'), campaignPayload),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Tempo esgotado ao salvar a campanha. Verifique sua conexão e tente de novo.')),
-            20_000
-          )
-        )
-      ]);
-      campaignIdCreated = campaignRef.id;
-    }
+      )
+    ]);
+    void reloadVpsCampaignsRef.current();
     const campaignRef = { id: campaignIdCreated };
 
     try {
@@ -3600,12 +3023,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const msg = error instanceof Error ? error.message : String(error);
       const likelyStillRunning = msg.includes('Demoramos a confirmar no servidor');
       if (!likelyStillRunning) {
-        if (useVpsData()) {
-          await apiDeleteCampaign(campaignRef.id).catch(() => {});
-          void reloadVpsCampaignsRef.current();
-        } else {
-          await deleteDoc(doc(db, 'users', uid, 'campaigns', campaignRef.id)).catch(() => {});
-        }
+        await apiDeleteCampaign(campaignRef.id).catch(() => {});
+        void reloadVpsCampaignsRef.current();
       }
       throw error;
     }
@@ -3726,10 +3145,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           : {})
       }
     };
-    const campaignId = useVpsData()
-      ? await apiCreateCampaign(schedulePayload)
-      : (await addDoc(collection(db, 'users', uid, 'campaigns'), schedulePayload)).id;
-    if (useVpsData()) void reloadVpsCampaignsRef.current();
+    const campaignId = await apiCreateCampaign(schedulePayload);
+    void reloadVpsCampaignsRef.current();
     toast.success('Campanha agendada. O disparo ocorre no horário escolhido (servidor online).');
     return campaignId;
   };

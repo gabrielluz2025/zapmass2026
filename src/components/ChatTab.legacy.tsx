@@ -44,7 +44,7 @@ import {
   ArrowRightLeft
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getAuth } from 'firebase/auth';
+import { getSessionIdToken } from '../utils/sessionAuth';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { dedupeConversationsById } from '../utils/conversationInboxTrim';
@@ -379,9 +379,8 @@ const OutboundPipelineBar: React.FC<{ status: ChatMessage['status'] }> = ({ stat
 type InboxTeammateRow = { uid: string; displayName: string | null; email: string | null; role: 'owner' | 'staff' };
 
 async function inboxWorkspaceApi(path: string, init?: RequestInit): Promise<void> {
-  const u = getAuth().currentUser;
-  if (!u) throw new Error('Sessão expirada. Entre novamente.');
-  const token = await u.getIdToken();
+  const token = await getSessionIdToken();
+  if (!token) throw new Error('Sessão expirada. Entre novamente.');
   const r = await fetch(apiUrl(path), {
     ...init,
     headers: {
@@ -395,9 +394,8 @@ async function inboxWorkspaceApi(path: string, init?: RequestInit): Promise<void
 }
 
 async function inboxWorkspaceGetJson<T>(path: string): Promise<T> {
-  const u = getAuth().currentUser;
-  if (!u) throw new Error('Sessão expirada. Entre novamente.');
-  const token = await u.getIdToken();
+  const token = await getSessionIdToken();
+  if (!token) throw new Error('Sessão expirada. Entre novamente.');
   const r = await fetch(apiUrl(path), {
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -414,9 +412,8 @@ type InboxFinishResponse = {
 };
 
 async function inboxWorkspacePostFinish(body: Record<string, unknown>): Promise<InboxFinishResponse> {
-  const u = getAuth().currentUser;
-  if (!u) throw new Error('Sessão expirada. Entre novamente.');
-  const token = await u.getIdToken();
+  const token = await getSessionIdToken();
+  if (!token) throw new Error('Sessão expirada. Entre novamente.');
   const r = await fetch(apiUrl('/api/workspace/inbox-finish'), {
     method: 'POST',
     headers: {

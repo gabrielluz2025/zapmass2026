@@ -1,6 +1,5 @@
 import { apiUrl } from './apiBase';
 import { getSessionIdToken } from './sessionAuth';
-import { useVpsAuth } from '../services/vpsAuth';
 
 /** GET/POST autenticados com Bearer; caminhos passam por `apiUrl`. Renova token uma vez em 401. */
 export async function apiFetchJson<T = Record<string, unknown>>(
@@ -12,7 +11,7 @@ export async function apiFetchJson<T = Record<string, unknown>>(
   if (!token) throw new Error('Sessão expirada. Entre novamente.');
   const r = await fetch(apiUrl(path), {
     ...init,
-    credentials: useVpsAuth() ? 'include' : init?.credentials,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,

@@ -1,14 +1,10 @@
 import React, { useState } from 'react';
-import { fetchSignInMethodsForEmail } from 'firebase/auth';
 import { Loader2, Lock, Mail, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
-import { auth } from '../../services/firebase';
-import { useVpsAuth } from '../../services/vpsAuth';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { formatTrialHoursLabel } from '../../utils/trialCopy';
 import { trackLandingEvent } from '../../utils/marketingEvents';
-import { apiUrl } from '../../utils/apiBase';
 import { clearTrialSessionFlags, setTrialSessionForManager } from '../../utils/trialSession';
 
 /** Título e subtítulo padrão (landing + rota de login isolada). */
@@ -53,14 +49,10 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   landingLayout = false
 }) => {
   const {
-    signInWithGoogle,
-    signInWithFacebook,
     signInWithEmailPassword,
     signUpWithEmailPassword,
-    signInWithStaffCustomToken,
     signInWithStaffCredentials
   } = useAuth();
-  const vpsAuth = useVpsAuth();
   const { config } = useAppConfig();
   const [entryMode, setEntryMode] = useState<'admin' | 'staff'>('admin');
   const [loading, setLoading] = useState<LoadingState>('idle');
@@ -71,20 +63,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   const [emailAuth, setEmailAuth] = useState('');
   const [passwordAuth, setPasswordAuth] = useState('');
   const [passwordConfirmAuth, setPasswordConfirmAuth] = useState('');
-
-  const runOAuthLogin = async (provider: 'google' | 'facebook') => {
-    if (landingLayout) {
-      trackLandingEvent('landing_login_click', { login_kind: `${provider}_auto` });
-    }
-    setTrialSessionForManager('customer');
-    setLoading(`oauth:${provider}:customer` as LoadingState);
-    try {
-      if (provider === 'google') await signInWithGoogle();
-      else await signInWithFacebook();
-    } finally {
-      setLoading('idle');
-    }
-  };
 
   const runManagerEmailAuth = async () => {
     const em = emailAuth.trim().toLowerCase();
@@ -98,107 +76,18 @@ export const LoginCard: React.FC<LoginCardProps> = ({
       return;
     }
 
-    if (vpsAuth) {
-      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
-      setLoading('email-signin');
-      try {
-        await signInWithEmailPassword(em, pw);
-        setPasswordAuth('');
-        setPasswordConfirmAuth('');
-        return;
-      } catch {
-        /* tenta cadastro */
-      } finally {
-        setLoading('idle');
-      }
-      if (passwordConfirmAuth !== pw) {
-        toast.error('As senhas não coincidem.');
-        return;
-      }
-      if (landingLayout) {
-        trackLandingEvent('landing_login_click', { login_kind: 'email_signup' });
-      }
-      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
-      setLoading('email-signup');
-      try {
-        await signUpWithEmailPassword(em, pw);
-        setPasswordAuth('');
-        setPasswordConfirmAuth('');
-      } finally {
-        setLoading('idle');
-      }
-      return;
-    }
-
-    let methods: string[];
+    setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
+    setLoading('email-signin');
     try {
-      methods = await fetchSignInMethodsForEmail(auth, em);
+      await signInWithEmailPassword(em, pw);
+      setPasswordAuth('');
+      setPasswordConfirmAuth('');
+      return;
     } catch {
-      /** Proteção contra enumeração do Firebase: tenta entrar; se não existir, cadastra. */
-      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
-      setLoading('email-signin');
-      try {
-        await signInWithEmailPassword(em, pw);
-        setPasswordAuth('');
-        setPasswordConfirmAuth('');
-        return;
-      } catch {
-        /* AuthContext já mostrou erro — segue para cadastro se senhas baterem */
-      } finally {
-        setLoading('idle');
-      }
-      if (passwordConfirmAuth !== pw) {
-        toast.error('As senhas não coincidem.');
-        return;
-      }
-      if (landingLayout) {
-        trackLandingEvent('landing_login_click', { login_kind: 'email_signup' });
-      }
-      setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
-      setLoading('email-signup');
-      try {
-        await signUpWithEmailPassword(em, pw);
-        setPasswordAuth('');
-        setPasswordConfirmAuth('');
-      } finally {
-        setLoading('idle');
-      }
-      return;
+      /* tenta cadastro */
+    } finally {
+      setLoading('idle');
     }
-
-    const hasPassword = methods.includes('password');
-    const oauthOnly = methods.filter((m) => m !== 'password');
-
-    if (!hasPassword && oauthOnly.length > 0) {
-      const one = oauthOnly.length === 1 ? oauthOnly[0] : null;
-      const label =
-        one === 'google.com' ? 'Google' : one === 'facebook.com' ? 'Facebook' : null;
-      toast.error(
-        label
-          ? `Este e-mail já está ligado a ${label}. Use o botão correspondente abaixo.`
-          : 'Este e-mail já está ligado a outro método de login. Use o botão da rede social correspondente.'
-      );
-      return;
-    }
-
-    if (hasPassword) {
-      if (landingLayout) {
-        trackLandingEvent('landing_login_click', { login_kind: 'email_signin' });
-      }
-      setTrialSessionForManager('customer');
-      setLoading('email-signin');
-      try {
-        await signInWithEmailPassword(em, pw);
-        setPasswordAuth('');
-        setPasswordConfirmAuth('');
-      } catch {
-        /* toast já exibido em AuthContext */
-      } finally {
-        setLoading('idle');
-      }
-      return;
-    }
-
     if (passwordConfirmAuth !== pw) {
       toast.error('As senhas não coincidem.');
       return;
@@ -206,14 +95,12 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     if (landingLayout) {
       trackLandingEvent('landing_login_click', { login_kind: 'email_signup' });
     }
-    setTrialSessionForManager('trial');
+    setTrialSessionForManager(showTrialOption ? 'trial' : 'customer');
     setLoading('email-signup');
     try {
       await signUpWithEmailPassword(em, pw);
       setPasswordAuth('');
       setPasswordConfirmAuth('');
-    } catch {
-      /* toast já exibido em AuthContext */
     } finally {
       setLoading('idle');
     }
@@ -244,26 +131,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     }
     setLoading('staff');
     try {
-      if (useVpsAuth()) {
-        await signInWithStaffCredentials(me, slug, staffPassword);
-        setStaffPassword('');
-        return;
-      }
-      const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          managerEmail: me,
-          loginName: slug,
-          password: staffPassword
-        })
-      });
-      const data = (await r.json()) as { ok?: boolean; error?: string; customToken?: string };
-      if (!data?.ok || typeof data.customToken !== 'string') {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível entrar.');
-        return;
-      }
-      await signInWithStaffCustomToken(data.customToken);
+      await signInWithStaffCredentials(me, slug, staffPassword);
       setStaffPassword('');
     } catch {
       toast.error('Erro de rede. Tente de novo.');
@@ -569,58 +437,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 </p>
               )}
 
-              {!vpsAuth && (
-                <>
-                  <div className={`flex items-center gap-2 ${landingLayout ? '' : 'py-0.5'}`}>
-                    <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
-                    <span className={`whitespace-nowrap px-1 font-medium ${landingLayout ? 'text-[9px]' : 'text-[9.5px]'}`} style={{ color: 'var(--text-3)' }}>
-                      ou continue com
-                    </span>
-                    <div className="h-px flex-1 opacity-50" style={{ background: 'var(--border-subtle)' }} />
-                  </div>
-
-                  <div className={`flex items-center justify-center ${landingLayout ? 'gap-2' : 'gap-2.5 sm:gap-3'}`} role="group" aria-label="Entrar com rede social">
-                    <button
-                      type="button"
-                      title="Google"
-                      aria-label="Continuar com Google"
-                      onClick={() => void runOAuthLogin('google')}
-                      disabled={busy}
-                      className={`flex shrink-0 items-center justify-center rounded-full border transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35 disabled:opacity-55 disabled:hover:translate-y-0 ${
-                        landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
-                      }`}
-                      style={{
-                        background: '#ffffff',
-                        borderColor: 'rgba(0,0,0,0.08)',
-                        boxShadow: '0 1px 5px rgba(0,0,0,0.05)'
-                      }}
-                    >
-                      {oauthSpin(loading, 'google') ? (
-                        <Loader2 className="h-3 w-3 animate-spin text-zinc-600" />
-                      ) : (
-                        <GoogleLogo size={landingLayout ? 14 : 18} />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      title="Facebook"
-                      aria-label="Continuar com Facebook"
-                      onClick={() => void runOAuthLogin('facebook')}
-                      disabled={busy}
-                      className={`flex shrink-0 items-center justify-center rounded-full text-white transition-[transform,box-shadow] hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 disabled:opacity-55 disabled:hover:translate-y-0 ${
-                        landingLayout ? 'h-8 w-8' : 'h-10 w-10 sm:h-11 sm:w-11'
-                      }`}
-                      style={{ background: '#1877F2', boxShadow: '0 2px 7px rgba(24,119,242,0.22)' }}
-                    >
-                      {oauthSpin(loading, 'facebook') ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <FacebookLogo tone="light" size={landingLayout ? 14 : 18} />
-                      )}
-                    </button>
-                  </div>
-                </>
-              )}
             </div>
           </>
         )}
@@ -714,41 +530,4 @@ const Feature: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, lab
       {label}
     </span>
   </div>
-);
-
-const FacebookLogo: React.FC<{ tone?: 'light' | 'brand'; size?: number }> = ({ tone = 'brand', size = 18 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-    style={{ color: tone === 'light' ? '#fff' : '#1877F2' }}
-  >
-    <path
-      fill="currentColor"
-      d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"
-    />
-  </svg>
-);
-
-const GoogleLogo: React.FC<{ size?: number }> = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <path
-      fill="#4285F4"
-      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-    />
-    <path
-      fill="#34A853"
-      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.25 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A10.997 10.997 0 0 0 12 23z"
-    />
-    <path
-      fill="#FBBC05"
-      d="M5.84 14.09A6.58 6.58 0 0 1 5.5 12c0-.73.12-1.43.34-2.09V7.07H2.18A11 11 0 0 0 1 12c0 1.77.43 3.45 1.18 4.93l3.66-2.84z"
-    />
-    <path
-      fill="#EA4335"
-      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"
-    />
-  </svg>
 );

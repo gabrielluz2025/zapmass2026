@@ -75,7 +75,19 @@ export const WaWebChatApp: React.FC<{
     if (socket?.connected) socket.emit('request-conversations-sync', opts);
   }, [socket]);
 
-  const { socketStatus, syncing, runResync } = useWaRealtime(socket, requestSync);
+  const { socketStatus, syncing, runResync } = useWaRealtime(socket, requestSync, {
+    chipsConnected: connectedChannels.length
+  });
+
+  /** Ao abrir Atendimento: sync completo uma vez (chips online) + botão manual continua disponível. */
+  const initialFullSyncDoneRef = useRef(false);
+  useEffect(() => {
+    if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
+    if (initialFullSyncDoneRef.current) return;
+    initialFullSyncDoneRef.current = true;
+    runResync({ full: true });
+    requestSync({ full: true });
+  }, [isBackendConnected, socket, connectedChannels.length, runResync, requestSync]);
 
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));

@@ -4,7 +4,7 @@ import {
   BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2, AlertCircle, Activity, Timer
 } from 'lucide-react';
 import { useZapMassCore } from '../context/ZapMassContext';
-import { auth } from '../services/firebase';
+import { useAuth } from '../context/AuthContext';
 import { ConnectionStatus, WarmupChipStats } from '../types';
 import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
 
@@ -159,6 +159,7 @@ const Sparkline: React.FC<{ values: number[]; color?: string; width?: number; he
 const WARMUP_STATE_KEY = 'zapmass.warmup.state';
 
 export const WarmupTab: React.FC = () => {
+  const { user } = useAuth();
   const {
     connections, socket, warmupActive, startWarmupTimer, stopWarmupTimer,
     warmupQueue, warmedCount, warmupChipStats, clearWarmupChipStats
@@ -218,7 +219,7 @@ export const WarmupTab: React.FC = () => {
       const saved = localStorage.getItem(WARMUP_STATE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        const uid = auth.currentUser?.uid || '';
+        const uid = user?.uid || '';
         if (parsed.savedForUid && uid && parsed.savedForUid !== uid) {
           return;
         }
@@ -237,7 +238,7 @@ export const WarmupTab: React.FC = () => {
   // Salvar estado
   useEffect(() => {
     try {
-      const uid = auth.currentUser?.uid || '';
+      const uid = user?.uid || '';
       localStorage.setItem(
         WARMUP_STATE_KEY,
         JSON.stringify({
@@ -321,7 +322,7 @@ export const WarmupTab: React.FC = () => {
   /** Retoma o intervalo de aquecimento se estava ativo antes de fechar/recarregar a aba. */
   useEffect(() => {
     if (!socket?.connected || warmupActive) return;
-    const uid = auth.currentUser?.uid || '';
+    const uid = user?.uid || '';
     let wantResume = false;
     try {
       const raw = localStorage.getItem(WARMUP_STATE_KEY);

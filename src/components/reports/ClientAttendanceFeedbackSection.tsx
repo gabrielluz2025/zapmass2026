@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Loader2, MessageCircleHeart, RefreshCw, Star, ExternalLink, Download } from 'lucide-react';
-import { getAuth } from 'firebase/auth';
 import { Badge, Button, Card, EmptyState } from '../ui';
-import { apiUrl } from '../../utils/apiBase';
+import { apiFetchJson } from '../../utils/apiFetchAuth';
 import { useMainLayoutNav } from '../../context/MainLayoutNavContext';
 import { openChatByConversationIdNavigate } from '../../utils/openChatByConversationIdNav';
 
@@ -17,14 +16,9 @@ export type InboxClientFeedbackRow = {
 };
 
 async function fetchInboxClientFeedback(limit: number): Promise<InboxClientFeedbackRow[]> {
-  const u = getAuth().currentUser;
-  if (!u) throw new Error('Sessão expirada.');
-  const token = await u.getIdToken();
-  const r = await fetch(apiUrl(`/api/workspace/inbox-client-feedback?limit=${encodeURIComponent(String(limit))}`), {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; items?: InboxClientFeedbackRow[]; error?: string };
-  if (!r.ok) throw new Error(j.error || `Erro HTTP ${r.status}`);
+  const j = await apiFetchJson<{ ok?: boolean; items?: InboxClientFeedbackRow[] }>(
+    `/api/workspace/inbox-client-feedback?limit=${encodeURIComponent(String(limit))}`
+  );
   return Array.isArray(j.items) ? j.items : [];
 }
 

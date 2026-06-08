@@ -27,15 +27,12 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
-import { auth } from '../services/firebase';
-import { useVpsAuth } from '../services/vpsAuth';
 import { useLandingDocumentMeta } from '../hooks/useLandingDocumentMeta';
 import { useAppConfig } from '../context/AppConfigContext';
 import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
-import { apiUrl } from '../utils/apiBase';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
-import { resolveEmailAuthStep, resolveEmailAuthStepVps } from '../utils/emailAuthFlow';
+import { resolveEmailAuthStep } from '../utils/emailAuthFlow';
 import { clearTrialSessionFlags, landingCtaStartsTrial, setTrialSessionForManager } from '../utils/trialSession';
 import {
   WHATSAPP_META_CLOUD_OVERVIEW,
@@ -80,26 +77,12 @@ const D = {
 ───────────────────────────────────────────────────── */
 type QAPStep = 'main' | 'pw-in' | 'pw-up' | 'staff';
 
-const GoogleSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
-    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-  </svg>
-);
-const FacebookSVG: React.FC<{ size?: number }> = ({ size = 20 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
-    <path fill="#fff" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-  </svg>
-);
 const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startTrialAfterLogin: boolean }> = ({
   onClose,
   trialLabel,
   startTrialAfterLogin
 }) => {
-  const { signInWithGoogle, signInWithFacebook, signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCustomToken, signInWithStaffCredentials } = useAuth();
-  const vpsAuth = useVpsAuth();
+  const { signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCredentials } = useAuth();
 
   const [step, setStep]       = useState<QAPStep>('main');
   const [busy, setBusy]       = useState(false);
@@ -138,9 +121,7 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
     if (!trimmed.includes('@')) { toast.error('Informe um e-mail válido'); return; }
     setBusy(true);
     try {
-      const stepKind = vpsAuth
-        ? await resolveEmailAuthStepVps(trimmed)
-        : await resolveEmailAuthStep(auth, trimmed);
+      const stepKind = await resolveEmailAuthStep(trimmed);
       goToPasswordStep(stepKind);
     } finally {
       setBusy(false);
@@ -167,15 +148,6 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
     } finally { setBusy(false); }
   };
 
-  const handleOAuth = async (p: 'google' | 'facebook') => {
-    setBusy(true);
-    try {
-      if (startTrialAfterLogin) setTrialSessionForManager('trial');
-      if (p === 'google') await signInWithGoogle();
-      else await signInWithFacebook();
-    } finally { setBusy(false); }
-  };
-
   const handleStaff = async () => {
     const me = manEmail.trim().toLowerCase();
     const slug = staffUser.trim();
@@ -185,20 +157,7 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
     setBusy(true);
     try {
       clearTrialSessionFlags();
-      if (vpsAuth) {
-        await signInWithStaffCredentials(me, slug, staffPass);
-        return;
-      }
-      const r = await fetch(apiUrl('/api/workspace/staff/sign-in'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ managerEmail: me, loginName: slug, password: staffPass })
-      });
-      const data = (await r.json()) as { ok?: boolean; error?: string; customToken?: string };
-      if (!data?.ok || typeof data.customToken !== 'string') {
-        toast.error(typeof data?.error === 'string' ? data.error : 'Não foi possível entrar.'); return;
-      }
-      await signInWithStaffCustomToken(data.customToken);
+      await signInWithStaffCredentials(me, slug, staffPass);
     } finally { setBusy(false); }
   };
 
@@ -209,13 +168,6 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
     color: D.text1, outline: 'none', transition: 'border-color 0.15s',
     boxSizing: 'border-box'
   };
-  const oauthBtn = (bg: string, shadow?: string): React.CSSProperties => ({
-    width: '100%', padding: '12px 16px', borderRadius: 12, border: 'none',
-    cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14,
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-    background: bg, color: '#fff', transition: 'opacity 0.15s, transform 0.12s',
-    boxShadow: shadow, opacity: busy ? 0.6 : 1
-  });
   const primaryBtn: React.CSSProperties = {
     width: '100%', padding: '13px 16px', borderRadius: 12, border: 'none',
     cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 14.5,
@@ -224,14 +176,6 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
     gap: 8, transition: 'opacity 0.15s, transform 0.12s',
     boxShadow: '0 6px 20px rgba(16,185,129,0.3)', opacity: busy ? 0.6 : 1
   };
-  const divider = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
-      <div style={{ flex: 1, height: 1, background: D.border }} />
-      <span style={{ fontSize: 11.5, color: D.text3, fontWeight: 500 }}>ou use seu e-mail</span>
-      <div style={{ flex: 1, height: 1, background: D.border }} />
-    </div>
-  );
-
   /* ── email chip shown in pw-in / pw-up ── */
   const emailChip = (
     <div style={{
@@ -313,29 +257,9 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
             {trialLabel} grátis · sem cartão · sem instalação
           </p>
 
-          {/* Social buttons (só modo Firebase legado) */}
-          {!vpsAuth && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-              <button type="button" disabled={busy} onClick={() => void handleOAuth('google')}
-                style={{ ...oauthBtn('#fff', '0 2px 8px rgba(0,0,0,0.18)'), color: '#1f1f1f' }}>
-                <GoogleSVG size={18} />
-                Continuar com Google
-              </button>
-              <button type="button" disabled={busy} onClick={() => void handleOAuth('facebook')}
-                style={oauthBtn('#1877F2', '0 4px 14px rgba(24,119,242,0.3)')}>
-                <FacebookSVG size={18} />
-                Continuar com Facebook
-              </button>
-            </div>
-          )}
-
-          {!vpsAuth && divider}
-
-          {vpsAuth && (
-            <p style={{ fontSize: 12.5, color: D.text2, margin: '4px 0 0' }}>
-              Informe seu e-mail. Se já tiver conta, pedimos só a senha; se for novo, criamos com teste grátis.
-            </p>
-          )}
+          <p style={{ fontSize: 12.5, color: D.text2, margin: '4px 0 0' }}>
+            Informe seu e-mail. Se já tiver conta, pedimos só a senha; se for novo, criamos com teste grátis.
+          </p>
 
           {/* Email field */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -350,31 +274,29 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
             <button type="button" disabled={busy} onClick={() => void handleEmailContinue()} style={primaryBtn}>
               {busy ? <Loader2 size={16} className="animate-spin" /> : <><Mail size={15} />Continuar com e-mail<ArrowRight size={15} /></>}
             </button>
-            {vpsAuth && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={goToSignIn}
-                style={{
-                  width: '100%',
-                  padding: '11px 14px',
-                  borderRadius: 12,
-                  border: `1px solid ${D.border}`,
-                  background: 'rgba(255,255,255,0.04)',
-                  color: D.text2,
-                  fontSize: 13.5,
-                  fontWeight: 600,
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8
-                }}
-              >
-                <LogIn size={15} />
-                Já tenho conta — entrar com senha
-              </button>
-            )}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={goToSignIn}
+              style={{
+                width: '100%',
+                padding: '11px 14px',
+                borderRadius: 12,
+                border: `1px solid ${D.border}`,
+                background: 'rgba(255,255,255,0.04)',
+                color: D.text2,
+                fontSize: 13.5,
+                fontWeight: 600,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8
+              }}
+            >
+              <LogIn size={15} />
+              Já tenho conta — entrar com senha
+            </button>
           </div>
 
           {/* Funcionário link */}
@@ -418,7 +340,7 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
       {step === 'pw-up' && (
         <>
           {emailChip}
-          {(startTrialAfterLogin || !vpsAuth) && (
+          {startTrialAfterLogin && (
             <div style={{
               padding: '7px 12px', borderRadius: 8, marginBottom: 4,
               background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
@@ -450,12 +372,10 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
               </>
             )}
           </button>
-          {vpsAuth && (
-            <button type="button" onClick={goToSignIn}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.greenLt, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
-              <LogIn size={13} /> Já tenho conta — entrar
-            </button>
-          )}
+          <button type="button" onClick={goToSignIn}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.greenLt, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
+            <LogIn size={13} /> Já tenho conta — entrar
+          </button>
           <button type="button" onClick={goBack}
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
             <ArrowLeft size={13} /> Usar outro e-mail

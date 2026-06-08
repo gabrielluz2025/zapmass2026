@@ -1,9 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../services/firebase';
 import { firestoreTimeToMs } from '../utils/firestoreTime';
 import { useAuth } from './AuthContext';
-import { useVpsData } from '../services/vpsData';
 import { fetchSubscription } from '../services/subscriptionApi';
 import { useWorkspace } from './WorkspaceContext';
 import { useAppConfig } from './AppConfigContext';
@@ -14,21 +11,12 @@ import type { UserSubscription } from '../types';
 interface SubscriptionContextValue {
   subscription: UserSubscription | null;
   loading: boolean;
-  /** Se true (VITE_ENFORCE_SUBSCRIPTION), o servidor exige plano ativo ou teste valido para acoes. */
   enforce: boolean;
-  /**
-   * Uso completo (campanhas, conexoes, etc.). Quando enforce e false, sempre true.
-   */
   hasFullAccess: boolean;
-  /** Logado com enforce, documento existe, mas periodo de teste ou pago expirou — UI navegavel, acoes bloqueadas. */
   readOnlyMode: boolean;
-  /** Texto para faixa fixa em modo leitura. */
   readOnlyMessage: string;
-  /** Primeiro acesso: enforce ligado, sem doc no Firestore — tela de onboarding (teste ou pagamento). */
   needsOnboardingGate: boolean;
-  /** Após POST /api/billing/trial/start — liberta o gate antes do onSnapshot do Firestore. */
   applyTrialActivation: (trialEndsAtIso: string) => void;
-  /** @deprecated Use hasFullAccess. Mantido para compatibilidade. */
   accessAllowed: boolean;
 }
 
@@ -75,8 +63,6 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
   }, [subscription, optimisticTrialEndsAt]);
 
-  const vpsData = useVpsData();
-
   useEffect(() => {
     if (!user) {
       setSubscription(null);
@@ -87,49 +73,28 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       setLoading(true);
       return;
     }
-    if (vpsData) {
-      let cancelled = false;
-      const load = async () => {
-        try {
-          const sub = await fetchSubscription();
-          if (!cancelled) {
-            setSubscription(sub);
-            if (sub) setOptimisticTrialEndsAt(null);
-          }
-        } catch (e) {
-          console.error('[SubscriptionContext/VPS]', e);
-        } finally {
-          if (!cancelled) setLoading(false);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const sub = await fetchSubscription();
+        if (!cancelled) {
+          setSubscription(sub);
+          if (sub) setOptimisticTrialEndsAt(null);
         }
-      };
-      setLoading(true);
-      void load();
-      const t = setInterval(() => void load(), 30_000);
-      return () => {
-        cancelled = true;
-        clearInterval(t);
-      };
-    }
-    const subUid = effectiveWorkspaceUid ?? user.uid;
-    const ref = doc(db, 'userSubscriptions', subUid);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (!snap.exists()) {
-          setSubscription(null);
-        } else {
-          setSubscription(snap.data() as UserSubscription);
-          setOptimisticTrialEndsAt(null);
-        }
-        setLoading(false);
-      },
-      (err) => {
-        console.error('[SubscriptionContext]', err);
-        setLoading(false);
+      } catch (e) {
+        console.error('[SubscriptionContext]', e);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    );
-    return () => unsub();
-  }, [user, effectiveWorkspaceUid, workspaceLoading, vpsData]);
+    };
+    setLoading(true);
+    void load();
+    const t = setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [user, effectiveWorkspaceUid, workspaceLoading]);
 
   const hasFullAccess = useMemo(() => {
     if (!enforce) return true;
@@ -156,46 +121,22 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
     return false;
   }, [enforce, user, effectiveSubscription]);
 
-  const readOnlyMode = useMemo(() => {
-    if (!enforce || !user) return false;
-    if (isPlatformAdminUser(user)) return false;
-    if (!effectiveSubscription) return false;
-    return !hasFullAccess;
-  }, [enforce, user, effectiveSubscription, hasFullAccess]);
-
-  const needsOnboardingGate = useMemo(() => {
-    if (!enforce || !user || loading) return false;
-    if (isPlatformAdminUser(user)) return false;
-    return effectiveSubscription === null;
-  }, [enforce, user, loading, effectiveSubscription]);
+  const readOnlyMode = enforce && !!user && !hasFullAccess && !isPlatformAdminUser(user);
 
   const readOnlyMessage = useMemo(() => {
-    if (!readOnlyMode || !effectiveSubscription) {
-      return 'Acesso as acoes bloqueado. Assine o ZapMass Pro para continuar.';
-    }
-    if (effectiveSubscription.blocked === true) {
-      return 'Sua conta foi bloqueada pelo administrador. Entre em contato com o suporte para liberar o acesso.';
-    }
-    if (effectiveSubscription.manualGrant === true) {
-      const manualEnd = firestoreTimeToMs(effectiveSubscription.manualAccessEndsAt);
-      if (manualEnd != null && Date.now() >= manualEnd) {
-        return 'Sua liberação administrativa expirou. Solicite renovação ao administrador ou assine um plano.';
-      }
-      return 'Seu acesso administrativo foi revogado. Solicite ajuste ao administrador.';
-    }
-    const now = Date.now();
-    const trialEnd = firestoreTimeToMs(effectiveSubscription.trialEndsAt);
-    const accessEnd = firestoreTimeToMs(effectiveSubscription.accessEndsAt);
-    if (effectiveSubscription.status === 'trialing' && trialEnd != null && now >= trialEnd) {
-      return `Seu teste de ${formatTrialHoursLabel(config.trialHours)} encerrou. Voce pode navegar pelo app; para usar campanhas, chips e disparos, assine o Pro.`;
-    }
-    if (effectiveSubscription.status === 'active' && accessEnd != null && now >= accessEnd) {
-      return 'Seu periodo pago encerrou. Renove o plano (mensal ou anual) para liberar todas as acoes.';
-    }
-    return 'Periodo sem acesso completo. Assine ou renove o Pro para voltar a operar o sistema.';
-  }, [readOnlyMode, effectiveSubscription, config.trialHours]);
+    if (!readOnlyMode) return '';
+    const trialH = config?.trialHours ?? 1;
+    const trialLabel = formatTrialHoursLabel(trialH);
+    return `Seu ${trialLabel} de teste terminou ou o plano expirou. Renove em Minha assinatura para voltar a enviar.`;
+  }, [readOnlyMode, config?.trialHours]);
 
-  const accessAllowed = hasFullAccess;
+  const needsOnboardingGate =
+    enforce &&
+    !!user &&
+    !workspaceLoading &&
+    !isPlatformAdminUser(user) &&
+    !effectiveSubscription &&
+    !optimisticTrialEndsAt;
 
   const value = useMemo(
     () => ({
@@ -207,7 +148,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       readOnlyMessage,
       needsOnboardingGate,
       applyTrialActivation,
-      accessAllowed
+      accessAllowed: hasFullAccess
     }),
     [
       effectiveSubscription,
@@ -217,8 +158,7 @@ export const SubscriptionProvider: React.FC<{ children: ReactNode }> = ({ childr
       readOnlyMode,
       readOnlyMessage,
       needsOnboardingGate,
-      applyTrialActivation,
-      accessAllowed
+      applyTrialActivation
     ]
   );
 

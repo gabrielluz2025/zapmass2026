@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, QrCode, Smartphone, Loader2, CheckCircle2, KeyRound, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { getAuth } from 'firebase/auth';
 import { useZapMassCore } from '../context/ZapMassContext';
+import { getSessionIdToken } from '../utils/sessionAuth';
 import { apiUrl } from '../utils/apiBase';
 import { ConnectionStatus } from '../types';
 import { QRCodeModal } from './QRCodeModal';
@@ -144,9 +144,8 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
     let cancelled = false;
     const pollQr = async () => {
       try {
-        const u = getAuth().currentUser;
-        if (!u) return;
-        const token = await u.getIdToken();
+        const token = await getSessionIdToken();
+        if (!token) return;
         const res = await fetch(apiUrl(`/api/connections/${encodeURIComponent(id)}/qr`), {
           headers: { Authorization: `Bearer ${token}` }
         });

@@ -3,8 +3,8 @@ import { ClipboardCopy, KeyRound, Loader2, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Badge, Button, Input } from '../ui';
 import { apiFetchJson } from '../../utils/apiFetchAuth';
-import { auth } from '../../services/firebase';
-import { getVpsAuthUser, useVpsAuth } from '../../services/vpsAuth';
+import { useAuth } from '../../context/AuthContext';
+import { getVpsAuthUser } from '../../services/vpsAuth';
 import { STAFF_PASSWORD_ACCOUNTS_FALLBACK_MAX } from '../../constants/workspaceStaff';
 
 type Props = {
@@ -14,8 +14,7 @@ type Props = {
 };
 
 function managerEmail(): string {
-  if (useVpsAuth()) return getVpsAuthUser()?.email?.trim() || '';
-  return (auth.currentUser?.email ?? '').trim();
+  return getVpsAuthUser()?.email?.trim() || '';
 }
 
 function genericStaffInviteText(managerEmail: string): string {

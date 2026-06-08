@@ -12,8 +12,8 @@ import toast from 'react-hot-toast';
 import { Badge, Button, Input } from '../ui';
 import { Modal } from '../ui/Modal';
 import { apiFetchJson } from '../../utils/apiFetchAuth';
-import { auth } from '../../services/firebase';
-import { useVpsAuth, getVpsAuthUser } from '../../services/vpsAuth';
+import { getVpsAuthUser } from '../../services/vpsAuth';
+import { useAuth } from '../../context/AuthContext';
 
 export type WorkspaceMemberRow = {
   uid: string;
@@ -38,14 +38,13 @@ function formatLinked(iso: string | null): string {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(d);
 }
 
-function managerEmail(): string {
-  if (useVpsAuth()) return getVpsAuthUser()?.email?.trim() || '';
-  return (auth.currentUser?.email ?? '').trim();
+function managerEmailFromSession(): string {
+  return getVpsAuthUser()?.email?.trim() || '';
 }
 
 function inviteText(slug?: string): string {
   const site = typeof window !== 'undefined' ? window.location.origin : '[URL do ZapMass]';
-  const mail = managerEmail() || '[e-mail do responsável]';
+  const mail = managerEmailFromSession() || '[e-mail do responsável]';
   const base = [
     'Olá!',
     '',
@@ -78,34 +77,29 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
     if (!enabled) return;
     setLoading(true);
     try {
-      if (useVpsAuth()) {
-        const j = await apiFetchJson<{
-          items?: Array<{
-            staffAuthUid?: string;
-            loginSlug?: string;
-            displayName?: string;
-            createdAt?: string | null;
-            revoked?: boolean;
-          }>;
-        }>('/api/workspace/staff-password-users');
-        const items = Array.isArray(j.items) ? j.items : [];
-        setRows(
-          items
-            .filter((r) => !r.revoked)
-            .map((r) => ({
-              uid: String(r.staffAuthUid || ''),
-              source: 'password' as const,
-              loginSlug: r.loginSlug ?? null,
-              email: null,
-              displayName: r.displayName ?? null,
-              linkedAt: r.createdAt ?? null
-            }))
-            .filter((r) => Boolean(r.uid))
-        );
-      } else {
-        const j = await apiFetchJson<{ items?: WorkspaceMemberRow[] }>('/api/workspace/members');
-        setRows(Array.isArray(j.items) ? j.items : []);
-      }
+      const j = await apiFetchJson<{
+        items?: Array<{
+          staffAuthUid?: string;
+          loginSlug?: string;
+          displayName?: string;
+          createdAt?: string | null;
+          revoked?: boolean;
+        }>;
+      }>('/api/workspace/staff-password-users');
+      const items = Array.isArray(j.items) ? j.items : [];
+      setRows(
+        items
+          .filter((r) => !r.revoked)
+          .map((r) => ({
+            uid: String(r.staffAuthUid || ''),
+            source: 'password' as const,
+            loginSlug: r.loginSlug ?? null,
+            email: null,
+            displayName: r.displayName ?? null,
+            linkedAt: r.createdAt ?? null
+          }))
+          .filter((r) => Boolean(r.uid))
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Não foi possível carregar membros da equipa.');
       setRows([]);
