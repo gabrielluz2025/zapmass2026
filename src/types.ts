@@ -391,7 +391,7 @@ export interface Contact {
   followUpNote?: string;
   /** Ficha de membro (cadastro religioso alargado). */
   religiousMemberProfile?: ReligiousMemberProfile;
-  /** URL da foto de perfil do WhatsApp (populada em runtime, não persiste). */
+  /** Foto de perfil do WhatsApp (busca via chip conectado; persistida no CRM). */
   profilePicUrl?: string;
 }
 
@@ -547,8 +547,11 @@ export interface ZapMassContextType {
     }
   ) => void | Promise<void>;
   addContact: (contact: Contact, options?: { silent?: boolean }) => Promise<string | void> | void;
-  /** Grava vários contactos novos em lotes (Firestore batch); ordem dos IDs corresponde à dos elementos. */
-  bulkAddContacts: (contacts: Contact[], options?: { silent?: boolean }) => Promise<string[]>;
+  /** Grava vários contactos novos em lotes; ordem dos IDs corresponde à dos elementos. */
+  bulkAddContacts: (
+    contacts: Contact[],
+    options?: { silent?: boolean; skipReload?: boolean }
+  ) => Promise<string[]>;
   removeContact: (id: string, options?: { silent?: boolean }) => Promise<void> | void;
   /** assumeUserDoc: só `users/{uid}/contacts/{id}` — sem getDoc (rápido para importação em massa). */
   updateContact: (
@@ -559,8 +562,10 @@ export interface ZapMassContextType {
   /** Atualizações em batch na coleção do utilizador (sem getDoc por documento). */
   bulkUpdateContacts: (
     items: Array<{ id: string; updates: Partial<Contact> }>,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; skipReload?: boolean }
   ) => Promise<void>;
+  /** Recarrega a lista de contatos do servidor (útil após importação em massa). */
+  refreshContacts: () => Promise<void>;
   createContactList: (name: string, contactIds: string[], description?: string) => Promise<string>;
   /** Acrescenta IDs à lista (`users/{uid}/contact_lists`) com transação — merge com `contactIds` actuais. */
   appendContactIdsToContactList: (

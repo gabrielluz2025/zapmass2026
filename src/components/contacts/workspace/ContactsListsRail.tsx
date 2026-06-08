@@ -5,6 +5,7 @@ import type { SmartFilterId } from './ContactsSidebar';
 
 type Props = {
   lists: ContactList[];
+  noListCount: number;
   activeFilter: SmartFilterId;
   onSelectFilter: (id: SmartFilterId) => void;
   onOpenListsTab: () => void;
@@ -13,6 +14,7 @@ type Props = {
 
 export const ContactsListsRail: React.FC<Props> = ({
   lists,
+  noListCount,
   activeFilter,
   onSelectFilter,
   onOpenListsTab,
@@ -69,6 +71,13 @@ export const ContactsListsRail: React.FC<Props> = ({
           active={activeFilter === 'all'}
           onClick={() => onSelectFilter('all')}
         />
+        <RailChip
+          label="Sem lista"
+          count={noListCount}
+          active={activeFilter === 'no_list'}
+          onClick={() => onSelectFilter('no_list')}
+          accent="orange"
+        />
         {lists.map((list) => {
           const id = `list:${list.id}` as SmartFilterId;
           return (
@@ -100,14 +109,17 @@ const RailChip: React.FC<{
   count: number | null;
   active: boolean;
   onClick: () => void;
-}> = ({ label, count, active, onClick }) => (
+  accent?: 'brand' | 'orange';
+}> = ({ label, count, active, onClick, accent = 'brand' }) => (
   <button
     type="button"
     onClick={onClick}
     className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-full text-[11px] font-bold transition"
     style={
       active
-        ? { background: 'var(--brand-600)', color: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }
+        ? accent === 'orange'
+          ? { background: 'linear-gradient(135deg, #f97316, #ea580c)', color: '#fff', boxShadow: '0 4px 12px rgba(249,115,22,0.35)' }
+          : { background: 'var(--brand-600)', color: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }
         : { background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
     }
   >

@@ -19,7 +19,8 @@ const FILTER_LABELS: Record<string, string> = {
   retorno_todos: 'Com retorno agendado',
   retorno_atrasados: 'Retornos atrasados',
   retorno_hoje: 'Retorno hoje',
-  retorno_semana: 'Retornos na semana'
+  retorno_semana: 'Retornos na semana',
+  no_list: 'Contatos sem lista'
 };
 
 type Props = {

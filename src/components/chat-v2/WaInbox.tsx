@@ -88,7 +88,7 @@ export const WaInbox: React.FC<Props> = ({
   const statusText = useMemo(() => {
     if (syncing) return 'Sincronizando conversas…';
     if (socketStatus === 'offline') return 'Servidor desconectado';
-    if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
+    if (socketStatus === 'slow') return 'Conexão instável — sync automático ativo';
     if (chipsConnected > 0) {
       return `Painel online · ${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''} · sync automático`;
     }

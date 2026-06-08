@@ -10,6 +10,7 @@ import { useAppProfile } from '../../../context/AppProfileContext';
 import { parseWeddingDayMonth, yearsCelebratingAtNextAnniversary } from '../../../utils/weddingAnniversary';
 import { useZapMassCore } from '../../../context/ZapMassContext';
 import toast from 'react-hot-toast';
+import { ContactAvatar } from './ContactAvatar';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -277,8 +278,6 @@ export const ContactDetailDrawer: React.FC<Props> = ({
 
   const temp = tempStats?.temp || 'new';
   const tempInfo = tempLabel[temp];
-  const initials = (contact.name || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase() || '').join('') || '?';
-
   const addressLine = [contact.street, contact.number].filter(Boolean).join(', ');
   const cityLine = [contact.city, contact.state].filter(Boolean).join(' · ');
   const hasAddress = !!(addressLine || contact.neighborhood || cityLine || contact.zipCode);
@@ -314,12 +313,7 @@ export const ContactDetailDrawer: React.FC<Props> = ({
           </button>
 
           <div className="flex items-start gap-3">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-lg shrink-0 shadow-lg"
-              style={{ background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))' }}
-            >
-              {initials}
-            </div>
+            <ContactAvatar name={contact.name || '?'} profilePicUrl={contact.profilePicUrl} size="md" />
             <div className="min-w-0 flex-1">
               <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">
                 {contact.name || 'Sem nome'}

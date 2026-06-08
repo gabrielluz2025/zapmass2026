@@ -1850,6 +1850,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         loadMessageMedia,
         markAsRead,
         fetchConversationPicture,
+        resolveConversationIdForPhone,
         deleteLocalConversations,
         purgeConversationsForConnection,
     };

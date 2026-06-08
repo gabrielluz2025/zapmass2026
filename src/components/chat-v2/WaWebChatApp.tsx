@@ -490,6 +490,7 @@ export const WaWebChatApp: React.FC<{
         historyExhausted={selected ? !!historyExhausted[selected.id] : true}
         canSend={!!selected && connectedChannels.length > 0}
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
+        syncing={syncing}
         chipConnected={selectedChipConnected}
         showBack={mobileShowThread}
         onBack={() => setMobileShowThread(false)}

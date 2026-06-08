@@ -3669,6 +3669,38 @@ export async function fetchConversationPicture(conversationId: string): Promise<
     return chatStore.fetchConversationPicture(conversationId);
 }
 
+export function resolveConversationIdForPhone(connectionId: string, phoneDigits: string): string {
+    return chatStore.resolveConversationIdForPhone(connectionId, phoneDigits);
+}
+
+/** Primeiro chip `open` do tenant (ou o preferido) para buscar foto por telefone. */
+export function pickOpenConnectionForTenant(
+    tenantUid: string,
+    preferredConnectionId?: string
+): string | null {
+    const uid = String(tenantUid || '').trim();
+    if (!uid) return null;
+    const scoped = filterByConnectionScope(uid, getConnections());
+    const open = scoped.filter((c) => c.status === ConnectionStatus.CONNECTED);
+    if (preferredConnectionId && open.some((c) => c.id === preferredConnectionId)) {
+        return preferredConnectionId;
+    }
+    return open[0]?.id ?? null;
+}
+
+export async function fetchProfilePictureForPhone(
+    tenantUid: string,
+    phoneDigits: string,
+    preferredConnectionId?: string
+): Promise<string | null> {
+    const digits = String(phoneDigits || '').replace(/\D/g, '');
+    if (digits.length < 10) return null;
+    const connId = pickOpenConnectionForTenant(tenantUid, preferredConnectionId);
+    if (!connId) return null;
+    const conversationId = resolveConversationIdForPhone(connId, digits);
+    return fetchConversationPicture(conversationId);
+}
+
 export function deleteLocalConversations(conversationIds: string[]): number {
     return chatStore.deleteLocalConversations(conversationIds);
 }

@@ -54,6 +54,9 @@ import {
   type TempStats
 } from '../utils/contactTemperature';
 import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
+import { findBestConversationForPhone } from '../utils/findConversationByPhone';
+import { openChatByConversationIdNavigate } from '../utils/openChatByConversationIdNav';
+import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
 import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
 import { validateImportRow } from '../utils/contactImportSchema';
 
@@ -743,6 +746,7 @@ export const ContactsTab: React.FC = () => {
     contactsSavedTotal,
     contactsSavedTotalLoading,
     refreshContactsSavedTotal,
+    refreshContacts,
     contactLists,
     addContact,
     bulkAddContacts,
@@ -778,6 +782,25 @@ export const ContactsTab: React.FC = () => {
   }, [contacts]);
   const { phoneDupKeys, duplicateContactsCount } = phoneDupMeta;
 
+  /** IDs presentes em pelo menos uma lista — base para filtro "Sem lista". */
+  const contactIdsInAnyList = useMemo(() => {
+    const s = new Set<string>();
+    for (const list of contactLists) {
+      for (const id of list.contactIds || []) {
+        if (id) s.add(String(id));
+      }
+    }
+    return s;
+  }, [contactLists]);
+
+  const noListCount = useMemo(() => {
+    let n = 0;
+    for (const c of contacts) {
+      if (!contactIdsInAnyList.has(c.id)) n++;
+    }
+    return n;
+  }, [contacts, contactIdsInAnyList]);
+
   const contactByPhoneKey = useMemo(() => {
     const map = new Map<string, Contact>();
     for (const c of contacts) {
@@ -806,6 +829,8 @@ export const ContactsTab: React.FC = () => {
   }, [activeFilter]);
   const [listsUiFocus, setListsUiFocus] = useState<'none' | 'tab' | 'create'>('none');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  /** Fotos buscadas em background (já persistidas no servidor). */
+  const [picOverrides, setPicOverrides] = useState<Record<string, string>>({});
   const [insightsOpen, setInsightsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   /** Defer `searchTerm` para o filtro pesado (varre 14+ campos por contato) — digitação não trava o input em bases grandes. */
@@ -851,7 +876,7 @@ export const ContactsTab: React.FC = () => {
   const [addToListSelectId, setAddToListSelectId] = useState('');
   /** Escolha de lista via modal (substitui `window.prompt` ao adicionar contato(s) a uma lista). */
   const [pickListPayload, setPickListPayload] = useState<
-    null | { mode: 'single'; contact: Contact } | { mode: 'bulk' }
+    null | { mode: 'single'; contact: Contact } | { mode: 'bulk'; contactIds?: string[] }
   >(null);
   const [pickListTargetId, setPickListTargetId] = useState('');
   const [quickListName, setQuickListName] = useState('');
@@ -931,29 +956,42 @@ export const ContactsTab: React.FC = () => {
     }
   }, [contactLists, activeFilter]);
 
-  /** Abre a conversa deste contato no Chat (via handshake sessionStorage). */
+  const handlePicturesUpdated = useCallback(
+    (updates: Array<{ id: string; profilePicUrl: string }>) => {
+      setPicOverrides((prev) => {
+        const next = { ...prev };
+        for (const u of updates) next[u.id] = u.profilePicUrl;
+        return next;
+      });
+    },
+    []
+  );
+
+  /** Abre a conversa deste contato no Atendimento (histórico existente ou rascunho). */
   const openInChat = useCallback((contact: Contact) => {
     const digits = (contact.phone || '').replace(/\D/g, '');
     if (!digits) {
       toast.error('Contato sem telefone válido.');
       return;
     }
+    const existing = findBestConversationForPhone(deferredConversations, digits);
+    if (existing?.id) {
+      openChatByConversationIdNavigate(setCurrentView, existing.id);
+      return;
+    }
+    const pic = (picOverrides[contact.id] || contact.profilePicUrl || '').trim();
     try {
-      // Enviamos um payload JSON completo para que o Chat consiga criar um
-      // rascunho de conversa (com nome/telefone) caso ainda não exista
-      // histórico com este número — assim o usuário pode iniciar a conversa
-      // sem precisar criar campanha nem esperar resposta.
       const payload = JSON.stringify({
         phone: digits,
         name: contact.name || '',
-        profilePicUrl: '',
+        profilePicUrl: pic
       });
       sessionStorage.setItem('zapmass.openChatByPhone', payload);
     } catch {
       /* ignore */
     }
     setCurrentView('chat');
-  }, [setCurrentView]);
+  }, [setCurrentView, deferredConversations, picOverrides]);
 
   /** Dispara a Wizard de nova campanha com base em um rascunho pré-preenchido. */
   const launchCampaignWithDraft = useCallback((draft: CampaignWizardDraft, toastMsg?: string) => {
@@ -2000,9 +2038,11 @@ export const ContactsTab: React.FC = () => {
         return contactWeddingMatchesToday(c);
       case 'wedding_week':
         return contactWeddingMatchesNextDays(c, 7);
+      case 'no_list':
+        return !contactIdsInAnyList.has(c.id);
       default: return true;
     }
-  }, [contactLists, contactTemps, phoneDupKeys]);
+  }, [contactLists, contactTemps, phoneDupKeys, contactIdsInAnyList]);
 
   // Filter Logic — memoizado: antes rodava filtro completo em todo re-render (digitar, modal, etc.).
   const filteredContacts = useMemo(() => {
@@ -2095,6 +2135,26 @@ export const ContactsTab: React.FC = () => {
     () =>
       listFilteredContacts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
     [listFilteredContacts, currentPage, ITEMS_PER_PAGE]
+  );
+
+  const tableContacts = useMemo(
+    () =>
+      paginatedContacts.map((c) => {
+        const pic = picOverrides[c.id] || c.profilePicUrl;
+        return pic && pic !== c.profilePicUrl ? { ...c, profilePicUrl: pic } : c;
+      }),
+    [paginatedContacts, picOverrides]
+  );
+
+  const contactImportBusy =
+    fileImportJob?.phase === 'import' ||
+    fileImportJob?.phase === 'autofix' ||
+    fileImportJob?.phase === 'list';
+
+  useContactPicturePrefetch(
+    paginatedContacts,
+    paginatedContacts.length > 0 && !contactImportBusy,
+    handlePicturesUpdated
   );
   const allPageSelected =
     paginatedContacts.length > 0 && paginatedContacts.every((c) => selectedIds.includes(c.id));
@@ -2499,7 +2559,7 @@ export const ContactsTab: React.FC = () => {
           total: totalImport,
           message: 'A importar contatos — pode continuar a usar o sistema.',
         });
-        const FIRE_BATCH = 180;
+        const FIRE_BATCH = 400;
         const pendingCreates: Contact[] = [];
         const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
         const pendingCreateKeys = new Set<string>();
@@ -2514,7 +2574,7 @@ export const ContactsTab: React.FC = () => {
             const kk = normPhoneKey(c.phone);
             if (kk) pendingCreateKeys.delete(kk);
           }
-          const ids = await bulkAddContacts(slice, { silent: true });
+          const ids = await bulkAddContacts(slice, { silent: true, skipReload: true });
           await yieldImportUi();
           for (let idx = 0; idx < ids.length; idx++) {
             const incoming = slice[idx];
@@ -2524,13 +2584,15 @@ export const ContactsTab: React.FC = () => {
             touchedIds.add(ids[idx]);
             added++;
           }
+          await new Promise<void>((r) => setTimeout(r, 40));
         };
 
         const flushUpdates = async () => {
           if (pendingUpdates.length === 0) return;
           const slice = pendingUpdates.splice(0, pendingUpdates.length);
-          await bulkUpdateContacts(slice, { silent: true });
+          await bulkUpdateContacts(slice, { silent: true, skipReload: true });
           await yieldImportUi();
+          await new Promise<void>((r) => setTimeout(r, 40));
         };
 
         for (const rv of view) {
@@ -2590,6 +2652,7 @@ export const ContactsTab: React.FC = () => {
 
         await flushCreates();
         await flushUpdates();
+        await refreshContacts();
         let attached = 0;
         let listName = '';
         const importIds = Array.from(touchedIds);
@@ -2655,7 +2718,7 @@ export const ContactsTab: React.FC = () => {
         throw err;
       }
     },
-    [bulkAddContacts, bulkUpdateContacts, attachContactsToList]
+    [bulkAddContacts, bulkUpdateContacts, refreshContacts, attachContactsToList]
   );
 
   const executeFileImportConfirm = useCallback(async () => {
@@ -3103,9 +3166,10 @@ export const ContactsTab: React.FC = () => {
       retorno_todos: smartStats.retorno_todos,
       retorno_atrasados: smartStats.retorno_atrasados,
       retorno_hoje: smartStats.retorno_hoje,
-      retorno_semana: smartStats.retorno_semana
+      retorno_semana: smartStats.retorno_semana,
+      no_list: noListCount
     }),
-    [smartStats]
+    [smartStats, noListCount]
   );
 
   /** Stats enxutas para o HeaderBar (sem sparklines, sem grids pesados). */
@@ -3125,6 +3189,12 @@ export const ContactsTab: React.FC = () => {
   const selectedContactTemps = selectedContact
     ? (contactTemps[selectedContact.id] ?? CONTACT_TEMP_DEFAULT)
     : undefined;
+
+  const selectedContactForDrawer = useMemo(() => {
+    if (!selectedContact) return null;
+    const pic = picOverrides[selectedContact.id];
+    return pic ? { ...selectedContact, profilePicUrl: pic } : selectedContact;
+  }, [selectedContact, picOverrides]);
 
   useEffect(() => {
     if (!selectedContact) return;
@@ -3151,9 +3221,13 @@ export const ContactsTab: React.FC = () => {
       handleOpenList(id.slice(5));
       return;
     }
+    if (id === 'no_list') {
+      setListsUiFocus('tab');
+    }
     setActiveFilter(id);
     setSelectedIds([]);
     setListAddSelectedIds([]);
+    setCurrentPage(1);
   }, [handleOpenList]);
 
   const handleManageList = handleOpenList;
@@ -3193,7 +3267,7 @@ export const ContactsTab: React.FC = () => {
   }, [listFilteredContacts]);
 
   const openPickListModal = useCallback(
-    (payload: { mode: 'single'; contact: Contact } | { mode: 'bulk' }) => {
+    (payload: { mode: 'single'; contact: Contact } | { mode: 'bulk'; contactIds?: string[] }) => {
       if (contactLists.length === 0) {
         toast.error('Crie uma lista primeiro na sidebar.');
         return;
@@ -3206,6 +3280,15 @@ export const ContactsTab: React.FC = () => {
     },
     [contactLists]
   );
+
+  const handleAddAllFilteredToList = useCallback(() => {
+    const ids = listFilteredContacts.map((c) => c.id).filter(Boolean);
+    if (ids.length === 0) {
+      toast.error('Nenhum contato neste filtro.');
+      return;
+    }
+    openPickListModal({ mode: 'bulk', contactIds: ids });
+  }, [listFilteredContacts, openPickListModal]);
 
   const handleBulkAddToList = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -3236,10 +3319,14 @@ export const ContactsTab: React.FC = () => {
         await updateContactList(target.id, { contactIds: nextIds });
         toast.success(`${c.name || 'Contato'} adicionado a "${target.name}".`);
       } else {
+        const bulkIds = pickListPayload.contactIds?.length
+          ? pickListPayload.contactIds
+          : selectedIds;
         const before = new Set(target.contactIds || []);
-        const merged = mergeContactsIntoListIds(target.contactIds || [], selectedIds, contacts);
-        const addedCount = merged.filter((id) => !before.has(id)).length;
-        await updateContactList(target.id, { contactIds: merged });
+        await appendContactIdsToContactList(target.id, bulkIds, {
+          notesLine: `+${bulkIds.length} via Contatos (${new Date().toLocaleString('pt-BR')})`
+        });
+        const addedCount = bulkIds.filter((id) => !before.has(id)).length;
         if (addedCount === 0) {
           toast('Nenhum contato novo (já estavam na lista ou telefone inválido).', { icon: 'ℹ️' });
         } else {
@@ -3250,7 +3337,7 @@ export const ContactsTab: React.FC = () => {
     } catch {
       toast.error('Não foi possível atualizar a lista.');
     }
-  }, [pickListPayload, pickListTargetId, contactLists, contacts, updateContactList, selectedIds]);
+  }, [pickListPayload, pickListTargetId, contactLists, contacts, updateContactList, appendContactIdsToContactList, selectedIds]);
 
   const handleDeleteFromDrawer = useCallback(async (c: Contact) => {
     if (!window.confirm(`Remover ${c.name || 'este contato'}?`)) return;
@@ -3471,6 +3558,7 @@ export const ContactsTab: React.FC = () => {
          ======================================================== */}
       <ContactsListsRail
         lists={contactLists}
+        noListCount={noListCount}
         activeFilter={activeFilter}
         onSelectFilter={handleSelectSmartFilter}
         onOpenListsTab={() => setListsUiFocus('tab')}
@@ -3558,6 +3646,27 @@ export const ContactsTab: React.FC = () => {
                 </div>
               </div>
             )}
+          {activeFilter === 'no_list' && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-orange-200/80 dark:border-orange-900/50 bg-orange-50/60 dark:bg-orange-950/20 px-3 py-2">
+              <span className="text-[12px] text-orange-900 dark:text-orange-200 font-medium">
+                {listFilteredContacts.length.toLocaleString('pt-BR')} contato(s) sem nenhuma lista
+                {contactsSavedTotal != null && contacts.length < contactsSavedTotal
+                  ? ` (entre os ${contacts.length.toLocaleString('pt-BR')} carregados)`
+                  : ''}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                className="ml-auto"
+                leftIcon={<ListPlus className="w-3.5 h-3.5" />}
+                disabled={listFilteredContacts.length === 0}
+                onClick={handleAddAllFilteredToList}
+              >
+                Adicionar todos à lista…
+              </Button>
+            </div>
+          )}
           {(activeFilter === 'bday_week' || activeFilter === 'bday_today') && listFilteredContacts.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
               <span className="text-[12px] text-amber-900 dark:text-amber-200 font-medium">
@@ -3610,7 +3719,7 @@ export const ContactsTab: React.FC = () => {
             </div>
           ) : (
             <ContactsTableVirtual
-              rows={paginatedContacts}
+              rows={tableContacts}
               contactTemps={contactTemps}
               selectedIds={selectedIds}
               onToggleSelect={handleToggleSelectOne}
@@ -3629,7 +3738,9 @@ export const ContactsTab: React.FC = () => {
                   ? <>Nenhum contato casa com "<b>{searchTerm}</b>".</>
                   : activeFilter === 'all'
                     ? 'Sua base está vazia. Importe ou crie um contato.'
-                    : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
+                    : activeFilter === 'no_list'
+                      ? 'Todos os contatos carregados já estão em alguma lista.'
+                      : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
                       ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
                       : activeFilter === 'wedding_today' || activeFilter === 'wedding_week'
                         ? 'Ninguém com data de casamento na ficha neste período. Edite o contato (segmento religioso) e preencha Data do casamento na ficha de membro.'
@@ -3710,7 +3821,7 @@ export const ContactsTab: React.FC = () => {
 
       {/* Drawer lateral de detalhe do contato */}
       <ContactDetailDrawer
-        contact={selectedContact}
+        contact={selectedContactForDrawer}
         tempStats={selectedContactTemps}
         onClose={closeDrawer}
         onEdit={(c) => { setSelectedContact(null); beginEditContact(c); }}
@@ -3727,7 +3838,7 @@ export const ContactsTab: React.FC = () => {
         onClose={() => setPickListPayload(null)}
         title={
           pickListPayload?.mode === 'bulk'
-            ? `Adicionar ${selectedIds.length} contato(s) à lista`
+            ? `Adicionar ${(pickListPayload.contactIds?.length ?? selectedIds.length).toLocaleString('pt-BR')} contato(s) à lista`
             : 'Adicionar à lista'
         }
         subtitle="Escolha a lista de destino."
@@ -5114,7 +5225,7 @@ export const ContactsTab: React.FC = () => {
                     let imported = 0;
                     let skipped = 0;
                     let merged = 0;
-                    const FIRE_BATCH = 150;
+                    const FIRE_BATCH = 400;
                     const pendingCreates: Contact[] = [];
                     const pendingUpdates: Array<{ id: string; updates: Partial<Contact> }> = [];
                     const pendingCreateKeys = new Set<string>();
@@ -5129,7 +5240,7 @@ export const ContactsTab: React.FC = () => {
                         const kk = normPhoneKey(c.phone);
                         if (kk) pendingCreateKeys.delete(kk);
                       }
-                      const ids = await bulkAddContacts(slice, { silent: true });
+                      const ids = await bulkAddContacts(slice, { silent: true, skipReload: true });
                       await yieldUi();
                       for (let idx = 0; idx < ids.length; idx++) {
                         const incoming = slice[idx];
@@ -5139,14 +5250,16 @@ export const ContactsTab: React.FC = () => {
                         touchedIds.add(ids[idx]);
                         imported++;
                       }
+                      await new Promise<void>((r) => setTimeout(r, 40));
                     };
 
                     const flushUpdates = async () => {
                       if (pendingUpdates.length === 0) return;
                       const slice = pendingUpdates.splice(0, pendingUpdates.length);
-                      await bulkUpdateContacts(slice, { silent: true });
+                      await bulkUpdateContacts(slice, { silent: true, skipReload: true });
                       await yieldUi();
                       merged += slice.length;
+                      await new Promise<void>((r) => setTimeout(r, 40));
                     };
 
                     let rowN = 0;
@@ -5215,6 +5328,7 @@ export const ContactsTab: React.FC = () => {
                     }
                     await flushCreates();
                     await flushUpdates();
+                    await refreshContacts();
                     let attached = 0;
                     let listName = '';
                     const importIds = Array.from(touchedIds);

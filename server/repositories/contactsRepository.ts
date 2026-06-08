@@ -10,6 +10,7 @@ import {
 } from './contactMapper.js';
 
 const DEFAULT_LIMIT = 5000;
+const BULK_INSERT_CHUNK = 100;
 
 export async function countContacts(tenantId: string): Promise<number> {
   const pool = getZapmassPool();
@@ -74,21 +75,32 @@ export async function bulkCreateContacts(
   const pool = getZapmassPool();
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
   if (rows.length === 0) return [];
+
   const ids: string[] = [];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    for (const contact of rows) {
-      const id = randomUUID();
-      const name = String(contact.name || 'Sem Nome').slice(0, 500);
-      const phone = String(contact.phone || '').slice(0, 64);
-      const doc = contactToDocPayload({ ...contact, name, phone });
+    for (let offset = 0; offset < rows.length; offset += BULK_INSERT_CHUNK) {
+      const chunk = rows.slice(offset, offset + BULK_INSERT_CHUNK);
+      const values: string[] = [];
+      const params: unknown[] = [tenantId];
+      let paramIdx = 2;
+      for (const contact of chunk) {
+        const id = randomUUID();
+        ids.push(id);
+        const name = String(contact.name || 'Sem Nome').slice(0, 500);
+        const phone = String(contact.phone || '').slice(0, 64);
+        const doc = contactToDocPayload({ ...contact, name, phone });
+        values.push(
+          `($${paramIdx}::uuid, $1::uuid, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::jsonb)`
+        );
+        params.push(id, name, phone, sortNameForContact(name), JSON.stringify(doc));
+        paramIdx += 5;
+      }
       await client.query(
-        `INSERT INTO zapmass.contacts (id, tenant_id, name, phone, sort_name, doc)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb)`,
-        [id, tenantId, name, phone, sortNameForContact(name), JSON.stringify(doc)]
+        `INSERT INTO zapmass.contacts (id, tenant_id, name, phone, sort_name, doc) VALUES ${values.join(', ')}`,
+        params
       );
-      ids.push(id);
     }
     await client.query('COMMIT');
   } catch (e) {
@@ -127,8 +139,39 @@ export async function bulkUpdateContacts(
   tenantId: string,
   items: Array<{ id: string; updates: Partial<Contact> }>
 ): Promise<void> {
-  for (const { id, updates } of items) {
-    await updateContact(tenantId, id, updates);
+  if (items.length === 0) return;
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ids = items.map((i) => i.id);
+    const r = await client.query<ContactRow>(
+      `SELECT id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at
+       FROM zapmass.contacts WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+      [tenantId, ids]
+    );
+    const existingById = new Map(r.rows.map((row) => [row.id, rowToContact(row)]));
+    for (const { id, updates } of items) {
+      const existing = existingById.get(id);
+      if (!existing) continue;
+      const merged = mergeContactUpdates(existing, updates);
+      const name = String(merged.name || 'Sem Nome').slice(0, 500);
+      const phone = String(merged.phone || '').slice(0, 64);
+      const doc = contactToDocPayload(merged);
+      await client.query(
+        `UPDATE zapmass.contacts
+         SET name = $3, phone = $4, sort_name = $5, doc = $6::jsonb, updated_at = now()
+         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        [tenantId, id, name, phone, sortNameForContact(name), JSON.stringify(doc)]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
   }
 }
 

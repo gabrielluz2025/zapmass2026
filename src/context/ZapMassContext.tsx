@@ -221,6 +221,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   contactsSavedTotal: null,
   contactsSavedTotalLoading: false,
   refreshContactsSavedTotal: async () => {},
+  refreshContacts: async () => {},
   contactLists: [],
   campaigns: [],
   metrics: INITIAL_METRICS,
@@ -1029,7 +1030,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('connect_error', (err) => {
-      setIsBackendConnected(false);
+      // Importação em massa / CPU ocupada pode gerar connect_error transitório — não marcar offline na hora.
+      if (offlineBadgeDelayRef.current) clearTimeout(offlineBadgeDelayRef.current);
+      offlineBadgeDelayRef.current = setTimeout(() => {
+        offlineBadgeDelayRef.current = null;
+        if (!socket.connected) setIsBackendConnected(false);
+      }, 4000);
       console.error('❌ Erro na conexão Socket.IO:', err.message);
       const msg = String(err?.message || '').toLowerCase();
       const authRelated =
@@ -1289,8 +1295,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const t0 = Date.now();
       socket.emit('ping-latency', t0);
     }, 5000);
-    socket.on('pong-latency', (t0: number) => {
-      const lat = Math.max(0, Date.now() - t0);
+    socket.on('pong-latency', (t0: unknown) => {
+      const sent =
+        typeof t0 === 'number' && Number.isFinite(t0)
+          ? t0
+          : typeof t0 === 'string'
+            ? Number(t0)
+            : NaN;
+      if (!Number.isFinite(sent) || sent <= 0) return;
+      const lat = Math.max(0, Date.now() - sent);
       setSystemMetrics((prev) => {
         const prevLat = Number(prev.latency) || 0;
         if (prevLat > 0 && Math.abs(prevLat - lat) < 25) return prev;
@@ -2302,14 +2315,33 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return newId;
   };
 
-  const bulkAddContacts = async (contactRows: Contact[], options?: { silent?: boolean }) => {
+  const bulkAddContacts = async (
+    contactRows: Contact[],
+    options?: { silent?: boolean; skipReload?: boolean }
+  ) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para adicionar contato.');
     if (contactRows.length === 0) return [];
     const payloads = contactRows.map(({ id: _d, ...rest }) => rest);
     const ids = await apiBulkCreateContacts(payloads);
-    await reloadVpsContactsRef.current();
-    void refreshContactsSavedTotal();
+    if (options?.skipReload) {
+      setContacts((prev) => {
+        const created = contactRows.map((row, i) => ({
+          ...row,
+          id: ids[i] || row.id
+        }));
+        const merged = [...prev, ...created].sort((a, b) =>
+          (a.name || '').localeCompare(b.name || '', 'pt-BR')
+        );
+        contactsVpsOffsetRef.current = merged.length;
+        return merged;
+      });
+      setContactsSavedTotal((t) => (t != null ? t + contactRows.length : t));
+      setContactsHasMore((prev) => prev || contactRows.length > 0);
+    } else {
+      await reloadVpsContactsRef.current();
+      void refreshContactsSavedTotal();
+    }
     if (!options?.silent && contactRows.length > 0) {
       toast.success(`${contactRows.length} contato(s) gravados em lote.`);
     }
@@ -2339,14 +2371,29 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const bulkUpdateContacts = async (
     items: Array<{ id: string; updates: Partial<Contact> }>,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; skipReload?: boolean }
   ) => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para atualizar contato.');
     if (items.length === 0) return;
     await apiBulkUpdateContacts(items);
-    await reloadVpsContactsRef.current();
+    if (options?.skipReload) {
+      const patchById = new Map(items.map((i) => [i.id, i.updates]));
+      setContacts((prev) =>
+        prev.map((c) => {
+          const patch = patchById.get(c.id);
+          return patch ? { ...c, ...patch } : c;
+        })
+      );
+    } else {
+      await reloadVpsContactsRef.current();
+    }
     if (!options?.silent) toast.success('Contatos atualizados.');
+  };
+
+  const refreshContacts = async () => {
+    await reloadVpsContactsRef.current();
+    void refreshContactsSavedTotal();
   };
 
   const clearAllUserData = async () => {
@@ -3165,6 +3212,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableRefreshContactsSavedTotal = useStableCallback(refreshContactsSavedTotal);
   const stableUpdateContact = useStableCallback(updateContact);
   const stableBulkUpdateContacts = useStableCallback(bulkUpdateContacts);
+  const stableRefreshContacts = useStableCallback(refreshContacts);
   const stableCreateContactList = useStableCallback(createContactList);
   const stableAppendContactIdsToContactList = useStableCallback(appendContactIdsToContactList);
   const stableDeleteContactList = useStableCallback(deleteContactList);
@@ -3229,6 +3277,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsSavedTotal,
       contactsSavedTotalLoading,
       refreshContactsSavedTotal: stableRefreshContactsSavedTotal,
+      refreshContacts: stableRefreshContacts,
       contactLists,
       metrics,
       birthdays,
@@ -3295,6 +3344,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsSavedTotal,
       contactsSavedTotalLoading,
       stableRefreshContactsSavedTotal,
+      stableRefreshContacts,
       contactLists,
       metrics,
       birthdays,

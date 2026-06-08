@@ -40,6 +40,7 @@ type Props = {
   historyExhausted: boolean;
   canSend: boolean;
   socketStatus: WaSocketStatus;
+  syncing?: boolean;
   chipConnected: boolean;
   showBack?: boolean;
   onBack?: () => void;
@@ -59,6 +60,7 @@ export const WaThread: React.FC<Props> = ({
   historyExhausted,
   canSend,
   socketStatus,
+  syncing = false,
   chipConnected,
   showBack,
   onBack,
@@ -102,13 +104,15 @@ export const WaThread: React.FC<Props> = ({
   const headerSub = useMemo(() => {
     if (!conversation) return '';
     if (!chipConnected) return 'Chip WhatsApp desconectado — conecte em Conexões';
+    if (syncing) return 'Sincronizando conversas…';
     if (socketStatus === 'offline') return 'Servidor desconectado';
-    if (socketStatus === 'slow') return 'Servidor lento — mensagens em tempo real ativas';
+    if (socketStatus === 'slow') return 'Conexão instável — mensagens em tempo real ativas';
     if (presenceLine) return presenceLine;
     return display?.phoneSecondary || display?.whatsappSubtitle || '';
   }, [
     conversation,
     chipConnected,
+    syncing,
     socketStatus,
     presenceLine,
     display?.phoneSecondary,

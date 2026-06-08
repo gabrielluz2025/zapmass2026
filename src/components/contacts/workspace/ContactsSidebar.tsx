@@ -25,6 +25,7 @@ export type SmartFilterId =
   | 'retorno_atrasados'
   | 'retorno_hoje'
   | 'retorno_semana'
+  | 'no_list'
   | `list:${string}`;
 
 export type SidebarPanelTab = 'explore' | 'lists' | 'advanced';
@@ -47,6 +48,7 @@ export interface SidebarCounts {
   retorno_atrasados: number;
   retorno_hoje: number;
   retorno_semana: number;
+  no_list: number;
 }
 
 interface Props {
@@ -225,6 +227,9 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
           <ContactsListsPanel
             lists={lists}
             activeListId={activeListId}
+            noListCount={counts.no_list}
+            noListActive={active === 'no_list'}
+            onSelectNoList={() => onChange('no_list')}
             onSelectList={(id) => onChange(`list:${id}`)}
             onShowAll={() => onChange('all')}
             onCreateList={onCreateList}

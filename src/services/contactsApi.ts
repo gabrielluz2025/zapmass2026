@@ -42,6 +42,34 @@ export async function apiBulkCreateContacts(contacts: Partial<Contact>[]): Promi
   return Array.isArray(j.ids) ? j.ids : [];
 }
 
+export async function apiFetchContactProfilePicture(
+  id: string,
+  opts?: { connectionId?: string; force?: boolean }
+): Promise<string | null> {
+  const j = await apiFetchJson<{ profilePicUrl?: string | null }>(
+    `/api/contacts/${encodeURIComponent(id)}/profile-picture`,
+    {
+      method: 'POST',
+      body: JSON.stringify(opts || {})
+    }
+  );
+  return j.profilePicUrl ?? null;
+}
+
+export async function apiFetchContactProfilePicturesBatch(
+  ids: string[],
+  connectionId?: string
+): Promise<Array<{ id: string; profilePicUrl: string | null }>> {
+  const j = await apiFetchJson<{ results?: Array<{ id: string; profilePicUrl: string | null }> }>(
+    '/api/contacts/profile-pictures-batch',
+    {
+      method: 'POST',
+      body: JSON.stringify({ ids, connectionId })
+    }
+  );
+  return Array.isArray(j.results) ? j.results : [];
+}
+
 export async function apiUpdateContact(id: string, updates: Partial<Contact>): Promise<void> {
   await apiFetchJson(`/api/contacts/${encodeURIComponent(id)}`, {
     method: 'PATCH',

@@ -7,6 +7,19 @@ export type WaSocketStatus = 'online' | 'offline' | 'slow';
 const AUTO_LIGHT_SYNC_MS = 45_000;
 /** findChats completo em background (complementa webhooks / tempo real). */
 const AUTO_FULL_SYNC_MS = 5 * 60_000;
+/** Acima disso (RTT), considera servidor lento — sync pesado pode atrasar pong sem estar offline. */
+const SLOW_RTT_MS = 45_000;
+/** Pings consecutivos lentos antes de exibir aviso (evita falso positivo). */
+const SLOW_STRIKES_NEEDED = 2;
+
+function parsePingTimestamp(ts: unknown): number {
+  if (typeof ts === 'number' && Number.isFinite(ts)) return ts;
+  if (typeof ts === 'string' && ts.trim()) {
+    const n = Number(ts);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
 
 /** Socket + sync leve; não confundir com chip WhatsApp CONNECTED. */
 export function useWaRealtime(
@@ -18,6 +31,8 @@ export function useWaRealtime(
   const [socketStatus, setSocketStatus] = useState<WaSocketStatus>('offline');
   const [syncing, setSyncing] = useState(false);
   const pingSentAtRef = useRef(0);
+  const slowStrikeRef = useRef(0);
+  const lastRealtimeActivityRef = useRef(0);
   const syncingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runResync = useCallback(
@@ -38,13 +53,22 @@ export function useWaRealtime(
       return;
     }
 
+    const markRealtimeActivity = () => {
+      lastRealtimeActivityRef.current = Date.now();
+      slowStrikeRef.current = 0;
+      setSocketStatus('online');
+    };
+
     const onConnect = () => {
+      pingSentAtRef.current = Date.now();
+      slowStrikeRef.current = 0;
       setSocketStatus('online');
       runResync({ full: false });
     };
     const onDisconnect = () => {
       setSocketStatus('offline');
       setSyncing(false);
+      slowStrikeRef.current = 0;
     };
 
     socket.on('connect', onConnect);
@@ -57,15 +81,26 @@ export function useWaRealtime(
       socket.emit('ping-latency', pingSentAtRef.current);
     }, 20000);
 
-    const onPong = (ts: number) => {
+    const onPong = (ts: unknown) => {
       if (!socket.connected) {
         setSocketStatus('offline');
         return;
       }
-      const base = typeof ts === 'number' && ts > 1e12 ? ts : pingSentAtRef.current;
-      const ms = Date.now() - base;
-      if (ms > 25_000) setSocketStatus('slow');
-      else setSocketStatus('online');
+      const sentAt = parsePingTimestamp(ts);
+      const base =
+        sentAt > 1e12 ? sentAt : pingSentAtRef.current > 0 ? pingSentAtRef.current : 0;
+      if (!base) {
+        setSocketStatus('online');
+        return;
+      }
+      const ms = Math.max(0, Date.now() - base);
+      if (ms > SLOW_RTT_MS) {
+        slowStrikeRef.current += 1;
+        if (slowStrikeRef.current >= SLOW_STRIKES_NEEDED) setSocketStatus('slow');
+      } else {
+        slowStrikeRef.current = 0;
+        setSocketStatus('online');
+      }
     };
     socket.on('pong-latency', onPong);
 
@@ -90,6 +125,7 @@ export function useWaRealtime(
         : null;
 
     const onConv = () => {
+      markRealtimeActivity();
       if (syncingTimerRef.current) {
         clearTimeout(syncingTimerRef.current);
         syncingTimerRef.current = setTimeout(() => setSyncing(false), 1500);

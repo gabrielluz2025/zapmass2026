@@ -20,6 +20,11 @@ import {
   listContactLists,
   updateContactList
 } from './repositories/contactListsRepository.js';
+import {
+  fetchAndPersistContactProfilePicture,
+  fetchAndPersistContactProfilePicturesBatch
+} from './contactProfilePicture.js';
+import * as evolutionService from './evolutionService.js';
 
 export function registerContactsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -69,8 +74,8 @@ export function registerContactsDataRoutes(app: Express): void {
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ ok: false, error: 'Envie { contacts: [...] }.' });
     }
-    if (rows.length > 2000) {
-      return res.status(400).json({ ok: false, error: 'Máximo 2000 contatos por lote.' });
+    if (rows.length > 500) {
+      return res.status(400).json({ ok: false, error: 'Máximo 500 contatos por lote.' });
     }
     try {
       const ids = await bulkCreateContacts(ctx.tenantId, rows);
@@ -78,6 +83,60 @@ export function registerContactsDataRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/contacts/bulk]', e);
       return res.status(400).json({ ok: false, error: 'Falha no lote de contatos.' });
+    }
+  });
+
+  app.post('/api/contacts/:id/profile-picture', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const id = String(req.params.id || '').trim();
+    const body = (req.body || {}) as { connectionId?: string; force?: boolean };
+    const connId = evolutionService.pickOpenConnectionForTenant(ctx.tenantId, body.connectionId);
+    if (!connId) {
+      return res.status(409).json({
+        ok: false,
+        error: 'Nenhum chip WhatsApp conectado. Conecte um canal em Conexões.'
+      });
+    }
+    try {
+      const r = await fetchAndPersistContactProfilePicture(ctx.tenantId, id, {
+        connectionId: connId,
+        force: body.force === true
+      });
+      return res.json({ ok: true, profilePicUrl: r.profilePicUrl, contact: r.contact });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message.includes('não encontrado')) {
+        return res.status(404).json({ ok: false, error: message });
+      }
+      console.error('[api/contacts profile-picture]', message);
+      return res.status(500).json({ ok: false, error: 'Não foi possível buscar a foto.' });
+    }
+  });
+
+  app.post('/api/contacts/profile-pictures-batch', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as { ids?: string[]; connectionId?: string };
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Envie { ids: [...] }.' });
+    }
+    const connId = evolutionService.pickOpenConnectionForTenant(ctx.tenantId, body.connectionId);
+    if (!connId) {
+      return res.status(409).json({
+        ok: false,
+        error: 'Nenhum chip WhatsApp conectado.'
+      });
+    }
+    try {
+      const results = await fetchAndPersistContactProfilePicturesBatch(ctx.tenantId, ids, {
+        connectionId: connId
+      });
+      return res.json({ ok: true, results });
+    } catch (e) {
+      console.error('[api/contacts profile-pictures-batch]', e);
+      return res.status(500).json({ ok: false, error: 'Falha ao buscar fotos em lote.' });
     }
   });
 
@@ -99,6 +158,9 @@ export function registerContactsDataRoutes(app: Express): void {
     const items = (req.body as { items?: Array<{ id: string; updates: Partial<Contact> }> })?.items;
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ ok: false, error: 'Envie { items: [...] }.' });
+    }
+    if (items.length > 500) {
+      return res.status(400).json({ ok: false, error: 'Máximo 500 atualizações por lote.' });
     }
     await bulkUpdateContacts(ctx.tenantId, items);
     return res.json({ ok: true, count: items.length });

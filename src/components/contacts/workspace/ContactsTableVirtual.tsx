@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { Contact } from '../../../types';
 import { formatFollowUpLabel, localStartOfTodayMs, parseFollowUpMs } from '../../../utils/followUp';
+import { ContactAvatar } from './ContactAvatar';
 
 type Temperature = 'hot' | 'warm' | 'cold' | 'new';
 interface TempStats {
@@ -230,10 +231,6 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
   const menuRef = useRef<HTMLDivElement>(null);
   const tempInfo = tempMeta[temp];
 
-  const initials = useMemo(() => {
-    return (contact.name || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase() || '').join('') || '?';
-  }, [contact.name]);
-
   const handleMenuToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setMenuOpen((v) => !v);
@@ -262,6 +259,11 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
     <div
       role="row"
       onClick={() => onRowClick(contact)}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        onOpenChat(contact);
+      }}
+      title="Duplo clique abre a conversa no Atendimento"
       className={`grid grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] items-center gap-3 px-4 border-b border-slate-100 dark:border-slate-800/70 cursor-pointer transition group ${
         highlighted
           ? 'bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]'
@@ -288,12 +290,7 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
 
       {/* avatar + nome */}
       <div className="flex items-center gap-2.5 min-w-0">
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0"
-          style={{ background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))' }}
-        >
-          {initials}
-        </div>
+        <ContactAvatar name={contact.name || '?'} profilePicUrl={contact.profilePicUrl} size="sm" />
         <div className="min-w-0">
           <div className="text-sm font-semibold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
             {contact.name || 'Sem nome'}
@@ -347,8 +344,8 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
       <div className="flex items-center justify-end gap-1 relative" ref={menuRef}>
         <button
           onClick={runAction(() => onOpenChat(contact))}
-          className="p-1.5 rounded-md text-emerald-500 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition"
-          title="Abrir no chat"
+          className="p-1.5 rounded-md text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition"
+          title="Abrir conversa no Atendimento"
         >
           <MessageCircle className="w-4 h-4" />
         </button>

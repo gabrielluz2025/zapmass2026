@@ -5,13 +5,17 @@ import {
   Trash2,
   Users,
   Rocket,
-  FolderOpen
+  FolderOpen,
+  UserMinus
 } from 'lucide-react';
 import type { ContactList } from '../../../types';
 
 type Props = {
   lists: ContactList[];
   activeListId: string | null;
+  noListCount: number;
+  noListActive: boolean;
+  onSelectNoList: () => void;
   onSelectList: (listId: string) => void;
   onCreateList: (name: string) => void;
   onManageList: (listId: string) => void;
@@ -24,6 +28,9 @@ type Props = {
 export const ContactsListsPanel: React.FC<Props> = ({
   lists,
   activeListId,
+  noListCount,
+  noListActive,
+  onSelectNoList,
   onSelectList,
   onCreateList,
   onManageList,
@@ -117,18 +124,44 @@ export const ContactsListsPanel: React.FC<Props> = ({
         type="button"
         onClick={onShowAll}
         className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm font-semibold transition ${
-          activeListId === null
+          activeListId === null && !noListActive
             ? 'text-white shadow-md'
             : 'hover:bg-[var(--surface-2)]'
         }`}
         style={
-          activeListId === null
+          activeListId === null && !noListActive
             ? { background: 'var(--brand-600)' }
             : { color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
         }
       >
         <Users className="w-4 h-4 shrink-0" />
         <span>Todos os contatos</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onSelectNoList}
+        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm font-semibold transition ${
+          noListActive ? 'text-white shadow-md' : 'hover:bg-[var(--surface-2)]'
+        }`}
+        style={
+          noListActive
+            ? { background: 'linear-gradient(135deg, #f97316, #ea580c)' }
+            : { color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
+        }
+        title="Contatos que não pertencem a nenhuma lista"
+      >
+        <UserMinus className="w-4 h-4 shrink-0" />
+        <span className="flex-1 min-w-0 truncate">Sem lista</span>
+        <span
+          className="text-[11px] font-black tabular-nums px-1.5 py-0.5 rounded-md shrink-0"
+          style={{
+            background: noListActive ? 'rgba(255,255,255,0.2)' : 'var(--surface-2)',
+            color: noListActive ? '#fff' : 'var(--text-3)'
+          }}
+        >
+          {noListCount.toLocaleString('pt-BR')}
+        </span>
       </button>
 
       <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 space-y-2 custom-scrollbar">

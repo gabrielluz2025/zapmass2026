@@ -30,7 +30,7 @@ export function sortNameForContact(name: string): string {
 export function contactToDocPayload(contact: Partial<Contact>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(contact)) {
-    if (k === 'id' || k === 'profilePicUrl') continue;
+    if (k === 'id') continue;
     if (v !== undefined) out[k] = v;
   }
   return out;
