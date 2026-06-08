@@ -129,6 +129,16 @@ export function getDailySendSeriesLastNDays(
   return out;
 }
 
+export function sumMonthFromDailyBuckets(buckets: Map<string, number>): number {
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  let s = 0;
+  for (const [day, v] of buckets) {
+    if (day.startsWith(ym)) s += Number(v) || 0;
+  }
+  return s;
+}
+
 export function getMonthSentSoFar(uid: string | undefined): number {
   if (!uid || typeof window === 'undefined') return 0;
   const data = parseDaily(localStorage.getItem(dailyKey(uid)));

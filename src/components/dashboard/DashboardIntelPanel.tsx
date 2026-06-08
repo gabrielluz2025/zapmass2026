@@ -26,8 +26,26 @@ import {
   getMonthlyGoal,
   getMonthSentSoFar,
   recordDashboardFunnelSentIncrement,
-  setMonthlyGoal
+  setMonthlyGoal,
+  sumMonthFromDailyBuckets
 } from '../../utils/dashboardLocalStats';
+
+const SEND_CHART_MAX_PX = 108;
+
+function formatSendChartDay(dateStr: string): { day: string; weekday: string; isToday: boolean } {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  const now = new Date();
+  const isToday =
+    dt.getFullYear() === now.getFullYear() &&
+    dt.getMonth() === now.getMonth() &&
+    dt.getDate() === now.getDate();
+  const weekday = new Intl.DateTimeFormat('pt-BR', { weekday: 'short' })
+    .format(dt)
+    .replace(/\./g, '')
+    .slice(0, 3);
+  return { day: String(d || 0).padStart(2, '0'), weekday, isToday };
+}
 import { computeContactTemperatures } from '../../utils/contactTemperature';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
 import { parseFirestoreDateToIso } from '../../utils/followUp';
@@ -148,7 +166,17 @@ export const DashboardIntelPanel: React.FC<Props> = ({
     () => getDailySendSeriesLastNDays(userUid, 7, campaignDailyBuckets),
     [userUid, funnelUpdatedAt, goalRevision, campaignDailyBuckets]
   );
-  const monthSent = useMemo(() => getMonthSentSoFar(userUid), [userUid, funnelUpdatedAt, goalRevision]);
+  const weekTotal = useMemo(() => series7.reduce((n, s) => n + s.count, 0), [series7]);
+  const peakDay = useMemo(() => {
+    if (!series7.length) return null;
+    return series7.reduce((best, s) => (s.count > best.count ? s : best), series7[0]);
+  }, [series7]);
+  const monthSentLocal = useMemo(() => getMonthSentSoFar(userUid), [userUid, funnelUpdatedAt, goalRevision]);
+  const monthSentCampaign = useMemo(
+    () => sumMonthFromDailyBuckets(campaignDailyBuckets),
+    [campaignDailyBuckets]
+  );
+  const monthSent = Math.max(monthSentLocal, monthSentCampaign);
   const monthlyGoal = useMemo(() => getMonthlyGoal(userUid), [userUid, goalRevision]);
 
   const quality = useMemo(() => computeBaseQuality(contacts), [contacts]);
@@ -349,64 +377,173 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </Button>
         </Card>
 
-        <Card className="zm-intel-card xl:col-span-4 p-4 flex flex-col">
-          <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-4 h-4" style={{ color: '#8b5cf6' }} />
-            <h3 className="ui-title text-[14px]">Envios últimos 7 dias</h3>
-          </div>
-          <p className="text-[10px] mb-2" style={{ color: 'var(--text-3)' }}>
-            Envios reais das campanhas (logs SUCCESS) + incrementos ao vivo com o painel aberto.
-          </p>
-          <div className="zm-intel-bars h-28 flex items-end gap-1 flex-1">
-            {series7.map((s, barIdx) => (
-              <div key={s.date} className="flex-1 flex flex-col justify-end gap-1 min-w-0">
-                <div
-                  className="zm-intel-bar w-full rounded-t-md"
-                  style={{
-                    height: s.count > 0 ? `${Math.max(12, Math.round((s.count / maxBar) * 92))}%` : '3px',
-                    minHeight: s.count > 0 ? 6 : 3,
-                    opacity: s.count > 0 ? 1 : 0.35,
-                    background: 'linear-gradient(180deg, #8b5cf6, rgba(139,92,246,0.35))',
-                    animationDelay: `${barIdx * 55}ms`
-                  }}
-                  title={`${s.date}: ${s.count.toLocaleString('pt-BR')} envio${s.count === 1 ? '' : 's'}`}
-                />
-                <span className="text-[8px] text-center truncate opacity-70" style={{ color: 'var(--text-3)' }}>
-                  {s.date.slice(-2)}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-2">
-                <Goal className="w-4 h-4" style={{ color: '#f59e0b' }} />
-                <h3 className="ui-title text-[13px]">Meta mensal</h3>
-              </div>
-              <Button variant="ghost" size="xs" type="button" onClick={() => { setGoalDraft(monthlyGoal > 0 ? String(monthlyGoal) : '5000'); setGoalModal(true); }}>
-                {monthlyGoal > 0 ? 'Editar' : 'Definir'}
-              </Button>
-            </div>
-            {monthlyGoal > 0 ? (
-              <>
-                <div className="h-2 rounded-full overflow-hidden mb-2" style={{ background: 'var(--surface-3)' }}>
-                  <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${goalProgressPct}%` }} />
+        <Card className="zm-intel-card zm-send-trend-card xl:col-span-4 p-0 flex flex-col overflow-hidden">
+          <div className="zm-send-trend-accent" aria-hidden />
+          <div className="p-4 flex flex-col flex-1 min-h-0">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 shrink-0" style={{ color: '#a78bfa' }} />
+                  <h3 className="ui-title text-[14px]">Envios últimos 7 dias</h3>
                 </div>
-                <p className="text-[11px]" style={{ color: 'var(--text-2)' }}>
-                  {monthSent.toLocaleString('pt-BR')} / {monthlyGoal.toLocaleString('pt-BR')} este mês ({goalProgressPct}%)
-                  {projectedMonth > 0 && monthlyGoal > 0 && (
-                    <span className="block mt-1" style={{ color: 'var(--text-3)' }}>
-                      Projeção fim do mês: ~{projectedMonth.toLocaleString('pt-BR')} (ritmo atual)
-                    </span>
-                  )}
+                <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                  Campanhas concluídas e envios ao vivo neste painel.
                 </p>
-              </>
-            ) : (
-              <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                Defina um alvo mensal só neste dispositivo para acompanhar o ritmo.
+              </div>
+              <div
+                className="shrink-0 rounded-xl px-2.5 py-1.5 text-right tabular-nums"
+                style={{
+                  background: 'color-mix(in srgb, #8b5cf6 14%, var(--surface-1))',
+                  border: '1px solid color-mix(in srgb, #8b5cf6 28%, transparent)'
+                }}
+              >
+                <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                  Semana
+                </p>
+                <p className="text-[18px] font-black leading-none mt-0.5" style={{ color: '#c4b5fd' }}>
+                  {weekTotal.toLocaleString('pt-BR')}
+                </p>
+              </div>
+            </div>
+
+            {weekTotal > 0 && peakDay && peakDay.count > 0 && (
+              <p className="text-[10px] mb-2 -mt-1" style={{ color: 'var(--text-3)' }}>
+                Pico:{' '}
+                <strong style={{ color: 'var(--text-2)' }}>
+                  {peakDay.count.toLocaleString('pt-BR')}
+                </strong>{' '}
+                em {formatSendChartDay(peakDay.date).day}/{peakDay.date.slice(5, 7)}
+                {weekTotal > 0 && (
+                  <span className="opacity-80">
+                    {' '}
+                    · média {Math.round(weekTotal / 7).toLocaleString('pt-BR')}/dia
+                  </span>
+                )}
               </p>
             )}
+
+            {weekTotal === 0 ? (
+              <div
+                className="zm-send-chart-empty flex-1 flex flex-col items-center justify-center text-center rounded-xl px-4 py-8"
+                style={{
+                  background: 'var(--surface-1)',
+                  border: '1px dashed var(--border-subtle)'
+                }}
+              >
+                <Activity className="w-8 h-8 mb-2 opacity-25" style={{ color: '#8b5cf6' }} />
+                <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                  Nenhum envio nesta semana
+                </p>
+                <p className="text-[10px] mt-1 max-w-[220px]" style={{ color: 'var(--text-3)' }}>
+                  Dispare uma campanha ou aguarde — os envios aparecem aqui por dia.
+                </p>
+              </div>
+            ) : (
+              <div className="zm-intel-bars zm-send-chart flex items-end gap-1.5 flex-1 min-h-[132px]">
+                {series7.map((s, barIdx) => {
+                  const meta = formatSendChartDay(s.date);
+                  const barPx =
+                    s.count > 0
+                      ? Math.max(12, Math.round((s.count / maxBar) * SEND_CHART_MAX_PX))
+                      : 6;
+                  const isPeak = peakDay?.date === s.date && s.count > 0;
+                  return (
+                    <div
+                      key={s.date}
+                      className={`flex-1 flex flex-col justify-end items-center min-w-0 gap-1 ${meta.isToday ? 'zm-send-col--today' : ''}`}
+                    >
+                      <span
+                        className="text-[9px] font-bold tabular-nums leading-none min-h-[11px]"
+                        style={{ color: s.count > 0 ? (isPeak ? '#c4b5fd' : 'var(--text-3)') : 'transparent' }}
+                      >
+                        {s.count > 0 ? s.count.toLocaleString('pt-BR') : ''}
+                      </span>
+                      <div
+                        className={`zm-intel-bar zm-send-bar w-full max-w-[36px] rounded-t-lg ${isPeak ? 'zm-send-bar--peak' : ''}`}
+                        style={{
+                          height: `${barPx}px`,
+                          opacity: s.count > 0 ? 1 : 0.4,
+                          animationDelay: `${barIdx * 45}ms`
+                        }}
+                        title={`${s.date}: ${s.count.toLocaleString('pt-BR')} envio${s.count === 1 ? '' : 's'}`}
+                      />
+                      <div className="text-center leading-tight">
+                        <span
+                          className={`block text-[10px] font-bold tabular-nums ${meta.isToday ? 'text-violet-400' : ''}`}
+                          style={{ color: meta.isToday ? undefined : 'var(--text-2)' }}
+                        >
+                          {meta.day}
+                        </span>
+                        <span className="block text-[8px] uppercase opacity-70" style={{ color: 'var(--text-3)' }}>
+                          {meta.weekday}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="mt-4 pt-4 border-t zm-send-goal-block" style={{ borderColor: 'var(--border-subtle)' }}>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <Goal className="w-4 h-4" style={{ color: '#f59e0b' }} />
+                  <h3 className="ui-title text-[13px]">Meta mensal</h3>
+                </div>
+                {monthlyGoal > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    type="button"
+                    onClick={() => {
+                      setGoalDraft(String(monthlyGoal));
+                      setGoalModal(true);
+                    }}
+                  >
+                    Editar
+                  </Button>
+                )}
+              </div>
+              {monthlyGoal > 0 ? (
+                <>
+                  <div className="flex items-end justify-between gap-2 mb-2">
+                    <p className="text-[22px] font-black tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                      {goalProgressPct}%
+                    </p>
+                    <p className="text-[10px] text-right" style={{ color: 'var(--text-3)' }}>
+                      {monthSent.toLocaleString('pt-BR')} de {monthlyGoal.toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="h-2.5 rounded-full overflow-hidden mb-2" style={{ background: 'var(--surface-3)' }}>
+                    <div
+                      className="h-full rounded-full transition-all zm-send-goal-fill"
+                      style={{ width: `${goalProgressPct}%` }}
+                    />
+                  </div>
+                  {projectedMonth > 0 && (
+                    <p className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+                      Ritmo atual: ~{projectedMonth.toLocaleString('pt-BR')} até fim do mês
+                    </p>
+                  )}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="zm-send-goal-cta w-full rounded-xl px-3 py-3 text-left transition-colors"
+                  onClick={() => {
+                    setGoalDraft('5000');
+                    setGoalModal(true);
+                  }}
+                >
+                  <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
+                    Definir meta mensal
+                  </p>
+                  <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                    Alvo de envios só neste dispositivo — acompanhe o progresso no painel.
+                  </p>
+                </button>
+              )}
+            </div>
           </div>
         </Card>
 
