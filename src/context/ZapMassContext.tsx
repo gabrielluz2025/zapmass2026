@@ -2943,15 +2943,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para criar lista.');
     if (useVpsData()) {
+      const uniqIds = [...new Set(contactIds.filter(Boolean))];
       const listId = await apiCreateContactList({
         name,
-        contactIds: [],
+        contactIds: uniqIds,
         description: description || '',
         createdAt: new Date().toISOString()
       });
-      if (contactIds.length > 0) {
-        await appendContactIdsToContactList(listId, contactIds);
-      }
       await reloadVpsContactListsRef.current();
       return listId;
     }

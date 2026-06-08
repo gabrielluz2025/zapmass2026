@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getZapmassPool } from './db/postgres.js';
-import { vpsAuthEnabled } from './auth/authMode.js';
+import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 import { countActiveStaffMembers, createStaffMember, findStaffMember } from './auth/staffRepository.js';
 import { hashPassword } from './auth/password.js';
@@ -22,6 +22,38 @@ async function assertOwnerVps(req: Request, res: Response): Promise<{ ownerUid: 
 export function registerVpsWorkspaceStaffRoutes(app: Express): void {
   if (!vpsAuthEnabled() || !getZapmassPool()) return;
 
+  if (vpsAuthRequired()) {
+    app.get('/api/workspace/members', async (req: Request, res: Response) => {
+      const owner = await assertOwnerVps(req, res);
+      if (!owner) return;
+      const pool = getZapmassPool();
+      if (!pool) return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
+      const r = await pool.query<{
+        id: string;
+        login_slug: string;
+        display_name: string;
+        created_at: Date;
+      }>(
+        `SELECT id::text, login_slug, display_name, created_at
+         FROM zapmass.workspace_members
+         WHERE owner_user_id = $1::uuid AND revoked_at IS NULL
+         ORDER BY created_at DESC`,
+        [owner.ownerUid]
+      );
+      return res.json({
+        ok: true,
+        items: r.rows.map((row) => ({
+          uid: row.id,
+          source: 'password' as const,
+          loginSlug: row.login_slug,
+          email: null,
+          displayName: row.display_name,
+          linkedAt: row.created_at.toISOString()
+        }))
+      });
+    });
+  }
+
   app.get('/api/workspace/staff-password-users', async (req: Request, res: Response) => {
     const owner = await assertOwnerVps(req, res);
     if (!owner) return;
@@ -32,21 +64,23 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
       login_slug: string;
       display_name: string;
       created_at: Date;
+      revoked_at: Date | null;
     }>(
-      `SELECT id::text, login_slug, display_name, created_at
+      `SELECT id::text, login_slug, display_name, created_at, revoked_at
        FROM zapmass.workspace_members
-       WHERE owner_user_id = $1::uuid AND revoked_at IS NULL
-       ORDER BY login_slug`,
+       WHERE owner_user_id = $1::uuid
+       ORDER BY revoked_at NULLS FIRST, created_at DESC`,
       [owner.ownerUid]
     );
     return res.json({
       ok: true,
       max: getMaxStaffPasswordAccounts(),
-      users: r.rows.map((row) => ({
+      items: r.rows.map((row) => ({
         staffAuthUid: row.id,
         loginSlug: row.login_slug,
         displayName: row.display_name,
-        createdAt: row.created_at
+        createdAt: row.created_at.toISOString(),
+        revoked: row.revoked_at != null
       }))
     });
   });

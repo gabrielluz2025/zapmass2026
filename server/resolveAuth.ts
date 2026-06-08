@@ -1,7 +1,7 @@
 import type { Request } from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { vpsAuthEnabled } from './auth/authMode.js';
+import { zapmassAuthProvider } from './auth/authMode.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import {
   resolvePostgresTenantIdAsync,
@@ -86,7 +86,7 @@ async function resolveVpsPrincipal(token: string): Promise<AuthPrincipal | null>
 /** Resolve dono/funcionário a partir do Bearer (VPS primeiro em modo dual). */
 export async function resolveAuthPrincipal(token: string | null): Promise<AuthPrincipal | null> {
   if (!token) return null;
-  const mode = (process.env.ZAPMASS_AUTH_PROVIDER || 'firebase').trim().toLowerCase();
+  const mode = zapmassAuthProvider();
 
   if (mode === 'vps' || mode === 'dual') {
     const vps = await resolveVpsPrincipal(token);

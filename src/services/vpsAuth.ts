@@ -143,8 +143,20 @@ export async function vpsLogout(): Promise<void> {
   clearVpsSession();
 }
 
+function accessTokenExpired(token: string, skewSec = 60): boolean {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return true;
+    const payload = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
+    if (typeof payload.exp !== 'number') return true;
+    return Date.now() / 1000 >= payload.exp - skewSec;
+  } catch {
+    return true;
+  }
+}
+
 export async function vpsGetAccessToken(): Promise<string | null> {
   const t = getVpsAccessToken();
-  if (t) return t;
+  if (t && !accessTokenExpired(t)) return t;
   return vpsRefreshAccessToken();
 }
