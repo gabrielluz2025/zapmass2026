@@ -23,14 +23,21 @@ import {
   computeDailyBreakdownFromServer,
   dailySendMapFromRecord,
   daysInCurrentMonth,
-  formatSendDayTooltip,
-  getDailySendSeriesLastNDays,
+  formatFunnelDayTooltip,
+  getFunnelDailySeriesLastNDays,
   getFunnelMonthSentSoFar,
   getMonthlyGoal,
   setMonthlyGoal
 } from '../../utils/dashboardLocalStats';
 
-const SEND_CHART_MAX_PX = 108;
+const FUNNEL_CHART_MAX_PX = 72;
+
+const FUNNEL_METRICS = [
+  { key: 'sent' as const, label: 'Enviados', color: '#10b981' },
+  { key: 'delivered' as const, label: 'Entregues', color: '#3b82f6' },
+  { key: 'read' as const, label: 'Lidos', color: '#f59e0b' },
+  { key: 'replied' as const, label: 'Respondidos', color: '#a78bfa' }
+];
 
 function formatSendChartDay(dateStr: string): { day: string; weekday: string; isToday: boolean } {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -121,6 +128,9 @@ interface Props {
   funnelStatsTotalSent: number;
   funnelUpdatedAt: number;
   funnelSentByDay?: Record<string, number>;
+  funnelDeliveredByDay?: Record<string, number>;
+  funnelReadByDay?: Record<string, number>;
+  funnelRepliedByDay?: Record<string, number>;
   funnelSentByDayByCampaign?: Record<string, Record<string, number>>;
   userUid?: string;
   circuitBreakerOpenIds: string[];
@@ -139,6 +149,9 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   funnelStatsTotalSent,
   funnelUpdatedAt,
   funnelSentByDay,
+  funnelDeliveredByDay,
+  funnelReadByDay,
+  funnelRepliedByDay,
   funnelSentByDayByCampaign,
   userUid,
   circuitBreakerOpenIds,
@@ -155,18 +168,39 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   const radar = useMemo(() => computeCampaignRadar(campaigns), [campaigns]);
 
   const funnelDailyBuckets = useMemo(() => dailySendMapFromRecord(funnelSentByDay), [funnelSentByDay]);
+  const deliveredBuckets = useMemo(() => dailySendMapFromRecord(funnelDeliveredByDay), [funnelDeliveredByDay]);
+  const readBuckets = useMemo(() => dailySendMapFromRecord(funnelReadByDay), [funnelReadByDay]);
+  const repliedBuckets = useMemo(() => dailySendMapFromRecord(funnelRepliedByDay), [funnelRepliedByDay]);
   const breakdownByDay = useMemo(
     () => computeDailyBreakdownFromServer(campaigns, funnelSentByDayByCampaign),
     [campaigns, funnelSentByDayByCampaign]
   );
   const series7 = useMemo(
-    () => getDailySendSeriesLastNDays(7, funnelDailyBuckets),
-    [funnelUpdatedAt, goalRevision, funnelDailyBuckets]
+    () =>
+      getFunnelDailySeriesLastNDays(7, {
+        sent: funnelDailyBuckets,
+        delivered: deliveredBuckets,
+        read: readBuckets,
+        replied: repliedBuckets
+      }),
+    [funnelUpdatedAt, goalRevision, funnelDailyBuckets, deliveredBuckets, readBuckets, repliedBuckets]
   );
-  const weekTotal = useMemo(() => series7.reduce((n, s) => n + s.count, 0), [series7]);
+  const weekTotals = useMemo(
+    () => ({
+      sent: series7.reduce((n, s) => n + s.sent, 0),
+      delivered: series7.reduce((n, s) => n + s.delivered, 0),
+      read: series7.reduce((n, s) => n + s.read, 0),
+      replied: series7.reduce((n, s) => n + s.replied, 0)
+    }),
+    [series7]
+  );
+  const weekHasData = useMemo(
+    () => weekTotals.sent + weekTotals.delivered + weekTotals.read + weekTotals.replied > 0,
+    [weekTotals]
+  );
   const peakDay = useMemo(() => {
     if (!series7.length) return null;
-    return series7.reduce((best, s) => (s.count > best.count ? s : best), series7[0]);
+    return series7.reduce((best, s) => (s.sent > best.sent ? s : best), series7[0]);
   }, [series7]);
   const monthSent = useMemo(
     () => getFunnelMonthSentSoFar(funnelDailyBuckets),
@@ -203,7 +237,10 @@ export const DashboardIntelPanel: React.FC<Props> = ({
     return contacts.filter((c) => c.followUpAt && sameLocalDay(c.followUpAt)).slice(0, 8);
   }, [contacts]);
 
-  const maxBar = Math.max(1, ...series7.map((s) => s.count));
+  const maxBar = Math.max(
+    1,
+    ...series7.flatMap((s) => [s.sent, s.delivered, s.read, s.replied])
+  );
 
   const monthDays = daysInCurrentMonth();
   const dayOfMonth = new Date().getDate();
@@ -379,36 +416,42 @@ export const DashboardIntelPanel: React.FC<Props> = ({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 shrink-0" style={{ color: '#a78bfa' }} />
-                  <h3 className="ui-title text-[14px]">Mensagens enviadas — 7 dias</h3>
+                  <h3 className="ui-title text-[14px]">Funil de mensagens — 7 dias</h3>
                 </div>
                 <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Mesmo contador de Enviadas do painel, separado por dia.
-                </p>
-              </div>
-              <div
-                className="shrink-0 rounded-xl px-2.5 py-1.5 text-right tabular-nums"
-                style={{
-                  background: 'color-mix(in srgb, #8b5cf6 14%, var(--surface-1))',
-                  border: '1px solid color-mix(in srgb, #8b5cf6 28%, transparent)'
-                }}
-              >
-                <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                  Total
-                </p>
-                <p className="text-[18px] font-black leading-none mt-0.5" style={{ color: '#c4b5fd' }}>
-                  {weekTotal.toLocaleString('pt-BR')}
-                </p>
-                <p className="text-[8px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                  mensagens
+                  Mesmos números do painel: enviados, entregues, lidos e respondidos por dia.
                 </p>
               </div>
             </div>
 
-            {weekTotal > 0 && peakDay && peakDay.count > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-3">
+              {FUNNEL_METRICS.map((m) => (
+                <div
+                  key={m.key}
+                  className="rounded-lg px-2 py-1.5 tabular-nums"
+                  style={{
+                    background: `color-mix(in srgb, ${m.color} 12%, var(--surface-1))`,
+                    border: `1px solid color-mix(in srgb, ${m.color} 28%, transparent)`
+                  }}
+                >
+                  <p className="text-[8px] font-bold uppercase tracking-wider truncate" style={{ color: 'var(--text-3)' }}>
+                    {m.label}
+                  </p>
+                  <p className="text-[15px] font-black leading-none mt-0.5" style={{ color: m.color }}>
+                    {weekTotals[m.key].toLocaleString('pt-BR')}
+                  </p>
+                  <p className="text-[7px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                    na semana
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {weekHasData && peakDay && peakDay.sent > 0 && (
               <p className="text-[10px] mb-2 -mt-1" style={{ color: 'var(--text-3)' }}>
-                Melhor dia:{' '}
+                Pico de envios:{' '}
                 <strong style={{ color: 'var(--text-2)' }}>
-                  {peakDay.count.toLocaleString('pt-BR')} mensagens
+                  {peakDay.sent.toLocaleString('pt-BR')}
                 </strong>{' '}
                 ({formatSendChartDay(peakDay.date).day}/{peakDay.date.slice(5, 7)})
                 {(() => {
@@ -422,13 +465,10 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                     </span>
                   ) : null;
                 })()}
-                <span className="block sm:inline sm:ml-1 opacity-80">
-                  Média da semana: {Math.round(weekTotal / 7).toLocaleString('pt-BR')} por dia
-                </span>
               </p>
             )}
 
-            {weekTotal === 0 ? (
+            {!weekHasData ? (
               <div
                 className="zm-send-chart-empty flex-1 flex flex-col items-center justify-center text-center rounded-xl px-4 py-8"
                 style={{
@@ -438,7 +478,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
               >
                 <Activity className="w-8 h-8 mb-2 opacity-25" style={{ color: '#8b5cf6' }} />
                 <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  Nenhuma mensagem nesta semana
+                  Nenhuma atividade nesta semana
                 </p>
                 <p className="text-[10px] mt-1 max-w-[260px]" style={{ color: 'var(--text-3)' }}>
                   {funnelStatsTotalSent > 0
@@ -447,34 +487,35 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 </p>
               </div>
             ) : (
-              <div className="zm-intel-bars zm-send-chart flex items-end gap-1.5 flex-1 min-h-[132px]">
+              <div className="zm-intel-bars zm-send-chart flex items-end gap-1 flex-1 min-h-[148px]">
                 {series7.map((s, barIdx) => {
                   const meta = formatSendChartDay(s.date);
-                  const barPx =
-                    s.count > 0
-                      ? Math.max(12, Math.round((s.count / maxBar) * SEND_CHART_MAX_PX))
-                      : 6;
-                  const isPeak = peakDay?.date === s.date && s.count > 0;
+                  const isPeak = peakDay?.date === s.date && s.sent > 0;
                   return (
                     <div
                       key={s.date}
                       className={`flex-1 flex flex-col justify-end items-center min-w-0 gap-1 ${meta.isToday ? 'zm-send-col--today' : ''}`}
+                      title={formatFunnelDayTooltip(s, breakdownByDay.get(s.date))}
                     >
-                      <span
-                        className="text-[9px] font-bold tabular-nums leading-none min-h-[11px]"
-                        style={{ color: s.count > 0 ? (isPeak ? '#c4b5fd' : 'var(--text-3)') : 'transparent' }}
-                      >
-                        {s.count > 0 ? s.count.toLocaleString('pt-BR') : ''}
-                      </span>
-                      <div
-                        className={`zm-intel-bar zm-send-bar w-full max-w-[36px] rounded-t-lg ${isPeak ? 'zm-send-bar--peak' : ''}`}
-                        style={{
-                          height: `${barPx}px`,
-                          opacity: s.count > 0 ? 1 : 0.4,
-                          animationDelay: `${barIdx * 45}ms`
-                        }}
-                        title={formatSendDayTooltip(s.date, s.count, breakdownByDay.get(s.date))}
-                      />
+                      <div className="flex items-end justify-center gap-0.5 w-full min-h-[80px] px-0.5">
+                        {FUNNEL_METRICS.map((m) => {
+                          const val = s[m.key];
+                          const barPx =
+                            val > 0 ? Math.max(6, Math.round((val / maxBar) * FUNNEL_CHART_MAX_PX)) : 3;
+                          return (
+                            <div
+                              key={m.key}
+                              className="flex-1 max-w-[10px] rounded-t-md zm-intel-bar"
+                              style={{
+                                height: `${barPx}px`,
+                                background: m.color,
+                                opacity: val > 0 ? (isPeak && m.key === 'sent' ? 1 : 0.88) : 0.2,
+                                animationDelay: `${barIdx * 40 + FUNNEL_METRICS.findIndex((x) => x.key === m.key) * 12}ms`
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
                       <div className="text-center leading-tight">
                         <span
                           className={`block text-[10px] font-bold tabular-nums ${meta.isToday ? 'text-violet-400' : ''}`}
@@ -492,10 +533,20 @@ export const DashboardIntelPanel: React.FC<Props> = ({
               </div>
             )}
 
-            {weekTotal > 0 && (
-              <p className="text-[9px] mt-2 text-center" style={{ color: 'var(--text-3)' }}>
-                Passe o mouse na barra para ver qual campanha enviou
-              </p>
+            {weekHasData && (
+              <>
+                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2">
+                  {FUNNEL_METRICS.map((m) => (
+                    <span key={m.key} className="inline-flex items-center gap-1 text-[9px]" style={{ color: 'var(--text-3)' }}>
+                      <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: m.color }} />
+                      {m.label}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[9px] mt-1 text-center" style={{ color: 'var(--text-3)' }}>
+                  Passe o mouse no dia para ver o detalhe
+                </p>
+              </>
             )}
 
             <div className="mt-4 pt-4 border-t zm-send-goal-block" style={{ borderColor: 'var(--border-subtle)' }}>

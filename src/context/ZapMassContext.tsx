@@ -194,6 +194,9 @@ const INITIAL_FUNNEL: FunnelStats = {
   totalReplied: 0,
   updatedAt: 0,
   sentByDay: {},
+  deliveredByDay: {},
+  readByDay: {},
+  repliedByDay: {},
   sentByDayByCampaign: {}
 };
 
@@ -1470,6 +1473,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           clearedAt: newFunnel?.clearedAt,
           sentByDay:
             newFunnel?.sentByDay && typeof newFunnel.sentByDay === 'object' ? { ...newFunnel.sentByDay } : {},
+          deliveredByDay:
+            newFunnel?.deliveredByDay && typeof newFunnel.deliveredByDay === 'object'
+              ? { ...newFunnel.deliveredByDay }
+              : {},
+          readByDay:
+            newFunnel?.readByDay && typeof newFunnel.readByDay === 'object' ? { ...newFunnel.readByDay } : {},
+          repliedByDay:
+            newFunnel?.repliedByDay && typeof newFunnel.repliedByDay === 'object'
+              ? { ...newFunnel.repliedByDay }
+              : {},
           sentByDayByCampaign:
             newFunnel?.sentByDayByCampaign && typeof newFunnel.sentByDayByCampaign === 'object'
               ? Object.fromEntries(

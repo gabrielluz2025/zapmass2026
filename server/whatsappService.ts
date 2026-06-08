@@ -1402,9 +1402,14 @@ interface PersistedFunnelStats {
     clearedAt?: number;
     /** YYYY-MM-DD → mensagens enviadas naquele dia (persistido no servidor). */
     sentByDay?: Record<string, number>;
+    deliveredByDay?: Record<string, number>;
+    readByDay?: Record<string, number>;
+    repliedByDay?: Record<string, number>;
     /** YYYY-MM-DD → campaignId → mensagens enviadas naquele dia. */
     sentByDayByCampaign?: Record<string, Record<string, number>>;
 }
+
+type FunnelDailyMetric = 'sent' | 'delivered' | 'read' | 'replied';
 
 interface PersistedFunnelStatsFileV2 {
     version: 2;
@@ -1424,6 +1429,9 @@ const makeEmptyFunnelStats = (): PersistedFunnelStats => ({
     totalReplied: 0,
     updatedAt: Date.now(),
     sentByDay: {},
+    deliveredByDay: {},
+    readByDay: {},
+    repliedByDay: {},
     sentByDayByCampaign: {}
 });
 
@@ -1462,6 +1470,9 @@ const normalizeFunnelStats = (raw?: Partial<PersistedFunnelStats> | null): Persi
     updatedAt: Number(raw?.updatedAt) || Date.now(),
     clearedAt: raw?.clearedAt,
     sentByDay: normalizeSentByDay(raw?.sentByDay),
+    deliveredByDay: normalizeSentByDay(raw?.deliveredByDay),
+    readByDay: normalizeSentByDay(raw?.readByDay),
+    repliedByDay: normalizeSentByDay(raw?.repliedByDay),
     sentByDayByCampaign: normalizeSentByDayByCampaign(raw?.sentByDayByCampaign)
 });
 
@@ -1470,32 +1481,68 @@ const dayKeyFromTs = (ts: number): string => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const pruneOldDailySent = (stats: PersistedFunnelStats): void => {
-    const sentByDay = stats.sentByDay || {};
-    const sentByDayByCampaign = stats.sentByDayByCampaign || {};
-    const cutoff = Date.now() - DAILY_SENT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    for (const dk of Object.keys(sentByDay)) {
-        const [y, m, day] = dk.split('-').map(Number);
-        if (!y || !m || !day) continue;
-        if (new Date(y, m - 1, day).getTime() < cutoff) {
-            delete sentByDay[dk];
-            delete sentByDayByCampaign[dk];
-        }
+const dailyMetricMap = (stats: PersistedFunnelStats, metric: FunnelDailyMetric): Record<string, number> => {
+    if (metric === 'sent') {
+        if (!stats.sentByDay) stats.sentByDay = {};
+        return stats.sentByDay;
     }
-    stats.sentByDay = sentByDay;
-    stats.sentByDayByCampaign = sentByDayByCampaign;
+    if (metric === 'delivered') {
+        if (!stats.deliveredByDay) stats.deliveredByDay = {};
+        return stats.deliveredByDay;
+    }
+    if (metric === 'read') {
+        if (!stats.readByDay) stats.readByDay = {};
+        return stats.readByDay;
+    }
+    if (!stats.repliedByDay) stats.repliedByDay = {};
+    return stats.repliedByDay;
 };
 
-const incrementDailySent = (stats: PersistedFunnelStats, ts: number, campaignId?: string): void => {
-    if (!stats.sentByDay) stats.sentByDay = {};
-    if (!stats.sentByDayByCampaign) stats.sentByDayByCampaign = {};
-    const dk = dayKeyFromTs(ts);
-    stats.sentByDay[dk] = (stats.sentByDay[dk] || 0) + 1;
-    if (campaignId) {
-        if (!stats.sentByDayByCampaign[dk]) stats.sentByDayByCampaign[dk] = {};
-        stats.sentByDayByCampaign[dk][campaignId] = (stats.sentByDayByCampaign[dk][campaignId] || 0) + 1;
+const pruneOldDailyFunnel = (stats: PersistedFunnelStats): void => {
+    const cutoff = Date.now() - DAILY_SENT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const dayKeys = new Set<string>();
+    for (const metric of ['sent', 'delivered', 'read', 'replied'] as FunnelDailyMetric[]) {
+        Object.keys(dailyMetricMap(stats, metric)).forEach((dk) => dayKeys.add(dk));
     }
-    pruneOldDailySent(stats);
+    for (const dk of dayKeys) {
+        const [y, m, day] = dk.split('-').map(Number);
+        if (!y || !m || !day) continue;
+        if (new Date(y, m - 1, day).getTime() >= cutoff) continue;
+        for (const metric of ['sent', 'delivered', 'read', 'replied'] as FunnelDailyMetric[]) {
+            delete dailyMetricMap(stats, metric)[dk];
+        }
+        if (stats.sentByDayByCampaign) delete stats.sentByDayByCampaign[dk];
+    }
+};
+
+const bumpFunnelDaily = (
+    stats: PersistedFunnelStats,
+    ts: number,
+    metric: FunnelDailyMetric,
+    campaignId?: string
+): void => {
+    const dk = dayKeyFromTs(ts);
+    const map = dailyMetricMap(stats, metric);
+    map[dk] = (map[dk] || 0) + 1;
+    if (metric === 'sent') {
+        if (!stats.sentByDayByCampaign) stats.sentByDayByCampaign = {};
+        if (campaignId) {
+            if (!stats.sentByDayByCampaign[dk]) stats.sentByDayByCampaign[dk] = {};
+            stats.sentByDayByCampaign[dk][campaignId] = (stats.sentByDayByCampaign[dk][campaignId] || 0) + 1;
+        }
+    }
+    pruneOldDailyFunnel(stats);
+};
+
+const bumpFunnelDailyForOwner = (
+    ownerUid: string | undefined,
+    ts: number,
+    metric: FunnelDailyMetric,
+    campaignId?: string
+): void => {
+    bumpFunnelDaily(funnelStats, ts, metric, campaignId);
+    const owner = ownerFunnelStats(ownerUid);
+    if (owner) bumpFunnelDaily(owner, ts, metric, campaignId);
 };
 
 let funnelStats: PersistedFunnelStats = makeEmptyFunnelStats();
@@ -1639,6 +1686,9 @@ const funnelStatsSocketPayload = (stats: PersistedFunnelStats) => ({
     updatedAt: Number(stats.updatedAt) || Date.now(),
     clearedAt: stats.clearedAt,
     sentByDay: { ...(stats.sentByDay || {}) },
+    deliveredByDay: { ...(stats.deliveredByDay || {}) },
+    readByDay: { ...(stats.readByDay || {}) },
+    repliedByDay: { ...(stats.repliedByDay || {}) },
     sentByDayByCampaign: Object.fromEntries(
         Object.entries(stats.sentByDayByCampaign || {}).map(([dk, row]) => [dk, { ...row }])
     )
@@ -1878,10 +1928,8 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
     }
     if (countFunnelSent) {
         funnelStats.totalSent++;
-        incrementDailySent(funnelStats, ts, cidForMeta);
+        bumpFunnelDailyForOwner(ownerUid, ts, 'sent', cidForMeta);
         incrementOwnerFunnel(ownerUid, { totalSent: 1 });
-        const ownerStats = ownerFunnelStats(ownerUid);
-        if (ownerStats) incrementDailySent(ownerStats, ts, cidForMeta);
     }
     funnelStats.updatedAt = Date.now();
     if (normId) {
@@ -1995,6 +2043,7 @@ const handleCampaignAck = (msgId: string, ack: number) => {
         }
         if (countDel) {
             funnelStats.totalDelivered++;
+            bumpFunnelDailyForOwner(ownerForMeta, Date.now(), 'delivered');
             incrementOwnerFunnel(ownerForMeta, { totalDelivered: 1 });
             if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'delivered');
         }
@@ -2009,6 +2058,7 @@ const handleCampaignAck = (msgId: string, ack: number) => {
         }
         if (countRead) {
             funnelStats.totalRead++;
+            bumpFunnelDailyForOwner(ownerForMeta, Date.now(), 'read');
             incrementOwnerFunnel(ownerForMeta, { totalRead: 1 });
             if (meta?.campaignId) bumpCampaignGeo(meta.campaignId, meta.uf, 'read');
         }
@@ -2040,6 +2090,7 @@ const applyCampaignReplyCount = (opts: {
     if (dedupKey) funnelRepliedOnceByOwnerCampaignContact.add(dedupKey);
     funnelStats.totalReplied++;
     funnelStats.updatedAt = Date.now();
+    bumpFunnelDailyForOwner(ownerUid, Date.now(), 'replied');
     incrementOwnerFunnel(ownerUid, { totalReplied: 1 });
     const uf = opts.ufHint || phoneDigitsToUf(opts.phoneNorm) || GEO_UNKNOWN_UF;
     bumpCampaignGeo(cid, uf, 'replied');
@@ -2055,6 +2106,7 @@ const applyCampaignReplyCount = (opts: {
             }
             if (countDel) {
                 funnelStats.totalDelivered++;
+                bumpFunnelDailyForOwner(ownerUid, Date.now(), 'delivered');
                 incrementOwnerFunnel(ownerUid, { totalDelivered: 1 });
                 bumpCampaignGeo(cid, uf, 'delivered');
             }
@@ -2067,6 +2119,7 @@ const applyCampaignReplyCount = (opts: {
             }
             if (countRead) {
                 funnelStats.totalRead++;
+                bumpFunnelDailyForOwner(ownerUid, Date.now(), 'read');
                 incrementOwnerFunnel(ownerUid, { totalRead: 1 });
                 bumpCampaignGeo(cid, uf, 'read');
             }

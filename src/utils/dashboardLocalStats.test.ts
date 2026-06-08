@@ -4,8 +4,10 @@ import type { Campaign } from '../types';
 import {
   computeDailyBreakdownFromServer,
   computeDailySendsFromCampaigns,
+  formatFunnelDayTooltip,
   formatSendDayTooltip,
   getDailySendSeriesLastNDays,
+  getFunnelDailySeriesLastNDays,
   getFunnelMonthSentSoFar
 } from './dashboardLocalStats';
 
@@ -73,6 +75,32 @@ describe('computeDailySendsFromCampaigns', () => {
       [`${ym}-02`, 2]
     ]);
     expect(getFunnelMonthSentSoFar(funnel)).toBe(5);
+  });
+
+  it('getFunnelDailySeriesLastNDays retorna as 4 etapas do funil', () => {
+    const today = new Date();
+    const dk = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const series = getFunnelDailySeriesLastNDays(1, {
+      sent: new Map([[dk, 10]]),
+      delivered: new Map([[dk, 8]]),
+      read: new Map([[dk, 5]]),
+      replied: new Map([[dk, 2]])
+    });
+    expect(series[0]).toEqual({ date: dk, sent: 10, delivered: 8, read: 5, replied: 2 });
+  });
+
+  it('formatFunnelDayTooltip lista as 4 etapas', () => {
+    const tip = formatFunnelDayTooltip({
+      date: '2026-06-04',
+      sent: 10,
+      delivered: 8,
+      read: 5,
+      replied: 2
+    });
+    expect(tip).toContain('Enviados: 10');
+    expect(tip).toContain('Entregues: 8');
+    expect(tip).toContain('Lidos: 5');
+    expect(tip).toContain('Respondidos: 2');
   });
 
   it('computeDailyBreakdownFromServer resolve nome da campanha', () => {

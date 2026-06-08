@@ -908,6 +908,18 @@ const registerSocketHandlers = () => {
         persistedFunnel.sentByDay && typeof persistedFunnel.sentByDay === 'object'
           ? { ...persistedFunnel.sentByDay }
           : {},
+      deliveredByDay:
+        persistedFunnel.deliveredByDay && typeof persistedFunnel.deliveredByDay === 'object'
+          ? { ...persistedFunnel.deliveredByDay }
+          : {},
+      readByDay:
+        persistedFunnel.readByDay && typeof persistedFunnel.readByDay === 'object'
+          ? { ...persistedFunnel.readByDay }
+          : {},
+      repliedByDay:
+        persistedFunnel.repliedByDay && typeof persistedFunnel.repliedByDay === 'object'
+          ? { ...persistedFunnel.repliedByDay }
+          : {},
       sentByDayByCampaign:
         persistedFunnel.sentByDayByCampaign && typeof persistedFunnel.sentByDayByCampaign === 'object'
           ? Object.fromEntries(

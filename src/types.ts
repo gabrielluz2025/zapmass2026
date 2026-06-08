@@ -224,6 +224,9 @@ export interface FunnelStats {
   clearedAt?: number;
   /** Mensagens enviadas por dia (YYYY-MM-DD), contabilizadas no servidor. */
   sentByDay?: Record<string, number>;
+  deliveredByDay?: Record<string, number>;
+  readByDay?: Record<string, number>;
+  repliedByDay?: Record<string, number>;
   /** Por dia e campanha (campaignId → quantidade). */
   sentByDayByCampaign?: Record<string, Record<string, number>>;
 }

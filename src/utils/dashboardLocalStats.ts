@@ -189,20 +189,75 @@ export function formatSendDayTooltip(
   return lines.join('\n');
 }
 
+export type FunnelDayRow = {
+  date: string;
+  sent: number;
+  delivered: number;
+  read: number;
+  replied: number;
+};
+
 /** Série diária só com o funil "Enviadas" do painel (contagem persistida no servidor). */
 export function getDailySendSeriesLastNDays(
   n: number,
   funnelBuckets?: Map<string, number>
 ): { date: string; count: number }[] {
-  const out: { date: string; count: number }[] = [];
+  return getFunnelDailySeriesLastNDays(n, { sent: funnelBuckets }).map((row) => ({
+    date: row.date,
+    count: row.sent
+  }));
+}
+
+/** Funil completo por dia — enviados, entregues, lidos e respondidos. */
+export function getFunnelDailySeriesLastNDays(
+  n: number,
+  buckets: {
+    sent?: Map<string, number>;
+    delivered?: Map<string, number>;
+    read?: Map<string, number>;
+    replied?: Map<string, number>;
+  }
+): FunnelDayRow[] {
+  const out: FunnelDayRow[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() - i);
     const dk = dayKeyFromDate(d);
-    out.push({ date: dk, count: funnelBuckets?.get(dk) || 0 });
+    out.push({
+      date: dk,
+      sent: buckets.sent?.get(dk) || 0,
+      delivered: buckets.delivered?.get(dk) || 0,
+      read: buckets.read?.get(dk) || 0,
+      replied: buckets.replied?.get(dk) || 0
+    });
   }
   return out;
+}
+
+export function sumFunnelWeek(row: FunnelDayRow): number {
+  return row.sent + row.delivered + row.read + row.replied;
+}
+
+/** Texto amigável com as 4 etapas do funil no dia. */
+export function formatFunnelDayTooltip(row: FunnelDayRow, breakdown?: DayCampaignBreakdown): string {
+  const [, m, d] = row.date.split('-');
+  if (sumFunnelWeek(row) <= 0) return `${d}/${m}: sem atividade neste dia`;
+  const lines = [
+    `${d}/${m}:`,
+    `• Enviados: ${row.sent.toLocaleString('pt-BR')}`,
+    `• Entregues: ${row.delivered.toLocaleString('pt-BR')}`,
+    `• Lidos: ${row.read.toLocaleString('pt-BR')}`,
+    `• Respondidos: ${row.replied.toLocaleString('pt-BR')}`
+  ];
+  const sorted = [...(breakdown?.campaigns || [])].sort((a, b) => b.count - a.count);
+  if (row.sent > 0 && sorted.length > 0) {
+    lines.push('', 'Campanhas (enviados):');
+    for (const camp of sorted.slice(0, 4)) {
+      lines.push(`• ${camp.name}: ${camp.count.toLocaleString('pt-BR')}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 export function getFunnelMonthSentSoFar(funnelBuckets: Map<string, number>): number {
