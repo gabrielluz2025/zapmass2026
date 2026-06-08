@@ -20,14 +20,18 @@ import {
 import { Button, Card, Modal } from '../ui';
 import { computeCampaignRadar } from '../../utils/dashboardCampaignInsights';
 import {
+  buildMergedDailyBreakdownByDay,
+  computeDailyBreakdownFromServer,
+  computeDailyCampaignBreakdown,
   computeDailySendsFromCampaigns,
+  dailySendMapFromRecord,
   daysInCurrentMonth,
+  formatSendDayTooltip,
   getDailySendSeriesLastNDays,
+  getMergedMonthSentSoFar,
   getMonthlyGoal,
-  getMonthSentSoFar,
   recordDashboardFunnelSentIncrement,
-  setMonthlyGoal,
-  sumMonthFromDailyBuckets
+  setMonthlyGoal
 } from '../../utils/dashboardLocalStats';
 
 const SEND_CHART_MAX_PX = 108;
@@ -120,6 +124,8 @@ interface Props {
   systemLogs: SystemLog[];
   funnelStatsTotalSent: number;
   funnelUpdatedAt: number;
+  funnelSentByDay?: Record<string, number>;
+  funnelSentByDayByCampaign?: Record<string, Record<string, number>>;
   userUid?: string;
   circuitBreakerOpenIds: string[];
   onOpenCampaigns: () => void;
@@ -136,6 +142,8 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   systemLogs,
   funnelStatsTotalSent,
   funnelUpdatedAt,
+  funnelSentByDay,
+  funnelSentByDayByCampaign,
   userUid,
   circuitBreakerOpenIds,
   onOpenCampaigns,
@@ -161,22 +169,30 @@ export const DashboardIntelPanel: React.FC<Props> = ({
 
   const radar = useMemo(() => computeCampaignRadar(campaigns), [campaigns]);
 
+  const serverDailyBuckets = useMemo(() => dailySendMapFromRecord(funnelSentByDay), [funnelSentByDay]);
   const campaignDailyBuckets = useMemo(() => computeDailySendsFromCampaigns(campaigns), [campaigns]);
+  const serverBreakdownByDay = useMemo(
+    () => computeDailyBreakdownFromServer(campaigns, funnelSentByDayByCampaign),
+    [campaigns, funnelSentByDayByCampaign]
+  );
+  const campaignBreakdownByDay = useMemo(() => computeDailyCampaignBreakdown(campaigns), [campaigns]);
+  const breakdownByDay = useMemo(
+    () => buildMergedDailyBreakdownByDay(campaigns, serverBreakdownByDay, campaignBreakdownByDay),
+    [campaigns, serverBreakdownByDay, campaignBreakdownByDay]
+  );
   const series7 = useMemo(
-    () => getDailySendSeriesLastNDays(userUid, 7, campaignDailyBuckets),
-    [userUid, funnelUpdatedAt, goalRevision, campaignDailyBuckets]
+    () => getDailySendSeriesLastNDays(userUid, 7, campaignDailyBuckets, serverDailyBuckets),
+    [userUid, funnelUpdatedAt, goalRevision, campaignDailyBuckets, serverDailyBuckets]
   );
   const weekTotal = useMemo(() => series7.reduce((n, s) => n + s.count, 0), [series7]);
   const peakDay = useMemo(() => {
     if (!series7.length) return null;
     return series7.reduce((best, s) => (s.count > best.count ? s : best), series7[0]);
   }, [series7]);
-  const monthSentLocal = useMemo(() => getMonthSentSoFar(userUid), [userUid, funnelUpdatedAt, goalRevision]);
-  const monthSentCampaign = useMemo(
-    () => sumMonthFromDailyBuckets(campaignDailyBuckets),
-    [campaignDailyBuckets]
+  const monthSent = useMemo(
+    () => getMergedMonthSentSoFar(userUid, serverDailyBuckets, campaignDailyBuckets),
+    [userUid, funnelUpdatedAt, goalRevision, serverDailyBuckets, campaignDailyBuckets]
   );
-  const monthSent = Math.max(monthSentLocal, monthSentCampaign);
   const monthlyGoal = useMemo(() => getMonthlyGoal(userUid), [userUid, goalRevision]);
 
   const quality = useMemo(() => computeBaseQuality(contacts), [contacts]);
@@ -384,10 +400,10 @@ export const DashboardIntelPanel: React.FC<Props> = ({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 shrink-0" style={{ color: '#a78bfa' }} />
-                  <h3 className="ui-title text-[14px]">Envios últimos 7 dias</h3>
+                  <h3 className="ui-title text-[14px]">Mensagens enviadas — 7 dias</h3>
                 </div>
                 <p className="text-[10px] mt-1 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Campanhas concluídas e envios ao vivo neste painel.
+                  Cada mensagem enviada com sucesso é contada no dia em que saiu — mesmo com o painel fechado.
                 </p>
               </div>
               <div
@@ -398,27 +414,38 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                 }}
               >
                 <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-                  Semana
+                  Total
                 </p>
                 <p className="text-[18px] font-black leading-none mt-0.5" style={{ color: '#c4b5fd' }}>
                   {weekTotal.toLocaleString('pt-BR')}
+                </p>
+                <p className="text-[8px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  mensagens
                 </p>
               </div>
             </div>
 
             {weekTotal > 0 && peakDay && peakDay.count > 0 && (
               <p className="text-[10px] mb-2 -mt-1" style={{ color: 'var(--text-3)' }}>
-                Pico:{' '}
+                Melhor dia:{' '}
                 <strong style={{ color: 'var(--text-2)' }}>
-                  {peakDay.count.toLocaleString('pt-BR')}
+                  {peakDay.count.toLocaleString('pt-BR')} mensagens
                 </strong>{' '}
-                em {formatSendChartDay(peakDay.date).day}/{peakDay.date.slice(5, 7)}
-                {weekTotal > 0 && (
-                  <span className="opacity-80">
-                    {' '}
-                    · média {Math.round(weekTotal / 7).toLocaleString('pt-BR')}/dia
-                  </span>
-                )}
+                ({formatSendChartDay(peakDay.date).day}/{peakDay.date.slice(5, 7)})
+                {(() => {
+                  const top = [...(breakdownByDay.get(peakDay.date)?.campaigns || [])].sort(
+                    (a, b) => b.count - a.count
+                  )[0];
+                  return top ? (
+                    <span className="opacity-90">
+                      {' '}
+                      — campanha: {top.name}
+                    </span>
+                  ) : null;
+                })()}
+                <span className="block sm:inline sm:ml-1 opacity-80">
+                  Média da semana: {Math.round(weekTotal / 7).toLocaleString('pt-BR')} por dia
+                </span>
               </p>
             )}
 
@@ -432,10 +459,10 @@ export const DashboardIntelPanel: React.FC<Props> = ({
               >
                 <Activity className="w-8 h-8 mb-2 opacity-25" style={{ color: '#8b5cf6' }} />
                 <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  Nenhum envio nesta semana
+                  Nenhuma mensagem nesta semana
                 </p>
-                <p className="text-[10px] mt-1 max-w-[220px]" style={{ color: 'var(--text-3)' }}>
-                  Dispare uma campanha ou aguarde — os envios aparecem aqui por dia.
+                <p className="text-[10px] mt-1 max-w-[240px]" style={{ color: 'var(--text-3)' }}>
+                  Quando você disparar uma campanha, o total de mensagens enviadas aparece aqui, separado por dia.
                 </p>
               </div>
             ) : (
@@ -465,7 +492,7 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                           opacity: s.count > 0 ? 1 : 0.4,
                           animationDelay: `${barIdx * 45}ms`
                         }}
-                        title={`${s.date}: ${s.count.toLocaleString('pt-BR')} envio${s.count === 1 ? '' : 's'}`}
+                        title={formatSendDayTooltip(s.date, s.count, breakdownByDay.get(s.date))}
                       />
                       <div className="text-center leading-tight">
                         <span
@@ -482,6 +509,12 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                   );
                 })}
               </div>
+            )}
+
+            {weekTotal > 0 && (
+              <p className="text-[9px] mt-2 text-center" style={{ color: 'var(--text-3)' }}>
+                Passe o mouse na barra para ver qual campanha enviou
+              </p>
             )}
 
             <div className="mt-4 pt-4 border-t zm-send-goal-block" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -536,10 +569,10 @@ export const DashboardIntelPanel: React.FC<Props> = ({
                   }}
                 >
                   <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
-                    Definir meta mensal
+                    Definir quantas mensagens quer enviar no mês
                   </p>
                   <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                    Alvo de envios só neste dispositivo — acompanhe o progresso no painel.
+                    Ex.: 5.000 mensagens — o painel mostra quanto já foi e quanto falta.
                   </p>
                 </button>
               )}
@@ -665,16 +698,16 @@ export const DashboardIntelPanel: React.FC<Props> = ({
             </ul>
           ) : (
             <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-              Sem registos ainda nesta sessão (logs ao vivo do servidor aparecem aqui).
+              Nenhuma atividade recente para mostrar.
             </p>
           )}
         </Card>
       </div>
 
-      <Modal isOpen={goalModal} onClose={() => setGoalModal(false)} title="Meta mensal de envios">
+      <Modal isOpen={goalModal} onClose={() => setGoalModal(false)} title="Meta de mensagens no mês">
         <p className="text-[12px] mb-3" style={{ color: 'var(--text-2)' }}>
-          Número alvo de disparos bem-sucedidos no mês. O progresso neste cartão conta só os incrementos guardados quando o
-          ZapMass está aberto neste navegador.
+          Quantas mensagens você pretende enviar até ao fim do mês? O painel compara com o que suas campanhas já
+          enviaram e mostra a percentagem concluída.
         </p>
         <input
           className="w-full px-3 py-2 rounded-xl border mb-4 text-[14px]"

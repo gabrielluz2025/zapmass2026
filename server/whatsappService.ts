@@ -1392,6 +1392,10 @@ interface PersistedFunnelStats {
     totalReplied: number;
     updatedAt: number;
     clearedAt?: number;
+    /** YYYY-MM-DD → mensagens enviadas naquele dia (persistido no servidor). */
+    sentByDay?: Record<string, number>;
+    /** YYYY-MM-DD → campaignId → mensagens enviadas naquele dia. */
+    sentByDayByCampaign?: Record<string, Record<string, number>>;
 }
 
 interface PersistedFunnelStatsFileV2 {
@@ -1403,13 +1407,44 @@ interface PersistedFunnelStatsFileV2 {
 const funnelStatsFile = path.join(dataDir, 'funnel_stats.json');
 const campaignGeoFile = path.join(dataDir, 'campaign_geography.json');
 
+const DAILY_SENT_RETENTION_DAYS = 40;
+
 const makeEmptyFunnelStats = (): PersistedFunnelStats => ({
     totalSent: 0,
     totalDelivered: 0,
     totalRead: 0,
     totalReplied: 0,
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    sentByDay: {},
+    sentByDayByCampaign: {}
 });
+
+const normalizeSentByDay = (raw?: Record<string, unknown> | null): Record<string, number> => {
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Record<string, number> = {};
+    for (const [dk, v] of Object.entries(raw)) {
+        const n = Math.max(0, Math.floor(Number(v) || 0));
+        if (n > 0) out[dk] = n;
+    }
+    return out;
+};
+
+const normalizeSentByDayByCampaign = (
+    raw?: Record<string, Record<string, unknown>> | null
+): Record<string, Record<string, number>> => {
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Record<string, Record<string, number>> = {};
+    for (const [dk, row] of Object.entries(raw)) {
+        if (!row || typeof row !== 'object') continue;
+        const cmap: Record<string, number> = {};
+        for (const [cid, v] of Object.entries(row)) {
+            const n = Math.max(0, Math.floor(Number(v) || 0));
+            if (n > 0 && cid) cmap[cid] = n;
+        }
+        if (Object.keys(cmap).length > 0) out[dk] = cmap;
+    }
+    return out;
+};
 
 const normalizeFunnelStats = (raw?: Partial<PersistedFunnelStats> | null): PersistedFunnelStats => ({
     totalSent: Number(raw?.totalSent) || 0,
@@ -1417,8 +1452,43 @@ const normalizeFunnelStats = (raw?: Partial<PersistedFunnelStats> | null): Persi
     totalRead: Number(raw?.totalRead) || 0,
     totalReplied: Number(raw?.totalReplied) || 0,
     updatedAt: Number(raw?.updatedAt) || Date.now(),
-    clearedAt: raw?.clearedAt
+    clearedAt: raw?.clearedAt,
+    sentByDay: normalizeSentByDay(raw?.sentByDay),
+    sentByDayByCampaign: normalizeSentByDayByCampaign(raw?.sentByDayByCampaign)
 });
+
+const dayKeyFromTs = (ts: number): string => {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const pruneOldDailySent = (stats: PersistedFunnelStats): void => {
+    const sentByDay = stats.sentByDay || {};
+    const sentByDayByCampaign = stats.sentByDayByCampaign || {};
+    const cutoff = Date.now() - DAILY_SENT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    for (const dk of Object.keys(sentByDay)) {
+        const [y, m, day] = dk.split('-').map(Number);
+        if (!y || !m || !day) continue;
+        if (new Date(y, m - 1, day).getTime() < cutoff) {
+            delete sentByDay[dk];
+            delete sentByDayByCampaign[dk];
+        }
+    }
+    stats.sentByDay = sentByDay;
+    stats.sentByDayByCampaign = sentByDayByCampaign;
+};
+
+const incrementDailySent = (stats: PersistedFunnelStats, ts: number, campaignId?: string): void => {
+    if (!stats.sentByDay) stats.sentByDay = {};
+    if (!stats.sentByDayByCampaign) stats.sentByDayByCampaign = {};
+    const dk = dayKeyFromTs(ts);
+    stats.sentByDay[dk] = (stats.sentByDay[dk] || 0) + 1;
+    if (campaignId) {
+        if (!stats.sentByDayByCampaign[dk]) stats.sentByDayByCampaign[dk] = {};
+        stats.sentByDayByCampaign[dk][campaignId] = (stats.sentByDayByCampaign[dk][campaignId] || 0) + 1;
+    }
+    pruneOldDailySent(stats);
+};
 
 let funnelStats: PersistedFunnelStats = makeEmptyFunnelStats();
 const funnelStatsByOwner = new Map<string, PersistedFunnelStats>();
@@ -1553,11 +1623,23 @@ const incrementOwnerFunnel = (
     target.updatedAt = Date.now();
 };
 
+const funnelStatsSocketPayload = (stats: PersistedFunnelStats) => ({
+    totalSent: Number(stats.totalSent) || 0,
+    totalDelivered: Number(stats.totalDelivered) || 0,
+    totalRead: Number(stats.totalRead) || 0,
+    totalReplied: Number(stats.totalReplied) || 0,
+    updatedAt: Number(stats.updatedAt) || Date.now(),
+    clearedAt: stats.clearedAt,
+    sentByDay: { ...(stats.sentByDay || {}) },
+    sentByDayByCampaign: Object.fromEntries(
+        Object.entries(stats.sentByDayByCampaign || {}).map(([dk, row]) => [dk, { ...row }])
+    )
+});
+
 const emitFunnelStats = (ownerUidHint?: string) => {
     const owner = ownerUidHint || funnelStatsRecipientUid();
-    const payload = {
-        ...(owner ? ownerFunnelStats(owner) || makeEmptyFunnelStats() : funnelStats)
-    };
+    const raw = owner ? ownerFunnelStats(owner) || makeEmptyFunnelStats() : funnelStats;
+    const payload = funnelStatsSocketPayload(raw);
     if (owner) {
         emitToOwnerUid('funnel-stats-update', owner, payload);
     }
@@ -1788,7 +1870,10 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
     }
     if (countFunnelSent) {
         funnelStats.totalSent++;
+        incrementDailySent(funnelStats, ts, cidForMeta);
         incrementOwnerFunnel(ownerUid, { totalSent: 1 });
+        const ownerStats = ownerFunnelStats(ownerUid);
+        if (ownerStats) incrementDailySent(ownerStats, ts, cidForMeta);
     }
     funnelStats.updatedAt = Date.now();
     if (normId) {

@@ -1143,6 +1143,8 @@ export const DashboardTab: React.FC = () => {
         systemLogs={systemLogs}
         funnelStatsTotalSent={funnelStats.totalSent}
         funnelUpdatedAt={funnelStats.updatedAt || 0}
+        funnelSentByDay={funnelStats.sentByDay}
+        funnelSentByDayByCampaign={funnelStats.sentByDayByCampaign}
         userUid={user?.uid}
         circuitBreakerOpenIds={circuitBreakerOpenConnectionIds}
         onOpenCampaigns={() => setCurrentView('campaigns')}

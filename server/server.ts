@@ -903,7 +903,17 @@ const registerSocketHandlers = () => {
       totalRead: Number(persistedFunnel.totalRead) || 0,
       totalReplied: Number(persistedFunnel.totalReplied) || 0,
       updatedAt: Number(persistedFunnel.updatedAt) || Date.now(),
-      clearedAt: persistedFunnel.clearedAt
+      clearedAt: persistedFunnel.clearedAt,
+      sentByDay:
+        persistedFunnel.sentByDay && typeof persistedFunnel.sentByDay === 'object'
+          ? { ...persistedFunnel.sentByDay }
+          : {},
+      sentByDayByCampaign:
+        persistedFunnel.sentByDayByCampaign && typeof persistedFunnel.sentByDayByCampaign === 'object'
+          ? Object.fromEntries(
+              Object.entries(persistedFunnel.sentByDayByCampaign).map(([dk, row]) => [dk, { ...row }])
+            )
+          : {}
     });
     socket.emit('warmup-chip-stats-update', filterByConnectionScope(uid, waService.getWarmupChipStats()));
     waService.hydrateCampaignGeoForSocket(socket);

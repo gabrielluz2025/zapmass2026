@@ -192,7 +192,9 @@ const INITIAL_FUNNEL: FunnelStats = {
   totalDelivered: 0,
   totalRead: 0,
   totalReplied: 0,
-  updatedAt: 0
+  updatedAt: 0,
+  sentByDay: {},
+  sentByDayByCampaign: {}
 };
 
 const INITIAL_CAMPAIGN_GEO: CampaignGeoState = {
@@ -1459,13 +1461,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('funnel-stats-update', (newFunnel: FunnelStats) => {
       setFunnelStats((prev) => {
-        const next = {
+        const next: FunnelStats = {
           totalSent: Number(newFunnel?.totalSent) || 0,
           totalDelivered: Number(newFunnel?.totalDelivered) || 0,
           totalRead: Number(newFunnel?.totalRead) || 0,
           totalReplied: Number(newFunnel?.totalReplied) || 0,
           updatedAt: Number(newFunnel?.updatedAt) || Date.now(),
-          clearedAt: newFunnel?.clearedAt
+          clearedAt: newFunnel?.clearedAt,
+          sentByDay:
+            newFunnel?.sentByDay && typeof newFunnel.sentByDay === 'object' ? { ...newFunnel.sentByDay } : {},
+          sentByDayByCampaign:
+            newFunnel?.sentByDayByCampaign && typeof newFunnel.sentByDayByCampaign === 'object'
+              ? Object.fromEntries(
+                  Object.entries(newFunnel.sentByDayByCampaign).map(([dk, row]) => [dk, { ...row }])
+                )
+              : {}
         };
         if (
           prev &&
@@ -1473,7 +1483,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           prev.totalDelivered === next.totalDelivered &&
           prev.totalRead === next.totalRead &&
           prev.totalReplied === next.totalReplied &&
-          prev.clearedAt === next.clearedAt
+          prev.clearedAt === next.clearedAt &&
+          prev.updatedAt === next.updatedAt
         ) {
           return prev;
         }
