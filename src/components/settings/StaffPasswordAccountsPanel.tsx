@@ -57,8 +57,8 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
       setActiveCount(active);
       if (typeof j.max === 'number') setMax(j.max);
       onActiveCount?.(active, typeof j.max === 'number' ? j.max : max);
-    } catch {
-      /* contagem opcional — tabela principal mostra erro */
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível carregar os acessos com senha.');
     } finally {
       setLoading(false);
     }

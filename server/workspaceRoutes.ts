@@ -22,7 +22,7 @@ import {
   whatsappSurveyMessageBody
 } from './inboxClientSurvey.js';
 import { getSurveyLinksBaseOrigin } from './publicSurveyAppOrigin.js';
-import { vpsAuthRequired } from './auth/authMode.js';
+import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -261,7 +261,7 @@ export function registerWorkspaceRoutes(app: Express): void {
    * Lista membros da equipa com vínculo ativo (convite Google ou login por senha).
    * Em auth VPS: ver `registerVpsWorkspaceStaffRoutes`.
    */
-  if (!vpsAuthRequired()) app.get('/api/workspace/members', async (req: Request, res: Response) => {
+  if (!vpsAuthEnabled()) app.get('/api/workspace/members', async (req: Request, res: Response) => {
     const adminApp = getFirebaseAdmin();
     if (!adminApp) {
       return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });

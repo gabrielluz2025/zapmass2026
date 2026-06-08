@@ -78,8 +78,34 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
     if (!enabled) return;
     setLoading(true);
     try {
-      const j = await apiFetchJson<{ items?: WorkspaceMemberRow[] }>('/api/workspace/members');
-      setRows(Array.isArray(j.items) ? j.items : []);
+      if (useVpsAuth()) {
+        const j = await apiFetchJson<{
+          items?: Array<{
+            staffAuthUid?: string;
+            loginSlug?: string;
+            displayName?: string;
+            createdAt?: string | null;
+            revoked?: boolean;
+          }>;
+        }>('/api/workspace/staff-password-users');
+        const items = Array.isArray(j.items) ? j.items : [];
+        setRows(
+          items
+            .filter((r) => !r.revoked)
+            .map((r) => ({
+              uid: String(r.staffAuthUid || ''),
+              source: 'password' as const,
+              loginSlug: r.loginSlug ?? null,
+              email: null,
+              displayName: r.displayName ?? null,
+              linkedAt: r.createdAt ?? null
+            }))
+            .filter((r) => Boolean(r.uid))
+        );
+      } else {
+        const j = await apiFetchJson<{ items?: WorkspaceMemberRow[] }>('/api/workspace/members');
+        setRows(Array.isArray(j.items) ? j.items : []);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Não foi possível carregar membros da equipa.');
       setRows([]);

@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getZapmassPool } from './db/postgres.js';
-import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
+import { vpsAuthEnabled } from './auth/authMode.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 import { countActiveStaffMembers, createStaffMember, findStaffMember } from './auth/staffRepository.js';
 import { hashPassword } from './auth/password.js';
@@ -22,7 +22,7 @@ async function assertOwnerVps(req: Request, res: Response): Promise<{ ownerUid: 
 export function registerVpsWorkspaceStaffRoutes(app: Express): void {
   if (!vpsAuthEnabled() || !getZapmassPool()) return;
 
-  if (vpsAuthRequired()) {
+  if (vpsAuthEnabled()) {
     app.get('/api/workspace/members', async (req: Request, res: Response) => {
       const owner = await assertOwnerVps(req, res);
       if (!owner) return;
