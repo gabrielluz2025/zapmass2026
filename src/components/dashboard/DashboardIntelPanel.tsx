@@ -1,6 +1,6 @@
 /**
  * Novos blocos do painel: radar de campanhas, saúde dos chips, alertas CRM,
- * envios últimos 7 dias, score da base, feed de actividade e meta mensal.
+ * envios últimos 7 dias, score da base, feed de atividade e meta mensal.
  */
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import type { Campaign, Contact, Conversation, SystemLog, WarmupChipStats, WhatsAppConnection } from '../../types';
@@ -21,7 +21,6 @@ import {
   Thermometer,
   TrendingUp,
   Trophy,
-  UserRound,
   Zap
 } from 'lucide-react';
 import { Button, Card, Modal } from '../ui';
@@ -43,6 +42,7 @@ import {
   getMonthlyGoal,
   setMonthlyGoal
 } from '../../utils/dashboardLocalStats';
+import { buildDashboardActivityFeed, qualityScoreLabel } from '../../utils/dashboardActivityFeed';
 
 const FUNNEL_CHART_MAX_PX = 72;
 
@@ -111,16 +111,6 @@ function computeBaseQuality(contacts: Contact[]): { validPct: number; namedPct: 
   const uniquePct = Math.round((1 - dupContacts / Math.max(n, 1)) * 100);
   const score = Math.round(validPct * 0.4 + namedPct * 0.35 + uniquePct * 0.25);
   return { validPct, namedPct, uniquePct, score };
-}
-
-function formatActivity(log: SystemLog): { title: string; sub: string; tone: 'default' | 'warn' | 'err' } {
-  const p = (log.payload || {}) as { message?: string; error?: string; campaignId?: string };
-  const msg = String(p.message || p.error || '').trim();
-  const ev = (log.event || '').toLowerCase();
-  if (ev.includes('campaign:error') || ev.endsWith(':error')) return { title: 'Erro', sub: msg || 'Ocorreu um erro.', tone: 'err' };
-  if (ev.includes('campaign:warn') || ev.endsWith(':warn')) return { title: 'Aviso', sub: msg || 'Aviso do sistema.', tone: 'warn' };
-  if (ev.includes('campaign') || p.campaignId) return { title: 'Campanha', sub: msg || 'Actividade de campanha.', tone: 'default' };
-  return { title: log.event || 'Sistema', sub: msg, tone: 'default' };
 }
 
 function formatTimeAgo(ts: string): string {
@@ -248,8 +238,12 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   const monthlyGoal = useMemo(() => getMonthlyGoal(userUid), [userUid, goalRevision]);
 
   const quality = useMemo(() => computeBaseQuality(contacts), [contacts]);
+  const qualityMeta = useMemo(() => qualityScoreLabel(quality.score), [quality.score]);
 
-  const activityFeed = useMemo(() => [...systemLogs].slice(0, 5), [systemLogs]);
+  const activityFeed = useMemo(
+    () => buildDashboardActivityFeed(systemLogs, campaigns, 6),
+    [systemLogs, campaigns]
+  );
 
   const breakerSet = useMemo(() => new Set(circuitBreakerOpenIds), [circuitBreakerOpenIds]);
 
@@ -275,6 +269,21 @@ export const DashboardIntelPanel: React.FC<Props> = ({
   const followUpsToday = useMemo(() => {
     return contacts.filter((c) => c.followUpAt && sameLocalDay(c.followUpAt)).slice(0, 8);
   }, [contacts]);
+
+  const tempBaseCounts = useMemo(() => {
+    let hot = 0;
+    let warm = 0;
+    let cold = 0;
+    let neu = 0;
+    for (const c of contacts) {
+      const t = tempMap[c.id]?.temp || 'new';
+      if (t === 'hot') hot++;
+      else if (t === 'warm') warm++;
+      else if (t === 'cold') cold++;
+      else neu++;
+    }
+    return { hot, warm, cold, neu, total: contacts.length };
+  }, [contacts, tempMap]);
 
   const maxBar = Math.max(
     1,
@@ -777,127 +786,219 @@ export const DashboardIntelPanel: React.FC<Props> = ({
           </div>
         </Card>
 
-        <Card className="zm-intel-card xl:col-span-6 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <HeartCrack className="w-4 h-4 text-rose-400" />
-            <h3 className="ui-title text-[14px]">Precisam de atenção</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p className="font-bold text-[10px] uppercase mb-2" style={{ color: 'var(--text-3)' }}>
-                Quentes sem mensagem há 7+ dias
-              </p>
-              {hotStale7d.length ? (
-                <ul className="space-y-2">
-                  {hotStale7d.map((c) => (
-                    <li key={c.id} className="flex justify-between items-center gap-2 text-[12px]">
-                      <span className="truncate font-medium" style={{ color: 'var(--text-1)' }}>
-                        {c.name}
-                      </span>
-                      <Button variant="ghost" size="xs" type="button" onClick={() => onNavigateToChat(c.phone, c.name)}>
-                        Chat
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                  Nenhum caso nesta lista.
-                </p>
-              )}
-            </div>
-            <div>
-              <p className="font-bold text-[10px] uppercase mb-2" style={{ color: 'var(--text-3)' }}>
-                Retorno agendado hoje
-              </p>
-              {followUpsToday.length ? (
-                <ul className="space-y-2">
-                  {followUpsToday.map((c) => (
-                    <li key={c.id} className="flex justify-between items-center gap-2 text-[12px]">
-                      <span className="truncate font-medium" style={{ color: 'var(--text-1)' }}>
-                        {c.name}
-                      </span>
-                      <Button variant="ghost" size="xs" type="button" onClick={() => onNavigateToChat(c.phone, c.name)}>
-                        Chat
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                  Nenhum retorno com data de hoje.
-                </p>
-              )}
-            </div>
-          </div>
-          <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenContacts}>
-            Abrir contatos
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </Card>
-
-        <Card className="zm-intel-card xl:col-span-3 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Layers className="w-4 h-4" style={{ color: '#06b6d4' }} />
-            <h3 className="ui-title text-[14px]">Qualidade da base</h3>
-          </div>
-          <div className="flex items-center justify-center mb-3">
-            <div
-              className="relative w-24 h-24 rounded-full flex items-center justify-center text-lg font-black"
-              style={{ background: `conic-gradient(#10b981 ${quality.score * 3.6}deg, var(--surface-3) 0deg)` }}
-            >
-              <div className="absolute inset-2 rounded-full flex flex-col items-center justify-center" style={{ background: 'var(--surface-0)' }}>
-                <span style={{ color: 'var(--text-1)' }}>{quality.score}</span>
-                <span className="text-[9px]" style={{ color: 'var(--text-3)' }}>
-                  score
+        <Card className="zm-intel-card xl:col-span-6 p-0 overflow-hidden">
+          <div className="zm-crm-accent" aria-hidden />
+          <div className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <HeartCrack className="w-4 h-4 text-rose-400" />
+                <h3 className="ui-title text-[14px]">Precisam de atenção</h3>
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-[9px]">
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold"
+                  style={{ background: 'rgba(244,63,94,0.12)', color: '#fb7185' }}
+                >
+                  <Flame className="w-3 h-3" />
+                  {hotStale7d.length} quente{hotStale7d.length === 1 ? '' : 's'} parado{hotStale7d.length === 1 ? '' : 's'}
+                </span>
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold"
+                  style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24' }}
+                >
+                  <CalendarClock className="w-3 h-3" />
+                  {followUpsToday.length} lembrete{followUpsToday.length === 1 ? '' : 's'} hoje
                 </span>
               </div>
             </div>
+
+            {tempBaseCounts.total > 0 && (
+              <p className="text-[10px] mb-3" style={{ color: 'var(--text-3)' }}>
+                Base: {tempBaseCounts.hot} quentes · {tempBaseCounts.warm} mornos · {tempBaseCounts.cold} frios
+                {tempBaseCounts.neu > 0 ? ` · ${tempBaseCounts.neu} sem histórico` : ''}
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="font-bold text-[10px] uppercase mb-2" style={{ color: 'var(--text-3)' }}>
+                  Quentes sem mensagem há 7+ dias
+                </p>
+                {hotStale7d.length ? (
+                  <ul className="space-y-2">
+                    {hotStale7d.map((c) => {
+                      const lastTs = tempMap[c.id]?.lastSentTs || 0;
+                      const days = lastTs ? Math.floor((Date.now() - lastTs) / 86400000) : 0;
+                      return (
+                        <li
+                          key={c.id}
+                          className="flex justify-between items-center gap-2 text-[12px] rounded-lg px-2 py-1.5"
+                          style={{ background: 'rgba(244,63,94,0.06)' }}
+                        >
+                          <div className="min-w-0">
+                            <span className="truncate font-medium block" style={{ color: 'var(--text-1)' }}>
+                              {c.name}
+                            </span>
+                            <span className="text-[9px]" style={{ color: 'var(--text-3)' }}>
+                              {days > 0 ? `Última mensagem há ${days} dia${days === 1 ? '' : 's'}` : 'Sem envio recente'}
+                            </span>
+                          </div>
+                          <Button variant="ghost" size="xs" type="button" onClick={() => onNavigateToChat(c.phone, c.name)}>
+                            Chat
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    Nenhum contato quente parado. Quando alguém responder e depois ficar 7+ dias sem mensagem sua, aparece aqui.
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="font-bold text-[10px] uppercase mb-2" style={{ color: 'var(--text-3)' }}>
+                  Lembretes para hoje
+                </p>
+                {followUpsToday.length ? (
+                  <ul className="space-y-2">
+                    {followUpsToday.map((c) => (
+                      <li
+                        key={c.id}
+                        className="flex justify-between items-center gap-2 text-[12px] rounded-lg px-2 py-1.5"
+                        style={{ background: 'rgba(245,158,11,0.06)' }}
+                      >
+                        <span className="truncate font-medium" style={{ color: 'var(--text-1)' }}>
+                          {c.name}
+                        </span>
+                        <Button variant="ghost" size="xs" type="button" onClick={() => onNavigateToChat(c.phone, c.name)}>
+                          Chat
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    Nenhum retorno marcado para hoje. Defina a data de retorno no contato para lembrar de falar com ele.
+                  </p>
+                )}
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" className="mt-3 w-full justify-between" onClick={onOpenContacts}>
+              Abrir contatos
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
-          <ul className="space-y-1.5 text-[11px]" style={{ color: 'var(--text-2)' }}>
-            <li className="flex justify-between gap-2">
-              <span>Tel. válido</span>
-              <strong>{quality.validPct}%</strong>
-            </li>
-            <li className="flex justify-between gap-2">
-              <span>Nome preenchido</span>
-              <strong>{quality.namedPct}%</strong>
-            </li>
-            <li className="flex justify-between gap-2">
-              <span>Menos duplicados</span>
-              <strong>{quality.uniquePct}%</strong>
-            </li>
-          </ul>
         </Card>
 
-        <Card className="zm-intel-card xl:col-span-3 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <UserRound className="w-4 h-4" style={{ color: '#94a3b8' }} />
-            <h3 className="ui-title text-[14px]">Actividade recente</h3>
-          </div>
-          {activityFeed.length ? (
-            <ul className="space-y-2.5">
-              {activityFeed.map((log, i) => {
-                const f = formatActivity(log);
-                const col = f.tone === 'err' ? '#f43f5e' : f.tone === 'warn' ? '#f59e0b' : '#64748b';
-                return (
-                  <li key={`${log.timestamp}-${i}`} className="text-[11px] leading-snug border-l-2 pl-2" style={{ borderColor: col }}>
-                    <span className="font-semibold block" style={{ color: 'var(--text-1)' }}>
-                      {f.title}
-                    </span>
-                    <span style={{ color: 'var(--text-2)' }}>{f.sub || 'Sem detalhe.'}</span>
-                    <span className="block text-[9px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                      {formatTimeAgo(log.timestamp)}
-                    </span>
-                  </li>
-                );
-              })}
+        <Card className="zm-intel-card xl:col-span-3 p-0 overflow-hidden">
+          <div className="zm-quality-accent" aria-hidden />
+          <div className="p-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4" style={{ color: '#06b6d4' }} />
+                <h3 className="ui-title text-[14px]">Qualidade da base</h3>
+              </div>
+              <span
+                className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-full"
+                style={{ background: `${qualityMeta.color}22`, color: qualityMeta.color }}
+              >
+                {qualityMeta.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-4 mb-3">
+              <div
+                className="relative w-20 h-20 rounded-full flex items-center justify-center text-lg font-black shrink-0"
+                style={{ background: `conic-gradient(${qualityMeta.color} ${quality.score * 3.6}deg, var(--surface-3) 0deg)` }}
+              >
+                <div
+                  className="absolute inset-2 rounded-full flex flex-col items-center justify-center"
+                  style={{ background: 'var(--surface-0)' }}
+                >
+                  <span style={{ color: 'var(--text-1)' }}>{quality.score}</span>
+                  <span className="text-[8px]" style={{ color: 'var(--text-3)' }}>
+                    nota
+                  </span>
+                </div>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[20px] font-black tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
+                  {contacts.length.toLocaleString('pt-BR')}
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  contatos na base
+                </p>
+                {quality.uniquePct < 100 && (
+                  <p className="text-[9px] mt-1" style={{ color: '#f59e0b' }}>
+                    Revise duplicados para melhorar disparos
+                  </p>
+                )}
+              </div>
+            </div>
+            <ul className="space-y-2.5 text-[11px]" style={{ color: 'var(--text-2)' }}>
+              {[
+                { label: 'Tel. válido', pct: quality.validPct, color: '#10b981' },
+                { label: 'Nome preenchido', pct: quality.namedPct, color: '#3b82f6' },
+                { label: 'Sem duplicados', pct: quality.uniquePct, color: '#06b6d4' }
+              ].map((row) => (
+                <li key={row.label}>
+                  <div className="flex justify-between gap-2 mb-1">
+                    <span>{row.label}</span>
+                    <strong className="tabular-nums">{row.pct}%</strong>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${row.pct}%`, background: row.color }}
+                    />
+                  </div>
+                </li>
+              ))}
             </ul>
-          ) : (
-            <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-              Nenhuma atividade recente para mostrar.
-            </p>
-          )}
+          </div>
+        </Card>
+
+        <Card className="zm-intel-card xl:col-span-3 p-0 overflow-hidden">
+          <div className="zm-activity-accent" aria-hidden />
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Activity className="w-4 h-4" style={{ color: '#94a3b8' }} />
+              <h3 className="ui-title text-[14px]">Atividade recente</h3>
+            </div>
+            {activityFeed.length ? (
+              <ul className="space-y-2.5">
+                {activityFeed.map((item) => {
+                  const col =
+                    item.tone === 'err'
+                      ? '#f43f5e'
+                      : item.tone === 'warn'
+                        ? '#f59e0b'
+                        : item.tone === 'success'
+                          ? '#10b981'
+                          : '#64748b';
+                  return (
+                    <li
+                      key={item.id}
+                      className="text-[11px] leading-snug border-l-2 pl-2"
+                      style={{ borderColor: col }}
+                    >
+                      <span className="font-semibold block" style={{ color: 'var(--text-1)' }}>
+                        {item.title}
+                      </span>
+                      <span style={{ color: 'var(--text-2)' }}>{item.sub}</span>
+                      <span className="block text-[9px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                        {formatTimeAgo(item.ts)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                Ainda sem movimentação para mostrar. Quando você disparar campanhas ou agendar envios, os últimos eventos aparecem aqui.
+              </p>
+            )}
+          </div>
         </Card>
       </div>
 
