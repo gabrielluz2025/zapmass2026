@@ -1789,6 +1789,9 @@ export const DashboardTab: React.FC = () => {
               ) : (
                 channelSpotlight.map((row) => {
                   const conn = row.connection;
+                  const isOnline = conn.status === ConnectionStatus.CONNECTED;
+                  const statusColor = isOnline ? '#10b981' : '#f43f5e';
+                  const avatarFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(conn.name)}&background=${isOnline ? '10b981' : '64748b'}&color=fff&size=88&bold=true`;
                   const trendLabel =
                     row.trendPct > 0 ? `+${row.trendPct}%` : row.trendPct < 0 ? `${row.trendPct}%` : 'estável';
                   const trendColor = row.trendPct > 0 ? '#10b981' : row.trendPct < 0 ? '#f43f5e' : 'var(--text-3)';
@@ -1799,26 +1802,34 @@ export const DashboardTab: React.FC = () => {
                       style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                            <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
-                              {conn.name}
-                            </p>
-                            {conn.status === ConnectionStatus.CONNECTED ? (
-                              <Badge variant="success" dot />
-                            ) : (
-                              <Badge variant="danger" dot />
-                            )}
-                            <span
-                              className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full"
-                              style={{ background: row.tempBg, color: row.tempColor }}
-                            >
-                              {row.tempLabel}
-                            </span>
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div
+                            className="w-11 h-11 rounded-xl overflow-hidden shrink-0"
+                            style={{ border: `2px solid ${statusColor}55` }}
+                          >
+                            <img
+                              src={conn.profilePicUrl || avatarFallback}
+                              alt={conn.name}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
-                          <p className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
-                            {conn.phoneNumber || 'Sem número'}
-                          </p>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                              <p className="font-semibold text-[13px] truncate" style={{ color: 'var(--text-1)' }}>
+                                {conn.name}
+                              </p>
+                              {isOnline ? <Badge variant="success" dot /> : <Badge variant="danger" dot />}
+                              <span
+                                className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full"
+                                style={{ background: row.tempBg, color: row.tempColor }}
+                              >
+                                {row.tempLabel}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
+                              {conn.phoneNumber || 'Sem número'}
+                            </p>
+                          </div>
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="text-[20px] font-bold tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
