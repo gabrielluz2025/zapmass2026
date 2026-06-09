@@ -1502,6 +1502,7 @@ interface ConnectionSettingsPayload {
     limitExceededApproved?: boolean;
     lastLimitResetDate?: string;
     ownerUid?: string; // Mantém o proprietário do canal de forma persistente
+    friendlyName?: string;
 }
 
 let connectionsSettingsCache: Record<string, ConnectionSettingsPayload> = {};

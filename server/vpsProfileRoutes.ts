@@ -102,7 +102,9 @@ export function registerVpsProfileRoutes(app: Express): void {
         if (removePhoto) await updateStaffPhotoUrl(member.id, null);
         else if (hasPhoto) {
           const saved = await saveProfilePhoto(body.photoBase64 as string, member.id);
-          if (!saved.ok) return res.status(400).json({ ok: false, error: saved.error });
+          if (saved.ok === false) {
+            return res.status(400).json({ ok: false, error: saved.error });
+          }
           await updateStaffPhotoUrl(member.id, saved.url);
         }
       } else {
@@ -116,7 +118,9 @@ export function registerVpsProfileRoutes(app: Express): void {
         if (removePhoto) await updateUserPhotoUrl(principal.tenantUid, null);
         else if (hasPhoto) {
           const saved = await saveProfilePhoto(body.photoBase64 as string, principal.tenantUid);
-          if (!saved.ok) return res.status(400).json({ ok: false, error: saved.error });
+          if (saved.ok === false) {
+            return res.status(400).json({ ok: false, error: saved.error });
+          }
           await updateUserPhotoUrl(principal.tenantUid, saved.url);
         }
       }
