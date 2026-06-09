@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Flame, Loader2, MapPin, RefreshCw, User } from 'lucide-react';
+import { Download, Flame, Loader2, MapPin, RefreshCw, User, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button, Card, Select } from '../ui';
+import { exportLeadsGeoXlsx } from '../../utils/exportLeadsGeoXlsx';
 import {
   apiGeocodeContacts,
   apiGeocodeLeadsClusters,
@@ -153,7 +154,16 @@ export const LeadsConcentrationMap: React.FC = () => {
   const contactPins = useMemo(() => summary?.contactPins || [], [summary?.contactPins]);
   const pinStats = summary?.pinStats;
 
-  const topList = useMemo(() => (summary?.clusters || []).slice(0, 15), [summary?.clusters]);
+  const topList = useMemo(() => (summary?.clusters || []).slice(0, 25), [summary?.clusters]);
+
+  const cityNbEntries = useMemo(() => {
+    if (!filterCity || !summary?.byNeighborhood) return [];
+    const cityPart = filterCity.split('·')[0].trim().toLowerCase();
+    return Object.entries(summary.byNeighborhood)
+      .filter(([k]) => k.toLowerCase().includes(cityPart))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 16);
+  }, [filterCity, summary?.byNeighborhood]);
 
   const cityNeighborhoods = useMemo(
     () => neighborhoodsForCity(filterCity, summary?.filters?.neighborhoods || []),
@@ -351,6 +361,32 @@ export const LeadsConcentrationMap: React.FC = () => {
   const stats = summary?.stats;
   const filters = summary?.filters;
   const top = summary?.topConcentration;
+  const filteredTotal = stats?.filteredTotal || 1;
+
+  const handleExportXlsx = () => {
+    if (!summary) return;
+    try {
+      const n = exportLeadsGeoXlsx(summary, { query, layer });
+      toast.success(`Planilha XLSX com ${n} regiões (+ resumo e abas por cidade/bairro).`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao gerar XLSX.');
+    }
+  };
+
+  const activeFilters = useMemo(
+    () =>
+      [
+        filterState && { key: 'state', label: `UF ${filterState}`, clear: () => setFilterState('') },
+        filterDdd && { key: 'ddd', label: `DDD ${filterDdd}`, clear: () => setFilterDdd('') },
+        filterCity && { key: 'city', label: filterCity, clear: () => handleCityFilter('') },
+        filterNeighborhood && {
+          key: 'nb',
+          label: filterNeighborhood,
+          clear: () => setFilterNeighborhood('')
+        }
+      ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>,
+    [filterState, filterDdd, filterCity, filterNeighborhood]
+  );
   const needsGeocode =
     (layer === 'city' || layer === 'neighborhood') &&
     config?.geocodeEnabled &&
@@ -373,6 +409,17 @@ export const LeadsConcentrationMap: React.FC = () => {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            leftIcon={<Download className="w-3.5 h-3.5" />}
+            onClick={handleExportXlsx}
+            disabled={loading || !summary}
+            title="Baixar ranking, resumo e abas por cidade/bairro/DDD/UF"
+          >
+            XLSX
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -444,13 +491,23 @@ export const LeadsConcentrationMap: React.FC = () => {
             </div>
           )}
 
-          {filterCity && (
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-              <span className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200">
-                {filterCity}
+          {activeFilters.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mr-1">Filtros</span>
+              {activeFilters.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={f.clear}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold bg-teal-600/15 text-teal-800 dark:text-teal-200 border border-teal-600/25 hover:bg-teal-600/25 transition-colors"
+                >
+                  {f.label}
+                  <X className="w-3 h-3 opacity-70" />
+                </button>
+              ))}
+              <span className="text-[11px] text-slate-400 ml-1">
+                {stats.clusters} regiões · clique no ranking para focar
               </span>
-              <span>{stats.clusters} bairros · {stats.filteredTotal.toLocaleString('pt-BR')} contatos</span>
-              <span className="text-slate-400">Clique no ranking para focar no mapa</span>
             </div>
           )}
 
@@ -554,7 +611,7 @@ export const LeadsConcentrationMap: React.FC = () => {
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Ranking — {LAYER_LABELS[layer]}
                 </p>
-                <div className="space-y-1 max-h-[280px] overflow-y-auto pr-1">
+                <div className="space-y-1 max-h-[340px] overflow-y-auto pr-1">
                   {topList.length === 0 ? (
                     <p className="text-xs text-slate-500">Nenhum contato neste filtro/camada.</p>
                   ) : (
@@ -565,12 +622,21 @@ export const LeadsConcentrationMap: React.FC = () => {
                         rank={i + 1}
                         isTop={c.key === top?.key}
                         maxCount={topList[0]?.count || 1}
+                        filteredTotal={filteredTotal}
                         onFocus={() => zoomToCluster(c)}
                       />
                     ))
                   )}
                 </div>
+                {(summary?.clusters.length || 0) > topList.length && (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    +{(summary?.clusters.length || 0) - topList.length} no XLSX completo
+                  </p>
+                )}
               </div>
+              {layer === 'neighborhood' && filterCity && cityNbEntries.length > 0 && (
+                <NbChips entries={cityNbEntries} active={filterNeighborhood} onPick={setFilterNeighborhood} />
+              )}
               {layer === 'ddd' && Object.keys(summary?.byDdd || {}).length > 0 && (
                 <DddChips byDdd={summary!.byDdd} active={filterDdd} onPick={setFilterDdd} />
               )}
@@ -628,9 +694,11 @@ const ClusterRow: React.FC<{
   rank: number;
   isTop?: boolean;
   maxCount: number;
+  filteredTotal: number;
   onFocus?: () => void;
-}> = ({ cluster, rank, isTop, maxCount, onFocus }) => {
-  const pct = maxCount > 0 ? Math.max(4, Math.round((100 * cluster.count) / maxCount)) : 0;
+}> = ({ cluster, rank, isTop, maxCount, filteredTotal, onFocus }) => {
+  const barPct = maxCount > 0 ? Math.max(4, Math.round((100 * cluster.count) / maxCount)) : 0;
+  const sharePct = filteredTotal > 0 ? Math.round((1000 * cluster.count) / filteredTotal) / 10 : 0;
   return (
     <button
       type="button"
@@ -644,19 +712,49 @@ const ClusterRow: React.FC<{
           <span className="w-4 text-[10px] font-mono text-slate-400 shrink-0">{rank}</span>
           <span className="truncate font-medium text-slate-800 dark:text-slate-100">{cluster.label}</span>
         </div>
-        <span className="font-mono font-bold tabular-nums text-slate-600 dark:text-slate-300 shrink-0">
-          {cluster.count.toLocaleString('pt-BR')}
-        </span>
+        <div className="shrink-0 text-right">
+          <span className="font-mono font-bold tabular-nums text-slate-600 dark:text-slate-300">
+            {cluster.count.toLocaleString('pt-BR')}
+          </span>
+          <span className="text-[10px] text-slate-400 ml-1">{sharePct}%</span>
+        </div>
       </div>
       <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
         <div
           className={`h-full rounded-full transition-all ${isTop ? 'bg-rose-500' : 'bg-teal-500/80'}`}
-          style={{ width: `${pct}%` }}
+          style={{ width: `${barPct}%` }}
         />
       </div>
     </button>
   );
 };
+
+const NbChips: React.FC<{
+  entries: [string, number][];
+  active: string;
+  onPick: (nb: string) => void;
+}> = ({ entries, active, onPick }) => (
+  <div>
+    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Bairros rápidos</p>
+    <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto">
+      {entries.map(([nb, n]) => (
+        <button
+          key={nb}
+          type="button"
+          onClick={() => onPick(active === nb ? '' : nb)}
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold transition-colors max-w-full truncate ${
+            active === nb
+              ? 'bg-rose-600 text-white'
+              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+          }`}
+        >
+          <span className="truncate">{nb.split('·')[0].trim()}</span>
+          <span className="font-mono tabular-nums opacity-80 shrink-0">{n}</span>
+        </button>
+      ))}
+    </div>
+  </div>
+);
 
 const DddChips: React.FC<{
   byDdd: Record<string, number>;
