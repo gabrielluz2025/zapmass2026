@@ -38,6 +38,20 @@ function cleanWhitespace(raw: string): string {
     .trim();
 }
 
+/** Corrige texto UTF-8 lido como Latin-1 (ex.: Agrolndia → Agrolândia). */
+export function repairUtf8Mojibake(raw: string): string {
+  const s = String(raw || '');
+  if (!s || !/[\u00c0-\u00ff]/.test(s)) return s;
+  try {
+    const bytes = new Uint8Array([...s].map((ch) => ch.charCodeAt(0) & 0xff));
+    const fixed = new TextDecoder('utf-8').decode(bytes);
+    if (fixed && !fixed.includes('') && fixed.length > 0) return cleanWhitespace(fixed);
+  } catch {
+    /* mantém original */
+  }
+  return s;
+}
+
 function capitalizeHyphenated(lowerWord: string): string {
   return lowerWord
     .split('-')
@@ -128,23 +142,25 @@ export function knownUfForCity(city: string): string {
   return KNOWN_CITY_UF[normKeyPart(city)] || '';
 }
 
-export function resolveContactCityState(
+/**
+ * Cidade/UF a partir do cadastro — **não usa DDD do telefone** (evita Blumenau/SC virar PE no mapa).
+ */
+export function resolveAddressCityState(
   input: {
     city?: string;
     state?: string;
-    phone?: string;
   },
   ibgeIndex?: IbgeCityIndex | null
 ): { city: string; state: string } {
-  const parsed = parseEmbeddedCityState(input.city || '');
+  const cityField = repairUtf8Mojibake(input.city || '');
+  const parsed = parseEmbeddedCityState(cityField);
   const cityRaw = parsed.city;
-  const phoneUf = phoneDigitsToUf(input.phone || '') || '';
-  const stateHint = normalizeContactState(input.state || '');
+  const stateHint = normalizeContactState(input.state || '') || parsed.state;
 
   const ibge = resolveCityWithIbge(ibgeIndex, {
     city: cityRaw,
     stateHint,
-    phoneUf,
+    phoneUf: undefined,
     parsedEmbeddedUf: parsed.state
   });
   if (ibge) {
@@ -156,17 +172,30 @@ export function resolveContactCityState(
     return { city: titleCasePlaceName(cityRaw), state: knownUf };
   }
 
-  let state = stateHint || parsed.state;
-  if (parsed.state && phoneUf && parsed.state !== phoneUf) {
-    state = phoneUf;
-  } else if (!state && phoneUf) {
-    state = phoneUf;
-  }
-  if (!state && parsed.state) state = parsed.state;
-
   return {
     city: titleCasePlaceName(cityRaw),
-    state
+    state: stateHint || parsed.state
+  };
+}
+
+export function resolveContactCityState(
+  input: {
+    city?: string;
+    state?: string;
+    phone?: string;
+  },
+  ibgeIndex?: IbgeCityIndex | null
+): { city: string; state: string } {
+  const fromAddress = resolveAddressCityState(
+    { city: input.city, state: input.state },
+    ibgeIndex
+  );
+  if (fromAddress.city) return fromAddress;
+
+  const phoneUf = phoneDigitsToUf(input.phone || '') || '';
+  return {
+    city: fromAddress.city,
+    state: fromAddress.state || phoneUf
   };
 }
 
@@ -195,17 +224,14 @@ export function normalizeContactAddressFields(
 ): NormalizedContactAddress {
   const out: NormalizedContactAddress = {};
 
-  const hasCity = cleanWhitespace(input.city || '').length > 0;
+  const cityInput = repairUtf8Mojibake(input.city || '');
+  const hasCity = cleanWhitespace(cityInput).length > 0;
   const hasState = cleanWhitespace(input.state || '').length > 0;
   const hasPhone = String(input.phone || '').replace(/\D/g, '').length >= 10;
 
   if (hasCity || hasState || hasPhone) {
-    const { city, state } = resolveContactCityState(
-      {
-        city: input.city,
-        state: input.state,
-        phone: input.phone
-      },
+    const { city, state } = resolveAddressCityState(
+      { city: cityInput, state: input.state },
       ibgeIndex
     );
     if (city) out.city = city;

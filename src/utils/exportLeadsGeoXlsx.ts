@@ -97,7 +97,8 @@ export function exportLeadsGeoXlsx(
     'Número',
     'Precisão',
     'Latitude',
-    'Longitude'
+    'Longitude',
+    'ID contato'
   ];
   const pinsRows = (contactPins || []).map((p) => [
     p.name,
@@ -108,7 +109,8 @@ export function exportLeadsGeoXlsx(
     p.number,
     p.precision,
     p.lat,
-    p.lng
+    p.lng,
+    p.id
   ]);
 
   const wb = XLSX.utils.book_new();

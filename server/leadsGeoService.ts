@@ -5,8 +5,9 @@ import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import {
   normalizeContactNeighborhood,
   parseGeoFilterCity,
-  resolveContactCityState as resolveNormalizedCityState
+  resolveAddressCityState
 } from '../src/utils/contactAddressNormalize.js';
+import { isCoordPlausibleForCity } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import {
   cityToApproxCoord,
@@ -20,7 +21,11 @@ import {
   geocodeBrazilAddressDetailed,
   isGoogleGeocodeEnabled
 } from './googleGeocode.js';
-import { geocodeNominatim, isNominatimEnabled } from './nominatimGeocode.js';
+import {
+  geocodeNominatim,
+  geocodeNominatimStructured,
+  isNominatimEnabled
+} from './nominatimGeocode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { rowToContact, type ContactRow } from './repositories/contactMapper.js';
 import { listContacts, updateContact } from './repositories/contactsRepository.js';
@@ -177,14 +182,50 @@ function neighborhoodSpreadCoord(
   };
 }
 
-async function geocodeQueryAnyProvider(query: string): Promise<{ lat: number; lng: number } | null> {
+async function geocodeQueryAnyProvider(
+  query: string,
+  city?: string,
+  state?: string
+): Promise<{ lat: number; lng: number } | null> {
+  const acceptHit = (lat: number, lng: number) => {
+    if (!city) return { lat, lng };
+    return isCoordPlausibleForCity(lat, lng, city, state || '') ? { lat, lng } : null;
+  };
   if (isGoogleGeocodeEnabled()) {
     const hit = await geocodeBrazilAddressDetailed(query);
-    if (hit.ok) return { lat: hit.lat, lng: hit.lng };
+    if (hit.ok) return acceptHit(hit.lat, hit.lng);
   }
   if (isNominatimEnabled()) {
     const hit = await geocodeNominatim(query);
-    if (hit.ok) return { lat: hit.lat, lng: hit.lng };
+    if (hit.ok) return acceptHit(hit.lat, hit.lng);
+  }
+  return null;
+}
+
+async function geocodeContactAddress(c: Contact): Promise<{ lat: number; lng: number } | null> {
+  const { city, state: st } = resolveContactCityState(c);
+  const nb = normNeighborhood(c.neighborhood || '', city);
+  const street = String(c.street || '').trim();
+  const number = String(c.number || '').trim();
+  const zip = (c.zipCode || '').replace(/\D/g, '');
+
+  if (isNominatimEnabled() && city) {
+    const structuredStreet = [street, number].filter(Boolean).join(' ');
+    const structHit = await geocodeNominatimStructured({
+      street: structuredStreet || undefined,
+      city,
+      state: st ? UF_NAMES[st] || st : undefined,
+      country: 'Brasil',
+      postalcode: zip.length >= 8 ? zip : undefined
+    });
+    if (structHit.ok && isCoordPlausibleForCity(structHit.lat, structHit.lng, city, st)) {
+      return { lat: structHit.lat, lng: structHit.lng };
+    }
+  }
+
+  for (const q of buildContactGeocodeQueries(c)) {
+    const hit = await geocodeQueryAnyProvider(q, city, st);
+    if (hit) return hit;
   }
   return null;
 }
@@ -220,21 +261,34 @@ function contactPinPrecision(c: Contact): GeoContactPin['precision'] {
 }
 
 function resolveContactState(c: Contact): string {
+  const { state } = resolveAddressCityState(
+    { city: c.city, state: c.state },
+    getIbgeMunicipiosIndex()
+  );
+  if (state) return state;
   const st = normState(c.state || '');
   if (st) return st;
-  const uf = phoneDigitsToUf((c.phone || '').replace(/\D/g, ''));
-  return uf || '';
+  return phoneDigitsToUf((c.phone || '').replace(/\D/g, '')) || '';
 }
 
 function resolveContactCityState(c: Contact): { city: string; state: string } {
-  return resolveNormalizedCityState(
-    {
-      city: c.city,
-      state: c.state,
-      phone: c.phone
-    },
+  return resolveAddressCityState(
+    { city: c.city, state: c.state },
     getIbgeMunicipiosIndex()
   );
+}
+
+function contactCoordsValid(c: Contact, lat: number, lng: number): boolean {
+  const { city, state } = resolveContactCityState(c);
+  return isCoordPlausibleForCity(lat, lng, city, state);
+}
+
+function storedContactCoords(c: Contact): { lat: number; lng: number } | null {
+  if (!Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return null;
+  const lat = c.latitude!;
+  const lng = c.longitude!;
+  if (!contactCoordsValid(c, lat, lng)) return null;
+  return { lat, lng };
 }
 
 function resolveContactDdd(c: Contact): string {
@@ -476,9 +530,10 @@ export async function buildLeadsGeoSummary(
       let lng: number | null = builtin?.lng ?? cached?.lng ?? null;
       let mapped = lat != null && lng != null;
 
-      if (Number.isFinite(c.latitude) && Number.isFinite(c.longitude)) {
-        lat = c.latitude!;
-        lng = c.longitude!;
+      const stored = storedContactCoords(c);
+      if (stored) {
+        lat = stored.lat;
+        lng = stored.lng;
         mapped = true;
       }
 
@@ -500,9 +555,10 @@ export async function buildLeadsGeoSummary(
     }
 
     cluster.count++;
-    if (Number.isFinite(c.latitude) && Number.isFinite(c.longitude)) {
-      cluster.lat = c.latitude!;
-      cluster.lng = c.longitude!;
+    const stored = storedContactCoords(c);
+    if (stored) {
+      cluster.lat = stored.lat;
+      cluster.lng = stored.lng;
       cluster.mapped = true;
     }
     if (cluster.sampleNames.length < 3 && (c.name || '').trim()) {
@@ -511,18 +567,18 @@ export async function buildLeadsGeoSummary(
 
     if (hasFullStreetAddress(c)) filteredWithFullAddress++;
 
-    const hasCoords = Number.isFinite(c.latitude) && Number.isFinite(c.longitude);
-    const canPin = hasCoords || hasFullStreetAddress(c) || normNeighborhood(c.neighborhood || '');
+    const storedPin = storedContactCoords(c);
+    const canPin = storedPin || hasFullStreetAddress(c) || normNeighborhood(c.neighborhood || '', city);
     if (canPin) {
-      if (hasCoords) {
+      if (storedPin) {
         pinsMapped++;
         if (contactPins.length < 500) {
           const { city: pinCity, state: pinState } = resolveContactCityState(c);
           contactPins.push({
             id: c.id,
             name: (c.name || 'Sem nome').trim(),
-            lat: c.latitude!,
-            lng: c.longitude!,
+            lat: storedPin.lat,
+            lng: storedPin.lng,
             city: pinCity,
             state: pinState,
             neighborhood: normNeighborhood(c.neighborhood || ''),
@@ -628,7 +684,11 @@ export async function geocodeLeadsGeoClusters(
 
     let saved = false;
     for (const query of queries) {
-      const hit = await geocodeQueryAnyProvider(query);
+      const hit = await geocodeQueryAnyProvider(
+        query,
+        cluster.city !== '—' ? cluster.city : '',
+        cluster.state !== '—' ? cluster.state : ''
+      );
       if (!hit) continue;
       cache[cluster.key] = { lat: hit.lat, lng: hit.lng, at: new Date().toISOString() };
       geocoded++;
@@ -661,12 +721,16 @@ export async function geocodeContactsWithAddress(
   const contacts = await loadTenantContacts(tenantId);
   const pending = contacts
     .filter((c) => {
-      if (!(Number.isFinite(c.latitude) && Number.isFinite(c.longitude))) {
-        if (!normCity(c.city || '') && !hasFullStreetAddress(c)) return false;
-        if (!contactMatchesFilters(c, { city: opts?.city, neighborhood: opts?.neighborhood })) return false;
-        return hasFullStreetAddress(c) || normNeighborhood(c.neighborhood || '') || normCity(c.city || '');
-      }
-      return false;
+      if (!contactMatchesFilters(c, { city: opts?.city, neighborhood: opts?.neighborhood })) return false;
+      if (storedContactCoords(c)) return false;
+      const hasBadCoords =
+        Number.isFinite(c.latitude) &&
+        Number.isFinite(c.longitude) &&
+        !contactCoordsValid(c, c.latitude!, c.longitude!);
+      if (hasBadCoords) return true;
+      if (Number.isFinite(c.latitude) && Number.isFinite(c.longitude)) return false;
+      if (!normCity(c.city || '') && !hasFullStreetAddress(c)) return false;
+      return hasFullStreetAddress(c) || normNeighborhood(c.neighborhood || '') || normCity(c.city || '');
     })
     .sort((a, b) => {
       const aFull = hasFullStreetAddress(a) ? 1 : 0;
@@ -679,12 +743,7 @@ export async function geocodeContactsWithAddress(
   let failed = 0;
 
   for (const c of pending) {
-    const queries = buildContactGeocodeQueries(c);
-    let hit: { lat: number; lng: number } | null = null;
-    for (const q of queries) {
-      hit = await geocodeQueryAnyProvider(q);
-      if (hit) break;
-    }
+    const hit = await geocodeContactAddress(c);
     if (!hit) {
       failed++;
       continue;

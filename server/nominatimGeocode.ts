@@ -45,3 +45,47 @@ export async function geocodeNominatim(query: string): Promise<NominatimResult> 
 export function isNominatimEnabled(): boolean {
   return process.env.NOMINATIM_DISABLED !== '1';
 }
+
+export type NominatimStructuredInput = {
+  street?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  postalcode?: string;
+};
+
+export async function geocodeNominatimStructured(
+  input: NominatimStructuredInput
+): Promise<NominatimResult> {
+  const street = String(input.street || '').trim();
+  const city = String(input.city || '').trim();
+  const state = String(input.state || '').trim();
+  if (!city && !street) return { ok: false, status: 'INVALID_QUERY' };
+
+  await throttleNominatim();
+
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('countrycodes', 'br');
+  if (street) url.searchParams.set('street', street);
+  if (city) url.searchParams.set('city', city);
+  if (state) url.searchParams.set('state', state);
+  url.searchParams.set('country', input.country || 'Brasil');
+  if (input.postalcode) url.searchParams.set('postalcode', input.postalcode);
+
+  try {
+    const r = await fetch(url.toString(), {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }
+    });
+    if (!r.ok) return { ok: false, status: 'HTTP_ERROR' };
+    const rows = (await r.json()) as Array<{ lat?: string; lon?: string; display_name?: string }>;
+    const hit = rows?.[0];
+    const lat = Number(hit?.lat);
+    const lng = Number(hit?.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { ok: false, status: 'ZERO_RESULTS' };
+    return { ok: true, lat, lng, displayName: hit?.display_name };
+  } catch {
+    return { ok: false, status: 'NETWORK_ERROR' };
+  }
+}

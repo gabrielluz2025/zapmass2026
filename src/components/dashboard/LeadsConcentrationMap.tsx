@@ -4,7 +4,13 @@ import 'leaflet/dist/leaflet.css';
 import { Download, Flame, Loader2, MapPin, RefreshCw, User, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button, Card, Select } from '../ui';
+import { useZapMassConversations, useZapMassCore } from '../../context/ZapMassContext';
 import { exportLeadsGeoXlsx } from '../../utils/exportLeadsGeoXlsx';
+import {
+  computeContactTemperatures,
+  CONTACT_TEMP_LABEL,
+  type ContactTemperature
+} from '../../utils/contactTemperature';
 import {
   apiGeocodeContacts,
   apiGeocodeLeadsClusters,
@@ -79,20 +85,29 @@ function neighborhoodsForCity(cityFilter: string, neighborhoods: string[]): stri
   return neighborhoods.filter((n) => n.toLowerCase().includes(cityPart));
 }
 
-function contactPinIcon(pin: GeoContactPin): L.DivIcon {
-  const color = pin.precision === 'address' ? '#dc2626' : pin.precision === 'neighborhood' ? '#0d9488' : '#6366f1';
+const LEAD_TEMP_COLORS: Record<ContactTemperature, string> = {
+  hot: '#ef4444',
+  warm: '#f97316',
+  cold: '#3b82f6',
+  new: '#94a3b8'
+};
+
+function contactPinIcon(pin: GeoContactPin, temp: ContactTemperature = 'new'): L.DivIcon {
+  const color = LEAD_TEMP_COLORS[temp];
+  const ring = temp === 'hot' ? 'box-shadow:0 0 0 2px #fecaca;' : '';
   return L.divIcon({
     className: '',
-    html: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);font-size:13px;line-height:1">👤</div>`,
+    html: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);font-size:13px;line-height:1;${ring}">👤</div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12]
   });
 }
 
-function pinPopupHtml(pin: GeoContactPin): string {
+function pinPopupHtml(pin: GeoContactPin, temp: ContactTemperature = 'new'): string {
   const addr = [pin.street, pin.number].filter(Boolean).join(', ');
   const lines = [
     `<strong>${pin.name}</strong>`,
+    `<span style="color:${LEAD_TEMP_COLORS[temp]};font-weight:600">${CONTACT_TEMP_LABEL[temp]}</span>`,
     addr ? `${addr}` : '',
     pin.neighborhood ? `Bairro: ${pin.neighborhood}` : '',
     pin.city ? `${pin.city}${pin.state ? ` · ${pin.state}` : ''}` : '',
@@ -117,6 +132,13 @@ function popupHtml(cluster: GeoCluster, title?: string): string {
 }
 
 export const LeadsConcentrationMap: React.FC = () => {
+  const { contacts } = useZapMassCore();
+  const conversations = useZapMassConversations();
+  const contactTemps = useMemo(
+    () => computeContactTemperatures(contacts, conversations),
+    [contacts, conversations]
+  );
+
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
@@ -285,8 +307,9 @@ export const LeadsConcentrationMap: React.FC = () => {
     if (mapMode === 'pins' && hasPins) {
       for (const pin of contactPins) {
         bounds.extend([pin.lat, pin.lng]);
-        L.marker([pin.lat, pin.lng], { icon: contactPinIcon(pin) })
-          .bindPopup(pinPopupHtml(pin))
+        const temp = contactTemps[pin.id]?.temp || 'new';
+        L.marker([pin.lat, pin.lng], { icon: contactPinIcon(pin, temp) })
+          .bindPopup(pinPopupHtml(pin, temp))
           .addTo(group);
       }
     }
@@ -295,7 +318,7 @@ export const LeadsConcentrationMap: React.FC = () => {
       mapInstanceRef.current.fitBounds(bounds, { padding: [36, 36], maxZoom });
     }
     window.setTimeout(() => mapInstanceRef.current?.invalidateSize(), 120);
-  }, [mappedClusters, contactPins, mapMode, summary?.topConcentration?.key, filterCity, filterNeighborhood, layer]);
+  }, [mappedClusters, contactPins, contactTemps, mapMode, summary?.topConcentration?.key, filterCity, filterNeighborhood, layer]);
 
   useEffect(() => {
     const hasData = mappedClusters.length > 0 || contactPins.length > 0;
@@ -584,9 +607,8 @@ export const LeadsConcentrationMap: React.FC = () => {
               }`}
             >
               <div ref={mapRef} className="absolute inset-0 w-full h-full" />
-              {mapMode !== 'pins' && mappedClusters.length > 0 && (
-                <HeatLegend />
-              )}
+              {mapMode === 'pins' && contactPins.length > 0 && <LeadTempLegend />}
+              {mapMode !== 'pins' && mappedClusters.length > 0 && <HeatLegend />}
               {showEmptyMap && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-slate-500 bg-slate-100/90 dark:bg-slate-800/90 z-10 pointer-events-none">
                   <MapPin className="w-8 h-8 mb-2 opacity-40" />
@@ -674,6 +696,20 @@ const StatPill: React.FC<{ label: string; value: number; sub?: string; isText?: 
       {isText ? sub || '—' : value.toLocaleString('pt-BR')}
     </p>
     {!isText && sub && <p className="text-[10px] text-slate-400">{sub}</p>}
+  </div>
+);
+
+const LeadTempLegend: React.FC = () => (
+  <div className="absolute bottom-3 left-3 z-[500] rounded-lg bg-white/92 dark:bg-slate-900/92 border border-slate-200/80 dark:border-slate-700 px-2.5 py-1.5 shadow-sm pointer-events-none">
+    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Temperatura do lead</p>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-600 dark:text-slate-300">
+      {(['hot', 'warm', 'cold', 'new'] as ContactTemperature[]).map((t) => (
+        <span key={t} className="inline-flex items-center gap-1">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: LEAD_TEMP_COLORS[t] }} />
+          {CONTACT_TEMP_LABEL[t]}
+        </span>
+      ))}
+    </div>
   </div>
 );
 
