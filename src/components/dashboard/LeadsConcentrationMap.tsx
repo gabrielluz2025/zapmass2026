@@ -104,6 +104,37 @@ function neighborhoodsForCity(cityFilter: string, neighborhoods: string[]): stri
   return neighborhoods.filter((n) => n.toLowerCase().includes(cityPart));
 }
 
+function normGeoKey(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function pinMatchesCluster(pin: GeoContactPin, cluster: GeoCluster, activeLayer: GeoLayer): boolean {
+  if (activeLayer === 'neighborhood') {
+    return (
+      normGeoKey(pin.neighborhood) === normGeoKey(cluster.neighborhood) &&
+      normGeoKey(pin.city) === normGeoKey(cluster.city)
+    );
+  }
+  if (activeLayer === 'city') {
+    return (
+      normGeoKey(pin.city) === normGeoKey(cluster.city) &&
+      (cluster.state === '—' || normGeoKey(pin.state) === normGeoKey(cluster.state))
+    );
+  }
+  if (activeLayer === 'state') {
+    return cluster.state === '—' || normGeoKey(pin.state) === normGeoKey(cluster.state);
+  }
+  return true;
+}
+
+function clusterFilterLabel(cluster: GeoCluster): string {
+  return cluster.label;
+}
+
 const LEAD_TEMP_COLORS: Record<ContactTemperature, string> = {
   hot: '#ef4444',
   warm: '#f97316',
@@ -175,6 +206,8 @@ export const LeadsConcentrationMap: React.FC = () => {
   const [filterCity, setFilterCity] = useState('');
   const [filterDdd, setFilterDdd] = useState('');
   const [filterNeighborhood, setFilterNeighborhood] = useState('');
+  /** Clique no ranking/chips — mapa exibe só esta região até desmarcar. */
+  const [selectedClusterKey, setSelectedClusterKey] = useState<string | null>(null);
 
   const query = useMemo<LeadsGeoQuery>(
     () => ({
@@ -187,7 +220,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     [layer, filterState, filterCity, filterDdd, filterNeighborhood]
   );
 
-  const mappedClusters = useMemo(
+  const allValidClusters = useMemo(
     () =>
       (summary?.clusters || []).filter(
         (c) =>
@@ -198,13 +231,32 @@ export const LeadsConcentrationMap: React.FC = () => {
     [summary?.clusters]
   );
 
-  const contactPins = useMemo(
+  const selectedCluster = useMemo(
+    () => (summary?.clusters || []).find((c) => c.key === selectedClusterKey) ?? null,
+    [summary?.clusters, selectedClusterKey]
+  );
+
+  const displayClusters = useMemo(() => {
+    if (!selectedClusterKey) return allValidClusters;
+    const hit = allValidClusters.filter((c) => c.key === selectedClusterKey);
+    if (hit.length > 0) return hit;
+    const raw = (summary?.clusters || []).filter((c) => c.key === selectedClusterKey && c.lat != null && c.lng != null);
+    return raw;
+  }, [allValidClusters, selectedClusterKey, summary?.clusters]);
+
+  const allValidPins = useMemo(
     () =>
       (summary?.contactPins || []).filter((p) =>
         isMapCoordValid(p.lat, p.lng, p.city, p.state)
       ),
     [summary?.contactPins]
   );
+
+  const displayPins = useMemo(() => {
+    if (!selectedCluster) return allValidPins;
+    return allValidPins.filter((p) => pinMatchesCluster(p, selectedCluster, layer));
+  }, [allValidPins, selectedCluster, layer]);
+
   const pinStats = summary?.pinStats;
 
   const topList = useMemo(() => (summary?.clusters || []).slice(0, 25), [summary?.clusters]);
@@ -223,11 +275,98 @@ export const LeadsConcentrationMap: React.FC = () => {
     [filterCity, summary?.filters?.neighborhoods]
   );
 
-  const handleCityFilter = (value: string) => {
+  const handleCityFilter = (value: string, opts?: { switchToNeighborhood?: boolean }) => {
     setFilterCity(value);
     setFilterNeighborhood('');
-    if (value && layer === 'city') setLayer('neighborhood');
+    setSelectedClusterKey(null);
+    if (value && layer === 'city' && opts?.switchToNeighborhood !== false) {
+      setLayer('neighborhood');
+    }
   };
+
+  const clearClusterSelection = useCallback(() => {
+    setSelectedClusterKey(null);
+    if (layer === 'neighborhood') setFilterNeighborhood('');
+    else if (layer === 'city') setFilterCity('');
+    else if (layer === 'ddd') setFilterDdd('');
+    else if (layer === 'state') setFilterState('');
+  }, [layer]);
+
+  const applyClusterFilter = useCallback(
+    (cluster: GeoCluster) => {
+      if (layer === 'state') {
+        setFilterState(cluster.state !== '—' ? cluster.state : '');
+        setFilterCity('');
+        setFilterDdd('');
+        setFilterNeighborhood('');
+        return;
+      }
+      if (layer === 'ddd') {
+        setFilterDdd(cluster.ddd !== '—' ? cluster.ddd : '');
+        setFilterNeighborhood('');
+        return;
+      }
+      if (layer === 'city') {
+        setFilterDdd('');
+        setFilterNeighborhood('');
+        if (cluster.city !== '—') {
+          const cityVal =
+            cluster.state !== '—' ? `${cluster.city} · ${cluster.state}` : cluster.city;
+          setFilterCity(cityVal);
+          if (cluster.state !== '—') setFilterState(cluster.state);
+        }
+        return;
+      }
+      if (layer === 'neighborhood') {
+        setFilterDdd('');
+        if (cluster.state !== '—') setFilterState(cluster.state);
+        if (cluster.city !== '—' && cluster.state !== '—') {
+          setFilterCity(`${cluster.city} · ${cluster.state}`);
+        }
+        if (cluster.neighborhood !== '—' && cluster.city !== '—') {
+          setFilterNeighborhood(`${cluster.neighborhood} · ${cluster.city}`);
+        } else if (cluster.neighborhood !== '—') {
+          setFilterNeighborhood(cluster.neighborhood);
+        }
+      }
+    },
+    [layer]
+  );
+
+  const zoomToCluster = useCallback((cluster: GeoCluster) => {
+    if (!mapInstanceRef.current || cluster.lat == null || cluster.lng == null) return;
+    const zoom =
+      layer === 'neighborhood' ? 14 : layer === 'city' ? 11 : layer === 'ddd' ? 8 : 6;
+    const { lat, lng } = fixBrazilCoord(cluster.lat, cluster.lng);
+    mapInstanceRef.current.setView([lat, lng], zoom, { animate: true });
+  }, [layer]);
+
+  const handleClusterClick = useCallback(
+    (cluster: GeoCluster) => {
+      if (selectedClusterKey === cluster.key) {
+        clearClusterSelection();
+        return;
+      }
+      setSelectedClusterKey(cluster.key);
+      applyClusterFilter(cluster);
+      window.setTimeout(() => zoomToCluster(cluster), 80);
+    },
+    [selectedClusterKey, clearClusterSelection, applyClusterFilter, zoomToCluster]
+  );
+
+  const findClusterKeyForNeighborhood = useCallback(
+    (nbKey: string) => {
+      const nbPart = nbKey.split('·')[0]?.trim() || nbKey;
+      const hit = (summary?.clusters || []).find(
+        (c) =>
+          normGeoKey(c.neighborhood) === normGeoKey(nbPart) ||
+          c.label === nbKey ||
+          `${c.neighborhood} · ${c.city}` === nbKey
+      );
+      return hit?.key ?? null;
+    },
+    [summary?.clusters]
+  );
 
   const refreshSummary = useCallback(async (q: LeadsGeoQuery = query) => {
     setLoading(true);
@@ -255,16 +394,9 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
   }, []);
 
-  const zoomToCluster = useCallback((cluster: GeoCluster) => {
-    if (!mapInstanceRef.current || cluster.lat == null || cluster.lng == null) return;
-    mapInstanceRef.current.setView([cluster.lat, cluster.lng], layer === 'neighborhood' ? 13 : 10, {
-      animate: true
-    });
-  }, [layer]);
-
   const renderMap = useCallback(() => {
-    const hasClusters = mappedClusters.length > 0;
-    const hasPins = contactPins.length > 0;
+    const hasClusters = displayClusters.length > 0;
+    const hasPins = displayPins.length > 0;
     if (!mapRef.current || (!hasClusters && !hasPins)) return;
 
     const isDark =
@@ -293,13 +425,14 @@ export const LeadsConcentrationMap: React.FC = () => {
     const group = layerGroupRef.current!;
     const bounds = L.latLngBounds([]);
     const topKey = summary?.topConcentration?.key;
-    const maxCount = Math.max(...mappedClusters.map((c) => c.count), 1);
-    const maxZoom = filterCity || filterNeighborhood ? 13 : layer === 'neighborhood' ? 11 : 9;
-    const localMarkers = useLocalMarkers(layer, filterCity);
+    const maxCount = Math.max(...displayClusters.map((c) => c.count), 1);
+    const singleSelection = displayClusters.length === 1;
+    const maxZoom = singleSelection ? 14 : filterCity || filterNeighborhood ? 13 : layer === 'neighborhood' ? 11 : 9;
+    const localMarkers = useLocalMarkers(layer, filterCity) || singleSelection;
     const usePixelHeat = !localMarkers;
 
     if (mapMode !== 'pins' && hasClusters) {
-      for (const cluster of mappedClusters) {
+      for (const cluster of displayClusters) {
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
         if (!isMapCoordValid(lat, lng, cluster.city, cluster.state)) continue;
         bounds.extend([lat, lng]);
@@ -349,9 +482,9 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
 
     if (mapMode === 'pins' && hasPins) {
-      const pinStep = contactPins.length > 180 ? Math.ceil(contactPins.length / 180) : 1;
-      for (let i = 0; i < contactPins.length; i += pinStep) {
-        const pin = contactPins[i]!;
+      const pinStep = displayPins.length > 180 ? Math.ceil(displayPins.length / 180) : 1;
+      for (let i = 0; i < displayPins.length; i += pinStep) {
+        const pin = displayPins[i]!;
         const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
         bounds.extend([lat, lng]);
         const temp = contactTemps[pin.id]?.temp || 'new';
@@ -362,7 +495,11 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
 
     const map = mapInstanceRef.current;
-    if (viewport && !filterCity && !filterNeighborhood) {
+    if (singleSelection && displayClusters[0]?.lat != null) {
+      const c = displayClusters[0]!;
+      const { lat, lng } = fixBrazilCoord(c.lat!, c.lng!);
+      map.setView([lat, lng], maxZoom, { animate: false });
+    } else if (viewport && !filterCity && !filterNeighborhood && !selectedClusterKey) {
       map.setView([viewport.lat, viewport.lng], viewport.zoom, { animate: false });
     } else if (bounds.isValid()) {
       const clipped = bounds.intersects(BRAZIL_BOUNDS) ? bounds : BRAZIL_BOUNDS;
@@ -370,40 +507,37 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
     window.setTimeout(() => map?.invalidateSize(), 120);
   }, [
-    mappedClusters,
-    contactPins,
+    displayClusters,
+    displayPins,
     contactTemps,
     mapMode,
     summary?.topConcentration?.key,
     summary?.mapViewport,
     filterCity,
     filterNeighborhood,
+    selectedClusterKey,
     layer
   ]);
 
   useEffect(() => {
-    const hasData = mappedClusters.length > 0 || contactPins.length > 0;
+    const hasData = displayClusters.length > 0 || displayPins.length > 0;
     if (!loading && hasData) {
       renderMap();
     } else if (!hasData) {
       destroyMap();
     }
-  }, [loading, mappedClusters, contactPins, renderMap, destroyMap]);
+  }, [loading, displayClusters, displayPins, renderMap, destroyMap]);
 
   useEffect(() => () => destroyMap(), [destroyMap]);
 
   const focusTopConcentration = useCallback(() => {
     const top = summary?.topConcentration;
     if (!top) return;
-    const cluster = mappedClusters.find((c) => c.key === top.key);
-    if (cluster?.lat != null && cluster.lng != null) {
-      zoomToCluster(cluster);
-      return;
+    const cluster = (summary?.clusters || []).find((c) => c.key === top.key);
+    if (cluster) {
+      handleClusterClick(cluster);
     }
-    if (top.label.includes('·')) {
-      handleCityFilter(top.label);
-    }
-  }, [summary?.topConcentration, mappedClusters, zoomToCluster]);
+  }, [summary?.topConcentration, summary?.clusters, handleClusterClick]);
 
   const handleGeocode = async () => {
     if (layer === 'ddd' || layer === 'state') {
@@ -466,6 +600,7 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   const handleLayerChange = (next: GeoLayer) => {
     setLayer(next);
+    setSelectedClusterKey(null);
     if (next === 'neighborhood') setFilterNeighborhood('');
     if (next !== 'city' && next !== 'neighborhood') {
       setFilterCity('');
@@ -491,13 +626,37 @@ export const LeadsConcentrationMap: React.FC = () => {
   const activeFilters = useMemo(
     () =>
       [
-        filterState && { key: 'state', label: `UF ${filterState}`, clear: () => setFilterState('') },
-        filterDdd && { key: 'ddd', label: `DDD ${filterDdd}`, clear: () => setFilterDdd('') },
-        filterCity && { key: 'city', label: filterCity, clear: () => handleCityFilter('') },
+        filterState && {
+          key: 'state',
+          label: `UF ${filterState}`,
+          clear: () => {
+            setFilterState('');
+            setSelectedClusterKey(null);
+          }
+        },
+        filterDdd && {
+          key: 'ddd',
+          label: `DDD ${filterDdd}`,
+          clear: () => {
+            setFilterDdd('');
+            setSelectedClusterKey(null);
+          }
+        },
+        filterCity && {
+          key: 'city',
+          label: filterCity,
+          clear: () => {
+            handleCityFilter('');
+            setSelectedClusterKey(null);
+          }
+        },
         filterNeighborhood && {
           key: 'nb',
           label: filterNeighborhood,
-          clear: () => setFilterNeighborhood('')
+          clear: () => {
+            setFilterNeighborhood('');
+            setSelectedClusterKey(null);
+          }
         }
       ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>,
     [filterState, filterDdd, filterCity, filterNeighborhood]
@@ -507,7 +666,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     config?.geocodeEnabled &&
     ((pinStats?.pinsPending || 0) > 0 || (stats?.clustersPending || 0) > 0);
   const showEmptyMap =
-    mapMode === 'pins' ? contactPins.length === 0 : mappedClusters.length === 0;
+    mapMode === 'pins' ? displayPins.length === 0 : displayClusters.length === 0;
 
   return (
     <Card className="zm-dash-section">
@@ -630,7 +789,7 @@ export const LeadsConcentrationMap: React.FC = () => {
                 </button>
               ))}
               <span className="text-[11px] text-slate-400 ml-1">
-                {stats.clusters} regiões · clique no ranking para focar
+                {stats.clusters} regiões · clique no ranking para filtrar o mapa
               </span>
             </div>
           )}
@@ -641,20 +800,60 @@ export const LeadsConcentrationMap: React.FC = () => {
                 <option key={k} value={k}>{LAYER_LABELS[k]}</option>
               ))}
             </FilterSelect>
-            <FilterSelect label="UF" value={filterState} onChange={setFilterState}>
+            <FilterSelect
+              label="UF"
+              value={filterState}
+              onChange={(v) => {
+                setFilterState(v);
+                if (!v) {
+                  setSelectedClusterKey(null);
+                  return;
+                }
+                const hit = (summary?.clusters || []).find(
+                  (c) => c.state === v || c.label === v
+                );
+                setSelectedClusterKey(hit?.key ?? null);
+              }}
+            >
               <option value="">Todas</option>
               {(filters?.states || []).map((s) => (
                 <option key={s} value={s}>{s} ({summary?.byState[s] ?? 0})</option>
               ))}
             </FilterSelect>
-            <FilterSelect label="DDD" value={filterDdd} onChange={setFilterDdd}>
+            <FilterSelect
+              label="DDD"
+              value={filterDdd}
+              onChange={(v) => {
+                setFilterDdd(v);
+                if (!v) {
+                  setSelectedClusterKey(null);
+                  return;
+                }
+                const hit = (summary?.clusters || []).find((c) => c.ddd === v);
+                setSelectedClusterKey(hit?.key ?? null);
+              }}
+            >
               <option value="">Todos</option>
               {(filters?.ddds || []).map((d) => (
                 <option key={d} value={d}>DDD {d} ({summary?.byDdd[d] ?? 0})</option>
               ))}
             </FilterSelect>
             {(layer === 'city' || layer === 'neighborhood') && (
-              <FilterSelect label="Cidade" value={filterCity} onChange={handleCityFilter}>
+              <FilterSelect
+                label="Cidade"
+                value={filterCity}
+                onChange={(v) => {
+                  handleCityFilter(v, { switchToNeighborhood: layer === 'neighborhood' });
+                  if (!v) {
+                    setSelectedClusterKey(null);
+                    return;
+                  }
+                  const hit = (summary?.clusters || []).find(
+                    (c) => c.label === v || `${c.city} · ${c.state}` === v
+                  );
+                  setSelectedClusterKey(hit?.key ?? null);
+                }}
+              >
                 <option value="">Todas</option>
                 {(filters?.cities || []).map((c) => (
                   <option key={c} value={c}>{c} ({summary?.byCity[c] ?? 0})</option>
@@ -662,7 +861,14 @@ export const LeadsConcentrationMap: React.FC = () => {
               </FilterSelect>
             )}
             {layer === 'neighborhood' && (
-              <FilterSelect label="Bairro" value={filterNeighborhood} onChange={setFilterNeighborhood}>
+              <FilterSelect
+                label="Bairro"
+                value={filterNeighborhood}
+                onChange={(v) => {
+                  setFilterNeighborhood(v);
+                  setSelectedClusterKey(v ? findClusterKeyForNeighborhood(v) : null);
+                }}
+              >
                 <option value="">Todos</option>
                 {(filterCity ? cityNeighborhoods : filters?.neighborhoods || []).map((n) => (
                   <option key={n} value={n}>{n} ({summary?.byNeighborhood[n] ?? 0})</option>
@@ -708,8 +914,17 @@ export const LeadsConcentrationMap: React.FC = () => {
               }`}
             >
               <div ref={mapRef} className="absolute inset-0 w-full h-full" />
-              {mapMode === 'pins' && contactPins.length > 0 && <LeadTempLegend />}
-              {mapMode !== 'pins' && mappedClusters.length > 0 && <HeatLegend />}
+              {selectedCluster && (
+                <div className="absolute top-3 left-3 z-[500] max-w-[min(100%,280px)] rounded-lg bg-rose-600/95 text-white px-3 py-2 shadow-lg border border-rose-500/50 pointer-events-none">
+                  <p className="text-[9px] font-bold uppercase tracking-wider opacity-90">Exibindo no mapa</p>
+                  <p className="text-[12px] font-bold truncate">{clusterFilterLabel(selectedCluster)}</p>
+                  <p className="text-[10px] opacity-90 tabular-nums">
+                    {selectedCluster.count.toLocaleString('pt-BR')} contato(s) · clique de novo para ver todos
+                  </p>
+                </div>
+              )}
+              {mapMode === 'pins' && displayPins.length > 0 && <LeadTempLegend />}
+              {mapMode !== 'pins' && displayClusters.length > 0 && <HeatLegend />}
               {showEmptyMap && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-slate-500 bg-slate-100/90 dark:bg-slate-800/90 z-10 pointer-events-none">
                   <MapPin className="w-8 h-8 mb-2 opacity-40" />
@@ -744,14 +959,10 @@ export const LeadsConcentrationMap: React.FC = () => {
                         cluster={c}
                         rank={i + 1}
                         isTop={c.key === top?.key}
+                        isSelected={selectedClusterKey === c.key}
                         maxCount={topList[0]?.count || 1}
                         filteredTotal={filteredTotal}
-                        onFocus={() => {
-                          zoomToCluster(c);
-                          if (layer === 'city' && c.label.includes('·') && !filterCity) {
-                            handleCityFilter(c.label);
-                          }
-                        }}
+                        onFocus={() => handleClusterClick(c)}
                       />
                     ))
                   )}
@@ -763,10 +974,27 @@ export const LeadsConcentrationMap: React.FC = () => {
                 )}
               </div>
               {layer === 'neighborhood' && filterCity && cityNbEntries.length > 0 && (
-                <NbChips entries={cityNbEntries} active={filterNeighborhood} onPick={setFilterNeighborhood} />
+                <NbChips
+                  entries={cityNbEntries}
+                  active={filterNeighborhood}
+                  onPick={(nb) => {
+                    const next = filterNeighborhood === nb ? '' : nb;
+                    setFilterNeighborhood(next);
+                    setSelectedClusterKey(next ? findClusterKeyForNeighborhood(nb) : null);
+                  }}
+                />
               )}
               {layer === 'ddd' && Object.keys(summary?.byDdd || {}).length > 0 && (
-                <DddChips byDdd={summary!.byDdd} active={filterDdd} onPick={setFilterDdd} />
+                <DddChips
+                  byDdd={summary!.byDdd}
+                  active={filterDdd}
+                  onPick={(ddd) => {
+                    const next = filterDdd === ddd ? '' : ddd;
+                    setFilterDdd(next);
+                    const cluster = (summary?.clusters || []).find((c) => c.ddd === next);
+                    setSelectedClusterKey(next && cluster ? cluster.key : null);
+                  }}
+                />
               )}
             </div>
           </div>
@@ -835,10 +1063,11 @@ const ClusterRow: React.FC<{
   cluster: GeoCluster;
   rank: number;
   isTop?: boolean;
+  isSelected?: boolean;
   maxCount: number;
   filteredTotal: number;
   onFocus?: () => void;
-}> = ({ cluster, rank, isTop, maxCount, filteredTotal, onFocus }) => {
+}> = ({ cluster, rank, isTop, isSelected, maxCount, filteredTotal, onFocus }) => {
   const barPct = maxCount > 0 ? Math.max(4, Math.round((100 * cluster.count) / maxCount)) : 0;
   const sharePct = filteredTotal > 0 ? Math.round((1000 * cluster.count) / filteredTotal) / 10 : 0;
   return (
@@ -846,7 +1075,11 @@ const ClusterRow: React.FC<{
       type="button"
       onClick={onFocus}
       className={`w-full text-left text-xs py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-        isTop ? 'bg-rose-50/60 dark:bg-rose-950/20 -mx-1 px-1 rounded' : ''
+        isSelected
+          ? 'bg-teal-600/15 dark:bg-teal-900/30 ring-2 ring-teal-500/60 -mx-1 px-1 rounded'
+          : isTop
+            ? 'bg-rose-50/60 dark:bg-rose-950/20 -mx-1 px-1 rounded'
+            : ''
       }`}
     >
       <div className="flex items-center justify-between gap-2 mb-1">
