@@ -8,7 +8,7 @@ export function vpsUserToSessionUser(v: VpsAuthUser): SessionUser {
     uid: tenantUid,
     email: v.email,
     displayName: v.displayName ?? null,
-    photoURL: null,
+    photoURL: v.photoUrl ?? null,
     emailVerified: true,
     getIdToken: async (forceRefresh?: boolean) => {
       const t = forceRefresh ? await vpsRefreshAccessToken() : await vpsGetAccessToken();

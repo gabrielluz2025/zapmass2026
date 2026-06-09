@@ -8,6 +8,7 @@ export type WorkspaceMemberRow = {
   owner_user_id: string;
   login_slug: string;
   display_name: string;
+  photo_url: string | null;
   revoked_at: Date | null;
   password_hash: string;
 };
@@ -19,7 +20,7 @@ export async function findStaffMember(
   const pool = getZapmassPool();
   if (!pool) return null;
   const r = await pool.query<WorkspaceMemberRow>(
-    `SELECT id::text, owner_user_id::text, login_slug, display_name, revoked_at, password_hash
+    `SELECT id::text, owner_user_id::text, login_slug, display_name, photo_url, revoked_at, password_hash
      FROM zapmass.workspace_members
      WHERE owner_user_id = $1::uuid AND login_slug = $2
      LIMIT 1`,
@@ -63,7 +64,7 @@ export async function createStaffMember(opts: {
   const r = await pool.query<WorkspaceMemberRow>(
     `INSERT INTO zapmass.workspace_members (id, owner_user_id, login_slug, password_hash, display_name)
      VALUES ($1::uuid, $2::uuid, $3, $4, $5)
-     RETURNING id::text, owner_user_id::text, login_slug, display_name, revoked_at, password_hash`,
+     RETURNING id::text, owner_user_id::text, login_slug, display_name, photo_url, revoked_at, password_hash`,
     [id, opts.ownerUserId, opts.loginSlug, password_hash, opts.displayName]
   );
   return r.rows[0]!;
@@ -94,6 +95,45 @@ export async function staffSignInByManagerEmail(
   const ok = await verifyStaffPassword(member, password);
   if (!ok) return { ok: false, code: 'WRONG_PASSWORD' };
   return { ok: true, member, ownerUserId: owner.id, ownerEmail: owner.email };
+}
+
+export async function findStaffMemberById(memberId: string): Promise<WorkspaceMemberRow | null> {
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  const r = await pool.query<WorkspaceMemberRow>(
+    `SELECT id::text, owner_user_id::text, login_slug, display_name, photo_url, revoked_at, password_hash
+     FROM zapmass.workspace_members WHERE id = $1::uuid LIMIT 1`,
+    [memberId]
+  );
+  return r.rows[0] ?? null;
+}
+
+export async function updateStaffDisplayName(memberId: string, displayName: string): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  await pool.query(`UPDATE zapmass.workspace_members SET display_name = $2 WHERE id = $1::uuid`, [
+    memberId,
+    displayName.trim()
+  ]);
+}
+
+export async function updateStaffPhotoUrl(memberId: string, photoUrl: string | null): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  await pool.query(`UPDATE zapmass.workspace_members SET photo_url = $2 WHERE id = $1::uuid`, [
+    memberId,
+    photoUrl
+  ]);
+}
+
+export async function updateStaffPassword(memberId: string, password: string): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const password_hash = await hashPassword(password);
+  await pool.query(`UPDATE zapmass.workspace_members SET password_hash = $2 WHERE id = $1::uuid`, [
+    memberId,
+    password_hash
+  ]);
 }
 
 export async function getWorkspaceMemberUidSetVps(tenantUid: string): Promise<Set<string>> {

@@ -44,6 +44,15 @@ export const authEmailStepLimiter = rateLimit({
   message: { ok: false, error: 'Muitas consultas. Aguarde alguns minutos.' }
 });
 
+/** Alterações de perfil, e-mail e senha (por IP). */
+export const authProfileLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Muitas alterações de perfil. Aguarde alguns minutos.' }
+});
+
 /** Tentativas de login staff por IP (abuse-resistant para instalação multi-tenant). */
 export const staffSignInLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

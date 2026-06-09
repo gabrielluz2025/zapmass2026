@@ -4,9 +4,11 @@ export type VpsAuthUser = {
   id: string;
   email: string;
   displayName?: string | null;
+  photoUrl?: string | null;
   role: 'owner' | 'staff';
   tenantUid?: string;
   ownerUid?: string;
+  loginSlug?: string;
 };
 
 const ACCESS_KEY = 'zapmass_access_token';
@@ -159,4 +161,87 @@ export async function vpsGetAccessToken(): Promise<string | null> {
   const t = getVpsAccessToken();
   if (t && !accessTokenExpired(t)) return t;
   return vpsRefreshAccessToken();
+}
+
+export function patchVpsAuthUser(patch: Partial<VpsAuthUser>): VpsAuthUser | null {
+  const prev = getVpsAuthUser();
+  if (!prev) return null;
+  const next = { ...prev, ...patch };
+  sessionStorage.setItem(USER_KEY, JSON.stringify(next));
+  return next;
+}
+
+export async function vpsFetchMe(): Promise<VpsAuthUser> {
+  const token = await vpsGetAccessToken();
+  if (!token) throw new Error('Sessão expirada.');
+  const r = await fetch(apiUrl('/api/auth/me'), {
+    credentials: 'include',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await parseJson<{ user?: VpsAuthUser }>(r);
+  if (!r.ok || !data.user) throw new Error(data.error || 'Não foi possível carregar o perfil.');
+  const accessToken = getVpsAccessToken();
+  if (accessToken) persistSession(accessToken, data.user);
+  else patchVpsAuthUser(data.user);
+  return data.user;
+}
+
+export async function vpsUpdateProfile(opts: {
+  displayName?: string;
+  photoBase64?: string;
+  removePhoto?: boolean;
+}): Promise<VpsAuthUser> {
+  const token = await vpsGetAccessToken();
+  if (!token) throw new Error('Sessão expirada.');
+  const r = await fetch(apiUrl('/api/auth/profile'), {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(opts)
+  });
+  const data = await parseJson<{ user?: VpsAuthUser }>(r);
+  if (!r.ok || !data.user) throw new Error(data.error || 'Não foi possível atualizar o perfil.');
+  patchVpsAuthUser(data.user);
+  return data.user;
+}
+
+export async function vpsChangeEmail(newEmail: string, currentPassword: string): Promise<VpsAuthUser> {
+  const token = await vpsGetAccessToken();
+  if (!token) throw new Error('Sessão expirada.');
+  const r = await fetch(apiUrl('/api/auth/email'), {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ newEmail, currentPassword })
+  });
+  const data = await parseJson<{ user?: VpsAuthUser; accessToken?: string }>(r);
+  if (!r.ok || !data.user) throw new Error(data.error || 'Não foi possível alterar o e-mail.');
+  if (data.accessToken) persistSession(data.accessToken, data.user);
+  else patchVpsAuthUser(data.user);
+  return data.user;
+}
+
+export async function vpsChangePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const token = await vpsGetAccessToken();
+  if (!token) throw new Error('Sessão expirada.');
+  const r = await fetch(apiUrl('/api/auth/password'), {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+  const data = await parseJson(r);
+  if (!r.ok) throw new Error(data.error || 'Não foi possível alterar a senha.');
 }

@@ -96,8 +96,10 @@ export async function tryVpsStaffSignIn(req: Request, res: Response): Promise<bo
         id: result.member.id,
         email: result.ownerEmail,
         displayName: result.member.display_name,
+        photoUrl: result.member.photo_url || null,
         role: 'staff',
-        tenantUid: result.ownerUserId
+        tenantUid: result.ownerUserId,
+        ownerUid: result.ownerUserId
       }
     });
     return true;

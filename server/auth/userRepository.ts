@@ -9,6 +9,7 @@ export type UserRow = {
   email_normalized: string;
   password_hash: string | null;
   display_name: string | null;
+  photo_url: string | null;
   disabled_at: Date | null;
 };
 
@@ -21,7 +22,7 @@ export async function findUserByEmail(email: string): Promise<UserRow | null> {
   if (!pool) return null;
   const norm = normalizeEmail(email);
   const r = await pool.query<UserRow>(
-    `SELECT id::text, email, email_normalized, password_hash, display_name, disabled_at
+    `SELECT id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at
      FROM zapmass.users WHERE email_normalized = $1 LIMIT 1`,
     [norm]
   );
@@ -32,7 +33,7 @@ export async function findUserById(id: string): Promise<UserRow | null> {
   const pool = getZapmassPool();
   if (!pool) return null;
   const r = await pool.query<UserRow>(
-    `SELECT id::text, email, email_normalized, password_hash, display_name, disabled_at
+    `SELECT id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at
      FROM zapmass.users WHERE id = $1::uuid LIMIT 1`,
     [id]
   );
@@ -52,7 +53,7 @@ export async function createUserWithPassword(
   const r = await pool.query<UserRow>(
     `INSERT INTO zapmass.users (id, email, email_normalized, password_hash, display_name)
      VALUES ($1::uuid, $2, $3, $4, $5)
-     RETURNING id::text, email, email_normalized, password_hash, display_name, disabled_at`,
+     RETURNING id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at`,
     [id, email.trim(), norm, password_hash, displayName?.trim() || null]
   );
   return r.rows[0]!;
@@ -87,6 +88,42 @@ export async function revokeRefreshTokenHash(tokenHash: string): Promise<void> {
     `UPDATE zapmass.refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`,
     [tokenHash]
   );
+}
+
+export async function updateUserDisplayName(userId: string, displayName: string): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  await pool.query(`UPDATE zapmass.users SET display_name = $2 WHERE id = $1::uuid`, [
+    userId,
+    displayName.trim() || null
+  ]);
+}
+
+export async function updateUserPhotoUrl(userId: string, photoUrl: string | null): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  await pool.query(`UPDATE zapmass.users SET photo_url = $2 WHERE id = $1::uuid`, [userId, photoUrl]);
+}
+
+export async function updateUserEmail(userId: string, email: string): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const norm = normalizeEmail(email);
+  await pool.query(`UPDATE zapmass.users SET email = $2, email_normalized = $3 WHERE id = $1::uuid`, [
+    userId,
+    email.trim(),
+    norm
+  ]);
+}
+
+export async function updateUserPassword(userId: string, password: string): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const password_hash = await hashPassword(password);
+  await pool.query(`UPDATE zapmass.users SET password_hash = $2 WHERE id = $1::uuid`, [
+    userId,
+    password_hash
+  ]);
 }
 
 export async function findValidRefreshToken(

@@ -41,6 +41,7 @@ import { apiUrl } from '../utils/apiBase';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, Input, SectionHeader } from './ui';
 import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
+import { AccountProfileEditor } from './settings/AccountProfileEditor';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useAppProfile } from '../context/AppProfileContext';
 import {
@@ -715,6 +716,8 @@ export const SettingsTab: React.FC = () => {
               </Button>
             </div>
           </Card>
+
+          <AccountProfileEditor />
 
           <Card className="p-5">
             <div className="flex items-start gap-3">

@@ -19,6 +19,7 @@ import {
 } from './auth/jwt.js';
 import { authRegisterLimiter, authLoginLimiter, authEmailStepLimiter } from './httpRateLimit.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
+import { buildVpsUserPayload } from './auth/profilePayload.js';
 
 const REFRESH_COOKIE = 'zapmass_refresh';
 
@@ -154,6 +155,7 @@ export function registerVpsAuthRoutes(app: Express): void {
           id: user.id,
           email: user.email,
           displayName: user.display_name,
+          photoUrl: user.photo_url || null,
           role: 'owner',
           tenantUid: user.id
         },
@@ -193,6 +195,7 @@ export function registerVpsAuthRoutes(app: Express): void {
           id: user.id,
           email: user.email,
           displayName: user.display_name,
+          photoUrl: user.photo_url || null,
           role: 'owner',
           tenantUid: user.id
         },
@@ -229,7 +232,15 @@ export function registerVpsAuthRoutes(app: Express): void {
         tenantUid: row.owner_user_id || row.subject_id,
         ownerUid: row.owner_user_id || undefined
       });
-      return res.json({ ok: true, authProvider: 'vps', role: 'staff', ...session });
+      const user = await buildVpsUserPayload({
+        provider: 'vps',
+        authUid: row.subject_id,
+        tenantUid: row.owner_user_id || row.subject_id,
+        email: owner?.email || '',
+        role: 'staff',
+        ownerUid: row.owner_user_id || undefined
+      });
+      return res.json({ ok: true, authProvider: 'vps', role: 'staff', user, ...session });
     }
 
     const user = await findUserById(row.subject_id);
@@ -245,7 +256,14 @@ export function registerVpsAuthRoutes(app: Express): void {
     return res.json({
       ok: true,
       authProvider: 'vps',
-      user: { id: user.id, email: user.email, displayName: user.display_name, role: 'owner' },
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.display_name,
+        photoUrl: user.photo_url || null,
+        role: 'owner',
+        tenantUid: user.id
+      },
       ...session
     });
   });
@@ -262,16 +280,9 @@ export function registerVpsAuthRoutes(app: Express): void {
     if (!principal || principal.provider !== 'vps') {
       return res.status(401).json({ ok: false, error: 'Não autenticado.' });
     }
-    return res.json({
-      ok: true,
-      user: {
-        id: principal.authUid,
-        email: principal.email,
-        role: principal.role,
-        tenantUid: principal.tenantUid,
-        ownerUid: principal.ownerUid
-      }
-    });
+    const user = await buildVpsUserPayload(principal);
+    if (!user) return res.status(403).json({ ok: false, error: 'Conta indisponível.' });
+    return res.json({ ok: true, user });
   });
 
 }

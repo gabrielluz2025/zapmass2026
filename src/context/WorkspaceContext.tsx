@@ -45,8 +45,8 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
       return;
     }
     const vu = getVpsAuthUser();
-    if (vu?.role === 'staff' && vu.ownerUid) {
-      setOwnerFromLink(vu.ownerUid);
+    if (vu?.role === 'staff' && (vu.ownerUid || vu.tenantUid)) {
+      setOwnerFromLink(vu.ownerUid || vu.tenantUid || null);
     } else {
       setOwnerFromLink(null);
     }

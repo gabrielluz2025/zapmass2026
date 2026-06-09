@@ -5,6 +5,7 @@ import { trackLoginSuccess } from '../utils/marketingEvents';
 import {
   clearVpsSession,
   getVpsAuthUser,
+  vpsFetchMe,
   vpsLogin,
   vpsLogout,
   vpsRegister,
@@ -27,6 +28,7 @@ interface AuthContextValue {
     password: string
   ) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -38,7 +40,8 @@ const AuthContext = createContext<AuthContextValue>({
   signUpWithEmailPassword: async () => {},
   signInWithStaffCustomToken: async () => {},
   signInWithStaffCredentials: async () => {},
-  signOut: async () => {}
+  signOut: async () => {},
+  refreshProfile: async () => {}
 });
 
 const socialUnavailable =
@@ -113,6 +116,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     toast.error('Login por token legado não está disponível. Use usuário e senha.');
   };
 
+  const refreshProfile = async () => {
+    const v = await vpsFetchMe();
+    setUser(vpsUserToSessionUser(v));
+  };
+
   const signOut = async () => {
     try {
       await vpsLogout();
@@ -136,7 +144,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         signUpWithEmailPassword,
         signInWithStaffCustomToken,
         signInWithStaffCredentials,
-        signOut
+        signOut,
+        refreshProfile
       }}
     >
       {children}
