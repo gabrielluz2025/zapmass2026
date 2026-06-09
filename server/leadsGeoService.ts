@@ -313,12 +313,51 @@ function neighborhoodSpreadCoord(
   };
 }
 
-/** Posição no mapa: geocode salvo ou espalhamento por bairro/cidade + id do contato. */
+/** Distribui pins aproximados em espiral (evita “bolão” quando há centenas no mesmo bairro). */
+function spreadPinAroundBase(
+  baseLat: number,
+  baseLng: number,
+  index: number,
+  total: number
+): { lat: number; lng: number } {
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const angle = index * golden;
+  const t = total > 1 ? (index + 0.5) / total : 0;
+  const radiusKm = 0.05 + Math.sqrt(t) * (1.1 + Math.min(1.4, total / 450));
+  const distDeg = radiusKm / 111;
+  const cosLat = Math.cos((baseLat * Math.PI) / 180);
+  return fixBrazilCoord(
+    baseLat + distDeg * Math.cos(angle),
+    baseLng + (distDeg * Math.sin(angle)) / (cosLat || 1)
+  );
+}
+
+function neighborhoodPinBase(
+  city: string,
+  state: string,
+  neighborhood: string,
+  cache: GeoCacheFile
+): { lat: number; lng: number } | null {
+  const nbKey = clusterKey('neighborhood', { city, neighborhood });
+  const cached = cache[nbKey];
+  if (cached) {
+    const fixed = fixBrazilCoord(cached.lat, cached.lng);
+    if (isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state, 45)) return fixed;
+  }
+  const cityCoord = cityToApproxCoord(city, state);
+  if (!cityCoord) return null;
+  return neighborhoodSpreadCoord(cityCoord.lat, cityCoord.lng, neighborhood);
+}
+
+/** Posição no mapa: geocode salvo ou espalhamento por bairro/cidade. */
 function resolveContactPinCoord(
   c: Contact,
   city: string,
   state: string,
-  neighborhood: string
+  neighborhood: string,
+  pinIndex: number,
+  pinTotal: number,
+  cache: GeoCacheFile
 ): { lat: number; lng: number; approximate: boolean } | null {
   const stored = storedContactCoords(c);
   if (stored) return { ...stored, approximate: false };
@@ -332,22 +371,14 @@ function resolveContactPinCoord(
 
   const nb = neighborhood !== '—' ? neighborhood : '';
   const base = nb
-    ? neighborhoodSpreadCoord(cityCoord.lat, cityCoord.lng, nb)
+    ? neighborhoodPinBase(cityName, st, nb, cache) || neighborhoodSpreadCoord(cityCoord.lat, cityCoord.lng, nb)
     : cityCoord;
 
-  let h = 0;
-  const seed = `${c.id}|${c.phone || ''}|${c.name || ''}`;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  const angle = ((Math.abs(h) % 360) * Math.PI) / 180;
-  const ring = Math.abs(h) % 14;
-  const dist = 0.001 + ring * 0.00038 + (Math.abs(h) % 50) / 22_000;
-  const cosLat = Math.cos((base.lat * Math.PI) / 180);
-  const fixed = fixBrazilCoord(
-    base.lat + dist * Math.cos(angle),
-    base.lng + (dist * Math.sin(angle)) / (cosLat || 1)
-  );
+  const fixed = nb
+    ? spreadPinAroundBase(base.lat, base.lng, pinIndex, pinTotal)
+    : spreadPinAroundBase(base.lat, base.lng, pinIndex, Math.max(pinTotal, 80));
 
-  if (!isCoordPlausibleForCity(fixed.lat, fixed.lng, cityName, st, nb ? 45 : 55)) return null;
+  if (!isCoordPlausibleForCity(fixed.lat, fixed.lng, cityName, st, nb ? 50 : 55)) return null;
   return { ...fixed, approximate: true };
 }
 
@@ -709,6 +740,21 @@ export async function buildLeadsGeoSummary(
     filterSets.neighborhoods.add(label);
   }
 
+  const nbPinTotals = new Map<string, number>();
+  for (const c of filtered) {
+    const { city: rawCity, state: rawState } = resolveContactCityState(c);
+    const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
+    const cityCanon = rawCity ? canonClusterCity(rawCity, stResolved) : '';
+    const city = cityCanon || '—';
+    const nb = normNeighborhood(c.neighborhood || '', cityCanon || rawCity) || '—';
+    const nbForPin = normNeighborhood(c.neighborhood || '', city !== '—' ? city : '');
+    if (city !== '—' || nbForPin || hasFullStreetAddress(c)) {
+      const seqKey = `${normNeighborhoodKey(nbForPin || nb)}|${normKeyPart(city !== '—' ? city : '')}`;
+      if (seqKey !== '|') nbPinTotals.set(seqKey, (nbPinTotals.get(seqKey) || 0) + 1);
+    }
+  }
+  const nbPinSeq = new Map<string, number>();
+
   for (const c of filtered) {
     const { city: rawCity, state: rawState } = resolveContactCityState(c);
     const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
@@ -789,7 +835,19 @@ export async function buildLeadsGeoSummary(
     const nbForPin = normNeighborhood(c.neighborhood || '', city !== '—' ? city : '');
     const canPin = city !== '—' || Boolean(nbForPin) || hasFullStreetAddress(c);
     if (canPin) {
-      const pinCoord = resolveContactPinCoord(c, city, st, nb || nbForPin || '—');
+      const seqKey = `${normNeighborhoodKey(nbForPin || nb)}|${normKeyPart(city !== '—' ? city : '')}`;
+      const pinTotal = nbPinTotals.get(seqKey) || 1;
+      const pinIndex = nbPinSeq.get(seqKey) ?? 0;
+      nbPinSeq.set(seqKey, pinIndex + 1);
+      const pinCoord = resolveContactPinCoord(
+        c,
+        city,
+        st,
+        nb || nbForPin || '—',
+        pinIndex,
+        pinTotal,
+        cache
+      );
       if (pinCoord) {
         const precision = pinCoord.approximate
           ? nbForPin

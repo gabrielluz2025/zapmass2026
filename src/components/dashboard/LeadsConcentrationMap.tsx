@@ -1087,7 +1087,9 @@ export const LeadsConcentrationMap: React.FC = () => {
                   Rua
                 </a>
               )}
-              {mapMode === 'pins' && displayPins.length > 0 && <LeadTempLegend />}
+              {mapMode === 'pins' && displayPins.length > 0 && (
+                <LeadTempLegend hasApproximate={displayPins.some((p) => p.approximate)} />
+              )}
               {mapMode !== 'pins' && displayClusters.length > 0 && <HeatLegend />}
               {showEmptyMap && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-slate-500 bg-slate-100/90 dark:bg-slate-800/90 z-10 pointer-events-none">
@@ -1202,8 +1204,13 @@ const StatPill: React.FC<{ label: string; value: number; sub?: string; isText?: 
   </div>
 );
 
-const LeadTempLegend: React.FC = () => (
-  <div className="absolute bottom-3 left-3 z-[500] rounded-lg bg-white/92 dark:bg-slate-900/92 border border-slate-200/80 dark:border-slate-700 px-2.5 py-1.5 shadow-sm pointer-events-none">
+const LeadTempLegend: React.FC<{ hasApproximate?: boolean }> = ({ hasApproximate }) => (
+  <div className="absolute bottom-3 left-3 z-[500] rounded-lg bg-white/92 dark:bg-slate-900/92 border border-slate-200/80 dark:border-slate-700 px-2.5 py-1.5 shadow-sm pointer-events-none max-w-[220px]">
+    {hasApproximate && (
+      <p className="text-[9px] text-amber-700 dark:text-amber-300 mb-1.5 leading-snug">
+        Pontos pequenos = bairro aproximado (sem rua). Ícone 👤 = endereço exato.
+      </p>
+    )}
     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Temperatura do lead</p>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-600 dark:text-slate-300">
       {(['hot', 'warm', 'cold', 'new'] as ContactTemperature[]).map((t) => (
