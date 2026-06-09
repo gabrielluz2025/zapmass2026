@@ -15,6 +15,7 @@ export type GeoContactPin = {
   street: string;
   number: string;
   precision: 'address' | 'neighborhood' | 'city';
+  approximate?: boolean;
 };
 
 export type GeoCluster = {
@@ -60,7 +61,12 @@ export type LeadsGeoSummary = {
   filters: LeadsGeoFilters;
   topConcentration: { label: string; count: number; sharePct: number; key: string } | null;
   contactPins: GeoContactPin[];
-  pinStats: { withFullAddress: number; pinsMapped: number; pinsPending: number };
+  pinStats: {
+    withFullAddress: number;
+    pinsMapped: number;
+    pinsApproximate: number;
+    pinsPending: number;
+  };
   mapViewport?: { lat: number; lng: number; zoom: number } | null;
 };
 
@@ -126,7 +132,7 @@ export async function fetchLeadsGeoSummary(query: LeadsGeoQuery = {}): Promise<L
     filters: j.filters || { cities: [], states: [], ddds: [], neighborhoods: [] },
     topConcentration: j.topConcentration ?? null,
     contactPins: Array.isArray(j.contactPins) ? j.contactPins : [],
-    pinStats: j.pinStats || { withFullAddress: 0, pinsMapped: 0, pinsPending: 0 }
+    pinStats: j.pinStats || { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 }
   };
 }
 

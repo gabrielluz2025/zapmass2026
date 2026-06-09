@@ -188,11 +188,15 @@ const LEAD_TEMP_COLORS: Record<ContactTemperature, string> = {
 function contactPinIcon(pin: GeoContactPin, temp: ContactTemperature = 'new'): L.DivIcon {
   const color = LEAD_TEMP_COLORS[temp];
   const ring = temp === 'hot' ? 'box-shadow:0 0 0 2px #fecaca;' : '';
+  const approx = pin.approximate;
+  const size = approx ? 14 : 22;
+  const opacity = approx ? 0.72 : 1;
+  const border = approx ? '1px dashed rgba(255,255,255,.9)' : '2px solid #fff';
   return L.divIcon({
     className: '',
-    html: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);font-size:13px;line-height:1;${ring}">👤</div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12]
+    html: `<div style="background:${color};opacity:${opacity};color:#fff;border-radius:50%;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;border:${border};box-shadow:0 1px 3px rgba(0,0,0,.35);font-size:${approx ? 9 : 12}px;line-height:1;${ring}">${approx ? '·' : '👤'}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2]
   });
 }
 
@@ -204,7 +208,7 @@ function pinPopupHtml(pin: GeoContactPin, temp: ContactTemperature = 'new'): str
     addr ? `${addr}` : '',
     pin.neighborhood ? `Bairro: ${pin.neighborhood}` : '',
     pin.city ? `${pin.city}${pin.state ? ` · ${pin.state}` : ''}` : '',
-    `<span style="color:#64748b">${PRECISION_LABELS[pin.precision] || pin.precision}</span>`
+    `<span style="color:#64748b">${pin.approximate ? 'Posição aproximada no bairro' : PRECISION_LABELS[pin.precision] || pin.precision}</span>`
   ].filter(Boolean);
   const streetUrl = contactPinStreetViewUrl(pin);
   const streetLink = `<br/><a href="${streetUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;color:#ca8a04;font-weight:700;font-size:11px;text-decoration:none">🟡 Ver na rua (Street View)</a>`;
@@ -312,6 +316,12 @@ export const LeadsConcentrationMap: React.FC = () => {
   const displayPins = useMemo(() => {
     if (selectedCluster) {
       return allValidPins.filter((p) => pinMatchesCluster(p, selectedCluster, layer));
+    }
+    if (layer === 'neighborhood' && filterNeighborhood) {
+      const nbPart = filterNeighborhood.split('·')[0].trim();
+      return allValidPins.filter(
+        (p) => normNeighborhoodKey(p.neighborhood) === normNeighborhoodKey(nbPart)
+      );
     }
     if (layer === 'neighborhood' && filterCity && !filterNeighborhood) {
       const fc = parseGeoFilterCity(filterCity);
@@ -453,8 +463,7 @@ export const LeadsConcentrationMap: React.FC = () => {
       applyClusterFilter(cluster);
 
       if (layer === 'neighborhood') {
-        if ((summary?.contactPins?.length || 0) > 0) setMapMode('pins');
-        else setMapMode('circles');
+        setMapMode('pins');
       }
 
       window.setTimeout(() => zoomToCluster(cluster), 80);
@@ -598,7 +607,8 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
 
     if (mapMode === 'pins' && hasPins) {
-      const pinStep = displayPins.length > 180 ? Math.ceil(displayPins.length / 180) : 1;
+      const pinCap = filterNeighborhood || selectedClusterKey ? 2500 : 600;
+      const pinStep = displayPins.length > pinCap ? Math.ceil(displayPins.length / pinCap) : 1;
       for (let i = 0; i < displayPins.length; i += pinStep) {
         const pin = displayPins[i]!;
         const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
@@ -860,10 +870,16 @@ export const LeadsConcentrationMap: React.FC = () => {
             />
             <StatPill
               label="No mapa (👤)"
-              value={pinStats?.pinsMapped ?? 0}
+              value={(pinStats?.pinsMapped ?? 0) + (pinStats?.pinsApproximate ?? 0)}
               sub={
-                (pinStats?.pinsPending || 0) > 0
-                  ? `${pinStats?.pinsPending} pendentes`
+                pinStats
+                  ? [
+                      (pinStats.pinsMapped || 0) > 0 ? `${pinStats.pinsMapped} exatos` : '',
+                      (pinStats.pinsApproximate || 0) > 0 ? `${pinStats.pinsApproximate} aprox.` : '',
+                      (pinStats.pinsPending || 0) > 0 ? `${pinStats.pinsPending} sem local` : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || undefined
                   : undefined
               }
             />
@@ -1054,7 +1070,8 @@ export const LeadsConcentrationMap: React.FC = () => {
                   <p className="text-[9px] font-bold uppercase tracking-wider opacity-90">Exibindo no mapa</p>
                   <p className="text-[12px] font-bold truncate">{clusterFilterLabel(selectedCluster)}</p>
                   <p className="text-[10px] opacity-90 tabular-nums">
-                    {selectedCluster.count.toLocaleString('pt-BR')} contato(s) · clique de novo para ver todos
+                    {displayPins.length.toLocaleString('pt-BR')} no mapa de{' '}
+                    {selectedCluster.count.toLocaleString('pt-BR')} · clique de novo para ver todos
                   </p>
                 </div>
               )}
