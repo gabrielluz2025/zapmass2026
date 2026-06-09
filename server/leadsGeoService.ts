@@ -740,21 +740,6 @@ export async function buildLeadsGeoSummary(
     filterSets.neighborhoods.add(label);
   }
 
-  const nbPinTotals = new Map<string, number>();
-  for (const c of filtered) {
-    const { city: rawCity, state: rawState } = resolveContactCityState(c);
-    const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
-    const cityCanon = rawCity ? canonClusterCity(rawCity, stResolved) : '';
-    const city = cityCanon || '—';
-    const nb = normNeighborhood(c.neighborhood || '', cityCanon || rawCity) || '—';
-    const nbForPin = normNeighborhood(c.neighborhood || '', city !== '—' ? city : '');
-    if (city !== '—' || nbForPin || hasFullStreetAddress(c)) {
-      const seqKey = `${normNeighborhoodKey(nbForPin || nb)}|${normKeyPart(city !== '—' ? city : '')}`;
-      if (seqKey !== '|') nbPinTotals.set(seqKey, (nbPinTotals.get(seqKey) || 0) + 1);
-    }
-  }
-  const nbPinSeq = new Map<string, number>();
-
   for (const c of filtered) {
     const { city: rawCity, state: rawState } = resolveContactCityState(c);
     const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
@@ -832,42 +817,20 @@ export async function buildLeadsGeoSummary(
 
     if (hasFullStreetAddress(c)) filteredWithFullAddress++;
 
-    const nbForPin = normNeighborhood(c.neighborhood || '', city !== '—' ? city : '');
-    const canPin = city !== '—' || Boolean(nbForPin) || hasFullStreetAddress(c);
-    if (canPin) {
-      const seqKey = `${normNeighborhoodKey(nbForPin || nb)}|${normKeyPart(city !== '—' ? city : '')}`;
-      const pinTotal = nbPinTotals.get(seqKey) || 1;
-      const pinIndex = nbPinSeq.get(seqKey) ?? 0;
-      nbPinSeq.set(seqKey, pinIndex + 1);
-      const pinCoord = resolveContactPinCoord(
+    const storedPin = storedContactCoords(c);
+    if (storedPin && hasFullStreetAddress(c)) {
+      pinsMapped++;
+      appendContactPin(
+        contactPins,
+        maxContactPins,
         c,
-        city,
-        st,
-        nb || nbForPin || '—',
-        pinIndex,
-        pinTotal,
-        cache
+        storedPin.lat,
+        storedPin.lng,
+        contactPinPrecision(c),
+        false
       );
-      if (pinCoord) {
-        const precision = pinCoord.approximate
-          ? nbForPin
-            ? 'neighborhood'
-            : 'city'
-          : contactPinPrecision(c);
-        if (pinCoord.approximate) pinsApproximate++;
-        else pinsMapped++;
-        appendContactPin(
-          contactPins,
-          maxContactPins,
-          c,
-          pinCoord.lat,
-          pinCoord.lng,
-          precision,
-          pinCoord.approximate
-        );
-      } else {
-        pinsPending++;
-      }
+    } else if (hasFullStreetAddress(c)) {
+      pinsPending++;
     }
   }
 

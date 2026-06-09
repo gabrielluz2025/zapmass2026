@@ -307,8 +307,11 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   const allValidPins = useMemo(
     () =>
-      (summary?.contactPins || []).filter((p) =>
-        isMapCoordValid(p.lat, p.lng, p.city, p.state)
+      (summary?.contactPins || []).filter(
+        (p) =>
+          !p.approximate &&
+          p.precision === 'address' &&
+          isMapCoordValid(p.lat, p.lng, p.city, p.state)
       ),
     [summary?.contactPins]
   );
@@ -463,7 +466,8 @@ export const LeadsConcentrationMap: React.FC = () => {
       applyClusterFilter(cluster);
 
       if (layer === 'neighborhood') {
-        setMapMode('pins');
+        const exactPins = allValidPins.filter((p) => pinMatchesCluster(p, cluster, layer)).length;
+        setMapMode(exactPins > 0 ? 'pins' : 'circles');
       }
 
       window.setTimeout(() => zoomToCluster(cluster), 80);
@@ -475,7 +479,7 @@ export const LeadsConcentrationMap: React.FC = () => {
       clearClusterSelection,
       applyClusterFilter,
       zoomToCluster,
-      summary?.contactPins?.length
+      allValidPins
     ]
   );
 
@@ -556,7 +560,8 @@ export const LeadsConcentrationMap: React.FC = () => {
     const localMarkers = useLocalMarkers(layer, filterCity) || singleSelection;
     const usePixelHeat = !localMarkers;
 
-    if (mapMode !== 'pins' && hasClusters) {
+    const drawClusters = hasClusters && (mapMode !== 'pins' || !hasPins);
+    if (drawClusters) {
       for (const cluster of displayClusters) {
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
         if (!isMapCoordValid(lat, lng, cluster.city, cluster.state)) continue;
@@ -795,7 +800,9 @@ export const LeadsConcentrationMap: React.FC = () => {
     config?.geocodeEnabled &&
     ((pinStats?.pinsPending || 0) > 0 || (stats?.clustersPending || 0) > 0);
   const showEmptyMap =
-    mapMode === 'pins' ? displayPins.length === 0 : displayClusters.length === 0;
+    mapMode === 'pins'
+      ? displayPins.length === 0 && displayClusters.length === 0
+      : displayClusters.length === 0;
 
   return (
     <Card className="zm-dash-section">
@@ -870,17 +877,11 @@ export const LeadsConcentrationMap: React.FC = () => {
             />
             <StatPill
               label="No mapa (👤)"
-              value={(pinStats?.pinsMapped ?? 0) + (pinStats?.pinsApproximate ?? 0)}
+              value={pinStats?.pinsMapped ?? 0}
               sub={
-                pinStats
-                  ? [
-                      (pinStats.pinsMapped || 0) > 0 ? `${pinStats.pinsMapped} exatos` : '',
-                      (pinStats.pinsApproximate || 0) > 0 ? `${pinStats.pinsApproximate} aprox.` : '',
-                      (pinStats.pinsPending || 0) > 0 ? `${pinStats.pinsPending} sem local` : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || undefined
-                  : undefined
+                pinStats && (pinStats.pinsPending || 0) > 0
+                  ? `${pinStats.pinsPending} com rua aguardam localizar`
+                  : 'só endereço completo localizado'
               }
             />
             <StatPill label="Regiões" value={stats.clusters} sub={LAYER_LABELS[layer]} isText />
@@ -1042,9 +1043,9 @@ export const LeadsConcentrationMap: React.FC = () => {
                 variant={mapMode === 'pins' ? 'primary' : 'ghost'}
                 leftIcon={<User className="w-3.5 h-3.5" />}
                 onClick={() => setMapMode('pins')}
-                title="Marca cada contato com endereço localizado"
+                title="Só contatos com rua, número e coordenadas localizadas"
               >
-                Contatos
+                Endereços
               </Button>
             </div>
           </div>
@@ -1070,8 +1071,10 @@ export const LeadsConcentrationMap: React.FC = () => {
                   <p className="text-[9px] font-bold uppercase tracking-wider opacity-90">Exibindo no mapa</p>
                   <p className="text-[12px] font-bold truncate">{clusterFilterLabel(selectedCluster)}</p>
                   <p className="text-[10px] opacity-90 tabular-nums">
-                    {displayPins.length.toLocaleString('pt-BR')} no mapa de{' '}
-                    {selectedCluster.count.toLocaleString('pt-BR')} · clique de novo para ver todos
+                    {displayPins.length > 0
+                      ? `${displayPins.length.toLocaleString('pt-BR')} com endereço no mapa de ${selectedCluster.count.toLocaleString('pt-BR')}`
+                      : `${selectedCluster.count.toLocaleString('pt-BR')} contatos · Localize no mapa para ver no endereço`}
+                    {' · '}clique de novo para ver todos
                   </p>
                 </div>
               )}
@@ -1087,9 +1090,7 @@ export const LeadsConcentrationMap: React.FC = () => {
                   Rua
                 </a>
               )}
-              {mapMode === 'pins' && displayPins.length > 0 && (
-                <LeadTempLegend hasApproximate={displayPins.some((p) => p.approximate)} />
-              )}
+              {mapMode === 'pins' && displayPins.length > 0 && <LeadTempLegend />}
               {mapMode !== 'pins' && displayClusters.length > 0 && <HeatLegend />}
               {showEmptyMap && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-slate-500 bg-slate-100/90 dark:bg-slate-800/90 z-10 pointer-events-none">
@@ -1097,7 +1098,7 @@ export const LeadsConcentrationMap: React.FC = () => {
                   <p className="text-sm font-medium">Nenhuma região para exibir.</p>
                   <p className="text-xs mt-1 max-w-sm">
                     {mapMode === 'pins'
-                      ? 'Nenhum contato localizado ainda. Clique em Localizar no mapa (contatos com rua, número ou bairro).'
+                      ? 'Nenhum contato com endereço completo localizado neste filtro. Use Localizar no mapa (rua + número).'
                       : layer === 'ddd'
                         ? 'Contatos precisam de telefone com DDD válido.'
                         : layer === 'state'
@@ -1204,13 +1205,9 @@ const StatPill: React.FC<{ label: string; value: number; sub?: string; isText?: 
   </div>
 );
 
-const LeadTempLegend: React.FC<{ hasApproximate?: boolean }> = ({ hasApproximate }) => (
+const LeadTempLegend: React.FC = () => (
   <div className="absolute bottom-3 left-3 z-[500] rounded-lg bg-white/92 dark:bg-slate-900/92 border border-slate-200/80 dark:border-slate-700 px-2.5 py-1.5 shadow-sm pointer-events-none max-w-[220px]">
-    {hasApproximate && (
-      <p className="text-[9px] text-amber-700 dark:text-amber-300 mb-1.5 leading-snug">
-        Pontos pequenos = bairro aproximado (sem rua). Ícone 👤 = endereço exato.
-      </p>
-    )}
+    <p className="text-[9px] text-slate-500 mb-1.5 leading-snug">👤 = endereço completo localizado (rua + número)</p>
     <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Temperatura do lead</p>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-600 dark:text-slate-300">
       {(['hot', 'warm', 'cold', 'new'] as ContactTemperature[]).map((t) => (
