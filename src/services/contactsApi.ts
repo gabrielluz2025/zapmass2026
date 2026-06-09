@@ -86,6 +86,23 @@ export async function apiBulkUpdateContacts(
   });
 }
 
+export async function apiNormalizeContactAddresses(): Promise<{
+  scanned: number;
+  updated: number;
+  samples: Array<{ from: string; to: string }>;
+}> {
+  const j = await apiFetchJson<{
+    scanned?: number;
+    updated?: number;
+    samples?: Array<{ from: string; to: string }>;
+  }>('/api/contacts/normalize-addresses', { method: 'POST', body: '{}' });
+  return {
+    scanned: Number(j.scanned) || 0,
+    updated: Number(j.updated) || 0,
+    samples: Array.isArray(j.samples) ? j.samples : []
+  };
+}
+
 export async function apiDeleteContact(id: string): Promise<void> {
   await apiFetchJson(`/api/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

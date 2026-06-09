@@ -48,6 +48,7 @@ import {
   fetchContacts,
   fetchContactsCount
 } from '../services/contactsApi';
+import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import {
   apiCreateCampaign,
   apiBulkDeleteCampaigns,
@@ -605,8 +606,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             };
           })()
         : undefined;
-    return {
-      id,
+    const base = applyAddressNormalizationToContact({
       name: raw.name || raw.nome || 'Sem Nome',
       phone:
         raw.phone ||
@@ -648,7 +648,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ? { campaignMessagesReceived: Math.max(0, Math.floor(Number(raw.campaignMessagesReceived) || 0)) }
         : {}),
       ...(campaignTablePreview ? { campaignTablePreview } : {})
-    };
+    });
+    return { ...base, id };
   }, []);
 
   const refreshContactsSavedTotal = useCallback(async (): Promise<void> => {

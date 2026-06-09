@@ -25,6 +25,7 @@ import {
   fetchAndPersistContactProfilePicturesBatch
 } from './contactProfilePicture.js';
 import * as evolutionService from './evolutionService.js';
+import { normalizeTenantContactAddresses } from './contactsNormalizeService.js';
 
 export function registerContactsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -150,6 +151,18 @@ export function registerContactsDataRoutes(app: Express): void {
       return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
     }
     return res.json({ ok: true, contact: updated });
+  });
+
+  app.post('/api/contacts/normalize-addresses', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const result = await normalizeTenantContactAddresses(ctx.tenantId);
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[api/contacts/normalize-addresses]', e);
+      return res.status(500).json({ ok: false, error: 'Falha ao padronizar endereços.' });
+    }
   });
 
   app.post('/api/contacts/bulk-update', async (req: Request, res: Response) => {

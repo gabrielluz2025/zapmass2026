@@ -4,6 +4,7 @@ import type { Contact } from '../../src/types.js';
 import {
   contactToDocPayload,
   mergeContactUpdates,
+  prepareContactForPersistence,
   rowToContact,
   sortNameForContact,
   type ContactRow
@@ -58,7 +59,7 @@ export async function createContact(tenantId: string, contact: Partial<Contact>)
   const id = contact.id && /^[0-9a-f-]{36}$/i.test(contact.id) ? contact.id : randomUUID();
   const name = String(contact.name || 'Sem Nome').slice(0, 500);
   const phone = String(contact.phone || '').slice(0, 64);
-  const doc = contactToDocPayload({ ...contact, name, phone });
+  const doc = contactToDocPayload(prepareContactForPersistence({ ...contact, name, phone }));
   const r = await pool.query<ContactRow>(
     `INSERT INTO zapmass.contacts (id, tenant_id, name, phone, sort_name, doc)
      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb)
@@ -90,7 +91,7 @@ export async function bulkCreateContacts(
         ids.push(id);
         const name = String(contact.name || 'Sem Nome').slice(0, 500);
         const phone = String(contact.phone || '').slice(0, 64);
-        const doc = contactToDocPayload({ ...contact, name, phone });
+        const doc = contactToDocPayload(prepareContactForPersistence({ ...contact, name, phone }));
         values.push(
           `($${paramIdx}::uuid, $1::uuid, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::jsonb)`
         );
@@ -119,7 +120,7 @@ export async function updateContact(
 ): Promise<Contact | null> {
   const existing = await getContactById(tenantId, id);
   if (!existing) return null;
-  const merged = mergeContactUpdates(existing, updates);
+  const merged = prepareContactForPersistence(mergeContactUpdates(existing, updates));
   const name = String(merged.name || 'Sem Nome').slice(0, 500);
   const phone = String(merged.phone || '').slice(0, 64);
   const doc = contactToDocPayload(merged);
@@ -155,7 +156,7 @@ export async function bulkUpdateContacts(
     for (const { id, updates } of items) {
       const existing = existingById.get(id);
       if (!existing) continue;
-      const merged = mergeContactUpdates(existing, updates);
+      const merged = prepareContactForPersistence(mergeContactUpdates(existing, updates));
       const name = String(merged.name || 'Sem Nome').slice(0, 500);
       const phone = String(merged.phone || '').slice(0, 64);
       const doc = contactToDocPayload(merged);

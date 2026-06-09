@@ -1,4 +1,5 @@
 import type { Contact, ContactList } from '../../src/types.js';
+import { applyAddressNormalizationToContact } from '../../src/utils/contactAddressNormalize.js';
 
 export type ContactRow = {
   id: string;
@@ -24,6 +25,11 @@ export type ContactListRow = {
 
 export function sortNameForContact(name: string): string {
   return (name || 'Sem Nome').trim().toLowerCase();
+}
+
+/** Normaliza endereço/cidade antes de gravar no Postgres. */
+export function prepareContactForPersistence(contact: Partial<Contact>): Partial<Contact> {
+  return applyAddressNormalizationToContact(contact);
 }
 
 /** Payload Firestore-compatível (sem id). */

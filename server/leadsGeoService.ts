@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Contact } from '../src/types.js';
 import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
+import { resolveContactCityState as resolveNormalizedCityState } from '../src/utils/contactAddressNormalize.js';
 import {
   cityToApproxCoord,
   dddToApproxCoord,
@@ -137,18 +138,12 @@ function resolveContactState(c: Contact): string {
   return uf || '';
 }
 
-/** Unifica "BLUMENAU - SC", "Blumenau/SC" etc. em cidade + UF consistentes. */
 function resolveContactCityState(c: Contact): { city: string; state: string } {
-  let city = normCity(c.city || '');
-  let state = resolveContactState(c);
-
-  const embedded = city.match(/^(.+?)\s*[-–/,]\s*([A-Za-z]{2})\s*$/);
-  if (embedded) {
-    city = normCity(embedded[1]);
-    if (!state) state = normState(embedded[2]);
-  }
-
-  return { city, state };
+  return resolveNormalizedCityState({
+    city: c.city,
+    state: c.state,
+    phone: c.phone
+  });
 }
 
 function resolveContactDdd(c: Contact): string {

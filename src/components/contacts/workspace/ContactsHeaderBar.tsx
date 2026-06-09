@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, UserPlus, Upload, Download, BarChart3, FileSpreadsheet, Wand2, ChevronDown, Smartphone, SpellCheck2 } from 'lucide-react';
+import { Users, UserPlus, Upload, Download, BarChart3, FileSpreadsheet, Wand2, ChevronDown, Smartphone, SpellCheck2, MapPin } from 'lucide-react';
 
 interface HeaderStats {
   total: number;
@@ -24,6 +24,9 @@ interface Props {
   onOpenInsights: () => void;
   /** Padronizar / limpar nomes na base inteira (modal na aba Contatos). */
   onOpenNormalizeNames?: () => void;
+  /** Padronizar cidade/UF/bairro/CEP na base inteira. */
+  onOpenNormalizeAddresses?: () => void;
+  addressNormalizeBusy?: boolean;
 }
 
 /**
@@ -42,7 +45,9 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
   onDownloadTemplate,
   onExport,
   onOpenInsights,
-  onOpenNormalizeNames
+  onOpenNormalizeNames,
+  onOpenNormalizeAddresses,
+  addressNormalizeBusy = false
 }) => {
   const [importOpen, setImportOpen] = React.useState(false);
   const importBtnRef = React.useRef<HTMLDivElement>(null);
@@ -164,6 +169,19 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
           >
             <SpellCheck2 className="w-4 h-4 text-violet-500" />
             <span className="hidden sm:inline">Limpar nomes</span>
+          </button>
+        )}
+
+        {onOpenNormalizeAddresses && (
+          <button
+            type="button"
+            onClick={onOpenNormalizeAddresses}
+            disabled={addressNormalizeBusy}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[var(--brand-500)]/50 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm disabled:opacity-60"
+            title='Unifica "BLUMENAU - SC" → Blumenau + SC; corrige maiúsculas e UF pelo DDD'
+          >
+            <MapPin className={`w-4 h-4 text-rose-500 ${addressNormalizeBusy ? 'animate-pulse' : ''}`} />
+            <span className="hidden sm:inline">{addressNormalizeBusy ? 'Padronizando…' : 'Padronizar cidades'}</span>
           </button>
         )}
 

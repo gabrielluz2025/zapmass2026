@@ -58,7 +58,9 @@ import { findBestConversationForPhone } from '../utils/findConversationByPhone';
 import { openChatByConversationIdNavigate } from '../utils/openChatByConversationIdNav';
 import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
 import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
+import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import { validateImportRow } from '../utils/contactImportSchema';
+import { apiNormalizeContactAddresses } from '../services/contactsApi';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -389,18 +391,21 @@ const buildFileImportRowsViewFromDupBasis = (rows: FileImportRow[], basis: FileI
 const buildFileImportRowsViewFromState = (rows: FileImportRow[], contactsList: Contact[]): FileImportRowView[] =>
   buildFileImportRowsViewFromDupBasis(rows, buildFileImportDupBasis(contactsList));
 
-const normalizeFileImportRowContactOnly = (row: FileImportRow): FileImportRow => ({
-  ...row,
-  contact: {
+const normalizeFileImportRowContactOnly = (row: FileImportRow): FileImportRow => {
+  const phone = normalizeBRPhone(stripInvisibleChars(row.contact.phone || ''));
+  const base = {
     ...row.contact,
     name: normalizeContactPersonName(stripInvisibleChars((row.contact.name || '').trim()), {
       stripPrefixes: true,
       titleCase: true
     }),
-    phone: normalizeBRPhone(stripInvisibleChars(row.contact.phone || '')),
-    state: (row.contact.state || '').toUpperCase().slice(0, 2),
-  },
-});
+    phone
+  };
+  return {
+    ...row,
+    contact: applyAddressNormalizationToContact(base)
+  };
+};
 
 const recomputeOneStoredIncludeRow = (
   row: FileImportRow,
@@ -509,7 +514,7 @@ const mergeContactData = (
   const finalPhone = normalizedIncomingPhone || existing.phone || '';
   const finalDigits = finalPhone.replace(/\D/g, '');
 
-  return {
+  return applyAddressNormalizationToContact({
     name:
       normalizeContactPersonName(pickPreferredValue(existing.name, incoming.name) || 'Sem Nome', {
         stripPrefixes: true,
@@ -517,7 +522,7 @@ const mergeContactData = (
       }) || 'Sem Nome',
     phone: finalPhone,
     city: pickPreferredValue(existing.city, incoming.city),
-    state: pickPreferredValue(existing.state, incoming.state).toUpperCase().slice(0, 2),
+    state: pickPreferredValue(existing.state, incoming.state),
     street: pickPreferredValue(existing.street, incoming.street),
     number: pickPreferredValue(existing.number, incoming.number),
     neighborhood: pickPreferredValue(existing.neighborhood, incoming.neighborhood),
@@ -532,7 +537,7 @@ const mergeContactData = (
     followUpNote: pickPreferredValue(existing.followUpNote, incoming.followUpNote),
     tags: mergedTags.length > 0 ? mergedTags : existing.tags || [],
     status: finalDigits.length >= 10 ? 'VALID' : 'INVALID'
-  };
+  });
 };
 
 // Tenta extrair um nome "razoavel" de um token: >= 2 palavras alfabeticas,
@@ -891,6 +896,7 @@ export const ContactsTab: React.FC = () => {
   const [nameNormalizePreviewCount, setNameNormalizePreviewCount] = useState<number | null>(null);
   const [nameNormalizePreviewBusy, setNameNormalizePreviewBusy] = useState(false);
   const [nameNormalizeApplyBusy, setNameNormalizeApplyBusy] = useState(false);
+  const [addressNormalizeBusy, setAddressNormalizeBusy] = useState(false);
   const [smartImportRaw, setSmartImportRaw] = useState('');
   const [smartImportRows, setSmartImportRows] = useState<SmartRow[]>([]);
   const [smartImportPreviewFilter, setSmartImportPreviewFilter] = useState<FileImportPreviewFilter>('all');
@@ -3356,6 +3362,33 @@ export const ContactsTab: React.FC = () => {
     setNameNormalizeModalOpen(true);
   }, []);
 
+  const runAddressNormalize = useCallback(async () => {
+    if (
+      !window.confirm(
+        'Padronizar cidade, UF, bairro e CEP de TODA a base?\n\nEx.: "BLUMENAU - SC" vira cidade "Blumenau" + UF "SC"; corrige variações de maiúsculas e UF errada pelo DDD.'
+      )
+    ) {
+      return;
+    }
+    setAddressNormalizeBusy(true);
+    try {
+      const r = await apiNormalizeContactAddresses();
+      if (r.updated === 0) {
+        toast('Nenhum endereço precisou de alteração.', { icon: 'ℹ️' });
+      } else {
+        const sample = r.samples.slice(0, 3).map((s) => `${s.from} → ${s.to}`).join('; ');
+        toast.success(
+          `${r.updated.toLocaleString('pt-BR')} contato(s) padronizado(s) de ${r.scanned.toLocaleString('pt-BR')}.${sample ? ` Ex.: ${sample}` : ''}`
+        );
+        await refreshContacts();
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao padronizar endereços.');
+    } finally {
+      setAddressNormalizeBusy(false);
+    }
+  }, [refreshContacts]);
+
   const runNameNormalizePreview = useCallback(async () => {
     setNameNormalizePreviewBusy(true);
     try {
@@ -3550,6 +3583,8 @@ export const ContactsTab: React.FC = () => {
         onExport={handleExport}
         onOpenInsights={openInsights}
         onOpenNormalizeNames={openNameNormalizeModal}
+        onOpenNormalizeAddresses={() => void runAddressNormalize()}
+        addressNormalizeBusy={addressNormalizeBusy}
       />
 
       <>
