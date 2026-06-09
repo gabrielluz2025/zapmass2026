@@ -3,6 +3,7 @@ import path from 'path';
 import type { Contact } from '../src/types.js';
 import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import {
+  normalizeContactNeighborhood,
   parseGeoFilterCity,
   resolveContactCityState as resolveNormalizedCityState
 } from '../src/utils/contactAddressNormalize.js';
@@ -137,10 +138,8 @@ function normCity(raw: string): string {
     .replace(/\s+/g, ' ');
 }
 
-function normNeighborhood(raw: string): string {
-  return String(raw || '')
-    .trim()
-    .replace(/\s+/g, ' ');
+function normNeighborhood(raw: string, cityHint?: string): string {
+  return normalizeContactNeighborhood(String(raw || ''), cityHint);
 }
 
 function normKeyPart(s: string): string {
@@ -330,7 +329,7 @@ function clusterKey(layer: GeoLayer, parts: Record<string, string>): string {
 function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
   const { city, state: st } = resolveContactCityState(c);
   const ddd = resolveContactDdd(c);
-  const nb = normNeighborhood(c.neighborhood || '');
+  const nb = normNeighborhood(c.neighborhood || '', city);
 
   if (q.state && normKeyPart(st) !== normKeyPart(q.state)) return false;
   if (q.city) {
@@ -400,7 +399,7 @@ export async function buildLeadsGeoSummary(
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
     const { city, state: st } = resolveContactCityState(c);
-    const nb = normNeighborhood(c.neighborhood || '');
+    const nb = normNeighborhood(c.neighborhood || '', city);
     const ddd = resolveContactDdd(c);
 
     if (st) {
@@ -427,7 +426,7 @@ export async function buildLeadsGeoSummary(
     const { city: rawCity, state: rawState } = resolveContactCityState(c);
     const st = rawState || '—';
     const city = rawCity || '—';
-    const nb = normNeighborhood(c.neighborhood || '') || '—';
+    const nb = normNeighborhood(c.neighborhood || '', rawCity) || '—';
     const ddd = resolveContactDdd(c) || '—';
 
     let key = '';
@@ -437,7 +436,7 @@ export async function buildLeadsGeoSummary(
     if (layer === 'neighborhood') {
       if (nb === '—' || city === '—') continue;
       key = clusterKey(layer, { state: st, city, neighborhood: nb });
-      label = `${nb}, ${city}`;
+      label = st !== '—' ? `${nb} · ${city}` : nb;
       precision = 'neighborhood';
     } else if (layer === 'city') {
       if (city === '—') continue;

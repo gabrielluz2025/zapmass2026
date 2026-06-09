@@ -44,8 +44,12 @@ export async function normalizeTenantContactAddresses(tenantId: string): Promise
       );
       if (!contactAddressChanged(c, norm)) continue;
 
-      const beforeLabel = [c.city, c.state].filter(Boolean).join(' · ') || '(vazio)';
-      const afterLabel = [norm.city, norm.state].filter(Boolean).join(' · ') || '(vazio)';
+      const fmt = (city?: string, state?: string, nb?: string) => {
+        const parts = [nb, city, state].filter(Boolean);
+        return parts.length > 0 ? parts.join(' · ') : '(vazio)';
+      };
+      const beforeLabel = fmt(c.city, c.state, c.neighborhood);
+      const afterLabel = fmt(norm.city, norm.state, norm.neighborhood);
       const sampleKey = `${beforeLabel}=>${afterLabel}`;
       if (samples.length < 12 && !sampleKeys.has(sampleKey)) {
         sampleKeys.add(sampleKey);

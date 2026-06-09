@@ -68,6 +68,30 @@ export function normalizeContactState(raw: string): string {
   return BRAZIL_UFS.has(st) ? st : '';
 }
 
+/** Limpa bairro: remove colchetes, pontuação solta e sufixo ", Cidade" duplicado. */
+export function normalizeContactNeighborhood(raw: string, cityHint?: string): string {
+  let s = cleanWhitespace(raw);
+  if (!s) return '';
+
+  s = s.replace(/^[\[\(\{<"'«#@]+/g, '').replace(/[\]\)\}>"'»]+$/g, '');
+  s = cleanWhitespace(s);
+
+  const embedded = s.match(/^(.+?)\s*[,–/\-]\s*(.+)$/);
+  if (embedded) {
+    const part1 = cleanWhitespace(embedded[1]);
+    const part2 = cleanWhitespace(embedded[2]);
+    const cityKey = cityHint ? normKeyPart(cityHint) : '';
+    if (cityKey && normKeyPart(part2) === cityKey) {
+      s = part1;
+    } else if (part2.length >= 3 && !/^\d/.test(part2)) {
+      s = part1;
+    }
+  }
+
+  s = s.replace(/^[^\p{L}\p{N}]+/gu, '').replace(/[^\p{L}\p{N}\s.'-]+$/gu, '');
+  return titleCasePlaceName(cleanWhitespace(s));
+}
+
 export function normalizeContactZipCode(raw: string): string {
   const d = String(raw || '').replace(/\D/g, '');
   if (d.length >= 8) return `${d.slice(0, 5)}-${d.slice(5, 8)}`;
@@ -188,8 +212,9 @@ export function normalizeContactAddressFields(
     if (state) out.state = state;
   }
 
-  const nb = cleanWhitespace(input.neighborhood || '');
-  if (nb) out.neighborhood = titleCasePlaceName(nb);
+  const cityHint = out.city || cleanWhitespace(input.city || '').split('·')[0].trim();
+  const nb = normalizeContactNeighborhood(input.neighborhood || '', cityHint);
+  if (nb) out.neighborhood = nb;
 
   const street = cleanWhitespace(input.street || '');
   if (street) out.street = titleCasePlaceName(street);

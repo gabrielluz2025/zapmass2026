@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Flame, Loader2, MapPin, RefreshCw, User, Users } from 'lucide-react';
+import { Flame, Loader2, MapPin, RefreshCw, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button, Card, Select } from '../ui';
 import {
@@ -33,8 +33,26 @@ const PRECISION_LABELS: Record<string, string> = {
   cep: 'CEP'
 };
 
-function circleRadiusMeters(count: number): number {
-  return Math.min(80_000, Math.max(6_000, Math.sqrt(count) * 2_200));
+function useLocalMarkers(layer: GeoLayer, filterCity: string): boolean {
+  return layer === 'neighborhood' || (layer === 'city' && Boolean(filterCity));
+}
+
+function clusterPixelRadius(count: number, maxCount: number, layer: GeoLayer): number {
+  const t = maxCount > 0 ? Math.min(1, Math.sqrt(count / maxCount)) : 0;
+  const base = layer === 'neighborhood' ? 10 : layer === 'city' ? 12 : 14;
+  return base + t * (layer === 'neighborhood' ? 20 : 24);
+}
+
+function circleRadiusMeters(count: number, maxCount: number, layer: GeoLayer): number {
+  const t = maxCount > 0 ? Math.min(1, count / maxCount) : 0;
+  const caps: Record<GeoLayer, [number, number]> = {
+    neighborhood: [350, 1_800],
+    city: [2_500, 18_000],
+    ddd: [12_000, 55_000],
+    state: [45_000, 120_000]
+  };
+  const [minR, maxR] = caps[layer];
+  return minR + t * (maxR - minR);
 }
 
 /** Escala frio → quente (substitui HeatmapLayer removido na API 3.65). */
@@ -174,6 +192,13 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
   }, []);
 
+  const zoomToCluster = useCallback((cluster: GeoCluster) => {
+    if (!mapInstanceRef.current || cluster.lat == null || cluster.lng == null) return;
+    mapInstanceRef.current.setView([cluster.lat, cluster.lng], layer === 'neighborhood' ? 13 : 10, {
+      animate: true
+    });
+  }, [layer]);
+
   const renderMap = useCallback(() => {
     const hasClusters = mappedClusters.length > 0;
     const hasPins = contactPins.length > 0;
@@ -193,7 +218,8 @@ export const LeadsConcentrationMap: React.FC = () => {
     const bounds = L.latLngBounds([]);
     const topKey = summary?.topConcentration?.key;
     const maxCount = Math.max(...mappedClusters.map((c) => c.count), 1);
-    const maxZoom = filterCity || filterNeighborhood ? 14 : 10;
+    const maxZoom = filterCity || filterNeighborhood ? 13 : layer === 'neighborhood' ? 11 : 9;
+    const localMarkers = useLocalMarkers(layer, filterCity);
 
     if (mapMode !== 'pins' && hasClusters) {
       for (const cluster of mappedClusters) {
@@ -201,53 +227,46 @@ export const LeadsConcentrationMap: React.FC = () => {
         const lng = cluster.lng!;
         bounds.extend([lat, lng]);
         const isTop = cluster.key === topKey;
+        const style = heatStyle(cluster.count, maxCount, isTop);
 
-        if (mapMode === 'heatmap') {
-          const style = heatStyle(cluster.count, maxCount, isTop);
-          const baseRadius = circleRadiusMeters(cluster.count);
-          L.circle([lat, lng], {
-            radius: baseRadius * 1.35,
-            stroke: false,
-            fillColor: style.fill,
-            fillOpacity: style.fillOpacity * 0.45
+        if (localMarkers) {
+          const r = clusterPixelRadius(cluster.count, maxCount, layer);
+          L.circleMarker([lat, lng], {
+            radius: r,
+            color: style.stroke,
+            weight: isTop ? 2.5 : 1.5,
+            opacity: 0.9,
+            fillColor: mapMode === 'heatmap' ? style.fill : isTop ? '#ef4444' : '#14b8a6',
+            fillOpacity: mapMode === 'heatmap' ? style.fillOpacity : 0.55
           })
-            .bindPopup(popupHtml(cluster))
+            .bindPopup(popupHtml(cluster, isTop ? 'Maior concentração' : undefined))
+            .bindTooltip(
+              `<span style="font:600 11px system-ui">${cluster.label}</span><br/><span style="font:700 12px system-ui">${cluster.count.toLocaleString('pt-BR')}</span>`,
+              { direction: 'top', opacity: 0.92, sticky: true }
+            )
             .addTo(group);
+        } else if (mapMode === 'heatmap') {
+          const baseRadius = circleRadiusMeters(cluster.count, maxCount, layer);
           L.circle([lat, lng], {
-            radius: baseRadius * 0.72,
+            radius: baseRadius,
             color: style.stroke,
             weight: isTop ? 2 : 1,
             opacity: style.strokeOpacity,
             fillColor: style.fill,
-            fillOpacity: style.fillOpacity
+            fillOpacity: style.fillOpacity * 0.65
           })
             .bindPopup(popupHtml(cluster))
             .addTo(group);
         } else {
           L.circle([lat, lng], {
-            radius: circleRadiusMeters(cluster.count),
+            radius: circleRadiusMeters(cluster.count, maxCount, layer),
             color: isTop ? '#dc2626' : '#0d9488',
             weight: isTop ? 2 : 1,
-            opacity: isTop ? 0.9 : 0.55,
+            opacity: 0.75,
             fillColor: isTop ? '#ef4444' : '#14b8a6',
-            fillOpacity: isTop ? 0.42 : 0.28
+            fillOpacity: 0.35
           })
             .bindPopup(popupHtml(cluster))
-            .addTo(group);
-        }
-      }
-
-      if (topKey) {
-        const topCluster = mappedClusters.find((c) => c.key === topKey);
-        if (topCluster) {
-          L.circleMarker([topCluster.lat!, topCluster.lng!], {
-            radius: 9,
-            color: '#7f1d1d',
-            weight: 2,
-            fillColor: '#dc2626',
-            fillOpacity: 1
-          })
-            .bindPopup(popupHtml(topCluster, 'Maior concentração'))
             .addTo(group);
         }
       }
@@ -263,10 +282,10 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
 
     if (bounds.isValid()) {
-      mapInstanceRef.current.fitBounds(bounds, { padding: [28, 28], maxZoom });
+      mapInstanceRef.current.fitBounds(bounds, { padding: [36, 36], maxZoom });
     }
     window.setTimeout(() => mapInstanceRef.current?.invalidateSize(), 120);
-  }, [mappedClusters, contactPins, mapMode, summary?.topConcentration?.key, filterCity, filterNeighborhood]);
+  }, [mappedClusters, contactPins, mapMode, summary?.topConcentration?.key, filterCity, filterNeighborhood, layer]);
 
   useEffect(() => {
     const hasData = mappedClusters.length > 0 || contactPins.length > 0;
@@ -425,11 +444,15 @@ export const LeadsConcentrationMap: React.FC = () => {
             </div>
           )}
 
-          <div className="mb-4 rounded-xl border border-teal-200/80 bg-teal-50/70 dark:bg-teal-950/20 px-3 py-2 text-[12px] text-teal-900 dark:text-teal-100">
-            Ao escolher uma <strong>cidade</strong>, a camada muda para <strong>Bairro</strong> e o ranking mostra contatos por bairro.
-            Use <strong>Contatos</strong> para ver cada lead com endereço (👤 vermelho = rua+número, verde = bairro).
-            Clique em <strong>Localizar no mapa</strong> para posicionar endereços (gratuito via OpenStreetMap).
-          </div>
+          {filterCity && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+              <span className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200">
+                {filterCity}
+              </span>
+              <span>{stats.clusters} bairros · {stats.filteredTotal.toLocaleString('pt-BR')} contatos</span>
+              <span className="text-slate-400">Clique no ranking para focar no mapa</span>
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-2 mb-3">
             <FilterSelect label="Camada" value={layer} onChange={(v) => handleLayerChange(v as GeoLayer)}>
@@ -497,9 +520,16 @@ export const LeadsConcentrationMap: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
-            <div className="relative w-full min-h-[320px] h-[380px] rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800">
+          <div className="grid grid-cols-1 xl:grid-cols-[1.45fr_1fr] gap-4">
+            <div
+              className={`relative w-full rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-inner ${
+                filterCity ? 'min-h-[400px] h-[460px]' : 'min-h-[320px] h-[380px]'
+              }`}
+            >
               <div ref={mapRef} className="absolute inset-0 w-full h-full" />
+              {mapMode !== 'pins' && mappedClusters.length > 0 && (
+                <HeatLegend />
+              )}
               {showEmptyMap && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-slate-500 bg-slate-100/90 dark:bg-slate-800/90 z-10 pointer-events-none">
                   <MapPin className="w-8 h-8 mb-2 opacity-40" />
@@ -529,7 +559,14 @@ export const LeadsConcentrationMap: React.FC = () => {
                     <p className="text-xs text-slate-500">Nenhum contato neste filtro/camada.</p>
                   ) : (
                     topList.map((c, i) => (
-                      <ClusterRow key={c.key} cluster={c} rank={i + 1} isTop={c.key === top?.key} />
+                      <ClusterRow
+                        key={c.key}
+                        cluster={c}
+                        rank={i + 1}
+                        isTop={c.key === top?.key}
+                        maxCount={topList[0]?.count || 1}
+                        onFocus={() => zoomToCluster(c)}
+                      />
                     ))
                   )}
                 </div>
@@ -574,27 +611,52 @@ const StatPill: React.FC<{ label: string; value: number; sub?: string; isText?: 
   </div>
 );
 
-const ClusterRow: React.FC<{ cluster: GeoCluster; rank: number; isTop?: boolean }> = ({
-  cluster,
-  rank,
-  isTop
-}) => (
-  <div
-    className={`flex items-center justify-between gap-2 text-xs py-1.5 border-b border-slate-100 dark:border-slate-800/80 last:border-0 ${
-      isTop ? 'bg-rose-50/60 dark:bg-rose-950/20 -mx-1 px-1 rounded' : ''
-    }`}
-  >
-    <div className="min-w-0 flex items-center gap-1.5">
-      <span className="w-4 text-[10px] font-mono text-slate-400 shrink-0">{rank}</span>
-      <Users className="w-3 h-3 text-slate-400 shrink-0" />
-      <span className="truncate font-medium text-slate-800 dark:text-slate-100">{cluster.label}</span>
-      {!cluster.mapped && <span className="text-[9px] text-amber-600 shrink-0">sem mapa</span>}
+const HeatLegend: React.FC = () => (
+  <div className="absolute bottom-3 left-3 z-[500] rounded-lg bg-white/92 dark:bg-slate-900/92 border border-slate-200/80 dark:border-slate-700 px-2.5 py-1.5 shadow-sm pointer-events-none">
+    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500 mb-1">Intensidade</p>
+    <div className="flex items-center gap-1">
+      {['#14b8a6', '#eab308', '#f97316', '#ef4444', '#dc2626'].map((c) => (
+        <span key={c} className="w-5 h-2 rounded-sm" style={{ background: c }} />
+      ))}
+      <span className="text-[9px] text-slate-400 ml-0.5">menor → maior</span>
     </div>
-    <span className="font-mono font-bold tabular-nums text-slate-500 shrink-0">
-      {cluster.count.toLocaleString('pt-BR')}
-    </span>
   </div>
 );
+
+const ClusterRow: React.FC<{
+  cluster: GeoCluster;
+  rank: number;
+  isTop?: boolean;
+  maxCount: number;
+  onFocus?: () => void;
+}> = ({ cluster, rank, isTop, maxCount, onFocus }) => {
+  const pct = maxCount > 0 ? Math.max(4, Math.round((100 * cluster.count) / maxCount)) : 0;
+  return (
+    <button
+      type="button"
+      onClick={onFocus}
+      className={`w-full text-left text-xs py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+        isTop ? 'bg-rose-50/60 dark:bg-rose-950/20 -mx-1 px-1 rounded' : ''
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="min-w-0 flex items-center gap-1.5">
+          <span className="w-4 text-[10px] font-mono text-slate-400 shrink-0">{rank}</span>
+          <span className="truncate font-medium text-slate-800 dark:text-slate-100">{cluster.label}</span>
+        </div>
+        <span className="font-mono font-bold tabular-nums text-slate-600 dark:text-slate-300 shrink-0">
+          {cluster.count.toLocaleString('pt-BR')}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${isTop ? 'bg-rose-500' : 'bg-teal-500/80'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </button>
+  );
+};
 
 const DddChips: React.FC<{
   byDdd: Record<string, number>;
