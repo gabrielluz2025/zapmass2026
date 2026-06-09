@@ -4,6 +4,19 @@ export type GeoLayer = 'neighborhood' | 'city' | 'ddd' | 'state';
 
 export type GeoClusterPrecision = 'neighborhood' | 'city' | 'ddd' | 'state' | 'cep';
 
+export type GeoContactPin = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  city: string;
+  state: string;
+  neighborhood: string;
+  street: string;
+  number: string;
+  precision: 'address' | 'neighborhood' | 'city';
+};
+
 export type GeoCluster = {
   key: string;
   label: string;
@@ -46,6 +59,8 @@ export type LeadsGeoSummary = {
   byNeighborhood: Record<string, number>;
   filters: LeadsGeoFilters;
   topConcentration: { label: string; count: number; sharePct: number; key: string } | null;
+  contactPins: GeoContactPin[];
+  pinStats: { withFullAddress: number; pinsMapped: number; pinsPending: number };
 };
 
 export type LeadsGeoQuery = {
@@ -67,19 +82,30 @@ function buildQueryString(q: LeadsGeoQuery): string {
   return s ? `?${s}` : '';
 }
 
+export type LeadsGeoMapProvider = 'openstreetmap' | 'google';
+
 export async function fetchLeadsGeoConfig(): Promise<{
   enabled: boolean;
   geocodeEnabled: boolean;
+  mapProvider: LeadsGeoMapProvider;
+  googleMapsAvailable: boolean;
+  nominatimEnabled: boolean;
   mapKey: string | null;
 }> {
   const j = await apiFetchJson<{
     enabled?: boolean;
     geocodeEnabled?: boolean;
+    mapProvider?: LeadsGeoMapProvider;
+    googleMapsAvailable?: boolean;
+    nominatimEnabled?: boolean;
     mapKey?: string | null;
   }>('/api/leads-geo/config');
   return {
-    enabled: !!j.enabled,
+    enabled: j.enabled !== false,
     geocodeEnabled: !!j.geocodeEnabled,
+    mapProvider: j.mapProvider === 'google' ? 'google' : 'openstreetmap',
+    googleMapsAvailable: !!j.googleMapsAvailable,
+    nominatimEnabled: j.nominatimEnabled !== false,
     mapKey: j.mapKey ?? null
   };
 }
@@ -97,12 +123,14 @@ export async function fetchLeadsGeoSummary(query: LeadsGeoQuery = {}): Promise<L
     byCity: j.byCity && typeof j.byCity === 'object' ? j.byCity : {},
     byNeighborhood: j.byNeighborhood && typeof j.byNeighborhood === 'object' ? j.byNeighborhood : {},
     filters: j.filters || { cities: [], states: [], ddds: [], neighborhoods: [] },
-    topConcentration: j.topConcentration ?? null
+    topConcentration: j.topConcentration ?? null,
+    contactPins: Array.isArray(j.contactPins) ? j.contactPins : [],
+    pinStats: j.pinStats || { withFullAddress: 0, pinsMapped: 0, pinsPending: 0 }
   };
 }
 
 export async function apiGeocodeLeadsClusters(
-  opts: { max?: number; layer?: GeoLayer; force?: boolean } = {}
+  opts: { max?: number; layer?: GeoLayer; force?: boolean; city?: string; neighborhood?: string } = {}
 ): Promise<{
   geocoded: number;
   failed: number;
@@ -110,6 +138,15 @@ export async function apiGeocodeLeadsClusters(
   summary: LeadsGeoSummary;
 }> {
   return apiFetchJson('/api/leads-geo/geocode-clusters', {
+    method: 'POST',
+    body: JSON.stringify(opts)
+  });
+}
+
+export async function apiGeocodeContacts(
+  opts: { max?: number; city?: string; neighborhood?: string } = {}
+): Promise<{ geocoded: number; failed: number; summary: LeadsGeoSummary }> {
+  return apiFetchJson('/api/leads-geo/geocode-contacts', {
     method: 'POST',
     body: JSON.stringify(opts)
   });

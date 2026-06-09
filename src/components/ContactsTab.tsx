@@ -3340,8 +3340,9 @@ export const ContactsTab: React.FC = () => {
         }
       }
       setPickListPayload(null);
-    } catch {
-      toast.error('Não foi possível atualizar a lista.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Não foi possível atualizar a lista.';
+      toast.error(msg);
     }
   }, [pickListPayload, pickListTargetId, contactLists, contacts, updateContactList, appendContactIdsToContactList, selectedIds]);
 

@@ -7,6 +7,29 @@ import {
   type ContactListRow
 } from './contactMapper.js';
 
+export async function getContactListById(
+  tenantId: string,
+  id: string
+): Promise<ContactList | null> {
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  const r = await pool.query<ContactListRow>(
+    `SELECT id::text, tenant_id::text, name, contact_ids, description, tags, created_at, updated_at
+     FROM zapmass.contact_lists
+     WHERE tenant_id = $1::uuid AND id = $2::uuid
+     LIMIT 1`,
+    [tenantId, id]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return rowToContactList({
+    ...row,
+    contact_ids: Array.isArray(row.contact_ids)
+      ? row.contact_ids
+      : (row.contact_ids as unknown as string[])
+  });
+}
+
 export async function listContactLists(tenantId: string): Promise<ContactList[]> {
   const pool = getZapmassPool();
   if (!pool) return [];
@@ -62,8 +85,7 @@ export async function updateContactList(
 ): Promise<ContactList | null> {
   const pool = getZapmassPool();
   if (!pool) return null;
-  const lists = await listContactLists(tenantId);
-  const existing = lists.find((l) => l.id === id);
+  const existing = await getContactListById(tenantId, id);
   if (!existing) return null;
   const merged: ContactList = { ...existing, ...updates, id };
   const payload = contactListToDocPayload(merged);
@@ -84,6 +106,64 @@ export async function updateContactList(
   const row = r.rows[0];
   if (!row) return null;
   return rowToContactList({ ...row, contact_ids: payload.contact_ids });
+}
+
+/** Acrescenta IDs sem reenviar a lista inteira (suporta dezenas de milhares de contatos). */
+export async function appendContactIdsToContactList(
+  tenantId: string,
+  listId: string,
+  newIds: string[],
+  opts?: { notesLine?: string }
+): Promise<{ list: ContactList; added: number } | null> {
+  const pool = getZapmassPool();
+  if (!pool) return null;
+  const uniq = [...new Set(newIds.map(String).filter(Boolean))];
+  if (uniq.length === 0 && !opts?.notesLine) return null;
+
+  const before = await getContactListById(tenantId, listId);
+  if (!before) return null;
+  const beforeSet = new Set(before.contactIds || []);
+
+  let list: ContactList | null = before;
+  if (uniq.length > 0) {
+    const r = await pool.query<ContactListRow>(
+      `UPDATE zapmass.contact_lists
+       SET contact_ids = (
+         SELECT COALESCE(jsonb_agg(DISTINCT elem ORDER BY elem), '[]'::jsonb)
+         FROM (
+           SELECT jsonb_array_elements_text(COALESCE(contact_ids, '[]'::jsonb)) AS elem
+           UNION
+           SELECT jsonb_array_elements_text($3::jsonb) AS elem
+         ) AS combined
+       ),
+       updated_at = now()
+       WHERE tenant_id = $1::uuid AND id = $2::uuid
+       RETURNING id::text, tenant_id::text, name, contact_ids, description, tags, created_at, updated_at`,
+      [tenantId, listId, JSON.stringify(uniq)]
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    list = rowToContactList({
+      ...row,
+      contact_ids: Array.isArray(row.contact_ids)
+        ? row.contact_ids
+        : (row.contact_ids as unknown as string[])
+    });
+  }
+
+  if (opts?.notesLine) {
+    const prevNotes = String(before.description ?? '');
+    const description = `${prevNotes}\n${opts.notesLine}`.trim();
+    const updated = await updateContactList(tenantId, listId, { description });
+    if (updated) list = updated;
+  }
+
+  const afterSet = new Set(list?.contactIds || []);
+  let added = 0;
+  for (const id of uniq) {
+    if (!beforeSet.has(id) && afterSet.has(id)) added++;
+  }
+  return list ? { list, added } : null;
 }
 
 export async function deleteContactList(tenantId: string, id: string): Promise<boolean> {

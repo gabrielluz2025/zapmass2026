@@ -43,6 +43,7 @@ import {
   apiDeleteContact,
   apiDeleteContactList,
   apiUpdateContact,
+  apiAppendContactIdsToList,
   apiUpdateContactList,
   fetchContactLists,
   fetchContacts,
@@ -2486,20 +2487,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uniq = [...new Set(ids.filter(Boolean))];
     if (uniq.length === 0 && !options?.notesLine) return;
 
-    const lists = await fetchContactLists();
-    const list = lists.find((l) => l.id === listId);
-    if (!list) {
-      throw new Error(
-        'Lista não encontrada. Recarregue a página e escolha de novo a lista em Contatos.'
-      );
+    const CHUNK = 2500;
+    for (let i = 0; i < uniq.length; i += CHUNK) {
+      const chunk = uniq.slice(i, i + CHUNK);
+      const isLast = i + CHUNK >= uniq.length;
+      await apiAppendContactIdsToList(listId, chunk, {
+        notesLine: isLast ? options?.notesLine : undefined
+      });
     }
-    const mergedIds = [...new Set([...(list.contactIds || []), ...uniq])];
-    const patch: Partial<ContactList> = { contactIds: mergedIds };
-    if (options?.notesLine) {
-      const prevNotes = String(list.description ?? '');
-      patch.description = `${prevNotes}\n${options.notesLine}`.trim();
+    if (uniq.length === 0 && options?.notesLine) {
+      await apiAppendContactIdsToList(listId, [], { notesLine: options.notesLine });
     }
-    await apiUpdateContactList(listId, patch);
     await reloadVpsContactListsRef.current();
   };
 

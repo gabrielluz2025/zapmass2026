@@ -21,9 +21,12 @@ export function registerLeadsGeoRoutes(app: Express): void {
     if (!ctx) return;
     return res.json({
       ok: true,
-      enabled: isGoogleMapsJsEnabled(),
-      geocodeEnabled: isGoogleGeocodeEnabled(),
-      /** Chave só para o mapa no navegador (HTTP referrer do seu domínio). */
+      /** Mapa usa OpenStreetMap — funciona sem chave Google. */
+      enabled: true,
+      mapProvider: 'openstreetmap',
+      geocodeEnabled: isGoogleGeocodeEnabled() || process.env.NOMINATIM_DISABLED !== '1',
+      nominatimEnabled: process.env.NOMINATIM_DISABLED !== '1',
+      googleMapsAvailable: isGoogleMapsJsEnabled(),
       mapKey: getGoogleMapsJsApiKey() || null
     });
   });
@@ -51,14 +54,22 @@ export function registerLeadsGeoRoutes(app: Express): void {
   app.post('/api/leads-geo/geocode-clusters', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const body = (req.body || {}) as { max?: number; layer?: string; force?: boolean };
+    const body = (req.body || {}) as {
+      max?: number;
+      layer?: string;
+      force?: boolean;
+      city?: string;
+      neighborhood?: string;
+    };
     const max = Number(body.max) || 60;
     const layer = body.layer as 'neighborhood' | 'city' | 'ddd' | 'state' | undefined;
     try {
       const result = await geocodeLeadsGeoClusters(ctx.tenantId, {
         max,
         layer,
-        force: body.force === true
+        force: body.force === true,
+        city: body.city,
+        neighborhood: body.neighborhood
       });
       return res.json({ ok: true, ...result });
     } catch (e) {
@@ -70,9 +81,14 @@ export function registerLeadsGeoRoutes(app: Express): void {
   app.post('/api/leads-geo/geocode-contacts', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const max = Number((req.body as { max?: number })?.max) || 25;
+    const body = (req.body || {}) as { max?: number; city?: string; neighborhood?: string };
+    const max = Number(body.max) || 40;
     try {
-      const result = await geocodeContactsWithAddress(ctx.tenantId, { max });
+      const result = await geocodeContactsWithAddress(ctx.tenantId, {
+        max,
+        city: body.city,
+        neighborhood: body.neighborhood
+      });
       return res.json({ ok: true, ...result });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

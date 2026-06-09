@@ -14,6 +14,7 @@ import {
   updateContact
 } from './repositories/contactsRepository.js';
 import {
+  appendContactIdsToContactList as appendIdsToContactListRepo,
   createContactList,
   deleteAllContactLists,
   deleteContactList,
@@ -212,11 +213,45 @@ export function registerContactsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const id = String(req.params.id || '').trim();
-    const updated = await updateContactList(ctx.tenantId, id, req.body as Partial<ContactList>);
-    if (!updated) {
-      return res.status(404).json({ ok: false, error: 'Lista não encontrada.' });
+    try {
+      const updated = await updateContactList(ctx.tenantId, id, req.body as Partial<ContactList>);
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: 'Lista não encontrada.' });
+      }
+      return res.json({ ok: true, list: updated });
+    } catch (e) {
+      console.error('[api/contact-lists PATCH]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível atualizar a lista.' });
     }
-    return res.json({ ok: true, list: updated });
+  });
+
+  app.post('/api/contact-lists/:id/append', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const id = String(req.params.id || '').trim();
+    const body = (req.body || {}) as { contactIds?: string[]; notesLine?: string };
+    const contactIds = Array.isArray(body.contactIds) ? body.contactIds.map(String).filter(Boolean) : [];
+    if (contactIds.length === 0 && !body.notesLine) {
+      return res.status(400).json({ ok: false, error: 'Nenhum contato informado.' });
+    }
+    if (contactIds.length > 5000) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Máximo 5000 contatos por lote. Envie em partes menores.'
+      });
+    }
+    try {
+      const result = await appendIdsToContactListRepo(ctx.tenantId, id, contactIds, {
+        notesLine: body.notesLine
+      });
+      if (!result) {
+        return res.status(404).json({ ok: false, error: 'Lista não encontrada.' });
+      }
+      return res.json({ ok: true, list: result.list, added: result.added });
+    } catch (e) {
+      console.error('[api/contact-lists append]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível atualizar a lista.' });
+    }
   });
 
   app.delete('/api/contact-lists/:id', async (req: Request, res: Response) => {

@@ -19,6 +19,7 @@ import {
   geocodeBrazilAddressDetailed,
   isGoogleGeocodeEnabled
 } from './googleGeocode.js';
+import { geocodeNominatim, isNominatimEnabled } from './nominatimGeocode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { rowToContact, type ContactRow } from './repositories/contactMapper.js';
 import { listContacts, updateContact } from './repositories/contactsRepository.js';
@@ -40,6 +41,25 @@ export type GeoCluster = {
   precision: GeoClusterPrecision;
   mapped: boolean;
   sampleNames: string[];
+};
+
+export type GeoContactPin = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  city: string;
+  state: string;
+  neighborhood: string;
+  street: string;
+  number: string;
+  precision: 'address' | 'neighborhood' | 'city';
+};
+
+export type GeoContactPinStats = {
+  withFullAddress: number;
+  pinsMapped: number;
+  pinsPending: number;
 };
 
 export type LeadsGeoFilters = {
@@ -69,6 +89,8 @@ export type LeadsGeoSummary = {
   byNeighborhood: Record<string, number>;
   filters: LeadsGeoFilters;
   topConcentration: { label: string; count: number; sharePct: number; key: string } | null;
+  contactPins: GeoContactPin[];
+  pinStats: GeoContactPinStats;
 };
 
 export type LeadsGeoQuery = {
@@ -135,6 +157,69 @@ function hasAnyAddressField(c: Contact): boolean {
   );
 }
 
+function hasFullStreetAddress(c: Contact): boolean {
+  return Boolean((c.street || '').trim() && (c.number || '').trim());
+}
+
+/** Espalha bairros ao redor do centro da cidade quando não há geocode (visualização). */
+function neighborhoodSpreadCoord(
+  cityLat: number,
+  cityLng: number,
+  neighborhood: string
+): { lat: number; lng: number } {
+  let h = 0;
+  for (let i = 0; i < neighborhood.length; i++) h = (h * 31 + neighborhood.charCodeAt(i)) | 0;
+  const angle = ((h % 360) * Math.PI) / 180;
+  const dist = 0.006 + (Math.abs(h) % 80) / 10_000;
+  const cosLat = Math.cos((cityLat * Math.PI) / 180);
+  return {
+    lat: cityLat + dist * Math.cos(angle),
+    lng: cityLng + (dist * Math.sin(angle)) / (cosLat || 1)
+  };
+}
+
+async function geocodeQueryAnyProvider(query: string): Promise<{ lat: number; lng: number } | null> {
+  if (isGoogleGeocodeEnabled()) {
+    const hit = await geocodeBrazilAddressDetailed(query);
+    if (hit.ok) return { lat: hit.lat, lng: hit.lng };
+  }
+  if (isNominatimEnabled()) {
+    const hit = await geocodeNominatim(query);
+    if (hit.ok) return { lat: hit.lat, lng: hit.lng };
+  }
+  return null;
+}
+
+function buildContactGeocodeQueries(c: Contact): string[] {
+  const { city, state: st } = resolveContactCityState(c);
+  const nb = normNeighborhood(c.neighborhood || '');
+  const street = String(c.street || '').trim();
+  const number = String(c.number || '').trim();
+  const zip = (c.zipCode || '').replace(/\D/g, '');
+  const out: string[] = [];
+  const push = (q: string | null | undefined) => {
+    const s = String(q || '').trim();
+    if (s.length >= 5 && !out.includes(s)) out.push(s);
+  };
+
+  if (street && number && nb && city) {
+    push(`${street}, ${number}, ${nb}, ${city}, ${st}, Brasil`);
+  }
+  if (street && number && city) {
+    push(`${street}, ${number}, ${city}, ${st}, Brasil`);
+  }
+  if (zip.length >= 8) push(`${zip.slice(0, 5)}-${zip.slice(5, 8)}, Brasil`);
+  if (nb && city) push(`${nb}, ${city}, ${st}, Brasil`);
+  if (city) push(`${city}, ${st}, Brasil`);
+  return out;
+}
+
+function contactPinPrecision(c: Contact): GeoContactPin['precision'] {
+  if (hasFullStreetAddress(c)) return 'address';
+  if (normNeighborhood(c.neighborhood || '')) return 'neighborhood';
+  return 'city';
+}
+
 function resolveContactState(c: Contact): string {
   const st = normState(c.state || '');
   if (st) return st;
@@ -188,12 +273,15 @@ function builtinCoordForCluster(cluster: GeoCluster): { lat: number; lng: number
   if (cluster.precision === 'state' && cluster.state !== '—') {
     return ufToCoord(cluster.state);
   }
-  if (
-    (cluster.precision === 'city' || cluster.precision === 'neighborhood') &&
-    cluster.city !== '—'
-  ) {
+  if (cluster.precision === 'city' && cluster.city !== '—') {
     const st = cluster.state !== '—' ? cluster.state : '';
     return cityToApproxCoord(cluster.city, st);
+  }
+  if (cluster.precision === 'neighborhood' && cluster.city !== '—' && cluster.neighborhood !== '—') {
+    const st = cluster.state !== '—' ? cluster.state : '';
+    const cityCoord = cityToApproxCoord(cluster.city, st);
+    if (!cityCoord) return null;
+    return neighborhoodSpreadCoord(cityCoord.lat, cityCoord.lng, cluster.neighborhood);
   }
   return null;
 }
@@ -251,7 +339,10 @@ function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
     if (fc.state && st && normKeyPart(st) !== normKeyPart(fc.state)) return false;
   }
   if (q.ddd && ddd !== q.ddd.replace(/\D/g, '').slice(0, 2)) return false;
-  if (q.neighborhood && normKeyPart(nb) !== normKeyPart(q.neighborhood)) return false;
+  if (q.neighborhood) {
+    const filterNb = q.neighborhood.split('·')[0].trim();
+    if (normKeyPart(nb) !== normKeyPart(filterNb)) return false;
+  }
   return true;
 }
 
@@ -297,6 +388,10 @@ export async function buildLeadsGeoSummary(
   let withCity = 0;
   let withNeighborhood = 0;
   let withPhone = 0;
+  const contactPins: GeoContactPin[] = [];
+  let filteredWithFullAddress = 0;
+  let pinsMapped = 0;
+  let pinsPending = 0;
 
   for (const c of contacts) {
     if (hasAnyAddressField(c)) withAnyAddress++;
@@ -414,6 +509,33 @@ export async function buildLeadsGeoSummary(
     if (cluster.sampleNames.length < 3 && (c.name || '').trim()) {
       cluster.sampleNames.push((c.name || '').trim());
     }
+
+    if (hasFullStreetAddress(c)) filteredWithFullAddress++;
+
+    const hasCoords = Number.isFinite(c.latitude) && Number.isFinite(c.longitude);
+    const canPin = hasCoords || hasFullStreetAddress(c) || normNeighborhood(c.neighborhood || '');
+    if (canPin) {
+      if (hasCoords) {
+        pinsMapped++;
+        if (contactPins.length < 500) {
+          const { city: pinCity, state: pinState } = resolveContactCityState(c);
+          contactPins.push({
+            id: c.id,
+            name: (c.name || 'Sem nome').trim(),
+            lat: c.latitude!,
+            lng: c.longitude!,
+            city: pinCity,
+            state: pinState,
+            neighborhood: normNeighborhood(c.neighborhood || ''),
+            street: String(c.street || '').trim(),
+            number: String(c.number || '').trim(),
+            precision: contactPinPrecision(c)
+          });
+        }
+      } else if (hasFullStreetAddress(c) || normNeighborhood(c.neighborhood || '')) {
+        pinsPending++;
+      }
+    }
   }
 
   const clusters = [...clusterMap.values()].sort((a, b) => b.count - a.count);
@@ -458,13 +580,15 @@ export async function buildLeadsGeoSummary(
       ddds: [...filterSets.ddds].sort(),
       neighborhoods: [...filterSets.neighborhoods].sort((a, b) => a.localeCompare(b, 'pt-BR')).slice(0, 200)
     },
-    topConcentration
+    topConcentration,
+    contactPins,
+    pinStats: { withFullAddress: filteredWithFullAddress, pinsMapped, pinsPending }
   };
 }
 
 export async function geocodeLeadsGeoClusters(
   tenantId: string,
-  opts?: { max?: number; layer?: GeoLayer; force?: boolean }
+  opts?: { max?: number; layer?: GeoLayer; force?: boolean; city?: string; neighborhood?: string }
 ): Promise<{
   geocoded: number;
   failed: number;
@@ -480,13 +604,15 @@ export async function geocodeLeadsGeoClusters(
     return { geocoded: 0, failed: 0, pending: 0, summary };
   }
 
-  if (!isGoogleGeocodeEnabled()) {
-    throw new Error(
-      'Configure GOOGLE_MAPS_API_KEY no servidor (.env) com Geocoding API ativa no Google Cloud.'
-    );
+  if (!isGoogleGeocodeEnabled() && !isNominatimEnabled()) {
+    throw new Error('Geocodificação indisponível (Google ou OpenStreetMap).');
   }
 
-  const summary = await buildLeadsGeoSummary(tenantId, { layer });
+  const summary = await buildLeadsGeoSummary(tenantId, {
+    layer,
+    city: opts?.city,
+    neighborhood: opts?.neighborhood
+  });
   const cache = readGeoCache();
   const uncached = summary.clusters.filter((c) => opts?.force || !cache[c.key]);
   const toProcess = uncached.slice(0, max);
@@ -503,68 +629,65 @@ export async function geocodeLeadsGeoClusters(
 
     let saved = false;
     for (const query of queries) {
-      const hit = await geocodeBrazilAddressDetailed(query);
-      if (hit.ok === false) {
-        lastGoogleStatus = hit.status;
-        if (hit.status === 'REQUEST_DENIED') {
-          throw new Error(
-            hit.errorMessage ||
-              'Geocoding API negada. Ative "Geocoding API" no Google Cloud e verifique a chave no .env.'
-          );
-        }
-        continue;
-      }
+      const hit = await geocodeQueryAnyProvider(query);
+      if (!hit) continue;
       cache[cluster.key] = { lat: hit.lat, lng: hit.lng, at: new Date().toISOString() };
       geocoded++;
       saved = true;
       break;
     }
     if (!saved) failed++;
-    await new Promise((r) => setTimeout(r, 110));
   }
 
   if (geocoded > 0) writeGeoCache(cache);
 
-  const refreshed = await buildLeadsGeoSummary(tenantId, { layer });
+  const refreshed = await buildLeadsGeoSummary(tenantId, {
+    layer,
+    city: opts?.city,
+    neighborhood: opts?.neighborhood
+  });
   const stillPending = refreshed.clusters.filter((c) => !cache[c.key]).length;
   return { geocoded, failed, pending: stillPending, googleStatus: lastGoogleStatus, summary: refreshed };
 }
 
 export async function geocodeContactsWithAddress(
   tenantId: string,
-  opts?: { max?: number }
-): Promise<{ geocoded: number; failed: number }> {
-  const max = Math.min(Math.max(opts?.max ?? 25, 1), 50);
-  if (!isGoogleGeocodeEnabled()) {
-    throw new Error('Configure GOOGLE_MAPS_API_KEY no servidor.');
+  opts?: { max?: number; city?: string; neighborhood?: string }
+): Promise<{ geocoded: number; failed: number; summary: LeadsGeoSummary }> {
+  const max = Math.min(Math.max(opts?.max ?? 40, 1), 80);
+  if (!isGoogleGeocodeEnabled() && !isNominatimEnabled()) {
+    throw new Error('Geocodificação indisponível (Google ou OpenStreetMap).');
   }
 
-  const contacts = await listContacts(tenantId, { limit: 10_000, offset: 0 });
+  const contacts = await loadTenantContacts(tenantId);
   const pending = contacts
-    .filter((c) => normCity(c.city || '') && !(Number.isFinite(c.latitude) && Number.isFinite(c.longitude)))
+    .filter((c) => {
+      if (!(Number.isFinite(c.latitude) && Number.isFinite(c.longitude))) {
+        if (!normCity(c.city || '') && !hasFullStreetAddress(c)) return false;
+        if (!contactMatchesFilters(c, { city: opts?.city, neighborhood: opts?.neighborhood })) return false;
+        return hasFullStreetAddress(c) || normNeighborhood(c.neighborhood || '') || normCity(c.city || '');
+      }
+      return false;
+    })
+    .sort((a, b) => {
+      const aFull = hasFullStreetAddress(a) ? 1 : 0;
+      const bFull = hasFullStreetAddress(b) ? 1 : 0;
+      return bFull - aFull;
+    })
     .slice(0, max);
 
   let geocoded = 0;
   let failed = 0;
 
   for (const c of pending) {
-    const zip = (c.zipCode || '').replace(/\D/g, '');
-    const queries = [
-      zip.length >= 8 ? `${zip.slice(0, 5)}-${zip.slice(5, 8)}, Brasil` : null,
-      normNeighborhood(c.neighborhood || '') && normCity(c.city || '')
-        ? `${c.neighborhood}, ${c.city}, ${resolveContactState(c)}, Brasil`
-        : null,
-      normCity(c.city || '') ? `${c.city}, ${resolveContactState(c)}, Brasil` : null
-    ].filter(Boolean) as string[];
-
-    let hit = null;
+    const queries = buildContactGeocodeQueries(c);
+    let hit: { lat: number; lng: number } | null = null;
     for (const q of queries) {
-      hit = await geocodeBrazilAddress(q);
+      hit = await geocodeQueryAnyProvider(q);
       if (hit) break;
     }
     if (!hit) {
       failed++;
-      await new Promise((r) => setTimeout(r, 100));
       continue;
     }
     await updateContact(tenantId, c.id, {
@@ -573,8 +696,12 @@ export async function geocodeContactsWithAddress(
       geocodedAt: new Date().toISOString()
     });
     geocoded++;
-    await new Promise((r) => setTimeout(r, 120));
   }
 
-  return { geocoded, failed };
+  const summary = await buildLeadsGeoSummary(tenantId, {
+    layer: opts?.neighborhood || opts?.city ? 'neighborhood' : 'city',
+    city: opts?.city,
+    neighborhood: opts?.neighborhood
+  });
+  return { geocoded, failed, summary };
 }

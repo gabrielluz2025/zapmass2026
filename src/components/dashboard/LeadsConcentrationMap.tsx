@@ -1,40 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Flame, Loader2, MapPin, RefreshCw, Users } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { Flame, Loader2, MapPin, RefreshCw, User, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button, Card, Select } from '../ui';
 import {
+  apiGeocodeContacts,
   apiGeocodeLeadsClusters,
   fetchLeadsGeoConfig,
   fetchLeadsGeoSummary,
   type GeoCluster,
+  type GeoContactPin,
   type GeoLayer,
   type LeadsGeoQuery,
   type LeadsGeoSummary
 } from '../../services/leadsGeoApi';
 
-type MapMode = 'heatmap' | 'circles';
-
-type GoogleMapsNS = {
-  maps: {
-    Map: new (el: HTMLElement, opts: Record<string, unknown>) => {
-      fitBounds: (b: unknown) => void;
-      setCenter: (c: { lat: number; lng: number }) => void;
-      setZoom: (z: number) => void;
-    };
-    LatLng: new (lat: number, lng: number) => unknown;
-    LatLngBounds: new () => { extend: (p: unknown) => void };
-    Circle: new (opts: Record<string, unknown>) => unknown;
-    Marker: new (opts: Record<string, unknown>) => unknown;
-    InfoWindow: new (opts?: Record<string, unknown>) => { open: (map: unknown, anchor?: unknown) => void };
-    event: { addListener: (target: unknown, event: string, fn: () => void) => void };
-  };
-};
-
-declare global {
-  interface Window {
-    google?: GoogleMapsNS;
-  }
-}
+type MapMode = 'heatmap' | 'circles' | 'pins';
 
 const LAYER_LABELS: Record<GeoLayer, string> = {
   ddd: 'DDD (telefone)',
@@ -50,46 +32,6 @@ const PRECISION_LABELS: Record<string, string> = {
   state: 'UF',
   cep: 'CEP'
 };
-
-function loadGoogleMapsScript(apiKey: string): Promise<GoogleMapsNS> {
-  return new Promise((resolve, reject) => {
-    if (window.google?.maps) return resolve(window.google);
-    const id = 'zapmass-google-maps-js';
-    const existing = document.getElementById(id) as HTMLScriptElement | null;
-
-    const prevAuthFailure = (window as { gm_authFailure?: () => void }).gm_authFailure;
-    (window as { gm_authFailure?: () => void }).gm_authFailure = () => {
-      reject(
-        new Error(
-          'Google Maps bloqueou a chave. Use GOOGLE_MAPS_API_KEY com restrição HTTP referrer do seu domínio (não use a chave de Geocoding no mapa).'
-        )
-      );
-    };
-
-    const onReady = () => {
-      if (window.google?.maps) {
-        (window as { gm_authFailure?: () => void }).gm_authFailure = prevAuthFailure;
-        resolve(window.google);
-      } else {
-        reject(new Error('Google Maps não carregou.'));
-      }
-    };
-    if (existing) {
-      existing.addEventListener('load', onReady);
-      if (window.google?.maps) onReady();
-      return;
-    }
-    const script = document.createElement('script');
-    script.id = id;
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&language=pt-BR&region=BR`;
-    script.onload = onReady;
-    script.onerror = () =>
-      reject(new Error('Falha ao carregar script do Google Maps. Verifique GOOGLE_MAPS_API_KEY e faturamento no Google Cloud.'));
-    document.head.appendChild(script);
-  });
-}
 
 function circleRadiusMeters(count: number): number {
   return Math.min(80_000, Math.max(6_000, Math.sqrt(count) * 2_200));
@@ -112,51 +54,43 @@ function heatStyle(count: number, maxCount: number, isTop: boolean): {
   return { fill: '#14b8a6', stroke: '#0f766e', fillOpacity: 0.3, strokeOpacity: 0.4 };
 }
 
-function addHeatCircles(
-  g: GoogleMapsNS,
-  map: unknown,
-  clusters: GeoCluster[],
-  topKey: string | undefined,
-  layers: unknown[]
-): void {
-  const maxCount = Math.max(...clusters.map((c) => c.count), 1);
-  for (const cluster of clusters) {
-    const isTop = cluster.key === topKey;
-    const style = heatStyle(cluster.count, maxCount, isTop);
-    const baseRadius = circleRadiusMeters(cluster.count);
-    const outer = new g.maps.Circle({
-      map,
-      center: { lat: cluster.lat!, lng: cluster.lng! },
-      radius: baseRadius * 1.35,
-      strokeWeight: 0,
-      fillColor: style.fill,
-      fillOpacity: style.fillOpacity * 0.45,
-      zIndex: isTop ? 8 : 2
-    });
-    const inner = new g.maps.Circle({
-      map,
-      center: { lat: cluster.lat!, lng: cluster.lng! },
-      radius: baseRadius * 0.72,
-      strokeColor: style.stroke,
-      strokeOpacity: style.strokeOpacity,
-      strokeWeight: isTop ? 2 : 1,
-      fillColor: style.fill,
-      fillOpacity: style.fillOpacity,
-      zIndex: isTop ? 9 : 3
-    });
-    const info = new g.maps.InfoWindow({ content: infoHtml(cluster) });
-    g.maps.event.addListener(inner, 'click', () => info.open(map));
-    layers.push(outer, inner);
-  }
+function neighborhoodsForCity(cityFilter: string, neighborhoods: string[]): string[] {
+  if (!cityFilter) return neighborhoods;
+  const cityPart = cityFilter.split('·')[0].trim().toLowerCase();
+  return neighborhoods.filter((n) => n.toLowerCase().includes(cityPart));
 }
 
-function infoHtml(cluster: GeoCluster): string {
+function contactPinIcon(pin: GeoContactPin): L.DivIcon {
+  const color = pin.precision === 'address' ? '#dc2626' : pin.precision === 'neighborhood' ? '#0d9488' : '#6366f1';
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);font-size:13px;line-height:1">👤</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  });
+}
+
+function pinPopupHtml(pin: GeoContactPin): string {
+  const addr = [pin.street, pin.number].filter(Boolean).join(', ');
+  const lines = [
+    `<strong>${pin.name}</strong>`,
+    addr ? `${addr}` : '',
+    pin.neighborhood ? `Bairro: ${pin.neighborhood}` : '',
+    pin.city ? `${pin.city}${pin.state ? ` · ${pin.state}` : ''}` : '',
+    `<span style="color:#64748b">${PRECISION_LABELS[pin.precision] || pin.precision}</span>`
+  ].filter(Boolean);
+  return `<div style="font-family:system-ui;font-size:12px;max-width:240px">${lines.join('<br/>')}</div>`;
+}
+
+function popupHtml(cluster: GeoCluster, title?: string): string {
   const samples =
     cluster.sampleNames.length > 0
       ? `<br/><span style="color:#94a3b8;font-size:11px">${cluster.sampleNames.slice(0, 2).join(', ')}</span>`
       : '';
+  const head = title ? `<strong style="color:#dc2626">${title}</strong><br/>` : `<strong>${cluster.label}</strong><br/>`;
   return `<div style="font-family:system-ui;font-size:12px;max-width:240px">
-    <strong>${cluster.label}</strong><br/>
+    ${head}
+    ${title ? `<span>${cluster.label}</span><br/>` : ''}
     <span>${cluster.count.toLocaleString('pt-BR')} contato(s)</span><br/>
     <span style="color:#64748b">${PRECISION_LABELS[cluster.precision] || cluster.precision}</span>
     ${samples}
@@ -165,7 +99,8 @@ function infoHtml(cluster: GeoCluster): string {
 
 export const LeadsConcentrationMap: React.FC = () => {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapLayersRef = useRef<unknown[]>([]);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const layerGroupRef = useRef<L.LayerGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [geocoding, setGeocoding] = useState(false);
   const [config, setConfig] = useState<{
@@ -197,7 +132,21 @@ export const LeadsConcentrationMap: React.FC = () => {
     [summary?.clusters]
   );
 
+  const contactPins = useMemo(() => summary?.contactPins || [], [summary?.contactPins]);
+  const pinStats = summary?.pinStats;
+
   const topList = useMemo(() => (summary?.clusters || []).slice(0, 15), [summary?.clusters]);
+
+  const cityNeighborhoods = useMemo(
+    () => neighborhoodsForCity(filterCity, summary?.filters?.neighborhoods || []),
+    [filterCity, summary?.filters?.neighborhoods]
+  );
+
+  const handleCityFilter = (value: string) => {
+    setFilterCity(value);
+    setFilterNeighborhood('');
+    if (value && layer === 'city') setLayer('neighborhood');
+  };
 
   const refreshSummary = useCallback(async (q: LeadsGeoQuery = query) => {
     setLoading(true);
@@ -217,92 +166,118 @@ export const LeadsConcentrationMap: React.FC = () => {
     void refreshSummary(query);
   }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const clearMapLayers = useCallback(() => {
-    for (const item of mapLayersRef.current) {
-      const layerObj = item as { setMap?: (m: null) => void; setVisible?: (v: boolean) => void };
-      if (typeof layerObj.setMap === 'function') layerObj.setMap(null);
+  const destroyMap = useCallback(() => {
+    layerGroupRef.current = null;
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
     }
-    mapLayersRef.current = [];
   }, []);
 
-  const renderMap = useCallback(async () => {
-    if (!mapRef.current || !config?.mapKey || mappedClusters.length === 0) return;
-    try {
-      const g = await loadGoogleMapsScript(config.mapKey);
-      clearMapLayers();
+  const renderMap = useCallback(() => {
+    const hasClusters = mappedClusters.length > 0;
+    const hasPins = contactPins.length > 0;
+    if (!mapRef.current || (!hasClusters && !hasPins)) return;
 
-      const bounds = new g.maps.LatLngBounds();
-      const map = new g.maps.Map(mapRef.current, {
-        center: { lat: -14.235, lng: -51.9253 },
-        zoom: 4,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: true,
-        styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
-      });
+    if (!mapInstanceRef.current) {
+      mapInstanceRef.current = L.map(mapRef.current, { zoomControl: true }).setView([-14.235, -51.9253], 4);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 18
+      }).addTo(mapInstanceRef.current);
+      layerGroupRef.current = L.layerGroup().addTo(mapInstanceRef.current);
+    }
 
-      const topKey = summary?.topConcentration?.key;
+    layerGroupRef.current?.clearLayers();
+    const group = layerGroupRef.current!;
+    const bounds = L.latLngBounds([]);
+    const topKey = summary?.topConcentration?.key;
+    const maxCount = Math.max(...mappedClusters.map((c) => c.count), 1);
+    const maxZoom = filterCity || filterNeighborhood ? 14 : 10;
 
+    if (mapMode !== 'pins' && hasClusters) {
       for (const cluster of mappedClusters) {
-        bounds.extend(new g.maps.LatLng(cluster.lat!, cluster.lng!));
-      }
+        const lat = cluster.lat!;
+        const lng = cluster.lng!;
+        bounds.extend([lat, lng]);
+        const isTop = cluster.key === topKey;
 
-      if (mapMode === 'heatmap') {
-        addHeatCircles(g, map, mappedClusters, topKey, mapLayersRef.current);
-      } else {
-        for (const cluster of mappedClusters) {
-          const isTop = cluster.key === topKey;
-          const circle = new g.maps.Circle({
-            map,
-            center: { lat: cluster.lat!, lng: cluster.lng! },
+        if (mapMode === 'heatmap') {
+          const style = heatStyle(cluster.count, maxCount, isTop);
+          const baseRadius = circleRadiusMeters(cluster.count);
+          L.circle([lat, lng], {
+            radius: baseRadius * 1.35,
+            stroke: false,
+            fillColor: style.fill,
+            fillOpacity: style.fillOpacity * 0.45
+          })
+            .bindPopup(popupHtml(cluster))
+            .addTo(group);
+          L.circle([lat, lng], {
+            radius: baseRadius * 0.72,
+            color: style.stroke,
+            weight: isTop ? 2 : 1,
+            opacity: style.strokeOpacity,
+            fillColor: style.fill,
+            fillOpacity: style.fillOpacity
+          })
+            .bindPopup(popupHtml(cluster))
+            .addTo(group);
+        } else {
+          L.circle([lat, lng], {
             radius: circleRadiusMeters(cluster.count),
-            strokeColor: isTop ? '#dc2626' : '#0d9488',
-            strokeOpacity: isTop ? 0.9 : 0.55,
-            strokeWeight: isTop ? 2 : 1,
+            color: isTop ? '#dc2626' : '#0d9488',
+            weight: isTop ? 2 : 1,
+            opacity: isTop ? 0.9 : 0.55,
             fillColor: isTop ? '#ef4444' : '#14b8a6',
-            fillOpacity: isTop ? 0.42 : 0.28,
-            zIndex: isTop ? 10 : 1
-          });
-          const info = new g.maps.InfoWindow({ content: infoHtml(cluster) });
-          g.maps.event.addListener(circle, 'click', () => info.open(map));
-          mapLayersRef.current.push(circle);
+            fillOpacity: isTop ? 0.42 : 0.28
+          })
+            .bindPopup(popupHtml(cluster))
+            .addTo(group);
         }
       }
 
       if (topKey) {
         const topCluster = mappedClusters.find((c) => c.key === topKey);
         if (topCluster) {
-          const marker = new g.maps.Marker({
-            map,
-            position: { lat: topCluster.lat!, lng: topCluster.lng! },
-            title: `Maior concentração: ${topCluster.label}`,
-            zIndex: 99
-          });
-          const info = new g.maps.InfoWindow({
-            content: `<div style="font-family:system-ui;font-size:12px">
-              <strong style="color:#dc2626">Maior concentração</strong><br/>
-              ${infoHtml(topCluster)}
-            </div>`
-          });
-          g.maps.event.addListener(marker, 'click', () => info.open(map, marker));
-          mapLayersRef.current.push(marker);
+          L.circleMarker([topCluster.lat!, topCluster.lng!], {
+            radius: 9,
+            color: '#7f1d1d',
+            weight: 2,
+            fillColor: '#dc2626',
+            fillOpacity: 1
+          })
+            .bindPopup(popupHtml(topCluster, 'Maior concentração'))
+            .addTo(group);
         }
       }
-
-      if (mappedClusters.length > 0) map.fitBounds(bounds);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Mapa indisponível.';
-      toast.error(msg);
     }
-  }, [config?.mapKey, mappedClusters, mapMode, summary?.topConcentration?.key, clearMapLayers]);
+
+    if (mapMode === 'pins' && hasPins) {
+      for (const pin of contactPins) {
+        bounds.extend([pin.lat, pin.lng]);
+        L.marker([pin.lat, pin.lng], { icon: contactPinIcon(pin) })
+          .bindPopup(pinPopupHtml(pin))
+          .addTo(group);
+      }
+    }
+
+    if (bounds.isValid()) {
+      mapInstanceRef.current.fitBounds(bounds, { padding: [28, 28], maxZoom });
+    }
+    window.setTimeout(() => mapInstanceRef.current?.invalidateSize(), 120);
+  }, [mappedClusters, contactPins, mapMode, summary?.topConcentration?.key, filterCity, filterNeighborhood]);
 
   useEffect(() => {
-    if (!loading && config?.mapKey && mappedClusters.length > 0) {
-      void renderMap();
-    } else if (mappedClusters.length === 0) {
-      clearMapLayers();
+    const hasData = mappedClusters.length > 0 || contactPins.length > 0;
+    if (!loading && hasData) {
+      renderMap();
+    } else if (!hasData) {
+      destroyMap();
     }
-  }, [loading, config?.mapKey, mappedClusters, renderMap, clearMapLayers]);
+  }, [loading, mappedClusters, contactPins, renderMap, destroyMap]);
+
+  useEffect(() => () => destroyMap(), [destroyMap]);
 
   const handleGeocode = async () => {
     if (layer === 'ddd' || layer === 'state') {
@@ -310,28 +285,33 @@ export const LeadsConcentrationMap: React.FC = () => {
       return;
     }
     if (!config?.geocodeEnabled) {
-      toast.error(
-        'Configure GOOGLE_GEOCODING_API_KEY no .env (chave separada, restrição por IP da VPS — sem referrer).'
-      );
+      toast.error('Geocodificação indisponível no servidor.');
       return;
     }
     setGeocoding(true);
     try {
-      const r = await apiGeocodeLeadsClusters({ max: 60, layer, force: false });
-      setSummary(r.summary);
-      if (r.geocoded > 0) {
-        toast.success(`${r.geocoded} região(ões) localizada(s) no mapa.`);
-      } else if (r.failed > 0) {
-        toast.error(
-          `Nenhuma região nova. ${r.failed} sem endereço válido; ${r.pending} ainda pendentes. Preencha cidade/bairro nos contatos.`
+      const geoOpts = {
+        layer,
+        city: filterCity || undefined,
+        neighborhood: filterNeighborhood || undefined
+      };
+      const clusters = await apiGeocodeLeadsClusters({ max: 80, ...geoOpts, force: false });
+      const contacts = await apiGeocodeContacts({ max: 50, ...geoOpts });
+      setSummary(contacts.summary);
+      const total = clusters.geocoded + contacts.geocoded;
+      if (total > 0) {
+        toast.success(
+          `${clusters.geocoded} bairro(s)/região(ões) e ${contacts.geocoded} contato(s) localizados no mapa.`
         );
-      } else if (r.pending === 0) {
-        toast.success('Todas as regiões já estão no mapa (cache).');
-      } else {
+      } else if (contacts.summary.pinStats.pinsPending > 0) {
         toast(
-          `${r.pending} região(ões) sem coordenada. Verifique se os contatos têm cidade ou CEP preenchidos.`,
+          `${contacts.summary.pinStats.pinsPending} contato(s) com endereço aguardam localização. Clique novamente para continuar.`,
           { icon: 'ℹ️' }
         );
+      } else if (clusters.pending === 0) {
+        toast.success('Todas as regiões já estão no mapa.');
+      } else {
+        toast('Preencha rua, número e bairro nos contatos para marcar no mapa.', { icon: 'ℹ️' });
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Falha na geocodificação.');
@@ -352,8 +332,12 @@ export const LeadsConcentrationMap: React.FC = () => {
   const stats = summary?.stats;
   const filters = summary?.filters;
   const top = summary?.topConcentration;
-  const needsGeocode = layer === 'city' || layer === 'neighborhood';
-  const showEmptyMap = config?.enabled && mappedClusters.length === 0;
+  const needsGeocode =
+    (layer === 'city' || layer === 'neighborhood') &&
+    config?.geocodeEnabled &&
+    ((pinStats?.pinsPending || 0) > 0 || (stats?.clustersPending || 0) > 0);
+  const showEmptyMap =
+    mapMode === 'pins' ? contactPins.length === 0 : mappedClusters.length === 0;
 
   return (
     <Card className="zm-dash-section">
@@ -365,7 +349,7 @@ export const LeadsConcentrationMap: React.FC = () => {
           <div className="min-w-0">
             <h3 className="ui-title text-[15px]">Onde moram seus leads</h3>
             <p className="ui-subtitle text-[12px]">
-              Concentração por DDD, cidade, bairro e UF — verde/amarelo/laranja/vermelho = intensidade
+              Mapa gratuito (OpenStreetMap) — concentração por DDD, cidade, bairro e UF
             </p>
           </div>
         </div>
@@ -388,11 +372,7 @@ export const LeadsConcentrationMap: React.FC = () => {
               leftIcon={geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
               onClick={() => void handleGeocode()}
             disabled={geocoding || loading || !config?.geocodeEnabled}
-            title={
-              config?.geocodeEnabled
-                ? 'Geocodifica cidades/bairros via Google (chave servidor)'
-                : 'GOOGLE_GEOCODING_API_KEY ausente no servidor'
-            }
+            title="Localiza bairros e contatos com endereço (OpenStreetMap gratuito)"
             >
               Localizar no mapa
             </Button>
@@ -409,23 +389,26 @@ export const LeadsConcentrationMap: React.FC = () => {
         <p className="text-sm text-slate-500 py-8 text-center">Sem dados de contatos.</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 mb-4">
             <StatPill label="Total contatos" value={stats.filteredTotal} sub={stats.totalContacts !== stats.filteredTotal ? `de ${stats.totalContacts}` : undefined} />
             <StatPill label="Com telefone" value={stats.withPhone} />
             <StatPill label="Com cidade" value={stats.withCity} />
             <StatPill label="Com bairro" value={stats.withNeighborhood} />
             <StatPill
-              label="Regiões no mapa"
-              value={stats.clustersMapped}
+              label="Endereço completo"
+              value={pinStats?.withFullAddress ?? 0}
+              sub="rua + número"
+            />
+            <StatPill
+              label="No mapa (👤)"
+              value={pinStats?.pinsMapped ?? 0}
               sub={
-                stats.clustersPending > 0
-                  ? `${stats.clustersPending} sem Google (aprox.)`
-                  : stats.clustersMapped > 0
-                    ? 'posições ativas'
-                    : undefined
+                (pinStats?.pinsPending || 0) > 0
+                  ? `${pinStats?.pinsPending} pendentes`
+                  : undefined
               }
             />
-            <StatPill label="Camada" value={stats.clusters} sub={LAYER_LABELS[layer]} isText />
+            <StatPill label="Regiões" value={stats.clusters} sub={LAYER_LABELS[layer]} isText />
           </div>
 
           {top && (
@@ -442,16 +425,11 @@ export const LeadsConcentrationMap: React.FC = () => {
             </div>
           )}
 
-          {!config?.enabled && (
-            <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50/80 dark:bg-amber-950/20 px-3 py-2 text-[12px] text-amber-900 dark:text-amber-200">
-              Mapa: <code>GOOGLE_MAPS_API_KEY</code> com restrição <strong>HTTP referrer</strong> do seu site.
-              Geocodificação (servidor): <code>GOOGLE_GEOCODING_API_KEY</code> com restrição <strong>IP da VPS</strong>.
-              Ative faturamento no{' '}
-              <a href="https://console.cloud.google.com/google/maps-apis" target="_blank" rel="noreferrer" className="underline font-semibold">
-                Google Cloud
-              </a>.
-            </div>
-          )}
+          <div className="mb-4 rounded-xl border border-teal-200/80 bg-teal-50/70 dark:bg-teal-950/20 px-3 py-2 text-[12px] text-teal-900 dark:text-teal-100">
+            Ao escolher uma <strong>cidade</strong>, a camada muda para <strong>Bairro</strong> e o ranking mostra contatos por bairro.
+            Use <strong>Contatos</strong> para ver cada lead com endereço (👤 vermelho = rua+número, verde = bairro).
+            Clique em <strong>Localizar no mapa</strong> para posicionar endereços (gratuito via OpenStreetMap).
+          </div>
 
           <div className="flex flex-wrap gap-2 mb-3">
             <FilterSelect label="Camada" value={layer} onChange={(v) => handleLayerChange(v as GeoLayer)}>
@@ -472,7 +450,7 @@ export const LeadsConcentrationMap: React.FC = () => {
               ))}
             </FilterSelect>
             {(layer === 'city' || layer === 'neighborhood') && (
-              <FilterSelect label="Cidade" value={filterCity} onChange={setFilterCity}>
+              <FilterSelect label="Cidade" value={filterCity} onChange={handleCityFilter}>
                 <option value="">Todas</option>
                 {(filters?.cities || []).map((c) => (
                   <option key={c} value={c}>{c} ({summary?.byCity[c] ?? 0})</option>
@@ -482,7 +460,7 @@ export const LeadsConcentrationMap: React.FC = () => {
             {layer === 'neighborhood' && (
               <FilterSelect label="Bairro" value={filterNeighborhood} onChange={setFilterNeighborhood}>
                 <option value="">Todos</option>
-                {(filters?.neighborhoods || []).map((n) => (
+                {(filterCity ? cityNeighborhoods : filters?.neighborhoods || []).map((n) => (
                   <option key={n} value={n}>{n} ({summary?.byNeighborhood[n] ?? 0})</option>
                 ))}
               </FilterSelect>
@@ -494,7 +472,6 @@ export const LeadsConcentrationMap: React.FC = () => {
                 variant={mapMode === 'heatmap' ? 'primary' : 'ghost'}
                 leftIcon={<Flame className="w-3.5 h-3.5" />}
                 onClick={() => setMapMode('heatmap')}
-                disabled={!config?.mapKey}
               >
                 Calor
               </Button>
@@ -504,9 +481,18 @@ export const LeadsConcentrationMap: React.FC = () => {
                 variant={mapMode === 'circles' ? 'primary' : 'ghost'}
                 leftIcon={<MapPin className="w-3.5 h-3.5" />}
                 onClick={() => setMapMode('circles')}
-                disabled={!config?.mapKey}
               >
                 Círculos
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={mapMode === 'pins' ? 'primary' : 'ghost'}
+                leftIcon={<User className="w-3.5 h-3.5" />}
+                onClick={() => setMapMode('pins')}
+                title="Marca cada contato com endereço localizado"
+              >
+                Contatos
               </Button>
             </div>
           </div>
@@ -519,17 +505,16 @@ export const LeadsConcentrationMap: React.FC = () => {
                   <MapPin className="w-8 h-8 mb-2 opacity-40" />
                   <p className="text-sm font-medium">Nenhuma região para exibir.</p>
                   <p className="text-xs mt-1 max-w-sm">
-                    {layer === 'ddd'
-                      ? 'Contatos precisam de telefone com DDD válido.'
-                      : layer === 'state'
-                        ? 'Contatos precisam de UF no cadastro ou DDD no telefone.'
-                        : 'Preencha cidade/bairro nos contatos e clique em Localizar no mapa.'}
+                    {mapMode === 'pins'
+                      ? 'Nenhum contato localizado ainda. Clique em Localizar no mapa (contatos com rua, número ou bairro).'
+                      : layer === 'ddd'
+                        ? 'Contatos precisam de telefone com DDD válido.'
+                        : layer === 'state'
+                          ? 'Contatos precisam de UF no cadastro ou DDD no telefone.'
+                          : filterCity
+                            ? 'Selecione camada Bairro ou clique em Localizar no mapa para posicionar os bairros.'
+                            : 'Escolha uma cidade no filtro para ver contatos por bairro.'}
                   </p>
-                </div>
-              )}
-              {!config?.enabled && (
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 px-6 text-center bg-slate-100 dark:bg-slate-800 z-10">
-                  Configure a API do Google Maps no servidor para ver o mapa interativo.
                 </div>
               )}
             </div>

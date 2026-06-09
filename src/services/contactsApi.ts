@@ -127,6 +127,21 @@ export async function apiUpdateContactList(id: string, updates: Partial<ContactL
   });
 }
 
+export async function apiAppendContactIdsToList(
+  id: string,
+  contactIds: string[],
+  opts?: { notesLine?: string }
+): Promise<{ added: number; list: ContactList }> {
+  const j = await apiFetchJson<{ added?: number; list?: ContactList }>(
+    `/api/contact-lists/${encodeURIComponent(id)}/append`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ contactIds, notesLine: opts?.notesLine })
+    }
+  );
+  return { added: Number(j.added) || 0, list: j.list as ContactList };
+}
+
 export async function apiDeleteContactList(id: string): Promise<void> {
   await apiFetchJson(`/api/contact-lists/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
