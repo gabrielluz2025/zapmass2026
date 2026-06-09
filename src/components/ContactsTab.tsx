@@ -748,6 +748,7 @@ export const ContactsTab: React.FC = () => {
     contactsHasMore,
     contactsLoadingMore,
     loadMoreContacts,
+    loadAllContacts,
     contactsSavedTotal,
     contactsSavedTotalLoading,
     refreshContactsSavedTotal,
@@ -843,16 +844,11 @@ export const ContactsTab: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [autoLoadActive, setAutoLoadActive] = useState(true);
 
-  // Auto-loader: carrega o restante da base em background se solicitado ou se necessário para a página
+  // Auto-loader: busca o restante da base em poucas requisições grandes (10k) sem travar a UI
   useEffect(() => {
     if (!autoLoadActive || !contactsHasMore || contactsLoadingMore) return;
-
-    const timer = setTimeout(() => {
-      void loadMoreContacts?.();
-    }, 1000); // Pequeno delay entre blocos para não sobrecarregar
-
-    return () => clearTimeout(timer);
-  }, [autoLoadActive, contactsHasMore, contactsLoadingMore, loadMoreContacts]);
+    void loadAllContacts?.();
+  }, [autoLoadActive, contactsHasMore, contactsLoadingMore, loadAllContacts]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
@@ -1549,6 +1545,8 @@ export const ContactsTab: React.FC = () => {
   const computeTempsGenRef = useRef(0);
 
   useEffect(() => {
+    if (contactsHasMore || contactsLoadingMore) return;
+
     const gen = ++computeTempsGenRef.current;
     const c = contacts;
     const conv = deferredConversations;
@@ -1574,7 +1572,7 @@ export const ContactsTab: React.FC = () => {
         clearTimeout(idleId as ReturnType<typeof setTimeout>);
       }
     };
-  }, [contacts, deferredConversations]);
+  }, [contacts, deferredConversations, contactsHasMore, contactsLoadingMore]);
 
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
@@ -3656,7 +3654,7 @@ export const ContactsTab: React.FC = () => {
               onCreateCampaign={() => handleCreateCampaignWithList(managedListForView)}
               onExportXlsx={() => handleExportManagedListAs('xlsx')}
               onExportVcf={() => handleExportManagedListAs('vcf')}
-              onLoadMore={loadMoreContacts}
+              onLoadMore={loadAllContacts ?? loadMoreContacts}
               onEditContact={beginEditContact}
               onRemoveMember={(c) => void handleRemoveContactFromList(managedListForView.id, c)}
               onToggleAddSelect={toggleListAddSelect}
@@ -3674,10 +3672,14 @@ export const ContactsTab: React.FC = () => {
                 </div>
                 <div className="min-w-0">
                   <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-bold leading-tight">
-                    Existem mais {(contactsSavedTotal - contacts.length).toLocaleString('pt-BR')} contatos na base ainda não carregados.
+                    {contactsLoadingMore
+                      ? `Carregando contatos… ${contacts.length.toLocaleString('pt-BR')} de ${contactsSavedTotal.toLocaleString('pt-BR')}`
+                      : `Faltam ${(contactsSavedTotal - contacts.length).toLocaleString('pt-BR')} contatos para concluir o carregamento.`}
                   </p>
                   <p className="text-[10px] text-amber-700/70 dark:text-amber-400/60 mt-0.5">
-                    A tabela utiliza carregamento sob demanda para manter a performance. Clique em &quot;Carregar mais&quot; para buscar o restante.
+                    {contactsLoadingMore
+                      ? 'Buscando o restante em segundo plano — a interface continua utilizável.'
+                      : 'O carregamento automático retomará em instantes.'}
                   </p>
                 </div>
               </div>

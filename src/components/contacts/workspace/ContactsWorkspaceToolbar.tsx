@@ -100,7 +100,9 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
               style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.25)' }}
             >
               <Loader2 className="w-3 h-3 animate-spin" />
-              Carregando mais…
+              {contactsSavedTotal != null && contactsSavedTotal > contactsLoaded
+                ? `Carregando… ${contactsLoaded.toLocaleString('pt-BR')} / ${contactsSavedTotal.toLocaleString('pt-BR')}`
+                : 'Carregando contatos…'}
             </span>
           )}
         </div>

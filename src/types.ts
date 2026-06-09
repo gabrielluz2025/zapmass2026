@@ -489,6 +489,8 @@ export interface ZapMassContextType {
   contactsHasMore?: boolean;
   contactsLoadingMore?: boolean;
   loadMoreContacts?: () => Promise<void>;
+  /** Carrega todas as páginas restantes em lotes grandes (background). */
+  loadAllContacts?: () => Promise<void>;
   /** Total de documentos em `users/{uid}/contacts` (agregado Firestore), independente do que está em memória. */
   contactsSavedTotal?: number | null;
   contactsSavedTotalLoading?: boolean;

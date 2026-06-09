@@ -34,15 +34,21 @@ export function registerContactsDataRoutes(app: Express): void {
   app.get('/api/contacts', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const limit = Math.min(Number(req.query.limit) || 5000, 10_000);
+    const limit = Math.min(Number(req.query.limit) || 10_000, 10_000);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const skipCount = String(req.query.skipCount || '') === '1';
     const contacts = await listContacts(ctx.tenantId, { limit, offset });
-    const total = await countContacts(ctx.tenantId);
+    const total = skipCount
+      ? offset + contacts.length + (contacts.length >= limit ? limit : 0)
+      : await countContacts(ctx.tenantId);
+    const hasMore = skipCount
+      ? contacts.length >= limit
+      : offset + contacts.length < total;
     return res.json({
       ok: true,
       contacts,
-      total,
-      hasMore: offset + contacts.length < total
+      total: skipCount ? undefined : total,
+      hasMore
     });
   });
 

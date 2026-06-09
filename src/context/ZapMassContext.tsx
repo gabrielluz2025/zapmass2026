@@ -6,7 +6,8 @@ import React, {
   useCallback,
   useMemo,
   ReactNode,
-  useRef
+  useRef,
+  startTransition
 } from 'react';
 import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
@@ -206,6 +207,22 @@ function connectionListHasStaleConnecting(list: WhatsAppConnection[]): boolean {
   );
 }
 
+const CONTACTS_PAGE_SIZE = 10_000;
+
+/** Postgres já retorna ORDER BY sort_name — só anexa sem reordenar (evita O(n log n) a cada página). */
+function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
+  if (batch.length === 0) return prev;
+  const seen = new Set(prev.map((c) => c.id));
+  const out = prev.slice();
+  for (const c of batch) {
+    if (!seen.has(c.id)) {
+      out.push(c);
+      seen.add(c.id);
+    }
+  }
+  return out;
+}
+
 const ZapMassUiSnapshotContext = createContext<ZapMassUiSnapshot | null>(null);
 
 const ZapMassConnectionsSliceContext = createContext<{ connections: WhatsAppConnection[] } | null>(
@@ -220,6 +237,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   contactsHasMore: false,
   contactsLoadingMore: false,
   loadMoreContacts: async () => {},
+  loadAllContacts: async () => {},
   contactsSavedTotal: null,
   contactsSavedTotalLoading: false,
   refreshContactsSavedTotal: async () => {},
@@ -342,6 +360,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contactsSavedTotal, setContactsSavedTotal] = useState<number | null>(null);
   const [contactsSavedTotalLoading, setContactsSavedTotalLoading] = useState(false);
   const contactsVpsOffsetRef = useRef(0);
+  const loadAllContactsInFlightRef = useRef(false);
   const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
@@ -674,20 +693,59 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, []);
 
+  const syncContactPages = async (
+    requestUid: string,
+    startOffset: number,
+    opts: { reset?: boolean } = {}
+  ): Promise<void> => {
+    if (loadAllContactsInFlightRef.current) return;
+    loadAllContactsInFlightRef.current = true;
+    if (opts.reset) {
+      contactsVpsOffsetRef.current = 0;
+      setContacts([]);
+      setContactsHasMore(false);
+    }
+    setContactsLoadingMore(true);
+    try {
+      let offset = startOffset;
+      let hasMore = true;
+      let firstBatch = offset === 0;
+      while (hasMore && currentUidRef.current === requestUid) {
+        const { contacts: batch, hasMore: more, total } = await fetchContacts({
+          limit: CONTACTS_PAGE_SIZE,
+          offset,
+          skipCount: offset > 0
+        });
+        if (currentUidRef.current !== requestUid) return;
+        offset += batch.length;
+        contactsVpsOffsetRef.current = offset;
+        hasMore = more;
+        setContactsHasMore(more);
+        if (total != null) setContactsSavedTotal(total);
+        if (batch.length === 0) break;
+        if (firstBatch) {
+          setContacts(batch);
+          firstBatch = false;
+        } else {
+          startTransition(() => {
+            setContacts((prev) => appendContactsPage(prev, batch));
+          });
+        }
+        if (!more) break;
+        await new Promise((r) => setTimeout(r, 16));
+      }
+    } catch (err) {
+      warnProd('[VPS] sync contacts:', (err as Error)?.message || err);
+    } finally {
+      if (currentUidRef.current === requestUid) setContactsLoadingMore(false);
+      loadAllContactsInFlightRef.current = false;
+    }
+  };
+
   reloadVpsContactsRef.current = async () => {
     const uid = currentUidRef.current;
     if (!uid) return;
-    const requestUid = uid;
-    try {
-      const { contacts, total, hasMore } = await fetchContacts({ limit: 5000, offset: 0 });
-      if (currentUidRef.current !== requestUid) return;
-      contactsVpsOffsetRef.current = contacts.length;
-      setContacts(contacts);
-      setContactsHasMore(hasMore);
-      setContactsSavedTotal(total);
-    } catch (err) {
-      warnProd('[VPS] reload contacts:', (err as Error)?.message || err);
-    }
+    await syncContactPages(uid, 0, { reset: true });
   };
 
   reloadVpsContactListsRef.current = async () => {
@@ -796,34 +854,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return () => {};
   }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser]);
 
-  const loadMoreContacts = useCallback(async (): Promise<void> => {
+  const loadAllContacts = useCallback(async (): Promise<void> => {
     const uid = currentUidRef.current;
-    if (!uid) return;
-    if (contactsLoadingMore) return;
-    if (!contactsHasMore) return;
-    const CONTACTS_PAGE_SIZE = 500;
-    setContactsLoadingMore(true);
-    try {
-      const offset = contactsVpsOffsetRef.current;
-      const { contacts: nextDocs, hasMore } = await fetchContacts({
-        limit: CONTACTS_PAGE_SIZE,
-        offset
-      });
-      contactsVpsOffsetRef.current = offset + nextDocs.length;
-      setContactsHasMore(hasMore);
-      if (nextDocs.length > 0) {
-        setContacts((prev) => {
-          const byId = new Map(prev.map((c) => [c.id, c]));
-          for (const c of nextDocs) byId.set(c.id, c);
-          return Array.from(byId.values()).sort((a, b) =>
-            (a.name || '').localeCompare(b.name || '', 'pt-BR')
-          );
-        });
-      }
-    } finally {
-      setContactsLoadingMore(false);
-    }
-  }, [contactsHasMore, contactsLoadingMore]);
+    if (!uid || loadAllContactsInFlightRef.current || !contactsHasMore) return;
+    await syncContactPages(uid, contactsVpsOffsetRef.current);
+  }, [contactsHasMore]);
+
+  const loadMoreContacts = useCallback(async (): Promise<void> => {
+    await loadAllContacts();
+  }, [loadAllContacts]);
 
   useEffect(() => {
     const u = sessionUser;
@@ -3273,6 +3312,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsHasMore,
       contactsLoadingMore,
       loadMoreContacts,
+      loadAllContacts,
       contactsSavedTotal,
       contactsSavedTotalLoading,
       refreshContactsSavedTotal: stableRefreshContactsSavedTotal,
@@ -3340,6 +3380,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsHasMore,
       contactsLoadingMore,
       loadMoreContacts,
+      loadAllContacts,
       contactsSavedTotal,
       contactsSavedTotalLoading,
       stableRefreshContactsSavedTotal,

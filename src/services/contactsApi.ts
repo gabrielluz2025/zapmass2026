@@ -4,10 +4,13 @@ import { apiFetchJson } from '../utils/apiFetchAuth';
 export async function fetchContacts(opts?: {
   limit?: number;
   offset?: number;
-}): Promise<{ contacts: Contact[]; total: number; hasMore: boolean }> {
+  /** Evita COUNT(*) repetido em páginas seguintes (mais rápido). */
+  skipCount?: boolean;
+}): Promise<{ contacts: Contact[]; total?: number; hasMore: boolean }> {
   const q = new URLSearchParams();
   if (opts?.limit) q.set('limit', String(opts.limit));
   if (opts?.offset) q.set('offset', String(opts.offset));
+  if (opts?.skipCount) q.set('skipCount', '1');
   const path = q.toString() ? `/api/contacts?${q}` : '/api/contacts';
   const j = await apiFetchJson<{
     contacts?: Contact[];
@@ -16,7 +19,7 @@ export async function fetchContacts(opts?: {
   }>(path);
   return {
     contacts: Array.isArray(j.contacts) ? j.contacts : [],
-    total: Number(j.total) || 0,
+    total: j.total != null ? Number(j.total) : undefined,
     hasMore: !!j.hasMore
   };
 }

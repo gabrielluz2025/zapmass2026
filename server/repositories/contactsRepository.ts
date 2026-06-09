@@ -10,7 +10,7 @@ import {
   type ContactRow
 } from './contactMapper.js';
 
-const DEFAULT_LIMIT = 5000;
+const DEFAULT_LIMIT = 10_000;
 const BULK_INSERT_CHUNK = 100;
 
 export async function countContacts(tenantId: string): Promise<number> {
