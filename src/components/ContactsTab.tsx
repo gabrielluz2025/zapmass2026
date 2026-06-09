@@ -3370,18 +3370,40 @@ export const ContactsTab: React.FC = () => {
       return;
     }
     setAddressNormalizeBusy(true);
+    const progressId = 'address-normalize-progress';
     try {
-      const r = await apiNormalizeContactAddresses();
-      if (r.updated === 0) {
+      let offset = 0;
+      let totalScanned = 0;
+      let totalUpdated = 0;
+      const allSamples: Array<{ from: string; to: string }> = [];
+
+      do {
+        const r = await apiNormalizeContactAddresses({ offset, limit: 5000 });
+        totalScanned += r.scanned;
+        totalUpdated += r.updated;
+        for (const s of r.samples) {
+          if (allSamples.length < 12) allSamples.push(s);
+        }
+        offset = r.nextOffset;
+        toast.loading(
+          `Padronizando… ${offset.toLocaleString('pt-BR')} contatos verificados${totalUpdated > 0 ? ` · ${totalUpdated.toLocaleString('pt-BR')} corrigidos` : ''}`,
+          { id: progressId }
+        );
+        if (!r.hasMore) break;
+      } while (true);
+
+      toast.dismiss(progressId);
+      if (totalUpdated === 0) {
         toast('Nenhum endereço precisou de alteração.', { icon: 'ℹ️' });
       } else {
-        const sample = r.samples.slice(0, 3).map((s) => `${s.from} → ${s.to}`).join('; ');
+        const sample = allSamples.slice(0, 3).map((s) => `${s.from} → ${s.to}`).join('; ');
         toast.success(
-          `${r.updated.toLocaleString('pt-BR')} contato(s) padronizado(s) de ${r.scanned.toLocaleString('pt-BR')}.${sample ? ` Ex.: ${sample}` : ''}`
+          `${totalUpdated.toLocaleString('pt-BR')} contato(s) padronizado(s) de ${totalScanned.toLocaleString('pt-BR')}.${sample ? ` Ex.: ${sample}` : ''}`
         );
         await refreshContacts();
       }
     } catch (e) {
+      toast.dismiss(progressId);
       toast.error(e instanceof Error ? e.message : 'Falha ao padronizar endereços.');
     } finally {
       setAddressNormalizeBusy(false);

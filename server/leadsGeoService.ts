@@ -7,7 +7,7 @@ import {
   parseGeoFilterCity,
   resolveAddressCityState
 } from '../src/utils/contactAddressNormalize.js';
-import { isCoordPlausibleForCity } from './geoCoordValidate.js';
+import { fixBrazilCoord, isCoordPlausibleForCity } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import {
   cityToApproxCoord,
@@ -188,8 +188,9 @@ async function geocodeQueryAnyProvider(
   state?: string
 ): Promise<{ lat: number; lng: number } | null> {
   const acceptHit = (lat: number, lng: number) => {
-    if (!city) return { lat, lng };
-    return isCoordPlausibleForCity(lat, lng, city, state || '') ? { lat, lng } : null;
+    const fixed = fixBrazilCoord(lat, lng);
+    if (!city) return fixed;
+    return isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state || '') ? fixed : null;
   };
   if (isGoogleGeocodeEnabled()) {
     const hit = await geocodeBrazilAddressDetailed(query);
@@ -218,8 +219,9 @@ async function geocodeContactAddress(c: Contact): Promise<{ lat: number; lng: nu
       country: 'Brasil',
       postalcode: zip.length >= 8 ? zip : undefined
     });
-    if (structHit.ok && isCoordPlausibleForCity(structHit.lat, structHit.lng, city, st)) {
-      return { lat: structHit.lat, lng: structHit.lng };
+    if (structHit.ok) {
+      const fixed = fixBrazilCoord(structHit.lat, structHit.lng);
+      if (isCoordPlausibleForCity(fixed.lat, fixed.lng, city, st)) return fixed;
     }
   }
 
@@ -285,10 +287,36 @@ function contactCoordsValid(c: Contact, lat: number, lng: number): boolean {
 
 function storedContactCoords(c: Contact): { lat: number; lng: number } | null {
   if (!Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return null;
-  const lat = c.latitude!;
-  const lng = c.longitude!;
-  if (!contactCoordsValid(c, lat, lng)) return null;
-  return { lat, lng };
+  const fixed = fixBrazilCoord(c.latitude!, c.longitude!);
+  if (!contactCoordsValid(c, fixed.lat, fixed.lng)) return null;
+  return fixed;
+}
+
+function pickClusterCoords(
+  cluster: GeoCluster,
+  cache: GeoCacheFile
+): { lat: number; lng: number; mapped: boolean } | null {
+  const city = cluster.city !== '—' ? cluster.city : '';
+  const state = cluster.state !== '—' ? cluster.state : '';
+
+  const tryPair = (lat: number, lng: number): { lat: number; lng: number } | null => {
+    const fixed = fixBrazilCoord(lat, lng);
+    return isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state) ? fixed : null;
+  };
+
+  const cached = cache[cluster.key];
+  if (cached) {
+    const ok = tryPair(cached.lat, cached.lng);
+    if (ok) return { ...ok, mapped: true };
+  }
+
+  const builtin = builtinCoordForCluster(cluster);
+  if (builtin) {
+    const ok = tryPair(builtin.lat, builtin.lng);
+    if (ok) return { ...ok, mapped: true };
+  }
+
+  return null;
 }
 
 function resolveContactDdd(c: Contact): string {
@@ -511,8 +539,7 @@ export async function buildLeadsGeoSummary(
 
     let cluster = clusterMap.get(key);
     if (!cluster) {
-      const cached = cache[key];
-      const builtin = builtinCoordForCluster({
+      const draft: GeoCluster = {
         key,
         label,
         city,
@@ -525,41 +552,26 @@ export async function buildLeadsGeoSummary(
         precision,
         mapped: false,
         sampleNames: []
-      });
-      let lat: number | null = builtin?.lat ?? cached?.lat ?? null;
-      let lng: number | null = builtin?.lng ?? cached?.lng ?? null;
-      let mapped = lat != null && lng != null;
-
-      const stored = storedContactCoords(c);
-      if (stored) {
-        lat = stored.lat;
-        lng = stored.lng;
-        mapped = true;
-      }
-
+      };
+      const picked = pickClusterCoords(draft, cache);
       cluster = {
-        key,
-        label,
-        city,
-        state: st,
-        neighborhood: nb,
-        ddd,
-        count: 0,
-        lat,
-        lng,
-        precision,
-        mapped,
-        sampleNames: []
+        ...draft,
+        lat: picked?.lat ?? null,
+        lng: picked?.lng ?? null,
+        mapped: picked?.mapped ?? false
       };
       clusterMap.set(key, cluster);
     }
 
     cluster.count++;
-    const stored = storedContactCoords(c);
-    if (stored) {
-      cluster.lat = stored.lat;
-      cluster.lng = stored.lng;
-      cluster.mapped = true;
+
+    if (precision === 'neighborhood') {
+      const stored = storedContactCoords(c);
+      if (stored) {
+        cluster.lat = stored.lat;
+        cluster.lng = stored.lng;
+        cluster.mapped = true;
+      }
     }
     if (cluster.sampleNames.length < 3 && (c.name || '').trim()) {
       cluster.sampleNames.push((c.name || '').trim());
@@ -743,8 +755,20 @@ export async function geocodeContactsWithAddress(
   let failed = 0;
 
   for (const c of pending) {
+    const hadBadCoords =
+      Number.isFinite(c.latitude) &&
+      Number.isFinite(c.longitude) &&
+      !contactCoordsValid(c, c.latitude!, c.longitude!);
+
     const hit = await geocodeContactAddress(c);
     if (!hit) {
+      if (hadBadCoords) {
+        await updateContact(tenantId, c.id, {
+          latitude: undefined,
+          longitude: undefined,
+          geocodedAt: undefined
+        });
+      }
       failed++;
       continue;
     }

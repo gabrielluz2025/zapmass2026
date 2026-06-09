@@ -347,8 +347,8 @@ export const LeadsConcentrationMap: React.FC = () => {
         city: filterCity || undefined,
         neighborhood: filterNeighborhood || undefined
       };
-      const clusters = await apiGeocodeLeadsClusters({ max: 80, ...geoOpts, force: false });
-      const contacts = await apiGeocodeContacts({ max: 50, ...geoOpts });
+      const clusters = await apiGeocodeLeadsClusters({ max: 120, ...geoOpts, force: false });
+      const contacts = await apiGeocodeContacts({ max: 80, ...geoOpts });
       setSummary(contacts.summary);
       const total = clusters.geocoded + contacts.geocoded;
       if (total > 0) {

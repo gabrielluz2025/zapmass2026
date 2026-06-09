@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeContactAddressFields,
   parseEmbeddedCityState,
+  repairUtf8Mojibake,
   resolveContactCityState,
   titleCasePlaceName
 } from './contactAddressNormalize';
+import { buildIbgeCityIndex, fuzzyResolveCityWithIbge } from './ibgeCityLookup';
 
 describe('contactAddressNormalize', () => {
   it('unifica BLUMENAU - SC em cidade + UF separados', () => {
@@ -35,5 +37,16 @@ describe('contactAddressNormalize', () => {
 
   it('parse embedded city state', () => {
     expect(parseEmbeddedCityState('INDAIAL/SC')).toEqual({ city: 'INDAIAL', state: 'SC' });
+  });
+
+  it('remove caracteres de substituicao de encoding quebrado', () => {
+    expect(repairUtf8Mojibake('Ant\uFFFDnio Carlos')).toBe('Antnio Carlos');
+  });
+
+  it('corrige typo Indalal via IBGE fuzzy', () => {
+    const index = buildIbgeCityIndex([{ id: 1, nome: 'Indaial', uf: 'SC' }]);
+    const hit = fuzzyResolveCityWithIbge(index, { city: 'Indalal', stateHint: 'SC' });
+    expect(hit?.city).toBe('Indaial');
+    expect(hit?.state).toBe('SC');
   });
 });

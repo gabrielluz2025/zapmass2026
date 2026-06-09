@@ -163,8 +163,11 @@ export function registerContactsDataRoutes(app: Express): void {
   app.post('/api/contacts/normalize-addresses', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
+    const body = (req.body || {}) as { offset?: number; limit?: number };
+    const offset = Math.max(Number(body.offset) || 0, 0);
+    const limit = Math.min(Math.max(Number(body.limit) || 5000, 1), 5000);
     try {
-      const result = await normalizeTenantContactAddresses(ctx.tenantId);
+      const result = await normalizeTenantContactAddresses(ctx.tenantId, { offset, limit });
       return res.json({ ok: true, ...result });
     } catch (e) {
       console.error('[api/contacts/normalize-addresses]', e);

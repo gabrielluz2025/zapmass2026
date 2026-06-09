@@ -41,6 +41,50 @@ function titleCaseIbgeName(nome: string): string {
     .join(' ');
 }
 
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const row = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j++) row[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let prev = i - 1;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + cost);
+      prev = tmp;
+    }
+  }
+  return row[b.length]!;
+}
+
+function pickIbgeMatch(
+  matches: IbgeMunicipio[],
+  hints: string[]
+): IbgeMunicipio {
+  let pick = matches[0]!;
+  if (matches.length > 1 && hints.length > 0) {
+    for (const h of hints) {
+      const hit = matches.find((m) => m.uf === h);
+      if (hit) {
+        pick = hit;
+        break;
+      }
+    }
+  }
+  return pick;
+}
+
+function ibgeResult(m: IbgeMunicipio) {
+  return {
+    city: titleCaseIbgeName(m.nome),
+    state: m.uf,
+    ibgeId: m.id
+  };
+}
+
 export function resolveCityWithIbge(
   index: IbgeCityIndex | null | undefined,
   input: {
@@ -63,20 +107,45 @@ export function resolveCityWithIbge(
     input.phoneUf?.toUpperCase().slice(0, 2)
   ].filter(Boolean) as string[];
 
-  let pick = matches[0];
-  if (matches.length > 1 && hints.length > 0) {
-    for (const h of hints) {
-      const hit = matches.find((m) => m.uf === h);
-      if (hit) {
-        pick = hit;
-        break;
-      }
+  return ibgeResult(pickIbgeMatch(matches, hints));
+}
+
+/** Corrige grafia quebrada (Indalal → Indaial, Antnio → Antônio Carlos) via IBGE. */
+export function fuzzyResolveCityWithIbge(
+  index: IbgeCityIndex | null | undefined,
+  input: {
+    city: string;
+    stateHint?: string;
+    phoneUf?: string;
+    parsedEmbeddedUf?: string;
+  }
+): { city: string; state: string; ibgeId?: number } | null {
+  const exact = resolveCityWithIbge(index, input);
+  if (exact) return exact;
+  if (!index || index.size === 0) return null;
+
+  const key = normCityKey(input.city);
+  if (!key || key.length < 3) return null;
+
+  const hints = [
+    input.stateHint?.toUpperCase().slice(0, 2),
+    input.parsedEmbeddedUf?.toUpperCase().slice(0, 2),
+    input.phoneUf?.toUpperCase().slice(0, 2)
+  ].filter(Boolean) as string[];
+  const stateFilter = hints[0];
+
+  let best: { m: IbgeMunicipio; dist: number } | null = null;
+  const maxDist = key.length <= 5 ? 1 : key.length <= 8 ? 2 : 3;
+
+  for (const [idxKey, matches] of index) {
+    if (Math.abs(idxKey.length - key.length) > maxDist) continue;
+    const dist = levenshtein(key, idxKey);
+    if (dist > maxDist) continue;
+    for (const m of matches) {
+      if (stateFilter && m.uf !== stateFilter) continue;
+      if (!best || dist < best.dist) best = { m, dist };
     }
   }
 
-  return {
-    city: titleCaseIbgeName(pick.nome),
-    state: pick.uf,
-    ibgeId: pick.id
-  };
+  return best ? ibgeResult(best.m) : null;
 }

@@ -89,20 +89,35 @@ export async function apiBulkUpdateContacts(
   });
 }
 
-export async function apiNormalizeContactAddresses(): Promise<{
+export async function apiNormalizeContactAddresses(opts?: {
+  offset?: number;
+  limit?: number;
+}): Promise<{
   scanned: number;
   updated: number;
   samples: Array<{ from: string; to: string }>;
+  hasMore: boolean;
+  nextOffset: number;
 }> {
   const j = await apiFetchJson<{
     scanned?: number;
     updated?: number;
     samples?: Array<{ from: string; to: string }>;
-  }>('/api/contacts/normalize-addresses', { method: 'POST', body: '{}' });
+    hasMore?: boolean;
+    nextOffset?: number;
+  }>('/api/contacts/normalize-addresses', {
+    method: 'POST',
+    body: JSON.stringify({
+      offset: opts?.offset ?? 0,
+      limit: opts?.limit ?? 5000
+    })
+  });
   return {
     scanned: Number(j.scanned) || 0,
     updated: Number(j.updated) || 0,
-    samples: Array.isArray(j.samples) ? j.samples : []
+    samples: Array.isArray(j.samples) ? j.samples : [],
+    hasMore: !!j.hasMore,
+    nextOffset: Number(j.nextOffset) || 0
   };
 }
 

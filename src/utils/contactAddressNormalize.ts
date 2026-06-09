@@ -1,5 +1,5 @@
 import { phoneDigitsToUf } from './brazilPhoneGeo';
-import { resolveCityWithIbge, type IbgeCityIndex } from './ibgeCityLookup';
+import { fuzzyResolveCityWithIbge, type IbgeCityIndex } from './ibgeCityLookup';
 
 const BRAZIL_UFS = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
@@ -38,16 +38,29 @@ function cleanWhitespace(raw: string): string {
     .trim();
 }
 
+/** Remove caracteres de substituição () de encoding quebrado. */
+export function stripBrokenEncoding(raw: string): string {
+  return cleanWhitespace(
+    String(raw || '')
+      .replace(/\uFFFD/g, '')
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+  );
+}
+
 /** Corrige texto UTF-8 lido como Latin-1 (ex.: Agrolndia → Agrolândia). */
 export function repairUtf8Mojibake(raw: string): string {
-  const s = String(raw || '');
-  if (!s || !/[\u00c0-\u00ff]/.test(s)) return s;
-  try {
-    const bytes = new Uint8Array([...s].map((ch) => ch.charCodeAt(0) & 0xff));
-    const fixed = new TextDecoder('utf-8').decode(bytes);
-    if (fixed && !fixed.includes('') && fixed.length > 0) return cleanWhitespace(fixed);
-  } catch {
-    /* mantém original */
+  let s = stripBrokenEncoding(raw);
+  if (!s) return s;
+  if (/[\u00c0-\u00ff]/.test(s)) {
+    try {
+      const bytes = new Uint8Array([...s].map((ch) => ch.charCodeAt(0) & 0xff));
+      const fixed = new TextDecoder('utf-8').decode(bytes);
+      if (fixed && !fixed.includes('\uFFFD') && fixed.length > 0) {
+        s = cleanWhitespace(fixed);
+      }
+    } catch {
+      /* mantém original */
+    }
   }
   return s;
 }
@@ -157,7 +170,7 @@ export function resolveAddressCityState(
   const cityRaw = parsed.city;
   const stateHint = normalizeContactState(input.state || '') || parsed.state;
 
-  const ibge = resolveCityWithIbge(ibgeIndex, {
+  const ibge = fuzzyResolveCityWithIbge(ibgeIndex, {
     city: cityRaw,
     stateHint,
     phoneUf: undefined,
