@@ -27,9 +27,6 @@ type GoogleMapsNS = {
     Marker: new (opts: Record<string, unknown>) => unknown;
     InfoWindow: new (opts?: Record<string, unknown>) => { open: (map: unknown, anchor?: unknown) => void };
     event: { addListener: (target: unknown, event: string, fn: () => void) => void };
-    visualization: {
-      HeatmapLayer: new (opts: Record<string, unknown>) => { setMap: (map: unknown | null) => void };
-    };
   };
 };
 
@@ -56,7 +53,7 @@ const PRECISION_LABELS: Record<string, string> = {
 
 function loadGoogleMapsScript(apiKey: string): Promise<GoogleMapsNS> {
   return new Promise((resolve, reject) => {
-    if (window.google?.maps?.visualization) return resolve(window.google);
+    if (window.google?.maps) return resolve(window.google);
     const id = 'zapmass-google-maps-js';
     const existing = document.getElementById(id) as HTMLScriptElement | null;
     const onReady = () => {
@@ -72,7 +69,7 @@ function loadGoogleMapsScript(apiKey: string): Promise<GoogleMapsNS> {
     script.id = id;
     script.async = true;
     script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&language=pt-BR&region=BR&libraries=visualization`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&language=pt-BR&region=BR`;
     script.onload = onReady;
     script.onerror = () => reject(new Error('Falha ao carregar Google Maps.'));
     document.head.appendChild(script);
@@ -83,8 +80,59 @@ function circleRadiusMeters(count: number): number {
   return Math.min(80_000, Math.max(6_000, Math.sqrt(count) * 2_200));
 }
 
-function heatWeight(count: number): number {
-  return Math.min(100, Math.max(1, Math.sqrt(count) * 4));
+/** Escala frio → quente (substitui HeatmapLayer removido na API 3.65). */
+function heatStyle(count: number, maxCount: number, isTop: boolean): {
+  fill: string;
+  stroke: string;
+  fillOpacity: number;
+  strokeOpacity: number;
+} {
+  if (isTop) {
+    return { fill: '#dc2626', stroke: '#7f1d1d', fillOpacity: 0.52, strokeOpacity: 0.85 };
+  }
+  const t = maxCount > 0 ? Math.min(1, count / maxCount) : 0;
+  if (t >= 0.72) return { fill: '#ef4444', stroke: '#b91c1c', fillOpacity: 0.44, strokeOpacity: 0.55 };
+  if (t >= 0.45) return { fill: '#f97316', stroke: '#c2410c', fillOpacity: 0.4, strokeOpacity: 0.5 };
+  if (t >= 0.2) return { fill: '#eab308', stroke: '#a16207', fillOpacity: 0.36, strokeOpacity: 0.45 };
+  return { fill: '#14b8a6', stroke: '#0f766e', fillOpacity: 0.3, strokeOpacity: 0.4 };
+}
+
+function addHeatCircles(
+  g: GoogleMapsNS,
+  map: unknown,
+  clusters: GeoCluster[],
+  topKey: string | undefined,
+  layers: unknown[]
+): void {
+  const maxCount = Math.max(...clusters.map((c) => c.count), 1);
+  for (const cluster of clusters) {
+    const isTop = cluster.key === topKey;
+    const style = heatStyle(cluster.count, maxCount, isTop);
+    const baseRadius = circleRadiusMeters(cluster.count);
+    const outer = new g.maps.Circle({
+      map,
+      center: { lat: cluster.lat!, lng: cluster.lng! },
+      radius: baseRadius * 1.35,
+      strokeWeight: 0,
+      fillColor: style.fill,
+      fillOpacity: style.fillOpacity * 0.45,
+      zIndex: isTop ? 8 : 2
+    });
+    const inner = new g.maps.Circle({
+      map,
+      center: { lat: cluster.lat!, lng: cluster.lng! },
+      radius: baseRadius * 0.72,
+      strokeColor: style.stroke,
+      strokeOpacity: style.strokeOpacity,
+      strokeWeight: isTop ? 2 : 1,
+      fillColor: style.fill,
+      fillOpacity: style.fillOpacity,
+      zIndex: isTop ? 9 : 3
+    });
+    const info = new g.maps.InfoWindow({ content: infoHtml(cluster) });
+    g.maps.event.addListener(inner, 'click', () => info.open(map));
+    layers.push(outer, inner);
+  }
 }
 
 function infoHtml(cluster: GeoCluster): string {
@@ -181,18 +229,7 @@ export const LeadsConcentrationMap: React.FC = () => {
       }
 
       if (mapMode === 'heatmap') {
-        const heatData = mappedClusters.map((c) => ({
-          location: new g.maps.LatLng(c.lat!, c.lng!),
-          weight: heatWeight(c.count)
-        }));
-        const heat = new g.maps.visualization.HeatmapLayer({
-          data: heatData,
-          map,
-          radius: 36,
-          opacity: 0.72,
-          dissipating: true
-        });
-        mapLayersRef.current.push(heat);
+        addHeatCircles(g, map, mappedClusters, topKey, mapLayersRef.current);
       } else {
         for (const cluster of mappedClusters) {
           const isTop = cluster.key === topKey;
@@ -307,7 +344,7 @@ export const LeadsConcentrationMap: React.FC = () => {
           <div className="min-w-0">
             <h3 className="ui-title text-[15px]">Onde moram seus leads</h3>
             <p className="ui-subtitle text-[12px]">
-              Mapa de calor com filtros por DDD, cidade, bairro e UF — maior concentração em destaque
+              Concentração por DDD, cidade, bairro e UF — verde/amarelo/laranja/vermelho = intensidade
             </p>
           </div>
         </div>
