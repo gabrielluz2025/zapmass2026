@@ -2,7 +2,11 @@ import type { Express, Request, Response } from 'express';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { requireTenant } from './httpTenant.js';
-import { getGoogleMapsApiKey, isGoogleGeocodeEnabled } from './googleGeocode.js';
+import {
+  getGoogleMapsJsApiKey,
+  isGoogleGeocodeEnabled,
+  isGoogleMapsJsEnabled
+} from './googleGeocode.js';
 import {
   buildLeadsGeoSummary,
   geocodeContactsWithAddress,
@@ -15,12 +19,12 @@ export function registerLeadsGeoRoutes(app: Express): void {
   app.get('/api/leads-geo/config', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const key = getGoogleMapsApiKey();
     return res.json({
       ok: true,
-      enabled: isGoogleGeocodeEnabled(),
-      /** Chave para Maps JavaScript API (restrinja por domínio no Google Cloud). */
-      mapKey: key || null
+      enabled: isGoogleMapsJsEnabled(),
+      geocodeEnabled: isGoogleGeocodeEnabled(),
+      /** Chave só para o mapa no navegador (HTTP referrer do seu domínio). */
+      mapKey: getGoogleMapsJsApiKey() || null
     });
   });
 

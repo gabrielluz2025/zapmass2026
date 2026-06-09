@@ -56,9 +56,23 @@ function loadGoogleMapsScript(apiKey: string): Promise<GoogleMapsNS> {
     if (window.google?.maps) return resolve(window.google);
     const id = 'zapmass-google-maps-js';
     const existing = document.getElementById(id) as HTMLScriptElement | null;
+
+    const prevAuthFailure = (window as { gm_authFailure?: () => void }).gm_authFailure;
+    (window as { gm_authFailure?: () => void }).gm_authFailure = () => {
+      reject(
+        new Error(
+          'Google Maps bloqueou a chave. Use GOOGLE_MAPS_API_KEY com restrição HTTP referrer do seu domínio (não use a chave de Geocoding no mapa).'
+        )
+      );
+    };
+
     const onReady = () => {
-      if (window.google?.maps) resolve(window.google);
-      else reject(new Error('Google Maps não carregou.'));
+      if (window.google?.maps) {
+        (window as { gm_authFailure?: () => void }).gm_authFailure = prevAuthFailure;
+        resolve(window.google);
+      } else {
+        reject(new Error('Google Maps não carregou.'));
+      }
     };
     if (existing) {
       existing.addEventListener('load', onReady);
@@ -71,7 +85,8 @@ function loadGoogleMapsScript(apiKey: string): Promise<GoogleMapsNS> {
     script.defer = true;
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&language=pt-BR&region=BR`;
     script.onload = onReady;
-    script.onerror = () => reject(new Error('Falha ao carregar Google Maps.'));
+    script.onerror = () =>
+      reject(new Error('Falha ao carregar script do Google Maps. Verifique GOOGLE_MAPS_API_KEY e faturamento no Google Cloud.'));
     document.head.appendChild(script);
   });
 }
@@ -153,7 +168,11 @@ export const LeadsConcentrationMap: React.FC = () => {
   const mapLayersRef = useRef<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [geocoding, setGeocoding] = useState(false);
-  const [config, setConfig] = useState<{ enabled: boolean; mapKey: string | null } | null>(null);
+  const [config, setConfig] = useState<{
+    enabled: boolean;
+    geocodeEnabled: boolean;
+    mapKey: string | null;
+  } | null>(null);
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [layer, setLayer] = useState<GeoLayer>('city');
   const [mapMode, setMapMode] = useState<MapMode>('heatmap');
@@ -290,8 +309,10 @@ export const LeadsConcentrationMap: React.FC = () => {
       toast('Camada DDD/UF já usa coordenadas aproximadas — não precisa geocodificar.', { icon: 'ℹ️' });
       return;
     }
-    if (!config?.enabled) {
-      toast.error('Configure GOOGLE_MAPS_API_KEY no servidor (.env da VPS).');
+    if (!config?.geocodeEnabled) {
+      toast.error(
+        'Configure GOOGLE_GEOCODING_API_KEY no .env (chave separada, restrição por IP da VPS — sem referrer).'
+      );
       return;
     }
     setGeocoding(true);
@@ -366,8 +387,12 @@ export const LeadsConcentrationMap: React.FC = () => {
               variant="primary"
               leftIcon={geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
               onClick={() => void handleGeocode()}
-              disabled={geocoding || loading || !config?.enabled}
-              title={config?.enabled ? 'Geocodifica cidades/bairros via Google' : 'API key ausente no servidor'}
+            disabled={geocoding || loading || !config?.geocodeEnabled}
+            title={
+              config?.geocodeEnabled
+                ? 'Geocodifica cidades/bairros via Google (chave servidor)'
+                : 'GOOGLE_GEOCODING_API_KEY ausente no servidor'
+            }
             >
               Localizar no mapa
             </Button>
@@ -419,11 +444,12 @@ export const LeadsConcentrationMap: React.FC = () => {
 
           {!config?.enabled && (
             <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50/80 dark:bg-amber-950/20 px-3 py-2 text-[12px] text-amber-900 dark:text-amber-200">
-              Para o mapa interativo: chave no{' '}
+              Mapa: <code>GOOGLE_MAPS_API_KEY</code> com restrição <strong>HTTP referrer</strong> do seu site.
+              Geocodificação (servidor): <code>GOOGLE_GEOCODING_API_KEY</code> com restrição <strong>IP da VPS</strong>.
+              Ative faturamento no{' '}
               <a href="https://console.cloud.google.com/google/maps-apis" target="_blank" rel="noreferrer" className="underline font-semibold">
                 Google Cloud
-              </a>{' '}
-              (Maps JavaScript + Geocoding), <code>GOOGLE_MAPS_API_KEY</code> no <code>.env</code> da VPS.
+              </a>.
             </div>
           )}
 

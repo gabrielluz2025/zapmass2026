@@ -67,9 +67,21 @@ function buildQueryString(q: LeadsGeoQuery): string {
   return s ? `?${s}` : '';
 }
 
-export async function fetchLeadsGeoConfig(): Promise<{ enabled: boolean; mapKey: string | null }> {
-  const j = await apiFetchJson<{ enabled?: boolean; mapKey?: string | null }>('/api/leads-geo/config');
-  return { enabled: !!j.enabled, mapKey: j.mapKey ?? null };
+export async function fetchLeadsGeoConfig(): Promise<{
+  enabled: boolean;
+  geocodeEnabled: boolean;
+  mapKey: string | null;
+}> {
+  const j = await apiFetchJson<{
+    enabled?: boolean;
+    geocodeEnabled?: boolean;
+    mapKey?: string | null;
+  }>('/api/leads-geo/config');
+  return {
+    enabled: !!j.enabled,
+    geocodeEnabled: !!j.geocodeEnabled,
+    mapKey: j.mapKey ?? null
+  };
 }
 
 export async function fetchLeadsGeoSummary(query: LeadsGeoQuery = {}): Promise<LeadsGeoSummary> {

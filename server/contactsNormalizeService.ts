@@ -4,6 +4,7 @@ import {
   contactAddressChanged,
   normalizeContactAddressFields
 } from '../src/utils/contactAddressNormalize.js';
+import { ensureIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { bulkUpdateContacts, listContacts } from './repositories/contactsRepository.js';
 
 export type NormalizeAddressesResult = {
@@ -13,6 +14,7 @@ export type NormalizeAddressesResult = {
 };
 
 export async function normalizeTenantContactAddresses(tenantId: string): Promise<NormalizeAddressesResult> {
+  const ibgeIndex = await ensureIbgeMunicipiosIndex();
   const PAGE = 5000;
   let offset = 0;
   let scanned = 0;
@@ -28,15 +30,18 @@ export async function normalizeTenantContactAddresses(tenantId: string): Promise
 
     for (const c of page) {
       scanned++;
-      const norm = normalizeContactAddressFields({
-        city: c.city,
-        state: c.state,
-        phone: c.phone,
-        neighborhood: c.neighborhood,
-        street: c.street,
-        zipCode: c.zipCode,
-        number: c.number
-      });
+      const norm = normalizeContactAddressFields(
+        {
+          city: c.city,
+          state: c.state,
+          phone: c.phone,
+          neighborhood: c.neighborhood,
+          street: c.street,
+          zipCode: c.zipCode,
+          number: c.number
+        },
+        ibgeIndex
+      );
       if (!contactAddressChanged(c, norm)) continue;
 
       const beforeLabel = [c.city, c.state].filter(Boolean).join(' · ') || '(vazio)';

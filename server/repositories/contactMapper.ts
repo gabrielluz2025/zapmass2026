@@ -1,5 +1,6 @@
 import type { Contact, ContactList } from '../../src/types.js';
 import { applyAddressNormalizationToContact } from '../../src/utils/contactAddressNormalize.js';
+import { getIbgeMunicipiosIndex } from '../ibgeMunicipios.js';
 
 export type ContactRow = {
   id: string;
@@ -29,7 +30,7 @@ export function sortNameForContact(name: string): string {
 
 /** Normaliza endereço/cidade antes de gravar no Postgres. */
 export function prepareContactForPersistence(contact: Partial<Contact>): Partial<Contact> {
-  return applyAddressNormalizationToContact(contact);
+  return applyAddressNormalizationToContact(contact, getIbgeMunicipiosIndex());
 }
 
 /** Payload Firestore-compatível (sem id). */

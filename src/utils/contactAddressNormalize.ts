@@ -1,4 +1,5 @@
 import { phoneDigitsToUf } from './brazilPhoneGeo';
+import { resolveCityWithIbge, type IbgeCityIndex } from './ibgeCityLookup';
 
 const BRAZIL_UFS = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
@@ -7,11 +8,8 @@ const BRAZIL_UFS = new Set([
 
 const PT_PARTICLES_LOWER = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'a', 'o']);
 
-/**
- * Cidades com UF única e inequívoca no Brasil.
- * Sempre prevalece sobre UF errada no cadastro ("Blumenau - BA", state=PR, etc.).
- */
-export const KNOWN_CITY_UF: Record<string, string> = {
+/** Fallback offline quando IBGE ainda não carregou. */
+const KNOWN_CITY_UF: Record<string, string> = {
   blumenau: 'SC',
   gaspar: 'SC',
   indaial: 'SC',
@@ -22,21 +20,8 @@ export const KNOWN_CITY_UF: Record<string, string> = {
   itajai: 'SC',
   balneariocamboriu: 'SC',
   camboriu: 'SC',
-  florianopolis: 'SC',
-  saojose: 'SC',
-  palhoca: 'SC',
-  tubarao: 'SC',
-  criciuma: 'SC',
-  laguna: 'SC',
-  saopaulo: 'SP',
-  riodejaneiro: 'RJ',
-  curitiba: 'PR',
-  portoalegre: 'RS'
+  florianopolis: 'SC'
 };
-
-export function knownUfForCity(city: string): string {
-  return KNOWN_CITY_UF[normKeyPart(city)] || '';
-}
 
 function normKeyPart(s: string): string {
   return s
@@ -64,7 +49,6 @@ function capitalizeHyphenated(lowerWord: string): string {
     .join('-');
 }
 
-/** Title case para cidades, bairros e logradouros (pt-BR). */
 export function titleCasePlaceName(raw: string): string {
   const s = cleanWhitespace(raw);
   if (!s) return '';
@@ -91,10 +75,18 @@ export function normalizeContactZipCode(raw: string): string {
   return d;
 }
 
-/** Extrai cidade e UF quando vierem juntos no campo cidade ("BLUMENAU - SC"). */
+/** Extrai cidade e UF quando vierem juntos ("BLUMENAU - SC" ou "Blumenau · SC"). */
 export function parseEmbeddedCityState(cityRaw: string): { city: string; state: string } {
   let city = cleanWhitespace(cityRaw);
   let state = '';
+
+  const dot = city.match(/^(.+?)\s*·\s*([A-Za-z]{2})\s*$/);
+  if (dot) {
+    city = cleanWhitespace(dot[1]);
+    state = normalizeContactState(dot[2]);
+    return { city, state };
+  }
+
   const m = city.match(/^(.+?)\s*[-–/,]\s*([A-Za-z]{2})\s*$/);
   if (m) {
     city = cleanWhitespace(m[1]);
@@ -103,33 +95,53 @@ export function parseEmbeddedCityState(cityRaw: string): { city: string; state: 
   return { city, state };
 }
 
-export function resolveContactCityState(input: {
-  city?: string;
-  state?: string;
-  phone?: string;
-}): { city: string; state: string } {
-  const parsed = parseEmbeddedCityState(input.city || '');
-  const city = parsed.city;
-  const phoneUf = phoneDigitsToUf(input.phone || '') || '';
-  const knownUf = knownUfForCity(city);
+/** Parse valor de filtro do mapa/lista ("Blumenau · SC"). */
+export function parseGeoFilterCity(raw: string): { city: string; state: string } {
+  return parseEmbeddedCityState(cleanWhitespace(raw));
+}
 
-  // Cidade conhecida: UF fixa (Blumenau é só SC, nunca BA/SP/PR).
-  if (knownUf) {
-    return { city: titleCasePlaceName(city), state: knownUf };
+export function knownUfForCity(city: string): string {
+  return KNOWN_CITY_UF[normKeyPart(city)] || '';
+}
+
+export function resolveContactCityState(
+  input: {
+    city?: string;
+    state?: string;
+    phone?: string;
+  },
+  ibgeIndex?: IbgeCityIndex | null
+): { city: string; state: string } {
+  const parsed = parseEmbeddedCityState(input.city || '');
+  const cityRaw = parsed.city;
+  const phoneUf = phoneDigitsToUf(input.phone || '') || '';
+  const stateHint = normalizeContactState(input.state || '');
+
+  const ibge = resolveCityWithIbge(ibgeIndex, {
+    city: cityRaw,
+    stateHint,
+    phoneUf,
+    parsedEmbeddedUf: parsed.state
+  });
+  if (ibge) {
+    return { city: ibge.city, state: ibge.state };
   }
 
-  let state = normalizeContactState(input.state || '') || parsed.state;
+  const knownUf = knownUfForCity(cityRaw);
+  if (knownUf) {
+    return { city: titleCasePlaceName(cityRaw), state: knownUf };
+  }
 
+  let state = stateHint || parsed.state;
   if (parsed.state && phoneUf && parsed.state !== phoneUf) {
     state = phoneUf;
   } else if (!state && phoneUf) {
     state = phoneUf;
   }
-
   if (!state && parsed.state) state = parsed.state;
 
   return {
-    city: titleCasePlaceName(city),
+    city: titleCasePlaceName(cityRaw),
     state
   };
 }
@@ -153,8 +165,10 @@ export type NormalizedContactAddress = {
   number?: string;
 };
 
-/** Padroniza campos de endereço para gravação no CRM e mapa. */
-export function normalizeContactAddressFields(input: ContactAddressInput): NormalizedContactAddress {
+export function normalizeContactAddressFields(
+  input: ContactAddressInput,
+  ibgeIndex?: IbgeCityIndex | null
+): NormalizedContactAddress {
   const out: NormalizedContactAddress = {};
 
   const hasCity = cleanWhitespace(input.city || '').length > 0;
@@ -162,11 +176,14 @@ export function normalizeContactAddressFields(input: ContactAddressInput): Norma
   const hasPhone = String(input.phone || '').replace(/\D/g, '').length >= 10;
 
   if (hasCity || hasState || hasPhone) {
-    const { city, state } = resolveContactCityState({
-      city: input.city,
-      state: input.state,
-      phone: input.phone
-    });
+    const { city, state } = resolveContactCityState(
+      {
+        city: input.city,
+        state: input.state,
+        phone: input.phone
+      },
+      ibgeIndex
+    );
     if (city) out.city = city;
     if (state) out.state = state;
   }
@@ -186,8 +203,11 @@ export function normalizeContactAddressFields(input: ContactAddressInput): Norma
   return out;
 }
 
-export function applyAddressNormalizationToContact<T extends ContactAddressInput>(contact: T): T & NormalizedContactAddress {
-  const norm = normalizeContactAddressFields(contact);
+export function applyAddressNormalizationToContact<T extends ContactAddressInput>(
+  contact: T,
+  ibgeIndex?: IbgeCityIndex | null
+): T & NormalizedContactAddress {
+  const norm = normalizeContactAddressFields(contact, ibgeIndex);
   return { ...contact, ...norm };
 }
 

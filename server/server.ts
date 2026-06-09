@@ -86,6 +86,7 @@ import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { registerContactsDataRoutes } from './contactsRoutes.js';
 import { registerLeadsGeoRoutes } from './leadsGeoRoutes.js';
+import { ensureIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { registerCampaignsDataRoutes } from './campaignsRoutes.js';
 import { registerPlatformDataRoutes } from './platformRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
@@ -1945,6 +1946,9 @@ const startServer = async (port: number): Promise<boolean> => {
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Servidor rodando na porta ${port}`);
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
+    void ensureIbgeMunicipiosIndex().catch((e) => {
+      console.warn('[ibge] Falha ao carregar municípios:', e instanceof Error ? e.message : e);
+    });
     console.log(
       `[WhatsApp] engine=${whatsappEngine()} evolutionUrl=${process.env.EVOLUTION_API_URL || 'http://evolution:8080'} webhook=${process.env.ZAPMASS_WEBHOOK_URL || 'http://api:3001/webhook/evolution'}`
     );

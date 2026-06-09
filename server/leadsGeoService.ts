@@ -2,7 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import type { Contact } from '../src/types.js';
 import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
-import { resolveContactCityState as resolveNormalizedCityState } from '../src/utils/contactAddressNormalize.js';
+import {
+  parseGeoFilterCity,
+  resolveContactCityState as resolveNormalizedCityState
+} from '../src/utils/contactAddressNormalize.js';
+import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import {
   cityToApproxCoord,
   dddToApproxCoord,
@@ -139,11 +143,14 @@ function resolveContactState(c: Contact): string {
 }
 
 function resolveContactCityState(c: Contact): { city: string; state: string } {
-  return resolveNormalizedCityState({
-    city: c.city,
-    state: c.state,
-    phone: c.phone
-  });
+  return resolveNormalizedCityState(
+    {
+      city: c.city,
+      state: c.state,
+      phone: c.phone
+    },
+    getIbgeMunicipiosIndex()
+  );
 }
 
 function resolveContactDdd(c: Contact): string {
@@ -238,7 +245,11 @@ function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
   const nb = normNeighborhood(c.neighborhood || '');
 
   if (q.state && normKeyPart(st) !== normKeyPart(q.state)) return false;
-  if (q.city && normKeyPart(city) !== normKeyPart(q.city)) return false;
+  if (q.city) {
+    const fc = parseGeoFilterCity(q.city);
+    if (normKeyPart(city) !== normKeyPart(fc.city)) return false;
+    if (fc.state && st && normKeyPart(st) !== normKeyPart(fc.state)) return false;
+  }
   if (q.ddd && ddd !== q.ddd.replace(/\D/g, '').slice(0, 2)) return false;
   if (q.neighborhood && normKeyPart(nb) !== normKeyPart(q.neighborhood)) return false;
   return true;
