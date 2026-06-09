@@ -3888,6 +3888,80 @@ export function resumeCampaign(campaignId: string, ownerUid?: string) {
     ensureCampaignWorker();
 }
 
+/** Carrega instâncias Evolution na RAM (sem sync de chats). */
+export async function ensureConnectionsHydrated(): Promise<void> {
+    await hydrateInstancesFromEvolution();
+}
+
+/**
+ * Corrige ownerUid de canal legado `conn_*` (admin / reparo pós vazamento entre tenants).
+ * Hidrata Evolution, atualiza RAM + connections_settings.json e notifica donos afetados.
+ */
+export async function reassignConnectionOwnerAdmin(
+    connectionId: string,
+    newOwnerUid: string,
+    opts?: { priorOwnerUid?: string }
+): Promise<{ ok: boolean; error?: string; priorOwnerUid?: string; newOwnerUid?: string }> {
+    const id = String(connectionId || '').trim();
+    const uid = String(newOwnerUid || '').trim();
+    if (!id || !uid || uid === 'anonymous') {
+        return { ok: false, error: 'connectionId e ownerUid válidos são obrigatórios.' };
+    }
+
+    await hydrateInstancesFromEvolution();
+    const prior = resolveOwnerUid(id);
+
+    if (opts?.priorOwnerUid?.trim() && prior && prior !== opts.priorOwnerUid.trim()) {
+        return {
+            ok: false,
+            error: `ownerUid atual (${prior}) não confere com priorOwnerUid informado.`,
+            priorOwnerUid: prior,
+        };
+    }
+
+    const conn = connections.get(id);
+    if (conn) {
+        const ok = assignConnectionOwner(
+            id,
+            uid,
+            prior && prior !== uid ? { replacePriorOwner: prior } : undefined
+        );
+        if (!ok) {
+            return {
+                ok: false,
+                error: 'Não foi possível reatribuir (canal em RAM com dono diferente ou bloqueado).',
+                priorOwnerUid: prior,
+            };
+        }
+    } else {
+        if (prior && prior !== uid && opts?.priorOwnerUid?.trim() && prior !== opts.priorOwnerUid.trim()) {
+            return { ok: false, error: 'Canal ausente na RAM e priorOwnerUid não confere.', priorOwnerUid: prior };
+        }
+        if (!connectionsSettingsCache[id]) {
+            connectionsSettingsCache[id] = {};
+        }
+        connectionsSettingsCache[id].ownerUid = uid;
+        saveConnectionsSettings();
+    }
+
+    if (prior && prior !== uid) {
+        publishOwnerEvent(prior, 'connections-update', filterByConnectionScope(prior, getConnections()));
+        if (io) {
+            io.to(`user:${prior}`).emit(
+                'connections-update',
+                filterByConnectionScope(prior, getConnections())
+            );
+        }
+    }
+    publishOwnerEvent(uid, 'connections-update', filterByConnectionScope(uid, getConnections()));
+    if (io) {
+        io.to(`user:${uid}`).emit('connections-update', filterByConnectionScope(uid, getConnections()));
+    }
+
+    log('warn', 'Admin reassign connection owner', { connectionId: id, priorOwnerUid: prior, newOwnerUid: uid });
+    return { ok: true, priorOwnerUid: prior, newOwnerUid: uid };
+}
+
 // Export default
 export default {
     init,
@@ -3917,6 +3991,7 @@ export default {
     reemitConversationsForOwner,
     getInboxPageForOwner,
     assignConnectionOwner,
+    reassignConnectionOwnerAdmin,
     listOrphanOpenConnectionIds,
     loadChatHistory,
     loadMessageMedia,
