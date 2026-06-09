@@ -2,10 +2,11 @@ import { getZapmassPool } from '../db/postgres.js';
 import {
   firebaseUidToTenantUuid,
   isUuid,
-  tenantScopeUidsMatch
-} from '../../src/utils/tenantUidScope.js';
+  tenantScopeUidsMatch,
+  expandTenantScopeUids
+} from './tenantUidScopeServer.js';
 
-export { firebaseUidToTenantUuid, isUuid, tenantScopeUidsMatch };
+export { firebaseUidToTenantUuid, isUuid, tenantScopeUidsMatch, expandTenantScopeUids };
 
 /** Converte UID Firebase (ou UUID já migrado) para tenant_id Postgres. */
 export function resolvePostgresTenantId(uid: string): string {

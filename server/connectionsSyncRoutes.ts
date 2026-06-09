@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { filterByConnectionScope } from '../src/utils/connectionScope.js';
+import { filterByConnectionScope } from './connectionScopeServer.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import * as evolutionService from './evolutionService.js';
 import {

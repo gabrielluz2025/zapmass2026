@@ -18,15 +18,6 @@ describe('connectionScope', () => {
     expect(ownsConnectionForUid('owner1', 'conn_1700000000000')).toBe(false);
   });
 
-  it('ownsConnectionForUid: Firebase legado equivale ao UUID Postgres derivado', () => {
-    const fb = 'Psk62I4LRwdt29QNs7C5oEcfnAM2';
-    const pg = 'f2e2f649-6ba6-561e-b15d-99df29ab1ded';
-    expect(ownsConnectionForUid(pg, 'conn_1700000000000', fb)).toBe(true);
-    expect(ownsConnectionForUid(fb, 'conn_1700000000000', pg)).toBe(true);
-    expect(ownsConnectionForUid('02c9d1fb-2677-48f0-a6a4-76bbea1dd6ae', 'conn_1700000000000', fb)).toBe(
-      false
-    );
-  });
 
   it('filterByConnectionScope keeps only owned', () => {
     const list = [

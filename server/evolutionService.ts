@@ -56,11 +56,11 @@ import {
     extractEvolutionMessageUpdates,
     parseEvolutionMessageStatus
 } from './evolutionMessageStatus.js';
+import { isLegacyConnectionId } from '../src/utils/connectionScope.js';
 import {
     filterByConnectionScope,
-    isLegacyConnectionId,
-    ownsConnectionForUid
-} from '../src/utils/connectionScope.js';
+    ownsConnectionForTenant as ownsConnectionForUid,
+} from './connectionScopeServer.js';
 import {
     canReconcileLegacyCampaignOwner,
     resolveCampaignTenantOwner,

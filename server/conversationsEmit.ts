@@ -1,4 +1,4 @@
-import { filterByConnectionScope } from '../src/utils/connectionScope.js';
+import { filterByConnectionScope } from './connectionScopeServer.js';
 import {
   applyInboxAssignmentFilter,
   enrichOwnerInboxClaims,

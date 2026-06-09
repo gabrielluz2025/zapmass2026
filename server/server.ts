@@ -23,7 +23,7 @@ import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
 import { registerAdminConnectionsRoutes } from './adminConnectionsRoutes.js';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getAuth } from 'firebase-admin/auth';
-import { filterByConnectionScope, ownsConnectionForUid } from '../src/utils/connectionScope.js';
+import { filterByConnectionScope, ownsConnectionForTenant as ownsConnectionForUid } from './connectionScopeServer.js';
 import { conversationsPayloadForViewer, socketConversationsPayload } from './conversationsEmit.js';
 import { resolveConnectionOwnerUid } from './evolutionService.js';
 import { ensureAssignmentsLoaded, getWorkspaceMemberUidSet } from './inboxAssignments.js';
