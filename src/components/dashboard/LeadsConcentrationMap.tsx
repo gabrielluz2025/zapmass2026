@@ -22,8 +22,14 @@ import {
   type LeadsGeoQuery,
   type LeadsGeoSummary
 } from '../../services/leadsGeoApi';
-import { parseGeoFilterCity } from '../../utils/contactAddressNormalize';
+import {
+  normNeighborhoodKey,
+  normPlaceKey,
+  pickCanonicalNeighborhoodName,
+  parseGeoFilterCity
+} from '../../utils/contactAddressNormalize';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
+import { clusterStreetViewUrl, contactPinStreetViewUrl } from '../../utils/streetViewUrl';
 
 type MapMode = 'heatmap' | 'circles' | 'pins';
 
@@ -113,11 +119,42 @@ function normGeoKey(s: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+function mergeClustersByPlace(clusters: GeoCluster[], layer: GeoLayer): GeoCluster[] {
+  if (layer !== 'neighborhood' && layer !== 'city') return clusters;
+  const merged = new Map<string, GeoCluster>();
+  for (const c of clusters) {
+    const mk =
+      layer === 'neighborhood'
+        ? `${normNeighborhoodKey(c.neighborhood)}|${normPlaceKey(c.city)}`
+        : `${normPlaceKey(c.city)}`;
+    const prev = merged.get(mk);
+    if (!prev) {
+      merged.set(mk, c);
+      continue;
+    }
+    const canonNb =
+      layer === 'neighborhood'
+        ? pickCanonicalNeighborhoodName(prev.neighborhood, c.neighborhood)
+        : prev.neighborhood;
+    merged.set(mk, {
+      ...prev,
+      neighborhood: canonNb,
+      label: layer === 'neighborhood' ? `${canonNb} · ${prev.city}` : prev.label,
+      count: prev.count + c.count,
+      lat: prev.lat ?? c.lat,
+      lng: prev.lng ?? c.lng,
+      mapped: prev.mapped || c.mapped,
+      sampleNames: [...prev.sampleNames, ...c.sampleNames].slice(0, 3)
+    });
+  }
+  return [...merged.values()].sort((a, b) => b.count - a.count);
+}
+
 function pinMatchesCluster(pin: GeoContactPin, cluster: GeoCluster, activeLayer: GeoLayer): boolean {
   if (activeLayer === 'neighborhood') {
     return (
-      normGeoKey(pin.neighborhood) === normGeoKey(cluster.neighborhood) &&
-      normGeoKey(pin.city) === normGeoKey(cluster.city)
+      normNeighborhoodKey(pin.neighborhood) === normNeighborhoodKey(cluster.neighborhood) &&
+      normPlaceKey(pin.city) === normPlaceKey(cluster.city)
     );
   }
   if (activeLayer === 'city') {
@@ -169,7 +206,13 @@ function pinPopupHtml(pin: GeoContactPin, temp: ContactTemperature = 'new'): str
     pin.city ? `${pin.city}${pin.state ? ` · ${pin.state}` : ''}` : '',
     `<span style="color:#64748b">${PRECISION_LABELS[pin.precision] || pin.precision}</span>`
   ].filter(Boolean);
-  return `<div style="font-family:system-ui;font-size:12px;max-width:240px">${lines.join('<br/>')}</div>`;
+  const streetUrl = contactPinStreetViewUrl(pin);
+  const streetLink = `<br/><a href="${streetUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;color:#ca8a04;font-weight:700;font-size:11px;text-decoration:none">🟡 Ver na rua (Street View)</a>`;
+  return `<div style="font-family:system-ui;font-size:12px;max-width:240px">${lines.join('<br/>')}${streetLink}</div>`;
+}
+
+function streetViewLinkHtmlFromUrl(url: string): string {
+  return `<br/><a href="${url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;color:#ca8a04;font-weight:700;font-size:11px;text-decoration:none">🟡 Ver na rua (Street View)</a>`;
 }
 
 function popupHtml(cluster: GeoCluster, title?: string): string {
@@ -177,6 +220,8 @@ function popupHtml(cluster: GeoCluster, title?: string): string {
     cluster.sampleNames.length > 0
       ? `<br/><span style="color:#94a3b8;font-size:11px">${cluster.sampleNames.slice(0, 2).join(', ')}</span>`
       : '';
+  const streetUrl = clusterStreetViewUrl(cluster);
+  const streetLink = streetUrl ? streetViewLinkHtmlFromUrl(streetUrl) : '';
   const head = title ? `<strong style="color:#dc2626">${title}</strong><br/>` : `<strong>${cluster.label}</strong><br/>`;
   return `<div style="font-family:system-ui;font-size:12px;max-width:240px">
     ${head}
@@ -184,6 +229,7 @@ function popupHtml(cluster: GeoCluster, title?: string): string {
     <span>${cluster.count.toLocaleString('pt-BR')} contato(s)</span><br/>
     <span style="color:#64748b">${PRECISION_LABELS[cluster.precision] || cluster.precision}</span>
     ${samples}
+    ${streetLink}
   </div>`;
 }
 
@@ -226,29 +272,34 @@ export const LeadsConcentrationMap: React.FC = () => {
     [layer, filterState, filterCity, filterDdd, filterNeighborhood]
   );
 
+  const mergedClusters = useMemo(
+    () => mergeClustersByPlace(summary?.clusters || [], layer),
+    [summary?.clusters, layer]
+  );
+
   const allValidClusters = useMemo(
     () =>
-      (summary?.clusters || []).filter(
+      mergedClusters.filter(
         (c) =>
           c.lat != null &&
           c.lng != null &&
           isMapCoordValid(c.lat, c.lng, c.city !== '—' ? c.city : undefined, c.state !== '—' ? c.state : undefined)
       ),
-    [summary?.clusters]
+    [mergedClusters]
   );
 
   const selectedCluster = useMemo(
-    () => (summary?.clusters || []).find((c) => c.key === selectedClusterKey) ?? null,
-    [summary?.clusters, selectedClusterKey]
+    () => mergedClusters.find((c) => c.key === selectedClusterKey) ?? null,
+    [mergedClusters, selectedClusterKey]
   );
 
   const displayClusters = useMemo(() => {
     if (!selectedClusterKey) return allValidClusters;
     const hit = allValidClusters.filter((c) => c.key === selectedClusterKey);
     if (hit.length > 0) return hit;
-    const raw = (summary?.clusters || []).filter((c) => c.key === selectedClusterKey && c.lat != null && c.lng != null);
+    const raw = mergedClusters.filter((c) => c.key === selectedClusterKey && c.lat != null && c.lng != null);
     return raw;
-  }, [allValidClusters, selectedClusterKey, summary?.clusters]);
+  }, [allValidClusters, selectedClusterKey, mergedClusters]);
 
   const allValidPins = useMemo(
     () =>
@@ -275,7 +326,7 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   const pinStats = summary?.pinStats;
 
-  const topList = useMemo(() => (summary?.clusters || []).slice(0, 25), [summary?.clusters]);
+  const topList = useMemo(() => mergedClusters.slice(0, 25), [mergedClusters]);
 
   const cityNbEntries = useMemo(() => {
     if (!filterCity || !summary?.byNeighborhood) return [];
@@ -381,19 +432,6 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   const handleClusterClick = useCallback(
     (cluster: GeoCluster) => {
-      const cityVal = cityFilterValue(cluster);
-
-      if (
-        layer === 'neighborhood' &&
-        !filterNeighborhood &&
-        filterCity &&
-        cityVal &&
-        normGeoKey(filterCity) === normGeoKey(cityVal)
-      ) {
-        drillOutOfCity();
-        return;
-      }
-
       if (layer === 'city' && cluster.precision === 'city') {
         drillIntoCity(cluster);
         if (cluster.lat != null && cluster.lng != null) {
@@ -410,35 +448,40 @@ export const LeadsConcentrationMap: React.FC = () => {
         clearClusterSelection();
         return;
       }
+
       setSelectedClusterKey(cluster.key);
       applyClusterFilter(cluster);
+
+      if (layer === 'neighborhood') {
+        if ((summary?.contactPins?.length || 0) > 0) setMapMode('pins');
+        else setMapMode('circles');
+      }
+
       window.setTimeout(() => zoomToCluster(cluster), 80);
     },
     [
       layer,
-      filterCity,
-      filterNeighborhood,
       selectedClusterKey,
       drillIntoCity,
-      drillOutOfCity,
       clearClusterSelection,
       applyClusterFilter,
-      zoomToCluster
+      zoomToCluster,
+      summary?.contactPins?.length
     ]
   );
 
   const findClusterKeyForNeighborhood = useCallback(
     (nbKey: string) => {
       const nbPart = nbKey.split('·')[0]?.trim() || nbKey;
-      const hit = (summary?.clusters || []).find(
+      const hit = mergedClusters.find(
         (c) =>
-          normGeoKey(c.neighborhood) === normGeoKey(nbPart) ||
+          normNeighborhoodKey(c.neighborhood) === normNeighborhoodKey(nbPart) ||
           c.label === nbKey ||
           `${c.neighborhood} · ${c.city}` === nbKey
       );
       return hit?.key ?? null;
     },
-    [summary?.clusters]
+    [mergedClusters]
   );
 
   const refreshSummary = useCallback(async (q: LeadsGeoQuery = query) => {
@@ -1015,6 +1058,18 @@ export const LeadsConcentrationMap: React.FC = () => {
                   </p>
                 </div>
               )}
+              {selectedCluster && clusterStreetViewUrl(selectedCluster) && (
+                <a
+                  href={clusterStreetViewUrl(selectedCluster)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Ver na rua (Street View)"
+                  className="absolute top-3 right-3 z-[501] inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-300/70 bg-amber-50 text-amber-950 shadow-lg hover:bg-amber-100 transition-colors text-[11px] font-bold"
+                >
+                  <StreetViewPegman className="w-5 h-5" />
+                  Rua
+                </a>
+              )}
               {mapMode === 'pins' && displayPins.length > 0 && <LeadTempLegend />}
               {mapMode !== 'pins' && displayClusters.length > 0 && <HeatLegend />}
               {showEmptyMap && (
@@ -1038,9 +1093,14 @@ export const LeadsConcentrationMap: React.FC = () => {
 
             <div className="space-y-3 min-h-0">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                   Ranking — {LAYER_LABELS[layer]}
                 </p>
+                {layer === 'neighborhood' && (
+                  <p className="text-[10px] text-teal-600 dark:text-teal-400 mb-2">
+                    Clique no bairro para ver os contatos no mapa
+                  </p>
+                )}
                 <div className="space-y-1 max-h-[340px] overflow-y-auto pr-1">
                   {topList.length === 0 ? (
                     <p className="text-xs text-slate-500">Nenhum contato neste filtro/camada.</p>
@@ -1151,6 +1211,19 @@ const HeatLegend: React.FC = () => (
   </div>
 );
 
+const StreetViewPegman: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden>
+    <circle cx="12" cy="6" r="4" fill="#facc15" stroke="#ca8a04" strokeWidth="1.2" />
+    <path
+      d="M8 11c0-1.5 1.8-2.5 4-2.5s4 1 4 2.5v1.5c0 .8-.6 1.5-1.4 1.5H9.4C8.6 14 8 13.3 8 12.5V11z"
+      fill="#facc15"
+      stroke="#ca8a04"
+      strokeWidth="1"
+    />
+    <path d="M7 16l2.5 6 2.5-4 2.5 4L17 16" fill="none" stroke="#ca8a04" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+);
+
 const ClusterRow: React.FC<{
   cluster: GeoCluster;
   rank: number;
@@ -1162,37 +1235,56 @@ const ClusterRow: React.FC<{
 }> = ({ cluster, rank, isTop, isSelected, maxCount, filteredTotal, onFocus }) => {
   const barPct = maxCount > 0 ? Math.max(4, Math.round((100 * cluster.count) / maxCount)) : 0;
   const sharePct = filteredTotal > 0 ? Math.round((1000 * cluster.count) / filteredTotal) / 10 : 0;
+  const streetUrl = clusterStreetViewUrl(cluster);
+  const rowClass = `w-full text-left text-xs py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0 transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+    isSelected
+      ? 'bg-teal-600/15 dark:bg-teal-900/30 ring-2 ring-teal-500/60 -mx-1 px-1 rounded'
+      : isTop
+        ? 'bg-rose-50/60 dark:bg-rose-950/20 -mx-1 px-1 rounded'
+        : ''
+  }`;
   return (
-    <button
-      type="button"
-      onClick={onFocus}
-      className={`w-full text-left text-xs py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-        isSelected
-          ? 'bg-teal-600/15 dark:bg-teal-900/30 ring-2 ring-teal-500/60 -mx-1 px-1 rounded'
-          : isTop
-            ? 'bg-rose-50/60 dark:bg-rose-950/20 -mx-1 px-1 rounded'
-            : ''
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <div className="min-w-0 flex items-center gap-1.5">
-          <span className="w-4 text-[10px] font-mono text-slate-400 shrink-0">{rank}</span>
-          <span className="truncate font-medium text-slate-800 dark:text-slate-100">{cluster.label}</span>
+    <div className={`flex items-stretch gap-1.5 ${rowClass}`}>
+      <button
+        type="button"
+        onClick={onFocus}
+        title="Clique para ver estes contatos no mapa"
+        className="flex-1 min-w-0 text-left"
+      >
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="min-w-0 flex items-center gap-1.5">
+            <span className="w-4 text-[10px] font-mono text-slate-400 shrink-0">{rank}</span>
+            <span className="truncate font-medium text-slate-800 dark:text-slate-100">{cluster.label}</span>
+          </div>
+          <div className="shrink-0 text-right">
+            <span className="font-mono font-bold tabular-nums text-slate-600 dark:text-slate-300">
+              {cluster.count.toLocaleString('pt-BR')}
+            </span>
+            <span className="text-[10px] text-slate-400 ml-1">{sharePct}%</span>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <span className="font-mono font-bold tabular-nums text-slate-600 dark:text-slate-300">
-            {cluster.count.toLocaleString('pt-BR')}
-          </span>
-          <span className="text-[10px] text-slate-400 ml-1">{sharePct}%</span>
+        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${isTop ? 'bg-rose-500' : 'bg-teal-500/80'}`}
+            style={{ width: `${barPct}%` }}
+          />
         </div>
-      </div>
-      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${isTop ? 'bg-rose-500' : 'bg-teal-500/80'}`}
-          style={{ width: `${barPct}%` }}
-        />
-      </div>
-    </button>
+      </button>
+      <a
+        href={streetUrl || '#'}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Ver na rua (Google Maps)"
+        aria-label={`Ver ${cluster.label} na rua`}
+        className={`shrink-0 self-center flex flex-col items-center justify-center min-w-[36px] p-1 rounded-lg border-2 border-amber-400 bg-amber-300 hover:bg-amber-200 transition-colors shadow-md ${
+          streetUrl ? '' : 'opacity-40 pointer-events-none'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <StreetViewPegman className="w-5 h-5" />
+        <span className="text-[8px] font-black text-amber-950 leading-none mt-0.5">Rua</span>
+      </a>
+    </div>
   );
 };
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   normalizeContactAddressFields,
+  normNeighborhoodKey,
   parseEmbeddedCityState,
+  pickCanonicalNeighborhoodName,
   repairUtf8Mojibake,
   resolveContactCityState,
   titleCasePlaceName
@@ -48,5 +50,11 @@ describe('contactAddressNormalize', () => {
     const hit = fuzzyResolveCityWithIbge(index, { city: 'Indalal', stateHint: 'SC' });
     expect(hit?.city).toBe('Indaial');
     expect(hit?.state).toBe('SC');
+  });
+
+  it('corrige typo Fortaaleza e unifica chave com Fortaleza', () => {
+    expect(normalizeContactAddressFields({ neighborhood: 'Fortaaleza' }).neighborhood).toBe('Fortaleza');
+    expect(normNeighborhoodKey('Fortaaleza')).toBe(normNeighborhoodKey('Fortaleza'));
+    expect(pickCanonicalNeighborhoodName('Fortaleza', 'Fortaaleza')).toBe('Fortaleza');
   });
 });

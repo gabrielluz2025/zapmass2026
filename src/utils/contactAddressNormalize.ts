@@ -31,6 +31,29 @@ function normKeyPart(s: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+/** Chave de lugar (cidade/bairro) sem acento nem pontuação. */
+export function normPlaceKey(s: string): string {
+  return normKeyPart(s);
+}
+
+/** Chave de bairro tolerante a letras duplicadas (ex.: Fortaaleza → Fortaleza). */
+export function normNeighborhoodKey(s: string): string {
+  return normPlaceKey(s).replace(/(.)\1+/g, '$1');
+}
+
+function collapseDoubledLetters(s: string): string {
+  return s.replace(/([\p{L}])\1+/giu, '$1');
+}
+
+/** Escolhe o nome mais correto quando dois bairros são a mesma chave canônica. */
+export function pickCanonicalNeighborhoodName(a: string, b: string): string {
+  if (normNeighborhoodKey(a) !== normNeighborhoodKey(b)) return a;
+  if (a.length !== b.length) return a.length < b.length ? a : b;
+  if (/(.)\1/.test(a) && !/(.)\1/.test(b)) return b;
+  if (/(.)\1/.test(b) && !/(.)\1/.test(a)) return a;
+  return a;
+}
+
 function cleanWhitespace(raw: string): string {
   return String(raw || '')
     .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060]/g, '')
@@ -116,7 +139,8 @@ export function normalizeContactNeighborhood(raw: string, cityHint?: string): st
   }
 
   s = s.replace(/^[^\p{L}\p{N}]+/gu, '').replace(/[^\p{L}\p{N}\s.'-]+$/gu, '');
-  return titleCasePlaceName(cleanWhitespace(s));
+  s = collapseDoubledLetters(cleanWhitespace(s));
+  return titleCasePlaceName(s);
 }
 
 export function normalizeContactZipCode(raw: string): string {

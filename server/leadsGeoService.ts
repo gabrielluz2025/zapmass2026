@@ -3,12 +3,19 @@ import path from 'path';
 import type { Contact } from '../src/types.js';
 import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import {
+  knownUfForCity,
   normalizeContactNeighborhood,
+  normNeighborhoodKey,
+  parseEmbeddedCityState,
   parseGeoFilterCity,
-  resolveAddressCityState
+  pickCanonicalNeighborhoodName,
+  repairUtf8Mojibake,
+  resolveAddressCityState,
+  titleCasePlaceName
 } from '../src/utils/contactAddressNormalize.js';
 import { fixBrazilCoord, isCoordPlausibleForCity, isInsideBrazilBounds } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
+import { fuzzyResolveCityWithIbge } from '../src/utils/ibgeCityLookup.js';
 import {
   cityToApproxCoord,
   dddToApproxCoord,
@@ -126,13 +133,10 @@ function parseClusterKeyMeta(key: string): {
       .replace(/\b\w/g, (ch) => ch.toUpperCase());
     return { city, state, neighborhood: '' };
   }
-  if (parts[0] === 'nb' && parts.length >= 4) {
-    const state = parts[1]!.toUpperCase();
-    const city = parts[2]!.replace(/\b\w/g, (ch) => ch.toUpperCase());
-    const neighborhood = parts
-      .slice(3)
-      .join(' ')
-      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  if (parts[0] === 'nb' && parts.length >= 3) {
+    const city = titleCasePlaceName(parts[1] || '');
+    const neighborhood = titleCasePlaceName(parts.slice(2).join('') || '');
+    const state = knownUfForCity(city) || '';
     return { city, state, neighborhood };
   }
   return { city: '', state: '', neighborhood: '' };
@@ -197,7 +201,82 @@ function normNeighborhood(raw: string, cityHint?: string): string {
 }
 
 function normKeyPart(s: string): string {
-  return s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function canonClusterCity(city: string, stateHint = ''): string {
+  const parsed = parseEmbeddedCityState(repairUtf8Mojibake(city));
+  const ibge = fuzzyResolveCityWithIbge(getIbgeMunicipiosIndex(), {
+    city: parsed.city || city,
+    stateHint: stateHint || parsed.state,
+    phoneUf: undefined,
+    parsedEmbeddedUf: parsed.state
+  });
+  if (ibge) return ibge.city;
+  const knownUf = knownUfForCity(parsed.city || city);
+  if (knownUf && parsed.city) return titleCasePlaceName(parsed.city);
+  return titleCasePlaceName(parsed.city || city);
+}
+
+function resolveClusterState(cluster: GeoCluster): string {
+  if (cluster.state !== '—') return cluster.state;
+  const city = cluster.city !== '—' ? cluster.city : '';
+  if (city) {
+    const uf = knownUfForCity(city);
+    if (uf) return uf;
+  }
+  if (cluster.ddd && cluster.ddd !== '—') {
+    const uf = phoneDigitsToUf(cluster.ddd + '900000000');
+    if (uf) return uf;
+  }
+  return '';
+}
+
+function geoCanonKey(cluster: GeoCluster, layer: GeoLayer): string {
+  if (layer === 'neighborhood') {
+    return clusterKey(layer, {
+      city: cluster.city !== '—' ? cluster.city : '',
+      neighborhood: cluster.neighborhood !== '—' ? cluster.neighborhood : ''
+    });
+  }
+  if (layer === 'city') {
+    return clusterKey(layer, { city: cluster.city !== '—' ? cluster.city : '' });
+  }
+  return cluster.key;
+}
+
+function mergeDuplicateClusters(items: GeoCluster[], layer: GeoLayer): GeoCluster[] {
+  const merged = new Map<string, GeoCluster>();
+  for (const c of items) {
+    const mk = geoCanonKey(c, layer);
+    const existing = merged.get(mk);
+    if (!existing) {
+      merged.set(mk, { ...c, key: mk });
+      continue;
+    }
+    existing.count += c.count;
+    if (layer === 'neighborhood' && c.neighborhood !== '—' && existing.neighborhood !== '—') {
+      const canonNb = pickCanonicalNeighborhoodName(existing.neighborhood, c.neighborhood);
+      existing.neighborhood = canonNb;
+      existing.label = `${canonNb} · ${existing.city}`;
+    }
+    for (const name of c.sampleNames) {
+      if (existing.sampleNames.length < 3 && !existing.sampleNames.includes(name)) {
+        existing.sampleNames.push(name);
+      }
+    }
+    if ((existing.lat == null || !existing.mapped) && c.lat != null) {
+      existing.lat = c.lat;
+      existing.lng = c.lng;
+      existing.mapped = existing.mapped || c.mapped;
+    }
+    if (existing.state === '—' && c.state !== '—') existing.state = c.state;
+  }
+  return [...merged.values()].sort((a, b) => b.count - a.count);
 }
 
 function hasAnyAddressField(c: Contact): boolean {
@@ -346,7 +425,7 @@ function pickClusterCoords(
   cache: GeoCacheFile
 ): { lat: number; lng: number; mapped: boolean } | null {
   const city = cluster.city !== '—' ? cluster.city : '';
-  const state = cluster.state !== '—' ? cluster.state : '';
+  const state = resolveClusterState(cluster);
 
   const tryPair = (lat: number, lng: number): { lat: number; lng: number } | null => {
     const fixed = fixBrazilCoord(lat, lng);
@@ -404,12 +483,10 @@ function builtinCoordForCluster(cluster: GeoCluster): { lat: number; lng: number
     return ufToCoord(cluster.state);
   }
   if (cluster.precision === 'city' && cluster.city !== '—') {
-    const st = cluster.state !== '—' ? cluster.state : '';
-    return cityToApproxCoord(cluster.city, st);
+    return cityToApproxCoord(cluster.city, resolveClusterState(cluster));
   }
   if (cluster.precision === 'neighborhood' && cluster.city !== '—' && cluster.neighborhood !== '—') {
-    const st = cluster.state !== '—' ? cluster.state : '';
-    const cityCoord = cityToApproxCoord(cluster.city, st);
+    const cityCoord = cityToApproxCoord(cluster.city, resolveClusterState(cluster));
     if (!cityCoord) return null;
     return neighborhoodSpreadCoord(cityCoord.lat, cityCoord.lng, cluster.neighborhood);
   }
@@ -445,16 +522,17 @@ function buildGeocodeQueries(cluster: GeoCluster, sampleZip?: string): string[] 
 }
 
 function clusterKey(layer: GeoLayer, parts: Record<string, string>): string {
+  const nk = (s: string) => normKeyPart(String(s || '').trim());
   if (layer === 'neighborhood') {
-    return `nb:${parts.state}:${parts.city}:${parts.neighborhood}`.toLowerCase();
+    return `nb:${nk(parts.city)}:${normNeighborhoodKey(parts.neighborhood || '')}`;
   }
   if (layer === 'city') {
-    return `city:${parts.state}:${parts.city}`.toLowerCase();
+    return `city:${nk(parts.city)}`;
   }
   if (layer === 'ddd') {
-    return `ddd:${parts.ddd}`.toLowerCase();
+    return `ddd:${nk(parts.ddd)}`;
   }
-  return `state:${parts.state}`.toLowerCase();
+  return `state:${nk(parts.state)}`;
 }
 
 function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
@@ -471,7 +549,7 @@ function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
   if (q.ddd && ddd !== q.ddd.replace(/\D/g, '').slice(0, 2)) return false;
   if (q.neighborhood) {
     const filterNb = q.neighborhood.split('·')[0].trim();
-    if (normKeyPart(nb) !== normKeyPart(filterNb)) return false;
+    if (normNeighborhoodKey(nb) !== normNeighborhoodKey(filterNb)) return false;
   }
   return true;
 }
@@ -507,6 +585,7 @@ export async function buildLeadsGeoSummary(
   const byDdd: Record<string, number> = {};
   const byCity: Record<string, number> = {};
   const byNeighborhood: Record<string, number> = {};
+  const nbCanonMap = new Map<string, { label: string; count: number }>();
   const filterSets = {
     cities: new Set<string>(),
     states: new Set<string>(),
@@ -530,7 +609,8 @@ export async function buildLeadsGeoSummary(
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
     const { city, state: st } = resolveContactCityState(c);
-    const nb = normNeighborhood(c.neighborhood || '', city);
+    const cityCanon = city ? canonClusterCity(city, st) : '';
+    const nb = normNeighborhood(c.neighborhood || '', cityCanon || city);
     const ddd = resolveContactDdd(c);
 
     if (st) {
@@ -541,23 +621,32 @@ export async function buildLeadsGeoSummary(
       byDdd[ddd] = (byDdd[ddd] || 0) + 1;
       filterSets.ddds.add(ddd);
     }
-    if (city) {
-      const cityKey = st ? `${city} · ${st}` : city;
+    if (cityCanon) {
+      const cityKey = st ? `${cityCanon} · ${st}` : cityCanon;
       byCity[cityKey] = (byCity[cityKey] || 0) + 1;
       filterSets.cities.add(cityKey);
     }
-    if (nb && city) {
-      const nbKey = `${nb} · ${city}`;
-      byNeighborhood[nbKey] = (byNeighborhood[nbKey] || 0) + 1;
-      filterSets.neighborhoods.add(nbKey);
+    if (nb && cityCanon) {
+      const nbCanon = `${normNeighborhoodKey(nb)}|${normKeyPart(cityCanon)}`;
+      const nbLabel = `${nb} · ${cityCanon}`;
+      const prev = nbCanonMap.get(nbCanon);
+      if (prev) prev.count++;
+      else nbCanonMap.set(nbCanon, { label: nbLabel, count: 1 });
     }
+  }
+
+  for (const { label, count } of nbCanonMap.values()) {
+    byNeighborhood[label] = count;
+    filterSets.neighborhoods.add(label);
   }
 
   for (const c of filtered) {
     const { city: rawCity, state: rawState } = resolveContactCityState(c);
-    const st = rawState || '—';
-    const city = rawCity || '—';
-    const nb = normNeighborhood(c.neighborhood || '', rawCity) || '—';
+    const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
+    const st = stResolved || '—';
+    const cityCanon = rawCity ? canonClusterCity(rawCity, stResolved) : '';
+    const city = cityCanon || '—';
+    const nb = normNeighborhood(c.neighborhood || '', cityCanon || rawCity) || '—';
     const ddd = resolveContactDdd(c) || '—';
 
     let key = '';
@@ -566,12 +655,12 @@ export async function buildLeadsGeoSummary(
 
     if (layer === 'neighborhood') {
       if (nb === '—' || city === '—') continue;
-      key = clusterKey(layer, { state: st, city, neighborhood: nb });
-      label = st !== '—' ? `${nb} · ${city}` : nb;
+      key = clusterKey(layer, { city, neighborhood: nb });
+      label = `${nb} · ${city}`;
       precision = 'neighborhood';
     } else if (layer === 'city') {
       if (city === '—') continue;
-      key = clusterKey(layer, { state: st, city });
+      key = clusterKey(layer, { city });
       label = st !== '—' ? `${city} · ${st}` : city;
       precision = 'city';
     } else if (layer === 'ddd') {
@@ -654,7 +743,19 @@ export async function buildLeadsGeoSummary(
     }
   }
 
-  const clusters = [...clusterMap.values()].sort((a, b) => b.count - a.count);
+  for (const cluster of clusterMap.values()) {
+    if (cluster.lat != null && cluster.lng != null) continue;
+    const picked = pickClusterCoords(cluster, cache);
+    if (picked) {
+      cluster.lat = picked.lat;
+      cluster.lng = picked.lng;
+      cluster.mapped = picked.mapped;
+    }
+    const inferred = resolveClusterState(cluster);
+    if (cluster.state === '—' && inferred) cluster.state = inferred;
+  }
+
+  const clusters = mergeDuplicateClusters([...clusterMap.values()], layer);
   const clustersMapped = clusters.filter((c) => c.mapped && c.lat != null).length;
   const clustersPending = clusters.filter((c) => {
     if (c.precision === 'ddd' || c.precision === 'state') return false;
