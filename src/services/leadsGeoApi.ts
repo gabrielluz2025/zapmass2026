@@ -61,6 +61,7 @@ export type LeadsGeoSummary = {
   topConcentration: { label: string; count: number; sharePct: number; key: string } | null;
   contactPins: GeoContactPin[];
   pinStats: { withFullAddress: number; pinsMapped: number; pinsPending: number };
+  mapViewport?: { lat: number; lng: number; zoom: number } | null;
 };
 
 export type LeadsGeoQuery = {

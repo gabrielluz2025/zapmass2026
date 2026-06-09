@@ -7,7 +7,7 @@ import {
   parseGeoFilterCity,
   resolveAddressCityState
 } from '../src/utils/contactAddressNormalize.js';
-import { fixBrazilCoord, isCoordPlausibleForCity } from './geoCoordValidate.js';
+import { fixBrazilCoord, isCoordPlausibleForCity, isInsideBrazilBounds } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import {
   cityToApproxCoord,
@@ -97,6 +97,7 @@ export type LeadsGeoSummary = {
   topConcentration: { label: string; count: number; sharePct: number; key: string } | null;
   contactPins: GeoContactPin[];
   pinStats: GeoContactPinStats;
+  mapViewport: { lat: number; lng: number; zoom: number } | null;
 };
 
 export type LeadsGeoQuery = {
@@ -111,11 +112,59 @@ type GeoCacheFile = Record<string, { lat: number; lng: number; at: string }>;
 
 const CACHE_PATH = path.join(process.cwd(), 'data', 'leads_geo_cache.json');
 
+function parseClusterKeyMeta(key: string): {
+  city: string;
+  state: string;
+  neighborhood: string;
+} {
+  const parts = key.split(':');
+  if (parts[0] === 'city' && parts.length >= 3) {
+    const state = parts[1]!.toUpperCase();
+    const city = parts
+      .slice(2)
+      .join(' ')
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+    return { city, state, neighborhood: '' };
+  }
+  if (parts[0] === 'nb' && parts.length >= 4) {
+    const state = parts[1]!.toUpperCase();
+    const city = parts[2]!.replace(/\b\w/g, (ch) => ch.toUpperCase());
+    const neighborhood = parts
+      .slice(3)
+      .join(' ')
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+    return { city, state, neighborhood };
+  }
+  return { city: '', state: '', neighborhood: '' };
+}
+
+function sanitizeGeoCache(cache: GeoCacheFile): GeoCacheFile {
+  const clean: GeoCacheFile = {};
+  let changed = false;
+  for (const [key, v] of Object.entries(cache)) {
+    const fixed = fixBrazilCoord(v.lat, v.lng);
+    const meta = parseClusterKeyMeta(key);
+    const ok =
+      meta.city && meta.state
+        ? isCoordPlausibleForCity(fixed.lat, fixed.lng, meta.city, meta.state, meta.neighborhood ? 40 : 55)
+        : isInsideBrazilBounds(fixed.lat, fixed.lng);
+    if (!ok) {
+      changed = true;
+      continue;
+    }
+    if (fixed.lat !== v.lat || fixed.lng !== v.lng) changed = true;
+    clean[key] = { lat: fixed.lat, lng: fixed.lng, at: v.at };
+  }
+  if (changed) writeGeoCache(clean);
+  return clean;
+}
+
 function readGeoCache(): GeoCacheFile {
   try {
     const raw = fs.readFileSync(CACHE_PATH, 'utf8');
     const j = JSON.parse(raw) as GeoCacheFile;
-    return j && typeof j === 'object' ? j : {};
+    if (!j || typeof j !== 'object') return {};
+    return sanitizeGeoCache(j);
   } catch {
     return {};
   }
@@ -567,7 +616,7 @@ export async function buildLeadsGeoSummary(
 
     if (precision === 'neighborhood') {
       const stored = storedContactCoords(c);
-      if (stored) {
+      if (stored && isCoordPlausibleForCity(stored.lat, stored.lng, city, st, 35)) {
         cluster.lat = stored.lat;
         cluster.lng = stored.lng;
         cluster.mapped = true;
@@ -623,6 +672,8 @@ export async function buildLeadsGeoSummary(
       }
     : null;
 
+  const mapViewport = computeMapViewport(clusters, topConcentration, layer);
+
   return {
     stats: {
       totalContacts: contacts.length,
@@ -649,8 +700,39 @@ export async function buildLeadsGeoSummary(
     },
     topConcentration,
     contactPins,
-    pinStats: { withFullAddress: filteredWithFullAddress, pinsMapped, pinsPending }
+    pinStats: { withFullAddress: filteredWithFullAddress, pinsMapped, pinsPending },
+    mapViewport
   };
+}
+
+function computeMapViewport(
+  clusters: GeoCluster[],
+  top: LeadsGeoSummary['topConcentration'],
+  layer: GeoLayer
+): { lat: number; lng: number; zoom: number } | null {
+  const mapped = clusters.filter((c) => c.lat != null && c.lng != null && c.mapped);
+  if (mapped.length === 0) return null;
+
+  if (top && top.sharePct >= 35) {
+    const focus = mapped.find((c) => c.key === top.key);
+    if (focus?.lat != null && focus.lng != null) {
+      const zoom = layer === 'neighborhood' ? 12 : layer === 'city' ? 9 : layer === 'ddd' ? 7 : 5;
+      return { lat: focus.lat, lng: focus.lng, zoom };
+    }
+  }
+
+  let wSum = 0;
+  let latSum = 0;
+  let lngSum = 0;
+  for (const c of mapped.slice(0, 120)) {
+    const w = Math.max(1, c.count);
+    latSum += c.lat! * w;
+    lngSum += c.lng! * w;
+    wSum += w;
+  }
+  if (wSum <= 0) return null;
+  const zoom = layer === 'neighborhood' ? 10 : layer === 'city' ? 6 : layer === 'ddd' ? 5 : 4;
+  return { lat: latSum / wSum, lng: lngSum / wSum, zoom };
 }
 
 export async function geocodeLeadsGeoClusters(

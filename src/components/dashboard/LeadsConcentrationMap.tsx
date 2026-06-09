@@ -22,6 +22,7 @@ import {
   type LeadsGeoQuery,
   type LeadsGeoSummary
 } from '../../services/leadsGeoApi';
+import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 
 type MapMode = 'heatmap' | 'circles' | 'pins';
 
@@ -51,16 +52,34 @@ function clusterPixelRadius(count: number, maxCount: number, layer: GeoLayer): n
 }
 
 function circleRadiusMeters(count: number, maxCount: number, layer: GeoLayer): number {
-  const t = maxCount > 0 ? Math.min(1, count / maxCount) : 0;
+  const t = maxCount > 0 ? Math.min(1, Math.sqrt(count / maxCount)) : 0;
   const caps: Record<GeoLayer, [number, number]> = {
-    neighborhood: [350, 1_800],
-    city: [2_500, 18_000],
-    ddd: [12_000, 55_000],
-    state: [45_000, 120_000]
+    neighborhood: [280, 1_400],
+    city: [1_200, 6_500],
+    ddd: [8_000, 35_000],
+    state: [35_000, 90_000]
   };
   const [minR, maxR] = caps[layer];
   return minR + t * (maxR - minR);
 }
+
+const BRAZIL_BOUNDS = L.latLngBounds(
+  L.latLng(-33.75, -73.99),
+  L.latLng(5.27, -28.84)
+);
+
+const MAP_TILES = {
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+  },
+  light: {
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+  }
+} as const;
 
 /** Escala frio → quente (substitui HeatmapLayer removido na API 3.65). */
 function heatStyle(count: number, maxCount: number, isTop: boolean): {
@@ -169,11 +188,23 @@ export const LeadsConcentrationMap: React.FC = () => {
   );
 
   const mappedClusters = useMemo(
-    () => (summary?.clusters || []).filter((c) => c.lat != null && c.lng != null),
+    () =>
+      (summary?.clusters || []).filter(
+        (c) =>
+          c.lat != null &&
+          c.lng != null &&
+          isMapCoordValid(c.lat, c.lng, c.city !== '—' ? c.city : undefined, c.state !== '—' ? c.state : undefined)
+      ),
     [summary?.clusters]
   );
 
-  const contactPins = useMemo(() => summary?.contactPins || [], [summary?.contactPins]);
+  const contactPins = useMemo(
+    () =>
+      (summary?.contactPins || []).filter((p) =>
+        isMapCoordValid(p.lat, p.lng, p.city, p.state)
+      ),
+    [summary?.contactPins]
+  );
   const pinStats = summary?.pinStats;
 
   const topList = useMemo(() => (summary?.clusters || []).slice(0, 25), [summary?.clusters]);
@@ -236,12 +267,25 @@ export const LeadsConcentrationMap: React.FC = () => {
     const hasPins = contactPins.length > 0;
     if (!mapRef.current || (!hasClusters && !hasPins)) return;
 
+    const isDark =
+      typeof document !== 'undefined' &&
+      document.documentElement.classList.contains('dark');
+    const tiles = isDark ? MAP_TILES.dark : MAP_TILES.light;
+    const viewport = summary?.mapViewport;
+
     if (!mapInstanceRef.current) {
-      mapInstanceRef.current = L.map(mapRef.current, { zoomControl: true }).setView([-14.235, -51.9253], 4);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      const initial = viewport
+        ? L.latLng(viewport.lat, viewport.lng)
+        : L.latLng(-26.9, -49.06);
+      const initialZoom = viewport?.zoom ?? 7;
+      mapInstanceRef.current = L.map(mapRef.current, {
+        zoomControl: true,
+        minZoom: 4,
         maxZoom: 18
-      }).addTo(mapInstanceRef.current);
+      }).setView(initial, initialZoom);
+      L.tileLayer(tiles.url, { attribution: tiles.attribution, maxZoom: 19 }).addTo(
+        mapInstanceRef.current
+      );
       layerGroupRef.current = L.layerGroup().addTo(mapInstanceRef.current);
     }
 
@@ -252,24 +296,25 @@ export const LeadsConcentrationMap: React.FC = () => {
     const maxCount = Math.max(...mappedClusters.map((c) => c.count), 1);
     const maxZoom = filterCity || filterNeighborhood ? 13 : layer === 'neighborhood' ? 11 : 9;
     const localMarkers = useLocalMarkers(layer, filterCity);
+    const usePixelHeat = !localMarkers;
 
     if (mapMode !== 'pins' && hasClusters) {
       for (const cluster of mappedClusters) {
-        const lat = cluster.lat!;
-        const lng = cluster.lng!;
+        const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
+        if (!isMapCoordValid(lat, lng, cluster.city, cluster.state)) continue;
         bounds.extend([lat, lng]);
         const isTop = cluster.key === topKey;
         const style = heatStyle(cluster.count, maxCount, isTop);
 
-        if (localMarkers) {
+        if (localMarkers || usePixelHeat) {
           const r = clusterPixelRadius(cluster.count, maxCount, layer);
           L.circleMarker([lat, lng], {
             radius: r,
             color: style.stroke,
             weight: isTop ? 2.5 : 1.5,
-            opacity: 0.9,
+            opacity: 0.92,
             fillColor: mapMode === 'heatmap' ? style.fill : isTop ? '#ef4444' : '#14b8a6',
-            fillOpacity: mapMode === 'heatmap' ? style.fillOpacity : 0.55
+            fillOpacity: mapMode === 'heatmap' ? style.fillOpacity : 0.58
           })
             .bindPopup(popupHtml(cluster, isTop ? 'Maior concentração' : undefined))
             .bindTooltip(
@@ -278,14 +323,13 @@ export const LeadsConcentrationMap: React.FC = () => {
             )
             .addTo(group);
         } else if (mapMode === 'heatmap') {
-          const baseRadius = circleRadiusMeters(cluster.count, maxCount, layer);
           L.circle([lat, lng], {
-            radius: baseRadius,
+            radius: circleRadiusMeters(cluster.count, maxCount, layer),
             color: style.stroke,
             weight: isTop ? 2 : 1,
             opacity: style.strokeOpacity,
             fillColor: style.fill,
-            fillOpacity: style.fillOpacity * 0.65
+            fillOpacity: style.fillOpacity * 0.55
           })
             .bindPopup(popupHtml(cluster))
             .addTo(group);
@@ -296,7 +340,7 @@ export const LeadsConcentrationMap: React.FC = () => {
             weight: isTop ? 2 : 1,
             opacity: 0.75,
             fillColor: isTop ? '#ef4444' : '#14b8a6',
-            fillOpacity: 0.35
+            fillOpacity: 0.32
           })
             .bindPopup(popupHtml(cluster))
             .addTo(group);
@@ -305,20 +349,37 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
 
     if (mapMode === 'pins' && hasPins) {
-      for (const pin of contactPins) {
-        bounds.extend([pin.lat, pin.lng]);
+      const pinStep = contactPins.length > 180 ? Math.ceil(contactPins.length / 180) : 1;
+      for (let i = 0; i < contactPins.length; i += pinStep) {
+        const pin = contactPins[i]!;
+        const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
+        bounds.extend([lat, lng]);
         const temp = contactTemps[pin.id]?.temp || 'new';
-        L.marker([pin.lat, pin.lng], { icon: contactPinIcon(pin, temp) })
+        L.marker([lat, lng], { icon: contactPinIcon(pin, temp) })
           .bindPopup(pinPopupHtml(pin, temp))
           .addTo(group);
       }
     }
 
-    if (bounds.isValid()) {
-      mapInstanceRef.current.fitBounds(bounds, { padding: [36, 36], maxZoom });
+    const map = mapInstanceRef.current;
+    if (viewport && !filterCity && !filterNeighborhood) {
+      map.setView([viewport.lat, viewport.lng], viewport.zoom, { animate: false });
+    } else if (bounds.isValid()) {
+      const clipped = bounds.intersects(BRAZIL_BOUNDS) ? bounds : BRAZIL_BOUNDS;
+      map.fitBounds(clipped, { padding: [40, 40], maxZoom });
     }
-    window.setTimeout(() => mapInstanceRef.current?.invalidateSize(), 120);
-  }, [mappedClusters, contactPins, contactTemps, mapMode, summary?.topConcentration?.key, filterCity, filterNeighborhood, layer]);
+    window.setTimeout(() => map?.invalidateSize(), 120);
+  }, [
+    mappedClusters,
+    contactPins,
+    contactTemps,
+    mapMode,
+    summary?.topConcentration?.key,
+    summary?.mapViewport,
+    filterCity,
+    filterNeighborhood,
+    layer
+  ]);
 
   useEffect(() => {
     const hasData = mappedClusters.length > 0 || contactPins.length > 0;
@@ -331,6 +392,19 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   useEffect(() => () => destroyMap(), [destroyMap]);
 
+  const focusTopConcentration = useCallback(() => {
+    const top = summary?.topConcentration;
+    if (!top) return;
+    const cluster = mappedClusters.find((c) => c.key === top.key);
+    if (cluster?.lat != null && cluster.lng != null) {
+      zoomToCluster(cluster);
+      return;
+    }
+    if (top.label.includes('·')) {
+      handleCityFilter(top.label);
+    }
+  }, [summary?.topConcentration, mappedClusters, zoomToCluster]);
+
   const handleGeocode = async () => {
     if (layer === 'ddd' || layer === 'state') {
       toast('Camada DDD/UF já usa coordenadas aproximadas — não precisa geocodificar.', { icon: 'ℹ️' });
@@ -341,31 +415,49 @@ export const LeadsConcentrationMap: React.FC = () => {
       return;
     }
     setGeocoding(true);
+    const progressId = 'leads-geo-progress';
     try {
       const geoOpts = {
         layer,
         city: filterCity || undefined,
         neighborhood: filterNeighborhood || undefined
       };
-      const clusters = await apiGeocodeLeadsClusters({ max: 120, ...geoOpts, force: false });
-      const contacts = await apiGeocodeContacts({ max: 80, ...geoOpts });
-      setSummary(contacts.summary);
-      const total = clusters.geocoded + contacts.geocoded;
+      let totalClusters = 0;
+      let totalContacts = 0;
+      let lastSummary: LeadsGeoSummary | null = null;
+
+      for (let round = 0; round < 40; round++) {
+        const clusters = await apiGeocodeLeadsClusters({ max: 120, ...geoOpts, force: false });
+        const contacts = await apiGeocodeContacts({ max: 80, ...geoOpts });
+        lastSummary = contacts.summary;
+        totalClusters += clusters.geocoded;
+        totalContacts += contacts.geocoded;
+        const pending =
+          (contacts.summary.pinStats.pinsPending || 0) + (clusters.pending || 0);
+        toast.loading(
+          `Localizando… ${totalClusters + totalContacts} regiões/contatos · ${pending.toLocaleString('pt-BR')} pendentes`,
+          { id: progressId }
+        );
+        if (clusters.geocoded + contacts.geocoded === 0) break;
+      }
+
+      toast.dismiss(progressId);
+      if (lastSummary) setSummary(lastSummary);
+      const total = totalClusters + totalContacts;
       if (total > 0) {
         toast.success(
-          `${clusters.geocoded} bairro(s)/região(ões) e ${contacts.geocoded} contato(s) localizados no mapa.`
+          `${totalClusters} região(ões) e ${totalContacts} contato(s) localizados no mapa.`
         );
-      } else if (contacts.summary.pinStats.pinsPending > 0) {
+      } else if (lastSummary?.pinStats.pinsPending) {
         toast(
-          `${contacts.summary.pinStats.pinsPending} contato(s) com endereço aguardam localização. Clique novamente para continuar.`,
+          `${lastSummary.pinStats.pinsPending} contato(s) ainda aguardam endereço completo.`,
           { icon: 'ℹ️' }
         );
-      } else if (clusters.pending === 0) {
-        toast.success('Todas as regiões já estão no mapa.');
       } else {
-        toast('Preencha rua, número e bairro nos contatos para marcar no mapa.', { icon: 'ℹ️' });
+        toast.success('Mapa atualizado — todas as regiões conhecidas já estão posicionadas.');
       }
     } catch (e) {
+      toast.dismiss(progressId);
       toast.error(e instanceof Error ? e.message : 'Falha na geocodificação.');
     } finally {
       setGeocoding(false);
@@ -511,6 +603,15 @@ export const LeadsConcentrationMap: React.FC = () => {
                   {top.label} — {top.count.toLocaleString('pt-BR')} contatos ({top.sharePct}% do filtro)
                 </p>
               </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="shrink-0 text-rose-700 dark:text-rose-300"
+                onClick={focusTopConcentration}
+              >
+                Focar no mapa
+              </Button>
             </div>
           )}
 
@@ -602,8 +703,8 @@ export const LeadsConcentrationMap: React.FC = () => {
 
           <div className="grid grid-cols-1 xl:grid-cols-[1.45fr_1fr] gap-4">
             <div
-              className={`relative w-full rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-inner ${
-                filterCity ? 'min-h-[400px] h-[460px]' : 'min-h-[320px] h-[380px]'
+              className={`relative w-full rounded-xl overflow-hidden border border-slate-200/80 dark:border-slate-700/80 bg-slate-900 shadow-inner ring-1 ring-black/5 dark:ring-white/5 ${
+                filterCity ? 'min-h-[420px] h-[500px]' : 'min-h-[380px] h-[440px]'
               }`}
             >
               <div ref={mapRef} className="absolute inset-0 w-full h-full" />
@@ -621,8 +722,8 @@ export const LeadsConcentrationMap: React.FC = () => {
                         : layer === 'state'
                           ? 'Contatos precisam de UF no cadastro ou DDD no telefone.'
                           : filterCity
-                            ? 'Selecione camada Bairro ou clique em Localizar no mapa para posicionar os bairros.'
-                            : 'Escolha uma cidade no filtro para ver contatos por bairro.'}
+                            ? 'Clique em Localizar no mapa para posicionar bairros com precisão.'
+                            : 'Clique em uma cidade no ranking ou use Focar no mapa na maior concentração.'}
                   </p>
                 </div>
               )}
@@ -645,7 +746,12 @@ export const LeadsConcentrationMap: React.FC = () => {
                         isTop={c.key === top?.key}
                         maxCount={topList[0]?.count || 1}
                         filteredTotal={filteredTotal}
-                        onFocus={() => zoomToCluster(c)}
+                        onFocus={() => {
+                          zoomToCluster(c);
+                          if (layer === 'city' && c.label.includes('·') && !filterCity) {
+                            handleCityFilter(c.label);
+                          }
+                        }}
                       />
                     ))
                   )}
