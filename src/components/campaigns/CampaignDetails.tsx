@@ -75,6 +75,7 @@ import { buildLegacyEstimateReportRows } from '../../utils/campaignReportBackfil
 import { parseFirestoreDateToIso } from '../../utils/followUp';
 import * as XLSX from 'xlsx';
 import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
+import { CampaignDispatchLogs } from './CampaignDispatchLogs';
 import { PerformanceFunnel } from '../PerformanceFunnel';
 import { CampaignScoreCard } from './CampaignScoreCard';
 import {
@@ -1080,18 +1081,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const pendingKpi = isDone ? 0 : isRunning ? Math.max(remaining, pendingLive) : remaining;
   const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
 
-  const campaignLogs = useMemo(() => scopedCampaignLogs, [scopedCampaignLogs]);
-
-  const filteredCampaignLogs = useMemo(() => {
-    if (logFilter === 'ALL') return campaignLogs;
-    return campaignLogs.filter((log) => {
-      if (logFilter === 'FAILED') return log.event.includes('campaign:error');
-      if (logFilter === 'SENT') return log.event.includes('campaign:info');
-      return true;
-    });
-  }, [campaignLogs, logFilter]);
-
-  const liveLogs = useMemo(() => campaignLogs.slice(-12).reverse(), [campaignLogs]);
+  const campaignLogs = useMemo(() => scopedCampaignLogs as SystemLog[], [scopedCampaignLogs]);
 
   const handleFilterClick = (filter: ReportFilter) => {
     setDetailFilter(filter);
@@ -1762,75 +1752,37 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         />
 
         {/* Logs ao vivo */}
-        <Card className="p-0 overflow-hidden flex flex-col">
-          <div
-            className="flex items-center justify-between gap-2 px-4 py-2.5"
-            style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
-          >
-            <div className="flex items-center gap-2">
-              <div className="flex gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#ef4444' }} />
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#f59e0b' }} />
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: '#10b981' }} />
+        <Card className="p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)' }}
+              >
+                <Terminal className="w-4 h-4" style={{ color: '#10b981' }} />
               </div>
-              <Terminal className="w-3.5 h-3.5 ml-2" style={{ color: 'var(--text-3)' }} />
-              <span className="text-[11px] font-mono" style={{ color: 'var(--text-3)' }}>
-                zapmass • logs ao vivo
-              </span>
-              {liveLogs.length > 0 && (
-                <Badge variant="neutral">
-                  {liveLogs.length} evento{liveLogs.length > 1 ? 's' : ''}
+              <div className="min-w-0">
+                <h3 className="ui-title text-[14px]">Logs do disparo</h3>
+                <p className="ui-subtitle text-[11.5px] truncate">Eventos em tempo real desta campanha</p>
+              </div>
+              {isRunning && (
+                <Badge variant="success" className="shrink-0">
+                  Ao vivo
                 </Badge>
               )}
             </div>
-            <button
-              onClick={() => setShowLogModal(true)}
-              className="text-[11px] font-mono"
-              style={{ color: 'var(--brand-500)' }}
-            >
-              ver todos →
-            </button>
+            <Button variant="ghost" size="sm" onClick={() => setShowLogModal(true)}>
+              Ver todos
+            </Button>
           </div>
-          <div
-            className="p-4 flex-1 min-h-[220px] max-h-[340px] overflow-y-auto font-mono text-[11.5px] space-y-1.5"
-            style={{ background: 'var(--surface-0)' }}
-          >
-            {liveLogs.length === 0 ? (
-              <div className="py-8 text-center">
-                <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
-                  {isRunning
-                    ? '$ aguardando primeiro evento do disparo...'
-                    : isDone
-                    ? '$ disparo concluído — sem novos eventos'
-                    : '$ nenhum evento registrado'}
-                </p>
-              </div>
-            ) : (
-              liveLogs.map((log, idx) => {
-                const payload = (log.payload || {}) as { message?: string; to?: string; error?: string };
-                const isErr = log.event.includes('error');
-                const isWarn = log.event.includes('warn');
-                const tone = isErr ? '#ef4444' : isWarn ? '#f59e0b' : '#10b981';
-                const symbol = isErr ? '✖' : isWarn ? '⚠' : '✓';
-                return (
-                  <div key={`${log.timestamp}-${idx}`} className="flex gap-3 items-start">
-                    <span className="min-w-[64px]" style={{ color: 'var(--text-3)' }}>
-                      {new Date(log.timestamp).toLocaleTimeString('pt-BR')}
-                    </span>
-                    <span style={{ color: tone, minWidth: 14 }}>{symbol}</span>
-                    <span className="flex-1" style={{ color: 'var(--text-2)' }}>
-                      {payload.message || payload.error || log.event}
-                      {payload.to && (
-                        <span className="ml-1.5" style={{ color: 'var(--text-3)' }}>
-                          → {payload.to}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </div>
+          <CampaignDispatchLogs
+            logs={campaignLogs}
+            filter={logFilter}
+            onFilterChange={setLogFilter}
+            variant="compact"
+            isRunning={isRunning}
+            maxItems={8}
+          />
         </Card>
       </div>
 
@@ -2122,53 +2074,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         isOpen={showLogModal}
         onClose={() => setShowLogModal(false)}
         title="Logs do disparo"
-        subtitle="Eventos em tempo real desta campanha"
+        subtitle="Histórico completo de envios, respostas e falhas desta campanha"
         icon={<Terminal className="w-5 h-5" />}
-        size="md"
+        size="lg"
       >
-        <div className="mb-3">
-          <Tabs
-            value={logFilter}
-            onChange={(v) => setLogFilter(v as LogFilter)}
-            items={[
-              { id: 'ALL', label: 'Todos' },
-              { id: 'FAILED', label: 'Falhas' },
-              { id: 'SENT', label: 'Sucessos' }
-            ]}
-          />
-        </div>
-        <div
-          className="max-h-80 overflow-y-auto divide-y rounded-lg"
-          style={{ border: '1px solid var(--border-subtle)' }}
-        >
-          {filteredCampaignLogs.length === 0 ? (
-            <div className="p-6 text-[13px] text-center" style={{ color: 'var(--text-3)' }}>
-              Nenhum log para esta campanha.
-            </div>
-          ) : (
-            filteredCampaignLogs.map((log, idx) => {
-              const payload = (log.payload || {}) as { message?: string; to?: string; error?: string };
-              return (
-                <div key={`${log.timestamp}-${idx}`} className="px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                      {log.event}
-                    </span>
-                    <span className="text-[10.5px] font-mono" style={{ color: 'var(--text-3)' }}>
-                      {new Date(log.timestamp).toLocaleTimeString('pt-BR')}
-                    </span>
-                  </div>
-                  {log.payload && (
-                    <div className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                      {payload.message || payload.error || ''}
-                      {payload.to ? ` → ${payload.to}` : ''}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+        <CampaignDispatchLogs
+          logs={campaignLogs}
+          filter={logFilter}
+          onFilterChange={setLogFilter}
+          variant="full"
+          isRunning={isRunning}
+          hasMore={logsHasMore}
+          loadingMore={logsLoadingMore}
+          onLoadMore={loadMoreLogs}
+        />
       </Modal>
 
       {/* ============================ MODAL DETALHE DO CONTATO ============================ */}
