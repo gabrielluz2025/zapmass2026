@@ -49,8 +49,9 @@ export function parseDispatchLog(log: SystemLog): ParsedDispatchLog {
   const payload = (log.payload || {}) as DispatchLogPayload;
   const msg = String(payload.message || payload.error || '').trim();
   const phone = String(payload.phoneDigits || payload.to || '').replace(/\D/g, '');
-  const isErr = log.event.includes('error');
-  const isWarn = log.event.includes('warn');
+  const event = String(log.event || '');
+  const isErr = event.includes('error');
+  const isWarn = event.includes('warn');
 
   let kind: DispatchLogKind = 'info';
   let label = 'Evento do disparo';

@@ -47,9 +47,11 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   }, []);
 
   const isConnected = connection.status === ConnectionStatus.CONNECTED;
-  const isConnecting = connection.status === ConnectionStatus.CONNECTING || connection.status === ConnectionStatus.QR_READY;
-  const isQrReady =
-    connection.status === ConnectionStatus.QR_READY || Boolean(connection.qrCode?.trim());
+  const qrCodeText = typeof connection.qrCode === 'string' ? connection.qrCode.trim() : '';
+  const isQrReady = Boolean(qrCodeText);
+  const isConnecting =
+    connection.status === ConnectionStatus.CONNECTING ||
+    (connection.status === ConnectionStatus.QR_READY && !isQrReady);
   const isAuthenticating = connection.status === ConnectionStatus.CONNECTING && !isQrReady && connection.lastActivity?.includes('Autenticado');
 
   const [qrSeconds, setQrSeconds] = useState(60);
@@ -250,7 +252,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               <p className="text-[10px] text-slate-400 font-semibold">Autenticando sessão...</p>
             </div>
           </div>
-        ) : isQrReady && connection.qrCode ? (
+        ) : isQrReady && qrCodeText ? (
           <div className="mb-4 flex flex-col items-center gap-3">
             <button
               type="button"
@@ -263,7 +265,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               title="Clique para ampliar"
             >
               <QrCanvas
-                value={connection.qrCode}
+                value={qrCodeText}
                 size={176}
                 className="pointer-events-none"
                 ariaLabel={`QR Code de ${connection.name}`}
@@ -600,9 +602,9 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
       </div>
     </div>
     <QRCodeModal
-      isOpen={qrZoomOpen}
+      isOpen={qrZoomOpen && Boolean(qrCodeText)}
       onClose={() => setQrZoomOpen(false)}
-      qrCode={connection.qrCode}
+      qrCode={qrCodeText}
       connectionName={connection.name}
     />
     </>

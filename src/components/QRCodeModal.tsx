@@ -21,6 +21,8 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
 
   if (!isOpen) return null;
 
+  const safeQrCode = typeof qrCode === 'string' ? qrCode.trim() : '';
+
   const handleDownload = () => {
     const canvas = qrWrapperRef.current?.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvas) return;
@@ -34,7 +36,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
 
   const handleCopyCode = async () => {
     try {
-      await navigator.clipboard.writeText(qrCode);
+      await navigator.clipboard.writeText(safeQrCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
@@ -94,7 +96,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
           <div className="flex justify-center mb-6" ref={qrWrapperRef}>
             <div className="bg-white p-6 rounded-2xl shadow-2xl border-2 border-amber-500/30">
               <QrCanvas
-                value={qrCode}
+                value={safeQrCode}
                 size={384}
                 ariaLabel={`QR Code Ampliado ${connectionName}`}
               />
@@ -107,7 +109,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
               <div className="text-center mb-4">
                 <p className="text-sm text-slate-400 mb-2">Código de Conexão</p>
                 <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-4 font-mono text-lg text-white break-all">
-                  {qrCode}
+                  {safeQrCode || '—'}
                 </div>
               </div>
               <button

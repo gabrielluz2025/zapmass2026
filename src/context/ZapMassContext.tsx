@@ -1376,13 +1376,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('qr-code', (data: { connectionId: string; qrCode: string }) => {
-      qrCodeByConnectionId.current[data.connectionId] = data.qrCode;
+      const qr = typeof data?.qrCode === 'string' ? data.qrCode.trim() : '';
+      if (!data?.connectionId || !qr) return;
+      qrCodeByConnectionId.current[data.connectionId] = qr;
       setConnections((prev) => {
         const updated = prev.map((conn) =>
           conn.id === data.connectionId
             ? {
                 ...conn,
-                qrCode: data.qrCode,
+                qrCode: qr,
                 status: ConnectionStatus.QR_READY,
                 lastActivity: 'Aguardando leitura do QR...'
               }
@@ -1499,14 +1501,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             headers: { Authorization: `Bearer ${token}` }
           });
           const data = (await res.json()) as { ok?: boolean; qrCode?: string };
-          if (!data?.ok || !data.qrCode) continue;
-          qrCodeByConnectionId.current[conn.id] = data.qrCode;
+          const qr = typeof data?.qrCode === 'string' ? data.qrCode.trim() : '';
+          if (!data?.ok || !qr) continue;
+          qrCodeByConnectionId.current[conn.id] = qr;
           setConnections((prev) => {
             const updated = prev.map((c) =>
               c.id === conn.id
                 ? {
                     ...c,
-                    qrCode: data.qrCode,
+                    qrCode: qr,
                     status: ConnectionStatus.QR_READY,
                     lastActivity: 'Aguardando leitura do QR...'
                   }

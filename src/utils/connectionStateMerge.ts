@@ -35,10 +35,12 @@ export function mergeWhatsAppConnectionRow(
       qrCode: undefined
     };
   }
+  const rawQr = qrFromCache ?? previous?.qrCode ?? incoming.qrCode;
+  const qrCode = typeof rawQr === 'string' && rawQr.trim() ? rawQr.trim() : undefined;
   return {
     ...incoming,
     status,
-    qrCode: qrFromCache ?? previous?.qrCode ?? incoming.qrCode
+    qrCode
   };
 }
 

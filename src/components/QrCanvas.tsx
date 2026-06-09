@@ -34,18 +34,19 @@ export const QrCanvas: React.FC<QrCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const qrValue = typeof value === 'string' ? value.trim() : '';
 
   useEffect(() => {
     let cancelled = false;
-    if (!canvasRef.current || !value) return;
-    if (value.startsWith('data:image/')) {
+    if (!canvasRef.current || !qrValue) return;
+    if (qrValue.startsWith('data:image/')) {
       setError(null);
       return;
     }
     setError(null);
     const dpr = typeof window !== 'undefined' ? Math.max(1, Math.min(3, window.devicePixelRatio || 1)) : 1;
     const drawSize = Math.round(size * dpr);
-    QRCode.toCanvas(canvasRef.current, value, {
+    QRCode.toCanvas(canvasRef.current, qrValue, {
       width: drawSize,
       margin,
       errorCorrectionLevel: 'M',
@@ -63,12 +64,25 @@ export const QrCanvas: React.FC<QrCanvasProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [value, size, margin, darkColor, lightColor]);
+  }, [qrValue, size, margin, darkColor, lightColor]);
 
-  if (value.startsWith('data:image/')) {
+  if (!qrValue) {
+    return (
+      <div
+        role="img"
+        aria-label={ariaLabel || 'QR Code indisponível'}
+        className={`flex items-center justify-center text-[11px] text-slate-400 ${className || ''}`}
+        style={{ width: size, height: size }}
+      >
+        Aguardando QR…
+      </div>
+    );
+  }
+
+  if (qrValue.startsWith('data:image/')) {
     return (
       <img
-        src={value}
+        src={qrValue}
         alt={ariaLabel || 'QR Code para ligar WhatsApp'}
         className={className}
         width={size}
