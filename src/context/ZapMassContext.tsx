@@ -985,18 +985,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         const list = (Array.isArray(data.connections) ? data.connections : []).filter((conn) =>
           ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
         );
-        if (list.length > 0) {
-          setConnections((prev) => {
-            const result = mergeWhatsAppConnectionLists(list, prev, qrCodeByConnectionId.current);
-            for (const conn of result) {
-              if (conn.status === ConnectionStatus.CONNECTED) {
-                delete qrCodeByConnectionId.current[conn.id];
-              }
+        setConnections((prev) => {
+          const scopedPrev = prev.filter((conn) =>
+            ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
+          );
+          if (list.length === 0) {
+            if (scopedPrev.length === 0) return prev;
+            connectionsRef.current = [];
+            return [];
+          }
+          const result = mergeWhatsAppConnectionLists(list, scopedPrev, qrCodeByConnectionId.current);
+          for (const conn of result) {
+            if (conn.status === ConnectionStatus.CONNECTED) {
+              delete qrCodeByConnectionId.current[conn.id];
             }
-            connectionsRef.current = result;
-            return result;
-          });
-        }
+          }
+          connectionsRef.current = result;
+          return result;
+        });
         if (Array.isArray(data.conversations) && data.conversations.length > 0) {
           setConversations((prev) =>
             mergeConversationsFromSocketUpdate(prev, data.conversations!, ownsConnectionId)
@@ -1109,9 +1115,16 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const mine = (Array.isArray(updatedConnections) ? updatedConnections : []).filter((conn) =>
         ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
       );
-      if (mine.length === 0) return;
       setConnections((prev) => {
-        const result = mergeWhatsAppConnectionLists(mine, prev, qrCodeByConnectionId.current);
+        const scopedPrev = prev.filter((conn) =>
+          ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
+        );
+        if (mine.length === 0) {
+          if (scopedPrev.length === 0) return prev;
+          connectionsRef.current = [];
+          return [];
+        }
+        const result = mergeWhatsAppConnectionLists(mine, scopedPrev, qrCodeByConnectionId.current);
         for (const conn of result) {
           if (conn.status === ConnectionStatus.CONNECTED) {
             delete qrCodeByConnectionId.current[conn.id];

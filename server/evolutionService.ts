@@ -210,8 +210,8 @@ async function enrichConnectionMeta(instanceName: string): Promise<void> {
         const ownerUid = resolveOwnerUid(instanceName);
         if (ownerUid) {
             publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
-        } else if (io) {
-            io.emit('connections-update', getConnections());
+        } else {
+            warnUnscopedConnectionEvent(instanceName, 'connections-update');
         }
     }
 }
@@ -296,18 +296,22 @@ function emitConnectionProgress(
     }
 }
 
+function warnUnscopedConnectionEvent(connectionId: string, event: string) {
+    log('warn', `Evento ${event} ignorado (canal sem ownerUid): ${connectionId}`);
+}
+
 function emitConnectionsUpdateForConnection(connectionId: string) {
     const ownerUid = resolveOwnerUid(connectionId);
-    if (ownerUid) {
-        publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
-        if (io) {
-            io.to(`user:${ownerUid}`).emit(
-                'connections-update',
-                filterByConnectionScope(ownerUid, getConnections())
-            );
-        }
-    } else if (io) {
-        io.emit('connections-update', getConnections());
+    if (!ownerUid) {
+        warnUnscopedConnectionEvent(connectionId, 'connections-update');
+        return;
+    }
+    publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+    if (io) {
+        io.to(`user:${ownerUid}`).emit(
+            'connections-update',
+            filterByConnectionScope(ownerUid, getConnections())
+        );
     }
 }
 
@@ -365,8 +369,8 @@ export function listOrphanOpenConnectionIds(): string[] {
 }
 
 /**
- * Vincula canal legado `conn_*` sem dono ao tenant (ex.: antes do sync no socket terminar).
- * Não sobrescreve ownerUid já gravado (outra conta).
+ * Vincula canal legado `conn_*` sem dono ao tenant — somente na criação explícita do canal.
+ * Nunca usar em sync/login (evita roubar chip de outro usuário na Evolution compartilhada).
  */
 export function tryClaimUnownedLegacyConnection(connectionId: string, ownerUid: string): boolean {
     const uid = String(ownerUid || '').trim();
@@ -417,11 +421,6 @@ export function ensureTenantOwnsConnection(
         assignConnectionOwner(id, uid, { replacePriorOwner: prior });
         meta = resolveOwnerUid(id);
         if (ownsConnectionForUid(uid, id, meta)) return true;
-    }
-
-    if (!meta && uid && uid !== 'anonymous' && isLegacyConnectionId(id)) {
-        tryClaimUnownedLegacyConnection(id, uid);
-        meta = resolveOwnerUid(id);
     }
 
     return ownsConnectionForUid(uid || 'anonymous', id, meta);
@@ -531,14 +530,6 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     }
 
     const claimed: string[] = [];
-    for (const orphanId of listOrphanOpenConnectionIds()) {
-        if (
-            assignConnectionOwner(orphanId, uid) ||
-            tryClaimUnownedLegacyConnection(orphanId, uid)
-        ) {
-            claimed.push(orphanId);
-        }
-    }
 
     const admin = (await import('./firebaseAdmin.js')).getFirebaseAdmin();
     const { isUidMemberOfTenant } = await import('./inboxAssignments.js');
@@ -994,9 +985,8 @@ function applyConnectionStateUpdate(
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'connection-update', updatePayload);
         publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
-    } else if (io) {
-        io.emit('connection-update', updatePayload);
-        io.emit('connections-update', getConnections());
+    } else {
+        warnUnscopedConnectionEvent(instance, 'connection-update');
     }
 
     log('info', `Status atualizado: ${instance} → ${status}`);
@@ -1118,9 +1108,8 @@ function emitQrToFrontend(connectionId: string, extracted: ExtractedEvolutionQr)
                 filterByConnectionScope(ownerUid, getConnections())
             );
         }
-    } else if (io) {
-        io.emit('qr-code', payload);
-        io.emit('connections-update', getConnections());
+    } else {
+        warnUnscopedConnectionEvent(connectionId, 'qr-code');
     }
     watchConnectionUntilOpen(connectionId);
 }
@@ -1602,8 +1591,8 @@ export async function updateConnectionSettings(
     const ownerUid = resolveOwnerUid(id);
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
-    } else if (io) {
-        io.emit('connections-update', getConnections());
+    } else {
+        warnUnscopedConnectionEvent(id, 'connections-update');
     }
 }
 
@@ -2528,9 +2517,8 @@ export async function deleteConnection(id: string): Promise<void> {
             'conversations-update',
             await socketConversationsPayload(ownerUid, ownerUid, chatStore.getConversations(), resolveConnectionOwnerUid)
         );
-    } else if (io) {
-        io.emit('connection-deleted', { id });
-        io.emit('connections-update', getConnections());
+    } else {
+        warnUnscopedConnectionEvent(id, 'connection-deleted');
     }
 
     log('info', `Instância deletada: ${id}`, { removedChats });
@@ -3581,20 +3569,9 @@ export async function syncAllOpenChats(): Promise<void> {
     emitScopedConversationsUpdate();
 }
 
-/** Vincula `conn_*` órfãos antes do findChats (request-conversations-sync não passava pelo sync completo). */
-function claimOrphanConnectionsForOwner(ownerUid: string): string[] {
-    const uid = String(ownerUid || '').trim();
-    if (!uid || uid === 'anonymous') return [];
-    const claimed: string[] = [];
-    for (const orphanId of listOrphanOpenConnectionIds()) {
-        if (
-            assignConnectionOwner(orphanId, uid) ||
-            tryClaimUnownedLegacyConnection(orphanId, uid)
-        ) {
-            claimed.push(orphanId);
-        }
-    }
-    return claimed;
+/** Órfãos não são mais auto-vinculados no login — ver tryClaimUnownedLegacyConnection (só create). */
+function claimOrphanConnectionsForOwner(_ownerUid: string): string[] {
+    return [];
 }
 
 /** findChats só dos canais `open` do tenant — evita sync global e pipeline vazio por escopo. */
