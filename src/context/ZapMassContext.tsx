@@ -61,7 +61,7 @@ import {
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import { useWorkspace } from './WorkspaceContext';
-import { ownsConnectionForUid } from '../utils/connectionScope';
+import { filterByConnectionScope, ownsConnectionForUid } from '../utils/connectionScope';
 import {
   mergeConnectionStatus,
   mergeWhatsAppConnectionLists
@@ -3364,7 +3364,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     [isBackendConnected, systemMetrics, sessionLiveStats]
   );
 
-  const connectionsSlice = useMemo(() => ({ connections }), [connections]);
+  const connectionsSlice = useMemo(() => {
+    const scopeUid = effectiveWorkspaceUid ?? sessionUser?.uid ?? null;
+    return { connections: filterByConnectionScope(scopeUid, connections) };
+  }, [connections, effectiveWorkspaceUid, sessionUser?.uid]);
 
   const stableLoadMoreInbox = useStableCallback(loadMoreInbox);
 

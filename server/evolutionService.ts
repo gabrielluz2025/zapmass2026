@@ -291,8 +291,8 @@ function emitConnectionProgress(
     const ownerUid = resolveOwnerUid(connectionId);
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'connection-progress', payload);
-    } else if (io) {
-        io.emit('connection-progress', payload);
+    } else {
+        warnUnscopedConnectionEvent(connectionId, 'connection-progress');
     }
 }
 
@@ -325,7 +325,7 @@ function emitToConnectionFrontend(
         publishOwnerEvent(ownerUid, event, payload);
         return;
     }
-    if (io) io.emit(event, payload);
+    warnUnscopedConnectionEvent(connectionId, event);
 }
 
 function emitConnectionOpenToFrontend(connectionId: string) {
@@ -407,20 +407,6 @@ export function ensureTenantOwnsConnection(
     let meta = resolveOwnerUid(id);
     if (ownsConnectionForUid(uid || 'anonymous', id, meta)) {
         return true;
-    }
-
-    const prior = meta;
-    if (
-        prior &&
-        prior !== uid &&
-        uid &&
-        uid !== 'anonymous' &&
-        isLegacyConnectionId(id) &&
-        workspaceMemberUids?.has(prior)
-    ) {
-        assignConnectionOwner(id, uid, { replacePriorOwner: prior });
-        meta = resolveOwnerUid(id);
-        if (ownsConnectionForUid(uid, id, meta)) return true;
     }
 
     return ownsConnectionForUid(uid || 'anonymous', id, meta);
@@ -530,19 +516,6 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     }
 
     const claimed: string[] = [];
-
-    const admin = (await import('./firebaseAdmin.js')).getFirebaseAdmin();
-    const { isUidMemberOfTenant } = await import('./inboxAssignments.js');
-    const { isLegacyConnectionId } = await import('../src/utils/connectionScope.js');
-    if (admin) {
-        for (const [id] of connections.entries()) {
-            if (!isLegacyConnectionId(id)) continue;
-            const prior = resolveOwnerUid(id);
-            if (!prior || prior === uid) continue;
-            if (!(await isUidMemberOfTenant(admin, uid, prior))) continue;
-            if (assignConnectionOwner(id, uid, { replacePriorOwner: prior })) claimed.push(id);
-        }
-    }
 
     const syncedChats: string[] = [];
     const syncTasks: Promise<void>[] = [];
@@ -858,8 +831,8 @@ function emitConnectionInitFailure(connectionId: string, message: string) {
     const payload = { connectionId, message };
     if (ownerUid) {
         publishOwnerEvent(ownerUid, 'connection-init-failure', payload);
-    } else if (io) {
-        io.emit('connection-init-failure', payload);
+    } else {
+        warnUnscopedConnectionEvent(connectionId, 'connection-init-failure');
     }
 }
 
@@ -1486,6 +1459,42 @@ export function saveConnectionsSettings() {
     } catch (err) {
         log('warn', 'Falha ao salvar connections_settings.json', { error: err });
     }
+}
+
+/** Converte ownerUid legado (Firebase) para users.id Postgres — evita vazamento entre tenants. */
+export async function normalizeConnectionOwnersInSettings(): Promise<{ changed: number }> {
+    let changed = 0;
+    try {
+        const { getZapmassPool } = await import('./db/postgres.js');
+        const pool = getZapmassPool();
+        if (!pool) return { changed };
+
+        for (const [connId, row] of Object.entries(connectionsSettingsCache)) {
+            const raw = typeof row?.ownerUid === 'string' ? row.ownerUid.trim() : '';
+            if (!raw) continue;
+            const r = await pool.query<{ id: string }>(
+                `SELECT id::text FROM zapmass.users
+                 WHERE firebase_uid = $1 OR id::text = $1 OR id = $1::uuid
+                 LIMIT 1`,
+                [raw]
+            );
+            const canonical = r.rows[0]?.id?.trim();
+            if (!canonical || canonical === raw) continue;
+            connectionsSettingsCache[connId] = { ...row, ownerUid: canonical };
+            const conn = connections.get(connId);
+            if (conn) conn.ownerUid = canonical;
+            changed += 1;
+        }
+        if (changed > 0) {
+            saveConnectionsSettings();
+            log('warn', `ownerUid normalizado em connections_settings (${changed} canal/is)`);
+        }
+    } catch (err) {
+        log('warn', 'normalizeConnectionOwnersInSettings falhou', {
+            error: err instanceof Error ? err.message : String(err),
+        });
+    }
+    return { changed };
 }
 
 // Carregar as configurações na inicialização do módulo
@@ -3270,7 +3279,9 @@ export function init(socketIO: SocketIOServer) {
         webhookUrl: evolutionConfig.webhookUrl,
     });
 
-    void hydrateInstancesFromEvolution().then(() => reconcileConnectionHealth());
+    void normalizeConnectionOwnersInSettings().then(() =>
+        hydrateInstancesFromEvolution().then(() => reconcileConnectionHealth())
+    );
     if (!connectionHealthTimer) {
         connectionHealthTimer = setInterval(() => {
             void reconcileConnectionHealth();

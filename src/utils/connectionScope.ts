@@ -1,3 +1,5 @@
+import { tenantScopeUidsMatch } from './tenantUidScope';
+
 /**
  * Canais criados antes do isolamento por conta: id sem "__" (ex.: timestamp).
  * Visíveis a qualquer sessão no mesmo servidor (típico: uma instância, um operador).
@@ -49,12 +51,12 @@ export function ownsConnectionForUid(
   if (idx > 0) {
     const owner = connectionId.slice(0, idx);
     if (uid === 'anonymous') return owner === 'anonymous';
-    return owner === uid;
+    return tenantScopeUidsMatch(uid, owner);
   }
 
   if (metadataOwnerUid) {
     if (uid === 'anonymous') return metadataOwnerUid === 'anonymous';
-    return metadataOwnerUid === uid;
+    return tenantScopeUidsMatch(uid, metadataOwnerUid);
   }
 
   if (isLegacyConnectionId(connectionId)) {
