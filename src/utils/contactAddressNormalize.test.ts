@@ -19,6 +19,15 @@ describe('contactAddressNormalize', () => {
     expect(r.state).toBe('SC');
   });
 
+  it('força SC em Blumenau mesmo sem telefone e com UF errada no campo state', () => {
+    const r = resolveContactCityState({ city: 'Blumenau', state: 'PR' });
+    expect(r.state).toBe('SC');
+  });
+
+  it('força SC em Blumenau - PR no campo cidade', () => {
+    expect(resolveContactCityState({ city: 'BLUMENAU - PR' }).state).toBe('SC');
+  });
+
   it('title case em bairro e cidade', () => {
     expect(titleCasePlaceName('GASPAR')).toBe('Gaspar');
     expect(normalizeContactAddressFields({ neighborhood: 'CENTRO' }).neighborhood).toBe('Centro');

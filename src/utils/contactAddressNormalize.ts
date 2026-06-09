@@ -7,8 +7,11 @@ const BRAZIL_UFS = new Set([
 
 const PT_PARTICLES_LOWER = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'a', 'o']);
 
-/** Cidades conhecidas → UF canônica (corrige "Blumenau - BA" etc.). */
-const KNOWN_CITY_UF: Record<string, string> = {
+/**
+ * Cidades com UF única e inequívoca no Brasil.
+ * Sempre prevalece sobre UF errada no cadastro ("Blumenau - BA", state=PR, etc.).
+ */
+export const KNOWN_CITY_UF: Record<string, string> = {
   blumenau: 'SC',
   gaspar: 'SC',
   indaial: 'SC',
@@ -18,12 +21,22 @@ const KNOWN_CITY_UF: Record<string, string> = {
   joinville: 'SC',
   itajai: 'SC',
   balneariocamboriu: 'SC',
+  camboriu: 'SC',
   florianopolis: 'SC',
+  saojose: 'SC',
+  palhoca: 'SC',
+  tubarao: 'SC',
+  criciuma: 'SC',
+  laguna: 'SC',
   saopaulo: 'SP',
   riodejaneiro: 'RJ',
   curitiba: 'PR',
   portoalegre: 'RS'
 };
+
+export function knownUfForCity(city: string): string {
+  return KNOWN_CITY_UF[normKeyPart(city)] || '';
+}
 
 function normKeyPart(s: string): string {
   return s
@@ -96,22 +109,21 @@ export function resolveContactCityState(input: {
   phone?: string;
 }): { city: string; state: string } {
   const parsed = parseEmbeddedCityState(input.city || '');
-  let city = parsed.city;
-  let state = normalizeContactState(input.state || '') || parsed.state;
+  const city = parsed.city;
   const phoneUf = phoneDigitsToUf(input.phone || '') || '';
-  const knownUf = KNOWN_CITY_UF[normKeyPart(city)] || '';
+  const knownUf = knownUfForCity(city);
 
-  if (parsed.state && phoneUf && parsed.state !== phoneUf) {
-    if (knownUf === phoneUf) state = phoneUf;
-    else if (knownUf === parsed.state) state = parsed.state;
-    else state = phoneUf;
-  } else if (!state && phoneUf) {
-    state = phoneUf;
+  // Cidade conhecida: UF fixa (Blumenau é só SC, nunca BA/SP/PR).
+  if (knownUf) {
+    return { city: titleCasePlaceName(city), state: knownUf };
   }
 
-  if (knownUf) {
-    if (!state || (phoneUf && phoneUf === knownUf && state !== knownUf)) state = knownUf;
-    else if (!phoneUf && !parsed.state) state = knownUf;
+  let state = normalizeContactState(input.state || '') || parsed.state;
+
+  if (parsed.state && phoneUf && parsed.state !== phoneUf) {
+    state = phoneUf;
+  } else if (!state && phoneUf) {
+    state = phoneUf;
   }
 
   if (!state && parsed.state) state = parsed.state;
