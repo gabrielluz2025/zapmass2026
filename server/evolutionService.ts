@@ -498,6 +498,72 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
     return { deleted, keptOpen };
 }
 
+function connectionStateRank(status: string | undefined): number {
+    if (status === 'open') return 4;
+    if (status === 'connecting') return 3;
+    if (status === 'close') return 2;
+    if (status === 'created') return 1;
+    return 0;
+}
+
+/** Remove chips duplicados do mesmo tenant (mesmo telefone): mantém o `open`, apaga pareamento zumbi. */
+export async function pruneDuplicatePhoneConnectionsForOwner(ownerUid: string): Promise<string[]> {
+    const uid = String(ownerUid || '').trim();
+    const deleted: string[] = [];
+    if (!uid || uid === 'anonymous') return deleted;
+
+    const byPhone = new Map<string, string[]>();
+    const byName = new Map<string, string[]>();
+
+    for (const [id, conn] of connections.entries()) {
+        if (resolveOwnerUid(id) !== uid) continue;
+        const phone = normalizePhoneKey(String(conn.phoneNumber || ''));
+        if (phone) {
+            const list = byPhone.get(phone) ?? [];
+            list.push(id);
+            byPhone.set(phone, list);
+        }
+        const nameKey = String(conn.friendlyName || connectionsSettingsCache[id]?.friendlyName || id)
+            .trim()
+            .toLowerCase();
+        if (nameKey) {
+            const list = byName.get(nameKey) ?? [];
+            list.push(id);
+            byName.set(nameKey, list);
+        }
+    }
+
+    const toDelete = new Set<string>();
+
+    const markDuplicates = (ids: string[]) => {
+        if (ids.length < 2) return;
+        const ranked = ids
+            .map((id) => ({ id, rank: connectionStateRank(connections.get(id)?.status) }))
+            .sort((a, b) => b.rank - a.rank);
+        const keeper = ranked[0]?.id;
+        if (!keeper) return;
+        for (const row of ranked.slice(1)) {
+            if (row.rank < ranked[0]!.rank) toDelete.add(row.id);
+        }
+    };
+
+    for (const ids of byPhone.values()) markDuplicates(ids);
+    for (const ids of byName.values()) markDuplicates(ids);
+
+    for (const id of toDelete) {
+        if (connectionWatchTimers.has(id) || qrWatchTimers.has(id)) continue;
+        try {
+            await deleteConnection(id);
+            deleted.push(id);
+            log('info', `Chip duplicado removido (${uid}): ${id}`);
+        } catch (error: any) {
+            log('warn', `Falha ao remover duplicado ${id}`, { error: error?.message });
+        }
+    }
+
+    return deleted;
+}
+
 /** Evolution → memória → dono → chats (painel + pipeline). */
 export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     connections: WhatsAppConnection[];
@@ -513,6 +579,10 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     const pruned = await pruneConnectingZombiesForOwner(uid);
     if (pruned.deleted.length > 0) {
         log('info', `syncConnectionsForOwner: zumbis removidos=${pruned.deleted.join(',')}`);
+    }
+    const dupes = await pruneDuplicatePhoneConnectionsForOwner(uid);
+    if (dupes.length > 0) {
+        log('info', `syncConnectionsForOwner: duplicados removidos=${dupes.join(',')}`);
     }
 
     const claimed: string[] = [];
@@ -2514,6 +2584,10 @@ export async function deleteConnection(id: string): Promise<void> {
 
     connections.delete(id);
     connectionQueueSizes.delete(id);
+    if (connectionsSettingsCache[id]) {
+        delete connectionsSettingsCache[id];
+        saveConnectionsSettings();
+    }
     const removedChats = chatStore.purgeConversationsForConnection(id);
 
     if (ownerUid) {

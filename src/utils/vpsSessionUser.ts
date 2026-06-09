@@ -3,8 +3,9 @@ import type { VpsAuthUser } from '../services/vpsAuth';
 import { vpsGetAccessToken, vpsRefreshAccessToken } from '../services/vpsAuth';
 
 export function vpsUserToSessionUser(v: VpsAuthUser): SessionUser {
+  const tenantUid = v.tenantUid?.trim() || v.ownerUid?.trim() || v.id;
   return {
-    uid: v.id,
+    uid: tenantUid,
     email: v.email,
     displayName: v.displayName ?? null,
     photoURL: null,

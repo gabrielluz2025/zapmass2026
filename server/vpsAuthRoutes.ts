@@ -150,7 +150,13 @@ export function registerVpsAuthRoutes(app: Express): void {
       return res.json({
         ok: true,
         authProvider: 'vps',
-        user: { id: user.id, email: user.email, displayName: user.display_name, role: 'owner' },
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.display_name,
+          role: 'owner',
+          tenantUid: user.id
+        },
         ...session
       });
     } catch (e) {
@@ -183,7 +189,13 @@ export function registerVpsAuthRoutes(app: Express): void {
       return res.json({
         ok: true,
         authProvider: 'vps',
-        user: { id: user.id, email: user.email, displayName: user.display_name, role: 'owner' },
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.display_name,
+          role: 'owner',
+          tenantUid: user.id
+        },
         ...session
       });
     } catch (e) {

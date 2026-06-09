@@ -172,19 +172,17 @@ async function main() {
     for (const [connId, row] of Object.entries(settings)) {
       const raw = row.ownerUid?.trim() ?? '';
       const label = labelFor(connId, row, evo);
-      let target = sylvester;
 
+      let target: UserRow | null = null;
       if (isSylvesterChannel(label)) {
         target = sylvester;
       } else if (!isKnownOwner(raw, users)) {
         target = festa;
-      } else if (raw === festa.id && isSylvesterChannel(label)) {
-        target = sylvester;
       } else {
         continue;
       }
 
-      if (raw === target.id) continue;
+      if (!target || raw === target.id) continue;
       pending.push({
         connId,
         from: raw || '(órfão)',
