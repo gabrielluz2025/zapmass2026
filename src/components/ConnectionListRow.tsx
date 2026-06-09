@@ -61,7 +61,8 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
   const isConnected = connection.status === ConnectionStatus.CONNECTED;
   const isConnecting =
     connection.status === ConnectionStatus.CONNECTING || connection.status === ConnectionStatus.QR_READY;
-  const isQrReady = connection.status === ConnectionStatus.QR_READY;
+  const isQrReady =
+    connection.status === ConnectionStatus.QR_READY || Boolean(connection.qrCode?.trim());
 
   const statusColor = isConnected ? '#10b981' : isConnecting ? '#f59e0b' : '#ef4444';
   const statusLabel = isConnected ? 'Online' : isConnecting ? (isQrReady ? 'QR ativo' : 'Conectando') : 'Offline';

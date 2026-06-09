@@ -1152,6 +1152,7 @@ const registerSocketHandlers = () => {
             submit: () => submitReconnectConnection(id, authOp),
             local: () => evolutionService.reconnectConnection(id)
           });
+          socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
         } catch (e) {
           reportSocketAsyncError('reconnect-connection', e);
         }
@@ -1247,6 +1248,7 @@ const registerSocketHandlers = () => {
             submit: () => submitForceQr(id, authOp),
             local: async () => { await evolutionService.forceQr(id); }
           });
+          socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
         } catch (e) {
           reportSocketAsyncError('force-qr', e);
         }

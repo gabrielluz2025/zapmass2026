@@ -48,7 +48,8 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
 
   const isConnected = connection.status === ConnectionStatus.CONNECTED;
   const isConnecting = connection.status === ConnectionStatus.CONNECTING || connection.status === ConnectionStatus.QR_READY;
-  const isQrReady = connection.status === ConnectionStatus.QR_READY;
+  const isQrReady =
+    connection.status === ConnectionStatus.QR_READY || Boolean(connection.qrCode?.trim());
   const isAuthenticating = connection.status === ConnectionStatus.CONNECTING && !isQrReady && connection.lastActivity?.includes('Autenticado');
 
   const [qrSeconds, setQrSeconds] = useState(60);
@@ -286,8 +287,12 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
             </div>
             <div>
-              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Inicializando...</p>
-              <p className="text-[10px] text-slate-400 truncate max-w-[200px]">{connection.lastActivity || 'Carregando WhatsApp Web...'}</p>
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                {connection.phoneNumber ? 'Reconectando sessão...' : 'Gerando QR Code...'}
+              </p>
+              <p className="text-[10px] text-slate-400 truncate max-w-[200px]">
+                {connection.lastActivity || (connection.phoneNumber ? 'Restaurando pareamento...' : 'Aguarde ou use Forçar QR')}
+              </p>
             </div>
           </div>
         ) : isConnected ? (

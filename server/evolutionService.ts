@@ -296,6 +296,21 @@ function emitConnectionProgress(
     }
 }
 
+function emitConnectionsUpdateForConnection(connectionId: string) {
+    const ownerUid = resolveOwnerUid(connectionId);
+    if (ownerUid) {
+        publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid, getConnections()));
+        if (io) {
+            io.to(`user:${ownerUid}`).emit(
+                'connections-update',
+                filterByConnectionScope(ownerUid, getConnections())
+            );
+        }
+    } else if (io) {
+        io.emit('connections-update', getConnections());
+    }
+}
+
 function emitToConnectionFrontend(
     connectionId: string,
     event: string,
@@ -2366,6 +2381,11 @@ export async function getConnectionState(
  */
 export async function forceQr(id: string): Promise<{ qrCode?: string; error?: string }> {
     log('info', `Forçando novo QR para: ${id}`);
+    stopWatchingConnection(id);
+    stopQrWatch(id);
+    clearAutoReconnect(id);
+    pairingStartedAt.delete(id);
+
     const conn = connections.get(id);
     if (!conn) {
         await hydrateInstancesFromEvolution();
@@ -2373,6 +2393,15 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
     if (!connections.has(id)) {
         throw new Error('Canal não encontrado. Atualize a página ou crie um canal novo.');
     }
+
+    const active = connections.get(id)!;
+    active.phoneNumber = '';
+    active.qrCode = undefined;
+    active.status = 'connecting';
+    connections.set(id, active);
+    pairingStartedAt.set(id, Date.now());
+    emitConnectionProgress(id, 'loading-whatsapp-web');
+    emitConnectionsUpdateForConnection(id);
 
     try {
         await api.delete(`/instance/logout/${evoInst(id)}`);
@@ -2382,12 +2411,16 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
 
     let extracted = await fetchConnectQr(id);
     if (!extracted) {
+        extracted = await waitForQrFirst(id, 30_000);
+    }
+    if (!extracted) {
         extracted = await pollConnectQr(id, 10, 2500);
     }
     if (!extracted) {
         ensureQrDelivered(id, 25, 2000);
-        log('info', `forceQr: polling QR para ${id}`);
-        return {};
+        applyConnectionStateUpdate(id, 'connecting', {});
+        log('info', `forceQr: polling QR em background para ${id}`);
+        return { error: 'QR ainda não disponível. Aguarde alguns segundos.' };
     }
 
     emitQrToFrontend(id, extracted);
@@ -2401,6 +2434,7 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
 export async function reconnectConnection(id: string) {
     try {
         log('info', `Reconectando instância: ${id}`);
+        emitConnectionProgress(id, 'loading-whatsapp-web');
 
         const live = (await getConnectionState(id)).toLowerCase();
         if (isEvolutionOpenState(live)) {
@@ -2411,6 +2445,11 @@ export async function reconnectConnection(id: string) {
 
         const conn = connections.get(id);
         if (conn?.phoneNumber?.trim() && (live === 'close' || live === 'connecting')) {
+            if (conn) {
+                conn.status = 'connecting';
+                connections.set(id, conn);
+            }
+            emitConnectionsUpdateForConnection(id);
             clearAutoReconnect(id);
             scheduleEvolutionAutoReconnect(id, { immediate: true });
             log('info', `Auto-reconnect imediato (canal pareado): ${id}`);
@@ -2423,13 +2462,7 @@ export async function reconnectConnection(id: string) {
         } else {
             ensureQrDelivered(id);
             watchConnectionUntilOpen(id);
-            const ou = resolveOwnerUid(id);
-            const payload = { id, status: 'CONNECTING' as const };
-            if (ou) {
-                publishOwnerEvent(ou, 'connection-update', payload);
-            } else if (io) {
-                io.emit('connection-update', payload);
-            }
+            applyConnectionStateUpdate(id, 'connecting', {});
         }
 
         // Garante que o webhook esteja registrado tambem na reconexao
@@ -3483,6 +3516,7 @@ export function getConnections(): WhatsAppConnection[] {
     for (const [id, conn] of connections.entries()) {
         let status = ConnectionStatus.DISCONNECTED;
         if (conn.status === 'open') status = ConnectionStatus.CONNECTED;
+        else if (conn.qrCode?.trim()) status = ConnectionStatus.QR_READY;
         else if (conn.status === 'connecting') status = ConnectionStatus.CONNECTING;
         else if (conn.status === 'created') status = ConnectionStatus.QR_READY;
 

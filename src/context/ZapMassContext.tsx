@@ -1377,11 +1377,29 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('qr-code', (data: { connectionId: string; qrCode: string }) => {
       qrCodeByConnectionId.current[data.connectionId] = data.qrCode;
-      setConnections((prev) =>
-        prev.map((conn) =>
+      setConnections((prev) => {
+        const updated = prev.map((conn) =>
           conn.id === data.connectionId
-            ? { ...conn, qrCode: data.qrCode }
+            ? {
+                ...conn,
+                qrCode: data.qrCode,
+                status: ConnectionStatus.QR_READY,
+                lastActivity: 'Aguardando leitura do QR...'
+              }
             : conn
+        );
+        connectionsRef.current = updated;
+        return updated;
+      });
+    });
+
+    socket.on('connection-init-failure', ({ connectionId, message }: { connectionId: string; message?: string }) => {
+      toast.error(message || 'Falha ao iniciar o canal. Tente "Forçar QR" novamente.', { duration: 10_000 });
+      setConnections((prev) =>
+        prev.map((c) =>
+          c.id === connectionId
+            ? { ...c, status: ConnectionStatus.DISCONNECTED, qrCode: undefined, lastActivity: message || 'Falha ao conectar' }
+            : c
         )
       );
     });
@@ -1464,6 +1482,47 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         void syncConnectionsFromApi();
       }
     }, 15_000);
+
+    /** Polling HTTP do QR quando o socket não atualiza o status para QR_READY. */
+    const pollStuckConnectionQr = async () => {
+      if (!connectionListHasStaleConnecting(connectionsRef.current)) return;
+      try {
+        const token = await getSessionIdToken();
+        if (!token) return;
+        const stuck = connectionsRef.current.filter(
+          (c) =>
+            (c.status === ConnectionStatus.CONNECTING || c.status === ConnectionStatus.QR_READY) &&
+            !c.qrCode
+        );
+        for (const conn of stuck) {
+          const res = await fetch(apiUrl(`/api/connections/${encodeURIComponent(conn.id)}/qr`), {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = (await res.json()) as { ok?: boolean; qrCode?: string };
+          if (!data?.ok || !data.qrCode) continue;
+          qrCodeByConnectionId.current[conn.id] = data.qrCode;
+          setConnections((prev) => {
+            const updated = prev.map((c) =>
+              c.id === conn.id
+                ? {
+                    ...c,
+                    qrCode: data.qrCode,
+                    status: ConnectionStatus.QR_READY,
+                    lastActivity: 'Aguardando leitura do QR...'
+                  }
+                : c
+            );
+            connectionsRef.current = updated;
+            return updated;
+          });
+        }
+      } catch {
+        /* próxima tentativa */
+      }
+    };
+    const stuckQrPollInterval = setInterval(() => {
+      void pollStuckConnectionQr();
+    }, 4000);
 
     socket.on('auth-failure', ({ connectionId, message }: { connectionId: string; message: string }) => {
       toast.error(`Falha de autenticação: ${message || 'Tente escanear novamente.'}`);
@@ -2127,6 +2186,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       clearInterval(pingInterval);
       clearInterval(stuckConnectingSyncInterval);
+      clearInterval(stuckQrPollInterval);
       for (const t of bootstrapSyncTimers) clearTimeout(t);
       bootstrapSyncTimers.length = 0;
       socket.io.off('reconnect', onManagerReconnect);
