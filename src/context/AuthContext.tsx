@@ -5,6 +5,7 @@ import { trackLoginSuccess } from '../utils/marketingEvents';
 import {
   clearVpsSession,
   getVpsAuthUser,
+  type VpsAuthUser,
   vpsFetchMe,
   vpsLogin,
   vpsLogout,
@@ -29,6 +30,8 @@ interface AuthContextValue {
   ) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /** Atualiza o estado local após PATCH /api/auth/profile (sem nova ida ao servidor). */
+  syncVpsUser: (user: VpsAuthUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -41,7 +44,8 @@ const AuthContext = createContext<AuthContextValue>({
   signInWithStaffCustomToken: async () => {},
   signInWithStaffCredentials: async () => {},
   signOut: async () => {},
-  refreshProfile: async () => {}
+  refreshProfile: async () => {},
+  syncVpsUser: () => {}
 });
 
 const socialUnavailable =
@@ -121,6 +125,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(vpsUserToSessionUser(v));
   };
 
+  const syncVpsUser = (v: VpsAuthUser) => {
+    setUser(vpsUserToSessionUser(v));
+  };
+
   const signOut = async () => {
     try {
       await vpsLogout();
@@ -145,7 +153,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         signInWithStaffCustomToken,
         signInWithStaffCredentials,
         signOut,
-        refreshProfile
+        refreshProfile,
+        syncVpsUser
       }}
     >
       {children}

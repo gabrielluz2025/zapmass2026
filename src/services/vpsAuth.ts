@@ -51,6 +51,23 @@ async function parseJson<T>(r: Response): Promise<T & { ok?: boolean; error?: st
   return (await r.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
 }
 
+const AUTH_FETCH_TIMEOUT_MS = 25_000;
+
+async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), AUTH_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error('O servidor demorou para responder. Tente de novo.');
+    }
+    throw e;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 export async function vpsRegister(
   email: string,
   password: string,
@@ -171,10 +188,14 @@ export function patchVpsAuthUser(patch: Partial<VpsAuthUser>): VpsAuthUser | nul
   return next;
 }
 
+export function persistVpsAuthUser(user: VpsAuthUser): void {
+  sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
 export async function vpsFetchMe(): Promise<VpsAuthUser> {
   const token = await vpsGetAccessToken();
   if (!token) throw new Error('Sessão expirada.');
-  const r = await fetch(apiUrl('/api/auth/me'), {
+  const r = await authFetch(apiUrl('/api/auth/me'), {
     credentials: 'include',
     headers: { Authorization: `Bearer ${token}` }
   });
@@ -193,7 +214,7 @@ export async function vpsUpdateProfile(opts: {
 }): Promise<VpsAuthUser> {
   const token = await vpsGetAccessToken();
   if (!token) throw new Error('Sessão expirada.');
-  const r = await fetch(apiUrl('/api/auth/profile'), {
+  const r = await authFetch(apiUrl('/api/auth/profile'), {
     method: 'PATCH',
     credentials: 'include',
     headers: {
@@ -204,7 +225,7 @@ export async function vpsUpdateProfile(opts: {
   });
   const data = await parseJson<{ user?: VpsAuthUser }>(r);
   if (!r.ok || !data.user) throw new Error(data.error || 'Não foi possível atualizar o perfil.');
-  patchVpsAuthUser(data.user);
+  persistVpsAuthUser(data.user);
   return data.user;
 }
 

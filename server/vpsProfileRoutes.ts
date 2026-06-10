@@ -110,8 +110,8 @@ export function registerVpsProfileRoutes(app: Express): void {
       } else {
         if (hasDisplayName) {
           const name = body.displayName as string;
-          if (name.trim().length > 80) {
-            return res.status(400).json({ ok: false, error: 'Nome deve ter no máximo 80 caracteres.' });
+          if (name.trim().length < 2 || name.trim().length > 80) {
+            return res.status(400).json({ ok: false, error: 'Nome deve ter entre 2 e 80 caracteres.' });
           }
           await updateUserDisplayName(principal.tenantUid, name.trim());
         }
