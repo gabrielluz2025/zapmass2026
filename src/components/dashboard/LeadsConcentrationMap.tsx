@@ -248,6 +248,8 @@ export const LeadsConcentrationMap: React.FC = () => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  /** Só refaz zoom/pan quando filtros ou modo mudam — não a cada pin ou temperatura. */
+  const lastFittedViewKeyRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [geocoding, setGeocoding] = useState(false);
   const [config, setConfig] = useState<{
@@ -276,6 +278,20 @@ export const LeadsConcentrationMap: React.FC = () => {
     [layer, filterState, filterCity, filterDdd, filterNeighborhood]
   );
 
+  const mapViewKey = useMemo(
+    () =>
+      [
+        layer,
+        filterState,
+        filterCity,
+        filterDdd,
+        filterNeighborhood,
+        selectedClusterKey,
+        mapMode
+      ].join('|'),
+    [layer, filterState, filterCity, filterDdd, filterNeighborhood, selectedClusterKey, mapMode]
+  );
+
   const mergedClusters = useMemo(
     () => mergeClustersByPlace(summary?.clusters || [], layer),
     [summary?.clusters, layer]
@@ -297,13 +313,40 @@ export const LeadsConcentrationMap: React.FC = () => {
     [mergedClusters, selectedClusterKey]
   );
 
+  const clustersMatchingFilters = useMemo(() => {
+    if (layer === 'neighborhood' && filterNeighborhood) {
+      const nbPart = filterNeighborhood.split('·')[0].trim();
+      return allValidClusters.filter(
+        (c) => normNeighborhoodKey(c.neighborhood) === normNeighborhoodKey(nbPart)
+      );
+    }
+    if (layer === 'city' && filterCity) {
+      const fc = parseGeoFilterCity(filterCity);
+      return allValidClusters.filter(
+        (c) =>
+          normGeoKey(c.city) === normGeoKey(fc.city) &&
+          (!fc.state || c.state === '—' || normGeoKey(c.state) === normGeoKey(fc.state))
+      );
+    }
+    if (layer === 'state' && filterState) {
+      return allValidClusters.filter(
+        (c) => c.state === '—' || normGeoKey(c.state) === normGeoKey(filterState)
+      );
+    }
+    if (layer === 'ddd' && filterDdd) {
+      return allValidClusters.filter((c) => c.ddd === filterDdd);
+    }
+    return allValidClusters;
+  }, [allValidClusters, layer, filterNeighborhood, filterCity, filterState, filterDdd]);
+
   const displayClusters = useMemo(() => {
-    if (!selectedClusterKey) return allValidClusters;
+    if (!selectedClusterKey) return clustersMatchingFilters;
     const hit = allValidClusters.filter((c) => c.key === selectedClusterKey);
     if (hit.length > 0) return hit;
     const raw = mergedClusters.filter((c) => c.key === selectedClusterKey && c.lat != null && c.lng != null);
-    return raw;
-  }, [allValidClusters, selectedClusterKey, mergedClusters]);
+    if (raw.length > 0) return raw;
+    return clustersMatchingFilters;
+  }, [allValidClusters, selectedClusterKey, mergedClusters, clustersMatchingFilters]);
 
   const allValidPins = useMemo(
     () =>
@@ -497,17 +540,22 @@ export const LeadsConcentrationMap: React.FC = () => {
     [mergedClusters]
   );
 
+  const summaryReqRef = useRef(0);
+
   const refreshSummary = useCallback(async (q: LeadsGeoQuery = query) => {
+    const reqId = ++summaryReqRef.current;
     setLoading(true);
     try {
       const [cfg, sum] = await Promise.all([fetchLeadsGeoConfig(), fetchLeadsGeoSummary(q)]);
+      if (reqId !== summaryReqRef.current) return;
       setConfig(cfg);
       setSummary(sum);
     } catch (e) {
+      if (reqId !== summaryReqRef.current) return;
       const msg = e instanceof Error ? e.message : 'Erro ao carregar mapa de leads.';
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (reqId === summaryReqRef.current) setLoading(false);
     }
   }, [query]);
 
@@ -515,50 +563,28 @@ export const LeadsConcentrationMap: React.FC = () => {
     void refreshSummary(query);
   }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const autoGeoRoundsRef = useRef(0);
-
-  /** Localiza contatos com endereço completo que ainda não têm coordenadas salvas. */
+  /** Evita seleção de bairro antigo (ex. Centro) após trocar o filtro para outro bairro. */
   useEffect(() => {
-    if (loading || geocoding || !config?.geocodeEnabled || !summary) return;
-    const pending = summary.pinStats?.pinsPending || 0;
-    if (pending <= 0) {
-      autoGeoRoundsRef.current = 0;
+    if (loading || !summary) return;
+    if (!selectedClusterKey) return;
+    if (mergedClusters.some((c) => c.key === selectedClusterKey)) return;
+    if (filterNeighborhood) {
+      setSelectedClusterKey(findClusterKeyForNeighborhood(filterNeighborhood));
       return;
     }
-    if (autoGeoRoundsRef.current >= 8) return;
-    let cancelled = false;
-    const run = async () => {
-      autoGeoRoundsRef.current += 1;
-      setGeocoding(true);
-      try {
-        const contacts = await apiGeocodeContacts({
-          max: Math.min(120, pending),
-          city: filterCity || undefined,
-          neighborhood: filterNeighborhood || undefined,
-          force: autoGeoRoundsRef.current <= 1
-        });
-        if (!cancelled && contacts.summary) setSummary(contacts.summary);
-      } catch {
-        /* silencioso — o botão manual continua disponível */
-      } finally {
-        if (!cancelled) setGeocoding(false);
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
+    setSelectedClusterKey(null);
   }, [
     loading,
-    geocoding,
-    config?.geocodeEnabled,
-    summary?.pinStats?.pinsPending,
-    filterCity,
-    filterNeighborhood
+    summary,
+    selectedClusterKey,
+    mergedClusters,
+    filterNeighborhood,
+    findClusterKeyForNeighborhood
   ]);
 
   const destroyMap = useCallback(() => {
     layerGroupRef.current = null;
+    lastFittedViewKeyRef.current = null;
     if (mapInstanceRef.current) {
       mapInstanceRef.current.remove();
       mapInstanceRef.current = null;
@@ -668,15 +694,19 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
 
     const map = mapInstanceRef.current;
-    if (singleSelection && displayClusters[0]?.lat != null) {
-      const c = displayClusters[0]!;
-      const { lat, lng } = fixBrazilCoord(c.lat!, c.lng!);
-      map.setView([lat, lng], maxZoom, { animate: false });
-    } else if (viewport && !filterCity && !filterNeighborhood && !selectedClusterKey) {
-      map.setView([viewport.lat, viewport.lng], viewport.zoom, { animate: false });
-    } else if (bounds.isValid()) {
-      const clipped = bounds.intersects(BRAZIL_BOUNDS) ? bounds : BRAZIL_BOUNDS;
-      map.fitBounds(clipped, { padding: [40, 40], maxZoom });
+    const shouldRefitView = lastFittedViewKeyRef.current !== mapViewKey;
+    if (shouldRefitView) {
+      if (singleSelection && displayClusters[0]?.lat != null) {
+        const c = displayClusters[0]!;
+        const { lat, lng } = fixBrazilCoord(c.lat!, c.lng!);
+        map.setView([lat, lng], maxZoom, { animate: false });
+      } else if (viewport && !filterCity && !filterNeighborhood && !selectedClusterKey) {
+        map.setView([viewport.lat, viewport.lng], viewport.zoom, { animate: false });
+      } else if (bounds.isValid()) {
+        const clipped = bounds.intersects(BRAZIL_BOUNDS) ? bounds : BRAZIL_BOUNDS;
+        map.fitBounds(clipped, { padding: [40, 40], maxZoom });
+      }
+      lastFittedViewKeyRef.current = mapViewKey;
     }
     window.setTimeout(() => map?.invalidateSize(), 120);
   }, [
@@ -684,7 +714,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     displayPins,
     contactTemps,
     mapMode,
-    summary?.topConcentration?.key,
+    mapViewKey,
     summary?.mapViewport,
     filterCity,
     filterNeighborhood,
@@ -694,11 +724,13 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   useEffect(() => {
     const hasData = displayClusters.length > 0 || displayPins.length > 0;
-    if (!loading && hasData) {
-      renderMap();
-    } else if (!hasData) {
+    if (loading) return;
+    if (!hasData) {
       destroyMap();
+      return;
     }
+    const t = window.setTimeout(() => renderMap(), 48);
+    return () => window.clearTimeout(t);
   }, [loading, displayClusters, displayPins, renderMap, destroyMap]);
 
   useEffect(() => () => destroyMap(), [destroyMap]);
@@ -733,9 +765,9 @@ export const LeadsConcentrationMap: React.FC = () => {
       let totalContacts = 0;
       let lastSummary: LeadsGeoSummary | null = null;
 
-      for (let round = 0; round < 40; round++) {
-        const clusters = await apiGeocodeLeadsClusters({ max: 120, ...geoOpts, force: false });
-        const contacts = await apiGeocodeContacts({ max: 80, ...geoOpts });
+      for (let round = 0; round < 5; round++) {
+        const clusters = await apiGeocodeLeadsClusters({ max: 40, ...geoOpts, force: false });
+        const contacts = await apiGeocodeContacts({ max: 30, ...geoOpts });
         lastSummary = contacts.summary;
         totalClusters += clusters.geocoded;
         totalContacts += contacts.geocoded;
@@ -841,10 +873,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     (layer === 'city' || layer === 'neighborhood') &&
     config?.geocodeEnabled &&
     ((pinStats?.pinsPending || 0) > 0 || (stats?.clustersPending || 0) > 0);
-  const showEmptyMap =
-    mapMode === 'pins'
-      ? displayPins.length === 0 && displayClusters.length === 0
-      : displayClusters.length === 0;
+  const showEmptyMap = displayClusters.length === 0 && displayPins.length === 0;
 
   return (
     <Card className="zm-dash-section">

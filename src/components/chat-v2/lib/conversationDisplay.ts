@@ -1,4 +1,4 @@
-import type { Contact, Conversation } from '../../../types';
+import type { Contact, Conversation, WhatsAppConnection } from '../../../types';
 import { normPhoneKey } from '../../../utils/brPhoneNormalize';
 import {
   buildPhoneDigitLookupKeys,
@@ -235,4 +235,28 @@ export function unreadCount(conv: Conversation): number {
 
 export function isGroupConversation(conv: Conversation): boolean {
   return conv.id.includes('@g.us') || conv.id.toLowerCase().includes('group');
+}
+
+/** Cor estável por chip — facilita distinguir canais na lista de conversas. */
+export function connectionBadgeHue(connectionId: string): number {
+  let h = 0;
+  for (let i = 0; i < connectionId.length; i++) h = (h * 31 + connectionId.charCodeAt(i)) | 0;
+  return Math.abs(h) % 360;
+}
+
+export function connectionDisplayLabel(
+  connections: Pick<WhatsAppConnection, 'id' | 'name' | 'phoneNumber'>[],
+  connectionId: string
+): string | null {
+  if (!connectionId) return null;
+  const conn = connections.find((c) => c.id === connectionId);
+  if (!conn) return null;
+  const name = (conn.name || '').trim();
+  if (name) return name;
+  const digits = (conn.phoneNumber || '').replace(/\D/g, '');
+  if (digits.length >= 10) {
+    const d = digits.startsWith('55') ? digits : `55${digits}`;
+    return `+${d.slice(0, 2)} ${d.slice(2, 4)} …${d.slice(-4)}`;
+  }
+  return 'Canal';
 }

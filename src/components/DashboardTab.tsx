@@ -49,7 +49,6 @@ import {
 } from '../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
 import { campaignClockVars } from '../utils/campaignClockVars';
-import { SegmentExperiencePanel } from './segment/SegmentExperiencePanel';
 import { LeadsConcentrationMap } from './dashboard/LeadsConcentrationMap';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
@@ -1034,10 +1033,6 @@ export const DashboardTab: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
-
-      <div className="zm-dash-section">
-        <SegmentExperiencePanel />
       </div>
 
       {/* Convites de equipa — visível desde o Painel */}

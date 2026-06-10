@@ -25,6 +25,7 @@ import { useWaRealtime } from './hooks/useWaRealtime';
 import {
   avatarUrl,
   buildDisplayIndex,
+  connectionDisplayLabel,
   phoneRawForContactLookup,
   inboxListTitle,
   unreadCount
@@ -472,6 +473,7 @@ export const WaWebChatApp: React.FC<{
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
         chipsConnected={connectedChannels.length}
+        connections={connections}
         onSearch={setSearch}
         onToggleUnread={() => setUnreadOnly((v) => !v)}
         onRefresh={handleRefresh}
@@ -492,6 +494,12 @@ export const WaWebChatApp: React.FC<{
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
         chipConnected={selectedChipConnected}
+        connectionName={
+          selected?.connectionId
+            ? connectionDisplayLabel(connections, selected.connectionId)
+            : null
+        }
+        showConnectionLabel={connections.length > 1}
         showBack={mobileShowThread}
         onBack={() => setMobileShowThread(false)}
         onLoadOlder={loadOlder}

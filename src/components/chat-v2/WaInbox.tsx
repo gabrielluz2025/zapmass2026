@@ -1,9 +1,15 @@
 import React, { useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageCircle, RefreshCw, Search } from 'lucide-react';
-import type { Conversation } from '../../types';
+import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
-import { formatListTime, inboxListTitle, unreadCount } from './lib/conversationDisplay';
+import {
+  connectionBadgeHue,
+  connectionDisplayLabel,
+  formatListTime,
+  inboxListTitle,
+  unreadCount
+} from './lib/conversationDisplay';
 import { getLastMsgPreview } from './lib/chatPreview';
 import {
   formatContactPresenceSubtitle,
@@ -21,6 +27,7 @@ type Props = {
   unreadOnly: boolean;
   socketStatus: WaSocketStatus;
   chipsConnected: number;
+  connections: WhatsAppConnection[];
   syncing: boolean;
   onSearch: (q: string) => void;
   onToggleUnread: () => void;
@@ -42,6 +49,7 @@ export const WaInbox: React.FC<Props> = ({
   unreadOnly,
   socketStatus,
   chipsConnected,
+  connections,
   syncing,
   onSearch,
   onToggleUnread,
@@ -66,6 +74,7 @@ export const WaInbox: React.FC<Props> = ({
       loadMoreLockRef.current = false;
     }, 800);
   }, [inboxHasMore, inboxLoadingMore, onLoadMore]);
+  const showChannelLabels = connections.length > 1;
   const virtualizer = useVirtualizer({
     count: conversations.length,
     getScrollElement: () => scrollRef.current,
@@ -73,7 +82,9 @@ export const WaInbox: React.FC<Props> = ({
       const conv = conversations[i];
       if (!conv) return 72;
       const disp = displayById.get(conv.id);
-      return disp?.fromDatabase && disp?.whatsappSubtitle ? 88 : 72;
+      let h = disp?.fromDatabase && disp?.whatsappSubtitle ? 88 : 72;
+      if (showChannelLabels) h += 18;
+      return h;
     },
     overscan: 10,
     getItemKey: (i) => conversations[i]?.id ?? i,
@@ -168,6 +179,10 @@ export const WaInbox: React.FC<Props> = ({
               const unread = unreadCount(conv);
               const selected = conv.id === selectedId;
               const online = isContactPresenceOnline(conv);
+              const channelLabel = showChannelLabels
+                ? connectionDisplayLabel(connections, conv.connectionId)
+                : null;
+              const channelHue = channelLabel ? connectionBadgeHue(conv.connectionId) : 0;
 
               return (
                 <button
@@ -209,6 +224,19 @@ export const WaInbox: React.FC<Props> = ({
                             title="Nome salvo no celular"
                           >
                             {display.whatsappSubtitle}
+                          </span>
+                        )}
+                        {channelLabel && (
+                          <span
+                            className="wa-conv-channel truncate block"
+                            title={`Canal: ${channelLabel}`}
+                            style={{
+                              background: `hsla(${channelHue}, 52%, 42%, 0.16)`,
+                              color: `hsl(${channelHue}, 48%, 32%)`,
+                              borderColor: `hsla(${channelHue}, 52%, 42%, 0.35)`
+                            }}
+                          >
+                            {channelLabel}
                           </span>
                         )}
                       </div>

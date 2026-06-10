@@ -42,6 +42,8 @@ type Props = {
   socketStatus: WaSocketStatus;
   syncing?: boolean;
   chipConnected: boolean;
+  connectionName?: string | null;
+  showConnectionLabel?: boolean;
   showBack?: boolean;
   onBack?: () => void;
   onLoadOlder: () => void;
@@ -62,6 +64,8 @@ export const WaThread: React.FC<Props> = ({
   socketStatus,
   syncing = false,
   chipConnected,
+  connectionName,
+  showConnectionLabel = false,
   showBack,
   onBack,
   onLoadOlder,
@@ -170,11 +174,18 @@ export const WaThread: React.FC<Props> = ({
           }}
         />
         <div className="flex-1 min-w-0">
-          <p
-            className={`wa-chat-header-title truncate${display?.fromDatabase ? ' wa-chat-header-title--crm' : ''}`}
-          >
-            {primary}
-          </p>
+          <div className="flex items-center gap-2 min-w-0">
+            <p
+              className={`wa-chat-header-title truncate flex-1 min-w-0${display?.fromDatabase ? ' wa-chat-header-title--crm' : ''}`}
+            >
+              {primary}
+            </p>
+            {showConnectionLabel && connectionName && (
+              <span className="wa-chat-channel-pill flex-shrink-0" title={`Canal: ${connectionName}`}>
+                {connectionName}
+              </span>
+            )}
+          </div>
           <p
             className="wa-chat-header-sub truncate"
             data-presence={headerPresenceKind || undefined}
