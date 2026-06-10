@@ -1,15 +1,35 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Move, ZoomIn } from 'lucide-react';
 import { Button, Modal } from '../ui';
-import { cropSquarePhoto, type PhotoCropParams } from '../../utils/profilePhotoCrop';
-
-const VIEW_SIZE = 280;
+import {
+  cropSquarePhoto,
+  PHOTO_CROP_VIEW_SIZE,
+  type PhotoCropParams
+} from '../../utils/profilePhotoCrop';
 
 type Props = {
   file: File | null;
   onClose: () => void;
   onConfirm: (dataUrl: string) => void;
 };
+
+function imageLayout(
+  img: HTMLImageElement,
+  zoom: number,
+  panX: number,
+  panY: number
+): { width: number; height: number; transform: string } {
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+  const coverScale = (PHOTO_CROP_VIEW_SIZE / Math.min(iw, ih)) * zoom;
+  const dw = iw * coverScale;
+  const dh = ih * coverScale;
+  return {
+    width: dw,
+    height: dh,
+    transform: `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px))`
+  };
+}
 
 export const ProfilePhotoCropModal: React.FC<Props> = ({ file, onClose, onConfirm }) => {
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -22,19 +42,20 @@ export const ProfilePhotoCropModal: React.FC<Props> = ({ file, onClose, onConfir
   const [previewUrl, setPreviewUrl] = useState('');
   const [objectUrl, setObjectUrl] = useState('');
 
-  const params: PhotoCropParams = { zoom, panX, panY };
+  const outputMime = file?.type.includes('webp') ? 'image/webp' : 'image/jpeg';
 
-  const refreshPreview = useCallback(() => {
-    const img = imgRef.current;
-    if (!img?.naturalWidth) return;
-    try {
-      setPreviewUrl(
-        cropSquarePhoto(img, { zoom, panX, panY }, file?.type.includes('webp') ? 'image/webp' : 'image/jpeg')
-      );
-    } catch {
-      /* ignore preview errors */
-    }
-  }, [zoom, panX, panY, file?.type]);
+  const refreshPreview = useCallback(
+    (params: PhotoCropParams) => {
+      const img = imgRef.current;
+      if (!img?.naturalWidth) return;
+      try {
+        setPreviewUrl(cropSquarePhoto(img, params, outputMime));
+      } catch {
+        /* ignore preview errors */
+      }
+    },
+    [outputMime]
+  );
 
   useEffect(() => {
     if (!file) {
@@ -71,10 +92,12 @@ export const ProfilePhotoCropModal: React.FC<Props> = ({ file, onClose, onConfir
 
   useEffect(() => {
     if (!ready) return;
-    refreshPreview();
-  }, [ready, refreshPreview]);
+    refreshPreview({ zoom, panX, panY });
+  }, [ready, zoom, panX, panY, refreshPreview]);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { x: e.clientX, y: e.clientY, panX, panY };
   };
@@ -82,37 +105,32 @@ export const ProfilePhotoCropModal: React.FC<Props> = ({ file, onClose, onConfir
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
+    e.preventDefault();
     setPanX(drag.panX + (e.clientX - drag.x));
     setPanY(drag.panY + (e.clientY - drag.y));
   };
 
-  const onPointerUp = () => {
-    dragRef.current = null;
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current) {
+      dragRef.current = null;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
   };
 
   const handleConfirm = () => {
     const img = imgRef.current;
     if (!img) return;
-    const mime = file?.type.includes('webp') ? 'image/webp' : 'image/jpeg';
-    const dataUrl = cropSquarePhoto(img, params, mime);
-    onConfirm(dataUrl);
+    onConfirm(cropSquarePhoto(img, { zoom, panX, panY }, outputMime));
   };
 
-  const coverStyle = (): React.CSSProperties => {
-    const img = imgRef.current;
-    if (!img?.naturalWidth) return {};
-    const iw = img.naturalWidth;
-    const ih = img.naturalHeight;
-    const coverScale = (VIEW_SIZE / Math.min(iw, ih)) * zoom;
-    const dw = iw * coverScale;
-    const dh = ih * coverScale;
-    return {
-      width: dw,
-      height: dh,
-      transform: `translate(${panX}px, ${panY}px)`,
-      maxWidth: 'none'
-    };
-  };
+  const layout =
+    ready && imgRef.current?.naturalWidth
+      ? imageLayout(imgRef.current, zoom, panX, panY)
+      : null;
 
   return (
     <Modal
@@ -134,10 +152,10 @@ export const ProfilePhotoCropModal: React.FC<Props> = ({ file, onClose, onConfir
     >
       <div className="space-y-4">
         <div
-          className="relative mx-auto overflow-hidden rounded-2xl border cursor-grab active:cursor-grabbing"
+          className="relative mx-auto overflow-hidden rounded-2xl border cursor-grab active:cursor-grabbing touch-none"
           style={{
-            width: VIEW_SIZE,
-            height: VIEW_SIZE,
+            width: PHOTO_CROP_VIEW_SIZE,
+            height: PHOTO_CROP_VIEW_SIZE,
             borderColor: 'var(--border-subtle)',
             background: '#0f172a'
           }}
@@ -146,13 +164,18 @@ export const ProfilePhotoCropModal: React.FC<Props> = ({ file, onClose, onConfir
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         >
-          {ready && objectUrl && (
+          {ready && objectUrl && layout && (
             <img
               src={objectUrl}
               alt=""
               draggable={false}
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none pointer-events-none"
-              style={coverStyle()}
+              className="absolute left-1/2 top-1/2 select-none pointer-events-none will-change-transform"
+              style={{
+                width: layout.width,
+                height: layout.height,
+                transform: layout.transform,
+                maxWidth: 'none'
+              }}
             />
           )}
           <div

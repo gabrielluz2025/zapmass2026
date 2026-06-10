@@ -4,13 +4,20 @@ export type PhotoCropParams = {
   panY: number;
 };
 
+/** Tamanho do quadro de edição na tela (px). */
+export const PHOTO_CROP_VIEW_SIZE = 280;
 const OUTPUT_SIZE = 512;
+
+function scaledPan(pan: number, viewSize: number): number {
+  return pan * (OUTPUT_SIZE / viewSize);
+}
 
 /** Recorte quadrado (estilo avatar) com zoom e posição. */
 export function cropSquarePhoto(
   img: HTMLImageElement,
   params: PhotoCropParams,
-  mime: 'image/jpeg' | 'image/webp' = 'image/jpeg'
+  mime: 'image/jpeg' | 'image/webp' = 'image/jpeg',
+  viewSize = PHOTO_CROP_VIEW_SIZE
 ): string {
   const canvas = document.createElement('canvas');
   canvas.width = OUTPUT_SIZE;
@@ -26,8 +33,10 @@ export function cropSquarePhoto(
   const coverScale = (OUTPUT_SIZE / Math.min(iw, ih)) * zoom;
   const dw = iw * coverScale;
   const dh = ih * coverScale;
-  const x = (OUTPUT_SIZE - dw) / 2 + params.panX;
-  const y = (OUTPUT_SIZE - dh) / 2 + params.panY;
+  const panX = scaledPan(params.panX, viewSize);
+  const panY = scaledPan(params.panY, viewSize);
+  const x = (OUTPUT_SIZE - dw) / 2 + panX;
+  const y = (OUTPUT_SIZE - dh) / 2 + panY;
 
   ctx.fillStyle = '#0f172a';
   ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
