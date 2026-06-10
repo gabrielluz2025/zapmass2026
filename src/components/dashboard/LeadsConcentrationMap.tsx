@@ -646,11 +646,13 @@ export const LeadsConcentrationMap: React.FC = () => {
   );
 
   const summaryReqRef = useRef(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const refreshSummary = useCallback(async (q: LeadsGeoQuery = query) => {
     const reqKey = JSON.stringify(q);
     const reqId = ++summaryReqRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const [cfg, sum] = await Promise.all([fetchLeadsGeoConfig(), fetchLeadsGeoSummary(q)]);
       if (reqId !== summaryReqRef.current) return;
@@ -660,6 +662,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     } catch (e) {
       if (reqId !== summaryReqRef.current) return;
       const msg = e instanceof Error ? e.message : 'Erro ao carregar mapa de leads.';
+      setLoadError(msg);
       toast.error(msg);
     } finally {
       if (reqId === summaryReqRef.current) setLoading(false);
@@ -1107,11 +1110,25 @@ export const LeadsConcentrationMap: React.FC = () => {
       </div>
 
       {loading && !summary ? (
-        <div className="flex items-center justify-center py-16 text-slate-500 gap-2">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          {contactNameFilter
-            ? 'Localizando endereço do contato no mapa…'
-            : 'Carregando distribuição geográfica…'}
+        <div className="flex flex-col items-center justify-center py-16 text-slate-500 gap-2 text-center px-4">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            {contactNameFilter
+              ? 'Localizando endereço do contato no mapa…'
+              : 'Carregando distribuição geográfica…'}
+          </div>
+          {!contactNameFilter ? (
+            <p className="text-xs text-slate-400 max-w-md">
+              Bases grandes podem levar até 1 minuto na primeira carga.
+            </p>
+          ) : null}
+        </div>
+      ) : loadError && !summary ? (
+        <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300 max-w-md">{loadError}</p>
+          <Button type="button" size="sm" variant="primary" onClick={() => void refreshSummary(query)}>
+            Tentar novamente
+          </Button>
         </div>
       ) : !stats ? (
         <p className="text-sm text-slate-500 py-8 text-center">Sem dados de contatos.</p>

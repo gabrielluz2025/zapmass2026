@@ -375,13 +375,25 @@ export function buildNeighborhoodToCityMap(
     votes.set(nbKey, bucket);
   };
 
+  // Memoiza resolução de município por (texto|UF): bases grandes repetem muito a mesma cidade,
+  // evitando milhares de buscas fuzzy no índice IBGE (que travavam o event loop).
+  const muniMemo = new Map<string, { city: string; state: string } | null>();
+  const resolveMuni = (name: string, stateHint: string) => {
+    const k = `${name}|${stateHint}`;
+    const cached = muniMemo.get(k);
+    if (cached !== undefined) return cached;
+    const hit = tryResolveMunicipality(name, stateHint, ibgeIndex);
+    muniMemo.set(k, hit);
+    return hit;
+  };
+
   for (const c of contacts) {
     const stateHint = normalizeContactState(c.state || '');
     const cityRaw = repairUtf8Mojibake(c.city || '');
     const nbRaw = repairUtf8Mojibake(c.neighborhood || '');
 
-    const cityMuni = tryResolveMunicipality(cityRaw, stateHint, ibgeIndex);
-    const nbMuni = tryResolveMunicipality(nbRaw, stateHint, ibgeIndex);
+    const cityMuni = resolveMuni(cityRaw, stateHint);
+    const nbMuni = resolveMuni(nbRaw, stateHint);
     const nbFromField = normalizeContactNeighborhood(nbRaw, cityMuni?.city || '');
 
     if (cityMuni && nbFromField) {

@@ -123,10 +123,27 @@ export async function fetchLeadsGeoConfig(): Promise<{
   };
 }
 
+const LEADS_GEO_SUMMARY_TIMEOUT_MS = 120_000;
+
 export async function fetchLeadsGeoSummary(query: LeadsGeoQuery = {}): Promise<LeadsGeoSummary> {
-  const j = await apiFetchJson<LeadsGeoSummary & { ok?: boolean }>(
-    `/api/leads-geo/summary${buildQueryString(query)}`
-  );
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), LEADS_GEO_SUMMARY_TIMEOUT_MS);
+  let j: LeadsGeoSummary & { ok?: boolean };
+  try {
+    j = await apiFetchJson<LeadsGeoSummary & { ok?: boolean }>(
+      `/api/leads-geo/summary${buildQueryString(query)}`,
+      { signal: ctrl.signal }
+    );
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(
+        'O mapa demorou demais para carregar. Tente Atualizar ou filtre por cidade para acelerar.'
+      );
+    }
+    throw e;
+  } finally {
+    window.clearTimeout(timer);
+  }
   return {
     stats: j.stats,
     layer: j.layer || query.layer || 'city',

@@ -131,6 +131,35 @@ export type LeadsGeoQuery = {
 type GeoCacheFile = Record<string, { lat: number; lng: number; at: string }>;
 
 const CACHE_PATH = path.join(process.cwd(), 'data', 'leads_geo_cache.json');
+const SUMMARY_CACHE_TTL_MS = 120_000;
+const summaryCache = new Map<string, { expires: number; summary: LeadsGeoSummary }>();
+
+function summaryCacheKey(tenantId: string, query: LeadsGeoQuery): string {
+  return `${tenantId}:${JSON.stringify({
+    layer: query.layer ?? 'city',
+    state: query.state ?? '',
+    city: query.city ?? '',
+    ddd: query.ddd ?? '',
+    neighborhood: query.neighborhood ?? '',
+    name: query.name ?? ''
+  })}`;
+}
+
+/** Cede o event loop para não bloquear Socket.IO/HTTP durante a agregação de bases grandes. */
+function yieldEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+export function invalidateLeadsGeoSummaryCache(tenantId?: string): void {
+  if (!tenantId) {
+    summaryCache.clear();
+    return;
+  }
+  const prefix = `${tenantId}:`;
+  for (const k of summaryCache.keys()) {
+    if (k.startsWith(prefix)) summaryCache.delete(k);
+  }
+}
 
 function parseClusterKeyMeta(key: string): {
   city: string;
@@ -946,11 +975,25 @@ function alignClustersToExactPins(clusters: GeoCluster[], pins: GeoContactPin[])
   });
 }
 
+/** Só campos usados no mapa — evita carregar doc inteiro (tags, histórico, etc.) em bases grandes. */
 async function loadTenantContacts(tenantId: string): Promise<Contact[]> {
   const pool = getZapmassPool();
   if (pool) {
     const r = await pool.query<ContactRow>(
-      `SELECT id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at
+      `SELECT id::text, tenant_id::text, name, phone, sort_name,
+        jsonb_build_object(
+          'city', COALESCE(NULLIF(doc->>'city', ''), NULLIF(doc->>'cidade', ''), ''),
+          'state', COALESCE(NULLIF(doc->>'state', ''), NULLIF(doc->>'uf', ''), NULLIF(doc->>'estado', ''), ''),
+          'neighborhood', COALESCE(NULLIF(doc->>'neighborhood', ''), NULLIF(doc->>'bairro', ''), ''),
+          'street', COALESCE(NULLIF(doc->>'street', ''), NULLIF(doc->>'rua', ''), NULLIF(doc->>'logradouro', ''), ''),
+          'number', COALESCE(NULLIF(doc->>'number', ''), NULLIF(doc->>'numero', ''), ''),
+          'zipCode', COALESCE(NULLIF(doc->>'zipCode', ''), NULLIF(doc->>'cep', ''), ''),
+          'latitude', doc->'latitude',
+          'longitude', doc->'longitude',
+          'geocodePrecision', doc->>'geocodePrecision',
+          'geocodedAt', doc->>'geocodedAt'
+        ) AS doc,
+        created_at, updated_at
        FROM zapmass.contacts WHERE tenant_id = $1::uuid`,
       [tenantId]
     );
@@ -961,6 +1004,20 @@ async function loadTenantContacts(tenantId: string): Promise<Contact[]> {
 }
 
 export async function buildLeadsGeoSummary(
+  tenantId: string,
+  query: LeadsGeoQuery = {}
+): Promise<LeadsGeoSummary> {
+  const cacheKey = summaryCacheKey(tenantId, query);
+  const cached = summaryCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) {
+    return cached.summary;
+  }
+  const summary = await buildLeadsGeoSummaryInner(tenantId, query);
+  summaryCache.set(cacheKey, { expires: Date.now() + SUMMARY_CACHE_TTL_MS, summary });
+  return summary;
+}
+
+async function buildLeadsGeoSummaryInner(
   tenantId: string,
   query: LeadsGeoQuery = {}
 ): Promise<LeadsGeoSummary> {
@@ -986,7 +1043,30 @@ export async function buildLeadsGeoSummary(
   let filtered = contacts.filter((c) => contactMatchesFilters(c, query));
   if (nameSearchActive && filtered.length > 0 && filtered.length <= 20) {
     filtered = await ensureContactsGeocodedForNameSearch(tenantId, filtered);
+    invalidateLeadsGeoSummaryCache(tenantId);
   }
+
+  const geoPlaceMemo = new Map<string, ReturnType<typeof resolveContactGeoPlace>>();
+  const memoGeoPlace = (c: Contact) => {
+    const hit = geoPlaceMemo.get(c.id);
+    if (hit) return hit;
+    const place = resolveContactGeoPlace(c, nbToCityMap);
+    geoPlaceMemo.set(c.id, place);
+    return place;
+  };
+
+  const canonCityMemo = new Map<string, string>();
+  const memoCanonCity = (city: string, stateHint: string) => {
+    const k = `${normKeyPart(city)}|${stateHint}`;
+    const hit = canonCityMemo.get(k);
+    if (hit) return hit;
+    const canon = canonClusterCity(city, stateHint);
+    canonCityMemo.set(k, canon);
+    return canon;
+  };
+
+  /** Pins aproximados em espiral são caros com dezenas de milhares de contatos. */
+  const skipApproxPins = !nameSearchActive && filtered.length > 2500;
 
   const clusterMap = new Map<string, GeoCluster>();
   const byState: Record<string, number> = {};
@@ -1018,14 +1098,16 @@ export async function buildLeadsGeoSummary(
   let pinsApproximate = 0;
   let pinsPending = 0;
 
+  let scanned = 0;
   for (const c of contacts) {
+    if (++scanned % 1500 === 0) await yieldEventLoop();
     if (hasAnyAddressField(c)) withAnyAddress++;
     if (normCity(c.city || '')) withCity++;
     if (normNeighborhood(c.neighborhood || '')) withNeighborhood++;
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
-    const place = resolveContactGeoPlace(c, nbToCityMap);
-    const cityCanon = place.city ? canonClusterCity(place.city, place.state) : '';
+    const place = memoGeoPlace(c);
+    const cityCanon = place.city ? memoCanonCity(place.city, place.state) : '';
     const nb = normNeighborhood(place.neighborhood || c.neighborhood || '', cityCanon || place.city);
     const st = place.state;
     const ddd = resolveContactDdd(c);
@@ -1057,12 +1139,14 @@ export async function buildLeadsGeoSummary(
     filterSets.neighborhoods.add(label);
   }
 
+  let processed = 0;
   for (const raw of filtered) {
+    if (++processed % 1500 === 0) await yieldEventLoop();
     const c = hydrateContactForGeo(raw);
-    const place = resolveContactGeoPlace(c, nbToCityMap);
+    const place = memoGeoPlace(c);
     const stResolved = resolveContactState(c) || place.state || knownUfForCity(place.city) || '';
     const st = stResolved || '—';
-    const cityCanon = place.city ? canonClusterCity(place.city, stResolved) : '';
+    const cityCanon = place.city ? memoCanonCity(place.city, stResolved) : '';
     const city = cityCanon || '—';
     const nb = normNeighborhood(place.neighborhood || c.neighborhood || '', cityCanon || place.city) || '—';
     const ddd = resolveContactDdd(c) || '—';
@@ -1155,8 +1239,11 @@ export async function buildLeadsGeoSummary(
       );
     } else if (hasFullStreetAddress(c)) {
       pinsPending++;
-    } else if (normNeighborhood(c.neighborhood || '') || normCity(c.city || '')) {
-      const { city: pinCity, state: pinState } = resolveContactCityState(c);
+    } else if (
+      !skipApproxPins &&
+      (normNeighborhood(c.neighborhood || '') || normCity(c.city || ''))
+    ) {
+      const { city: pinCity, state: pinState } = resolveContactCityState(c, nbToCityMap);
       const nb = normNeighborhood(c.neighborhood || '', pinCity);
       const approx = resolveContactPinCoord(
         c,
@@ -1334,7 +1421,10 @@ export async function geocodeLeadsGeoClusters(
     if (!saved) failed++;
   }
 
-  if (geocoded > 0) writeGeoCache(cache);
+  if (geocoded > 0) {
+    writeGeoCache(cache);
+    invalidateLeadsGeoSummaryCache(tenantId);
+  }
 
   const refreshed = await buildLeadsGeoSummary(tenantId, {
     layer,
@@ -1431,6 +1521,8 @@ export async function geocodeContactsWithAddress(
     });
     geocoded++;
   }
+
+  if (geocoded > 0) invalidateLeadsGeoSummaryCache(tenantId);
 
   const summary = await buildLeadsGeoSummary(tenantId, {
     layer: opts?.neighborhood || opts?.city ? 'neighborhood' : 'city',
