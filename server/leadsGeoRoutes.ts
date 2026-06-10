@@ -10,7 +10,8 @@ import {
 import {
   buildLeadsGeoSummary,
   geocodeContactsWithAddress,
-  geocodeLeadsGeoClusters
+  geocodeLeadsGeoClusters,
+  isContactGeocodeAvailable
 } from './leadsGeoService.js';
 
 export function registerLeadsGeoRoutes(app: Express): void {
@@ -24,7 +25,7 @@ export function registerLeadsGeoRoutes(app: Express): void {
       /** Mapa usa OpenStreetMap — funciona sem chave Google. */
       enabled: true,
       mapProvider: 'openstreetmap',
-      geocodeEnabled: isGoogleGeocodeEnabled() || process.env.NOMINATIM_DISABLED !== '1',
+      geocodeEnabled: isContactGeocodeAvailable(),
       nominatimEnabled: process.env.NOMINATIM_DISABLED !== '1',
       googleMapsAvailable: isGoogleMapsJsEnabled(),
       mapKey: getGoogleMapsJsApiKey() || null
@@ -81,13 +82,19 @@ export function registerLeadsGeoRoutes(app: Express): void {
   app.post('/api/leads-geo/geocode-contacts', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const body = (req.body || {}) as { max?: number; city?: string; neighborhood?: string };
-    const max = Number(body.max) || 40;
+    const body = (req.body || {}) as {
+      max?: number;
+      city?: string;
+      neighborhood?: string;
+      force?: boolean;
+    };
+    const max = Number(body.max) || 60;
     try {
       const result = await geocodeContactsWithAddress(ctx.tenantId, {
         max,
         city: body.city,
-        neighborhood: body.neighborhood
+        neighborhood: body.neighborhood,
+        force: body.force === true
       });
       return res.json({ ok: true, ...result });
     } catch (e) {

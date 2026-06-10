@@ -131,7 +131,13 @@ export async function updateContact(
   const existing = await getContactById(tenantId, id);
   if (!existing) return null;
   const patch = addressFieldsChanged(existing, updates)
-    ? { ...updates, latitude: undefined, longitude: undefined, geocodedAt: undefined }
+    ? {
+        ...updates,
+        latitude: undefined,
+        longitude: undefined,
+        geocodedAt: undefined,
+        geocodePrecision: undefined
+      }
     : updates;
   const merged = prepareContactForPersistence(mergeContactUpdates(existing, patch));
   const name = String(merged.name || 'Sem Nome').slice(0, 500);

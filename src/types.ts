@@ -364,10 +364,12 @@ export interface Contact {
   number?: string;
   neighborhood?: string;
   zipCode?: string;
-  /** Coordenadas (Google Geocoding / cache no CRM). */
+  /** Coordenadas (geocodificação no CRM). */
   latitude?: number;
   longitude?: number;
   geocodedAt?: string;
+  /** Qualidade da última geocodificação: street ≈ rua, cep ≈ CEP, city ≈ só cidade. */
+  geocodePrecision?: 'street' | 'cep' | 'neighborhood' | 'city';
   church?: string;
   role?: string;
   profession?: string;

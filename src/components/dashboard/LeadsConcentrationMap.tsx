@@ -309,6 +309,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     () =>
       (summary?.contactPins || []).filter(
         (p) =>
+          !p.approximate &&
           p.precision === 'address' &&
           isMapCoordValid(p.lat, p.lng, p.city, p.state)
       ),
@@ -524,16 +525,17 @@ export const LeadsConcentrationMap: React.FC = () => {
       autoGeoRoundsRef.current = 0;
       return;
     }
-    if (autoGeoRoundsRef.current >= 4) return;
+    if (autoGeoRoundsRef.current >= 8) return;
     let cancelled = false;
     const run = async () => {
       autoGeoRoundsRef.current += 1;
       setGeocoding(true);
       try {
         const contacts = await apiGeocodeContacts({
-          max: Math.min(80, pending),
+          max: Math.min(120, pending),
           city: filterCity || undefined,
-          neighborhood: filterNeighborhood || undefined
+          neighborhood: filterNeighborhood || undefined,
+          force: autoGeoRoundsRef.current <= 1
         });
         if (!cancelled && contacts.summary) setSummary(contacts.summary);
       } catch {
