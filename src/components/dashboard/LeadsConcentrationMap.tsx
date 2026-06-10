@@ -2,15 +2,21 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
+  Building2,
   ChevronRight,
   Download,
   Flame,
+  Layers,
   Loader2,
   MapPin,
+  MapPinned,
+  Navigation,
+  Phone,
   RefreshCw,
   Search,
   Trophy,
   User,
+  Users,
   X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -1056,73 +1062,70 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   return (
     <Card className="zm-dash-section">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
-        <div className="flex items-start gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center brand-soft shrink-0">
-            <MapPin className="w-4 h-4" />
+      <div className="relative mb-4 overflow-hidden rounded-2xl bg-gradient-to-br from-teal-600 via-emerald-600 to-cyan-700 px-4 py-3.5 sm:px-5 shadow-lg shadow-emerald-900/10">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-25"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle at 18% 22%, rgba(255,255,255,0.45) 0, transparent 38%), radial-gradient(circle at 82% 78%, rgba(255,255,255,0.28) 0, transparent 42%)'
+          }}
+          aria-hidden
+        />
+        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/30 backdrop-blur-sm">
+              <MapPinned className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="flex items-center gap-2 text-[16px] font-extrabold tracking-tight text-white">
+                Onde moram seus leads
+              </h3>
+              <p className="text-[12px] font-medium text-white/80">
+                Inteligência geográfica da sua base — DDD, cidade, bairro e UF no mapa
+                {config?.buildRef ? (
+                  <span className="ml-1 font-mono text-white/55">· build {config.buildRef}</span>
+                ) : null}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h3 className="ui-title text-[15px]">Onde moram seus leads</h3>
-            <p className="ui-subtitle text-[12px]">
-              Mapa gratuito (OpenStreetMap) — concentração por DDD, cidade, bairro e UF
-              {config?.buildRef ? (
-                <span className="ml-1 text-slate-400 font-mono">· build {config.buildRef}</span>
-              ) : null}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            leftIcon={<Download className="w-3.5 h-3.5" />}
-            onClick={handleExportXlsx}
-            disabled={loading || !summary}
-            title="Baixar ranking, resumo e abas por cidade/bairro/DDD/UF"
-          >
-            XLSX
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />}
-            onClick={() => void refreshSummary(query)}
-            disabled={loading}
-          >
-            Atualizar
-          </Button>
-          {needsGeocode && (
-            <Button
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
               type="button"
-              size="sm"
-              variant="primary"
-              leftIcon={geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
-              onClick={() => void handleGeocode()}
-            disabled={geocoding || loading || !config?.geocodeEnabled}
-            title="Localiza bairros e contatos com endereço (OpenStreetMap gratuito)"
+              onClick={handleExportXlsx}
+              disabled={loading || !summary}
+              title="Baixar ranking, resumo e abas por cidade/bairro/DDD/UF"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Localizar no mapa
-            </Button>
-          )}
+              <Download className="h-3.5 w-3.5" />
+              XLSX
+            </button>
+            <button
+              type="button"
+              onClick={() => void refreshSummary(query)}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </button>
+            {needsGeocode && (
+              <button
+                type="button"
+                onClick={() => void handleGeocode()}
+                disabled={geocoding || loading || !config?.geocodeEnabled}
+                title="Localiza bairros e contatos com endereço (OpenStreetMap gratuito)"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[12px] font-bold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {geocoding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
+                Localizar no mapa
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {loading && !summary ? (
-        <div className="flex flex-col items-center justify-center py-16 text-slate-500 gap-2 text-center px-4">
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            {contactNameFilter
-              ? 'Localizando endereço do contato no mapa…'
-              : 'Carregando distribuição geográfica…'}
-          </div>
-          {!contactNameFilter ? (
-            <p className="text-xs text-slate-400 max-w-md">
-              Bases grandes podem levar até 1 minuto na primeira carga.
-            </p>
-          ) : null}
-        </div>
+        <LeadsMapSkeleton contactName={contactNameFilter} />
       ) : loadError && !summary ? (
         <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-4">
           <p className="text-sm text-slate-600 dark:text-slate-300 max-w-md">{loadError}</p>
@@ -1135,25 +1138,35 @@ export const LeadsConcentrationMap: React.FC = () => {
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 mb-4">
-            <StatPill label="Total contatos" value={stats.filteredTotal} sub={stats.totalContacts !== stats.filteredTotal ? `de ${stats.totalContacts}` : undefined} />
-            <StatPill label="Com telefone" value={stats.withPhone} />
-            <StatPill label="Com cidade" value={stats.withCity} />
-            <StatPill label="Com bairro" value={stats.withNeighborhood} />
+            <StatPill
+              label="Total contatos"
+              value={stats.filteredTotal}
+              sub={stats.totalContacts !== stats.filteredTotal ? `de ${stats.totalContacts.toLocaleString('pt-BR')}` : undefined}
+              icon={<Users className="w-3 h-3" />}
+              accent="teal"
+            />
+            <StatPill label="Com telefone" value={stats.withPhone} icon={<Phone className="w-3 h-3" />} accent="emerald" />
+            <StatPill label="Com cidade" value={stats.withCity} icon={<Building2 className="w-3 h-3" />} accent="sky" />
+            <StatPill label="Com bairro" value={stats.withNeighborhood} icon={<MapPin className="w-3 h-3" />} accent="violet" />
             <StatPill
               label="Endereço completo"
               value={pinStats?.withFullAddress ?? 0}
               sub="rua + número"
+              icon={<Navigation className="w-3 h-3" />}
+              accent="amber"
             />
             <StatPill
-              label="No mapa (👤)"
+              label="No mapa"
               value={pinStats?.pinsMapped ?? 0}
               sub={
                 pinStats && (pinStats.pinsPending || 0) > 0
-                  ? `${pinStats.pinsPending} com rua aguardam localizar`
-                  : 'só endereço completo localizado'
+                  ? `${pinStats.pinsPending.toLocaleString('pt-BR')} aguardam localizar`
+                  : 'endereços localizados'
               }
+              icon={<MapPinned className="w-3 h-3" />}
+              accent="rose"
             />
-            <StatPill label="Regiões" value={stats.clusters} sub={LAYER_LABELS[layer]} isText />
+            <StatPill label="Regiões" value={stats.clusters} sub={LAYER_LABELS[layer]} isText icon={<Layers className="w-3 h-3" />} accent="slate" />
           </div>
 
           {top && (
@@ -1628,18 +1641,94 @@ const FilterSelect: React.FC<{
   </label>
 );
 
-const StatPill: React.FC<{ label: string; value: number; sub?: string; isText?: boolean }> = ({
-  label,
-  value,
-  sub,
-  isText
-}) => (
-  <div className="rounded-xl px-3 py-2 border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/50 dark:bg-slate-900/30">
-    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
-    <p className="text-lg font-black tabular-nums text-slate-900 dark:text-white">
-      {isText ? sub || '—' : value.toLocaleString('pt-BR')}
-    </p>
-    {!isText && sub && <p className="text-[10px] text-slate-400">{sub}</p>}
+type StatAccent = 'teal' | 'violet' | 'amber' | 'rose' | 'sky' | 'emerald' | 'slate';
+
+const STAT_ACCENT: Record<StatAccent, { chip: string; icon: string; ring: string }> = {
+  teal: { chip: 'bg-teal-500/12 text-teal-600 dark:text-teal-300', icon: 'text-teal-500', ring: 'hover:border-teal-400/50' },
+  violet: { chip: 'bg-violet-500/12 text-violet-600 dark:text-violet-300', icon: 'text-violet-500', ring: 'hover:border-violet-400/50' },
+  amber: { chip: 'bg-amber-500/14 text-amber-600 dark:text-amber-300', icon: 'text-amber-500', ring: 'hover:border-amber-400/50' },
+  rose: { chip: 'bg-rose-500/12 text-rose-600 dark:text-rose-300', icon: 'text-rose-500', ring: 'hover:border-rose-400/50' },
+  sky: { chip: 'bg-sky-500/12 text-sky-600 dark:text-sky-300', icon: 'text-sky-500', ring: 'hover:border-sky-400/50' },
+  emerald: { chip: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-300', icon: 'text-emerald-500', ring: 'hover:border-emerald-400/50' },
+  slate: { chip: 'bg-slate-500/12 text-slate-600 dark:text-slate-300', icon: 'text-slate-400', ring: 'hover:border-slate-400/50' }
+};
+
+const StatPill: React.FC<{
+  label: string;
+  value: number;
+  sub?: string;
+  isText?: boolean;
+  icon?: React.ReactNode;
+  accent?: StatAccent;
+}> = ({ label, value, sub, isText, icon, accent = 'slate' }) => {
+  const a = STAT_ACCENT[accent];
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-700/70 bg-white/70 dark:bg-slate-900/40 px-3 py-2.5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${a.ring}`}
+    >
+      <div className="flex items-center gap-1.5">
+        {icon && <span className={`inline-flex h-5 w-5 items-center justify-center rounded-md ${a.chip}`}>{icon}</span>}
+        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">{label}</p>
+      </div>
+      <p className="mt-1 text-[19px] font-black leading-none tabular-nums text-slate-900 dark:text-white">
+        {isText ? sub || '—' : value.toLocaleString('pt-BR')}
+      </p>
+      {!isText && sub && <p className="mt-0.5 text-[10px] text-slate-400 truncate">{sub}</p>}
+    </div>
+  );
+};
+
+const LeadsMapSkeleton: React.FC<{ contactName?: string }> = ({ contactName }) => (
+  <div aria-busy="true" aria-label="Carregando mapa de leads">
+    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
+      {Array.from({ length: 7 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-[60px] rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-slate-100/70 dark:bg-slate-800/40 animate-pulse"
+        />
+      ))}
+    </div>
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.45fr_1fr]">
+      <div className="relative flex min-h-[380px] flex-col items-center justify-center gap-3 overflow-hidden rounded-xl border border-slate-200/80 bg-gradient-to-br from-slate-100 to-slate-200 dark:border-slate-700/80 dark:from-slate-800 dark:to-slate-900">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.07]"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(20,184,166,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(20,184,166,0.6) 1px, transparent 1px)',
+            backgroundSize: '34px 34px'
+          }}
+          aria-hidden
+        />
+        <span className="relative inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/30">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/20" />
+          <MapPinned className="relative h-6 w-6 animate-bounce text-emerald-500" />
+        </span>
+        <div className="relative flex items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {contactName ? 'Localizando endereço do contato…' : 'Mapeando seus leads…'}
+        </div>
+        {!contactName && (
+          <p className="relative max-w-xs px-4 text-center text-xs text-slate-400">
+            Bases grandes podem levar alguns segundos na primeira carga. Depois fica instantâneo.
+          </p>
+        )}
+      </div>
+      <div className="space-y-2 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/40 dark:bg-slate-900/40 p-3">
+        <div className="h-3 w-32 rounded bg-slate-200/80 dark:bg-slate-700/60 animate-pulse" />
+        <div className="h-2.5 w-44 rounded bg-slate-200/60 dark:bg-slate-700/40 animate-pulse" />
+        <div className="mt-3 space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="h-5 w-5 rounded-full bg-slate-200/80 dark:bg-slate-700/60 animate-pulse" />
+              <div
+                className="h-7 flex-1 rounded-lg bg-slate-100/80 dark:bg-slate-800/50 animate-pulse"
+                style={{ opacity: 1 - i * 0.12 }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   </div>
 );
 

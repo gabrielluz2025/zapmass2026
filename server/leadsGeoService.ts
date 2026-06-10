@@ -1046,12 +1046,20 @@ async function buildLeadsGeoSummaryInner(
     invalidateLeadsGeoSummaryCache(tenantId);
   }
 
+  // Memoiza por ASSINATURA do endereço (não por id): bases grandes repetem muito a
+  // mesma cidade/bairro/UF, então a resolução pesada (fuzzy IBGE) roda só uma vez por
+  // endereço único — o que evita travar o event loop com dezenas de milhares de contatos.
   const geoPlaceMemo = new Map<string, ReturnType<typeof resolveContactGeoPlace>>();
+  const geoPlaceSig = (c: Contact): string => {
+    const uf = phoneDigitsToUf((c.phone || '').replace(/\D/g, '')) || '';
+    return `${c.city || ''}|${c.state || ''}|${c.neighborhood || ''}|${c.zipCode || ''}|${uf}`;
+  };
   const memoGeoPlace = (c: Contact) => {
-    const hit = geoPlaceMemo.get(c.id);
+    const k = geoPlaceSig(c);
+    const hit = geoPlaceMemo.get(k);
     if (hit) return hit;
     const place = resolveContactGeoPlace(c, nbToCityMap);
-    geoPlaceMemo.set(c.id, place);
+    geoPlaceMemo.set(k, place);
     return place;
   };
 
@@ -1059,10 +1067,21 @@ async function buildLeadsGeoSummaryInner(
   const memoCanonCity = (city: string, stateHint: string) => {
     const k = `${normKeyPart(city)}|${stateHint}`;
     const hit = canonCityMemo.get(k);
-    if (hit) return hit;
+    if (hit !== undefined) return hit;
     const canon = canonClusterCity(city, stateHint);
     canonCityMemo.set(k, canon);
     return canon;
+  };
+
+  const stateMemo = new Map<string, string>();
+  const memoContactState = (c: Contact): string => {
+    const uf = phoneDigitsToUf((c.phone || '').replace(/\D/g, '')) || '';
+    const k = `${c.city || ''}|${c.state || ''}|${uf}`;
+    const hit = stateMemo.get(k);
+    if (hit !== undefined) return hit;
+    const st = resolveContactState(c);
+    stateMemo.set(k, st);
+    return st;
   };
 
   /** Pins aproximados em espiral são caros com dezenas de milhares de contatos. */
@@ -1144,7 +1163,7 @@ async function buildLeadsGeoSummaryInner(
     if (++processed % 1500 === 0) await yieldEventLoop();
     const c = hydrateContactForGeo(raw);
     const place = memoGeoPlace(c);
-    const stResolved = resolveContactState(c) || place.state || knownUfForCity(place.city) || '';
+    const stResolved = memoContactState(c) || place.state || knownUfForCity(place.city) || '';
     const st = stResolved || '—';
     const cityCanon = place.city ? memoCanonCity(place.city, stResolved) : '';
     const city = cityCanon || '—';

@@ -860,6 +860,49 @@ export const ContactsTab: React.FC = () => {
   });
   /** Data/hora local do retorno (campo `datetime-local`); convertido para ISO na gravação. */
   const [followUpDatetimeLocal, setFollowUpDatetimeLocal] = useState('');
+  /** Auto-preenchimento de endereço por CEP (ViaCEP — gratuito, sem chave). */
+  const [cepLookupState, setCepLookupState] = useState<'idle' | 'loading' | 'ok' | 'notfound' | 'error'>('idle');
+  const cepLookupSeqRef = useRef(0);
+  const lookupCepAndFill = useCallback(async (rawCep: string) => {
+    const digits = (rawCep || '').replace(/\D/g, '');
+    if (digits.length !== 8) {
+      setCepLookupState('idle');
+      return;
+    }
+    const seq = ++cepLookupSeqRef.current;
+    setCepLookupState('loading');
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = (await res.json()) as {
+        logradouro?: string;
+        bairro?: string;
+        localidade?: string;
+        uf?: string;
+        erro?: boolean;
+      };
+      if (seq !== cepLookupSeqRef.current) return;
+      if (data?.erro) {
+        setCepLookupState('notfound');
+        return;
+      }
+      setNewContact((prev) => ({
+        ...prev,
+        street: prev.street?.trim() ? prev.street : data.logradouro || prev.street || '',
+        neighborhood: prev.neighborhood?.trim() ? prev.neighborhood : data.bairro || prev.neighborhood || '',
+        city: data.localidade
+          ? data.uf
+            ? `${data.localidade} - ${data.uf}`
+            : data.localidade
+          : prev.city || '',
+        state: data.uf || prev.state || ''
+      }));
+      setCepLookupState('ok');
+      toast.success('Endereço preenchido pelo CEP.', { icon: '📍' });
+    } catch {
+      if (seq !== cepLookupSeqRef.current) return;
+      setCepLookupState('error');
+    }
+  }, []);
   const [religiousMemberForm, setReligiousMemberForm] = useState<MemberFormState>(() => emptyForm());
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [editingListId, setEditingListId] = useState<string | null>(null);
@@ -2201,6 +2244,7 @@ export const ContactsTab: React.FC = () => {
 
   const beginEditContact = (contact: Contact) => {
     setEditingContactId(contact.id);
+    setCepLookupState('idle');
     setFollowUpDatetimeLocal(isoToDatetimeLocal(contact.followUpAt));
     setNewContact({
       name: contact.name,
@@ -4212,21 +4256,41 @@ export const ContactsTab: React.FC = () => {
                              />
                           </div>
                           <div className="col-span-6 md:col-span-2">
-                             <label htmlFor="newContactZipCode" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">CEP</label>
-                             <input
-                               id="newContactZipCode"
-                               type="text"
-                               inputMode="numeric"
-                               value={newContact.zipCode || ''}
-                               onChange={e => {
-                                 const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
-                                 const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
-                                 setNewContact({...newContact, zipCode: formatted});
-                               }}
-                               className="ui-input"
-                               placeholder="00000-000"
-                               maxLength={9}
-                             />
+                             <label htmlFor="newContactZipCode" className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">
+                               CEP
+                               <span className="ml-1.5 text-[10px] font-medium normal-case tracking-normal text-emerald-600 dark:text-emerald-400">preenche sozinho</span>
+                             </label>
+                             <div className="relative">
+                               <input
+                                 id="newContactZipCode"
+                                 type="text"
+                                 inputMode="numeric"
+                                 value={newContact.zipCode || ''}
+                                 onChange={e => {
+                                   const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+                                   const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+                                   if (cepLookupState !== 'idle') setCepLookupState('idle');
+                                   setNewContact({...newContact, zipCode: formatted});
+                                   if (digits.length === 8) void lookupCepAndFill(digits);
+                                 }}
+                                 onBlur={e => void lookupCepAndFill(e.target.value)}
+                                 className="ui-input pr-8"
+                                 placeholder="00000-000"
+                                 maxLength={9}
+                               />
+                               {cepLookupState === 'loading' && (
+                                 <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-emerald-500" />
+                               )}
+                               {cepLookupState === 'ok' && (
+                                 <CheckCircle2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
+                               )}
+                             </div>
+                             {cepLookupState === 'notfound' && (
+                               <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">CEP não encontrado — preencha manualmente.</p>
+                             )}
+                             {cepLookupState === 'error' && (
+                               <p className="mt-1 text-[11px] text-slate-400">Não deu para consultar o CEP agora.</p>
+                             )}
                           </div>
                        </div>
                        <div className="grid grid-cols-12 gap-3">
