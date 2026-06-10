@@ -300,8 +300,44 @@ function hasAnyAddressField(c: Contact): boolean {
   );
 }
 
+function parseCoord(v: unknown): number | undefined {
+  if (v == null || v === '') return undefined;
+  const n = typeof v === 'string' ? Number(String(v).trim().replace(',', '.')) : Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Normaliza campos legados (rua, numero, bairro…) antes de geocodificar ou montar pins. */
+function hydrateContactForGeo(c: Contact): Contact {
+  const raw = c as Contact & Record<string, unknown>;
+  const street = String(c.street || raw.rua || raw.logradouro || raw.endereco || '').trim();
+  const number = String(c.number || raw.numero || raw.num || '').trim();
+  const lat = parseCoord(c.latitude ?? raw.lat ?? raw.latitude);
+  const lng = parseCoord(c.longitude ?? raw.lng ?? raw.lon ?? raw.longitude);
+  return {
+    ...c,
+    street: street || c.street,
+    number: number || c.number,
+    city: (c.city || String(raw.cidade || '').trim()) || c.city,
+    state: (c.state || String(raw.uf || raw.estado || '').trim()) || c.state,
+    neighborhood: (c.neighborhood || String(raw.bairro || '').trim()) || c.neighborhood,
+    zipCode: (c.zipCode || String(raw.cep || raw.zip || '').trim()) || c.zipCode,
+    ...(lat !== undefined ? { latitude: lat } : {}),
+    ...(lng !== undefined ? { longitude: lng } : {})
+  };
+}
+
 function hasFullStreetAddress(c: Contact): boolean {
-  return Boolean((c.street || '').trim() && (c.number || '').trim());
+  const h = hydrateContactForGeo(c);
+  return Boolean((h.street || '').trim() && (h.number || '').trim());
+}
+
+function hasTrustedStreetGeocode(c: Contact): boolean {
+  const h = hydrateContactForGeo(c);
+  return (
+    hasFullStreetAddress(h) ||
+    h.geocodePrecision === 'street' ||
+    h.geocodePrecision === 'cep'
+  );
 }
 
 /** Espalha bairros ao redor do centro da cidade quando não há geocode (visualização). */
@@ -491,7 +527,8 @@ async function geocodeQueryAnyProvider(
   return null;
 }
 
-async function geocodeContactAddress(c: Contact): Promise<ContactGeocodeHit | null> {
+async function geocodeContactAddress(raw: Contact): Promise<ContactGeocodeHit | null> {
+  const c = hydrateContactForGeo(raw);
   const { city, state: st } = resolveContactCityState(c);
   const nb = normNeighborhood(c.neighborhood || '', city);
   const street = String(c.street || '').trim();
@@ -556,9 +593,10 @@ function streetGeocodeVariants(street: string): string[] {
   return out;
 }
 
-function buildContactGeocodeQueries(c: Contact): string[] {
+function buildContactGeocodeQueries(raw: Contact): string[] {
+  const c = hydrateContactForGeo(raw);
   const { city, state: st } = resolveContactCityState(c);
-  const nb = normNeighborhood(c.neighborhood || '');
+  const nb = normNeighborhood(c.neighborhood || '', city);
   const streetRaw = String(c.street || '').trim();
   const number = String(c.number || '').trim();
   const zip = (c.zipCode || '').replace(/\D/g, '');
@@ -569,7 +607,16 @@ function buildContactGeocodeQueries(c: Contact): string[] {
     if (s.length >= 5 && !out.includes(s)) out.push(s);
   };
 
+  const streetVariants = new Set<string>();
   for (const street of streetGeocodeVariants(streetRaw)) {
+    if (!street) continue;
+    streetVariants.add(street);
+    const low = street.toLowerCase();
+    if (!low.startsWith('rua ') && !low.startsWith('av ') && !low.startsWith('avenida ')) {
+      streetVariants.add(`Rua ${street}`);
+    }
+  }
+  for (const street of streetVariants) {
     if (street && number && nb && city) {
       push(`${street}, ${number}, ${nb}, ${city}, ${st}, Brasil`);
     }
@@ -610,16 +657,19 @@ function resolveContactCityState(c: Contact): { city: string; state: string } {
   );
 }
 
-function contactCoordsValid(c: Contact, lat: number, lng: number): boolean {
-  const { city, state } = resolveContactCityState(c);
-  return isCoordPlausibleForCity(lat, lng, city, state);
+function contactCoordsValid(c: Contact, lat: number, lng: number, maxKm = 55): boolean {
+  const { city, state } = resolveContactCityState(hydrateContactForGeo(c));
+  return isCoordPlausibleForCity(lat, lng, city, state, maxKm);
 }
 
 function storedContactCoords(c: Contact): { lat: number; lng: number } | null {
-  if (!Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return null;
-  const fixed = fixBrazilCoord(c.latitude!, c.longitude!);
-  if (!contactCoordsValid(c, fixed.lat, fixed.lng)) return null;
-  return fixed;
+  const h = hydrateContactForGeo(c);
+  if (!Number.isFinite(h.latitude) || !Number.isFinite(h.longitude)) return null;
+  const fixed = fixBrazilCoord(h.latitude!, h.longitude!);
+  if (!isInsideBrazilBounds(fixed.lat, fixed.lng)) return null;
+  if (hasTrustedStreetGeocode(h)) return fixed;
+  if (contactCoordsValid(h, fixed.lat, fixed.lng)) return fixed;
+  return null;
 }
 
 function pickClusterCoords(
@@ -753,11 +803,12 @@ function contactNameMatches(c: Contact, rawName?: string): boolean {
 }
 
 function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
-  if (!contactNameMatches(c, q.name)) return false;
+  const contact = hydrateContactForGeo(c);
+  if (!contactNameMatches(contact, q.name)) return false;
 
-  const { city, state: st } = resolveContactCityState(c);
-  const ddd = resolveContactDdd(c);
-  const nb = normNeighborhood(c.neighborhood || '', city);
+  const { city, state: st } = resolveContactCityState(contact);
+  const ddd = resolveContactDdd(contact);
+  const nb = normNeighborhood(contact.neighborhood || '', city);
 
   if (q.state && normKeyPart(st) !== normKeyPart(q.state)) return false;
   if (q.city) {
@@ -773,6 +824,103 @@ function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
   return true;
 }
 
+function contactCoordsNeedRefresh(c: Contact): boolean {
+  const h = hydrateContactForGeo(c);
+  if (!hasFullStreetAddress(h)) return false;
+  const stored = storedContactCoords(h);
+  if (!stored) return true;
+  if (isLikelyCityCenterOnly(h, stored.lat, stored.lng)) return true;
+  const prec = h.geocodePrecision;
+  return prec === 'city' || prec === 'neighborhood';
+}
+
+async function ensureContactsGeocodedForNameSearch(
+  tenantId: string,
+  filtered: Contact[],
+  max = 12
+): Promise<Contact[]> {
+  if (!isGoogleGeocodeEnabled() && !isNominatimEnabled()) {
+    return filtered.map(hydrateContactForGeo);
+  }
+
+  const out: Contact[] = [];
+  let geocoded = 0;
+  for (const raw of filtered) {
+    let c = hydrateContactForGeo(raw);
+    if (!hasFullStreetAddress(c)) {
+      out.push(c);
+      continue;
+    }
+    if (geocoded >= max) {
+      out.push(c);
+      continue;
+    }
+    const alreadyExact =
+      storedContactCoords(c) &&
+      c.geocodePrecision === 'street' &&
+      !isLikelyCityCenterOnly(c, c.latitude!, c.longitude!);
+    if (alreadyExact) {
+      out.push(c);
+      continue;
+    }
+    try {
+      const hit = await geocodeContactAddress(c);
+      if (hit) {
+        geocoded++;
+        const updated = await updateContact(tenantId, c.id, {
+          latitude: hit.lat,
+          longitude: hit.lng,
+          geocodedAt: new Date().toISOString(),
+          geocodePrecision: hit.precision
+        });
+        c = hydrateContactForGeo(
+          updated || {
+            ...c,
+            latitude: hit.lat,
+            longitude: hit.lng,
+            geocodedAt: new Date().toISOString(),
+            geocodePrecision: hit.precision
+          }
+        );
+      }
+    } catch (e) {
+      console.warn('[leads-geo/name-search-geocode]', c.id, e);
+    }
+    out.push(c);
+  }
+  return out;
+}
+
+function alignClustersToExactPins(clusters: GeoCluster[], pins: GeoContactPin[]): GeoCluster[] {
+  const acc = new Map<string, { lat: number; lng: number; n: number }>();
+  for (const pin of pins) {
+    if (pin.approximate) continue;
+    const key = clusterKey('neighborhood', {
+      city: pin.city,
+      neighborhood: pin.neighborhood
+    });
+    const prev = acc.get(key);
+    if (prev) {
+      prev.lat += pin.lat;
+      prev.lng += pin.lng;
+      prev.n += 1;
+    } else {
+      acc.set(key, { lat: pin.lat, lng: pin.lng, n: 1 });
+    }
+  }
+  if (acc.size === 0) return clusters;
+  return clusters.map((cluster) => {
+    const hit = acc.get(cluster.key);
+    if (!hit || hit.n <= 0) return cluster;
+    return {
+      ...cluster,
+      lat: hit.lat / hit.n,
+      lng: hit.lng / hit.n,
+      mapped: true
+    };
+  });
+}
+
 async function loadTenantContacts(tenantId: string): Promise<Contact[]> {
   const pool = getZapmassPool();
   if (pool) {
@@ -781,9 +929,10 @@ async function loadTenantContacts(tenantId: string): Promise<Contact[]> {
        FROM zapmass.contacts WHERE tenant_id = $1::uuid`,
       [tenantId]
     );
-    return r.rows.map(rowToContact);
+    return r.rows.map((row) => hydrateContactForGeo(rowToContact(row)));
   }
-  return listContacts(tenantId, { limit: 50_000, offset: 0 });
+  const list = await listContacts(tenantId, { limit: 50_000, offset: 0 });
+  return list.map(hydrateContactForGeo);
 }
 
 export async function buildLeadsGeoSummary(
@@ -797,7 +946,11 @@ export async function buildLeadsGeoSummary(
 
   const contacts = await loadTenantContacts(tenantId);
   const cache = readGeoCache();
-  const filtered = contacts.filter((c) => contactMatchesFilters(c, query));
+  const nameSearchActive = (query.name || '').trim().length >= 2;
+  let filtered = contacts.filter((c) => contactMatchesFilters(c, query));
+  if (nameSearchActive && filtered.length > 0 && filtered.length <= 20) {
+    filtered = await ensureContactsGeocodedForNameSearch(tenantId, filtered);
+  }
 
   const clusterMap = new Map<string, GeoCluster>();
   const byState: Record<string, number> = {};
@@ -817,7 +970,6 @@ export async function buildLeadsGeoSummary(
   let withNeighborhood = 0;
   let withPhone = 0;
   const contactPins: GeoContactPin[] = [];
-  const nameSearchActive = (query.name || '').trim().length >= 2;
   const maxContactPins = nameSearchActive
     ? 800
     : query.neighborhood
@@ -868,7 +1020,8 @@ export async function buildLeadsGeoSummary(
     filterSets.neighborhoods.add(label);
   }
 
-  for (const c of filtered) {
+  for (const raw of filtered) {
+    const c = hydrateContactForGeo(raw);
     const { city: rawCity, state: rawState } = resolveContactCityState(c);
     const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
     const st = stResolved || '—';
@@ -919,7 +1072,7 @@ export async function buildLeadsGeoSummary(
         mapped: false,
         sampleNames: []
       };
-      const picked = pickClusterCoords(draft, cache);
+      const picked = nameSearchActive ? null : pickClusterCoords(draft, cache);
       cluster = {
         ...draft,
         lat: picked?.lat ?? null,
@@ -933,10 +1086,16 @@ export async function buildLeadsGeoSummary(
 
     if (precision === 'neighborhood') {
       const stored = storedContactCoords(c);
-      if (stored && isCoordPlausibleForCity(stored.lat, stored.lng, city, st, 35)) {
-        cluster.lat = stored.lat;
-        cluster.lng = stored.lng;
-        cluster.mapped = true;
+      if (stored) {
+        const maxKm = hasTrustedStreetGeocode(c) ? 90 : 40;
+        if (
+          isCoordPlausibleForCity(stored.lat, stored.lng, city, st, maxKm) ||
+          hasTrustedStreetGeocode(c)
+        ) {
+          cluster.lat = stored.lat;
+          cluster.lng = stored.lng;
+          cluster.mapped = true;
+        }
       }
     }
     if (cluster.sampleNames.length < 3 && (c.name || '').trim()) {
@@ -946,7 +1105,7 @@ export async function buildLeadsGeoSummary(
     if (hasFullStreetAddress(c)) filteredWithFullAddress++;
 
     const storedPin = storedContactCoords(c);
-    if (storedPin && hasFullStreetAddress(c)) {
+    if (storedPin) {
       pinsMapped++;
       appendContactPin(
         contactPins,
@@ -954,7 +1113,7 @@ export async function buildLeadsGeoSummary(
         c,
         storedPin.lat,
         storedPin.lng,
-        contactPinPrecision(c),
+        hasTrustedStreetGeocode(c) ? 'address' : contactPinPrecision(c),
         false
       );
     } else if (hasFullStreetAddress(c)) {
@@ -998,7 +1157,9 @@ export async function buildLeadsGeoSummary(
     if (cluster.state === '—' && inferred) cluster.state = inferred;
   }
 
-  const clusters = mergeDuplicateClusters([...clusterMap.values()], layer);
+  let clusters = mergeDuplicateClusters([...clusterMap.values()], layer);
+  clusters = alignClustersToExactPins(clusters, contactPins);
+
   const clustersMapped = clusters.filter((c) => c.mapped && c.lat != null).length;
   const clustersPending = clusters.filter((c) => {
     if (c.precision === 'ddd' || c.precision === 'state') return false;
@@ -1173,14 +1334,22 @@ export function isContactGeocodeAvailable(): boolean {
 
 export async function geocodeContactsWithAddress(
   tenantId: string,
-  opts?: { max?: number; city?: string; neighborhood?: string; force?: boolean }
+  opts?: { max?: number; city?: string; neighborhood?: string; name?: string; force?: boolean }
 ): Promise<{ geocoded: number; failed: number; summary: LeadsGeoSummary }> {
   const max = Math.min(Math.max(opts?.max ?? 60, 1), 120);
 
   const contacts = await loadTenantContacts(tenantId);
   const pending = contacts
     .filter((c) => {
-      if (!contactMatchesFilters(c, { city: opts?.city, neighborhood: opts?.neighborhood })) return false;
+      if (
+        !contactMatchesFilters(c, {
+          city: opts?.city,
+          neighborhood: opts?.neighborhood,
+          name: opts?.name
+        })
+      ) {
+        return false;
+      }
       if (opts?.force && hasFullStreetAddress(c)) return true;
       const hasBadCoords =
         Number.isFinite(c.latitude) &&
@@ -1229,7 +1398,8 @@ export async function geocodeContactsWithAddress(
   const summary = await buildLeadsGeoSummary(tenantId, {
     layer: opts?.neighborhood || opts?.city ? 'neighborhood' : 'city',
     city: opts?.city,
-    neighborhood: opts?.neighborhood
+    neighborhood: opts?.neighborhood,
+    name: opts?.name
   });
   return { geocoded, failed, summary };
 }

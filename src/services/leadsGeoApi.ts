@@ -101,6 +101,7 @@ export async function fetchLeadsGeoConfig(): Promise<{
   googleMapsAvailable: boolean;
   nominatimEnabled: boolean;
   mapKey: string | null;
+  buildRef: string | null;
 }> {
   const j = await apiFetchJson<{
     enabled?: boolean;
@@ -109,6 +110,7 @@ export async function fetchLeadsGeoConfig(): Promise<{
     googleMapsAvailable?: boolean;
     nominatimEnabled?: boolean;
     mapKey?: string | null;
+    buildRef?: string | null;
   }>('/api/leads-geo/config');
   return {
     enabled: j.enabled !== false,
@@ -116,7 +118,8 @@ export async function fetchLeadsGeoConfig(): Promise<{
     mapProvider: j.mapProvider === 'google' ? 'google' : 'openstreetmap',
     googleMapsAvailable: !!j.googleMapsAvailable,
     nominatimEnabled: j.nominatimEnabled !== false,
-    mapKey: j.mapKey ?? null
+    mapKey: j.mapKey ?? null,
+    buildRef: j.buildRef ?? null
   };
 }
 
@@ -154,7 +157,7 @@ export async function apiGeocodeLeadsClusters(
 }
 
 export async function apiGeocodeContacts(
-  opts: { max?: number; city?: string; neighborhood?: string; force?: boolean } = {}
+  opts: { max?: number; city?: string; neighborhood?: string; name?: string; force?: boolean } = {}
 ): Promise<{ geocoded: number; failed: number; summary: LeadsGeoSummary }> {
   return apiFetchJson('/api/leads-geo/geocode-contacts', {
     method: 'POST',

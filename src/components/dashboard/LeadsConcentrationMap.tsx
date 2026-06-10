@@ -196,11 +196,19 @@ const LEAD_TEMP_COLORS: Record<ContactTemperature, string> = {
   new: '#94a3b8'
 };
 
-function contactPinIcon(pin: GeoContactPin, temp: ContactTemperature = 'new'): L.DivIcon {
+function contactPinIcon(
+  pin: GeoContactPin,
+  temp: ContactTemperature = 'new',
+  highlight = false
+): L.DivIcon {
   const color = LEAD_TEMP_COLORS[temp];
-  const ring = temp === 'hot' ? 'box-shadow:0 0 0 2px #fecaca;' : '';
+  const ring = highlight
+    ? 'box-shadow:0 0 0 3px #c4b5fd,0 0 0 6px rgba(139,92,246,.35);'
+    : temp === 'hot'
+      ? 'box-shadow:0 0 0 2px #fecaca;'
+      : '';
   const approx = pin.approximate;
-  const size = approx ? 14 : 22;
+  const size = highlight ? 28 : approx ? 14 : 22;
   const opacity = approx ? 0.72 : 1;
   const border = approx ? '1px dashed rgba(255,255,255,.9)' : '2px solid #fff';
   return L.divIcon({
@@ -267,6 +275,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     enabled: boolean;
     geocodeEnabled: boolean;
     mapKey: string | null;
+    buildRef: string | null;
   } | null>(null);
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [layer, setLayer] = useState<GeoLayer>('city');
@@ -377,13 +386,14 @@ export const LeadsConcentrationMap: React.FC = () => {
   }, [allValidClusters, layer, filterNeighborhood, filterCity, filterState, filterDdd]);
 
   const displayClusters = useMemo(() => {
+    if (contactNameFilter) return [];
     if (!selectedClusterKey) return clustersMatchingFilters;
     const hit = allValidClusters.filter((c) => c.key === selectedClusterKey);
     if (hit.length > 0) return hit;
     const raw = mergedClusters.filter((c) => c.key === selectedClusterKey && c.lat != null && c.lng != null);
     if (raw.length > 0) return raw;
     return clustersMatchingFilters;
-  }, [allValidClusters, selectedClusterKey, mergedClusters, clustersMatchingFilters]);
+  }, [allValidClusters, selectedClusterKey, mergedClusters, clustersMatchingFilters, contactNameFilter]);
 
   const allValidPins = useMemo(
     () =>
@@ -396,6 +406,7 @@ export const LeadsConcentrationMap: React.FC = () => {
   );
 
   const displayPins = useMemo(() => {
+    if (contactNameFilter) return allValidPins;
     if (selectedCluster) {
       return allValidPins.filter((p) => pinMatchesCluster(p, selectedCluster, layer));
     }
@@ -414,7 +425,7 @@ export const LeadsConcentrationMap: React.FC = () => {
       );
     }
     return allValidPins;
-  }, [allValidPins, selectedCluster, layer, filterCity, filterNeighborhood]);
+  }, [allValidPins, selectedCluster, layer, filterCity, filterNeighborhood, contactNameFilter]);
 
   const pinStats = summary?.pinStats;
 
@@ -662,8 +673,8 @@ export const LeadsConcentrationMap: React.FC = () => {
   useEffect(() => {
     if (!contactNameFilter) return;
     setSelectedClusterKey(null);
-    if (allValidPins.length > 0) setMapMode('pins');
-  }, [contactNameFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+    setMapMode('pins');
+  }, [contactNameFilter]);
 
   /** Evita seleção de bairro antigo (ex. Centro) após trocar o filtro para outro bairro. */
   useEffect(() => {
@@ -730,7 +741,9 @@ export const LeadsConcentrationMap: React.FC = () => {
     const localMarkers = useLocalMarkers(layer, filterCity) || singleSelection;
     const usePixelHeat = !localMarkers;
 
-    const drawClusters = hasClusters && (mapMode !== 'pins' || !hasPins);
+    const prioritizeContactPins = Boolean(contactNameFilter && hasPins);
+    const drawClusters =
+      hasClusters && !prioritizeContactPins && (mapMode !== 'pins' || !hasPins);
     if (drawClusters) {
       for (const cluster of displayClusters) {
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
@@ -790,7 +803,14 @@ export const LeadsConcentrationMap: React.FC = () => {
         const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
         bounds.extend([lat, lng]);
         const temp = contactTemps[pin.id]?.temp || 'new';
-        L.marker([lat, lng], { icon: contactPinIcon(pin, temp) })
+        L.marker([lat, lng], {
+          icon: contactPinIcon(
+            pin,
+            temp,
+            Boolean(contactNameFilter && displayPins.length <= 3)
+          ),
+          zIndexOffset: contactNameFilter ? 1200 : 0
+        })
           .bindPopup(pinPopupHtml(pin, temp))
           .addTo(group);
       }
@@ -799,7 +819,14 @@ export const LeadsConcentrationMap: React.FC = () => {
     const map = mapInstanceRef.current;
     const shouldRefitView = lastFittedViewKeyRef.current !== mapViewKey;
     if (shouldRefitView) {
-      if (singleSelection && displayClusters[0]?.lat != null) {
+      if (contactNameFilter && displayPins.length === 1) {
+        const pin = displayPins[0]!;
+        const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
+        map.setView([lat, lng], 17, { animate: false });
+      } else if (contactNameFilter && displayPins.length > 1 && bounds.isValid()) {
+        const clipped = bounds.intersects(BRAZIL_BOUNDS) ? bounds : BRAZIL_BOUNDS;
+        map.fitBounds(clipped, { padding: [48, 48], maxZoom: 16 });
+      } else if (singleSelection && displayClusters[0]?.lat != null) {
         const c = displayClusters[0]!;
         const { lat, lng } = fixBrazilCoord(c.lat!, c.lng!);
         map.setView([lat, lng], maxZoom, { animate: false });
@@ -821,6 +848,7 @@ export const LeadsConcentrationMap: React.FC = () => {
   }, [
     displayClusters,
     displayPins,
+    contactNameFilter,
     contactTemps,
     mapMode,
     mapViewKey,
@@ -1034,6 +1062,9 @@ export const LeadsConcentrationMap: React.FC = () => {
             <h3 className="ui-title text-[15px]">Onde moram seus leads</h3>
             <p className="ui-subtitle text-[12px]">
               Mapa gratuito (OpenStreetMap) — concentração por DDD, cidade, bairro e UF
+              {config?.buildRef ? (
+                <span className="ml-1 text-slate-400 font-mono">· build {config.buildRef}</span>
+              ) : null}
             </p>
           </div>
         </div>
@@ -1078,7 +1109,9 @@ export const LeadsConcentrationMap: React.FC = () => {
       {loading && !summary ? (
         <div className="flex items-center justify-center py-16 text-slate-500 gap-2">
           <Loader2 className="w-5 h-5 animate-spin" />
-          Carregando distribuição geográfica…
+          {contactNameFilter
+            ? 'Localizando endereço do contato no mapa…'
+            : 'Carregando distribuição geográfica…'}
         </div>
       ) : !stats ? (
         <p className="text-sm text-slate-500 py-8 text-center">Sem dados de contatos.</p>
@@ -1308,34 +1341,43 @@ export const LeadsConcentrationMap: React.FC = () => {
               </FilterSelect>
             )}
             <div className="flex items-end gap-1 ml-auto">
-              <Button
-                type="button"
-                size="sm"
-                variant={mapMode === 'heatmap' ? 'primary' : 'ghost'}
-                leftIcon={<Flame className="w-3.5 h-3.5" />}
-                onClick={() => setMapMode('heatmap')}
-              >
-                Calor
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={mapMode === 'circles' ? 'primary' : 'ghost'}
-                leftIcon={<MapPin className="w-3.5 h-3.5" />}
-                onClick={() => setMapMode('circles')}
-              >
-                Círculos
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={mapMode === 'pins' ? 'primary' : 'ghost'}
-                leftIcon={<User className="w-3.5 h-3.5" />}
-                onClick={() => setMapMode('pins')}
-                title="Só contatos com rua, número e coordenadas localizadas"
-              >
-                Endereços
-              </Button>
+              {contactNameFilter ? (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-600/15 border border-violet-500/30 text-violet-800 dark:text-violet-200 text-[11px] font-bold">
+                  <User className="w-3.5 h-3.5" />
+                  Modo endereço (busca por nome)
+                </div>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={mapMode === 'heatmap' ? 'primary' : 'ghost'}
+                    leftIcon={<Flame className="w-3.5 h-3.5" />}
+                    onClick={() => setMapMode('heatmap')}
+                  >
+                    Calor
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={mapMode === 'circles' ? 'primary' : 'ghost'}
+                    leftIcon={<MapPin className="w-3.5 h-3.5" />}
+                    onClick={() => setMapMode('circles')}
+                  >
+                    Círculos
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={mapMode === 'pins' ? 'primary' : 'ghost'}
+                    leftIcon={<User className="w-3.5 h-3.5" />}
+                    onClick={() => setMapMode('pins')}
+                    title="Só contatos com rua, número e coordenadas localizadas"
+                  >
+                    Endereços
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
@@ -1346,7 +1388,24 @@ export const LeadsConcentrationMap: React.FC = () => {
               }`}
             >
               <div ref={mapRef} className="absolute inset-0 w-full h-full" />
-              {filterCity && layer === 'neighborhood' && !filterNeighborhood && !selectedCluster && (
+              {loading && contactNameFilter && (
+                <div className="absolute inset-0 z-[600] flex flex-col items-center justify-center gap-2 bg-slate-900/55 text-white pointer-events-none">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <p className="text-sm font-semibold">Localizando endereço no mapa…</p>
+                </div>
+              )}
+              {contactNameFilter && !loading && displayPins.length === 1 && (
+                <div className="absolute top-3 left-3 z-[500] max-w-[min(100%,320px)] rounded-lg bg-violet-700/95 text-white px-3 py-2 shadow-lg border border-violet-400/50 pointer-events-none">
+                  <p className="text-[9px] font-bold uppercase tracking-wider opacity-90">Contato encontrado</p>
+                  <p className="text-[12px] font-bold truncate">{displayPins[0]!.name}</p>
+                  <p className="text-[10px] opacity-90 truncate">
+                    {[displayPins[0]!.street, displayPins[0]!.number, displayPins[0]!.neighborhood]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </p>
+                </div>
+              )}
+              {filterCity && layer === 'neighborhood' && !filterNeighborhood && !selectedCluster && !contactNameFilter && (
                 <div className="absolute top-3 left-3 z-[500] max-w-[min(100%,300px)] rounded-lg bg-teal-700/95 text-white px-3 py-2 shadow-lg border border-teal-500/50 pointer-events-none">
                   <p className="text-[9px] font-bold uppercase tracking-wider opacity-90">Bairros da cidade</p>
                   <p className="text-[12px] font-bold truncate">{filterCity}</p>

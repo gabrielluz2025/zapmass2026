@@ -28,7 +28,8 @@ export function registerLeadsGeoRoutes(app: Express): void {
       geocodeEnabled: isContactGeocodeAvailable(),
       nominatimEnabled: process.env.NOMINATIM_DISABLED !== '1',
       googleMapsAvailable: isGoogleMapsJsEnabled(),
-      mapKey: getGoogleMapsJsApiKey() || null
+      mapKey: getGoogleMapsJsApiKey() || null,
+      buildRef: process.env.VITE_GIT_REF || process.env.GIT_REF || null
     });
   });
 
@@ -87,6 +88,7 @@ export function registerLeadsGeoRoutes(app: Express): void {
       max?: number;
       city?: string;
       neighborhood?: string;
+      name?: string;
       force?: boolean;
     };
     const max = Number(body.max) || 60;
@@ -95,6 +97,7 @@ export function registerLeadsGeoRoutes(app: Express): void {
         max,
         city: body.city,
         neighborhood: body.neighborhood,
+        name: body.name?.trim() || undefined,
         force: body.force === true
       });
       return res.json({ ok: true, ...result });
