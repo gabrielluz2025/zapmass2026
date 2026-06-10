@@ -435,29 +435,29 @@ async function geocodeContactAddress(c: Contact): Promise<{ lat: number; lng: nu
   const street = String(c.street || '').trim();
   const number = String(c.number || '').trim();
   const zip = (c.zipCode || '').replace(/\D/g, '');
-  const zip8 = zip.length >= 8 ? zip.slice(0, 8) : zip.length >= 5 ? zip.padEnd(8, '0') : '';
 
   if (isNominatimEnabled() && city) {
-    for (const stVariant of streetGeocodeVariants(street)) {
-      const structuredStreet = [stVariant, number].filter(Boolean).join(' ');
+    for (const streetVariant of streetGeocodeVariants(street)) {
+      const structuredStreet = [streetVariant, number, nb].filter(Boolean).join(', ');
       const structHit = await geocodeNominatimStructured({
         street: structuredStreet || undefined,
         city,
         state: st ? UF_NAMES[st] || st : undefined,
         country: 'Brasil',
-        postalcode: zip8.length >= 8 ? zip8 : undefined
+        postalcode: zip.length >= 8 ? zip : zip.length >= 5 ? zip.slice(0, 5) : undefined
       });
       if (structHit.ok) {
         const fixed = fixBrazilCoord(structHit.lat, structHit.lng);
         if (isCoordPlausibleForCity(fixed.lat, fixed.lng, city, st)) return fixed;
       }
     }
+    const structuredStreet = [street, number].filter(Boolean).join(' ');
     const structHit = await geocodeNominatimStructured({
-      street: [street, number].filter(Boolean).join(' ') || undefined,
+      street: structuredStreet || undefined,
       city,
       state: st ? UF_NAMES[st] || st : undefined,
       country: 'Brasil',
-      postalcode: zip8.length >= 8 ? zip8 : undefined
+      postalcode: zip.length >= 8 ? zip : zip.length >= 5 ? zip.slice(0, 5) : undefined
     });
     if (structHit.ok) {
       const fixed = fixBrazilCoord(structHit.lat, structHit.lng);
@@ -473,39 +473,42 @@ async function geocodeContactAddress(c: Contact): Promise<{ lat: number; lng: nu
 }
 
 function streetGeocodeVariants(street: string): string[] {
-  const base = String(street || '').trim();
+  const base = repairUtf8Mojibake(String(street || '').trim());
   if (!base) return [];
   const out = [base];
-  const eca = base.replace(/\bEca\b/gi, 'Eça').replace(/\beca\b/g, 'eça');
-  if (eca !== base) out.push(eca);
+  const push = (s: string) => {
+    const t = s.trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  push(base.replace(/\bEca\b/gi, 'Eça'));
+  push(base.replace(/\bEca\b/gi, 'Eca'));
   return out;
 }
 
 function buildContactGeocodeQueries(c: Contact): string[] {
   const { city, state: st } = resolveContactCityState(c);
   const nb = normNeighborhood(c.neighborhood || '');
-  const street = String(c.street || '').trim();
   const number = String(c.number || '').trim();
   const zip = (c.zipCode || '').replace(/\D/g, '');
-  const zip8 = zip.length >= 8 ? zip.slice(0, 8) : zip.length >= 5 ? zip.padEnd(8, '0') : '';
   const out: string[] = [];
   const push = (q: string | null | undefined) => {
     const s = String(q || '').trim();
     if (s.length >= 5 && !out.includes(s)) out.push(s);
   };
 
-  for (const stVariant of streetGeocodeVariants(street)) {
-    if (stVariant && number && nb && city) {
-      push(`${stVariant}, ${number}, ${nb}, ${city}, ${st}, Brasil`);
+  for (const street of streetGeocodeVariants(String(c.street || ''))) {
+    if (street && number && nb && city) {
+      push(`${street}, ${number}, ${nb}, ${city}, ${st}, Brasil`);
     }
-    if (stVariant && number && city) {
-      push(`${stVariant}, ${number}, ${city}, ${st}, Brasil`);
+    if (street && number && city) {
+      push(`${street}, ${number}, ${city}, ${st}, Brasil`);
+    }
+    if (street && number && nb && city) {
+      push(`${street} ${number}, ${nb}, ${city}, ${st}, Brasil`);
     }
   }
-  if (zip8.length >= 8) {
-    push(`${zip8.slice(0, 5)}-${zip8.slice(5, 8)}, ${city}, ${st}, Brasil`);
-    push(`${zip8.slice(0, 5)}-${zip8.slice(5, 8)}, Brasil`);
-  }
+  if (zip.length >= 8) push(`${zip.slice(0, 5)}-${zip.slice(5, 8)}, Brasil`);
+  if (zip.length >= 5 && city) push(`${zip.slice(0, 5)}, ${city}, ${st}, Brasil`);
   if (nb && city) push(`${nb}, ${city}, ${st}, Brasil`);
   if (city) push(`${city}, ${st}, Brasil`);
   return out;
@@ -769,18 +772,6 @@ export async function buildLeadsGeoSummary(
     filterSets.neighborhoods.add(label);
   }
 
-  const approxPinBuckets = new Map<string, Contact[]>();
-  for (const c of filtered) {
-    if (!hasFullStreetAddress(c) || storedContactCoords(c)) continue;
-    const { city: rawCity } = resolveContactCityState(c);
-    const cityCanon = rawCity ? canonClusterCity(rawCity, resolveContactState(c)) : '';
-    const nb = normNeighborhood(c.neighborhood || '', cityCanon || rawCity) || '—';
-    const bucketKey = `${normKeyPart(cityCanon || rawCity)}:${normNeighborhoodKey(nb)}`;
-    const list = approxPinBuckets.get(bucketKey) || [];
-    list.push(c);
-    approxPinBuckets.set(bucketKey, list);
-  }
-
   for (const c of filtered) {
     const { city: rawCity, state: rawState } = resolveContactCityState(c);
     const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
@@ -871,14 +862,20 @@ export async function buildLeadsGeoSummary(
         false
       );
     } else if (hasFullStreetAddress(c)) {
-      const bucketKey = `${normKeyPart(cityCanon || rawCity)}:${normNeighborhoodKey(nb)}`;
-      const bucket = approxPinBuckets.get(bucketKey) || [c];
-      const pinIndex = Math.max(0, bucket.indexOf(c));
-      const pinTotal = bucket.length;
-      const approx = resolveContactPinCoord(c, city, st, nb, pinIndex, pinTotal, cache);
-      if (approx) {
-        if (approx.approximate) pinsApproximate++;
-        else pinsMapped++;
+      pinsPending++;
+      const { city: pinCity, state: pinState } = resolveContactCityState(c);
+      const nb = normNeighborhood(c.neighborhood || '', pinCity);
+      const approx = resolveContactPinCoord(
+        c,
+        pinCity || '—',
+        pinState || '—',
+        nb || '—',
+        pinsApproximate,
+        Math.max(filteredWithFullAddress, pinsPending, 1),
+        cache
+      );
+      if (approx?.approximate) {
+        pinsApproximate++;
         appendContactPin(
           contactPins,
           maxContactPins,
@@ -886,10 +883,8 @@ export async function buildLeadsGeoSummary(
           approx.lat,
           approx.lng,
           contactPinPrecision(c),
-          approx.approximate
+          true
         );
-      } else {
-        pinsPending++;
       }
     }
   }
@@ -1055,24 +1050,6 @@ export async function geocodeLeadsGeoClusters(
   return { geocoded, failed, pending: stillPending, googleStatus: lastGoogleStatus, summary: refreshed };
 }
 
-/** Geocodifica um contato após salvar endereço (não bloqueia a API). */
-export async function geocodeSingleContactIfNeeded(
-  tenantId: string,
-  contact: Contact
-): Promise<Contact | null> {
-  if (!isGoogleGeocodeEnabled() && !isNominatimEnabled()) return null;
-  if (storedContactCoords(contact)) return null;
-  if (!hasFullStreetAddress(contact) && !normCity(contact.city || '')) return null;
-
-  const hit = await geocodeContactAddress(contact);
-  if (!hit) return null;
-  return updateContact(tenantId, contact.id, {
-    latitude: hit.lat,
-    longitude: hit.lng,
-    geocodedAt: new Date().toISOString()
-  });
-}
-
 export async function geocodeContactsWithAddress(
   tenantId: string,
   opts?: { max?: number; city?: string; neighborhood?: string }
@@ -1138,4 +1115,39 @@ export async function geocodeContactsWithAddress(
     neighborhood: opts?.neighborhood
   });
   return { geocoded, failed, summary };
+}
+
+const ADDRESS_GEO_FIELDS = ['street', 'number', 'city', 'state', 'neighborhood', 'zipCode'] as const;
+
+export function contactAddressFieldsChanged(
+  before: Contact,
+  after: Partial<Contact>
+): boolean {
+  for (const k of ADDRESS_GEO_FIELDS) {
+    if (!(k in after)) continue;
+    const prev = String(before[k] ?? '').trim();
+    const next = String(after[k] ?? '').trim();
+    if (prev !== next) return true;
+  }
+  return false;
+}
+
+/** Geocodifica um contato após salvar endereço (não bloqueia a API se falhar). */
+export async function geocodeSingleContactIfNeeded(
+  tenantId: string,
+  contact: Contact
+): Promise<Contact> {
+  if (!isGoogleGeocodeEnabled() && !isNominatimEnabled()) return contact;
+  if (!hasFullStreetAddress(contact) && !normCity(contact.city || '')) return contact;
+  if (storedContactCoords(contact)) return contact;
+
+  const hit = await geocodeContactAddress(contact);
+  if (!hit) return contact;
+
+  const updated = await updateContact(tenantId, contact.id, {
+    latitude: hit.lat,
+    longitude: hit.lng,
+    geocodedAt: new Date().toISOString()
+  });
+  return updated || contact;
 }

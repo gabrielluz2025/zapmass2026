@@ -29,12 +29,6 @@ import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
 
-function scheduleContactGeocode(tenantId: string, contact: Contact): void {
-  void geocodeSingleContactIfNeeded(tenantId, contact).catch((e) => {
-    console.warn('[contacts/geocode]', contact.id, e instanceof Error ? e.message : e);
-  });
-}
-
 export function registerContactsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
 
@@ -74,8 +68,12 @@ export function registerContactsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Corpo inválido.' });
     }
     try {
-      const created = await createContact(ctx.tenantId, body);
-      scheduleContactGeocode(ctx.tenantId, created);
+      let created = await createContact(ctx.tenantId, body);
+      try {
+        created = await geocodeSingleContactIfNeeded(ctx.tenantId, created);
+      } catch (geoErr) {
+        console.warn('[api/contacts POST geocode]', geoErr);
+      }
       return res.json({ ok: true, contact: created, id: created.id });
     } catch (e) {
       console.error('[api/contacts POST]', e);
@@ -161,18 +159,15 @@ export function registerContactsDataRoutes(app: Express): void {
     if (!ctx) return;
     const id = String(req.params.id || '').trim();
     const updates = req.body as Partial<Contact>;
-    const updated = await updateContact(ctx.tenantId, id, updates);
+    let updated = await updateContact(ctx.tenantId, id, updates);
     if (!updated) {
       return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
     }
-    const addressTouched =
-      'street' in updates ||
-      'number' in updates ||
-      'city' in updates ||
-      'state' in updates ||
-      'neighborhood' in updates ||
-      'zipCode' in updates;
-    if (addressTouched) scheduleContactGeocode(ctx.tenantId, updated);
+    try {
+      updated = await geocodeSingleContactIfNeeded(ctx.tenantId, updated);
+    } catch (geoErr) {
+      console.warn('[api/contacts PATCH geocode]', geoErr);
+    }
     return res.json({ ok: true, contact: updated });
   });
 

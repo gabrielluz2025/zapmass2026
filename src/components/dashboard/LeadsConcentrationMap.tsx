@@ -502,17 +502,6 @@ export const LeadsConcentrationMap: React.FC = () => {
       const [cfg, sum] = await Promise.all([fetchLeadsGeoConfig(), fetchLeadsGeoSummary(q)]);
       setConfig(cfg);
       setSummary(sum);
-      if (cfg.geocodeEnabled && (sum.pinStats?.pinsPending || 0) > 0) {
-        void apiGeocodeContacts({
-          max: 40,
-          city: q.city,
-          neighborhood: q.neighborhood
-        })
-          .then((r) => {
-            if (r.geocoded > 0) setSummary(r.summary);
-          })
-          .catch(() => {});
-      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao carregar mapa de leads.';
       toast.error(msg);
@@ -524,6 +513,47 @@ export const LeadsConcentrationMap: React.FC = () => {
   useEffect(() => {
     void refreshSummary(query);
   }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const autoGeoRoundsRef = useRef(0);
+
+  /** Localiza contatos com endereço completo que ainda não têm coordenadas salvas. */
+  useEffect(() => {
+    if (loading || geocoding || !config?.geocodeEnabled || !summary) return;
+    const pending = summary.pinStats?.pinsPending || 0;
+    if (pending <= 0) {
+      autoGeoRoundsRef.current = 0;
+      return;
+    }
+    if (autoGeoRoundsRef.current >= 4) return;
+    let cancelled = false;
+    const run = async () => {
+      autoGeoRoundsRef.current += 1;
+      setGeocoding(true);
+      try {
+        const contacts = await apiGeocodeContacts({
+          max: Math.min(80, pending),
+          city: filterCity || undefined,
+          neighborhood: filterNeighborhood || undefined
+        });
+        if (!cancelled && contacts.summary) setSummary(contacts.summary);
+      } catch {
+        /* silencioso — o botão manual continua disponível */
+      } finally {
+        if (!cancelled) setGeocoding(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    geocoding,
+    config?.geocodeEnabled,
+    summary?.pinStats?.pinsPending,
+    filterCity,
+    filterNeighborhood
+  ]);
 
   const destroyMap = useCallback(() => {
     layerGroupRef.current = null;

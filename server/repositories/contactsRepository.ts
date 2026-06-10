@@ -113,6 +113,16 @@ export async function bulkCreateContacts(
   return ids;
 }
 
+const ADDRESS_GEO_KEYS = ['street', 'number', 'city', 'state', 'neighborhood', 'zipCode'] as const;
+
+function addressFieldsChanged(existing: Contact, updates: Partial<Contact>): boolean {
+  for (const k of ADDRESS_GEO_KEYS) {
+    if (!(k in updates)) continue;
+    if (String(updates[k] ?? '').trim() !== String(existing[k] ?? '').trim()) return true;
+  }
+  return false;
+}
+
 export async function updateContact(
   tenantId: string,
   id: string,
@@ -120,7 +130,10 @@ export async function updateContact(
 ): Promise<Contact | null> {
   const existing = await getContactById(tenantId, id);
   if (!existing) return null;
-  const merged = prepareContactForPersistence(mergeContactUpdates(existing, updates));
+  const patch = addressFieldsChanged(existing, updates)
+    ? { ...updates, latitude: undefined, longitude: undefined, geocodedAt: undefined }
+    : updates;
+  const merged = prepareContactForPersistence(mergeContactUpdates(existing, patch));
   const name = String(merged.name || 'Sem Nome').slice(0, 500);
   const phone = String(merged.phone || '').slice(0, 64);
   const doc = contactToDocPayload(merged);
