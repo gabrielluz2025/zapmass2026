@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -265,13 +265,9 @@ function popupHtml(cluster: GeoCluster, title?: string): string {
 export const LeadsConcentrationMap: React.FC = () => {
   const { contacts } = useZapMassCore();
   const conversations = useZapMassConversations();
-  // Deferido: o cálculo de temperatura varre 10k contatos × conversas. Mantê-lo fora
-  // do caminho síncrono de render evita travar o painel quando chegam atualizações.
-  const deferredContacts = useDeferredValue(contacts);
-  const deferredConversations = useDeferredValue(conversations);
   const contactTemps = useMemo(
-    () => computeContactTemperatures(deferredContacts, deferredConversations),
-    [deferredContacts, deferredConversations]
+    () => computeContactTemperatures(contacts, conversations),
+    [contacts, conversations]
   );
 
   const mapRef = useRef<HTMLDivElement>(null);
@@ -1121,7 +1117,7 @@ export const LeadsConcentrationMap: React.FC = () => {
                 className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[12px] font-bold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {geocoding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MapPin className="h-3.5 w-3.5" />}
-                Localizar no mapa
+                Posicionar pins
               </button>
             )}
           </div>
@@ -1483,16 +1479,16 @@ export const LeadsConcentrationMap: React.FC = () => {
                       ? filteredTotal === 0
                         ? `Nenhum contato com "${contactNameFilter}" no nome. Tente outra grafia ou limpe os filtros de cidade/UF.`
                         : allValidPins.length === 0
-                          ? 'Contato(s) encontrados, mas sem posição no mapa. Complete o endereço ou use Localizar no mapa.'
+                          ? 'Contato(s) encontrados, mas sem posição no mapa. Complete o endereço ou use Posicionar pins.'
                           : 'Ajuste o modo Endereços para ver os pins dos contatos encontrados.'
                       : mapMode === 'pins'
-                      ? 'Nenhum contato com endereço completo localizado neste filtro. Use Localizar no mapa (rua + número).'
+                      ? 'Nenhum contato com endereço completo localizado neste filtro. Use Posicionar pins (rua + número).'
                       : layer === 'ddd'
                         ? 'Contatos precisam de telefone com DDD válido.'
                         : layer === 'state'
                           ? 'Contatos precisam de UF no cadastro ou DDD no telefone.'
                           : filterCity
-                            ? 'Clique em Localizar no mapa para posicionar bairros com precisão.'
+                            ? 'Clique em Posicionar pins para geocodificar bairros com precisão.'
                             : 'Clique em uma cidade no ranking ou use Focar no mapa na maior concentração.'}
                   </p>
                 </div>
