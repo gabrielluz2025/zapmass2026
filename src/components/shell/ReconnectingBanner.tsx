@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { WifiOff, Loader2 } from 'lucide-react';
-import { useZapMassCore, useZapMassUiSnapshot } from '../../context/ZapMassContext';
+import { useZapMassSocket, useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { getSessionIdToken } from '../../utils/sessionAuth';
 
 /**
@@ -9,7 +9,7 @@ import { getSessionIdToken } from '../../utils/sessionAuth';
  */
 export const ReconnectingBanner: React.FC = () => {
   const { backendLinkState } = useZapMassUiSnapshot();
-  const { socket } = useZapMassCore();
+  const socket = useZapMassSocket();
   const [show, setShow] = useState(false);
   const [secondsOffline, setSecondsOffline] = useState(0);
   const [retrying, setRetrying] = useState(false);

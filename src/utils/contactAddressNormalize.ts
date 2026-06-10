@@ -314,24 +314,64 @@ const NEIGHBORHOOD_GAZETTEER: Record<string, Array<{ uf: string; city: string }>
   rondonia: [{ uf: 'SC', city: 'Blumenau' }]
 };
 
-/** Resolve cidade quando o campo cidade traz só o bairro, desempatando por UF/DDD. */
+/** Bairros do Vale do Itajaí (SC) — default quando a base não traz UF/DDD mas o cadastro é claramente regional. */
+const SC_VALE_ITAJAI_NB_KEYS = new Set([
+  'aguaverde',
+  'fortaleza',
+  'itoupavacentral',
+  'itoupavanzinha',
+  'itoupava',
+  'escolaagricola',
+  'velha',
+  'vorstadt',
+  'pontaguda',
+  'salto',
+  'badenfurt',
+  'progresso',
+  'vilaformosa',
+  'passomanso',
+  'valparaiso',
+  'garcia',
+  'rondonia'
+]);
+
+function inferUfSignals(stateHint: string, phone?: string, zipCode?: string): string[] {
+  const out: string[] = [];
+  if (stateHint) out.push(stateHint);
+  const phoneUf = phoneDigitsToUf(phone || '');
+  if (phoneUf) out.push(phoneUf);
+  const cepHit = municipalityFromCepPrefix(zipCode || '', '');
+  if (cepHit?.state) out.push(cepHit.state);
+  return out;
+}
+
+/** Resolve cidade quando o campo cidade traz só o bairro, desempatando por UF/DDD/CEP. */
 function knownNeighborhoodMunicipality(
   nbKey: string,
   stateHint: string,
-  phone?: string
+  phone?: string,
+  zipCode?: string
 ): { city: string; state: string } | null {
   if (!nbKey) return null;
   const candidates = NEIGHBORHOOD_GAZETTEER[nbKey];
   if (!candidates || candidates.length === 0) return null;
-  const uf = stateHint || phoneDigitsToUf(phone || '') || '';
-  if (uf) {
+
+  for (const uf of inferUfSignals(stateHint, phone, zipCode)) {
     const match = candidates.find((c) => c.uf === uf);
-    return match ? { city: match.city, state: match.uf } : null;
+    if (match) return { city: match.city, state: match.uf };
   }
+
   // Sem UF: só decide quando o bairro pertence a um único município conhecido.
   if (candidates.length === 1) {
     return { city: candidates[0].city, state: candidates[0].uf };
   }
+
+  // Vale do Itajaí: cadastros só com "Água Verde" no campo cidade, sem UF nem DDD.
+  if (SC_VALE_ITAJAI_NB_KEYS.has(nbKey)) {
+    const sc = candidates.find((c) => c.uf === 'SC');
+    if (sc) return { city: sc.city, state: sc.uf };
+  }
+
   return null;
 }
 
@@ -364,47 +404,52 @@ export function resolveGeoPlaceForContact(
 ): GeoPlaceResolution {
   const cityRaw = repairUtf8Mojibake(input.city || '');
   const nbRaw = repairUtf8Mojibake(input.neighborhood || '');
-  const stateHint = normalizeContactState(input.state || '');
+  const embedded = parseEmbeddedCityState(cityRaw);
+  const stateHint = normalizeContactState(input.state || '') || embedded.state;
+  const cityForResolve = embedded.city || cityRaw;
+  const nbKey = normNeighborhoodKey(cityForResolve);
 
-  const cityHit = tryResolveMunicipality(cityRaw, stateHint, ibgeIndex);
+  // Bairro conhecido no campo cidade — antes do IBGE (evita "Água Verde" virar município no ranking).
+  const gazHit = knownNeighborhoodMunicipality(
+    nbKey,
+    stateHint,
+    input.phone,
+    input.zipCode
+  );
+  if (cityForResolve && gazHit) {
+    const nb = normalizeContactNeighborhood(cityForResolve, gazHit.city);
+    return { city: gazHit.city, state: gazHit.state, neighborhood: nb };
+  }
+
+  const cityHit = tryResolveMunicipality(cityForResolve, stateHint, ibgeIndex);
   const nbHit = tryResolveMunicipality(nbRaw, stateHint, ibgeIndex);
 
-  if (cityHit && cityRaw) {
+  if (cityHit && cityForResolve) {
     const nb = normalizeContactNeighborhood(nbRaw, cityHit.city);
     return { city: cityHit.city, state: cityHit.state, neighborhood: nb };
   }
 
-  if (nbHit && cityRaw && !cityHit) {
-    const nb = normalizeContactNeighborhood(cityRaw, nbHit.city);
+  if (nbHit && cityForResolve && !cityHit) {
+    const nb = normalizeContactNeighborhood(cityForResolve, nbHit.city);
     return { city: nbHit.city, state: nbHit.state, neighborhood: nb };
   }
 
-  if (cityRaw && !cityHit && nbToCityMap) {
-    const mapped = nbToCityMap.get(normNeighborhoodKey(cityRaw));
+  if (cityForResolve && !cityHit && nbToCityMap) {
+    const mapped = nbToCityMap.get(nbKey);
     if (mapped) {
-      const nb = normalizeContactNeighborhood(cityRaw, mapped.city);
+      const nb = normalizeContactNeighborhood(cityForResolve, mapped.city);
       return { city: mapped.city, state: mapped.state || stateHint, neighborhood: nb };
     }
   }
 
-  const knownNb = knownNeighborhoodMunicipality(
-    normNeighborhoodKey(cityRaw),
-    stateHint,
-    input.phone
-  );
-  if (cityRaw && !cityHit && knownNb) {
-    const nb = normalizeContactNeighborhood(cityRaw, knownNb.city);
-    return { city: knownNb.city, state: knownNb.state, neighborhood: nb };
-  }
-
   const cepHit = municipalityFromCepPrefix(input.zipCode || '', stateHint);
-  if (cityRaw && !cityHit && cepHit) {
-    const nb = normalizeContactNeighborhood(cityRaw, cepHit.city);
+  if (cityForResolve && !cityHit && cepHit) {
+    const nb = normalizeContactNeighborhood(cityForResolve, cepHit.city);
     return { city: cepHit.city, state: cepHit.state, neighborhood: nb };
   }
 
-  const fb = resolveAddressCityState({ city: cityRaw, state: stateHint }, ibgeIndex);
-  const nb = normalizeContactNeighborhood(nbRaw || (!cityHit ? cityRaw : ''), fb.city);
+  const fb = resolveAddressCityState({ city: cityForResolve, state: stateHint }, ibgeIndex);
+  const nb = normalizeContactNeighborhood(nbRaw || (!cityHit ? cityForResolve : ''), fb.city);
   return { city: fb.city, state: fb.state, neighborhood: nb };
 }
 
@@ -453,6 +498,19 @@ export function buildNeighborhoodToCityMap(
     if (!cityMuni && nbMuni && cityRaw) {
       addVote(normNeighborhoodKey(cityRaw), nbMuni.city, nbMuni.state);
     }
+
+    // Bairro conhecido no campo cidade (ex.: 30k com city=Água Verde sem UF) — vota por DDD/CEP/UF.
+    const embedded = parseEmbeddedCityState(cityRaw);
+    const nbKey = normNeighborhoodKey(embedded.city || cityRaw);
+    if (!NEIGHBORHOOD_GAZETTEER[nbKey]) continue;
+    for (const uf of inferUfSignals(
+      stateHint || embedded.state,
+      c.phone,
+      c.zipCode
+    )) {
+      const hit = NEIGHBORHOOD_GAZETTEER[nbKey].find((x) => x.uf === uf);
+      if (hit) addVote(nbKey, hit.city, hit.uf);
+    }
   }
 
   const result = new Map<string, { city: string; state: string }>();
@@ -468,6 +526,22 @@ export function buildNeighborhoodToCityMap(
     const hit = meta.get(bestKey);
     if (hit && bestN >= 1) result.set(nbKey, hit);
   }
+
+  // Fallback regional: bairro do Vale do Itajaí sem nenhum voto (cadastro sem UF/DDD/CEP).
+  const nbOnlyCounts = new Map<string, number>();
+  for (const c of contacts) {
+    const cityRaw = repairUtf8Mojibake(c.city || '');
+    const embedded = parseEmbeddedCityState(cityRaw);
+    const nbKey = normNeighborhoodKey(embedded.city || cityRaw);
+    if (!SC_VALE_ITAJAI_NB_KEYS.has(nbKey) || result.has(nbKey)) continue;
+    nbOnlyCounts.set(nbKey, (nbOnlyCounts.get(nbKey) || 0) + 1);
+  }
+  for (const [nbKey, n] of nbOnlyCounts) {
+    if (n < 3) continue;
+    const sc = NEIGHBORHOOD_GAZETTEER[nbKey]?.find((x) => x.uf === 'SC');
+    if (sc) result.set(nbKey, { city: sc.city, state: sc.uf });
+  }
+
   return result;
 }
 

@@ -334,6 +334,8 @@ const ZAP_MASS_CONVERSATIONS_DEFAULT: ZapMassConversationsSlice = {
 const ZapMassConversationsContext = createContext(ZAP_MASS_CONVERSATIONS_DEFAULT);
 
 const ZapMassCoreContext = createContext<ZapMassCoreContextValue>(EMPTY_CORE);
+/** Socket isolado — AppShell/banners não re-renderizam quando `contacts` muda. */
+const ZapMassSocketContext = createContext<Socket | null>(null);
 function isCampaignApiDeleteRetryable(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err || '');
   return /404|não encontrada|not found|inválido/i.test(msg);
@@ -527,6 +529,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   });
 
   const socketRef = useRef<Socket | null>(null);
+  const [socketForShell, setSocketForShell] = useState<Socket | null>(null);
   /** Último payload completo de `conversations-update` pendente até o próximo paint (vários emits no mesmo frame = só o último). */
   const conversationsSocketPendingRef = useRef<Conversation[] | null>(null);
   const conversationsSocketRafRef = useRef<number | null>(null);
@@ -810,7 +813,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (total != null) setContactsSavedTotal(total);
         if (batch.length === 0) break;
         if (firstBatch) {
-          setContacts(batch);
+          startTransition(() => setContacts(batch));
           firstBatch = false;
         } else {
           startTransition(() => {
@@ -1027,7 +1030,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       };
     }
 
-    socketRef.current = io(BACKEND_URL, {
+    const sock = io(BACKEND_URL, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -1042,8 +1045,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         "ngrok-skip-browser-warning": "true"
       }
     });
-
-    const socket = socketRef.current;
+    socketRef.current = sock;
+    setSocketForShell(sock);
+    const socket = sock;
 
     const markBackendOnline = () => {
       if (offlineBadgeDelayRef.current) {
@@ -1493,12 +1497,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (Array.isArray(data?.birthdays)) setBirthdays(data.birthdays);
       // Contactos vêm do Firestore (`onSnapshot`); não substituir por [] se algum payload legado vier vazio.
       if (Array.isArray(data?.contacts) && data.contacts.length > 0) {
-        setContacts((prev) => {
-          const byId = new Map(prev.map((c) => [c.id, c]));
-          for (const c of data.contacts!) {
-            if (c?.id) byId.set(c.id, { ...(byId.get(c.id) || ({} as Contact)), ...c });
-          }
-          return Array.from(byId.values()).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR'));
+        startTransition(() => {
+          setContacts((prev) => {
+            const byId = new Map(prev.map((c) => [c.id, c]));
+            for (const c of data.contacts!) {
+              if (c?.id) byId.set(c.id, { ...(byId.get(c.id) || ({} as Contact)), ...c });
+            }
+            // Postgres já entrega ordenado — evita localeCompare em 10k no main thread.
+            return Array.from(byId.values());
+          });
         });
       }
     });
@@ -2297,6 +2304,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       flushCampaignPreviewBuffer();
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
+      socketRef.current = null;
+      setSocketForShell(null);
     };
   }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 
@@ -3570,15 +3579,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 
   return (
-    <ZapMassConnectionsSliceContext.Provider value={connectionsSlice}>
-      <ZapMassUiSnapshotContext.Provider value={zapMassUiSnapshot}>
-        <ZapMassConversationsContext.Provider value={zapMassConversationsSlice}>
-          <ZapMassCoreContext.Provider value={zapMassCoreValue}>{children}</ZapMassCoreContext.Provider>
-        </ZapMassConversationsContext.Provider>
-      </ZapMassUiSnapshotContext.Provider>
-    </ZapMassConnectionsSliceContext.Provider>
+    <ZapMassSocketContext.Provider value={socketForShell}>
+      <ZapMassConnectionsSliceContext.Provider value={connectionsSlice}>
+        <ZapMassUiSnapshotContext.Provider value={zapMassUiSnapshot}>
+          <ZapMassConversationsContext.Provider value={zapMassConversationsSlice}>
+            <ZapMassCoreContext.Provider value={zapMassCoreValue}>{children}</ZapMassCoreContext.Provider>
+          </ZapMassConversationsContext.Provider>
+        </ZapMassUiSnapshotContext.Provider>
+      </ZapMassConnectionsSliceContext.Provider>
+    </ZapMassSocketContext.Provider>
   );
 };
+
+/** Socket sem subscrever `contacts` / campanhas — use no AppShell e banners. */
+export function useZapMassSocket(): Socket | null {
+  return useContext(ZapMassSocketContext);
+}
 
 /** Sidebar, TopBar, banners: ignoram atualizações de conversas/contactos — menos “travar” ao sync. */
 export function useZapMassUiSnapshot(): ZapMassUiSnapshot {

@@ -3,7 +3,7 @@ import { Crown } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { ReconnectingBanner } from './ReconnectingBanner';
-import { useZapMassCore } from '../../context/ZapMassContext';
+import { useZapMassSocket } from '../../context/ZapMassContext';
 import { useSessionUsageHeartbeat } from '../../hooks/useSessionUsageHeartbeat';
 
 interface AppShellProps {
@@ -37,7 +37,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   onUpgradePro,
   mobileUpgradeFab = false
 }) => {
-  const { socket } = useZapMassCore();
+  const socket = useZapMassSocket();
   useSessionUsageHeartbeat(socket);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {

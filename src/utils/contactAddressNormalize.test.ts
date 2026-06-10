@@ -70,6 +70,19 @@ describe('contactAddressNormalize', () => {
     expect(r.state).toBe('SC');
   });
 
+  it('Água Verde sem UF/DDD cai em Blumenau (Vale do Itajaí)', () => {
+    const r = resolveGeoPlaceForContact({ city: 'Água Verde' });
+    expect(r.city).toBe('Blumenau');
+    expect(r.neighborhood).toBe('Água Verde');
+    expect(r.state).toBe('SC');
+  });
+
+  it('Água Verde com DDD 47 resolve para Blumenau', () => {
+    const r = resolveGeoPlaceForContact({ city: 'Água Verde', phone: '47999887766' });
+    expect(r.city).toBe('Blumenau');
+    expect(r.state).toBe('SC');
+  });
+
   it('aprende bairro→cidade da própria base', () => {
     const index = buildIbgeCityIndex([{ id: 1, nome: 'Blumenau', uf: 'SC' }]);
     const map = buildNeighborhoodToCityMap(

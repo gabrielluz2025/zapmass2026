@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -265,10 +265,8 @@ function popupHtml(cluster: GeoCluster, title?: string): string {
 export const LeadsConcentrationMap: React.FC = () => {
   const { contacts } = useZapMassCore();
   const conversations = useZapMassConversations();
-  const contactTemps = useMemo(
-    () => computeContactTemperatures(contacts, conversations),
-    [contacts, conversations]
-  );
+  const deferredContacts = useDeferredValue(contacts);
+  const deferredConversations = useDeferredValue(conversations);
 
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -286,6 +284,13 @@ export const LeadsConcentrationMap: React.FC = () => {
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [layer, setLayer] = useState<GeoLayer>('city');
   const [mapMode, setMapMode] = useState<MapMode>('heatmap');
+  const contactTemps = useMemo(
+    () =>
+      mapMode === 'pins'
+        ? computeContactTemperatures(deferredContacts, deferredConversations)
+        : {},
+    [mapMode, deferredContacts, deferredConversations]
+  );
   const [filterState, setFilterState] = useState('');
   const [filterCity, setFilterCity] = useState('');
   const [filterDdd, setFilterDdd] = useState('');
