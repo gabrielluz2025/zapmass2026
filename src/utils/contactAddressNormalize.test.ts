@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildNeighborhoodToCityMap,
   normalizeContactAddressFields,
   normNeighborhoodKey,
   parseEmbeddedCityState,
   pickCanonicalNeighborhoodName,
   repairUtf8Mojibake,
   resolveContactCityState,
+  resolveGeoPlaceForContact,
   titleCasePlaceName
 } from './contactAddressNormalize';
 import { buildIbgeCityIndex, fuzzyResolveCityWithIbge } from './ibgeCityLookup';
@@ -56,5 +58,29 @@ describe('contactAddressNormalize', () => {
     expect(normalizeContactAddressFields({ neighborhood: 'Fortaaleza' }).neighborhood).toBe('Fortaleza');
     expect(normNeighborhoodKey('Fortaaleza')).toBe(normNeighborhoodKey('Fortaleza'));
     expect(pickCanonicalNeighborhoodName('Fortaleza', 'Fortaaleza')).toBe('Fortaleza');
+  });
+
+  it('bairro no campo cidade vira Blumenau + bairro Água Verde', () => {
+    const r = resolveGeoPlaceForContact(
+      { city: 'Água Verde', state: 'SC' },
+      buildIbgeCityIndex([{ id: 1, nome: 'Blumenau', uf: 'SC' }])
+    );
+    expect(r.city).toBe('Blumenau');
+    expect(r.neighborhood).toBe('Água Verde');
+    expect(r.state).toBe('SC');
+  });
+
+  it('aprende bairro→cidade da própria base', () => {
+    const index = buildIbgeCityIndex([{ id: 1, nome: 'Blumenau', uf: 'SC' }]);
+    const map = buildNeighborhoodToCityMap(
+      [
+        { city: 'Blumenau', state: 'SC', neighborhood: 'Água Verde' },
+        { city: 'Blumenau', state: 'SC', neighborhood: 'Água Verde' }
+      ],
+      index
+    );
+    const r = resolveGeoPlaceForContact({ city: 'Água Verde', state: 'SC' }, index, map);
+    expect(r.city).toBe('Blumenau');
+    expect(r.neighborhood).toBe('Água Verde');
   });
 });

@@ -236,6 +236,179 @@ export function resolveContactCityState(
   };
 }
 
+export type GeoPlaceResolution = { city: string; state: string; neighborhood: string };
+
+function tryResolveMunicipality(
+  name: string,
+  stateHint: string,
+  ibgeIndex?: IbgeCityIndex | null
+): { city: string; state: string } | null {
+  const trimmed = cleanWhitespace(name);
+  if (!trimmed) return null;
+  const { city, state } = resolveAddressCityState({ city: trimmed, state: stateHint }, ibgeIndex);
+  const ibge = fuzzyResolveCityWithIbge(ibgeIndex, { city, stateHint: state });
+  if (ibge) return { city: ibge.city, state: ibge.state };
+  const uf = knownUfForCity(city);
+  if (uf) return { city: titleCasePlaceName(city), state: uf };
+  return null;
+}
+
+/** Bairros conhecidos de Blumenau/SC quando o campo cidade traz só o bairro. */
+function knownNeighborhoodMunicipality(
+  nbKey: string,
+  stateHint: string,
+  phone?: string
+): { city: string; state: string } | null {
+  if (!nbKey) return null;
+  const uf = stateHint || phoneDigitsToUf(phone || '') || '';
+  if (uf && uf !== 'SC') return null;
+  const blumenauNb = new Set([
+    'aguaverde',
+    'fortaleza',
+    'itoupavacentral',
+    'itoupavanzinha',
+    'itoupava',
+    'escolaagricola',
+    'velha',
+    'vorstadt',
+    'pontaguda',
+    'salto',
+    'badenfurt',
+    'progresso',
+    'vilaformosa',
+    'passomanso',
+    'valparaiso',
+    'garcia',
+    'rondonia'
+  ]);
+  if (blumenauNb.has(nbKey)) return { city: 'Blumenau', state: 'SC' };
+  return null;
+}
+
+/** CEP → município (prefixos mais usados no Vale do Itajaí / SC). */
+function municipalityFromCepPrefix(cep: string, stateHint: string): { city: string; state: string } | null {
+  const d = String(cep || '').replace(/\D/g, '');
+  if (d.length < 5) return null;
+  const p3 = d.slice(0, 3);
+  const table: Record<string, { city: string; state: string }> = {
+    '890': { city: 'Blumenau', state: 'SC' },
+    '891': { city: 'Indaial', state: 'SC' },
+    '892': { city: 'Blumenau', state: 'SC' },
+    '883': { city: 'Gaspar', state: 'SC' },
+    '884': { city: 'Pomerode', state: 'SC' }
+  };
+  const hit = table[p3];
+  if (!hit) return null;
+  if (stateHint && stateHint !== hit.state) return null;
+  return hit;
+}
+
+/**
+ * Corrige cadastros com bairro no campo cidade (ex.: "Água Verde" em vez de "Blumenau").
+ * Usa mapa aprendido da própria base, troca cidade↔bairro e CEP.
+ */
+export function resolveGeoPlaceForContact(
+  input: ContactAddressInput,
+  ibgeIndex?: IbgeCityIndex | null,
+  nbToCityMap?: ReadonlyMap<string, { city: string; state: string }>
+): GeoPlaceResolution {
+  const cityRaw = repairUtf8Mojibake(input.city || '');
+  const nbRaw = repairUtf8Mojibake(input.neighborhood || '');
+  const stateHint = normalizeContactState(input.state || '');
+
+  const cityHit = tryResolveMunicipality(cityRaw, stateHint, ibgeIndex);
+  const nbHit = tryResolveMunicipality(nbRaw, stateHint, ibgeIndex);
+
+  if (cityHit && cityRaw) {
+    const nb = normalizeContactNeighborhood(nbRaw, cityHit.city);
+    return { city: cityHit.city, state: cityHit.state, neighborhood: nb };
+  }
+
+  if (nbHit && cityRaw && !cityHit) {
+    const nb = normalizeContactNeighborhood(cityRaw, nbHit.city);
+    return { city: nbHit.city, state: nbHit.state, neighborhood: nb };
+  }
+
+  if (cityRaw && !cityHit && nbToCityMap) {
+    const mapped = nbToCityMap.get(normNeighborhoodKey(cityRaw));
+    if (mapped) {
+      const nb = normalizeContactNeighborhood(cityRaw, mapped.city);
+      return { city: mapped.city, state: mapped.state || stateHint, neighborhood: nb };
+    }
+  }
+
+  const knownNb = knownNeighborhoodMunicipality(
+    normNeighborhoodKey(cityRaw),
+    stateHint,
+    input.phone
+  );
+  if (cityRaw && !cityHit && knownNb) {
+    const nb = normalizeContactNeighborhood(cityRaw, knownNb.city);
+    return { city: knownNb.city, state: knownNb.state, neighborhood: nb };
+  }
+
+  const cepHit = municipalityFromCepPrefix(input.zipCode || '', stateHint);
+  if (cityRaw && !cityHit && cepHit) {
+    const nb = normalizeContactNeighborhood(cityRaw, cepHit.city);
+    return { city: cepHit.city, state: cepHit.state, neighborhood: nb };
+  }
+
+  const fb = resolveAddressCityState({ city: cityRaw, state: stateHint }, ibgeIndex);
+  const nb = normalizeContactNeighborhood(nbRaw || (!cityHit ? cityRaw : ''), fb.city);
+  return { city: fb.city, state: fb.state, neighborhood: nb };
+}
+
+/** Aprende bairro → cidade a partir de contatos com município válido na base. */
+export function buildNeighborhoodToCityMap(
+  contacts: ContactAddressInput[],
+  ibgeIndex?: IbgeCityIndex | null
+): Map<string, { city: string; state: string }> {
+  const votes = new Map<string, Map<string, number>>();
+  const meta = new Map<string, { city: string; state: string }>();
+
+  const addVote = (nbKey: string, city: string, state: string) => {
+    if (!nbKey || !city) return;
+    const ck = `${normPlaceKey(city)}|${state}`;
+    meta.set(ck, { city, state });
+    const bucket = votes.get(nbKey) || new Map<string, number>();
+    bucket.set(ck, (bucket.get(ck) || 0) + 1);
+    votes.set(nbKey, bucket);
+  };
+
+  for (const c of contacts) {
+    const stateHint = normalizeContactState(c.state || '');
+    const cityRaw = repairUtf8Mojibake(c.city || '');
+    const nbRaw = repairUtf8Mojibake(c.neighborhood || '');
+
+    const cityMuni = tryResolveMunicipality(cityRaw, stateHint, ibgeIndex);
+    const nbMuni = tryResolveMunicipality(nbRaw, stateHint, ibgeIndex);
+    const nbFromField = normalizeContactNeighborhood(nbRaw, cityMuni?.city || '');
+
+    if (cityMuni && nbFromField) {
+      addVote(normNeighborhoodKey(nbFromField), cityMuni.city, cityMuni.state);
+    }
+
+    if (!cityMuni && nbMuni && cityRaw) {
+      addVote(normNeighborhoodKey(cityRaw), nbMuni.city, nbMuni.state);
+    }
+  }
+
+  const result = new Map<string, { city: string; state: string }>();
+  for (const [nbKey, bucket] of votes) {
+    let bestKey = '';
+    let bestN = 0;
+    for (const [ck, n] of bucket) {
+      if (n > bestN) {
+        bestN = n;
+        bestKey = ck;
+      }
+    }
+    const hit = meta.get(bestKey);
+    if (hit && bestN >= 1) result.set(nbKey, hit);
+  }
+  return result;
+}
+
 export type ContactAddressInput = {
   city?: string;
   state?: string;

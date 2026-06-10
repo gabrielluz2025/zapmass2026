@@ -1500,7 +1500,13 @@ export const LeadsConcentrationMap: React.FC = () => {
                       type="search"
                       value={rankingSearch}
                       onChange={(e) => setRankingSearch(e.target.value)}
-                      placeholder={showCityDrillRanking ? 'Buscar cidade…' : 'Buscar bairro ou região…'}
+                      placeholder={
+                        layer === 'city' || showCityDrillRanking
+                          ? 'Buscar cidade…'
+                          : layer === 'neighborhood'
+                            ? 'Buscar bairro…'
+                            : 'Buscar região…'
+                      }
                       className="w-full h-8 pl-8 pr-2 text-xs rounded-lg border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
                     />
                   </label>

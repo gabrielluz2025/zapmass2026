@@ -10,7 +10,9 @@ import {
   parseGeoFilterCity,
   pickCanonicalNeighborhoodName,
   repairUtf8Mojibake,
+  buildNeighborhoodToCityMap,
   resolveAddressCityState,
+  resolveGeoPlaceForContact,
   titleCasePlaceName
 } from '../src/utils/contactAddressNormalize.js';
 import {
@@ -650,11 +652,34 @@ function resolveContactState(c: Contact): string {
   return phoneDigitsToUf((c.phone || '').replace(/\D/g, '')) || '';
 }
 
-function resolveContactCityState(c: Contact): { city: string; state: string } {
-  return resolveAddressCityState(
-    { city: c.city, state: c.state },
-    getIbgeMunicipiosIndex()
+function resolveContactGeoPlace(
+  c: Contact,
+  nbToCityMap?: ReadonlyMap<string, { city: string; state: string }>
+): {
+  city: string;
+  state: string;
+  neighborhood: string;
+} {
+  const h = hydrateContactForGeo(c);
+  return resolveGeoPlaceForContact(
+    {
+      city: h.city,
+      state: h.state,
+      neighborhood: h.neighborhood,
+      zipCode: h.zipCode,
+      phone: h.phone
+    },
+    getIbgeMunicipiosIndex(),
+    nbToCityMap
   );
+}
+
+function resolveContactCityState(
+  c: Contact,
+  nbToCityMap?: ReadonlyMap<string, { city: string; state: string }>
+): { city: string; state: string } {
+  const place = resolveContactGeoPlace(c, nbToCityMap);
+  return { city: place.city, state: place.state };
 }
 
 function contactCoordsValid(c: Contact, lat: number, lng: number, maxKm = 55): boolean {
@@ -945,6 +970,17 @@ export async function buildLeadsGeoSummary(
       : 'city';
 
   const contacts = await loadTenantContacts(tenantId);
+  const ibgeIndex = getIbgeMunicipiosIndex();
+  const nbToCityMap = buildNeighborhoodToCityMap(
+    contacts.map((c) => ({
+      city: c.city,
+      state: c.state,
+      neighborhood: c.neighborhood,
+      zipCode: c.zipCode,
+      phone: c.phone
+    })),
+    ibgeIndex
+  );
   const cache = readGeoCache();
   const nameSearchActive = (query.name || '').trim().length >= 2;
   let filtered = contacts.filter((c) => contactMatchesFilters(c, query));
@@ -988,9 +1024,10 @@ export async function buildLeadsGeoSummary(
     if (normNeighborhood(c.neighborhood || '')) withNeighborhood++;
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
-    const { city, state: st } = resolveContactCityState(c);
-    const cityCanon = city ? canonClusterCity(city, st) : '';
-    const nb = normNeighborhood(c.neighborhood || '', cityCanon || city);
+    const place = resolveContactGeoPlace(c, nbToCityMap);
+    const cityCanon = place.city ? canonClusterCity(place.city, place.state) : '';
+    const nb = normNeighborhood(place.neighborhood || c.neighborhood || '', cityCanon || place.city);
+    const st = place.state;
     const ddd = resolveContactDdd(c);
 
     if (st) {
@@ -1022,12 +1059,12 @@ export async function buildLeadsGeoSummary(
 
   for (const raw of filtered) {
     const c = hydrateContactForGeo(raw);
-    const { city: rawCity, state: rawState } = resolveContactCityState(c);
-    const stResolved = resolveContactState(c) || rawState || knownUfForCity(rawCity) || '';
+    const place = resolveContactGeoPlace(c, nbToCityMap);
+    const stResolved = resolveContactState(c) || place.state || knownUfForCity(place.city) || '';
     const st = stResolved || '—';
-    const cityCanon = rawCity ? canonClusterCity(rawCity, stResolved) : '';
+    const cityCanon = place.city ? canonClusterCity(place.city, stResolved) : '';
     const city = cityCanon || '—';
-    const nb = normNeighborhood(c.neighborhood || '', cityCanon || rawCity) || '—';
+    const nb = normNeighborhood(place.neighborhood || c.neighborhood || '', cityCanon || place.city) || '—';
     const ddd = resolveContactDdd(c) || '—';
 
     let key = '';
