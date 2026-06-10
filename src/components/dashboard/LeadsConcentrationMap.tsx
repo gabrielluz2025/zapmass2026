@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -265,9 +265,13 @@ function popupHtml(cluster: GeoCluster, title?: string): string {
 export const LeadsConcentrationMap: React.FC = () => {
   const { contacts } = useZapMassCore();
   const conversations = useZapMassConversations();
+  // Deferido: o cálculo de temperatura varre 10k contatos × conversas. Mantê-lo fora
+  // do caminho síncrono de render evita travar o painel quando chegam atualizações.
+  const deferredContacts = useDeferredValue(contacts);
+  const deferredConversations = useDeferredValue(conversations);
   const contactTemps = useMemo(
-    () => computeContactTemperatures(contacts, conversations),
-    [contacts, conversations]
+    () => computeContactTemperatures(deferredContacts, deferredConversations),
+    [deferredContacts, deferredConversations]
   );
 
   const mapRef = useRef<HTMLDivElement>(null);

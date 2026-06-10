@@ -9,7 +9,7 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import { useZapMassCore } from '../context/ZapMassContext';
+import { useZapMassCore, useZapMassUiSnapshot } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { ConnectionStatus } from '../types';
@@ -25,7 +25,8 @@ import { AdminConnectionsOverview } from './admin/AdminConnectionsOverview';
  * Utilizadores normais não veem esta rota (App redireciona).
  */
 export const AdminServerTab: React.FC = () => {
-  const { connections, systemMetrics, isBackendConnected } = useZapMassCore();
+  const { connections, isBackendConnected } = useZapMassCore();
+  const { systemMetrics } = useZapMassUiSnapshot();
   const { user } = useAuth();
   const { subscription } = useSubscription();
 

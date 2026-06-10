@@ -253,35 +253,85 @@ function tryResolveMunicipality(
   return null;
 }
 
-/** Bairros conhecidos de Blumenau/SC quando o campo cidade traz só o bairro. */
+/**
+ * Gazetteer de bairros → cidade quando o campo "cidade" traz apenas o bairro.
+ * Cada bairro pode existir em mais de um município (ex.: "Água Verde" em Curitiba/PR e
+ * Blumenau/SC). A UF (do cadastro ou inferida pelo DDD do telefone) desempata.
+ */
+const NEIGHBORHOOD_GAZETTEER: Record<string, Array<{ uf: string; city: string }>> = {
+  // --- Curitiba / PR (DDD 41) ---
+  aguaverde: [
+    { uf: 'PR', city: 'Curitiba' },
+    { uf: 'SC', city: 'Blumenau' }
+  ],
+  batel: [{ uf: 'PR', city: 'Curitiba' }],
+  bigorrilho: [{ uf: 'PR', city: 'Curitiba' }],
+  reboucas: [{ uf: 'PR', city: 'Curitiba' }],
+  portao: [{ uf: 'PR', city: 'Curitiba' }],
+  cabral: [{ uf: 'PR', city: 'Curitiba' }],
+  juveve: [{ uf: 'PR', city: 'Curitiba' }],
+  cristorei: [{ uf: 'PR', city: 'Curitiba' }],
+  ahu: [{ uf: 'PR', city: 'Curitiba' }],
+  merces: [{ uf: 'PR', city: 'Curitiba' }],
+  bomretiro: [{ uf: 'PR', city: 'Curitiba' }],
+  hugolange: [{ uf: 'PR', city: 'Curitiba' }],
+  jardimsocial: [{ uf: 'PR', city: 'Curitiba' }],
+  altodagloria: [{ uf: 'PR', city: 'Curitiba' }],
+  altodaxv: [{ uf: 'PR', city: 'Curitiba' }],
+  saofrancisco: [{ uf: 'PR', city: 'Curitiba' }],
+  cajuru: [{ uf: 'PR', city: 'Curitiba' }],
+  boavista: [{ uf: 'PR', city: 'Curitiba' }],
+  bacacheri: [{ uf: 'PR', city: 'Curitiba' }],
+  santafelicidade: [{ uf: 'PR', city: 'Curitiba' }],
+  campocomprido: [{ uf: 'PR', city: 'Curitiba' }],
+  cidadeindustrial: [{ uf: 'PR', city: 'Curitiba' }],
+  boqueirao: [{ uf: 'PR', city: 'Curitiba' }],
+  xaxim: [{ uf: 'PR', city: 'Curitiba' }],
+  pinheirinho: [{ uf: 'PR', city: 'Curitiba' }],
+  sitiocercado: [{ uf: 'PR', city: 'Curitiba' }],
+  uberaba: [{ uf: 'PR', city: 'Curitiba' }],
+  hauer: [{ uf: 'PR', city: 'Curitiba' }],
+  fazendinha: [{ uf: 'PR', city: 'Curitiba' }],
+  novomundo: [{ uf: 'PR', city: 'Curitiba' }],
+  capaoraso: [{ uf: 'PR', city: 'Curitiba' }],
+  centrocivico: [{ uf: 'PR', city: 'Curitiba' }],
+  // --- Blumenau / SC (DDD 47) ---
+  fortaleza: [{ uf: 'SC', city: 'Blumenau' }],
+  itoupavacentral: [{ uf: 'SC', city: 'Blumenau' }],
+  itoupavanzinha: [{ uf: 'SC', city: 'Blumenau' }],
+  itoupava: [{ uf: 'SC', city: 'Blumenau' }],
+  escolaagricola: [{ uf: 'SC', city: 'Blumenau' }],
+  velha: [{ uf: 'SC', city: 'Blumenau' }],
+  vorstadt: [{ uf: 'SC', city: 'Blumenau' }],
+  pontaguda: [{ uf: 'SC', city: 'Blumenau' }],
+  salto: [{ uf: 'SC', city: 'Blumenau' }],
+  badenfurt: [{ uf: 'SC', city: 'Blumenau' }],
+  progresso: [{ uf: 'SC', city: 'Blumenau' }],
+  vilaformosa: [{ uf: 'SC', city: 'Blumenau' }],
+  passomanso: [{ uf: 'SC', city: 'Blumenau' }],
+  valparaiso: [{ uf: 'SC', city: 'Blumenau' }],
+  garcia: [{ uf: 'SC', city: 'Blumenau' }],
+  rondonia: [{ uf: 'SC', city: 'Blumenau' }]
+};
+
+/** Resolve cidade quando o campo cidade traz só o bairro, desempatando por UF/DDD. */
 function knownNeighborhoodMunicipality(
   nbKey: string,
   stateHint: string,
   phone?: string
 ): { city: string; state: string } | null {
   if (!nbKey) return null;
+  const candidates = NEIGHBORHOOD_GAZETTEER[nbKey];
+  if (!candidates || candidates.length === 0) return null;
   const uf = stateHint || phoneDigitsToUf(phone || '') || '';
-  if (uf && uf !== 'SC') return null;
-  const blumenauNb = new Set([
-    'aguaverde',
-    'fortaleza',
-    'itoupavacentral',
-    'itoupavanzinha',
-    'itoupava',
-    'escolaagricola',
-    'velha',
-    'vorstadt',
-    'pontaguda',
-    'salto',
-    'badenfurt',
-    'progresso',
-    'vilaformosa',
-    'passomanso',
-    'valparaiso',
-    'garcia',
-    'rondonia'
-  ]);
-  if (blumenauNb.has(nbKey)) return { city: 'Blumenau', state: 'SC' };
+  if (uf) {
+    const match = candidates.find((c) => c.uf === uf);
+    return match ? { city: match.city, state: match.uf } : null;
+  }
+  // Sem UF: só decide quando o bairro pertence a um único município conhecido.
+  if (candidates.length === 1) {
+    return { city: candidates[0].city, state: candidates[0].uf };
+  }
   return null;
 }
 

@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ConnectionStatus } from '../types';
-import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations, useZapMassUiSnapshot } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -296,7 +296,6 @@ export const DashboardTab: React.FC = () => {
     contacts,
     socket,
     startCampaign,
-    systemMetrics,
     funnelStats,
     clearFunnelStats,
     isBackendConnected,
@@ -305,6 +304,7 @@ export const DashboardTab: React.FC = () => {
     campaignGeo,
     warmupChipStats
   } = useZapMassCore();
+  const { systemMetrics } = useZapMassUiSnapshot();
   const [geoLayer, setGeoLayer] = useState<GeoLayer>('delivered');
   const { setCurrentView } = useAppView();
   const { user } = useAuth();

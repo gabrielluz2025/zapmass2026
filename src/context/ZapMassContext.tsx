@@ -147,7 +147,6 @@ const INITIAL_CAMPAIGN_GEO: CampaignGeoState = {
 // Extender o tipo para incluir o socket e métricas de sistema
 interface ZapMassContextWithSocket extends ZapMassContextType {
   socket: Socket | null;
-  systemMetrics: SystemMetrics;
   warmupActive: boolean;
   startWarmupTimer: (intervalMinutes: number, runRound: () => void) => void;
   stopWarmupTimer: () => void;
@@ -238,7 +237,6 @@ const ZapMassConnectionsSliceContext = createContext<{ connections: WhatsAppConn
 
 const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   socket: null,
-  systemMetrics: INITIAL_SYS_METRICS,
   connections: [],
   contacts: [],
   contactsHasMore: false,
@@ -390,6 +388,85 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contactLists, setContactLists] = useState<ContactList[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const campaignsRef = useRef<Campaign[]>([]);
+  /**
+   * Buffer de previews de campanha por telefone. Durante um disparo, o evento
+   * "Mensagem enviada" chega centenas de vezes; aplicar cada um direto em
+   * `contacts` copiava o array de 10k e re-renderizava tudo a cada mensagem.
+   * Acumulamos aqui e damos flush agrupado (timer) numa única atualização.
+   */
+  const campaignPreviewBufferRef = useRef<
+    Map<string, { campaignId: string; campaignName: string; totalStages: number; inc: number }>
+  >(new Map());
+  const campaignPreviewFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushCampaignPreviewBuffer = useCallback(() => {
+    if (campaignPreviewFlushTimerRef.current) {
+      clearTimeout(campaignPreviewFlushTimerRef.current);
+      campaignPreviewFlushTimerRef.current = null;
+    }
+    const buffer = campaignPreviewBufferRef.current;
+    if (buffer.size === 0) return;
+    const pending = new Map(buffer);
+    buffer.clear();
+
+    setContacts((prev) => {
+      // Um único índice telefone→posição por flush, em vez de findIndex por mensagem.
+      const idxByPhone = new Map<string, number>();
+      for (let i = 0; i < prev.length; i++) {
+        const k = normPhoneKey(prev[i].phone);
+        if (k && !idxByPhone.has(k)) idxByPhone.set(k, i);
+      }
+      let next: Contact[] | null = null;
+      const at = new Date().toISOString();
+      pending.forEach((entry, pkey) => {
+        const idx = idxByPhone.get(pkey);
+        if (idx == null) return;
+        const base = next || prev;
+        const row = base[idx];
+        const prevP = row.campaignTablePreview;
+        const same = prevP?.campaignId === entry.campaignId;
+        const sent = (same ? (prevP?.sent ?? 0) : 0) + entry.inc;
+        const preview = {
+          campaignId: entry.campaignId,
+          campaignName: entry.campaignName,
+          sent,
+          totalStages: entry.totalStages,
+          pending: Math.max(0, entry.totalStages - sent),
+          updatedAt: at
+        };
+        void apiUpdateContact(row.id, {
+          campaignMessagesReceived: (row.campaignMessagesReceived || 0) + entry.inc,
+          campaignTablePreview: preview
+        }).catch(() => {});
+        if (!next) next = [...prev];
+        next[idx] = {
+          ...row,
+          campaignMessagesReceived: (row.campaignMessagesReceived || 0) + entry.inc,
+          campaignTablePreview: preview
+        };
+      });
+      return next || prev;
+    });
+  }, []);
+
+  const queueCampaignPreview = useCallback(
+    (pkey: string, campaignId: string, campaignName: string, totalStages: number) => {
+      const buffer = campaignPreviewBufferRef.current;
+      const cur = buffer.get(pkey);
+      if (cur && cur.campaignId === campaignId) {
+        cur.inc += 1;
+        cur.totalStages = totalStages;
+      } else {
+        buffer.set(pkey, { campaignId, campaignName, totalStages, inc: 1 });
+      }
+      if (!campaignPreviewFlushTimerRef.current) {
+        campaignPreviewFlushTimerRef.current = setTimeout(() => {
+          flushCampaignPreviewBuffer();
+        }, 1200);
+      }
+    },
+    [flushCampaignPreviewBuffer]
+  );
   const [birthdays, setBirthdays] = useState<BirthdayContact[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [inboxHasMore, setInboxHasMore] = useState(false);
@@ -2042,38 +2119,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           const toRaw = payload.to;
           if (typeof toRaw === 'string' && toRaw.trim()) {
             const pkey = normPhoneKey(toRaw);
-            setContacts((prev) => {
-              const idx = prev.findIndex((c) => normPhoneKey(c.phone) === pkey);
-              if (idx < 0) return prev;
-              const row = prev[idx];
-              const campaignDoc = campaignsRef.current.find((x) => x.id === payload.campaignId);
-              const totalStages = getCampaignStageTotal(campaignDoc);
-              const cname = String(campaignDoc?.name || 'Campanha').slice(0, 120);
-              const prevP = row.campaignTablePreview;
-              const same = prevP?.campaignId === payload.campaignId;
-              const optimisticSent = same ? (prevP?.sent ?? 0) + 1 : 1;
-              const optimisticPending = Math.max(0, totalStages - optimisticSent);
-              const at = new Date().toISOString();
-              const preview = {
-                campaignId: payload.campaignId,
-                campaignName: cname,
-                sent: optimisticSent,
-                totalStages,
-                pending: optimisticPending,
-                updatedAt: at
-              };
-              void apiUpdateContact(row.id, {
-                campaignMessagesReceived: (row.campaignMessagesReceived || 0) + 1,
-                campaignTablePreview: preview
-              }).catch(() => {});
-              const next = [...prev];
-              next[idx] = {
-                ...row,
-                campaignMessagesReceived: (row.campaignMessagesReceived || 0) + 1,
-                campaignTablePreview: preview
-              };
-              return next;
-            });
+            const campaignDoc = campaignsRef.current.find((x) => x.id === payload.campaignId);
+            const totalStages = getCampaignStageTotal(campaignDoc);
+            const cname = String(campaignDoc?.name || 'Campanha').slice(0, 120);
+            // Em vez de copiar 10k contatos e re-renderizar a cada mensagem, acumula
+            // e dá flush agrupado (ver flushCampaignPreviewBuffer).
+            queueCampaignPreview(pkey, payload.campaignId, cname, totalStages);
           }
         }
       }
@@ -2243,6 +2294,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       clearInterval(stuckQrPollInterval);
       for (const t of bootstrapSyncTimers) clearTimeout(t);
       bootstrapSyncTimers.length = 0;
+      flushCampaignPreviewBuffer();
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
@@ -3442,9 +3494,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       warmupQueue,
       warmedCount,
       isBackendConnected,
-      sessionLiveStats,
       campaignStatus,
-      systemMetrics,
       addConnection: stableAddConnection,
       setConnectionProxy: stableSetConnectionProxy,
       removeConnection: stableRemoveConnection,
@@ -3510,9 +3560,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       warmupQueue,
       warmedCount,
       isBackendConnected,
-      sessionLiveStats,
       campaignStatus,
-      systemMetrics,
       funnelStats,
       campaignGeo,
       warmupChipStats,

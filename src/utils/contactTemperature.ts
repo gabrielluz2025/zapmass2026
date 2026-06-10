@@ -67,9 +67,35 @@ export const CONTACT_TEMP_DEFAULT: TempStats = {
 };
 
 /**
+ * Cache por referência (contacts + conversations). Vários painéis (mapa, dashboard)
+ * pedem o mesmo cálculo: sem isto, cada um varre 10k contatos × conversas a cada render.
+ */
+let __tempCacheContacts: Contact[] | null = null;
+let __tempCacheConvs: Conversation[] | null = null;
+let __tempCacheResult: Record<string, TempStats> | null = null;
+
+/**
  * Mapa contactId -> temperatura a partir do histórico de conversas globais.
  */
 export function computeContactTemperatures(
+  contacts: Contact[],
+  conversations: Conversation[]
+): Record<string, TempStats> {
+  if (
+    __tempCacheResult &&
+    __tempCacheContacts === contacts &&
+    __tempCacheConvs === conversations
+  ) {
+    return __tempCacheResult;
+  }
+  const out = computeContactTemperaturesInner(contacts, conversations);
+  __tempCacheContacts = contacts;
+  __tempCacheConvs = conversations;
+  __tempCacheResult = out;
+  return out;
+}
+
+function computeContactTemperaturesInner(
   contacts: Contact[],
   conversations: Conversation[]
 ): Record<string, TempStats> {
