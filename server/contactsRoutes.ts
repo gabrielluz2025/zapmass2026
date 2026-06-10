@@ -27,6 +27,13 @@ import {
 } from './contactProfilePicture.js';
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses } from './contactsNormalizeService.js';
+import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
+
+function scheduleContactGeocode(tenantId: string, contact: Contact): void {
+  void geocodeSingleContactIfNeeded(tenantId, contact).catch((e) => {
+    console.warn('[contacts/geocode]', contact.id, e instanceof Error ? e.message : e);
+  });
+}
 
 export function registerContactsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -68,6 +75,7 @@ export function registerContactsDataRoutes(app: Express): void {
     }
     try {
       const created = await createContact(ctx.tenantId, body);
+      scheduleContactGeocode(ctx.tenantId, created);
       return res.json({ ok: true, contact: created, id: created.id });
     } catch (e) {
       console.error('[api/contacts POST]', e);
@@ -157,6 +165,14 @@ export function registerContactsDataRoutes(app: Express): void {
     if (!updated) {
       return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
     }
+    const addressTouched =
+      'street' in updates ||
+      'number' in updates ||
+      'city' in updates ||
+      'state' in updates ||
+      'neighborhood' in updates ||
+      'zipCode' in updates;
+    if (addressTouched) scheduleContactGeocode(ctx.tenantId, updated);
     return res.json({ ok: true, contact: updated });
   });
 

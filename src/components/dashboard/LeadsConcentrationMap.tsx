@@ -309,7 +309,6 @@ export const LeadsConcentrationMap: React.FC = () => {
     () =>
       (summary?.contactPins || []).filter(
         (p) =>
-          !p.approximate &&
           p.precision === 'address' &&
           isMapCoordValid(p.lat, p.lng, p.city, p.state)
       ),
@@ -503,6 +502,17 @@ export const LeadsConcentrationMap: React.FC = () => {
       const [cfg, sum] = await Promise.all([fetchLeadsGeoConfig(), fetchLeadsGeoSummary(q)]);
       setConfig(cfg);
       setSummary(sum);
+      if (cfg.geocodeEnabled && (sum.pinStats?.pinsPending || 0) > 0) {
+        void apiGeocodeContacts({
+          max: 40,
+          city: q.city,
+          neighborhood: q.neighborhood
+        })
+          .then((r) => {
+            if (r.geocoded > 0) setSummary(r.summary);
+          })
+          .catch(() => {});
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao carregar mapa de leads.';
       toast.error(msg);
