@@ -11,6 +11,8 @@ const AUTO_FULL_SYNC_MS = 5 * 60_000;
 const SLOW_RTT_MS = 45_000;
 /** Pings consecutivos lentos antes de exibir aviso (evita falso positivo). */
 const SLOW_STRIKES_NEEDED = 2;
+/** Queda curta do socket não vira “offline” na hora — alinhado ao grace do painel. */
+const OFFLINE_STATUS_GRACE_MS = 8_000;
 
 function parsePingTimestamp(ts: unknown): number {
   if (typeof ts === 'number' && Number.isFinite(ts)) return ts;
@@ -34,6 +36,7 @@ export function useWaRealtime(
   const slowStrikeRef = useRef(0);
   const lastRealtimeActivityRef = useRef(0);
   const syncingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offlineGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runResync = useCallback(
     (opts?: { full?: boolean }) => {
@@ -59,16 +62,28 @@ export function useWaRealtime(
       setSocketStatus('online');
     };
 
+    const clearOfflineGrace = () => {
+      if (offlineGraceTimerRef.current) {
+        clearTimeout(offlineGraceTimerRef.current);
+        offlineGraceTimerRef.current = null;
+      }
+    };
+
     const onConnect = () => {
+      clearOfflineGrace();
       pingSentAtRef.current = Date.now();
       slowStrikeRef.current = 0;
       setSocketStatus('online');
       runResync({ full: false });
     };
     const onDisconnect = () => {
-      setSocketStatus('offline');
+      clearOfflineGrace();
       setSyncing(false);
       slowStrikeRef.current = 0;
+      offlineGraceTimerRef.current = setTimeout(() => {
+        offlineGraceTimerRef.current = null;
+        if (!socket.connected) setSocketStatus('offline');
+      }, OFFLINE_STATUS_GRACE_MS);
     };
 
     socket.on('connect', onConnect);
@@ -147,6 +162,7 @@ export function useWaRealtime(
       clearInterval(lightSyncTimer);
       if (fullSyncTimer) clearInterval(fullSyncTimer);
       if (syncingTimerRef.current) clearTimeout(syncingTimerRef.current);
+      clearOfflineGrace();
     };
   }, [socket, runResync, chipsConnected]);
 

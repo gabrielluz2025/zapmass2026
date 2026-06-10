@@ -157,9 +157,16 @@ interface ZapMassContextWithSocket extends ZapMassContextType {
 
 const INITIAL_SYS_METRICS: SystemMetrics = { cpu: 0, ram: 0, uptime: '0m', latency: 0 };
 
+/** Estado visual do link com o servidor — evita piscar Offline/Online em quedas curtas. */
+export type BackendLinkState = 'online' | 'reconnecting' | 'offline';
+
+/** Tempo sem socket antes de mostrar “Offline” na UI (quedas < isto ficam em “Reconectando”). */
+const BACKEND_OFFLINE_UI_GRACE_MS = 12_000;
+
 /** Snapshot enxuto para shell (TopBar, Sidebar, banners): não herda atualizações de `conversations`. */
 export type ZapMassUiSnapshot = {
   isBackendConnected: boolean;
+  backendLinkState: BackendLinkState;
   systemMetrics: SystemMetrics;
   sessionLiveStats: {
     workersAlive: number;
@@ -393,6 +400,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [warmupQueue, setWarmupQueue] = useState<WarmupItem[]>([]);
   const [warmedCount, setWarmedCount] = useState(0);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
+  const [backendLinkState, setBackendLinkState] = useState<BackendLinkState>('offline');
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>(INITIAL_SYS_METRICS);
   const [funnelStats, setFunnelStats] = useState<FunnelStats>(INITIAL_FUNNEL);
   const [campaignGeo, setCampaignGeo] = useState<CampaignGeoState>(INITIAL_CAMPAIGN_GEO);
@@ -468,6 +476,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const hasConnectedOnceRef = useRef(false);
   const currentUidRef = useRef<string | null>(sessionUser?.uid ?? null);
   const prevAuthUserRef = useRef<string | null>(sessionUser?.uid ?? null);
+  const prevBoundDataUidRef = useRef<string | null>(null);
   const bindUserRef = useRef<(uid: string) => void>(() => {});
   const campaignProgressPersistRef = useRef<Record<string, {
     timer: ReturnType<typeof setTimeout> | null;
@@ -809,50 +818,53 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const handleAuthUser = async (user: SessionUser | null) => {
       const newAuthUid = user?.uid ?? null;
-      if (prevAuthUserRef.current !== newAuthUid) {
+      const uidChanged = prevAuthUserRef.current !== newAuthUid;
+      if (uidChanged) {
         prevAuthUserRef.current = newAuthUid;
+        prevBoundDataUidRef.current = null;
         resetSessionState();
       }
-      // Garante que o Socket.io usa o mesmo UID que a UI — senão o servidor cria
-      // conexoes "legado" (sem prefixo) e a contagem do teto fica defasada.
+
       const sock = socketRef.current;
       if (sock) {
-        if (user) {
-          try {
-            const t = await user.getIdToken();
-            sock.auth = { token: t };
-          } catch {
-            (sock as Socket & { auth: { token?: string } }).auth = {};
-          }
-        } else {
+        if (!user) {
+          (sock as Socket & { auth: { token?: string } }).auth = {};
+          if (sock.connected) sock.disconnect();
+          return;
+        }
+        try {
+          const t = await user.getIdToken();
+          sock.auth = { token: t };
+        } catch {
           (sock as Socket & { auth: { token?: string } }).auth = {};
         }
-        if (sock.connected) {
-          sock.disconnect();
+        // Só reconecta ao trocar de conta — atualizar perfil/nome não deve derrubar o socket.
+        if (uidChanged) {
+          if (sock.connected) sock.disconnect();
+          sock.connect();
+        } else if (!sock.connected) {
+          sock.connect();
         }
-        sock.connect();
       }
+
       if (!user?.uid) {
         resetSessionState();
         return;
       }
-      if (workspaceLoading) {
-        return;
-      }
+      if (workspaceLoading) return;
+
       const dataUid = effectiveWorkspaceUid ?? user.uid;
       currentUidRef.current = dataUid;
-      bindUser(dataUid);
+      if (prevBoundDataUidRef.current !== dataUid) {
+        prevBoundDataUidRef.current = dataUid;
+        bindUser(dataUid);
+      }
     };
 
     void handleAuthUser(sessionUser);
 
-    const uidNow = sessionUser?.uid;
-    if (uidNow && !workspaceLoading) {
-      bindUser(effectiveWorkspaceUid ?? uidNow);
-    }
-
     return () => {};
-  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser]);
+  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 
   const loadAllContacts = useCallback(async (): Promise<void> => {
     const uid = currentUidRef.current;
@@ -931,6 +943,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         'O site em Firebase precisa saber onde está a API Node. Nas próximas vezes uses `scripts/deploy-hosting.ps1 -ApiOrigin "https://…"` ou defina `VITE_API_ORIGIN` antes do build (`env.production.template`). Na VPS, acrescente este domínio a `ALLOWED_ORIGINS`.';
       console.error(`[ZapMass] ${hint}`);
       toast.error(`${hint}`, { duration: 22_000, icon: '🔗' });
+      setBackendLinkState('offline');
       setIsBackendConnected(false);
       return () => {
         resetCampaignRecipientErrorBurst(campaignRecipientErrorBurstRef);
@@ -954,8 +967,41 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     const socket = socketRef.current;
+
+    const markBackendOnline = () => {
+      if (offlineBadgeDelayRef.current) {
+        clearTimeout(offlineBadgeDelayRef.current);
+        offlineBadgeDelayRef.current = null;
+      }
+      setBackendLinkState('online');
+      setIsBackendConnected(true);
+    };
+
+    const scheduleBackendOffline = (opts?: { immediate?: boolean }) => {
+      if (offlineBadgeDelayRef.current) {
+        clearTimeout(offlineBadgeDelayRef.current);
+        offlineBadgeDelayRef.current = null;
+      }
+      if (socket.connected) return;
+      const immediate = opts?.immediate === true;
+      if (immediate) {
+        setBackendLinkState('offline');
+        setIsBackendConnected(false);
+        return;
+      }
+      setBackendLinkState('reconnecting');
+      offlineBadgeDelayRef.current = setTimeout(() => {
+        offlineBadgeDelayRef.current = null;
+        if (!socket.connected) {
+          setBackendLinkState('offline');
+          setIsBackendConnected(false);
+        }
+      }, BACKEND_OFFLINE_UI_GRACE_MS);
+    };
+
     const syncBackendConnected = () => {
-      setIsBackendConnected(!!socket.connected);
+      if (socket.connected) markBackendOnline();
+      else scheduleBackendOffline();
     };
     void getSessionIdToken().then((token) => {
       if (token) {
@@ -963,6 +1009,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!socket.connected) socket.connect();
       }
     }).catch(() => {
+      setBackendLinkState('offline');
       setIsBackendConnected(false);
     });
 
@@ -1030,7 +1077,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         clearTimeout(disconnectToastTimerRef.current);
         disconnectToastTimerRef.current = null;
       }
-      setIsBackendConnected(true);
+      markBackendOnline();
       if (!hasConnectedOnceRef.current) {
         hasConnectedOnceRef.current = true;
         toast.success('Servidor conectado!', {
@@ -1055,14 +1102,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         disconnectToastTimerRef.current = null;
       }
       if (reason === 'io client disconnect') {
-        setIsBackendConnected(false);
+        scheduleBackendOffline({ immediate: true });
         return; // logout / socket.disconnect() intencional — sem aviso de falha
       }
-      // Badge “Offline”: só após ~3s sem reconectar (troca de aba / throttle costuma recuperar antes).
-      offlineBadgeDelayRef.current = setTimeout(() => {
-        offlineBadgeDelayRef.current = null;
-        if (!socket.connected) setIsBackendConnected(false);
-      }, 3000);
+      scheduleBackendOffline();
       // Evita falso positivo em quedas rapidas: so avisa erro apos 6s offline continuo
       // (reconexao comum nao dispara: connect() limpa este timer).
       disconnectToastTimerRef.current = setTimeout(() => {
@@ -1077,12 +1120,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     socket.on('connect_error', (err) => {
-      // Importação em massa / CPU ocupada pode gerar connect_error transitório — não marcar offline na hora.
-      if (offlineBadgeDelayRef.current) clearTimeout(offlineBadgeDelayRef.current);
-      offlineBadgeDelayRef.current = setTimeout(() => {
-        offlineBadgeDelayRef.current = null;
-        if (!socket.connected) setIsBackendConnected(false);
-      }, 4000);
+      scheduleBackendOffline();
       console.error('❌ Erro na conexão Socket.IO:', err.message);
       const msg = String(err?.message || '').toLowerCase();
       const authRelated =
@@ -2208,7 +2246,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socket.io.off('reconnect', onManagerReconnect);
       socket.disconnect();
     };
-  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser]);
+  }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 
   /** Hidrata canais após auth + workspace — não depender só do primeiro socket.connect. */
   useEffect(() => {
@@ -3358,10 +3396,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const zapMassUiSnapshot = useMemo<ZapMassUiSnapshot>(
     () => ({
       isBackendConnected,
+      backendLinkState,
       systemMetrics,
       sessionLiveStats
     }),
-    [isBackendConnected, systemMetrics, sessionLiveStats]
+    [isBackendConnected, backendLinkState, systemMetrics, sessionLiveStats]
   );
 
   const connectionsSlice = useMemo(() => {
@@ -3499,6 +3538,7 @@ export function useZapMassUiSnapshot(): ZapMassUiSnapshot {
   if (v) return v;
   return {
     isBackendConnected: false,
+    backendLinkState: 'offline',
     systemMetrics: INITIAL_SYS_METRICS,
     sessionLiveStats: null
   };

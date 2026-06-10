@@ -41,7 +41,7 @@ const phaseLabels: Record<InitPhase, { title: string; sub: string }> = {
 };
 
 export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { socket, connections, isBackendConnected } = useZapMassCore();
+  const { socket, connections } = useZapMassCore();
   const [step, setStep] = useState<'naming' | 'loading_qr' | 'scanning' | 'success'>('naming');
   const [connectionName, setConnectionName] = useState('');
   const [showProxy, setShowProxy] = useState(false);
@@ -398,7 +398,7 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
   const handleCreate = () => {
       if (step !== 'naming') return;
       if (!connectionName.trim()) return;
-      if (!isBackendConnected) {
+      if (!socket?.connected) {
         toast.error('Sem ligação ao servidor. Aguarde o indicador "Online" ou recarregue a página.');
         return;
       }

@@ -130,7 +130,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   collapsed = false,
   onToggleCollapsed
 }) => {
-  const { isBackendConnected } = useZapMassUiSnapshot();
+  const { backendLinkState } = useZapMassUiSnapshot();
+  const linkLabel =
+    backendLinkState === 'online'
+      ? 'Online'
+      : backendLinkState === 'reconnecting'
+        ? 'Reconectando'
+        : 'Offline';
+  const linkDotClass =
+    backendLinkState === 'online'
+      ? 'bg-emerald-400'
+      : backendLinkState === 'reconnecting'
+        ? 'bg-amber-400'
+        : 'bg-red-400';
   const { user, signOut } = useAuth();
   const { segment } = useAppProfile();
   const [mode, setMode] = useState(getSavedMode());
@@ -207,14 +219,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="text-white font-bold text-[15px] tracking-tight leading-none">ZapMass</div>
               <div className="flex items-center gap-1.5 mt-1">
                 <div
-                  className={`w-1.5 h-1.5 rounded-full ${isBackendConnected ? 'bg-emerald-400' : 'bg-red-400'}`}
-                  style={isBackendConnected ? { boxShadow: '0 0 6px rgba(52,211,153,0.8)' } : {}}
+                  className={`w-1.5 h-1.5 rounded-full ${linkDotClass}`}
+                  style={
+                    backendLinkState === 'online'
+                      ? { boxShadow: '0 0 6px rgba(52,211,153,0.8)' }
+                      : backendLinkState === 'reconnecting'
+                        ? { boxShadow: '0 0 6px rgba(251,191,36,0.7)' }
+                        : {}
+                  }
                 />
                 <span
                   className="text-[10px] font-semibold uppercase tracking-widest"
                   style={{ color: 'var(--sidebar-text-muted)' }}
                 >
-                  {isBackendConnected ? 'Online' : 'Offline'}
+                  {linkLabel}
                 </span>
               </div>
             </div>

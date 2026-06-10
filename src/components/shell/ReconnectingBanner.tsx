@@ -8,7 +8,7 @@ import { getSessionIdToken } from '../../utils/sessionAuth';
  * Não aparece em quedas instantâneas, para evitar piscar em renavegação.
  */
 export const ReconnectingBanner: React.FC = () => {
-  const { isBackendConnected } = useZapMassUiSnapshot();
+  const { backendLinkState } = useZapMassUiSnapshot();
   const { socket } = useZapMassCore();
   const [show, setShow] = useState(false);
   const [secondsOffline, setSecondsOffline] = useState(0);
@@ -27,21 +27,23 @@ export const ReconnectingBanner: React.FC = () => {
   }, [socket, retrying]);
 
   useEffect(() => {
-    if (isBackendConnected) {
+    if (backendLinkState === 'online') {
       setShow(false);
       setSecondsOffline(0);
       return;
     }
     const startedAt = Date.now();
-    const showTimer = setTimeout(() => setShow(true), 1500);
+    const showTimer =
+      backendLinkState === 'offline' ? null : setTimeout(() => setShow(true), 800);
+    if (backendLinkState === 'offline') setShow(true);
     const interval = setInterval(() => {
       setSecondsOffline(Math.floor((Date.now() - startedAt) / 1000));
     }, 1000);
     return () => {
-      clearTimeout(showTimer);
+      if (showTimer) clearTimeout(showTimer);
       clearInterval(interval);
     };
-  }, [isBackendConnected]);
+  }, [backendLinkState]);
 
   if (!show) return null;
 

@@ -106,7 +106,7 @@ export const WaInbox: React.FC<Props> = ({
     return 'Painel online · conecte um chip em Conexões';
   }, [syncing, socketStatus, chipsConnected]);
 
-  const stripOffline = socketStatus === 'offline' || syncing;
+  const stripOffline = socketStatus === 'offline';
 
   return (
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>

@@ -39,7 +39,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   centerSlot,
   nearLatencySlot
 }) => {
-  const { isBackendConnected, systemMetrics } = useZapMassUiSnapshot();
+  const { backendLinkState, systemMetrics } = useZapMassUiSnapshot();
   const { user, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -136,12 +136,23 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div
           className="hidden sm:flex h-9 items-center gap-1.5 px-2.5 rounded-lg border shrink-0"
           style={{ background: 'var(--surface-2)', borderColor: 'var(--border-subtle)' }}
-          title={isBackendConnected ? 'Servidor online' : 'Servidor offline'}
+          title={
+            backendLinkState === 'online'
+              ? 'Servidor online'
+              : backendLinkState === 'reconnecting'
+                ? 'Reconectando ao servidor'
+                : 'Servidor offline'
+          }
         >
-          {isBackendConnected ? (
+          {backendLinkState === 'online' ? (
             <>
               <Wifi className="w-3.5 h-3.5 text-emerald-500" />
               <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Online</span>
+            </>
+          ) : backendLinkState === 'reconnecting' ? (
+            <>
+              <Wifi className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+              <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">Reconectando</span>
             </>
           ) : (
             <>
