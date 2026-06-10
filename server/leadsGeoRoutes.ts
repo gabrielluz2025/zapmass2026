@@ -43,7 +43,8 @@ export function registerLeadsGeoRoutes(app: Express): void {
         state: q.state,
         city: q.city,
         ddd: q.ddd,
-        neighborhood: q.neighborhood
+        neighborhood: q.neighborhood,
+        name: q.name?.trim() || undefined
       });
       return res.json({ ok: true, ...summary });
     } catch (e) {

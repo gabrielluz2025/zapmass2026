@@ -76,6 +76,8 @@ export type LeadsGeoQuery = {
   city?: string;
   ddd?: string;
   neighborhood?: string;
+  /** Busca parcial no nome do contato (mín. 2 caracteres). */
+  name?: string;
 };
 
 function buildQueryString(q: LeadsGeoQuery): string {
@@ -85,6 +87,7 @@ function buildQueryString(q: LeadsGeoQuery): string {
   if (q.city) p.set('city', q.city);
   if (q.ddd) p.set('ddd', q.ddd);
   if (q.neighborhood) p.set('neighborhood', q.neighborhood);
+  if (q.name) p.set('name', q.name);
   const s = p.toString();
   return s ? `?${s}` : '';
 }

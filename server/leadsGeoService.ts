@@ -122,6 +122,8 @@ export type LeadsGeoQuery = {
   city?: string;
   ddd?: string;
   neighborhood?: string;
+  /** Busca parcial no nome do contato (mín. 2 caracteres). */
+  name?: string;
 };
 
 type GeoCacheFile = Record<string, { lat: number; lng: number; at: string }>;
@@ -735,7 +737,24 @@ function clusterKey(layer: GeoLayer, parts: Record<string, string>): string {
   return `state:${nk(parts.state)}`;
 }
 
+function normContactNameSearch(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .trim();
+}
+
+function contactNameMatches(c: Contact, rawName?: string): boolean {
+  const needle = normContactNameSearch(rawName || '');
+  if (!needle || needle.length < 2) return true;
+  const name = normContactNameSearch(c.name || '');
+  return name.includes(needle);
+}
+
 function contactMatchesFilters(c: Contact, q: LeadsGeoQuery): boolean {
+  if (!contactNameMatches(c, q.name)) return false;
+
   const { city, state: st } = resolveContactCityState(c);
   const ddd = resolveContactDdd(c);
   const nb = normNeighborhood(c.neighborhood || '', city);
@@ -798,7 +817,14 @@ export async function buildLeadsGeoSummary(
   let withNeighborhood = 0;
   let withPhone = 0;
   const contactPins: GeoContactPin[] = [];
-  const maxContactPins = query.neighborhood ? 6000 : query.city ? 3500 : 1500;
+  const nameSearchActive = (query.name || '').trim().length >= 2;
+  const maxContactPins = nameSearchActive
+    ? 800
+    : query.neighborhood
+      ? 6000
+      : query.city
+        ? 3500
+        : 1500;
   let filteredWithFullAddress = 0;
   let pinsMapped = 0;
   let pinsApproximate = 0;

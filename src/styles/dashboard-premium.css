@@ -371,6 +371,21 @@
   opacity: 0.85;
 }
 
+.zm-ranking-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(20, 184, 166, 0.45) transparent;
+}
+.zm-ranking-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.zm-ranking-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(20, 184, 166, 0.35);
+}
+.zm-ranking-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 184, 166, 0.55);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .zm-dashboard > .zm-dash-section,
   .zm-hero-orb,

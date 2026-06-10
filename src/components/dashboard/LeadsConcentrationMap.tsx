@@ -1,7 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Download, Flame, Loader2, MapPin, RefreshCw, User, X } from 'lucide-react';
+import {
+  ChevronRight,
+  Download,
+  Flame,
+  Loader2,
+  MapPin,
+  RefreshCw,
+  Search,
+  Trophy,
+  User,
+  X
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button, Card, Select } from '../ui';
 import { useZapMassConversations, useZapMassCore } from '../../context/ZapMassContext';
@@ -264,8 +275,20 @@ export const LeadsConcentrationMap: React.FC = () => {
   const [filterCity, setFilterCity] = useState('');
   const [filterDdd, setFilterDdd] = useState('');
   const [filterNeighborhood, setFilterNeighborhood] = useState('');
+  const [filterContactName, setFilterContactName] = useState('');
+  const [debouncedContactName, setDebouncedContactName] = useState('');
   /** Clique no ranking/chips — mapa exibe só esta região até desmarcar. */
   const [selectedClusterKey, setSelectedClusterKey] = useState<string | null>(null);
+  const [rankingSearch, setRankingSearch] = useState('');
+  const [loadedQueryKey, setLoadedQueryKey] = useState('');
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedContactName(filterContactName.trim()), 400);
+    return () => window.clearTimeout(t);
+  }, [filterContactName]);
+
+  const contactNameFilter =
+    debouncedContactName.length >= 2 ? debouncedContactName : undefined;
 
   const query = useMemo<LeadsGeoQuery>(
     () => ({
@@ -273,10 +296,14 @@ export const LeadsConcentrationMap: React.FC = () => {
       state: filterState || undefined,
       city: filterCity || undefined,
       ddd: filterDdd || undefined,
-      neighborhood: filterNeighborhood || undefined
+      neighborhood: filterNeighborhood || undefined,
+      name: contactNameFilter
     }),
-    [layer, filterState, filterCity, filterDdd, filterNeighborhood]
+    [layer, filterState, filterCity, filterDdd, filterNeighborhood, contactNameFilter]
   );
+
+  const queryKey = useMemo(() => JSON.stringify(query), [query]);
+  const rankingReady = !loading && loadedQueryKey === queryKey;
 
   const mapViewKey = useMemo(
     () =>
@@ -286,10 +313,20 @@ export const LeadsConcentrationMap: React.FC = () => {
         filterCity,
         filterDdd,
         filterNeighborhood,
+        contactNameFilter,
         selectedClusterKey,
         mapMode
       ].join('|'),
-    [layer, filterState, filterCity, filterDdd, filterNeighborhood, selectedClusterKey, mapMode]
+    [
+      layer,
+      filterState,
+      filterCity,
+      filterDdd,
+      filterNeighborhood,
+      contactNameFilter,
+      selectedClusterKey,
+      mapMode
+    ]
   );
 
   const mergedClusters = useMemo(
@@ -350,13 +387,12 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   const allValidPins = useMemo(
     () =>
-      (summary?.contactPins || []).filter(
-        (p) =>
-          !p.approximate &&
-          p.precision === 'address' &&
-          isMapCoordValid(p.lat, p.lng, p.city, p.state)
-      ),
-    [summary?.contactPins]
+      (summary?.contactPins || []).filter((p) => {
+        if (!isMapCoordValid(p.lat, p.lng, p.city, p.state)) return false;
+        if (contactNameFilter) return true;
+        return !p.approximate && p.precision === 'address';
+      }),
+    [summary?.contactPins, contactNameFilter]
   );
 
   const displayPins = useMemo(() => {
@@ -382,7 +418,65 @@ export const LeadsConcentrationMap: React.FC = () => {
 
   const pinStats = summary?.pinStats;
 
-  const topList = useMemo(() => mergedClusters.slice(0, 25), [mergedClusters]);
+  const showCityDrillRanking = layer === 'neighborhood' && !filterCity;
+
+  type RankingCityRow = { kind: 'city'; label: string; count: number; key: string };
+  type RankingClusterRow = { kind: 'cluster'; cluster: GeoCluster };
+  type RankingRow = RankingCityRow | RankingClusterRow;
+
+  const rankingRows = useMemo((): RankingRow[] => {
+    if (!summary || !rankingReady) return [];
+    if (showCityDrillRanking) {
+      return Object.entries(summary.byCity)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 30)
+        .map(([label, count]) => ({ kind: 'city' as const, label, count, key: label }));
+    }
+    return mergedClusters.slice(0, 30).map((cluster) => ({ kind: 'cluster' as const, cluster }));
+  }, [summary, rankingReady, showCityDrillRanking, mergedClusters]);
+
+  const filteredRankingRows = useMemo(() => {
+    const q = rankingSearch.trim().toLowerCase();
+    if (!q) return rankingRows;
+    return rankingRows.filter((row) => {
+      const label = row.kind === 'city' ? row.label : row.cluster.label;
+      return label.toLowerCase().includes(q);
+    });
+  }, [rankingRows, rankingSearch]);
+
+  const rankingMaxCount = useMemo(() => {
+    if (filteredRankingRows.length === 0) return 1;
+    return Math.max(
+      ...filteredRankingRows.map((r) => (r.kind === 'city' ? r.count : r.cluster.count)),
+      1
+    );
+  }, [filteredRankingRows]);
+
+  const rankingHeading = useMemo(() => {
+    if (layer === 'neighborhood' && filterCity) {
+      const cityName = filterCity.split('·')[0].trim();
+      return {
+        title: `Bairros em ${cityName}`,
+        subtitle: `${summary?.stats?.clusters ?? 0} regiões · clique para focar no mapa`
+      };
+    }
+    if (showCityDrillRanking) {
+      return {
+        title: 'Por onde começar?',
+        subtitle: 'Escolha uma cidade para ver os bairros e contatos no mapa'
+      };
+    }
+    if (layer === 'city') {
+      return {
+        title: 'Ranking — Cidades',
+        subtitle: 'Clique na cidade para abrir os bairros'
+      };
+    }
+    return {
+      title: `Ranking — ${LAYER_LABELS[layer]}`,
+      subtitle: 'Clique na região para filtrar o mapa'
+    };
+  }, [layer, filterCity, showCityDrillRanking, summary?.stats?.clusters]);
 
   const cityNbEntries = useMemo(() => {
     if (!filterCity || !summary?.byNeighborhood) return [];
@@ -543,6 +637,7 @@ export const LeadsConcentrationMap: React.FC = () => {
   const summaryReqRef = useRef(0);
 
   const refreshSummary = useCallback(async (q: LeadsGeoQuery = query) => {
+    const reqKey = JSON.stringify(q);
     const reqId = ++summaryReqRef.current;
     setLoading(true);
     try {
@@ -550,6 +645,7 @@ export const LeadsConcentrationMap: React.FC = () => {
       if (reqId !== summaryReqRef.current) return;
       setConfig(cfg);
       setSummary(sum);
+      setLoadedQueryKey(reqKey);
     } catch (e) {
       if (reqId !== summaryReqRef.current) return;
       const msg = e instanceof Error ? e.message : 'Erro ao carregar mapa de leads.';
@@ -562,6 +658,12 @@ export const LeadsConcentrationMap: React.FC = () => {
   useEffect(() => {
     void refreshSummary(query);
   }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!contactNameFilter) return;
+    setSelectedClusterKey(null);
+    if (allValidPins.length > 0) setMapMode('pins');
+  }, [contactNameFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Evita seleção de bairro antigo (ex. Centro) após trocar o filtro para outro bairro. */
   useEffect(() => {
@@ -680,7 +782,8 @@ export const LeadsConcentrationMap: React.FC = () => {
     }
 
     if (mapMode === 'pins' && hasPins) {
-      const pinCap = filterNeighborhood || selectedClusterKey ? 2500 : 600;
+      const pinCap =
+        contactNameFilter || filterNeighborhood || selectedClusterKey ? 2500 : 600;
       const pinStep = displayPins.length > pinCap ? Math.ceil(displayPins.length / pinCap) : 1;
       for (let i = 0; i < displayPins.length; i += pinStep) {
         const pin = displayPins[i]!;
@@ -700,7 +803,13 @@ export const LeadsConcentrationMap: React.FC = () => {
         const c = displayClusters[0]!;
         const { lat, lng } = fixBrazilCoord(c.lat!, c.lng!);
         map.setView([lat, lng], maxZoom, { animate: false });
-      } else if (viewport && !filterCity && !filterNeighborhood && !selectedClusterKey) {
+      } else if (
+        viewport &&
+        !filterCity &&
+        !filterNeighborhood &&
+        !selectedClusterKey &&
+        !contactNameFilter
+      ) {
         map.setView([viewport.lat, viewport.lng], viewport.zoom, { animate: false });
       } else if (bounds.isValid()) {
         const clipped = bounds.intersects(BRAZIL_BOUNDS) ? bounds : BRAZIL_BOUNDS;
@@ -719,6 +828,7 @@ export const LeadsConcentrationMap: React.FC = () => {
     filterCity,
     filterNeighborhood,
     selectedClusterKey,
+    contactNameFilter,
     layer
   ]);
 
@@ -806,12 +916,45 @@ export const LeadsConcentrationMap: React.FC = () => {
   const handleLayerChange = (next: GeoLayer) => {
     setLayer(next);
     setSelectedClusterKey(null);
+    setRankingSearch('');
     if (next === 'neighborhood') setFilterNeighborhood('');
     if (next !== 'city' && next !== 'neighborhood') {
       setFilterCity('');
       setFilterNeighborhood('');
     }
   };
+
+  const handleCityRankClick = useCallback(
+    (cityLabel: string) => {
+      setFilterCity(cityLabel);
+      setFilterNeighborhood('');
+      setSelectedClusterKey(null);
+      setRankingSearch('');
+      const fc = parseGeoFilterCity(cityLabel);
+      if (fc.state) setFilterState(fc.state);
+      setLayer('neighborhood');
+    },
+    []
+  );
+
+  const focusNeighborhoodByLabel = useCallback(
+    (nbLabel: string) => {
+      const nbPart = nbLabel.split('·')[0].trim();
+      const cluster = mergedClusters.find(
+        (c) =>
+          c.label === nbLabel ||
+          `${c.neighborhood} · ${c.city}` === nbLabel ||
+          normNeighborhoodKey(c.neighborhood) === normNeighborhoodKey(nbPart)
+      );
+      if (cluster) {
+        handleClusterClick(cluster);
+        return;
+      }
+      setFilterNeighborhood(nbLabel);
+      setSelectedClusterKey(findClusterKeyForNeighborhood(nbLabel));
+    },
+    [mergedClusters, handleClusterClick, findClusterKeyForNeighborhood]
+  );
 
   const stats = summary?.stats;
   const filters = summary?.filters;
@@ -865,9 +1008,14 @@ export const LeadsConcentrationMap: React.FC = () => {
             setFilterNeighborhood('');
             setSelectedClusterKey(null);
           }
+        },
+        contactNameFilter && {
+          key: 'name',
+          label: `Nome: ${contactNameFilter}`,
+          clear: () => setFilterContactName('')
         }
       ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>,
-    [filterState, filterDdd, filterCity, filterNeighborhood]
+    [filterState, filterDdd, filterCity, filterNeighborhood, contactNameFilter, layer, drillOutOfCity]
   );
   const needsGeocode =
     (layer === 'city' || layer === 'neighborhood') &&
@@ -981,6 +1129,43 @@ export const LeadsConcentrationMap: React.FC = () => {
             </div>
           )}
 
+          {contactNameFilter && rankingReady && (
+            <div
+              className={`mb-3 rounded-xl border px-3 py-2.5 flex flex-wrap items-center gap-2 ${
+                filteredTotal === 0
+                  ? 'border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/25'
+                  : 'border-violet-300/60 bg-violet-50/60 dark:bg-violet-950/25'
+              }`}
+            >
+              <User className="w-4 h-4 text-violet-600 dark:text-violet-300 shrink-0" />
+              <p className="text-sm text-slate-800 dark:text-slate-100 min-w-0 flex-1">
+                {filteredTotal === 0 ? (
+                  <>
+                    Nenhum contato com nome contendo <strong>{contactNameFilter}</strong>.
+                  </>
+                ) : (
+                  <>
+                    <strong>{filteredTotal.toLocaleString('pt-BR')}</strong> contato(s) com{' '}
+                    <strong>{contactNameFilter}</strong> no nome
+                    {allValidPins.length > 0 && (
+                      <span className="text-slate-500">
+                        {' '}
+                        · {allValidPins.length.toLocaleString('pt-BR')} no mapa
+                      </span>
+                    )}
+                  </>
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={() => setFilterContactName('')}
+                className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 hover:underline shrink-0"
+              >
+                Limpar busca
+              </button>
+            </div>
+          )}
+
           {activeFilters.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-1.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mr-1">Filtros</span>
@@ -1002,6 +1187,39 @@ export const LeadsConcentrationMap: React.FC = () => {
           )}
 
           <div className="flex flex-wrap gap-2 mb-3">
+            <label className="flex flex-col gap-0.5 min-w-[min(100%,220px)] flex-[1.4]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Nome do contato
+              </span>
+              <div className="relative">
+                <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                <input
+                  type="search"
+                  value={filterContactName}
+                  onChange={(e) => setFilterContactName(e.target.value)}
+                  placeholder="Ex.: Maria, João Silva…"
+                  className="w-full h-8 pl-8 pr-8 text-xs rounded-lg border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-violet-500/35 focus:border-violet-500/50"
+                />
+                {filterContactName.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterContactName('')}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    aria-label="Limpar busca por nome"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              {filterContactName.trim().length === 1 && (
+                <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                  Digite pelo menos 2 letras
+                </span>
+              )}
+              {filterContactName.trim().length >= 2 && filterContactName.trim() !== debouncedContactName && (
+                <span className="text-[10px] text-slate-400">Buscando…</span>
+              )}
+            </label>
             <FilterSelect label="Camada" value={layer} onChange={(v) => handleLayerChange(v as GeoLayer)}>
               {(Object.keys(LAYER_LABELS) as GeoLayer[]).map((k) => (
                 <option key={k} value={k}>{LAYER_LABELS[k]}</option>
@@ -1168,7 +1386,13 @@ export const LeadsConcentrationMap: React.FC = () => {
                   <MapPin className="w-8 h-8 mb-2 opacity-40" />
                   <p className="text-sm font-medium">Nenhuma região para exibir.</p>
                   <p className="text-xs mt-1 max-w-sm">
-                    {mapMode === 'pins'
+                    {contactNameFilter
+                      ? filteredTotal === 0
+                        ? `Nenhum contato com "${contactNameFilter}" no nome. Tente outra grafia ou limpe os filtros de cidade/UF.`
+                        : allValidPins.length === 0
+                          ? 'Contato(s) encontrados, mas sem posição no mapa. Complete o endereço ou use Localizar no mapa.'
+                          : 'Ajuste o modo Endereços para ver os pins dos contatos encontrados.'
+                      : mapMode === 'pins'
                       ? 'Nenhum contato com endereço completo localizado neste filtro. Use Localizar no mapa (rua + número).'
                       : layer === 'ddd'
                         ? 'Contatos precisam de telefone com DDD válido.'
@@ -1182,37 +1406,95 @@ export const LeadsConcentrationMap: React.FC = () => {
               )}
             </div>
 
-            <div className="space-y-3 min-h-0">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Ranking — {LAYER_LABELS[layer]}
-                </p>
-                {layer === 'neighborhood' && (
-                  <p className="text-[10px] text-teal-600 dark:text-teal-400 mb-2">
-                    Clique no bairro para ver os contatos no mapa
-                  </p>
+            <div className="space-y-3 min-h-0 flex flex-col">
+              <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/40 dark:bg-slate-900/40 p-3 flex flex-col min-h-0">
+                {(filterCity || filterNeighborhood) && (
+                  <GeoBreadcrumb
+                    city={filterCity}
+                    neighborhood={filterNeighborhood}
+                    onCityClear={() => drillOutOfCity()}
+                    onNeighborhoodClear={() => {
+                      setFilterNeighborhood('');
+                      setSelectedClusterKey(null);
+                    }}
+                  />
                 )}
-                <div className="space-y-1 max-h-[340px] overflow-y-auto pr-1">
-                  {topList.length === 0 ? (
-                    <p className="text-xs text-slate-500">Nenhum contato neste filtro/camada.</p>
-                  ) : (
-                    topList.map((c, i) => (
-                      <ClusterRow
-                        key={c.key}
-                        cluster={c}
-                        rank={i + 1}
-                        isTop={c.key === top?.key}
-                        isSelected={selectedClusterKey === c.key}
-                        maxCount={topList[0]?.count || 1}
-                        filteredTotal={filteredTotal}
-                        onFocus={() => handleClusterClick(c)}
-                      />
-                    ))
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      {rankingHeading.title}
+                    </p>
+                    <p className="text-[10px] text-teal-600 dark:text-teal-400 mt-0.5 leading-snug">
+                      {rankingHeading.subtitle}
+                    </p>
+                  </div>
+                  {rankingRows.length > 6 && (
+                    <span className="shrink-0 text-[10px] font-mono tabular-nums text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                      {filteredRankingRows.length}/{rankingRows.length}
+                    </span>
                   )}
                 </div>
-                {(summary?.clusters.length || 0) > topList.length && (
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    +{(summary?.clusters.length || 0) - topList.length} no XLSX completo
+                {rankingRows.length > 8 && (
+                  <label className="relative mb-2 block">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                    <input
+                      type="search"
+                      value={rankingSearch}
+                      onChange={(e) => setRankingSearch(e.target.value)}
+                      placeholder={showCityDrillRanking ? 'Buscar cidade…' : 'Buscar bairro ou região…'}
+                      className="w-full h-8 pl-8 pr-2 text-xs rounded-lg border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
+                    />
+                  </label>
+                )}
+                <div className="relative min-h-[200px] flex-1">
+                  {!rankingReady ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-500 bg-slate-50/80 dark:bg-slate-900/80 rounded-lg z-10">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <p className="text-xs">Atualizando ranking…</p>
+                    </div>
+                  ) : null}
+                  <div
+                    className={`space-y-1 max-h-[min(340px,42vh)] overflow-y-auto pr-1 zm-ranking-scroll transition-opacity ${
+                      rankingReady ? 'opacity-100' : 'opacity-40 pointer-events-none'
+                    }`}
+                  >
+                    {filteredRankingRows.length === 0 ? (
+                      <p className="text-xs text-slate-500 py-4 text-center">
+                        {rankingSearch.trim()
+                          ? 'Nenhum resultado para essa busca.'
+                          : 'Nenhum contato neste filtro/camada.'}
+                      </p>
+                    ) : (
+                      filteredRankingRows.map((row, i) =>
+                        row.kind === 'city' ? (
+                          <CityDrillRow
+                            key={row.key}
+                            label={row.label}
+                            count={row.count}
+                            rank={i + 1}
+                            filteredTotal={filteredTotal}
+                            maxCount={rankingMaxCount}
+                            onDrill={() => handleCityRankClick(row.label)}
+                          />
+                        ) : (
+                          <ClusterRow
+                            key={row.cluster.key}
+                            cluster={row.cluster}
+                            rank={i + 1}
+                            isTop={row.cluster.key === top?.key}
+                            isSelected={selectedClusterKey === row.cluster.key}
+                            maxCount={rankingMaxCount}
+                            filteredTotal={filteredTotal}
+                            onFocus={() => handleClusterClick(row.cluster)}
+                          />
+                        )
+                      )
+                    )}
+                  </div>
+                </div>
+                {rankingReady && !showCityDrillRanking && (summary?.clusters.length || 0) > rankingRows.length && (
+                  <p className="text-[10px] text-slate-400 mt-2">
+                    +{(summary?.clusters.length || 0) - rankingRows.length} no XLSX completo
                   </p>
                 )}
               </div>
@@ -1221,9 +1503,12 @@ export const LeadsConcentrationMap: React.FC = () => {
                   entries={cityNbEntries}
                   active={filterNeighborhood}
                   onPick={(nb) => {
-                    const next = filterNeighborhood === nb ? '' : nb;
-                    setFilterNeighborhood(next);
-                    setSelectedClusterKey(next ? findClusterKeyForNeighborhood(nb) : null);
+                    if (filterNeighborhood === nb) {
+                      setFilterNeighborhood('');
+                      setSelectedClusterKey(null);
+                      return;
+                    }
+                    focusNeighborhoodByLabel(nb);
                   }}
                 />
               )}
@@ -1316,6 +1601,130 @@ const StreetViewPegman: React.FC<{ className?: string }> = ({ className = 'w-4 h
   </svg>
 );
 
+function formatSharePct(count: number, total: number): string {
+  if (total <= 0 || count <= 0) return '0%';
+  const pct = (100 * count) / total;
+  if (pct >= 10) return `${Math.round(pct)}%`;
+  if (pct >= 1) return `${pct.toFixed(1)}%`;
+  if (pct >= 0.05) return `${pct.toFixed(2)}%`;
+  return '<0,05%';
+}
+
+function shareBarWidth(count: number, total: number, maxCount: number): number {
+  const share = total > 0 ? (100 * count) / total : 0;
+  const relative = maxCount > 0 ? (100 * count) / maxCount : 0;
+  const blended = share * 0.55 + relative * 0.45;
+  return Math.max(count > 0 ? 5 : 0, Math.min(100, Math.round(blended)));
+}
+
+const RankBadge: React.FC<{ rank: number }> = ({ rank }) => {
+  if (rank === 1) {
+    return (
+      <span className="w-5 h-5 shrink-0 rounded-full bg-amber-400/90 text-amber-950 flex items-center justify-center">
+        <Trophy className="w-3 h-3" />
+      </span>
+    );
+  }
+  if (rank === 2) {
+    return (
+      <span className="w-5 h-5 shrink-0 rounded-full bg-slate-300/90 text-slate-700 flex items-center justify-center text-[10px] font-black">
+        2
+      </span>
+    );
+  }
+  if (rank === 3) {
+    return (
+      <span className="w-5 h-5 shrink-0 rounded-full bg-amber-700/35 text-amber-900 dark:text-amber-200 flex items-center justify-center text-[10px] font-black">
+        3
+      </span>
+    );
+  }
+  return <span className="w-5 text-center text-[10px] font-mono text-slate-400 shrink-0">{rank}</span>;
+};
+
+const GeoBreadcrumb: React.FC<{
+  city: string;
+  neighborhood: string;
+  onCityClear: () => void;
+  onNeighborhoodClear: () => void;
+}> = ({ city, neighborhood, onCityClear, onNeighborhoodClear }) => (
+  <nav className="flex flex-wrap items-center gap-1 text-[10px] mb-2.5 pb-2 border-b border-slate-200/70 dark:border-slate-700/70">
+    <span className="text-slate-400 font-semibold uppercase tracking-wider">Você está em</span>
+    {city && (
+      <button
+        type="button"
+        onClick={onCityClear}
+        className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-teal-600/12 text-teal-800 dark:text-teal-200 font-semibold hover:bg-teal-600/20 transition-colors"
+      >
+        {city.split('·')[0].trim()}
+        <X className="w-3 h-3 opacity-60" />
+      </button>
+    )}
+    {neighborhood && (
+      <>
+        <ChevronRight className="w-3 h-3 text-slate-400" />
+        <button
+          type="button"
+          onClick={onNeighborhoodClear}
+          className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-rose-600/12 text-rose-800 dark:text-rose-200 font-semibold hover:bg-rose-600/20 transition-colors"
+        >
+          {neighborhood.split('·')[0].trim()}
+          <X className="w-3 h-3 opacity-60" />
+        </button>
+      </>
+    )}
+  </nav>
+);
+
+const CityDrillRow: React.FC<{
+  label: string;
+  count: number;
+  rank: number;
+  filteredTotal: number;
+  maxCount: number;
+  onDrill: () => void;
+}> = ({ label, count, rank, filteredTotal, maxCount, onDrill }) => {
+  const shareLabel = formatSharePct(count, filteredTotal);
+  const barPct = shareBarWidth(count, filteredTotal, maxCount);
+  const cityName = label.split('·')[0].trim();
+  const uf = label.includes('·') ? label.split('·').pop()?.trim() : '';
+  return (
+    <button
+      type="button"
+      onClick={onDrill}
+      title={`Ver bairros de ${label} no mapa`}
+      className={`w-full text-left text-xs py-2.5 px-2 rounded-lg border transition-all group ${
+        rank === 1
+          ? 'border-rose-300/60 bg-rose-50/50 dark:bg-rose-950/25 hover:border-rose-400/80'
+          : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700 hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="min-w-0 flex items-center gap-2">
+          <RankBadge rank={rank} />
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-slate-800 dark:text-slate-100">{cityName}</p>
+            {uf && <p className="text-[10px] text-slate-400">{uf}</p>}
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="font-mono font-bold tabular-nums text-slate-700 dark:text-slate-200">
+            {count.toLocaleString('pt-BR')}
+          </p>
+          <p className="text-[10px] text-teal-600 dark:text-teal-400">{shareLabel}</p>
+        </div>
+        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-teal-500 shrink-0 transition-colors" />
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${rank === 1 ? 'bg-gradient-to-r from-rose-500 to-orange-400' : 'bg-teal-500/75'}`}
+          style={{ width: `${barPct}%` }}
+        />
+      </div>
+    </button>
+  );
+};
+
 const ClusterRow: React.FC<{
   cluster: GeoCluster;
   rank: number;
@@ -1325,42 +1734,55 @@ const ClusterRow: React.FC<{
   filteredTotal: number;
   onFocus?: () => void;
 }> = ({ cluster, rank, isTop, isSelected, maxCount, filteredTotal, onFocus }) => {
-  const barPct = maxCount > 0 ? Math.max(4, Math.round((100 * cluster.count) / maxCount)) : 0;
-  const sharePct = filteredTotal > 0 ? Math.round((1000 * cluster.count) / filteredTotal) / 10 : 0;
+  const barPct = shareBarWidth(cluster.count, filteredTotal, maxCount);
+  const shareLabel = formatSharePct(cluster.count, filteredTotal);
   const streetUrl = clusterStreetViewUrl(cluster);
-  const rowClass = `w-full text-left text-xs py-2 border-b border-slate-100 dark:border-slate-800/80 last:border-0 transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-    isSelected
-      ? 'bg-teal-600/15 dark:bg-teal-900/30 ring-2 ring-teal-500/60 -mx-1 px-1 rounded'
-      : isTop
-        ? 'bg-rose-50/60 dark:bg-rose-950/20 -mx-1 px-1 rounded'
-        : ''
-  }`;
+  const nbName = cluster.neighborhood !== '—' ? cluster.neighborhood : cluster.label.split('·')[0]?.trim();
+  const cityHint = cluster.city !== '—' ? cluster.city : '';
   return (
-    <div className={`flex items-stretch gap-1.5 ${rowClass}`}>
+    <div
+      className={`flex items-stretch gap-1.5 rounded-lg transition-all ${
+        isSelected
+          ? 'bg-teal-600/12 dark:bg-teal-900/35 ring-2 ring-teal-500/50 px-1.5 py-1'
+          : isTop
+            ? 'bg-rose-50/50 dark:bg-rose-950/20 px-1.5 py-1'
+            : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40 px-1.5 py-1'
+      }`}
+    >
       <button
         type="button"
         onClick={onFocus}
         title="Clique para ver estes contatos no mapa"
-        className="flex-1 min-w-0 text-left"
+        className="flex-1 min-w-0 text-left text-xs"
       >
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <div className="min-w-0 flex items-center gap-1.5">
-            <span className="w-4 text-[10px] font-mono text-slate-400 shrink-0">{rank}</span>
-            <span className="truncate font-medium text-slate-800 dark:text-slate-100">{cluster.label}</span>
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="min-w-0 flex items-center gap-2">
+            <RankBadge rank={rank} />
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-slate-800 dark:text-slate-100">{nbName}</p>
+              {cityHint && cluster.precision === 'neighborhood' && (
+                <p className="text-[10px] text-slate-400 truncate">{cityHint}</p>
+              )}
+            </div>
           </div>
           <div className="shrink-0 text-right">
-            <span className="font-mono font-bold tabular-nums text-slate-600 dark:text-slate-300">
+            <p className="font-mono font-bold tabular-nums text-slate-700 dark:text-slate-200">
               {cluster.count.toLocaleString('pt-BR')}
-            </span>
-            <span className="text-[10px] text-slate-400 ml-1">{sharePct}%</span>
+            </p>
+            <p className="text-[10px] text-slate-400">{shareLabel}</p>
           </div>
         </div>
         <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all ${isTop ? 'bg-rose-500' : 'bg-teal-500/80'}`}
+            className={`h-full rounded-full transition-all duration-300 ${
+              isTop ? 'bg-gradient-to-r from-rose-500 to-orange-400' : 'bg-teal-500/80'
+            }`}
             style={{ width: `${barPct}%` }}
           />
         </div>
+        {!cluster.mapped && cluster.precision !== 'ddd' && cluster.precision !== 'state' && (
+          <p className="text-[9px] text-amber-600 dark:text-amber-400 mt-1">Aguarda localizar no mapa</p>
+        )}
       </button>
       <a
         href={streetUrl || '#'}
@@ -1369,7 +1791,7 @@ const ClusterRow: React.FC<{
         title="Ver na rua (Google Maps)"
         aria-label={`Ver ${cluster.label} na rua`}
         className={`shrink-0 self-center flex flex-col items-center justify-center min-w-[36px] p-1 rounded-lg border-2 border-amber-400 bg-amber-300 hover:bg-amber-200 transition-colors shadow-md ${
-          streetUrl ? '' : 'opacity-40 pointer-events-none'
+          streetUrl ? '' : 'opacity-35 pointer-events-none'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -1384,28 +1806,44 @@ const NbChips: React.FC<{
   entries: [string, number][];
   active: string;
   onPick: (nb: string) => void;
-}> = ({ entries, active, onPick }) => (
-  <div>
-    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Bairros rápidos</p>
-    <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto">
-      {entries.map(([nb, n]) => (
-        <button
-          key={nb}
-          type="button"
-          onClick={() => onPick(active === nb ? '' : nb)}
-          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold transition-colors max-w-full truncate ${
-            active === nb
-              ? 'bg-rose-600 text-white'
-              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
-          }`}
-        >
-          <span className="truncate">{nb.split('·')[0].trim()}</span>
-          <span className="font-mono tabular-nums opacity-80 shrink-0">{n}</span>
-        </button>
-      ))}
+}> = ({ entries, active, onPick }) => {
+  const maxN = entries[0]?.[1] || 1;
+  return (
+    <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/30 dark:bg-slate-900/30 p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Bairros rápidos</p>
+        <span className="text-[10px] text-slate-400">{entries.length} opções</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 max-h-[140px] overflow-y-auto zm-ranking-scroll">
+        {entries.map(([nb, n]) => {
+          const isActive = active === nb;
+          const heat = maxN > 0 ? n / maxN : 0;
+          return (
+            <button
+              key={nb}
+              type="button"
+              onClick={() => onPick(nb)}
+              title={`${n.toLocaleString('pt-BR')} contatos · clique para ver no mapa`}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold transition-all max-w-full ${
+                isActive
+                  ? 'bg-rose-600 text-white shadow-md shadow-rose-900/20 scale-[1.02]'
+                  : heat >= 0.5
+                    ? 'bg-rose-500/15 text-rose-900 dark:text-rose-100 border border-rose-400/30 hover:bg-rose-500/25'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 border border-transparent'
+              }`}
+            >
+              <MapPin className={`w-3 h-3 shrink-0 ${isActive ? 'opacity-90' : 'opacity-50'}`} />
+              <span className="truncate">{nb.split('·')[0].trim()}</span>
+              <span className="font-mono tabular-nums text-[10px] opacity-85 shrink-0 bg-black/10 dark:bg-white/10 px-1 rounded">
+                {n >= 1000 ? `${Math.round(n / 100) / 10}k` : n}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const DddChips: React.FC<{
   byDdd: Record<string, number>;

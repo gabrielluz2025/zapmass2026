@@ -54,12 +54,17 @@ export const AccountProfileEditor: React.FC = () => {
       toast.error('Informe um nome com pelo menos 2 caracteres.');
       return;
     }
+    const prevUser = getVpsAuthUser();
+    if (prevUser) {
+      syncVpsUser({ ...prevUser, displayName: name });
+    }
     setSavingName(true);
     try {
       const updated = await vpsUpdateProfile({ displayName: name });
       syncVpsUser(updated);
       toast.success('Nome atualizado.');
     } catch (e) {
+      if (prevUser) syncVpsUser(prevUser);
       toast.error(e instanceof Error ? e.message : 'Não foi possível salvar o nome.');
     } finally {
       setSavingName(false);

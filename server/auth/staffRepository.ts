@@ -108,13 +108,18 @@ export async function findStaffMemberById(memberId: string): Promise<WorkspaceMe
   return r.rows[0] ?? null;
 }
 
-export async function updateStaffDisplayName(memberId: string, displayName: string): Promise<void> {
+export async function updateStaffDisplayName(
+  memberId: string,
+  displayName: string
+): Promise<WorkspaceMemberRow | null> {
   const pool = getZapmassPool();
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
-  await pool.query(`UPDATE zapmass.workspace_members SET display_name = $2 WHERE id = $1::uuid`, [
-    memberId,
-    displayName.trim()
-  ]);
+  const r = await pool.query<WorkspaceMemberRow>(
+    `UPDATE zapmass.workspace_members SET display_name = $2 WHERE id = $1::uuid
+     RETURNING id::text, owner_user_id::text, login_slug, display_name, photo_url, revoked_at, password_hash`,
+    [memberId, displayName.trim()]
+  );
+  return r.rows[0] ?? null;
 }
 
 export async function updateStaffPhotoUrl(memberId: string, photoUrl: string | null): Promise<void> {

@@ -42,6 +42,7 @@ export function exportLeadsGeoXlsx(
     ['DDD', opts.query.ddd || 'Todos'],
     ['Cidade', opts.query.city || 'Todas'],
     ['Bairro', opts.query.neighborhood || 'Todos'],
+    ['Nome do contato', opts.query.name || 'Todos'],
     ['', ''],
     ['Totais', ''],
     ['Contatos no filtro', stats.filteredTotal],

@@ -90,13 +90,18 @@ export async function revokeRefreshTokenHash(tokenHash: string): Promise<void> {
   );
 }
 
-export async function updateUserDisplayName(userId: string, displayName: string): Promise<void> {
+export async function updateUserDisplayName(
+  userId: string,
+  displayName: string
+): Promise<UserRow | null> {
   const pool = getZapmassPool();
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
-  await pool.query(`UPDATE zapmass.users SET display_name = $2 WHERE id = $1::uuid`, [
-    userId,
-    displayName.trim() || null
-  ]);
+  const r = await pool.query<UserRow>(
+    `UPDATE zapmass.users SET display_name = $2 WHERE id = $1::uuid
+     RETURNING id::text, email, email_normalized, password_hash, display_name, photo_url, disabled_at`,
+    [userId, displayName.trim() || null]
+  );
+  return r.rows[0] ?? null;
 }
 
 export async function updateUserPhotoUrl(userId: string, photoUrl: string | null): Promise<void> {

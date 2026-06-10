@@ -1,6 +1,8 @@
 import type { Express, Request, Response } from 'express';
 import { vpsAuthEnabled } from './auth/authMode.js';
-import { buildVpsUserPayload } from './auth/profilePayload.js';
+import { buildVpsUserPayload, type VpsUserPayload } from './auth/profilePayload.js';
+import type { AuthPrincipal } from './auth/types.js';
+import { verifyAccessToken } from './auth/jwt.js';
 import {
   findStaffMemberById,
   updateStaffDisplayName,
@@ -20,7 +22,7 @@ import {
 import { getZapmassPool } from './db/postgres.js';
 import { authProfileLimiter } from './httpRateLimit.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
-import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
+import { parseBearer } from './resolveAuth.js';
 import { signAccessToken, accessTokenTtlSec } from './auth/jwt.js';
 
 const ALLOWED_PHOTO_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -57,13 +59,63 @@ async function saveProfilePhoto(
   return { ok: true, url };
 }
 
-async function requireVpsPrincipal(req: Request, res: Response) {
-  const principal = await resolveAuthPrincipal(parseBearer(req));
-  if (!principal || principal.provider !== 'vps') {
+/** JWT apenas — evita SELECT extra no Postgres em rotas leves de perfil. */
+async function requireVpsPrincipal(req: Request, res: Response): Promise<AuthPrincipal | null> {
+  const token = parseBearer(req);
+  if (!token) {
     res.status(401).json({ ok: false, error: 'Não autenticado.' });
     return null;
   }
-  return principal;
+  const claims = await verifyAccessToken(token);
+  if (!claims) {
+    res.status(401).json({ ok: false, error: 'Não autenticado.' });
+    return null;
+  }
+  return {
+    provider: 'vps',
+    authUid: claims.sub,
+    tenantUid: claims.tenantUid,
+    email: claims.email,
+    role: claims.role,
+    ownerUid: claims.role === 'staff' ? claims.ownerUid || claims.tenantUid : undefined
+  };
+}
+
+function ownerRowToPayload(row: {
+  id: string;
+  email: string;
+  display_name: string | null;
+  photo_url: string | null;
+}): VpsUserPayload {
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    photoUrl: row.photo_url || null,
+    role: 'owner',
+    tenantUid: row.id
+  };
+}
+
+function staffRowToPayload(
+  row: {
+    id: string;
+    display_name: string;
+    photo_url: string | null;
+    login_slug: string;
+  },
+  principal: AuthPrincipal
+): VpsUserPayload {
+  return {
+    id: row.id,
+    email: principal.email,
+    displayName: row.display_name || null,
+    photoUrl: row.photo_url || null,
+    role: 'staff',
+    tenantUid: principal.tenantUid,
+    ownerUid: principal.tenantUid,
+    loginSlug: row.login_slug
+  };
 }
 
 export function registerVpsProfileRoutes(app: Express): void {
@@ -84,6 +136,34 @@ export function registerVpsProfileRoutes(app: Express): void {
 
     if (!hasDisplayName && !hasPhoto && !removePhoto) {
       return res.status(400).json({ ok: false, error: 'Nada para atualizar.' });
+    }
+
+    if (hasDisplayName && !hasPhoto && !removePhoto) {
+      const name = (body.displayName as string).trim();
+      if (name.length < 2 || name.length > 80) {
+        return res.status(400).json({ ok: false, error: 'Nome deve ter entre 2 e 80 caracteres.' });
+      }
+      try {
+        if (principal.role === 'staff') {
+          const member = await findStaffMemberById(principal.authUid);
+          if (!member || member.revoked_at) {
+            return res.status(403).json({ ok: false, error: 'Acesso revogado.' });
+          }
+          const updated = await updateStaffDisplayName(member.id, name);
+          if (!updated) {
+            return res.status(500).json({ ok: false, error: 'Não foi possível atualizar o perfil.' });
+          }
+          return res.json({ ok: true, user: staffRowToPayload(updated, principal) });
+        }
+        const updated = await updateUserDisplayName(principal.tenantUid, name);
+        if (!updated || updated.disabled_at) {
+          return res.status(403).json({ ok: false, error: 'Conta indisponível.' });
+        }
+        return res.json({ ok: true, user: ownerRowToPayload(updated) });
+      } catch (e) {
+        console.error('[auth/profile/name]', e);
+        return res.status(500).json({ ok: false, error: 'Não foi possível atualizar o perfil.' });
+      }
     }
 
     try {
