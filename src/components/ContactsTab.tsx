@@ -3721,6 +3721,7 @@ export const ContactsTab: React.FC = () => {
 
       <ContactsHeaderBar
         stats={headerStats}
+        contactTempsReady={contactTempsReady}
         hideWeddingWeekPill={segment !== 'religious'}
         onNewContact={openNewContactModal}
         onImportXLSX={openImportXLSX}
@@ -3762,6 +3763,7 @@ export const ContactsTab: React.FC = () => {
             hideWeddingFilters={segment !== 'religious'}
             listsUiFocus={listsUiFocus}
             onListsUiFocusHandled={() => setListsUiFocus('none')}
+            contactTempsReady={contactTempsReady}
           />
         </div>
 
@@ -3930,7 +3932,9 @@ export const ContactsTab: React.FC = () => {
                       ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
                       : activeFilter === 'wedding_today' || activeFilter === 'wedding_week'
                         ? 'Ninguém com data de casamento na ficha neste período. Edite o contato (segmento religioso) e preencha Data do casamento na ficha de membro.'
-                        : 'Ajuste o filtro na lateral ou tente outra busca.'
+                        : (activeFilter === 'hot' || activeFilter === 'warm' || activeFilter === 'cold' || activeFilter === 'new') && !contactTempsReady
+                          ? 'Calculando temperaturas da base… aguarde um instante.'
+                          : 'Ajuste o filtro na lateral ou tente outra busca.'
               }
             />
           )}
