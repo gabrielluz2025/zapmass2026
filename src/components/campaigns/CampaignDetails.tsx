@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
   BarChart3,
   Calendar,
@@ -14,6 +15,7 @@ import {
   Pause,
   Play,
   Printer,
+  RefreshCw,
   Reply,
   Search,
   Share2,
@@ -22,6 +24,7 @@ import {
   TrendingUp,
   User,
   Users,
+  X,
   XCircle,
   Zap
 } from 'lucide-react';
@@ -339,7 +342,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   onTogglePause
 }) => {
   const conversations = useZapMassConversations();
-  const { contacts, contactLists, campaignGeo } = useZapMassCore();
+  const { contacts, contactLists, campaignGeo, startCampaign } = useZapMassCore();
   const { user } = useAuth();
   // Para membros de equipa, user.uid != effectiveWorkspaceUid. Os logs sao
   // persistidos no path do workspace, entao precisamos usar o uid efetivo
@@ -556,6 +559,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [logFilter, setLogFilter] = useState<LogFilter>('ALL');
   const [now, setNow] = useState(Date.now());
   const [openRow, setOpenRow] = useState<ReportRow | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [showRetryBanner, setShowRetryBanner] = useState(false);
 
   const isRunning = campaign.status === CampaignStatus.RUNNING;
   const isPaused = campaign.status === CampaignStatus.PAUSED;
@@ -630,7 +635,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   // Pendente "real-time": fila viva no backend (queueSize por chip selecionado).
   const pendingLive = useMemo(() => {
-    const selected = new Set(campaign.selectedConnectionIds || []);
+    const selected = new Set(campaign.selectedConnectionIds ?? []);
     if (selected.size === 0) return 0;
     return connections
       .filter((conn) => selected.has(conn.id))
@@ -1083,6 +1088,53 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   const campaignLogs = useMemo(() => scopedCampaignLogs as SystemLog[], [scopedCampaignLogs]);
 
+  /** Mostra o banner de reenvio quando a campanha conclui com falhas. */
+  useEffect(() => {
+    if (isDone && performance.counts.FAILED > 0) {
+      setShowRetryBanner(true);
+    }
+  }, [isDone, performance.counts.FAILED]);
+
+  const handleRetryFailed = useCallback(async () => {
+    const failedRows = detailedReport.filter(
+      (r) => effectiveCampaignReportStatus(r, replyPhonesFromLogs) === 'FAILED'
+    );
+    if (failedRows.length === 0) {
+      toast.error('Nenhum contato com falha encontrado.');
+      return;
+    }
+    const connId = (campaign.selectedConnectionIds || [])[0];
+    if (!connId) {
+      toast.error('Nenhum chip configurado nesta campanha.');
+      return;
+    }
+    const failedPhones = failedRows.map((r) => r.phone);
+    setRetrying(true);
+    try {
+      await startCampaign(
+        connId,
+        failedPhones,
+        campaign.message,
+        campaign.selectedConnectionIds || [],
+        undefined,
+        `${campaign.name} — Reenvio (${failedPhones.length})`,
+        {
+          messageStages: campaign.messageStages,
+          replyFlow: campaign.replyFlow,
+          delaySeconds: campaign.delaySeconds,
+          channelWeights: campaign.channelWeights
+        }
+      );
+      toast.success(`Reenvio iniciado para ${failedPhones.length} contato(s).`);
+      setShowRetryBanner(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao iniciar reenvio.';
+      toast.error(msg);
+    } finally {
+      setRetrying(false);
+    }
+  }, [detailedReport, campaign, replyPhonesFromLogs, startCampaign]);
+
   const handleFilterClick = (filter: ReportFilter) => {
     setDetailFilter(filter);
     reportSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1262,7 +1314,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       `Status: ${
         isRunning ? 'Em execução' : isPaused ? 'Pausada' : isScheduled ? 'Agendada' : isDone ? 'Concluída' : 'Pendente'
       }`,
-      `Total: ${campaign.totalContacts} contatos`,
+      `Total: ${campaign.totalContacts || 0} contatos`,
       `Entregues: ${metrics.ok} (${successRate}%)`,
       `Respostas: ${uiPerformance.replied} (${uiPerformance.replyPct}%)`,
       `Falhas: ${metrics.fail}`,
@@ -1274,7 +1326,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     );
   };
 
-  const onlineChips = campaign.selectedConnectionIds.filter((id) => {
+  const onlineChips = (campaign.selectedConnectionIds || []).filter((id) => {
     const c = connections.find((x) => x.id === id);
     return c?.status === ConnectionStatus.CONNECTED;
   }).length;
@@ -1441,15 +1493,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5" />
-                  <span style={{ color: 'var(--text-2)' }}>{campaign.totalContacts.toLocaleString('pt-BR')}</span>
+                  <span style={{ color: 'var(--text-2)' }}>{(campaign.totalContacts || 0).toLocaleString('pt-BR')}</span>
                   contatos
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <Smartphone className="w-3.5 h-3.5" />
                   <span style={{ color: onlineChips > 0 ? '#10b981' : 'var(--text-2)' }}>
-                    {onlineChips}/{campaign.selectedConnectionIds.length}
+                    {onlineChips}/{(campaign.selectedConnectionIds || []).length}
                   </span>
-                  chip{campaign.selectedConnectionIds.length > 1 ? 's' : ''} online
+                  chip{(campaign.selectedConnectionIds || []).length > 1 ? 's' : ''} online
                 </span>
               </div>
 
@@ -1633,6 +1685,52 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         />
       </div>
 
+      {/* ===== BANNER: reenvio de falhas após conclusão ===== */}
+      {showRetryBanner && isDone && performance.counts.FAILED > 0 && (
+        <div
+          className="rounded-xl px-4 py-3 flex items-start gap-3"
+          style={{
+            background: 'linear-gradient(135deg, rgba(239,68,68,0.12), rgba(239,68,68,0.05))',
+            border: '1px solid rgba(239,68,68,0.35)'
+          }}
+        >
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(239,68,68,0.18)' }}
+          >
+            <AlertCircle className="w-4 h-4" style={{ color: '#ef4444' }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
+              {performance.counts.FAILED} envio{performance.counts.FAILED !== 1 ? 's' : ''} falharam nesta campanha
+            </p>
+            <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+              Deseja reenviar automaticamente para os contatos com falha? Uma nova campanha será criada com
+              os mesmos chips e mensagem.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />}
+              onClick={handleRetryFailed}
+              disabled={retrying}
+            >
+              {retrying ? 'Reenviando…' : 'Tentar novamente'}
+            </Button>
+            <button
+              onClick={() => setShowRetryBanner(false)}
+              className="p-1.5 rounded-md transition-colors hover:bg-black/10"
+              style={{ color: 'var(--text-3)' }}
+              title="Dispensar"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {campaign.replyFlow?.enabled && (isRunning || isWaitingForReplies) && (campaign.replyFlow.steps?.length || 0) > 1 && (
         <div
           className="rounded-xl px-4 py-3 flex items-start gap-3"
@@ -1688,7 +1786,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           sent={
             useReplyFlowPrimaryFunnel
               ? uiPerformance.total
-              : uiPerformance.total || campaign.successCount + campaign.failedCount
+              : uiPerformance.total || (campaign.successCount || 0) + (campaign.failedCount || 0)
           }
           delivered={uiPerformance.delivered}
           read={uiPerformance.read}
@@ -1745,7 +1843,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       {/* ============================ CHIPS PODIUM + LOGS ============================ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CampaignChipsPodium
-          selectedConnectionIds={campaign.selectedConnectionIds}
+          selectedConnectionIds={campaign.selectedConnectionIds || []}
           connections={connections}
           chipBreakdown={performance.chipBreakdown}
           failedPerChip={performance.failedPerChip}
@@ -1838,6 +1936,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   { id: 'FAILED', label: 'Falhas' }
                 ]}
               />
+              {performance.counts.FAILED > 0 && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />}
+                  onClick={handleRetryFailed}
+                  disabled={retrying}
+                  title={`Reenviar ${performance.counts.FAILED} contato(s) com falha`}
+                >
+                  {retrying ? 'Reenviando…' : `Reenviar falhas (${performance.counts.FAILED})`}
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 size="sm"
