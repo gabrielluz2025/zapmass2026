@@ -65,6 +65,8 @@ interface Props {
   /** Abre aba Listas (vindo do rail superior). */
   listsUiFocus?: 'none' | 'tab' | 'create';
   onListsUiFocusHandled?: () => void;
+  /** false enquanto o cálculo de temperatura ainda não terminou */
+  contactTempsReady?: boolean;
 }
 
 interface FilterItem {
@@ -88,7 +90,8 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
   onQueryChange,
   hideWeddingFilters = false,
   listsUiFocus = 'none',
-  onListsUiFocusHandled
+  onListsUiFocusHandled,
+  contactTempsReady = true
 }) => {
   const [panelTab, setPanelTab] = React.useState<SidebarPanelTab>('explore');
   const [openCreateSignal, setOpenCreateSignal] = React.useState(0);
@@ -217,9 +220,18 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
       <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3 custom-scrollbar">
         {panelTab === 'explore' && (
           <div className="grid grid-cols-2 gap-2">
-            {groupSmart.map((item) => (
-              <FilterCard key={item.id} item={item} active={active === item.id} onClick={() => onChange(item.id)} />
-            ))}
+            {groupSmart.map((item) => {
+              const isTempItem = item.id === 'hot' || item.id === 'warm' || item.id === 'cold' || item.id === 'new';
+              return (
+                <FilterCard
+                  key={item.id}
+                  item={item}
+                  active={active === item.id}
+                  onClick={() => onChange(item.id)}
+                  loading={isTempItem && !contactTempsReady}
+                />
+              );
+            })}
           </div>
         )}
 
@@ -278,10 +290,11 @@ const toneColors: Record<FilterItem['tone'], string> = {
   orange: '#f97316'
 };
 
-const FilterCard: React.FC<{ item: FilterItem; active: boolean; onClick: () => void }> = ({
+const FilterCard: React.FC<{ item: FilterItem; active: boolean; onClick: () => void; loading?: boolean }> = ({
   item,
   active,
-  onClick
+  onClick,
+  loading = false
 }) => {
   const Icon = item.icon;
   const color = toneColors[item.tone];
@@ -301,11 +314,13 @@ const FilterCard: React.FC<{ item: FilterItem; active: boolean; onClick: () => v
       <span className="text-[11px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
         {item.label}
       </span>
-      {item.count > 0 && (
+      {loading ? (
+        <span className="text-[10px] font-black tabular-nums animate-pulse" style={{ color: 'var(--text-3)' }}>…</span>
+      ) : item.count > 0 ? (
         <span className="text-[10px] font-black tabular-nums" style={{ color: 'var(--text-3)' }}>
           {item.count.toLocaleString('pt-BR')}
         </span>
-      )}
+      ) : null}
     </button>
   );
 };
