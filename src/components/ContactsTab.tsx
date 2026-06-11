@@ -1,4 +1,4 @@
-import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2, RotateCw, Database } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -1649,11 +1649,16 @@ export const ContactsTab: React.FC = () => {
    * Enquanto vazio, contagens quente/morno/frio e filtros por temp assumem “ainda não calculado” (sem tratar todos como “novo”).
    */
   const [contactTemps, setContactTemps] = useState<Record<string, TempStats>>({});
+  const [contactTempsReady, setContactTempsReady] = useState(false);
   const computeTempsGenRef = useRef(0);
 
   useEffect(() => {
-    if (contactsHasMore || contactsLoadingMore) return;
+    if (contactsHasMore || contactsLoadingMore) {
+      setContactTempsReady(false);
+      return;
+    }
 
+    setContactTempsReady(false);
     const gen = ++computeTempsGenRef.current;
     const c = contacts;
     const conv = deferredConversations;
@@ -1662,12 +1667,15 @@ export const ContactsTab: React.FC = () => {
       if (gen !== computeTempsGenRef.current) return;
       const next = computeContactTemperatures(c, conv);
       if (gen !== computeTempsGenRef.current) return;
-      startTransition(() => setContactTemps(next));
+      // Não usar startTransition: com 42k contatos e lista virtual em re-render
+      // constante, updates marcados como "transition" ficam indefinidamente adiados.
+      setContactTemps(next);
+      setContactTempsReady(true);
     };
 
     let idleId: ReturnType<typeof requestIdleCallback> | ReturnType<typeof setTimeout>;
     if (typeof requestIdleCallback !== 'undefined') {
-      idleId = requestIdleCallback(run, { timeout: 1200 });
+      idleId = requestIdleCallback(run, { timeout: 1500 });
     } else {
       idleId = setTimeout(run, 0);
     }
@@ -3653,12 +3661,12 @@ export const ContactsTab: React.FC = () => {
             {/* KPI tiles */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               {[
-                { label:'Total', val: smartStats.total.toLocaleString('pt-BR'), color:'#60a5fa', icon:<Users className="w-3.5 h-3.5" /> },
-                { label:'Quentes 🔥', val: smartStats.hot.toLocaleString('pt-BR'), color:'#f87171', icon:<Flame className="w-3.5 h-3.5" /> },
-                { label:'Novos (7d)', val: smartStats.last7.toLocaleString('pt-BR'), color:'#34d399', icon:<TrendingUp className="w-3.5 h-3.5" /> },
-                { label:'Retorno hoje', val: smartStats.retorno_hoje.toLocaleString('pt-BR'), color:'#fbbf24', icon:<Clock className="w-3.5 h-3.5" /> },
-                { label:'Aniv. hoje', val: smartStats.bdayToday.toLocaleString('pt-BR'), color:'#e879f9', icon:<Cake className="w-3.5 h-3.5" /> },
-                { label:'Casamentos 7d', val: smartStats.weddingWeek.toLocaleString('pt-BR'), color:'#f9a8d4', icon:<Heart className="w-3.5 h-3.5" /> },
+                { label:'Total', val: smartStats.total.toLocaleString('pt-BR'), color:'#60a5fa', icon:<Users className="w-3.5 h-3.5" />, tempDependent: false },
+                { label:'Quentes 🔥', val: smartStats.hot.toLocaleString('pt-BR'), color:'#f87171', icon:<Flame className="w-3.5 h-3.5" />, tempDependent: true },
+                { label:'Novos (7d)', val: smartStats.last7.toLocaleString('pt-BR'), color:'#34d399', icon:<TrendingUp className="w-3.5 h-3.5" />, tempDependent: false },
+                { label:'Retorno hoje', val: smartStats.retorno_hoje.toLocaleString('pt-BR'), color:'#fbbf24', icon:<Clock className="w-3.5 h-3.5" />, tempDependent: false },
+                { label:'Aniv. hoje', val: smartStats.bdayToday.toLocaleString('pt-BR'), color:'#e879f9', icon:<Cake className="w-3.5 h-3.5" />, tempDependent: false },
+                { label:'Casamentos 7d', val: smartStats.weddingWeek.toLocaleString('pt-BR'), color:'#f9a8d4', icon:<Heart className="w-3.5 h-3.5" />, tempDependent: false },
               ].map(k => (
                 <div key={k.label}
                   className="flex flex-col gap-1 rounded-xl px-3 py-3 transition-all duration-200 hover:scale-[1.04]"
@@ -3667,7 +3675,10 @@ export const ContactsTab: React.FC = () => {
                     {k.icon}
                     <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.38)' }}>{k.label}</span>
                   </div>
-                  <span className="text-[22px] font-black tabular-nums leading-none" style={{ color:'#fff' }}>{k.val}</span>
+                  {k.tempDependent && !contactTempsReady
+                    ? <span className="text-[13px] font-semibold tabular-nums leading-none animate-pulse" style={{ color:'rgba(255,255,255,0.35)' }}>…</span>
+                    : <span className="text-[22px] font-black tabular-nums leading-none" style={{ color:'#fff' }}>{k.val}</span>
+                  }
                 </div>
               ))}
             </div>
@@ -3678,23 +3689,30 @@ export const ContactsTab: React.FC = () => {
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.35)' }}>Temperatura da base</span>
                   <span className="text-[10px] font-semibold" style={{ color:'rgba(255,255,255,0.35)' }}>
-                    🔥{smartStats.hot} quentes · 🌡️{smartStats.warm} mornos · ❄️{smartStats.cold} frios
+                    {contactTempsReady
+                      ? <>🔥{smartStats.hot} quentes · 🌡️{smartStats.warm} mornos · ❄️{smartStats.cold} frios</>
+                      : <span style={{ color:'rgba(255,255,255,0.22)' }}>calculando…</span>}
                   </span>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden flex gap-0.5" style={{ background:'rgba(255,255,255,0.06)' }}>
-                  {smartStats.hot > 0 && (
-                    <div className="h-full rounded-full transition-all duration-1000"
-                      style={{ width:`${(smartStats.hot/smartStats.total)*100}%`, background:'linear-gradient(90deg,#ef4444,#f97316)' }} />
-                  )}
-                  {smartStats.warm > 0 && (
-                    <div className="h-full rounded-full transition-all duration-1000"
-                      style={{ width:`${(smartStats.warm/smartStats.total)*100}%`, background:'linear-gradient(90deg,#f59e0b,#fbbf24)' }} />
-                  )}
-                  {smartStats.cold > 0 && (
-                    <div className="h-full rounded-full transition-all duration-1000"
-                      style={{ width:`${(smartStats.cold/smartStats.total)*100}%`, background:'linear-gradient(90deg,#6366f1,#8b5cf6)' }} />
-                  )}
-                </div>
+                {/* minWidth:6 garante visibilidade mesmo para contagens muito baixas vs total */}
+                {contactTempsReady ? (
+                  <div className="h-2 rounded-full overflow-hidden flex gap-0.5" style={{ background:'rgba(255,255,255,0.06)' }}>
+                    {smartStats.hot > 0 && (
+                      <div className="h-full rounded-full transition-all duration-1000"
+                        style={{ minWidth:6, width:`${Math.max((smartStats.hot/smartStats.total)*100, 0.5)}%`, background:'linear-gradient(90deg,#ef4444,#f97316)' }} />
+                    )}
+                    {smartStats.warm > 0 && (
+                      <div className="h-full rounded-full transition-all duration-1000"
+                        style={{ minWidth:6, width:`${Math.max((smartStats.warm/smartStats.total)*100, 0.5)}%`, background:'linear-gradient(90deg,#f59e0b,#fbbf24)' }} />
+                    )}
+                    {smartStats.cold > 0 && (
+                      <div className="h-full rounded-full transition-all duration-1000"
+                        style={{ minWidth:6, width:`${Math.max((smartStats.cold/smartStats.total)*100, 0.5)}%`, background:'linear-gradient(90deg,#6366f1,#8b5cf6)' }} />
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-2 rounded-full overflow-hidden animate-pulse" style={{ background:'rgba(255,255,255,0.08)' }} />
+                )}
               </div>
             )}
           </div>

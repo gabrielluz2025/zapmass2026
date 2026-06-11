@@ -87,7 +87,10 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
           <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-x-4 gap-y-2 flex-wrap mt-1.5">
             <Pill label="Válidos" value={stats.valid} tone="emerald" />
             <Pill label="Novos (7d)" value={stats.newLast7} tone="sky" />
-            <Pill label="Quentes" value={stats.hot} tone="rose" />
+            {contactTempsReady
+              ? <Pill label="Quentes" value={stats.hot} tone="rose" />
+              : <PillLoading label="Quentes" tone="rose" />
+            }
             {stats.bdayToday > 0 && <Pill label="Aniver. hoje" value={stats.bdayToday} tone="amber" pulse />}
             {!hideWeddingWeekPill && stats.weddingWeek > 0 && (
               <Pill label="Bodas 7d" value={stats.weddingWeek} tone="rose" />
@@ -210,6 +213,22 @@ const Pill: React.FC<{ label: string; value: number; tone: 'emerald' | 'sky' | '
     <span className={`inline-flex items-center gap-1 ${pulse ? 'animate-pulse' : ''}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${pulse ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
       <span className={`font-semibold ${toneMap[tone]}`}>{value.toLocaleString('pt-BR')}</span>
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+    </span>
+  );
+};
+
+const PillLoading: React.FC<{ label: string; tone: 'emerald' | 'sky' | 'rose' | 'amber' }> = ({ label, tone }) => {
+  const toneMap: Record<typeof tone, string> = {
+    emerald: 'text-emerald-600 dark:text-emerald-300',
+    sky: 'text-sky-600 dark:text-sky-300',
+    rose: 'text-rose-600 dark:text-rose-300',
+    amber: 'text-amber-600 dark:text-amber-300'
+  } as const;
+  return (
+    <span className="inline-flex items-center gap-1 animate-pulse">
+      <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+      <span className={`font-semibold ${toneMap[tone]}`}>…</span>
       <span className="text-slate-500 dark:text-slate-400">{label}</span>
     </span>
   );

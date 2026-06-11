@@ -796,11 +796,14 @@ let warmupChipStats = new Map<string, WarmupChipStats>();
 let warmupStatsSaveTimer: NodeJS.Timeout | null = null;
 
 const WARMUP_HISTORY_DAYS = 30;
+/** Retorna data no fuso de Brasília (UTC-3) no formato YYYY-MM-DD.
+ *  Brasil não usa horário de verão desde 2019, portanto UTC-3 é fixo.
+ *  Garante que o histórico de disparos use a mesma data que o usuário vê no browser. */
 const todayKey = (ts: number = Date.now()) => {
-    const d = new Date(ts);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
+    const d = new Date(ts - 3 * 60 * 60 * 1000); // UTC → UTC-3
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
     return `${y}-${m}-${dd}`;
 };
 

@@ -470,6 +470,12 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
             // Não apagar `connecting` nem `close`: sync pós-QR / queda transitória — logout+delete mata sessão pareada.
             if (state !== 'created') continue;
             if (connectionWatchTimers.has(instanceName) || qrWatchTimers.has(instanceName)) continue;
+            // Não apagar conexões que o usuário criou intencionalmente (existem no cache de configurações
+            // ou já tiveram um número pareado). Após restart de servidor os timers somem, mas a
+            // conexão ainda deve ser mantida para o usuário poder escanear o QR novamente.
+            const cachedConn = connectionsSettingsCache[instanceName];
+            const memConn = connections.get(instanceName);
+            if (cachedConn || (memConn?.phoneNumber && memConn.phoneNumber.trim())) continue;
 
             try {
                 try {
@@ -1600,8 +1606,15 @@ function applySettingsToInstance(conn: EvolutionInstance) {
     checkAndResetDailyLimits(conn);
 }
 
+/** Retorna data no fuso de Brasília (UTC-3) no formato YYYY-MM-DD.
+ *  Usado para resetar limites diários no horário certo (meia-noite Brasil, não UTC). */
+function brazilTodayKey(ts: number = Date.now()): string {
+    const d = new Date(ts - 3 * 60 * 60 * 1000); // UTC → UTC-3
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
 function checkAndResetDailyLimits(conn: EvolutionInstance) {
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = brazilTodayKey(); // YYYY-MM-DD no fuso Brasil (UTC-3), não UTC
     if (conn.lastLimitResetDate !== today) {
         log('info', `[LimitReset] Resetando limites diários para a conexão ${conn.instanceName}. Dia anterior: ${conn.lastLimitResetDate || 'nenhum'}, Novo dia: ${today}`);
         

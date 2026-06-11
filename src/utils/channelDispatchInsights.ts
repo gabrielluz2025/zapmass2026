@@ -15,10 +15,15 @@ export interface ChannelDailySent {
   sent: number;
 }
 
-const dayKey = (d: Date): string =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** Gera chave YYYY-MM-DD para uma data em UTC-3 (horário de Brasília, fixo desde 2019).
+ *  Equivalente ao que o servidor grava após a correção de timezone no todayKey(). */
+const brazilDayKey = (ts: number = Date.now()): string => {
+  const d = new Date(ts - 3 * 60 * 60 * 1000); // UTC → UTC-3
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+};
 
-/** Últimos N dias de disparos do canal (zeros nos dias sem histórico). */
+/** Últimos N dias de disparos do canal (zeros nos dias sem histórico).
+ *  Usa UTC-3 (Brasília) para gerar as chaves de data — alinhado com o servidor após correção de timezone. */
 export function getChannelLastNSentDays(
   stats: WarmupChipStats | undefined,
   n: number,
@@ -26,11 +31,14 @@ export function getChannelLastNSentDays(
 ): ChannelDailySent[] {
   const dict = new Map((stats?.dailyHistory || []).map((d) => [d.date, d.sent || 0]));
   const out: ChannelDailySent[] = [];
-  const today = new Date();
+  const nowMs = Date.now();
+  // Usa UTC-3 para chave "hoje" — garante que bate com as entradas gravadas pelo servidor
+  const todayKeyBrazil = brazilDayKey(nowMs);
   for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-    const key = dayKey(d);
-    const isToday = i === 0;
+    // Cada dia anterior: subtrai i dias em ms a partir de hoje UTC-3
+    const dayMs = nowMs - i * 24 * 60 * 60 * 1000;
+    const key = brazilDayKey(dayMs);
+    const isToday = key === todayKeyBrazil;
     const sent = isToday ? Math.max(dict.get(key) || 0, sentTodayLive) : dict.get(key) || 0;
     out.push({ date: key, sent });
   }
@@ -83,7 +91,16 @@ export function buildChannelDispatchInsights(
   weekTotal: number;
   temp: ChannelDispatchTempInfo;
 } {
-  const sentToday = Math.max(connection.messagesSentToday || 0, 0);
+  const liveCount = Math.max(connection.messagesSentToday || 0, 0);
+  // Usa warmup stats do dia atual como fallback para quando o servidor
+  // reinicia e o contador in-memory ainda não foi recarregado do disco.
+  const todayFromStats = (() => {
+    if (!stats?.dailyHistory?.length) return 0;
+    const key = brazilDayKey();
+    const entry = stats.dailyHistory.find((d) => d.date === key);
+    return entry?.sent || 0;
+  })();
+  const sentToday = Math.max(liveCount, todayFromStats);
   const last7 = getChannelLastNSentDays(stats, 7, sentToday);
   const weekTotal = last7.reduce((n, d) => n + d.sent, 0);
   const temp = computeChannelDispatchTemp(sentToday, last7, connection.dailyLimit);
