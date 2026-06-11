@@ -2217,7 +2217,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         icon={<MessageSquare className="w-5 h-5" />}
         size="md"
       >
-        {openRow && (
+        {openRow && (() => {
+          const modalStatus = effectiveCampaignReportStatus(openRow, replyPhonesFromLogs) as ReportStatus;
+          const modalMeta = STATUS_META[modalStatus];
+          const modalReplyHint = replyPhonesFromLogs.get(recipientKeyForCampaignReport(openRow.phone));
+          const modalReplyTime = openRow.replyTime || (modalReplyHint?.replyTimestampMs
+            ? new Date(modalReplyHint.replyTimestampMs).toLocaleTimeString('pt-BR')
+            : undefined);
+          const modalReplyText = openRow.replyText || modalReplyHint?.replyText;
+          const modalReplyTs = openRow.replyTimestampMs || modalReplyHint?.replyTimestampMs;
+          return (
           <div className="space-y-4">
             <div
               className="rounded-xl p-4"
@@ -2249,10 +2258,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     </div>
                   </div>
                 </div>
-                <Badge variant={STATUS_META[openRow.status].variant} dot>
+                <Badge variant={modalMeta.variant} dot>
                   <span className="inline-flex items-center gap-1">
-                    {STATUS_META[openRow.status].icon}
-                    {STATUS_META[openRow.status].label}
+                    {modalMeta.icon}
+                    {modalMeta.label}
                   </span>
                 </Badge>
               </div>
@@ -2263,31 +2272,31 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   <span>Enviada às</span>
                   <span className="font-mono" style={{ color: 'var(--text-1)' }}>{openRow.sentTime}</span>
                 </div>
-                {(openRow.status === 'DELIVERED' || openRow.status === 'READ' || openRow.status === 'REPLIED') && (
+                {(modalStatus === 'DELIVERED' || modalStatus === 'READ' || modalStatus === 'REPLIED') && (
                   <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
                     <CheckCheck className="w-3.5 h-3.5" style={{ color: '#3b82f6' }} />
                     <span>Entregue no dispositivo</span>
                   </div>
                 )}
-                {(openRow.status === 'READ' || openRow.status === 'REPLIED') && (
+                {(modalStatus === 'READ' || modalStatus === 'REPLIED') && (
                   <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
                     <CheckCheck className="w-3.5 h-3.5" style={{ color: '#8b5cf6' }} />
                     <span>Lida pelo contato</span>
                   </div>
                 )}
-                {openRow.status === 'REPLIED' && openRow.replyTime && (
+                {modalStatus === 'REPLIED' && (modalReplyTime || modalReplyText) && (
                   <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
                     <Reply className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
-                    <span>Respondeu às</span>
-                    <span className="font-mono" style={{ color: '#10b981' }}>{openRow.replyTime}</span>
-                    {openRow.replyTimestampMs && openRow.sentTimestampMs && (
+                    <span>Respondeu{modalReplyTime ? ' às' : ''}</span>
+                    {modalReplyTime && <span className="font-mono" style={{ color: '#10b981' }}>{modalReplyTime}</span>}
+                    {modalReplyTs && openRow.sentTimestampMs && (
                       <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                        (em {formatDuration(Math.round((openRow.replyTimestampMs - openRow.sentTimestampMs) / 1000))})
+                        (em {formatDuration(Math.round((modalReplyTs - openRow.sentTimestampMs) / 1000))})
                       </span>
                     )}
                   </div>
                 )}
-                {openRow.status === 'FAILED' && (
+                {modalStatus === 'FAILED' && (
                   <div className="flex items-start gap-2" style={{ color: 'var(--danger)' }}>
                     <XCircle className="w-3.5 h-3.5 mt-0.5" />
                     <span>{openRow.errorMessage || 'Falha no envio.'}</span>
@@ -2296,7 +2305,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               </div>
             </div>
 
-            {(openRow.sentMessage || openRow.replyText || openRow.stageReplies?.length) && (
+            {(openRow.sentMessage || modalReplyText || openRow.stageReplies?.length) && (
               <div
                 className="rounded-xl p-4 space-y-2"
                 style={{
@@ -2350,7 +2359,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     ))}
                   </div>
                 ) : (
-                  openRow.replyText && (
+                  modalReplyText && (
                     <div className="flex justify-start">
                       <div
                         className="max-w-[80%] px-3 py-2 rounded-2xl rounded-bl-sm text-[13px] whitespace-pre-wrap"
@@ -2360,12 +2369,12 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                           border: '1px solid var(--border-subtle)'
                         }}
                       >
-                        {openRow.replyText}
+                        {modalReplyText}
                         <div
                           className="text-[10px] mt-1 text-right font-mono"
                           style={{ color: 'var(--text-3)' }}
                         >
-                          {openRow.replyTime}
+                          {modalReplyTime}
                         </div>
                       </div>
                     </div>
@@ -2378,13 +2387,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               <Button variant="secondary" size="sm" leftIcon={<Copy className="w-3.5 h-3.5" />} onClick={() => copyPhone(openRow.phone)}>
                 Copiar número
               </Button>
-              {openRow.replyText && (
+              {modalReplyText && (
                 <Button
                   variant="secondary"
                   size="sm"
                   leftIcon={<Copy className="w-3.5 h-3.5" />}
                   onClick={() => {
-                    navigator.clipboard.writeText(openRow.replyText || '').then(
+                    navigator.clipboard.writeText(modalReplyText || '').then(
                       () => toast.success('Resposta copiada.'),
                       () => toast.error('Falha ao copiar.')
                     );
@@ -2395,7 +2404,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
       </Modal>
     </div>
   );

@@ -1,5 +1,5 @@
 import { SessionRouter } from '../server/sessionRouter.js';
-import type { SessionCommand } from '../server/sessionContracts.js';
+import type { SendMessageCommand, SessionCommand } from '../server/sessionContracts.js';
 
 const router = new SessionRouter();
 
@@ -22,7 +22,7 @@ for (let i = 0; i < 50; i += 1) {
   const cmd = mkCommand(i);
   router.recordCommandPublished();
   const worker = router.assignWorker(cmd);
-  const connectionId = cmd.payload.conversationId.split(':')[0];
+  const connectionId = (cmd as SendMessageCommand).payload.conversationId.split(':')[0];
   router.renewConnectionLease(connectionId, worker);
   router.recordCommandCompleted();
 }

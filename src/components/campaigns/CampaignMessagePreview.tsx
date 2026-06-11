@@ -69,7 +69,10 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
   }, [sequence]);
 
   const totalChars = sequence.filter((s) => s.kind === 'out').reduce((a, s) => a + s.text.length, 0);
-  const tNow = new Date(campaign.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const _createdDate = new Date(campaign.createdAt);
+  const tNow = isNaN(_createdDate.getTime())
+    ? new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : _createdDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
   const copy = (text: string) => {
     navigator.clipboard.writeText(text).then(

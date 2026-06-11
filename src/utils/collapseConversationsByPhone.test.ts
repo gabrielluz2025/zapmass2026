@@ -16,7 +16,7 @@ describe('collapseConversationsByPhone', () => {
         lastMessage: '5',
         lastMessageTime: '16:39',
         lastMessageTimestamp: 1000,
-        messages: [{ id: 'm1', text: '5', timestamp: '16:39', sender: 'them', timestampMs: 1000 }],
+        messages: [{ id: 'm1', text: '5', timestamp: '16:39', sender: 'them', timestampMs: 1000, status: 'sent' as const, type: 'text' as const }],
         tags: []
       },
       {
@@ -28,7 +28,7 @@ describe('collapseConversationsByPhone', () => {
         lastMessage: 'pdf',
         lastMessageTime: '23:44',
         lastMessageTimestamp: 2000,
-        messages: [{ id: 'm2', text: 'pdf', timestamp: '23:44', sender: 'me', timestampMs: 2000 }],
+        messages: [{ id: 'm2', text: 'pdf', timestamp: '23:44', sender: 'me', timestampMs: 2000, status: 'delivered' as const, type: 'text' as const }],
         tags: []
       }
     ];
