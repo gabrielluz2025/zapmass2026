@@ -27,6 +27,8 @@ interface Props {
   /** Padronizar cidade/UF/bairro/CEP na base inteira. */
   onOpenNormalizeAddresses?: () => void;
   addressNormalizeBusy?: boolean;
+  /** false enquanto o cálculo de temperatura ainda não terminou */
+  contactTempsReady?: boolean;
 }
 
 /**
@@ -47,7 +49,8 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
   onOpenInsights,
   onOpenNormalizeNames,
   onOpenNormalizeAddresses,
-  addressNormalizeBusy = false
+  addressNormalizeBusy = false,
+  contactTempsReady = true
 }) => {
   const [importOpen, setImportOpen] = React.useState(false);
   const importBtnRef = React.useRef<HTMLDivElement>(null);
