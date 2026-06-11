@@ -44,8 +44,17 @@ export function classifyTemperature(stats: Omit<TempStats, 'temp' | 'score'>): {
       readBonus
   );
 
-  if (daysSinceReply <= 30 || stats.replied >= 2) return { temp: 'hot', score };
-  if (daysSinceReply <= 90 || daysSinceRead <= 30 || stats.read >= 3) return { temp: 'warm', score };
+  if (daysSinceReply <= 30 || (stats.replied >= 2 && daysSinceReply <= 180)) {
+    return { temp: 'hot', score };
+  }
+  if (
+    daysSinceReply <= 90 ||
+    daysSinceRead <= 90 ||
+    stats.read >= 1 ||
+    (stats.delivered >= 2 && daysSinceSent <= 120)
+  ) {
+    return { temp: 'warm', score };
+  }
   if (daysSinceSent <= 180) return { temp: 'cold', score };
   return { temp: 'cold', score };
 }
@@ -173,7 +182,7 @@ function computeContactTemperaturesInner(
   const result: Record<string, TempStats> = {};
   for (const c of contacts) {
     const p = normPhoneKey(c.phone);
-    const base =
+    let base =
       byPhone[p] ||
       ({
         sent: 0,
@@ -184,6 +193,23 @@ function computeContactTemperaturesInner(
         lastReplyTs: 0,
         lastReadTs: 0
       } as Omit<TempStats, 'temp' | 'score'>);
+
+    if (base.sent === 0 && (c.campaignMessagesReceived || 0) > 0) {
+      const previewTs = c.campaignTablePreview?.updatedAt
+        ? Date.parse(c.campaignTablePreview.updatedAt) || 0
+        : 0;
+      const sent = c.campaignMessagesReceived || 0;
+      base = {
+        sent,
+        delivered: sent,
+        read: 0,
+        replied: 0,
+        lastSentTs: previewTs,
+        lastReplyTs: 0,
+        lastReadTs: 0
+      };
+    }
+
     const cls = classifyTemperature(base);
     result[c.id] = { ...base, temp: cls.temp, score: cls.score };
   }

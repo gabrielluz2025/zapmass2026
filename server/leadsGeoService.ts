@@ -6,11 +6,11 @@ import {
   knownUfForCity,
   normalizeContactNeighborhood,
   normNeighborhoodKey,
-  parseEmbeddedCityState,
   parseGeoFilterCity,
   pickCanonicalNeighborhoodName,
   repairUtf8Mojibake,
   buildNeighborhoodToCityMap,
+  canonicalizeClusterCity,
   resolveAddressCityState,
   resolveGeoPlaceForContact,
   titleCasePlaceName
@@ -22,7 +22,6 @@ import {
   isInsideBrazilBounds
 } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
-import { fuzzyResolveCityWithIbge } from '../src/utils/ibgeCityLookup.js';
 import {
   cityToApproxCoord,
   dddToApproxCoord,
@@ -250,20 +249,6 @@ function normKeyPart(s: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-function canonClusterCity(city: string, stateHint = ''): string {
-  const parsed = parseEmbeddedCityState(repairUtf8Mojibake(city));
-  const ibge = fuzzyResolveCityWithIbge(getIbgeMunicipiosIndex(), {
-    city: parsed.city || city,
-    stateHint: stateHint || parsed.state,
-    phoneUf: undefined,
-    parsedEmbeddedUf: parsed.state
-  });
-  if (ibge) return ibge.city;
-  const knownUf = knownUfForCity(parsed.city || city);
-  if (knownUf && parsed.city) return titleCasePlaceName(parsed.city);
-  return titleCasePlaceName(parsed.city || city);
-}
-
 function resolveClusterState(cluster: GeoCluster): string {
   if (cluster.state !== '—') return cluster.state;
   const city = cluster.city !== '—' ? cluster.city : '';
@@ -464,10 +449,13 @@ function appendContactPin(
   lat: number,
   lng: number,
   precision: GeoContactPin['precision'],
-  approximate: boolean
+  approximate: boolean,
+  nbToCityMap?: ReadonlyMap<string, { city: string; state: string }>
 ): void {
   if (pins.length >= maxPins) return;
-  const { city: pinCity, state: pinState } = resolveContactCityState(c);
+  const place = resolveContactGeoPlace(c, nbToCityMap);
+  const pinCity = place.city;
+  const pinState = place.state;
   pins.push({
     id: c.id,
     name: (c.name || 'Sem nome').trim(),
@@ -475,7 +463,7 @@ function appendContactPin(
     lng,
     city: pinCity,
     state: pinState,
-    neighborhood: normNeighborhood(c.neighborhood || '', pinCity),
+    neighborhood: normNeighborhood(place.neighborhood || c.neighborhood || '', pinCity),
     street: String(c.street || '').trim(),
     number: String(c.number || '').trim(),
     precision,
@@ -529,12 +517,12 @@ async function geocodeClusterQuery(
     if (!city) return fixed;
     return isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state || '') ? fixed : null;
   };
-  if (isGoogleGeocodeEnabled()) {
-    const hit = await geocodeBrazilAddressDetailed(query);
-    if (hit.ok) return acceptHit(hit.lat, hit.lng);
-  }
   if (isNominatimEnabled()) {
     const hit = await geocodeNominatim(query);
+    if (hit.ok) return acceptHit(hit.lat, hit.lng);
+  }
+  if (isGoogleGeocodeEnabled()) {
+    const hit = await geocodeBrazilAddressDetailed(query);
     if (hit.ok) return acceptHit(hit.lat, hit.lng);
   }
   return null;
@@ -545,14 +533,13 @@ async function geocodeQueryAnyProvider(
   query: string,
   precision: ContactGeocodeHit['precision']
 ): Promise<ContactGeocodeHit | null> {
-  const { city, state: st } = resolveContactCityState(c);
   const accept = (lat: number, lng: number) => acceptGeocodeHit(c, lat, lng, precision);
-  if (isGoogleGeocodeEnabled()) {
-    const hit = await geocodeBrazilAddressDetailed(query);
-    if (hit.ok) return accept(hit.lat, hit.lng);
-  }
   if (isNominatimEnabled()) {
     const hit = await geocodeNominatim(query);
+    if (hit.ok) return accept(hit.lat, hit.lng);
+  }
+  if (isGoogleGeocodeEnabled()) {
+    const hit = await geocodeBrazilAddressDetailed(query);
     if (hit.ok) return accept(hit.lat, hit.lng);
   }
   return null;
@@ -1064,11 +1051,11 @@ async function buildLeadsGeoSummaryInner(
   };
 
   const canonCityMemo = new Map<string, string>();
-  const memoCanonCity = (city: string, stateHint: string) => {
-    const k = `${normKeyPart(city)}|${stateHint}`;
+  const memoCanonCity = (city: string, stateHint: string, phone?: string, zipCode?: string) => {
+    const k = `${normKeyPart(city)}|${stateHint}|${phone || ''}|${zipCode || ''}`;
     const hit = canonCityMemo.get(k);
     if (hit !== undefined) return hit;
-    const canon = canonClusterCity(city, stateHint);
+    const canon = canonicalizeClusterCity(city, stateHint, phone, zipCode, ibgeIndex);
     canonCityMemo.set(k, canon);
     return canon;
   };
@@ -1126,7 +1113,9 @@ async function buildLeadsGeoSummaryInner(
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
     const place = memoGeoPlace(c);
-    const cityCanon = place.city ? memoCanonCity(place.city, place.state) : '';
+    const cityCanon = place.city
+      ? memoCanonCity(place.city, place.state, c.phone, c.zipCode)
+      : '';
     const nb = normNeighborhood(place.neighborhood || c.neighborhood || '', cityCanon || place.city);
     const st = place.state;
     const ddd = resolveContactDdd(c);
@@ -1165,7 +1154,9 @@ async function buildLeadsGeoSummaryInner(
     const place = memoGeoPlace(c);
     const stResolved = memoContactState(c) || place.state || knownUfForCity(place.city) || '';
     const st = stResolved || '—';
-    const cityCanon = place.city ? memoCanonCity(place.city, stResolved) : '';
+    const cityCanon = place.city
+      ? memoCanonCity(place.city, stResolved, c.phone, c.zipCode)
+      : '';
     const city = cityCanon || '—';
     const nb = normNeighborhood(place.neighborhood || c.neighborhood || '', cityCanon || place.city) || '—';
     const ddd = resolveContactDdd(c) || '—';
@@ -1254,7 +1245,8 @@ async function buildLeadsGeoSummaryInner(
         storedPin.lat,
         storedPin.lng,
         hasTrustedStreetGeocode(c) ? 'address' : contactPinPrecision(c),
-        false
+        false,
+        nbToCityMap
       );
     } else if (hasFullStreetAddress(c)) {
       pinsPending++;
@@ -1282,7 +1274,8 @@ async function buildLeadsGeoSummaryInner(
           approx.lat,
           approx.lng,
           contactPinPrecision(c),
-          true
+          true,
+          nbToCityMap
         );
       }
     }

@@ -345,6 +345,78 @@ function inferUfSignals(stateHint: string, phone?: string, zipCode?: string): st
   return out;
 }
 
+/**
+ * Extrai chave de bairro do gazetteer a partir do campo cidade, inclusive compostos
+ * ("Água Verde - Blumenau" → aguaverde) que não batem em normNeighborhoodKey direto.
+ */
+export function gazetteerKeyFromCityField(cityRaw: string): string | null {
+  const s = repairUtf8Mojibake(cityRaw || '');
+  if (!s) return null;
+  const direct = normNeighborhoodKey(s);
+  if (NEIGHBORHOOD_GAZETTEER[direct]) return direct;
+
+  const embedded = parseEmbeddedCityState(s);
+  const nbKey = normNeighborhoodKey(embedded.city || s);
+
+  for (const cityKey of Object.keys(KNOWN_CITY_UF)) {
+    if (nbKey.length > cityKey.length + 2 && nbKey.endsWith(cityKey)) {
+      const prefix = nbKey.slice(0, nbKey.length - cityKey.length);
+      if (NEIGHBORHOOD_GAZETTEER[prefix]) return prefix;
+    }
+  }
+
+  for (const entries of Object.values(NEIGHBORHOOD_GAZETTEER)) {
+    for (const e of entries) {
+      const ck = normKeyPart(e.city);
+      if (nbKey.length > ck.length + 2 && nbKey.endsWith(ck)) {
+        const prefix = nbKey.slice(0, nbKey.length - ck.length);
+        if (NEIGHBORHOOD_GAZETTEER[prefix]) return prefix;
+      }
+    }
+  }
+
+  return null;
+}
+
+/** "Água Verde - Blumenau" / "Água Verde, Blumenau" → bairro + município. */
+function parseNeighborhoodCityCompound(cityRaw: string): {
+  neighborhood: string;
+  city: string;
+  state: string;
+} | null {
+  const embedded = parseEmbeddedCityState(cityRaw);
+  const s = embedded.city || cityRaw;
+  const m = s.match(/^(.+?)\s*[-–,/]\s*(.+)$/);
+  if (!m) return null;
+
+  const part1 = cleanWhitespace(m[1]);
+  const part2 = cleanWhitespace(m[2]);
+  if (!part1 || !part2 || part2.length < 3) return null;
+
+  const part2Uf = normalizeContactState(part2);
+  if (part2Uf && part2.length <= 3) return null;
+
+  const cityUf = knownUfForCity(part2);
+  const gazNb = gazetteerKeyFromCityField(part1) || normNeighborhoodKey(part1);
+  if (!cityUf && !KNOWN_CITY_UF[normKeyPart(part2)]) return null;
+  if (!NEIGHBORHOOD_GAZETTEER[gazNb] && !KNOWN_CITY_UF[normKeyPart(part2)]) return null;
+
+  return {
+    neighborhood: part1,
+    city: titleCasePlaceName(part2),
+    state: embedded.state || cityUf || ''
+  };
+}
+
+function resolveGazetteerNeighborhoodKey(cityRaw: string, nbRaw: string): string {
+  return (
+    gazetteerKeyFromCityField(cityRaw) ||
+    gazetteerKeyFromCityField(nbRaw) ||
+    normNeighborhoodKey(parseEmbeddedCityState(cityRaw).city || cityRaw) ||
+    normNeighborhoodKey(nbRaw)
+  );
+}
+
 /** Resolve cidade quando o campo cidade traz só o bairro, desempatando por UF/DDD/CEP. */
 function knownNeighborhoodMunicipality(
   nbKey: string,
@@ -407,7 +479,17 @@ export function resolveGeoPlaceForContact(
   const embedded = parseEmbeddedCityState(cityRaw);
   const stateHint = normalizeContactState(input.state || '') || embedded.state;
   const cityForResolve = embedded.city || cityRaw;
-  const nbKey = normNeighborhoodKey(cityForResolve);
+
+  const compound = cityRaw ? parseNeighborhoodCityCompound(cityRaw) : null;
+  if (compound) {
+    return {
+      city: compound.city,
+      state: compound.state || stateHint || knownUfForCity(compound.city) || '',
+      neighborhood: normalizeContactNeighborhood(compound.neighborhood, compound.city)
+    };
+  }
+
+  const nbKey = resolveGazetteerNeighborhoodKey(cityForResolve, nbRaw);
 
   // Bairro conhecido no campo cidade — antes do IBGE (evita "Água Verde" virar município no ranking).
   const gazHit = knownNeighborhoodMunicipality(
@@ -416,8 +498,12 @@ export function resolveGeoPlaceForContact(
     input.phone,
     input.zipCode
   );
-  if (cityForResolve && gazHit) {
-    const nb = normalizeContactNeighborhood(cityForResolve, gazHit.city);
+  if (gazHit && (cityForResolve || nbRaw)) {
+    const nbSource =
+      gazetteerKeyFromCityField(cityForResolve) || normNeighborhoodKey(cityForResolve)
+        ? cityForResolve
+        : nbRaw || cityForResolve;
+    const nb = normalizeContactNeighborhood(nbSource, gazHit.city);
     return { city: gazHit.city, state: gazHit.state, neighborhood: nb };
   }
 
@@ -451,6 +537,35 @@ export function resolveGeoPlaceForContact(
   const fb = resolveAddressCityState({ city: cityForResolve, state: stateHint }, ibgeIndex);
   const nb = normalizeContactNeighborhood(nbRaw || (!cityHit ? cityForResolve : ''), fb.city);
   return { city: fb.city, state: fb.state, neighborhood: nb };
+}
+
+/**
+ * Nome canônico de município para ranking/clusters — gazetteer e KNOWN_CITY_UF antes do IBGE
+ * (evita reintroduzir bairro como cidade após resolveGeoPlaceForContact).
+ */
+export function canonicalizeClusterCity(
+  city: string,
+  stateHint = '',
+  phone?: string,
+  zipCode?: string,
+  ibgeIndex?: IbgeCityIndex | null
+): string {
+  const parsed = parseEmbeddedCityState(repairUtf8Mojibake(city));
+  const gazKey = gazetteerKeyFromCityField(parsed.city || city);
+  if (gazKey) {
+    const hit = knownNeighborhoodMunicipality(gazKey, stateHint || parsed.state, phone, zipCode);
+    if (hit) return hit.city;
+  }
+  const ibge = fuzzyResolveCityWithIbge(ibgeIndex, {
+    city: parsed.city || city,
+    stateHint: stateHint || parsed.state,
+    phoneUf: phone ? phoneDigitsToUf(phone) : undefined,
+    parsedEmbeddedUf: parsed.state
+  });
+  if (ibge) return ibge.city;
+  const knownUf = knownUfForCity(parsed.city || city);
+  if (knownUf && parsed.city) return titleCasePlaceName(parsed.city);
+  return titleCasePlaceName(parsed.city || city);
 }
 
 /** Aprende bairro → cidade a partir de contatos com município válido na base. */
@@ -501,7 +616,9 @@ export function buildNeighborhoodToCityMap(
 
     // Bairro conhecido no campo cidade (ex.: 30k com city=Água Verde sem UF) — vota por DDD/CEP/UF.
     const embedded = parseEmbeddedCityState(cityRaw);
-    const nbKey = normNeighborhoodKey(embedded.city || cityRaw);
+    const nbKey =
+      gazetteerKeyFromCityField(embedded.city || cityRaw) ||
+      normNeighborhoodKey(embedded.city || cityRaw);
     if (!NEIGHBORHOOD_GAZETTEER[nbKey]) continue;
     for (const uf of inferUfSignals(
       stateHint || embedded.state,
@@ -532,7 +649,9 @@ export function buildNeighborhoodToCityMap(
   for (const c of contacts) {
     const cityRaw = repairUtf8Mojibake(c.city || '');
     const embedded = parseEmbeddedCityState(cityRaw);
-    const nbKey = normNeighborhoodKey(embedded.city || cityRaw);
+    const nbKey =
+      gazetteerKeyFromCityField(embedded.city || cityRaw) ||
+      normNeighborhoodKey(embedded.city || cityRaw);
     if (!SC_VALE_ITAJAI_NB_KEYS.has(nbKey) || result.has(nbKey)) continue;
     nbOnlyCounts.set(nbKey, (nbOnlyCounts.get(nbKey) || 0) + 1);
   }

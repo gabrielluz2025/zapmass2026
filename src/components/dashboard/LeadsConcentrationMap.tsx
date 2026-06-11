@@ -197,7 +197,7 @@ function cityFilterValue(cluster: GeoCluster): string {
 
 const LEAD_TEMP_COLORS: Record<ContactTemperature, string> = {
   hot: '#ef4444',
-  warm: '#f97316',
+  warm: '#eab308',
   cold: '#3b82f6',
   new: '#94a3b8'
 };
@@ -212,7 +212,9 @@ function contactPinIcon(
     ? 'box-shadow:0 0 0 3px #c4b5fd,0 0 0 6px rgba(139,92,246,.35);'
     : temp === 'hot'
       ? 'box-shadow:0 0 0 2px #fecaca;'
-      : '';
+      : temp === 'warm'
+        ? 'box-shadow:0 0 0 2px #fde047;'
+        : '';
   const approx = pin.approximate;
   const size = highlight ? 28 : approx ? 14 : 22;
   const opacity = approx ? 0.72 : 1;

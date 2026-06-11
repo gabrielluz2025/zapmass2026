@@ -7,6 +7,7 @@ import {
   pickCanonicalNeighborhoodName,
   repairUtf8Mojibake,
   resolveContactCityState,
+  canonicalizeClusterCity,
   resolveGeoPlaceForContact,
   titleCasePlaceName
 } from './contactAddressNormalize';
@@ -81,6 +82,24 @@ describe('contactAddressNormalize', () => {
     const r = resolveGeoPlaceForContact({ city: 'Água Verde', phone: '47999887766' });
     expect(r.city).toBe('Blumenau');
     expect(r.state).toBe('SC');
+  });
+
+  it('Água Verde - Blumenau no campo cidade vira Blumenau', () => {
+    const r = resolveGeoPlaceForContact({ city: 'Água Verde - Blumenau' });
+    expect(r.city).toBe('Blumenau');
+    expect(r.neighborhood).toBe('Água Verde');
+    expect(r.state).toBe('SC');
+  });
+
+  it('Agua Verde, Blumenau (sem acento) vira Blumenau', () => {
+    const r = resolveGeoPlaceForContact({ city: 'Agua Verde, Blumenau' });
+    expect(r.city).toBe('Blumenau');
+    expect(r.neighborhood).toBe('Agua Verde');
+  });
+
+  it('canonicalizeClusterCity não reintroduz Água Verde como município', () => {
+    expect(canonicalizeClusterCity('Água Verde', 'SC')).toBe('Blumenau');
+    expect(canonicalizeClusterCity('Água Verde - Blumenau')).toBe('Blumenau');
   });
 
   it('aprende bairro→cidade da própria base', () => {
