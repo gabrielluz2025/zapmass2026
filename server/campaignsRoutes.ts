@@ -13,6 +13,11 @@ import {
   listCampaigns,
   mergeUpdateCampaign
 } from './repositories/campaignsRepository.js';
+import {
+  getContactStateSummary,
+  listFailedContactsAtStep,
+  resetFailedContactsAtStep,
+} from './repositories/campaignContactStateRepository.js';
 import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
 import { recipientKeyForCampaignReport } from '../src/utils/campaignReportDedupe.js';
 import {
@@ -195,5 +200,61 @@ export function registerCampaignsDataRoutes(app: Express): void {
     }
     const n = await deleteAllCampaigns(ctx.tenantId);
     return res.json({ ok: true, campaigns: n });
+  });
+
+  // ─── Motor multi-etapas: endpoints de progresso por contato ─────────────────
+
+  /** Dashboard de progresso: agrega contagens por etapa e status. */
+  app.get('/api/campaigns/:id/contact-states', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    try {
+      const summary = await getContactStateSummary(campaignId);
+      return res.json({ ok: true, summary });
+    } catch (e) {
+      console.error('[api/campaigns/contact-states]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao obter progresso dos contatos.' });
+    }
+  });
+
+  /** Lista contatos falhos em uma etapa específica. */
+  app.get('/api/campaigns/:id/failed-contacts', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    const stepIndex = parseInt(String(req.query.step || '0'), 10);
+    try {
+      const rows = await listFailedContactsAtStep(campaignId, isNaN(stepIndex) ? 0 : stepIndex);
+      return res.json({
+        ok: true,
+        contacts: rows.map((r) => ({
+          contactId: r.contact_id,
+          stepIndex: r.current_step_index,
+          errorMessage: r.error_message,
+          attempts: r.attempts,
+          updatedAt: r.updated_at,
+        })),
+      });
+    } catch (e) {
+      console.error('[api/campaigns/failed-contacts]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao listar contatos falhos.' });
+    }
+  });
+
+  /** Reenvio: reseta falhos de uma etapa para pending (permite retentar). */
+  app.post('/api/campaigns/:id/retry-failed', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    const body = req.body as { stepIndex?: number };
+    const stepIndex = typeof body.stepIndex === 'number' ? body.stepIndex : 0;
+    try {
+      const reset = await resetFailedContactsAtStep(campaignId, stepIndex);
+      return res.json({ ok: true, reset });
+    } catch (e) {
+      console.error('[api/campaigns/retry-failed]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao resetar contatos falhos.' });
+    }
   });
 }

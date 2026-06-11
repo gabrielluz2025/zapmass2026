@@ -125,3 +125,31 @@ export async function fetchCampaignLogs(
     hasMore: !!j.hasMore
   };
 }
+
+// ─── Motor multi-etapas ──────────────────────────────────────────────────────
+
+export type ContactStateStepSummaryDto = {
+  step_index: number;
+  status: string;
+  count: number;
+};
+
+export async function fetchCampaignContactStates(
+  campaignId: string
+): Promise<ContactStateStepSummaryDto[]> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/contact-states`;
+  const j = await apiFetchJson<{ summary?: ContactStateStepSummaryDto[] }>(path);
+  return Array.isArray(j.summary) ? j.summary : [];
+}
+
+export async function retryFailedContacts(
+  campaignId: string,
+  stepIndex: number
+): Promise<number> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/retry-failed`;
+  const j = await apiFetchJson<{ reset?: number }>(path, {
+    method: 'POST',
+    body: JSON.stringify({ stepIndex })
+  });
+  return Number(j.reset) || 0;
+}

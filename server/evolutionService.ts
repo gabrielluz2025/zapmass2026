@@ -69,6 +69,15 @@ import {
 } from './campaignTenantScope.js';
 import type { Server as SocketIOServer } from 'socket.io';
 import { isEvolutionOpenState } from './evolutionOpenState.js';
+import type { CampaignStageConfig } from '../src/types.js';
+import {
+    initMultiStepContactStates,
+    onContactReply,
+    onStepCompleted,
+    updateContactStateOnFailure,
+} from './campaignMultiStepEngine.js';
+import { usePostgresCampaigns } from './campaignStore.js';
+import { getContactStateSummary } from './repositories/campaignContactStateRepository.js';
 
 // ================== INTERFACES ==================
 
@@ -1444,6 +1453,11 @@ interface MessageQueueItem {
     };
     /** Idempotência: definido após envio bem-sucedido para evitar reenvio em retry do BullMQ. */
     _sentOk?: boolean;
+    /** Motor multi-etapas lazy: identifica contactId e stepIndex desta entrega. */
+    multiStepContact?: {
+        contactId: string;
+        stepIndex: number;
+    };
 }
 
 interface WarmupItem {
@@ -1770,6 +1784,8 @@ interface CampaignRuntimeState {
 
 const campaignsById = new Map<string, CampaignRuntimeState>();
 const campaignPendingJobs = new Map<string, number>();
+/** Motor lazy: armazena stageConfigs por campaignId para lookups durante processamento. */
+const campaignStageConfigsById = new Map<string, CampaignStageConfig[]>();
 
 let replyFlowEngine: ReplyFlowEngine;
 
@@ -3021,6 +3037,57 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     bumpQueueSize(item.connectionId, -1);
+
+    // Motor multi-etapas lazy: agenda próxima etapa se houver stageConfigs.
+    if (item.multiStepContact && item.campaignId) {
+        const { contactId, stepIndex } = item.multiStepContact;
+        const stageConfigs = campaignStageConfigsById.get(item.campaignId);
+        if (stageConfigs && stageConfigs.length > 0) {
+            void onStepCompleted({
+                campaignId: item.campaignId,
+                tenantId: campaignState?.ownerUid || item.ownerUid || '',
+                contactId,
+                completedStepIndex: stepIndex,
+                stageConfigs,
+                connectionId: item.connectionId,
+                ownerUid: campaignState?.ownerUid || item.ownerUid,
+                callbacks: {
+                    enqueue: async (p) => {
+                        await enqueueCampaignItem(
+                            {
+                                connectionId: p.connectionId,
+                                to: item.to,
+                                message: p.message,
+                                campaignId: p.campaignId,
+                                ownerUid: p.ownerUid,
+                                stageIndex: p.stepIndex,
+                                sendAsMedia: campaignMediaById.has(p.campaignId),
+                                multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
+                            },
+                            p.delayMs
+                        );
+                        // Incrementa pendingJobs para que finishCampaignJob não encerre a campanha prematuramente
+                        if (p.campaignId) {
+                            campaignPendingJobs.set(
+                                p.campaignId,
+                                (campaignPendingJobs.get(p.campaignId) || 0) + 1
+                            );
+                        }
+                    },
+                    onLog: (msg, payload) => emitCampaignLog('INFO', msg, payload, campaignState?.ownerUid),
+                    resolveConnectionId: () => item.connectionId,
+                    resolveVars: (cid) => {
+                        const cleaned = normalizePhoneKey(cid);
+                        return buildRecipientVarsMap(undefined).get(cleaned) || {};
+                    },
+                    applyVars: (template, cid, vars) => applyMessageVars(template, cid, vars),
+                    getDispatchDelayMs: () => dispatchSettings.minDelayMs,
+                    publishEvent: (ownerUid, event, data) => publishOwnerEvent(ownerUid, event, data),
+                },
+            });
+        }
+    }
+
     finishCampaignJob(item.campaignId, true);
 
     publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
@@ -3108,12 +3175,40 @@ function ensureCampaignWorker() {
                 success: false,
                 error: err.message,
             });
+            // Alerta definitivo após esgotar todos os retries — visível na UI em tempo real.
+            publishOwnerEvent(campaignState?.ownerUid, 'campaign:job-dead', {
+                campaignId: item.campaignId,
+                to: item.to,
+                connectionId: item.connectionId,
+                error: err.message,
+                stageIndex: item.stageIndex ?? 0,
+                attemptsMade: job.attemptsMade,
+            });
+            if (io && campaignState?.ownerUid) {
+                io.to(`user:${campaignState.ownerUid}`).emit('campaign:job-dead', {
+                    campaignId: item.campaignId,
+                    to: item.to,
+                    connectionId: item.connectionId,
+                    error: err.message,
+                });
+            }
             emitCampaignLog(
                 'ERROR',
-                'Falha no envio da campanha',
-                { campaignId: item.campaignId, to: item.to, connectionId: item.connectionId, error: err.message },
+                'Falha definitiva no envio (todos os retries esgotados)',
+                {
+                    campaignId: item.campaignId,
+                    to: item.to,
+                    connectionId: item.connectionId,
+                    error: err.message,
+                    attemptsMade: job.attemptsMade,
+                    stageIndex: item.stageIndex ?? 0,
+                },
                 campaignState?.ownerUid
             );
+            // Atualiza estado do contato no motor persistente (se disponível).
+            if (item.campaignId && item.to) {
+                void updateContactStateOnFailure(item.campaignId, item.to, err.message);
+            }
         }
     });
 
@@ -3126,6 +3221,7 @@ function ensureCampaignWorker() {
 
 /**
  * Inicia campanha com suporte a multi-etapas, reply flow e channelWeights.
+ * Quando `stageConfigs` está presente, inicializa o motor persistente por contato.
  */
 export async function startCampaign(
     numbers: string[],
@@ -3148,7 +3244,8 @@ export async function startCampaign(
     channelWeights?: Record<string, number>,
     media?: CampaignMediaPayload,
     followUpMedia?: CampaignMediaPayload,
-    delaySeconds?: number
+    delaySeconds?: number,
+    stageConfigs?: CampaignStageConfig[]
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
@@ -3197,8 +3294,23 @@ export async function startCampaign(
         return false;
     }
 
+    // Verifica se há stageConfigs com trigger condicional/reply → motor lazy
+    const validStageConfigs = Array.isArray(stageConfigs) && stageConfigs.length > 0
+        ? stageConfigs.filter((s) => s?.body?.trim?.())
+        : [];
+    const useLazyMotor = validStageConfigs.length > 0 &&
+        validStageConfigs.some((s) => s.trigger_type === 'any_reply' || s.trigger_type === 'conditional');
+
+    // Para o motor lazy, armazena os stageConfigs em memória para lookup durante processamento
+    if (useLazyMotor) {
+        campaignStageConfigsById.set(cid, validStageConfigs);
+    }
+
     const stageCount = useReplyFlow ? sanitizedReplySteps.length : templates.length;
-    const totalJobs = numbers.length * (useReplyFlow ? 1 : stageCount);
+    // Motor lazy: total = número de contatos (cada contato conta como 1 job rastreado)
+    const totalJobs = useLazyMotor
+        ? numbers.length
+        : numbers.length * (useReplyFlow ? 1 : stageCount);
     const recipientVars = buildRecipientVarsMap(recipients);
     const hasMedia = campaignMediaById.has(cid);
 
@@ -3221,6 +3333,13 @@ export async function startCampaign(
     void saveCampaignRuntimeToRedis(cid);
     evolutionRegisterCampaign(cid, ownerUid);
 
+    // Inicializa estado persistente para cada contato (motor multi-etapas).
+    // Best-effort: falha silenciosa não bloqueia o envio.
+    if (ownerUid && (useLazyMotor || validStageConfigs.length > 0)) {
+        const cleanPhones = numbers.map((n) => normalizePhoneKey(n)).filter((p) => p.length >= 8);
+        void initMultiStepContactStates(ownerUid, cid, cleanPhones);
+    }
+
     const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds);
 
     try {
@@ -3233,7 +3352,24 @@ export async function startCampaign(
                 : activeConnectionIds[i % activeConnectionIds.length];
             const staggerDelay = i * dispatchSettings.minDelayMs;
 
-            if (useReplyFlow) {
+            if (useLazyMotor) {
+                // Motor lazy: apenas etapa 0 enfileirada agora; etapas seguintes após conclusão/resposta
+                const firstStage = validStageConfigs[0];
+                const personalizedMessage = applyMessageVars(firstStage.body, cleanPhone, vars, i);
+                await enqueueCampaignItem(
+                    {
+                        connectionId: assignedConnectionId,
+                        to: num,
+                        message: personalizedMessage,
+                        campaignId: cid,
+                        ownerUid,
+                        stageIndex: 0,
+                        sendAsMedia: hasMedia,
+                        multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
+                    },
+                    staggerDelay
+                );
+            } else if (useReplyFlow) {
                 const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
                 await enqueueCampaignItem(
                     {
@@ -3361,7 +3497,6 @@ export function init(socketIO: SocketIOServer) {
     chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
     ensureReplyFlowEngine();
     initEvolutionWebhookQueue(handleWebhook);
-    ensureCampaignWorker();
     log('info', 'Evolution API Service Initialized', {
         apiUrl: evolutionConfig.apiUrl,
         webhookUrl: evolutionConfig.webhookUrl,
@@ -3376,10 +3511,15 @@ export function init(socketIO: SocketIOServer) {
         }, 30_000);
     }
     testConnection();
-    // Reconcilia jobs BullMQ que sobreviveram a um reinício do processo.
-    // Sem isso, campaignPendingJobs (RAM) começa do zero enquanto o Redis ainda
-    // tem jobs ativos — finishCampaignJob dispararia campaign-finished ao primeiro job.
-    void reconcilePendingJobsFromRedis();
+
+    // Reconcilia jobs BullMQ ANTES de iniciar o worker para evitar race condition:
+    // sem o await, campaignPendingJobs começa do zero enquanto o Redis ainda tem
+    // jobs ativos — finishCampaignJob dispararia campaign-finished ao primeiro job,
+    // fazendo a 2ª+ etapa nunca disparar e a campanha ser marcada COMPLETED prematuramente.
+    void (async () => {
+        await reconcilePendingJobsFromRedis();
+        ensureCampaignWorker();
+    })();
 }
 
 /** Restaura campaignPendingJobs E campaignsById para campanhas com jobs ativos no Redis. */
@@ -3548,6 +3688,50 @@ export async function handleWebhook(event: any) {
                         nonTextReply,
                         incomingConvId,
                     });
+
+                    // Motor multi-etapas lazy: verifica se contato aguarda resposta
+                    const ownerUidForReply = messageOwnerUid || resolveOwnerUid(instance);
+                    if (ownerUidForReply && bodyText) {
+                        void onContactReply({
+                            tenantId: ownerUidForReply,
+                            contactId: phoneDigits,
+                            replyText: bodyText,
+                            stageConfigsResolver: (cid) => campaignStageConfigsById.get(cid),
+                            connectionId: instance,
+                            ownerUid: ownerUidForReply,
+                            callbacks: {
+                                enqueue: async (p) => {
+                                    await enqueueCampaignItem(
+                                        {
+                                            connectionId: p.connectionId,
+                                            to: phoneDigits,
+                                            message: p.message,
+                                            campaignId: p.campaignId,
+                                            ownerUid: p.ownerUid,
+                                            stageIndex: p.stepIndex,
+                                            sendAsMedia: campaignMediaById.has(p.campaignId),
+                                            multiStepContact: { contactId: p.contactId, stepIndex: p.stepIndex },
+                                        },
+                                        p.delayMs
+                                    );
+                                    if (p.campaignId) {
+                                        campaignPendingJobs.set(
+                                            p.campaignId,
+                                            (campaignPendingJobs.get(p.campaignId) || 0) + 1
+                                        );
+                                    }
+                                },
+                                onLog: (msg, payload) =>
+                                    emitCampaignLog('INFO', msg, payload, ownerUidForReply),
+                                resolveConnectionId: () => instance,
+                                resolveVars: () => ({}),
+                                applyVars: (template, cid, vars) => applyMessageVars(template, cid, vars),
+                                getDispatchDelayMs: () => getTenantDispatchSettings(ownerUidForReply).minDelayMs,
+                                publishEvent: (uid, event, data) => publishOwnerEvent(uid, event, data),
+                            },
+                        });
+                    }
+
                     evolutionTrackIncomingReply(instance, phoneDigits);
                     const replyPreview =
                         String(bodyText || '').slice(0, 80) ||

@@ -91,6 +91,7 @@ import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
 import { CampaignStageRepliesCell } from './CampaignStageRepliesCell';
 import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
+import { CampaignMultiStepDashboard } from './CampaignMultiStepDashboard';
 import {
   buildReplyFlowStageFunnels,
   isReplyFlowCampaign,
@@ -1800,6 +1801,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               totalContacts={campaign.totalContacts || replyFlowStages[0]?.sent || 0}
             />
           </div>
+        )}
+        {/* Dashboard de progresso do motor multi-etapas (quando stageConfigs presente) */}
+        {campaign.stageConfigs && campaign.stageConfigs.length > 0 && (
+          <CampaignMultiStepDashboard
+            campaign={campaign}
+            stageLabels={campaign.stageConfigs.map((s) => s.body.slice(0, 60))}
+          />
         )}
       </div>
 

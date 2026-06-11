@@ -88,8 +88,8 @@ export interface CampaignWeeklySchedule {
 export interface CampaignScheduleStartSnapshot {
   numbers: string[];
   message: string;
-  messageStages: string[];
-  connectionIds: string[];
+  messageStages?: string[];
+  connectionIds?: string[];
   delaySeconds?: number;
   recipients?: Array<{ phone: string; vars: Record<string, string> }>;
   replyFlow?: CampaignReplyFlow;
@@ -113,11 +113,40 @@ export interface ContactList {
   lastUpdated?: string;
 }
 
+// ─── Motor multi-etapas persistente ─────────────────────────────────────────
+
+/** Define como cada etapa é disparada no motor multi-etapas. */
+export type CampaignStageTriggerType = 'immediate' | 'delay' | 'any_reply' | 'conditional';
+
+/**
+ * Configuração avançada de uma etapa de campanha.
+ * Presente em Campaign.stageConfigs[] quando o motor persistente estiver habilitado.
+ */
+export interface CampaignStageConfig {
+  /** Corpo da mensagem desta etapa (suporta variáveis e spintax). */
+  body: string;
+  /** Como esta etapa dispara a próxima. Default: 'delay'. */
+  trigger_type: CampaignStageTriggerType;
+  /**
+   * Condição de texto para trigger_type='conditional'.
+   * Ex: { contains: 'sim' } | { regex: '^(sim|yes)$' }
+   */
+  trigger_condition?: { contains?: string; regex?: string };
+  /** Para any_reply/conditional: horas antes de expirar sem resposta. */
+  timeout_hours?: number;
+  /** Ação ao expirar: 'skip' | 'complete' | índice do step (string numérica). */
+  timeout_action?: 'skip' | 'complete' | string;
+  /** Índice da próxima etapa quando condição BATE (trigger_type='conditional'). */
+  next_step_on_match?: number;
+  /** Índice da próxima etapa quando condição NÃO bate (trigger_type='conditional'). */
+  next_step_on_no_match?: number;
+}
+
 /** Etapa em campanha com fluxo por resposta (aguarda resposta antes da proxima). */
 export interface CampaignReplyFlowStep {
   body: string;
   /** Se true, qualquer texto nao vazio do contato avanca para a proxima etapa. */
-  acceptAnyReply: boolean;
+  acceptAnyReply?: boolean;
   /** Se acceptAnyReply for false: respostas aceitas (ex.: 1, 2, sim). Comparacao sem distincao de maiusculas. */
   validTokens?: string[];
   /** Enviado quando acceptAnyReply e false e a resposta nao for aceita; nao avanca de etapa. */
@@ -202,6 +231,12 @@ export interface Campaign {
   lastRunAt?: string;
   /** Preenchido em campanhas agendadas para o worker disparar sem depender do cliente. */
   scheduleStartSnapshot?: CampaignScheduleStartSnapshot;
+  /**
+   * Configuração avançada por etapa (motor multi-etapas persistente).
+   * Quando presente, cada etapa pode ter trigger_type diferente.
+   * Substitui messageStages para novas campanhas com fluxo condicional.
+   */
+  stageConfigs?: CampaignStageConfig[];
 }
 
 export interface DashboardMetrics {
