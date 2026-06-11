@@ -203,8 +203,17 @@ jobs:
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure'
         run: |
-          echo "==> SSH falhou (ex.: dial tcp :22 connection timed out). Nova tentativa em 90s…"
-          sleep 90
+          echo "==> SSH falhou. Verificando se o deploy já está no ar via health check..."
+          for i in $(seq 1 12); do
+            if curl -sf --max-time 10 https://zap-mass.com/api/health | grep -q '"status":"ok"'; then
+              echo "==> Health check OK — deploy já concluído. Pulando retry SSH."
+              exit 0
+            fi
+            echo "tentativa ${i}/12 health check falhou, aguardando 15s..."
+            sleep 15
+          done
+          echo "==> Health check não respondeu, aguardando mais 180s antes do retry SSH..."
+          sleep 180
 
       - name: VPS — deploy retry SSH (2)
         id: deploy_vps_retry
