@@ -115,6 +115,8 @@ export type LeadsGeoSummary = {
   contactPins: GeoContactPin[];
   pinStats: GeoContactPinStats;
   mapViewport: { lat: number; lng: number; zoom: number } | null;
+  /** true quando o dado veio do cache expirado enquanto o recálculo ocorre em background */
+  stale?: boolean;
 };
 
 export type LeadsGeoQuery = {
@@ -130,8 +132,10 @@ export type LeadsGeoQuery = {
 type GeoCacheFile = Record<string, { lat: number; lng: number; at: string }>;
 
 const CACHE_PATH = path.join(process.cwd(), 'data', 'leads_geo_cache.json');
-const SUMMARY_CACHE_TTL_MS = 120_000;
+const SUMMARY_CACHE_TTL_MS = 600_000;
 const summaryCache = new Map<string, { expires: number; summary: LeadsGeoSummary }>();
+/** Chaves cujo recálculo já está rodando em background (evita recálculos simultâneos). */
+const summaryRecomputingFor = new Set<string>();
 
 function summaryCacheKey(tenantId: string, query: LeadsGeoQuery): string {
   return `${tenantId}:${JSON.stringify({
@@ -996,12 +1000,52 @@ export async function buildLeadsGeoSummary(
 ): Promise<LeadsGeoSummary> {
   const cacheKey = summaryCacheKey(tenantId, query);
   const cached = summaryCache.get(cacheKey);
+
+  // Cache válido: retorna imediatamente
   if (cached && cached.expires > Date.now()) {
     return cached.summary;
   }
+
+  // Cache expirado mas existe: retorna dado antigo imediatamente (stale) + recalcula em background
+  if (cached && !summaryRecomputingFor.has(cacheKey)) {
+    summaryRecomputingFor.add(cacheKey);
+    void buildLeadsGeoSummaryInner(tenantId, query)
+      .then((fresh) => {
+        summaryCache.set(cacheKey, { expires: Date.now() + SUMMARY_CACHE_TTL_MS, summary: fresh });
+        summaryRecomputingFor.delete(cacheKey);
+      })
+      .catch(() => summaryRecomputingFor.delete(cacheKey));
+    return { ...cached.summary, stale: true };
+  }
+
+  // Sem cache (primeira carga): calcula normalmente
   const summary = await buildLeadsGeoSummaryInner(tenantId, query);
   summaryCache.set(cacheKey, { expires: Date.now() + SUMMARY_CACHE_TTL_MS, summary });
+  summaryRecomputingFor.delete(cacheKey);
   return summary;
+}
+
+/** Pré-aquece o cache para os tenants ativos nos últimos 30 dias. Chamado no startup. */
+export async function warmupLeadsGeoCache(): Promise<void> {
+  try {
+    const pool = getZapmassPool();
+    if (!pool) return;
+    const r = await pool.query<{ tenant_id: string }>(
+      `SELECT DISTINCT tenant_id::text FROM zapmass.contacts
+       WHERE updated_at > NOW() - INTERVAL '30 days'
+       LIMIT 20`
+    );
+    for (const row of r.rows) {
+      try {
+        await buildLeadsGeoSummary(row.tenant_id, {});
+        console.log(`[geo-warmup] tenant ${row.tenant_id} pré-aquecido`);
+      } catch (e) {
+        console.warn('[geo-warmup] falha para tenant', row.tenant_id, e);
+      }
+    }
+  } catch (e) {
+    console.warn('[geo-warmup] erro geral:', e);
+  }
 }
 
 async function buildLeadsGeoSummaryInner(
@@ -1113,11 +1157,14 @@ async function buildLeadsGeoSummaryInner(
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
     const place = memoGeoPlace(c);
+    // Usa memoContactState como fallback para garantir que a UF nunca fica vazia
+    // quando place.state não veio preenchido (mantém consistência com o loop de clusters).
+    const stResolved = memoContactState(c) || place.state || knownUfForCity(place.city) || '';
     const cityCanon = place.city
-      ? memoCanonCity(place.city, place.state, c.phone, c.zipCode)
+      ? memoCanonCity(place.city, stResolved, c.phone, c.zipCode)
       : '';
     const nb = normNeighborhood(place.neighborhood || c.neighborhood || '', cityCanon || place.city);
-    const st = place.state;
+    const st = stResolved;
     const ddd = resolveContactDdd(c);
 
     if (st) {

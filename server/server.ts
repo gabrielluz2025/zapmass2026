@@ -87,6 +87,7 @@ import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { registerContactsDataRoutes } from './contactsRoutes.js';
 import { registerLeadsGeoRoutes } from './leadsGeoRoutes.js';
+import { warmupLeadsGeoCache } from './leadsGeoService.js';
 import { ensureIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { registerCampaignsDataRoutes } from './campaignsRoutes.js';
 import { registerPlatformDataRoutes } from './platformRoutes.js';
@@ -2011,6 +2012,7 @@ const bootstrap = async () => {
 
   registerSocketHandlers();
   startScheduledCampaignRunner();
+  setTimeout(() => { void warmupLeadsGeoCache(); }, 5000);
   await startSessionControlPlane();
   if (isSessionBusRemote()) {
     const w = getWhatsappProcessWorkerCount();

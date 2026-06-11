@@ -11,8 +11,13 @@ import {
   buildLeadsGeoSummary,
   geocodeContactsWithAddress,
   geocodeLeadsGeoClusters,
+  invalidateLeadsGeoSummaryCache,
   isContactGeocodeAvailable
 } from './leadsGeoService.js';
+
+// Limpa o cache em memória ao iniciar o servidor (garante que alterações de lógica geo
+// nunca sirvam dados obsoletos do ciclo anterior de requests).
+invalidateLeadsGeoSummaryCache();
 
 export function registerLeadsGeoRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;

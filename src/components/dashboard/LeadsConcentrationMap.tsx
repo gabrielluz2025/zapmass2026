@@ -451,7 +451,15 @@ export const LeadsConcentrationMap: React.FC = () => {
   const rankingRows = useMemo((): RankingRow[] => {
     if (!summary || !rankingReady) return [];
     if (showCityDrillRanking) {
-      return Object.entries(summary.byCity)
+      // Agrega mergedClusters por cidade (já com cidade canônica resolvida pelo servidor)
+      // evitando usar summary.byCity que pode ter chaves com bairro no campo cidade.
+      const cityMap = new Map<string, number>();
+      for (const c of mergedClusters) {
+        if (c.city === '—') continue;
+        const key = c.state !== '—' ? `${c.city} · ${c.state}` : c.city;
+        cityMap.set(key, (cityMap.get(key) || 0) + c.count);
+      }
+      return [...cityMap.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 30)
         .map(([label, count]) => ({ kind: 'city' as const, label, count, key: label }));
@@ -1065,6 +1073,12 @@ export const LeadsConcentrationMap: React.FC = () => {
     (layer === 'city' || layer === 'neighborhood') &&
     config?.geocodeEnabled &&
     ((pinStats?.pinsPending || 0) > 0 || (stats?.clustersPending || 0) > 0);
+
+  const lowGeoLocatedRatio =
+    stats &&
+    stats.filteredTotal > 0 &&
+    (pinStats?.pinsMapped || 0) / stats.filteredTotal < 0.1 &&
+    stats.filteredTotal >= 20;
   const showEmptyMap = displayClusters.length === 0 && displayPins.length === 0;
 
   return (
@@ -1086,6 +1100,15 @@ export const LeadsConcentrationMap: React.FC = () => {
             <div className="min-w-0">
               <h3 className="flex items-center gap-2 text-[16px] font-extrabold tracking-tight text-white">
                 Onde moram seus leads
+                {summary?.stale && (
+                  <span
+                    title="Atualizando em segundo plano..."
+                    className="relative inline-flex h-2.5 w-2.5 shrink-0"
+                  >
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-orange-400" />
+                  </span>
+                )}
               </h3>
               <p className="text-[12px] font-medium text-white/80">
                 Inteligência geográfica da sua base — DDD, cidade, bairro e UF no mapa
@@ -1253,6 +1276,22 @@ export const LeadsConcentrationMap: React.FC = () => {
               <span className="text-[11px] text-slate-400 ml-1">
                 {stats.clusters} regiões · {layer === 'city' ? 'clique na cidade para ver bairros' : 'clique para filtrar o mapa'}
               </span>
+            </div>
+          )}
+
+          {lowGeoLocatedRatio && !contactNameFilter && (
+            <div className="mb-3 rounded-xl border border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/20 dark:border-amber-800/50 px-3 py-2.5 flex flex-wrap items-center gap-2">
+              <MapPin className="w-4 h-4 text-amber-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                  Poucos contatos localizados no mapa
+                </p>
+                <p className="text-sm text-slate-800 dark:text-slate-200">
+                  Apenas <strong>{pinStats?.pinsMapped?.toLocaleString('pt-BR') ?? 0}</strong> de{' '}
+                  <strong>{stats!.filteredTotal.toLocaleString('pt-BR')}</strong> contatos estão posicionados
+                  {' '}(&lt;10%). Use <strong>Posicionar pins</strong> para geocodificar endereços e enriquecer o mapa.
+                </p>
+              </div>
             </div>
           )}
 
@@ -1671,16 +1710,16 @@ const StatPill: React.FC<{
   const a = STAT_ACCENT[accent];
   return (
     <div
-      className={`group relative overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-700/70 bg-white/70 dark:bg-slate-900/40 px-3 py-2.5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${a.ring}`}
+      className={`group relative overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-700/70 bg-white/70 dark:bg-slate-900/40 px-3.5 py-3 sm:px-4 sm:py-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${a.ring}`}
     >
       <div className="flex items-center gap-1.5">
         {icon && <span className={`inline-flex h-5 w-5 items-center justify-center rounded-md ${a.chip}`}>{icon}</span>}
         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">{label}</p>
       </div>
-      <p className="mt-1 text-[19px] font-black leading-none tabular-nums text-slate-900 dark:text-white">
+      <p className="mt-1.5 text-[20px] font-black leading-none tabular-nums text-slate-900 dark:text-white">
         {isText ? sub || '—' : value.toLocaleString('pt-BR')}
       </p>
-      {!isText && sub && <p className="mt-0.5 text-[10px] text-slate-400 truncate">{sub}</p>}
+      {!isText && sub && <p className="mt-1 text-[10px] text-slate-400 truncate">{sub}</p>}
     </div>
   );
 };
@@ -1866,6 +1905,8 @@ const CityDrillRow: React.FC<{
   const barPct = shareBarWidth(count, filteredTotal, maxCount);
   const cityName = label.split('·')[0].trim();
   const uf = label.includes('·') ? label.split('·').pop()?.trim() : '';
+  const sharePct = filteredTotal > 0 ? (100 * count) / filteredTotal : 0;
+  const highConcentration = rank === 1 && sharePct > 50;
   return (
     <button
       type="button"
@@ -1881,7 +1922,14 @@ const CityDrillRow: React.FC<{
         <div className="min-w-0 flex items-center gap-2">
           <RankBadge rank={rank} />
           <div className="min-w-0">
-            <p className="truncate font-semibold text-slate-800 dark:text-slate-100">{cityName}</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="truncate font-semibold text-slate-800 dark:text-slate-100">{cityName}</p>
+              {highConcentration && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-red-600 text-white shrink-0">
+                  Concentração alta
+                </span>
+              )}
+            </div>
             {uf && <p className="text-[10px] text-slate-400">{uf}</p>}
           </div>
         </div>

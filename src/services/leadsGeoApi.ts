@@ -68,6 +68,8 @@ export type LeadsGeoSummary = {
     pinsPending: number;
   };
   mapViewport?: { lat: number; lng: number; zoom: number } | null;
+  /** true quando o dado veio do cache expirado enquanto o recálculo ocorre em background */
+  stale?: boolean;
 };
 
 export type LeadsGeoQuery = {
@@ -155,7 +157,8 @@ export async function fetchLeadsGeoSummary(query: LeadsGeoQuery = {}): Promise<L
     filters: j.filters || { cities: [], states: [], ddds: [], neighborhoods: [] },
     topConcentration: j.topConcentration ?? null,
     contactPins: Array.isArray(j.contactPins) ? j.contactPins : [],
-    pinStats: j.pinStats || { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 }
+    pinStats: j.pinStats || { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
+    stale: j.stale === true ? true : undefined
   };
 }
 
