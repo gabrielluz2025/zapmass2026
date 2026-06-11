@@ -399,6 +399,8 @@ export interface Contact {
   religiousMemberProfile?: ReligiousMemberProfile;
   /** Foto de perfil do WhatsApp (busca via chip conectado; persistida no CRM). */
   profilePicUrl?: string;
+  /** ISO UTC de quando o endereço foi normalizado automaticamente (ViaCEP + IBGE). */
+  addressNormalizedAt?: string;
 }
 
 /** Uma linha em `users/{uid}/contacts/{id}/campaignDeliveries/{campaignId}` — envios por campanha. */

@@ -61,6 +61,7 @@ import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contact
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import { validateImportRow } from '../utils/contactImportSchema';
 import { apiNormalizeContactAddresses } from '../services/contactsApi';
+import { apiFetchJson } from '../utils/apiFetchAuth';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -863,6 +864,10 @@ export const ContactsTab: React.FC = () => {
   /** Auto-preenchimento de endereço por CEP (ViaCEP — gratuito, sem chave). */
   const [cepLookupState, setCepLookupState] = useState<'idle' | 'loading' | 'ok' | 'notfound' | 'error'>('idle');
   const cepLookupSeqRef = useRef(0);
+  /** Sugestões IBGE de cidades no campo cidade do modal. */
+  const [ibgeCitySuggestions, setIbgeCitySuggestions] = useState<Array<{ city: string; state: string }>>([]);
+  const [showIbgeCityDropdown, setShowIbgeCityDropdown] = useState(false);
+  const cityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lookupCepAndFill = useCallback(async (rawCep: string) => {
     const digits = (rawCep || '').replace(/\D/g, '');
     if (digits.length !== 8) {
@@ -903,6 +908,65 @@ export const ContactsTab: React.FC = () => {
       setCepLookupState('error');
     }
   }, []);
+  const fetchIbgeCitySuggestions = useCallback(async (q: string) => {
+    if (!q || q.trim().length < 2) {
+      setIbgeCitySuggestions([]);
+      setShowIbgeCityDropdown(false);
+      return;
+    }
+    try {
+      const data = await apiFetchJson<{
+        ok: boolean;
+        suggestions: Array<{ city: string; state: string }>;
+      }>(`/api/contacts/city-suggest?q=${encodeURIComponent(q.trim())}&limit=5`);
+      if (data.ok && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+        setIbgeCitySuggestions(data.suggestions);
+        setShowIbgeCityDropdown(true);
+      } else {
+        setIbgeCitySuggestions([]);
+        setShowIbgeCityDropdown(false);
+      }
+    } catch {
+      setIbgeCitySuggestions([]);
+      setShowIbgeCityDropdown(false);
+    }
+  }, []);
+
+  const handleCityInputChange = useCallback(
+    (value: string) => {
+      setNewContact((prev) => ({ ...prev, city: value }));
+      if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current);
+      cityDebounceRef.current = setTimeout(() => {
+        void fetchIbgeCitySuggestions(value);
+      }, 400);
+    },
+    [fetchIbgeCitySuggestions]
+  );
+
+  const handleCitySuggestionPick = useCallback((suggestion: { city: string; state: string }) => {
+    setNewContact((prev) => ({ ...prev, city: suggestion.city, state: suggestion.state }));
+    setShowIbgeCityDropdown(false);
+    setIbgeCitySuggestions([]);
+  }, []);
+
+  const handleCorrectAddress = useCallback(async () => {
+    const norm = applyAddressNormalizationToContact(newContact, null);
+    if ((newContact.city || '').trim().length >= 2) {
+      try {
+        const data = await apiFetchJson<{
+          ok: boolean;
+          suggestions: Array<{ city: string; state: string }>;
+        }>(`/api/contacts/city-suggest?q=${encodeURIComponent((newContact.city || '').trim())}&limit=1`);
+        if (data.ok && data.suggestions?.[0]) {
+          norm.city = data.suggestions[0].city;
+          norm.state = data.suggestions[0].state;
+        }
+      } catch { /* mantém norm.city */ }
+    }
+    setNewContact((prev) => ({ ...prev, ...norm }));
+    toast.success('Endereço corrigido com base no IBGE.', { icon: '🗺️' });
+  }, [newContact]);
+
   const [religiousMemberForm, setReligiousMemberForm] = useState<MemberFormState>(() => emptyForm());
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [editingListId, setEditingListId] = useState<string | null>(null);
@@ -4203,19 +4267,29 @@ export const ContactsTab: React.FC = () => {
                                 <input 
                                   id="newContactCity"
                                   name="newContactCity"
-                                  type="text" 
-                                  list="contact-city-suggestions"
+                                  type="text"
                                   value={newContact.city}
-                                  onChange={e => setNewContact({...newContact, city: e.target.value})}
+                                  onChange={e => handleCityInputChange(e.target.value)}
+                                  onBlur={() => setTimeout(() => setShowIbgeCityDropdown(false), 150)}
+                                  onFocus={() => { if (ibgeCitySuggestions.length > 0) setShowIbgeCityDropdown(true); }}
                                   className="ui-input pl-10"
-                                  placeholder="Ex: São Paulo - SP"
+                                  placeholder="Ex: São Paulo"
                                   autoComplete="off"
                                 />
-                                <datalist id="contact-city-suggestions">
-                                  {citySuggestions.map(c => (
-                                    <option key={c} value={c} />
-                                  ))}
-                                </datalist>
+                                {showIbgeCityDropdown && ibgeCitySuggestions.length > 0 && (
+                                  <ul className="absolute z-50 left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden">
+                                    {ibgeCitySuggestions.map((s) => (
+                                      <li
+                                        key={`${s.city}-${s.state}`}
+                                        onMouseDown={() => handleCitySuggestionPick(s)}
+                                        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-emerald-50 dark:hover:bg-slate-700 text-sm"
+                                      >
+                                        <span className="font-medium text-slate-800 dark:text-slate-200">{s.city}</span>
+                                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 ml-2">{s.state}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                              </div>
                           </div>
                        </div>
@@ -4317,6 +4391,16 @@ export const ContactsTab: React.FC = () => {
                                maxLength={2}
                              />
                           </div>
+                       </div>
+                       <div className="flex justify-end pt-1">
+                         <button
+                           type="button"
+                           onClick={() => void handleCorrectAddress()}
+                           className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-200 bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 px-3 py-1.5 rounded-lg transition-colors border border-emerald-200/60 dark:border-emerald-700/40"
+                         >
+                           <SpellCheck2 className="w-3.5 h-3.5" />
+                           Corrigir endereço
+                         </button>
                        </div>
                     </div>
                  </div>

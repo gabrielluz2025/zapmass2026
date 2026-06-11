@@ -28,6 +28,123 @@ import {
 import * as evolutionService from './evolutionService.js';
 import { normalizeTenantContactAddresses } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
+import { normalizeContactAddressFields } from '../src/utils/contactAddressNormalize.js';
+import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
+import { fuzzyResolveCityWithIbge, normCityKey, type IbgeCityIndex } from '../src/utils/ibgeCityLookup.js';
+import { runAddressNormalizationBatch } from './addressNormalizationJob.js';
+
+/** Consulta ViaCEP e retorna cidade/estado corrigidos quando diferem do cadastro. */
+async function lookupViaCep(
+  cep: string,
+  currentCity: string,
+  currentState: string
+): Promise<{ city?: string; state?: string } | null> {
+  try {
+    const digits = cep.replace(/\D/g, '');
+    if (digits.length !== 8) return null;
+    const r = await fetch(`https://viacep.com.br/ws/${digits}/json/`, {
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!r.ok) return null;
+    const data = (await r.json()) as { localidade?: string; uf?: string; erro?: boolean };
+    if (data.erro) return null;
+    const viaCepCity = String(data.localidade || '').trim();
+    const viaCepState = String(data.uf || '').trim().toUpperCase().slice(0, 2);
+    const patch: { city?: string; state?: string } = {};
+    if (viaCepCity && viaCepCity.toLowerCase() !== (currentCity || '').toLowerCase()) {
+      patch.city = viaCepCity;
+    }
+    if (viaCepState && viaCepState !== (currentState || '').toUpperCase()) {
+      patch.state = viaCepState;
+    }
+    return Object.keys(patch).length > 0 ? patch : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Aplica normalização IBGE + ViaCEP antes de salvar um contato. */
+async function normalizeAddressBeforeSave(contact: Partial<Contact>): Promise<Partial<Contact>> {
+  const hasAddress =
+    contact.city || contact.state || contact.neighborhood || contact.street || contact.zipCode;
+  if (!hasAddress) return contact;
+
+  const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+  const norm = normalizeContactAddressFields(
+    {
+      city: contact.city,
+      state: contact.state,
+      phone: contact.phone,
+      neighborhood: contact.neighborhood,
+      street: contact.street,
+      zipCode: contact.zipCode,
+      number: contact.number
+    },
+    ibgeIndex
+  );
+
+  let mergedCity = norm.city || contact.city;
+  let mergedState = norm.state || contact.state;
+
+  const cepDigits = (contact.zipCode || '').replace(/\D/g, '');
+  if (cepDigits.length === 8) {
+    const viaCep = await lookupViaCep(cepDigits, mergedCity || '', mergedState || '');
+    if (viaCep?.city) mergedCity = viaCep.city;
+    if (viaCep?.state) mergedState = viaCep.state;
+  }
+
+  return {
+    ...contact,
+    ...norm,
+    city: mergedCity,
+    state: mergedState,
+    addressNormalizedAt: new Date().toISOString()
+  };
+}
+
+/** Pesquisa cidades no índice IBGE com prefixo/fuzzy, retorna até `limit` sugestões. */
+function searchCitySuggestionsFromIndex(
+  index: IbgeCityIndex,
+  query: string,
+  limit = 5
+): Array<{ city: string; state: string }> {
+  if (!query || query.length < 2) return [];
+  const q = normCityKey(query);
+  if (!q) return [];
+
+  const exact: Array<{ city: string; state: string; score: number }> = [];
+  const prefix: Array<{ city: string; state: string; score: number }> = [];
+
+  for (const [key, entries] of index) {
+    if (key === q) {
+      for (const e of entries) exact.push({ city: e.nome, state: e.uf, score: 0 });
+    } else if (key.startsWith(q)) {
+      for (const e of entries) prefix.push({ city: e.nome, state: e.uf, score: key.length - q.length });
+    }
+  }
+
+  prefix.sort((a, b) => a.score - b.score || a.city.localeCompare(b.city, 'pt-BR'));
+  const combined = [...exact, ...prefix];
+  const seen = new Set<string>();
+  const out: Array<{ city: string; state: string }> = [];
+  for (const item of combined) {
+    const k = `${normCityKey(item.city)}|${item.state}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push({ city: item.city, state: item.state });
+    }
+    if (out.length >= limit) break;
+  }
+
+  if (out.length < limit) {
+    const fuzzy = fuzzyResolveCityWithIbge(index, { city: query });
+    if (fuzzy) {
+      const k = `${normCityKey(fuzzy.city)}|${fuzzy.state}`;
+      if (!seen.has(k)) out.push({ city: fuzzy.city, state: fuzzy.state });
+    }
+  }
+  return out.slice(0, limit);
+}
 
 export function registerContactsDataRoutes(app: Express): void {
   if (!vpsDataEnabled() || !getZapmassPool()) return;
@@ -68,7 +185,8 @@ export function registerContactsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Corpo inválido.' });
     }
     try {
-      let created = await createContact(ctx.tenantId, body);
+      const normalized = await normalizeAddressBeforeSave(body);
+      let created = await createContact(ctx.tenantId, normalized);
       try {
         created = await geocodeSingleContactIfNeeded(ctx.tenantId, created);
       } catch (geoErr) {
@@ -158,7 +276,8 @@ export function registerContactsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const id = String(req.params.id || '').trim();
-    const updates = req.body as Partial<Contact>;
+    const rawUpdates = req.body as Partial<Contact>;
+    const updates = await normalizeAddressBeforeSave(rawUpdates);
     let updated = await updateContact(ctx.tenantId, id, updates);
     if (!updated) {
       return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
@@ -169,6 +288,34 @@ export function registerContactsDataRoutes(app: Express): void {
       console.warn('[api/contacts PATCH geocode]', geoErr);
     }
     return res.json({ ok: true, contact: updated });
+  });
+
+  app.get('/api/contacts/city-suggest', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const q = String(req.query.q || '').trim();
+    const limit = Math.min(Number(req.query.limit) || 5, 10);
+    if (!q || q.length < 2) return res.json({ ok: true, suggestions: [] });
+    try {
+      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+      if (!ibgeIndex) return res.json({ ok: true, suggestions: [] });
+      const suggestions = searchCitySuggestionsFromIndex(ibgeIndex, q, limit);
+      return res.json({ ok: true, suggestions });
+    } catch (e) {
+      console.warn('[api/contacts/city-suggest]', e);
+      return res.json({ ok: true, suggestions: [] });
+    }
+  });
+
+  app.post('/api/contacts/normalize-batch', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as { batchSize?: number };
+    const batchSize = Math.min(Math.max(Number(body.batchSize) || 200, 10), 500);
+    res.json({ ok: true, message: 'Normalização em lote iniciada em background.' });
+    runAddressNormalizationBatch(ctx.tenantId, batchSize).catch((e) => {
+      console.error('[normalize-batch background]', e);
+    });
   });
 
   app.post('/api/contacts/normalize-addresses', async (req: Request, res: Response) => {
