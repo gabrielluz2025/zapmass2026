@@ -95,12 +95,16 @@ export const ReportsTab: React.FC = () => {
   const sumField = (list: Campaign[], key: 'totalContacts' | 'successCount' | 'failedCount') =>
     list.reduce((acc, c) => acc + (c[key] || 0), 0);
 
-  const totalSent = sumField(current, 'totalContacts');
+  /** Contatos alvejados pelas campanhas no período (inclui ainda não processados). */
+  const totalTargeted = sumField(current, 'totalContacts');
+  /** Mensagens efetivamente enviadas com sucesso no período. */
   const totalSuccess = sumField(current, 'successCount');
   const totalFailed = sumField(current, 'failedCount');
 
-  const prevSent = sumField(previous, 'totalContacts');
-  const prevSuccess = sumField(previous, 'successCount');
+  /** Deprecated alias – mantido para compatibilidade local; prefer totalSuccess para KPIs. */
+  const totalSent = totalSuccess;
+  const prevSent = sumField(previous, 'successCount');
+  const prevSuccess = prevSent;
 
   const plannedSlotsCurrent = current.reduce((a, c) => a + getCampaignPlannedSendTotal(c), 0);
   const plannedSlotsPrev = previous.reduce((a, c) => a + getCampaignPlannedSendTotal(c), 0);
@@ -144,7 +148,7 @@ export const ReportsTab: React.FC = () => {
       const d = new Date(c.createdAt);
       d.setHours(0, 0, 0, 0);
       const key = d.toISOString().slice(0, 10);
-      if (map.has(key)) map.set(key, (map.get(key) || 0) + (c.totalContacts || 0));
+      if (map.has(key)) map.set(key, (map.get(key) || 0) + (c.successCount || 0));
     });
     return Array.from(map.entries()).map(([day, sent]) => ({ day, sent }));
   }, [current, rangeDays]);
@@ -372,7 +376,7 @@ export const ReportsTab: React.FC = () => {
           icon={<CheckCheck className="w-4 h-4" />}
           accent={healthRate >= 85 ? 'success' : healthRate >= 60 ? 'warning' : 'danger'}
           delta={deltaHealth}
-          helper={`${fmt(totalSuccess)} entregues`}
+          helper={`${fmt(totalTargeted)} alvejados`}
         />
         <KpiCard
           label="Taxa de leitura"
@@ -445,7 +449,7 @@ export const ReportsTab: React.FC = () => {
             icon={<MessageSquare className="w-4 h-4" style={{ color: '#8b5cf6' }} />}
             label="Falhas no período"
             value={fmt(totalFailed)}
-            helper={totalSent ? `${pct(totalFailed, totalSent)}% do total` : 'Zero envios'}
+            helper={totalTargeted ? `${pct(totalFailed, totalTargeted)}% do total alvejado` : 'Zero envios'}
           />
         </Card>
       </div>

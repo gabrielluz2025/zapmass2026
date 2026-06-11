@@ -1,11 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ClipboardCopy, KeyRound, Loader2, UserPlus } from 'lucide-react';
+import { AlertTriangle, ClipboardCopy, KeyRound, Loader2, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Badge, Button, Input } from '../ui';
 import { apiFetchJson } from '../../utils/apiFetchAuth';
 import { useAuth } from '../../context/AuthContext';
 import { getVpsAuthUser } from '../../services/vpsAuth';
 import { STAFF_PASSWORD_ACCOUNTS_FALLBACK_MAX } from '../../constants/workspaceStaff';
+
+function isServerConfigError(msg: string): boolean {
+  return (
+    msg.includes('Firebase Admin') ||
+    msg.includes('configurado no servidor') ||
+    msg.includes('Postgres indispon')
+  );
+}
 
 type Props = {
   noTopMargin?: boolean;
@@ -37,6 +45,7 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
   const [loading, setLoading] = useState(true);
   const [activeCount, setActiveCount] = useState(0);
   const [max, setMax] = useState(STAFF_PASSWORD_ACCOUNTS_FALLBACK_MAX);
+  const [configError, setConfigError] = useState(false);
 
   const [displayName, setDisplayName] = useState('');
   const [loginName, setLoginName] = useState('');
@@ -54,10 +63,16 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
       const items = Array.isArray(j.items) ? j.items : [];
       const active = items.filter((r) => !r.revoked).length;
       setActiveCount(active);
+      setConfigError(false);
       if (typeof j.max === 'number') setMax(j.max);
       onActiveCount?.(active, typeof j.max === 'number' ? j.max : max);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Não foi possível carregar os acessos com senha.');
+      const msg = e instanceof Error ? e.message : '';
+      if (isServerConfigError(msg)) {
+        setConfigError(true);
+      } else {
+        toast.error(msg || 'Não foi possível carregar os acessos com senha.');
+      }
     } finally {
       setLoading(false);
     }
@@ -119,6 +134,32 @@ export const StaffPasswordAccountsPanel: React.FC<Props> = ({ noTopMargin, onMut
   const shell = noTopMargin ? '' : 'mt-6';
   const canSubmit = displayName.trim().length >= 2 && loginName.trim().length >= 3 && password.length >= 8;
   const atLimit = activeCount >= max;
+
+  if (configError) {
+    return (
+      <div
+        className={`rounded-2xl overflow-hidden ${shell} px-5 py-4 flex items-start gap-3`}
+        style={{
+          background: 'var(--semantic-warning-bg, rgba(245,158,11,0.08))',
+          border: '1px solid rgba(245,158,11,0.25)'
+        }}
+      >
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+            Autenticação de funcionários indisponível
+          </p>
+          <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+            O servidor não possui credenciais de autenticação configuradas. Configure{' '}
+            <code className="font-mono text-[11px] px-1 rounded" style={{ background: 'var(--surface-2)' }}>
+              FIREBASE_SERVICE_ACCOUNT_PATH
+            </code>{' '}
+            ou verifique a conexão com o banco de dados.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

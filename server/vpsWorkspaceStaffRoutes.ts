@@ -7,16 +7,22 @@ import { hashPassword } from './auth/password.js';
 import { getMaxStaffPasswordAccounts, sanitizeLoginSlug } from './workspaceStaffPasswordRoutes.js';
 
 async function assertOwnerVps(req: Request, res: Response): Promise<{ ownerUid: string } | null> {
-  const principal = await resolveAuthPrincipal(parseBearer(req));
-  if (!principal) {
-    res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+  try {
+    const principal = await resolveAuthPrincipal(parseBearer(req));
+    if (!principal) {
+      res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
+      return null;
+    }
+    if (principal.role !== 'owner' || principal.authUid !== principal.tenantUid) {
+      res.status(403).json({ ok: false, error: 'Apenas o administrador principal pode gerir funcionários.' });
+      return null;
+    }
+    return { ownerUid: principal.tenantUid };
+  } catch (e) {
+    console.error('[vps/assertOwnerVps]', e instanceof Error ? e.message : e);
+    res.status(500).json({ ok: false, error: 'Erro interno de autenticação.' });
     return null;
   }
-  if (principal.role !== 'owner' || principal.authUid !== principal.tenantUid) {
-    res.status(403).json({ ok: false, error: 'Apenas o administrador principal pode gerir funcionários.' });
-    return null;
-  }
-  return { ownerUid: principal.tenantUid };
 }
 
 export function registerVpsWorkspaceStaffRoutes(app: Express): void {
@@ -28,29 +34,34 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
       if (!owner) return;
       const pool = getZapmassPool();
       if (!pool) return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
-      const r = await pool.query<{
-        id: string;
-        login_slug: string;
-        display_name: string;
-        created_at: Date;
-      }>(
-        `SELECT id::text, login_slug, display_name, created_at
-         FROM zapmass.workspace_members
-         WHERE owner_user_id = $1::uuid AND revoked_at IS NULL
-         ORDER BY created_at DESC`,
-        [owner.ownerUid]
-      );
-      return res.json({
-        ok: true,
-        items: r.rows.map((row) => ({
-          uid: row.id,
-          source: 'password' as const,
-          loginSlug: row.login_slug,
-          email: null,
-          displayName: row.display_name,
-          linkedAt: row.created_at.toISOString()
-        }))
-      });
+      try {
+        const r = await pool.query<{
+          id: string;
+          login_slug: string;
+          display_name: string;
+          created_at: Date;
+        }>(
+          `SELECT id::text, login_slug, display_name, created_at
+           FROM zapmass.workspace_members
+           WHERE owner_user_id = $1::uuid AND revoked_at IS NULL
+           ORDER BY created_at DESC`,
+          [owner.ownerUid]
+        );
+        return res.json({
+          ok: true,
+          items: r.rows.map((row) => ({
+            uid: row.id,
+            source: 'password' as const,
+            loginSlug: row.login_slug,
+            email: null,
+            displayName: row.display_name,
+            linkedAt: row.created_at.toISOString()
+          }))
+        });
+      } catch (e) {
+        console.error('[vps workspace/members GET]', e instanceof Error ? e.message : e);
+        return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
+      }
     });
   }
 
@@ -59,30 +70,35 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
     if (!owner) return;
     const pool = getZapmassPool();
     if (!pool) return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
-    const r = await pool.query<{
-      id: string;
-      login_slug: string;
-      display_name: string;
-      created_at: Date;
-      revoked_at: Date | null;
-    }>(
-      `SELECT id::text, login_slug, display_name, created_at, revoked_at
-       FROM zapmass.workspace_members
-       WHERE owner_user_id = $1::uuid
-       ORDER BY revoked_at NULLS FIRST, created_at DESC`,
-      [owner.ownerUid]
-    );
-    return res.json({
-      ok: true,
-      max: getMaxStaffPasswordAccounts(),
-      items: r.rows.map((row) => ({
-        staffAuthUid: row.id,
-        loginSlug: row.login_slug,
-        displayName: row.display_name,
-        createdAt: row.created_at.toISOString(),
-        revoked: row.revoked_at != null
-      }))
-    });
+    try {
+      const r = await pool.query<{
+        id: string;
+        login_slug: string;
+        display_name: string;
+        created_at: Date;
+        revoked_at: Date | null;
+      }>(
+        `SELECT id::text, login_slug, display_name, created_at, revoked_at
+         FROM zapmass.workspace_members
+         WHERE owner_user_id = $1::uuid
+         ORDER BY revoked_at NULLS FIRST, created_at DESC`,
+        [owner.ownerUid]
+      );
+      return res.json({
+        ok: true,
+        max: getMaxStaffPasswordAccounts(),
+        items: r.rows.map((row) => ({
+          staffAuthUid: row.id,
+          loginSlug: row.login_slug,
+          displayName: row.display_name,
+          createdAt: row.created_at.toISOString(),
+          revoked: row.revoked_at != null
+        }))
+      });
+    } catch (e) {
+      console.error('[vps workspace/staff-password-users GET]', e instanceof Error ? e.message : e);
+      return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
+    }
   });
 
   app.post('/api/workspace/staff-password-users', async (req: Request, res: Response) => {
@@ -99,18 +115,18 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
         error: 'Nome de usuário (3–28 caracteres) e senha com mínimo 8 caracteres.'
       });
     }
-    const count = await countActiveStaffMembers(owner.ownerUid);
-    if (count >= getMaxStaffPasswordAccounts()) {
-      return res.status(400).json({
-        ok: false,
-        error: `Limite de ${getMaxStaffPasswordAccounts()} funcionários com senha.`
-      });
-    }
-    const existing = await findStaffMember(owner.ownerUid, slug);
-    if (existing && !existing.revoked_at) {
-      return res.status(400).json({ ok: false, error: 'Este nome de usuário já existe.' });
-    }
     try {
+      const count = await countActiveStaffMembers(owner.ownerUid);
+      if (count >= getMaxStaffPasswordAccounts()) {
+        return res.status(400).json({
+          ok: false,
+          error: `Limite de ${getMaxStaffPasswordAccounts()} funcionários com senha.`
+        });
+      }
+      const existing = await findStaffMember(owner.ownerUid, slug);
+      if (existing && !existing.revoked_at) {
+        return res.status(400).json({ ok: false, error: 'Este nome de usuário já existe.' });
+      }
       const member = await createStaffMember({
         ownerUserId: owner.ownerUid,
         loginSlug: slug,
@@ -123,8 +139,8 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
         staffAuthUid: member.id
       });
     } catch (e) {
-      console.error('[vps workspace staff POST]', e);
-      return res.status(400).json({ ok: false, error: 'Não foi possível criar o acesso.' });
+      console.error('[vps workspace staff POST]', e instanceof Error ? e.message : e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível criar o acesso.' });
     }
   });
 
@@ -140,17 +156,22 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
     }
     const pool = getZapmassPool();
     if (!pool) return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
-    const password_hash = await hashPassword(password);
-    const r = await pool.query(
-      `UPDATE zapmass.workspace_members
-       SET password_hash = $1
-       WHERE id = $2::uuid AND owner_user_id = $3::uuid AND revoked_at IS NULL`,
-      [password_hash, staffAuthUid, owner.ownerUid]
-    );
-    if (!r.rowCount) {
-      return res.status(404).json({ ok: false, error: 'Funcionário não encontrado.' });
+    try {
+      const password_hash = await hashPassword(password);
+      const r = await pool.query(
+        `UPDATE zapmass.workspace_members
+         SET password_hash = $1
+         WHERE id = $2::uuid AND owner_user_id = $3::uuid AND revoked_at IS NULL`,
+        [password_hash, staffAuthUid, owner.ownerUid]
+      );
+      if (!r.rowCount) {
+        return res.status(404).json({ ok: false, error: 'Funcionário não encontrado.' });
+      }
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[vps workspace staff PATCH]', e instanceof Error ? e.message : e);
+      return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
     }
-    return res.json({ ok: true });
   });
 
   app.delete('/api/workspace/staff-password-users/:staffAuthUid', async (req: Request, res: Response) => {
@@ -161,18 +182,23 @@ export function registerVpsWorkspaceStaffRoutes(app: Express): void {
       String(req.query.purge ?? '').toLowerCase() === 'true' || req.query.purge === '1';
     const pool = getZapmassPool();
     if (!pool) return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
-    if (purge) {
-      await pool.query(
-        `DELETE FROM zapmass.workspace_members WHERE id = $1::uuid AND owner_user_id = $2::uuid`,
-        [staffAuthUid, owner.ownerUid]
-      );
-    } else {
-      await pool.query(
-        `UPDATE zapmass.workspace_members SET revoked_at = now()
-         WHERE id = $1::uuid AND owner_user_id = $2::uuid AND revoked_at IS NULL`,
-        [staffAuthUid, owner.ownerUid]
-      );
+    try {
+      if (purge) {
+        await pool.query(
+          `DELETE FROM zapmass.workspace_members WHERE id = $1::uuid AND owner_user_id = $2::uuid`,
+          [staffAuthUid, owner.ownerUid]
+        );
+      } else {
+        await pool.query(
+          `UPDATE zapmass.workspace_members SET revoked_at = now()
+           WHERE id = $1::uuid AND owner_user_id = $2::uuid AND revoked_at IS NULL`,
+          [staffAuthUid, owner.ownerUid]
+        );
+      }
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[vps workspace staff DELETE]', e instanceof Error ? e.message : e);
+      return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
     }
-    return res.json({ ok: true });
   });
 }

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AlertTriangle,
   ClipboardCopy,
   KeyRound,
   Loader2,
@@ -59,6 +60,14 @@ function inviteText(slug?: string): string {
   return slug ? `${base}Seu usuário (sem @ no login): ${slug}` : base;
 }
 
+function isServerConfigError(msg: string): boolean {
+  return (
+    msg.includes('Firebase Admin') ||
+    msg.includes('configurado no servidor') ||
+    msg.includes('Postgres indispon')
+  );
+}
+
 export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
   enabled,
   reloadToken,
@@ -67,6 +76,7 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<WorkspaceMemberRow[]>([]);
+  const [configError, setConfigError] = useState(false);
   const [busyUid, setBusyUid] = useState<string | null>(null);
   const [resetRow, setResetRow] = useState<WorkspaceMemberRow | null>(null);
   const [resetPass, setResetPass] = useState('');
@@ -87,6 +97,7 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
         }>;
       }>('/api/workspace/staff-password-users');
       const items = Array.isArray(j.items) ? j.items : [];
+      setConfigError(false);
       setRows(
         items
           .filter((r) => !r.revoked)
@@ -101,8 +112,14 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
           .filter((r) => Boolean(r.uid))
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Não foi possível carregar membros da equipa.');
-      setRows([]);
+      const msg = e instanceof Error ? e.message : '';
+      if (isServerConfigError(msg)) {
+        setConfigError(true);
+        setRows([]);
+      } else {
+        toast.error(msg || 'Não foi possível carregar membros da equipa.');
+        setRows([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -179,6 +196,25 @@ export const WorkspaceTeamMembersPanel: React.FC<Props> = ({
   };
 
   if (!enabled) return null;
+
+  if (configError) {
+    return (
+      <div
+        className="rounded-2xl px-5 py-4 flex items-start gap-3"
+        style={{
+          background: 'var(--semantic-warning-bg, rgba(245,158,11,0.08))',
+          border: '1px solid rgba(245,158,11,0.25)'
+        }}
+      >
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+        <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
+          Lista de membros indisponível — o servidor não possui credenciais configuradas.{' '}
+          Configure <code className="font-mono text-[11px] px-1 rounded" style={{ background: 'var(--surface-2)' }}>FIREBASE_SERVICE_ACCOUNT_PATH</code>{' '}
+          ou a conexão com o banco de dados.
+        </p>
+      </div>
+    );
+  }
 
   const activeCount = rows.length;
 
