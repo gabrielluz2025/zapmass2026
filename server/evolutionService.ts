@@ -399,6 +399,8 @@ export function tryClaimUnownedLegacyConnection(connectionId: string, ownerUid: 
         connectionsSettingsCache[id] = {};
     }
     connectionsSettingsCache[id].ownerUid = uid;
+    connectionsSettingsCache[id].createdByUid =
+        connectionsSettingsCache[id].createdByUid?.trim() || uid;
     saveConnectionsSettings();
     return true;
 }
@@ -444,6 +446,8 @@ export function assignConnectionOwner(
         connectionsSettingsCache[connectionId] = {};
     }
     connectionsSettingsCache[connectionId].ownerUid = uid;
+    connectionsSettingsCache[connectionId].createdByUid =
+        connectionsSettingsCache[connectionId].createdByUid?.trim() || uid;
     saveConnectionsSettings();
 
     publishOwnerEvent(uid, 'connections-update', filterByConnectionScope(uid, getConnections()));
@@ -1085,9 +1089,15 @@ function applyConnectionStateUpdate(
             pairingStartedAt.delete(instance);
         }
         connections.set(instance, conn);
-        if (open || conn.phoneNumber?.trim() || conn.ownerUid) {
+        healConnectionOwnerFromSettings(instance);
+        const resolvedOwner = resolveOwnerUid(instance);
+        if (open || conn.phoneNumber?.trim() || resolvedOwner) {
             mergeConnectionSettingsCache(instance, {
-                ownerUid: conn.ownerUid,
+                ownerUid: resolvedOwner ?? conn.ownerUid,
+                createdByUid:
+                    connectionsSettingsCache[instance]?.createdByUid ??
+                    resolvedOwner ??
+                    conn.ownerUid,
                 friendlyName: conn.friendlyName,
             });
             saveConnectionsSettings();
@@ -1420,11 +1430,18 @@ async function hydrateInstancesFromEvolution() {
                 if (isEvolutionOpenState(verified)) mappedState = 'open';
             }
             const phoneFromApi = phoneFromEvolutionRow(row);
+            healConnectionOwnerFromSettings(instanceName);
+            const cachedRow = connectionsSettingsCache[instanceName];
             const instanceObj: EvolutionInstance = {
                 instanceName,
-                friendlyName: existing?.friendlyName || String(row.profileName || instanceName),
+                friendlyName: existing?.friendlyName || cachedRow?.friendlyName || String(row.profileName || instanceName),
                 status: mappedState,
-                ownerUid: existing?.ownerUid || ownerUidFromConnectionId(instanceName),
+                ownerUid: pickNonEmptyUid(
+                    existing?.ownerUid,
+                    cachedRow?.ownerUid,
+                    cachedRow?.createdByUid,
+                    ownerUidFromConnectionId(instanceName)
+                ),
                 profilePicUrl: typeof row.profilePicUrl === 'string' ? row.profilePicUrl : existing?.profilePicUrl,
                 profileName: typeof row.profileName === 'string' ? row.profileName : existing?.profileName,
                 phoneNumber: phoneFromApi || existing?.phoneNumber,
@@ -1585,7 +1602,62 @@ interface ConnectionSettingsPayload {
     limitExceededApproved?: boolean;
     lastLimitResetDate?: string;
     ownerUid?: string; // Mantém o proprietário do canal de forma persistente
+    /** Dono original — nunca apagado por updates de limite/envio; usado para curar órfãos. */
+    createdByUid?: string;
     friendlyName?: string;
+}
+
+function pickNonEmptyUid(...candidates: Array<string | undefined>): string | undefined {
+    for (const raw of candidates) {
+        const v = typeof raw === 'string' ? raw.trim() : '';
+        if (v && v !== 'anonymous') return v;
+    }
+    return undefined;
+}
+
+/** Restaura ownerUid a partir de createdByUid (settings + RAM). */
+function healConnectionOwnerFromSettings(connectionId: string, opts?: { skipRam?: boolean }): boolean {
+    const id = String(connectionId || '').trim();
+    if (!id) return false;
+    const row = connectionsSettingsCache[id];
+    if (!row) return false;
+    const creator = pickNonEmptyUid(row.createdByUid);
+    const current = pickNonEmptyUid(row.ownerUid);
+    if (current) {
+        if (!row.createdByUid && current) {
+            row.createdByUid = current;
+            return true;
+        }
+        return false;
+    }
+    if (!creator) return false;
+    row.ownerUid = creator;
+    if (!opts?.skipRam) {
+        try {
+            const conn = connections.get(id);
+            if (conn) conn.ownerUid = creator;
+        } catch {
+            /* connections Map ainda não inicializado no boot do módulo */
+        }
+    }
+    return true;
+}
+
+/** Cura todos os canais órfãos em connections_settings.json e RAM. */
+export function healAllOrphanConnectionOwners(): number {
+    let changed = 0;
+    for (const connId of Object.keys(connectionsSettingsCache)) {
+        if (healConnectionOwnerFromSettings(connId)) changed += 1;
+    }
+    for (const [connId, conn] of connections.entries()) {
+        if (conn.ownerUid?.trim()) continue;
+        if (healConnectionOwnerFromSettings(connId)) changed += 1;
+    }
+    if (changed > 0) {
+        saveConnectionsSettings();
+        log('warn', `Canais órfãos curados via createdByUid: ${changed}`);
+    }
+    return changed;
 }
 
 let connectionsSettingsCache: Record<string, ConnectionSettingsPayload> = {};
@@ -1594,12 +1666,30 @@ let connectionsSettingsCache: Record<string, ConnectionSettingsPayload> = {};
 function mergeConnectionSettingsCache(connectionId: string, patch: ConnectionSettingsPayload): void {
     const prev = connectionsSettingsCache[connectionId] ?? {};
     const mem = connections.get(connectionId);
+    const ownerUid = pickNonEmptyUid(
+        patch.ownerUid,
+        prev.ownerUid,
+        prev.createdByUid,
+        mem?.ownerUid
+    );
+    const createdByUid = pickNonEmptyUid(
+        patch.createdByUid,
+        prev.createdByUid,
+        prev.ownerUid,
+        patch.ownerUid,
+        mem?.ownerUid
+    );
     connectionsSettingsCache[connectionId] = {
         ...prev,
         ...patch,
-        ownerUid: patch.ownerUid ?? prev.ownerUid ?? mem?.ownerUid,
+        ownerUid,
+        createdByUid,
         friendlyName: patch.friendlyName ?? prev.friendlyName ?? mem?.friendlyName,
     };
+    if (ownerUid && mem && !mem.ownerUid) {
+        mem.ownerUid = ownerUid;
+        connections.set(connectionId, mem);
+    }
 }
 
 function loadConnectionsSettings() {
@@ -1610,6 +1700,13 @@ function loadConnectionsSettings() {
         if (fs.existsSync(connectionsSettingsFile)) {
             const raw = fs.readFileSync(connectionsSettingsFile, 'utf8');
             connectionsSettingsCache = JSON.parse(raw);
+        }
+        let bootHealed = 0;
+        for (const connId of Object.keys(connectionsSettingsCache)) {
+            if (healConnectionOwnerFromSettings(connId, { skipRam: true })) bootHealed += 1;
+        }
+        if (bootHealed > 0) {
+            saveConnectionsSettings();
         }
     } catch (err) {
         log('warn', 'Falha ao carregar connections_settings.json', { error: err });
@@ -1646,7 +1743,7 @@ export async function normalizeConnectionOwnersInSettings(): Promise<{ changed: 
             );
             const canonical = r.rows[0]?.id?.trim();
             if (!canonical || canonical === raw) continue;
-            connectionsSettingsCache[connId] = { ...row, ownerUid: canonical };
+            connectionsSettingsCache[connId] = { ...row, ownerUid: canonical, createdByUid: row.createdByUid?.trim() || canonical };
             const conn = connections.get(connId);
             if (conn) conn.ownerUid = canonical;
             changed += 1;
@@ -1680,8 +1777,14 @@ function applySettingsToInstance(conn: EvolutionInstance) {
         if ((cached as Record<string, unknown>).friendlyName && typeof (cached as Record<string, unknown>).friendlyName === 'string') {
             conn.friendlyName = (cached as Record<string, unknown>).friendlyName as string;
         }
-        if (cached.ownerUid && !conn.ownerUid) {
-            conn.ownerUid = cached.ownerUid;
+        healConnectionOwnerFromSettings(conn.instanceName);
+        const healedOwner = pickNonEmptyUid(
+            conn.ownerUid,
+            connectionsSettingsCache[conn.instanceName]?.ownerUid,
+            connectionsSettingsCache[conn.instanceName]?.createdByUid
+        );
+        if (healedOwner) {
+            conn.ownerUid = healedOwner;
         }
     } else {
         conn.dailyLimit = undefined;
@@ -2429,6 +2532,7 @@ async function createConnectionInternal(
 
         mergeConnectionSettingsCache(id, {
             ownerUid: instance.ownerUid,
+            createdByUid: instance.ownerUid,
             friendlyName: name,
         });
         saveConnectionsSettings();
@@ -3596,9 +3700,10 @@ export function init(socketIO: SocketIOServer) {
         webhookUrl: evolutionConfig.webhookUrl,
     });
 
-    void normalizeConnectionOwnersInSettings().then(() =>
-        hydrateInstancesFromEvolution().then(() => reconcileConnectionHealth())
-    );
+    void normalizeConnectionOwnersInSettings().then(() => {
+        healAllOrphanConnectionOwners();
+        return hydrateInstancesFromEvolution().then(() => reconcileConnectionHealth());
+    });
     if (!connectionHealthTimer) {
         connectionHealthTimer = setInterval(() => {
             void reconcileConnectionHealth();
@@ -4142,14 +4247,13 @@ export async function createConnection(
     proxy?: ConnectionProxyConfig,
     ownerUid?: string
 ): Promise<void> {
-    const uid = ownerUid && ownerUid !== 'anonymous' ? ownerUid : undefined;
-    const id = generateId(ownerUid);
-    if (uid) {
-        publishOwnerEvent(uid, 'connection-created', { connectionId: id, name });
-    } else if (io) {
-        io.emit('connection-created', { connectionId: id, name });
+    const uid = ownerUid && ownerUid !== 'anonymous' ? ownerUid.trim() : '';
+    if (!uid) {
+        throw new Error('Faça login para criar um canal WhatsApp.');
     }
-    const result = await createConnectionInternal(id, name, proxy, ownerUid);
+    const id = generateId(uid);
+    publishOwnerEvent(uid, 'connection-created', { connectionId: id, name });
+    const result = await createConnectionInternal(id, name, proxy, uid);
     if (result.error) {
         stopQrWatch(id);
         throw new Error(result.error);
@@ -4314,6 +4418,7 @@ export async function reassignConnectionOwnerAdmin(
             connectionsSettingsCache[id] = {};
         }
         connectionsSettingsCache[id].ownerUid = uid;
+        connectionsSettingsCache[id].createdByUid = uid;
         saveConnectionsSettings();
     }
 
@@ -4365,6 +4470,7 @@ export default {
     getInboxPageForOwner,
     assignConnectionOwner,
     reassignConnectionOwnerAdmin,
+    healAllOrphanConnectionOwners,
     listOrphanOpenConnectionIds,
     loadChatHistory,
     loadMessageMedia,

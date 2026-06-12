@@ -14,7 +14,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 type UserRow = { id: string; email: string; firebase_uid: string | null };
-type SettingsRow = { ownerUid?: string; friendlyName?: string };
+type SettingsRow = { ownerUid?: string; createdByUid?: string; friendlyName?: string };
 
 const FESTA_EMAIL = 'festaimportgabriel@gmail.com';
 const SYLVESTER_EMAIL = 'sylvesterstallonealvesdasilva@gmail.com';
@@ -107,7 +107,21 @@ function labelFor(connId: string, row: SettingsRow, evo: Map<string, string>): s
   return (row.friendlyName || evo.get(connId) || connId).trim();
 }
 
-function isSylvesterChannel(label: string): boolean {
+function healOwnersFromCreators(settings: Record<string, SettingsRow>): number {
+  let changed = 0;
+  for (const row of Object.values(settings)) {
+    const creator = row.createdByUid?.trim() ?? '';
+    const owner = row.ownerUid?.trim() ?? '';
+    if (!owner && creator) {
+      row.ownerUid = creator;
+      changed += 1;
+    } else if (owner && !creator) {
+      row.createdByUid = owner;
+      changed += 1;
+    }
+  }
+  return changed;
+}
   const n = label.toLowerCase();
   return n.includes('sylvester') || n.includes('stallone');
 }
@@ -127,6 +141,11 @@ async function main() {
   }
 
   const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, SettingsRow>;
+  const healed = healOwnersFromCreators(settings);
+  if (healed > 0) {
+    console.log(`\n[repair] Curados via createdByUid: ${healed} canal(is)`);
+    fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
+  }
   const evo = await fetchEvolutionLabels();
 
   if (args.mode === 'assign') {
@@ -153,6 +172,7 @@ async function main() {
     }
     backup(settingsFile);
     row.ownerUid = target.id;
+    row.createdByUid = target.id;
     settings[args.connId] = row;
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
     console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');
@@ -206,7 +226,7 @@ async function main() {
     }
     backup(settingsFile);
     for (const p of pending) {
-      settings[p.connId] = { ...settings[p.connId], ownerUid: p.to };
+      settings[p.connId] = { ...settings[p.connId], ownerUid: p.to, createdByUid: p.to };
     }
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
     console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');
@@ -247,7 +267,7 @@ async function main() {
 
   backup(settingsFile);
   for (const p of pending) {
-    settings[p.connId] = { ...settings[p.connId], ownerUid: p.to };
+    settings[p.connId] = { ...settings[p.connId], ownerUid: p.to, createdByUid: p.to };
   }
   fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
   console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');
