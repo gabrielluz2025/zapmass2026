@@ -24,6 +24,7 @@ export interface CampaignFleetSummary {
 
 const STATUS_PT: Record<string, string> = {
   [CampaignStatus.RUNNING]: 'Em disparo',
+  [CampaignStatus.WAITING_REPLY]: 'Aguardando respostas',
   [CampaignStatus.SCHEDULED]: 'Agendada',
   [CampaignStatus.COMPLETED]: 'Concluída',
   [CampaignStatus.PAUSED]: 'Pausada',

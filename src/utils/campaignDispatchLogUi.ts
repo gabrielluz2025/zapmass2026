@@ -67,8 +67,8 @@ export function parseDispatchLog(log: SystemLog): ParsedDispatchLog {
     detail = msg || 'Evento com aviso';
   } else if (msg === CAMPAIGN_SENT_LOG_MESSAGE || msg.toLowerCase().includes('mensagem enviada')) {
     kind = 'sent';
-    label = 'Envio confirmado';
-    detail = 'Mensagem entregue ao destinatário';
+    label = 'Mensagem enviada';
+    detail = 'WhatsApp aceitou o envio (confirmação de entrega no aparelho pode levar alguns segundos)';
   } else if (isCampaignReplyLogMessage(msg) || msg === CAMPAIGN_REPLY_LOG_MESSAGE) {
     kind = 'reply';
     label = 'Resposta no fluxo';

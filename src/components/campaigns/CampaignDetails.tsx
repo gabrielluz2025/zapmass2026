@@ -567,14 +567,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const isPaused = campaign.status === CampaignStatus.PAUSED;
   const isDone = campaign.status === CampaignStatus.COMPLETED;
   const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
+  const isWaitingReplyStatus = campaign.status === CampaignStatus.WAITING_REPLY;
   // Fluxo por resposta aguardando: campanha ativa (ou presa em DRAFT com envios já feitos)
   // com pelo menos 1 mensagem enviada e ainda aguardando respostas para avançar às próximas etapas.
   const isWaitingForReplies =
-    Boolean(campaign.replyFlow?.enabled) &&
-    !isDone &&
-    !isScheduled &&
-    (isRunning || isPaused ||
-      (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0));
+    isWaitingReplyStatus ||
+    (Boolean(campaign.replyFlow?.enabled) &&
+      !isDone &&
+      !isScheduled &&
+      (isRunning || isPaused ||
+        (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0)));
 
   /** Campanha concluída ou aguardando respostas: sincroniza logs persistidos com ACK/respostas tardias. */
   useEffect(() => {
@@ -1084,8 +1086,18 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const elapsedSec = startedAt ? Math.max(0, (now - startedAt.getTime()) / 1000) : 0;
   const throughputPerMin = elapsedSec > 0 ? +(metrics.effectiveProcessed / (elapsedSec / 60)).toFixed(1) : 0;
   const remaining = metrics.pending;
-  const pendingKpi = isDone ? 0 : isRunning ? Math.max(remaining, pendingLive) : remaining;
-  const etaSec = throughputPerMin > 0 ? (remaining / throughputPerMin) * 60 : 0;
+  const pendingKpi =
+    isDone || isWaitingForReplies
+      ? 0
+      : isRunning
+      ? Math.max(remaining, pendingLive)
+      : remaining;
+  const etaSec =
+    isWaitingForReplies || !isRunning
+      ? 0
+      : throughputPerMin > 0
+      ? (remaining / throughputPerMin) * 60
+      : 0;
 
   const campaignLogs = useMemo(() => scopedCampaignLogs as SystemLog[], [scopedCampaignLogs]);
 
@@ -1456,7 +1468,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   Mission Report
                 </span>
                 <Badge variant={statusVariant} dot={isRunning || isWaitingForReplies}>
-                  {isRunning
+                  {isWaitingForReplies
+                    ? 'Aguardando respostas'
+                    : isRunning
                     ? 'Em execução'
                     : isPaused
                     ? 'Pausada'
@@ -1464,8 +1478,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     ? 'Agendada'
                     : isDone
                     ? 'Concluída'
-                    : isWaitingForReplies
-                    ? 'Aguardando respostas'
                     : 'Pendente'}
                 </Badge>
               </div>
@@ -1675,7 +1687,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           label="Pendentes"
           value={pendingKpi.toLocaleString('pt-BR')}
           helper={
-            isRunning
+            isWaitingForReplies
+              ? 'etapas seguintes aguardam resposta'
+              : isRunning
               ? `fila ao vivo${etaSec > 0 ? ` · ETA ${formatDuration(etaSec)}` : ''}`
               : pendingKpi > 0
               ? 'fila aguardando'

@@ -1,14 +1,27 @@
 import { Campaign, CampaignStatus } from '../types';
-import { resolveCampaignEffectiveStageCount } from './campaignStageCount';
+import {
+  isConversationalMultiStepCampaign,
+  resolveCampaignEffectiveStageCount
+} from './campaignStageCount';
 
 /** Planejamento de envios: contactos × etapas (metadata ou inferido dos contadores). */
 export function getCampaignPlannedSendTotal(
   campaign: Pick<
     Campaign,
-    'totalContacts' | 'message' | 'messageStages' | 'replyFlow' | 'successCount' | 'failedCount'
+    | 'totalContacts'
+    | 'message'
+    | 'messageStages'
+    | 'replyFlow'
+    | 'stageConfigs'
+    | 'successCount'
+    | 'failedCount'
   >
 ): number {
   const contacts = Math.max(0, Math.floor(Number(campaign.totalContacts) || 0));
+  // Reply flow / multi-etapas lazy: só a etapa 1 entra na fila inicial.
+  if (isConversationalMultiStepCampaign(campaign)) {
+    return contacts;
+  }
   const stages = resolveCampaignEffectiveStageCount(campaign);
   return contacts * stages;
 }
@@ -67,6 +80,7 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
  */
 export function isRunningStatusButWorkComplete(c: Campaign): boolean {
   if (c.status !== CampaignStatus.RUNNING) return false;
+  if (isConversationalMultiStepCampaign(c)) return false;
   const m = getCampaignProgressMetrics(c);
   if (m.plannedSendTotal <= 0) return false;
   return m.pending === 0;

@@ -68,6 +68,8 @@ export enum CampaignStatus {
   /** Aguardando horário (próximo disparo em nextRunAt). */
   SCHEDULED = 'SCHEDULED',
   RUNNING = 'RUNNING',
+  /** Fila inicial concluída; aguardando respostas para etapas seguintes (reply flow / multi-etapas). */
+  WAITING_REPLY = 'WAITING_REPLY',
   PAUSED = 'PAUSED',
   COMPLETED = 'COMPLETED',
   FAILED = 'FAILED'

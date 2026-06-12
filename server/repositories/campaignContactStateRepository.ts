@@ -216,6 +216,19 @@ export async function markContactSkipped(
   );
 }
 
+/** Contatos aguardando resposta antes da próxima etapa (motor multi-etapas). */
+export async function countWaitingReplyForCampaign(campaignId: string): Promise<number> {
+  const pool = getZapmassPool();
+  if (!pool) return 0;
+  const r = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::int AS count
+     FROM zapmass.campaign_contact_state
+     WHERE campaign_id = $1::uuid AND status = 'waiting_reply'`,
+    [campaignId]
+  );
+  return Number(r.rows[0]?.count) || 0;
+}
+
 /** Retorna todos os contatos em waiting_reply para uma campanha. */
 export async function listWaitingReplyContacts(
   campaignId: string
@@ -268,7 +281,7 @@ export async function findWaitingReplyStateForContact(
      WHERE s.tenant_id = $1::uuid
        AND s.contact_id = $2
        AND s.status = 'waiting_reply'
-       AND c.status = 'RUNNING'
+       AND c.status IN ('RUNNING', 'WAITING_REPLY')
      ORDER BY s.step_entered_at DESC
      LIMIT 1`,
     [tenantId, contactId]

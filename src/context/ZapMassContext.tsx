@@ -1692,6 +1692,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     });
 
+    socket.on('campaign-waiting-reply', ({ campaignId }: { campaignId?: string }) => {
+      if (!campaignId) return;
+      setCampaignStatus((prev) => ({ ...prev, isRunning: false }));
+      const uid = currentUidRef.current;
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === campaignId ? { ...c, status: CampaignStatus.WAITING_REPLY } : c
+        )
+      );
+      if (uid) {
+        patchCampaignPersist(uid, campaignId, { status: CampaignStatus.WAITING_REPLY });
+      }
+    });
+
     socket.on(
       'campaign-geo-update',
       (data: { campaignId?: string; byUf?: Record<string, CampaignGeoUfStats>; updatedAt?: number }) => {

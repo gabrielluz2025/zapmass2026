@@ -1,5 +1,20 @@
 import type { Campaign } from '../types';
 
+/** Campanha cujas etapas 2+ dependem de resposta (fila inicial = 1 envio por contato). */
+export function isConversationalMultiStepCampaign(
+  c: Pick<Campaign, 'replyFlow' | 'stageConfigs'> | undefined
+): boolean {
+  if (!c) return false;
+  if (c.replyFlow?.enabled && (c.replyFlow.steps?.length ?? 0) > 1) return true;
+  const stages = c.stageConfigs ?? [];
+  if (stages.length <= 1) return false;
+  return stages.some(
+    (s, i) =>
+      i < stages.length - 1 &&
+      (s.trigger_type === 'any_reply' || s.trigger_type === 'conditional')
+  );
+}
+
 /**
  * Número de etapas de mensagem planejadas na campanha (1..N).
  * Prioriza fluxo por respostas; senão body[] de etapas; senão uma mensagem única.

@@ -77,7 +77,7 @@ import {
     updateContactStateOnFailure,
 } from './campaignMultiStepEngine.js';
 import { usePostgresCampaigns } from './campaignStore.js';
-import { getContactStateSummary } from './repositories/campaignContactStateRepository.js';
+import { countWaitingReplyForCampaign, getContactStateSummary } from './repositories/campaignContactStateRepository.js';
 
 // ================== INTERFACES ==================
 
@@ -1930,6 +1930,66 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
     }
 }
 
+async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
+    const state = campaignsById.get(campaignId);
+    if (!state?.isRunning) return;
+
+    const pendingJobs = campaignPendingJobs.get(campaignId) || 0;
+    if (pendingJobs > 0) return;
+
+    const openReplyFlowSessions = replyFlowEngine
+        ? replyFlowEngine.countOpenSessionsForCampaign(campaignId)
+        : 0;
+    let waitingReplyContacts = 0;
+    if (usePostgresCampaigns()) {
+        try {
+            waitingReplyContacts = await countWaitingReplyForCampaign(campaignId);
+        } catch {
+            waitingReplyContacts = 0;
+        }
+    }
+
+    if (openReplyFlowSessions > 0 || waitingReplyContacts > 0) {
+        if (state.ownerUid) {
+            void persistCampaignProgressToFirestore(
+                state.ownerUid,
+                campaignId,
+                state.successCount,
+                state.failCount,
+                state.processed,
+                'WAITING_REPLY'
+            );
+            publishOwnerEvent(state.ownerUid, 'campaign-waiting-reply', {
+                campaignId,
+                openReplyFlowSessions,
+                waitingReplyContacts,
+            });
+        }
+        return;
+    }
+
+    state.isRunning = false;
+    deleteCampaignMediaFromDisk(campaignId);
+    void deleteCampaignRuntimeFromRedis(campaignId);
+    if (state.ownerUid) {
+        void persistCampaignProgressToFirestore(
+            state.ownerUid,
+            campaignId,
+            state.successCount,
+            state.failCount,
+            state.processed,
+            'COMPLETED'
+        );
+        void persistCampaignReportSnapshot(state.ownerUid, campaignId);
+        publishOwnerEvent(state.ownerUid, 'campaign-finished', {
+            campaignId,
+            successCount: state.successCount,
+            failCount: state.failCount,
+            total: state.total,
+        });
+    }
+}
+
 function finishCampaignJob(campaignId: string | undefined, success: boolean) {
     if (!campaignId) return;
     bumpCampaignProgress(campaignId, success);
@@ -1937,43 +1997,9 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
     const pending = Math.max(0, (campaignPendingJobs.get(campaignId) || 0) - 1);
     if (pending <= 0) {
         campaignPendingJobs.delete(campaignId);
-        const state = campaignsById.get(campaignId);
-        if (state?.isRunning) {
-            // Não finalizar enquanto houver sessões de reply flow abertas para esta campanha.
-            // O reply flow pode enfileirar mais jobs após a resposta do contato.
-            const openReplyFlowSessions = replyFlowEngine
-                ? replyFlowEngine.countOpenSessionsForCampaign(campaignId)
-                : 0;
-            if (openReplyFlowSessions > 0) {
-                // Guarda pending como 0 mas não fecha — o reply flow irá chamar
-                // finishCampaignJob novamente quando suas sessões terminarem.
-                campaignPendingJobs.set(campaignId, 0);
-                return;
-            }
-            state.isRunning = false;
-            deleteCampaignMediaFromDisk(campaignId);
-            void deleteCampaignRuntimeFromRedis(campaignId);
-            if (state.ownerUid) {
-                void persistCampaignProgressToFirestore(
-                    state.ownerUid,
-                    campaignId,
-                    state.successCount,
-                    state.failCount,
-                    state.processed,
-                    'COMPLETED'
-                );
-                void persistCampaignReportSnapshot(state.ownerUid, campaignId);
-                publishOwnerEvent(state.ownerUid, 'campaign-finished', {
-                    campaignId,
-                    successCount: state.successCount,
-                    failCount: state.failCount,
-                    total: state.total,
-                });
-            }
-        }
+        void tryFinalizeOrHoldCampaign(campaignId);
     } else {
         campaignPendingJobs.set(campaignId, pending);
-        // Atualiza snapshot Redis do progresso periódicamente.
         void saveCampaignRuntimeToRedis(campaignId);
     }
 }
@@ -2243,34 +2269,8 @@ function ensureReplyFlowEngine() {
         // Quando todas as sessões de reply flow de uma campanha fecham, verifica se a
         // campanha pode agora ser marcada como concluída (pending já era 0).
         onAllSessionsClosed: (campaignId) => {
-            const pending = campaignPendingJobs.get(campaignId) || 0;
-            if (pending === 0) {
-                // Sem jobs pendentes e sem sessões abertas: fechar a campanha agora.
-                campaignPendingJobs.delete(campaignId);
-                const state = campaignsById.get(campaignId);
-                if (state?.isRunning) {
-                    state.isRunning = false;
-                    deleteCampaignMediaFromDisk(campaignId);
-                    void deleteCampaignRuntimeFromRedis(campaignId);
-                    if (state.ownerUid) {
-                        void persistCampaignProgressToFirestore(
-                            state.ownerUid,
-                            campaignId,
-                            state.successCount,
-                            state.failCount,
-                            state.processed,
-                            'COMPLETED'
-                        );
-                        void persistCampaignReportSnapshot(state.ownerUid, campaignId);
-                        publishOwnerEvent(state.ownerUid, 'campaign-finished', {
-                            campaignId,
-                            successCount: state.successCount,
-                            failCount: state.failCount,
-                            total: state.total,
-                        });
-                    }
-                }
-            }
+            campaignPendingJobs.delete(campaignId);
+            void tryFinalizeOrHoldCampaign(campaignId);
         },
     });
 }
@@ -2920,8 +2920,14 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
+    const hasMediaPayload = Boolean(mediaToSend?.base64 || mediaToSend?.url);
+    const textPayload = String(item.message || '').trim();
+    if (!hasMediaPayload && !textPayload) {
+        throw new Error('Mensagem vazia após personalização — verifique variáveis e spintax');
+    }
+
     let sendResult: { ok: boolean; messageId?: string } = { ok: false };
-    if (mediaToSend?.base64 || mediaToSend?.url) {
+    if (hasMediaPayload) {
         if (mediaToSend.url) {
             sendResult = await sendMediaByUrlInternal(
                 item.connectionId,
@@ -3308,14 +3314,12 @@ export async function startCampaign(
         return false;
     }
 
-    // Verifica se há stageConfigs com trigger condicional/reply → motor lazy
+    // Verifica se há stageConfigs → motor multi-etapas lazy (qualquer trigger_type)
     const validStageConfigs = Array.isArray(stageConfigs) && stageConfigs.length > 0
         ? stageConfigs.filter((s) => s?.body?.trim?.())
         : [];
-    const useLazyMotor = validStageConfigs.length > 0 &&
-        validStageConfigs.some((s) => s.trigger_type === 'any_reply' || s.trigger_type === 'conditional');
+    const useLazyMotor = validStageConfigs.length > 0;
 
-    // Para o motor lazy, armazena os stageConfigs em memória para lookup durante processamento
     if (useLazyMotor) {
         campaignStageConfigsById.set(cid, validStageConfigs);
     }

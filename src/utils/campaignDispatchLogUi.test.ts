@@ -13,7 +13,7 @@ describe('campaignDispatchLogUi', () => {
       payload: { message: 'Mensagem enviada', to: '5547999127001' }
     });
     expect(sent.kind).toBe('sent');
-    expect(sent.label).toBe('Envio confirmado');
+    expect(sent.label).toBe('Mensagem enviada');
 
     const reply = parseDispatchLog({
       timestamp: new Date().toISOString(),
