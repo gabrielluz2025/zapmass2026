@@ -521,14 +521,24 @@ function connectionStateRank(status: string | undefined): number {
     return 0;
 }
 
-/** Remove chips duplicados do mesmo tenant (mesmo telefone): mantém o `open`, apaga pareamento zumbi. */
+/** Instância já pareada (número ou config persistida) — não apagar em dedupe automático. */
+function isIntentionalPairedConnection(id: string, conn?: EvolutionInstance): boolean {
+    const mem = conn ?? connections.get(id);
+    if (mem?.phoneNumber?.trim()) return true;
+    const cached = connectionsSettingsCache[id];
+    if (!cached) return false;
+    if (cached.friendlyName?.trim()) return true;
+    if (cached.ownerUid?.trim()) return true;
+    return false;
+}
+
+/** Remove chips duplicados do mesmo tenant (mesmo telefone): mantém sessões pareadas; apaga só zumbis de pareamento. */
 export async function pruneDuplicatePhoneConnectionsForOwner(ownerUid: string): Promise<string[]> {
     const uid = String(ownerUid || '').trim();
     const deleted: string[] = [];
     if (!uid || uid === 'anonymous') return deleted;
 
     const byPhone = new Map<string, string[]>();
-    const byName = new Map<string, string[]>();
 
     for (const [id, conn] of connections.entries()) {
         if (resolveOwnerUid(id) !== uid) continue;
@@ -538,39 +548,43 @@ export async function pruneDuplicatePhoneConnectionsForOwner(ownerUid: string): 
             list.push(id);
             byPhone.set(phone, list);
         }
-        const nameKey = String(conn.friendlyName || connectionsSettingsCache[id]?.friendlyName || id)
-            .trim()
-            .toLowerCase();
-        if (nameKey) {
-            const list = byName.get(nameKey) ?? [];
-            list.push(id);
-            byName.set(nameKey, list);
-        }
     }
 
     const toDelete = new Set<string>();
 
-    const markDuplicates = (ids: string[]) => {
+    const markPhoneDuplicates = (ids: string[]) => {
         if (ids.length < 2) return;
         const ranked = ids
-            .map((id) => ({ id, rank: connectionStateRank(connections.get(id)?.status) }))
+            .map((id) => ({
+                id,
+                rank: connectionStateRank(connections.get(id)?.status),
+                status: connections.get(id)?.status,
+            }))
             .sort((a, b) => b.rank - a.rank);
-        const keeper = ranked[0]?.id;
-        if (!keeper) return;
+        const bestRank = ranked[0]?.rank ?? 0;
         for (const row of ranked.slice(1)) {
-            if (row.rank < ranked[0]!.rank) toDelete.add(row.id);
+            if (row.rank >= bestRank) continue;
+            // Sessão offline pareada: utilizador pode reconectar — nunca apagar automaticamente.
+            if (row.status === 'close' || row.status === 'open') continue;
+            if (isIntentionalPairedConnection(row.id) && row.status === 'connecting') continue;
+            if (row.status === 'created' || row.status === 'connecting') {
+                toDelete.add(row.id);
+            }
         }
     };
 
-    for (const ids of byPhone.values()) markDuplicates(ids);
-    for (const ids of byName.values()) markDuplicates(ids);
+    for (const ids of byPhone.values()) markPhoneDuplicates(ids);
 
     for (const id of toDelete) {
         if (connectionWatchTimers.has(id) || qrWatchTimers.has(id)) continue;
         try {
+            const label =
+                connections.get(id)?.friendlyName ||
+                connectionsSettingsCache[id]?.friendlyName ||
+                id;
             await deleteConnection(id);
             deleted.push(id);
-            log('info', `Chip duplicado removido (${uid}): ${id}`);
+            log('info', `Chip duplicado (zumbi) removido (${uid}): ${id} (${label})`);
         } catch (error: any) {
             log('warn', `Falha ao remover duplicado ${id}`, { error: error?.message });
         }
