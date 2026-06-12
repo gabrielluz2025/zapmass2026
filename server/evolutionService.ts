@@ -450,7 +450,31 @@ export function assignConnectionOwner(
     return true;
 }
 
-/** Remove instâncias Evolution zumbis (`created` órfãs) — nunca `connecting` nem `close` (sessão recuperável). */
+/** Instância já pareada (número ou config persistida) — não apagar em dedupe/prune automático. */
+function isIntentionalPairedConnection(id: string, conn?: EvolutionInstance): boolean {
+    const mem = conn ?? connections.get(id);
+    if (mem?.phoneNumber?.trim()) return true;
+    const cached = connectionsSettingsCache[id];
+    if (!cached) return false;
+    if (cached.friendlyName?.trim()) return true;
+    if (cached.ownerUid?.trim()) return true;
+    return false;
+}
+
+/**
+ * Só `created`/`connecting` sem telefone e sem settings de pareamento.
+ * Nunca `open`/`close` — sessão offline recuperável.
+ */
+export function isConnectionEligibleForAutoPruneDelete(id: string, evolutionState?: string): boolean {
+    const mem = connections.get(id);
+    const status = evolutionState ? mapEvolutionState(evolutionState) : mem?.status;
+    if (status === 'open' || status === 'close') return false;
+    if (isIntentionalPairedConnection(id, mem)) return false;
+    if (mem?.phoneNumber?.trim()) return false;
+    return status === 'created' || status === 'connecting';
+}
+
+/** Remove instâncias Evolution zumbis (`created` órfãs) — nunca `connecting`/`close`/`open`. */
 export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<{ deleted: string[]; keptOpen: string[] }> {
     const uid = String(ownerUid || '').trim();
     const deleted: string[] = [];
@@ -476,17 +500,18 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
                 continue;
             }
             if (resolveOwnerUid(instanceName) !== uid) continue;
-            // Não apagar `connecting` nem `close`: sync pós-QR / queda transitória — logout+delete mata sessão pareada.
+            // Conservador: só `created` sem pareamento — connecting/close podem ser sessão ativa ou offline.
             if (state !== 'created') continue;
             if (connectionWatchTimers.has(instanceName) || qrWatchTimers.has(instanceName)) continue;
-            // Não apagar conexões que o usuário criou intencionalmente (existem no cache de configurações
-            // ou já tiveram um número pareado). Após restart de servidor os timers somem, mas a
-            // conexão ainda deve ser mantida para o usuário poder escanear o QR novamente.
-            const cachedConn = connectionsSettingsCache[instanceName];
-            const memConn = connections.get(instanceName);
-            if (cachedConn || (memConn?.phoneNumber && memConn.phoneNumber.trim())) continue;
+            if (!isConnectionEligibleForAutoPruneDelete(instanceName, state)) continue;
 
             try {
+                log('warn', `Auto-prune: removendo zumbi Evolution`, {
+                    connectionId: instanceName,
+                    ownerUid: uid,
+                    evolutionState: state,
+                    caller: 'pruneConnectingZombiesForOwner',
+                });
                 try {
                     await api.delete(`/instance/logout/${evoInst(instanceName)}`);
                 } catch {
@@ -513,26 +538,7 @@ export async function pruneConnectingZombiesForOwner(ownerUid: string): Promise<
     return { deleted, keptOpen };
 }
 
-function connectionStateRank(status: string | undefined): number {
-    if (status === 'open') return 4;
-    if (status === 'connecting') return 3;
-    if (status === 'close') return 2;
-    if (status === 'created') return 1;
-    return 0;
-}
-
-/** Instância já pareada (número ou config persistida) — não apagar em dedupe automático. */
-function isIntentionalPairedConnection(id: string, conn?: EvolutionInstance): boolean {
-    const mem = conn ?? connections.get(id);
-    if (mem?.phoneNumber?.trim()) return true;
-    const cached = connectionsSettingsCache[id];
-    if (!cached) return false;
-    if (cached.friendlyName?.trim()) return true;
-    if (cached.ownerUid?.trim()) return true;
-    return false;
-}
-
-/** Remove chips duplicados do mesmo tenant (mesmo telefone): mantém sessões pareadas; apaga só zumbis de pareamento. */
+/** Remove chips duplicados do mesmo tenant (mesmo telefone): apaga só zumbis quando há sessão keeper. */
 export async function pruneDuplicatePhoneConnectionsForOwner(ownerUid: string): Promise<string[]> {
     const uid = String(ownerUid || '').trim();
     const deleted: string[] = [];
@@ -554,22 +560,11 @@ export async function pruneDuplicatePhoneConnectionsForOwner(ownerUid: string): 
 
     const markPhoneDuplicates = (ids: string[]) => {
         if (ids.length < 2) return;
-        const ranked = ids
-            .map((id) => ({
-                id,
-                rank: connectionStateRank(connections.get(id)?.status),
-                status: connections.get(id)?.status,
-            }))
-            .sort((a, b) => b.rank - a.rank);
-        const bestRank = ranked[0]?.rank ?? 0;
-        for (const row of ranked.slice(1)) {
-            if (row.rank >= bestRank) continue;
-            // Sessão offline pareada: utilizador pode reconectar — nunca apagar automaticamente.
-            if (row.status === 'close' || row.status === 'open') continue;
-            if (isIntentionalPairedConnection(row.id) && row.status === 'connecting') continue;
-            if (row.status === 'created' || row.status === 'connecting') {
-                toDelete.add(row.id);
-            }
+        const hasKeeper = ids.some((id) => !isConnectionEligibleForAutoPruneDelete(id));
+        if (!hasKeeper) return;
+        for (const id of ids) {
+            if (!isConnectionEligibleForAutoPruneDelete(id)) continue;
+            toDelete.add(id);
         }
     };
 
@@ -582,7 +577,12 @@ export async function pruneDuplicatePhoneConnectionsForOwner(ownerUid: string): 
                 connections.get(id)?.friendlyName ||
                 connectionsSettingsCache[id]?.friendlyName ||
                 id;
-            await deleteConnection(id);
+            const phone = normalizePhoneKey(String(connections.get(id)?.phoneNumber || ''));
+            await deleteConnection(id, {
+                reason: 'duplicate_phone_zombie',
+                caller: 'pruneDuplicatePhoneConnectionsForOwner',
+                phone,
+            });
             deleted.push(id);
             log('info', `Chip duplicado (zumbi) removido (${uid}): ${id} (${label})`);
         } catch (error: any) {
@@ -591,6 +591,49 @@ export async function pruneDuplicatePhoneConnectionsForOwner(ownerUid: string): 
     }
 
     return deleted;
+}
+
+/** Prune explícito (admin/reparo) — não roda no fluxo de criar/parear canal. */
+export async function adminPruneConnectionZombiesForOwner(ownerUid: string): Promise<{
+    zombies: string[];
+    duplicates: string[];
+}> {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return { zombies: [], duplicates: [] };
+    await hydrateInstancesFromEvolution();
+    const pruned = await pruneConnectingZombiesForOwner(uid);
+    const dupes = await pruneDuplicatePhoneConnectionsForOwner(uid);
+    return { zombies: pruned.deleted, duplicates: dupes };
+}
+
+/** Reidrata RAM a partir de connections_settings.json (canais offline sumidos após restart/prune). */
+function ensureCachedConnectionsInRamForOwner(ownerUid: string): string[] {
+    const uid = String(ownerUid || '').trim();
+    const restored: string[] = [];
+    if (!uid || uid === 'anonymous') return restored;
+
+    for (const [connId, row] of Object.entries(connectionsSettingsCache)) {
+        if (!row?.ownerUid || !tenantOwnsConnection(uid, connId)) continue;
+        if (connections.has(connId)) continue;
+        const friendlyName =
+            typeof row.friendlyName === 'string' && row.friendlyName.trim()
+                ? row.friendlyName.trim()
+                : connId;
+        const instance: EvolutionInstance = {
+            instanceName: connId,
+            friendlyName,
+            status: 'close',
+            ownerUid: row.ownerUid,
+        };
+        applySettingsToInstance(instance);
+        connections.set(connId, instance);
+        restored.push(connId);
+        log('info', `Canal restaurado do cache (offline): ${connId}`, {
+            ownerUid: uid,
+            friendlyName,
+        });
+    }
+    return restored;
 }
 
 /** Evolution → memória → dono → chats (painel + pipeline). */
@@ -605,13 +648,9 @@ export async function syncConnectionsForOwner(ownerUid: string): Promise<{
     }
 
     await hydrateInstancesFromEvolution();
-    const pruned = await pruneConnectingZombiesForOwner(uid);
-    if (pruned.deleted.length > 0) {
-        log('info', `syncConnectionsForOwner: zumbis removidos=${pruned.deleted.join(',')}`);
-    }
-    const dupes = await pruneDuplicatePhoneConnectionsForOwner(uid);
-    if (dupes.length > 0) {
-        log('info', `syncConnectionsForOwner: duplicados removidos=${dupes.join(',')}`);
+    const restored = ensureCachedConnectionsInRamForOwner(uid);
+    if (restored.length > 0) {
+        log('info', `syncConnectionsForOwner: canais restaurados do cache=${restored.join(',')}`);
     }
 
     const claimed: string[] = [];
@@ -973,7 +1012,10 @@ function ensureQrDelivered(connectionId: string, maxAttempts = 45, delayMs = 200
                 'QR não foi gerado a tempo. Confirme Evolution API ativa, webhook e CONFIG_SESSION_PHONE_VERSION (sem sufixo -alpha). Tente "Gerar QR" de novo.'
             );
             log('error', `Timeout aguardando QR: ${connectionId}`);
-            void deleteConnection(connectionId).catch(() => undefined);
+            void deleteConnection(connectionId, {
+                reason: 'qr_delivery_timeout',
+                caller: 'ensureQrDelivered',
+            }).catch(() => undefined);
             return;
         }
 
@@ -1043,6 +1085,13 @@ function applyConnectionStateUpdate(
             pairingStartedAt.delete(instance);
         }
         connections.set(instance, conn);
+        if (open || conn.phoneNumber?.trim() || conn.ownerUid) {
+            mergeConnectionSettingsCache(instance, {
+                ownerUid: conn.ownerUid,
+                friendlyName: conn.friendlyName,
+            });
+            saveConnectionsSettings();
+        }
     }
 
     const connAfter = connections.get(instance);
@@ -1541,6 +1590,18 @@ interface ConnectionSettingsPayload {
 
 let connectionsSettingsCache: Record<string, ConnectionSettingsPayload> = {};
 
+/** Persiste settings sem apagar ownerUid/friendlyName (evita canais sumirem do escopo estrito). */
+function mergeConnectionSettingsCache(connectionId: string, patch: ConnectionSettingsPayload): void {
+    const prev = connectionsSettingsCache[connectionId] ?? {};
+    const mem = connections.get(connectionId);
+    connectionsSettingsCache[connectionId] = {
+        ...prev,
+        ...patch,
+        ownerUid: patch.ownerUid ?? prev.ownerUid ?? mem?.ownerUid,
+        friendlyName: patch.friendlyName ?? prev.friendlyName ?? mem?.friendlyName,
+    };
+}
+
 function loadConnectionsSettings() {
     try {
         if (!fs.existsSync(dataDir)) {
@@ -1661,8 +1722,7 @@ function checkAndResetDailyLimits(conn: EvolutionInstance) {
         conn.limitExceededApproved = false;
         conn.lastLimitResetDate = today;
         
-        // Atualiza cache e persiste no disco
-        connectionsSettingsCache[conn.instanceName] = {
+        mergeConnectionSettingsCache(conn.instanceName, {
             dailyLimit: conn.dailyLimit,
             growthRate: conn.growthRate,
             growthType: conn.growthType,
@@ -1670,8 +1730,9 @@ function checkAndResetDailyLimits(conn: EvolutionInstance) {
             messagesSentToday: conn.messagesSentToday,
             limitExceededApproved: conn.limitExceededApproved,
             lastLimitResetDate: conn.lastLimitResetDate,
-            ownerUid: conn.ownerUid
-        };
+            ownerUid: conn.ownerUid,
+            friendlyName: conn.friendlyName,
+        });
         saveConnectionsSettings();
     }
 }
@@ -1697,7 +1758,7 @@ export async function updateConnectionSettings(
     if (settings.messagesSentToday !== undefined) conn.messagesSentToday = settings.messagesSentToday;
     if (settings.limitExceededApproved !== undefined) conn.limitExceededApproved = settings.limitExceededApproved;
 
-    connectionsSettingsCache[id] = {
+    mergeConnectionSettingsCache(id, {
         dailyLimit: conn.dailyLimit,
         growthRate: conn.growthRate,
         growthType: conn.growthType,
@@ -1705,8 +1766,9 @@ export async function updateConnectionSettings(
         messagesSentToday: conn.messagesSentToday,
         limitExceededApproved: conn.limitExceededApproved,
         lastLimitResetDate: conn.lastLimitResetDate,
-        ownerUid: conn.ownerUid
-    };
+        ownerUid: conn.ownerUid,
+        friendlyName: conn.friendlyName,
+    });
     saveConnectionsSettings();
 
     const ownerUid = resolveOwnerUid(id);
@@ -2365,13 +2427,11 @@ async function createConnectionInternal(
             ...(proxy?.host && proxy.port ? { proxy } : {}),
         };
 
-        if (instance.ownerUid) {
-            if (!connectionsSettingsCache[id]) {
-                connectionsSettingsCache[id] = {};
-            }
-            connectionsSettingsCache[id].ownerUid = instance.ownerUid;
-            saveConnectionsSettings();
-        }
+        mergeConnectionSettingsCache(id, {
+            ownerUid: instance.ownerUid,
+            friendlyName: name,
+        });
+        saveConnectionsSettings();
 
         connections.set(id, instance);
 
@@ -2596,8 +2656,22 @@ export async function reconnectConnection(id: string) {
 /**
  * Deleta uma instância
  */
-export async function deleteConnection(id: string): Promise<void> {
-    log('info', `Deletando instância: ${id}`);
+export async function deleteConnection(
+    id: string,
+    opts?: { reason?: string; caller?: string; phone?: string }
+): Promise<void> {
+    const reason = opts?.reason ?? 'manual';
+    const caller = opts?.caller ?? 'explicit';
+    const mem = connections.get(id);
+    const cached = connectionsSettingsCache[id];
+    log('warn', `deleteConnection: ${id}`, {
+        reason,
+        caller,
+        status: mem?.status ?? null,
+        phoneNumber: mem?.phoneNumber ?? opts?.phone ?? null,
+        friendlyName: mem?.friendlyName ?? cached?.friendlyName ?? null,
+        ownerUid: resolveOwnerUid(id) ?? null,
+    });
     const ownerUid = resolveOwnerUid(id);
 
     stopWatchingConnection(id);
@@ -2963,15 +3037,17 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     if (conn) {
         conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
         recordConnectionDispatch(item.connectionId);
-        connectionsSettingsCache[item.connectionId] = {
+        mergeConnectionSettingsCache(item.connectionId, {
             dailyLimit: conn.dailyLimit,
             growthRate: conn.growthRate,
             growthType: conn.growthType,
             limitAction: conn.limitAction,
             messagesSentToday: conn.messagesSentToday,
             limitExceededApproved: conn.limitExceededApproved,
-            lastLimitResetDate: conn.lastLimitResetDate
-        };
+            lastLimitResetDate: conn.lastLimitResetDate,
+            ownerUid: conn.ownerUid,
+            friendlyName: conn.friendlyName,
+        });
         saveConnectionsSettings();
         
         const ownerUid = resolveOwnerUid(item.connectionId);
@@ -4067,9 +4143,6 @@ export async function createConnection(
     ownerUid?: string
 ): Promise<void> {
     const uid = ownerUid && ownerUid !== 'anonymous' ? ownerUid : undefined;
-    if (uid) {
-        await pruneConnectingZombiesForOwner(uid);
-    }
     const id = generateId(ownerUid);
     if (uid) {
         publishOwnerEvent(uid, 'connection-created', { connectionId: id, name });
@@ -4142,8 +4215,7 @@ export function renameConnection(connectionId: string, newName: string): boolean
     const conn = connections.get(connectionId);
     if (!conn) return false;
     conn.friendlyName = newName;
-    if (!connectionsSettingsCache[connectionId]) connectionsSettingsCache[connectionId] = {};
-    (connectionsSettingsCache[connectionId] as Record<string, unknown>).friendlyName = newName;
+    mergeConnectionSettingsCache(connectionId, { friendlyName: newName, ownerUid: conn.ownerUid });
     saveConnectionsSettings();
     const ownerUid = resolveOwnerUid(connectionId);
     publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid || '', getConnections()));

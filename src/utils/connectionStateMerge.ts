@@ -50,7 +50,15 @@ export function mergeWhatsAppConnectionLists(
   qrById: Record<string, string | undefined>
 ): WhatsAppConnection[] {
   const prevById = new Map(previous.map((c) => [c.id, c]));
-  return incoming.map((conn) =>
+  const incomingIds = new Set(incoming.map((c) => c.id));
+  const merged = incoming.map((conn) =>
     mergeWhatsAppConnectionRow(conn, prevById.get(conn.id), qrById[conn.id])
   );
+  // Preserva canais já visíveis na UI se o payload do servidor vier incompleto (corrida de hydrate/escopo).
+  for (const prev of previous) {
+    if (!incomingIds.has(prev.id)) {
+      merged.push(mergeWhatsAppConnectionRow(prev, prev, qrById[prev.id]));
+    }
+  }
+  return merged;
 }
