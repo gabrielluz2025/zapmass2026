@@ -50,7 +50,12 @@ import {
   type CampaignReportSnapshotDto
 } from '../../services/campaignsApi';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { getCampaignProgressMetrics, mergeCampaignMetricsWithReport } from '../../utils/campaignMetrics';
+import {
+  getCampaignProgressMetrics,
+  isCampaignPauseAction,
+  isCampaignPauseControlVisible,
+  mergeCampaignMetricsWithReport
+} from '../../utils/campaignMetrics';
 import {
   applyReplyHintsToReportRow,
   applyServerInboundReplyToRow,
@@ -568,6 +573,9 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const isDone = campaign.status === CampaignStatus.COMPLETED;
   const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
   const isWaitingReplyStatus = campaign.status === CampaignStatus.WAITING_REPLY;
+  const showPauseResume =
+    !isDone && !isScheduled && isCampaignPauseControlVisible(campaign.status);
+  const pauseAction = isCampaignPauseAction(campaign.status);
   // Fluxo por resposta aguardando: campanha ativa (ou presa em DRAFT com envios já feitos)
   // com pelo menos 1 mensagem enviada e ainda aguardando respostas para avançar às próximas etapas.
   const isWaitingForReplies =
@@ -923,11 +931,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       performance.total > 0
         ? performance
         : (() => {
-            const sent = Math.max(
-              0,
-              metrics.effectiveProcessed,
-              (campaign.successCount || 0) + (campaign.failedCount || 0)
-            );
+            const sent = Math.max(0, metrics.effectiveProcessed, metrics.ok + metrics.fail);
             if (sent <= 0) return performance;
             const failCount = Math.max(metrics.fail, performance.counts.FAILED);
             const delivered = Math.min(sent, Math.max(0, metrics.ok));
@@ -1387,25 +1391,34 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               Voltar
             </Button>
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              {!isDone && !isScheduled && !isWaitingForReplies && (
+              {showPauseResume && (
                 <Button
-                  variant={isRunning ? 'secondary' : 'primary'}
+                  variant={pauseAction ? 'secondary' : 'primary'}
                   size="sm"
-                  leftIcon={isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  leftIcon={pauseAction ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                   onClick={() => onTogglePause(campaign.id)}
+                  title={
+                    pauseAction
+                      ? 'Pausar envios e respostas automáticas desta campanha'
+                      : 'Retomar campanha pausada'
+                  }
                 >
-                  {isRunning ? 'Pausar' : 'Retomar'}
+                  {pauseAction ? 'Pausar' : 'Retomar'}
                 </Button>
               )}
               {isWaitingForReplies && (
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
-                  leftIcon={<Play className="w-4 h-4" />}
-                  onClick={() => onTogglePause(campaign.id)}
-                  title="Sincronizar status — confirma a campanha como ativa e aguardando respostas"
+                  leftIcon={<RefreshCw className="w-4 h-4" />}
+                  onClick={() => {
+                    void reloadPersistedLogs();
+                    void reloadServerReport();
+                    toast.success('Dados da campanha atualizados.');
+                  }}
+                  title="Recarregar logs e métricas sem alterar o status"
                 >
-                  Sincronizar status
+                  Atualizar dados
                 </Button>
               )}
               <Button
@@ -1769,8 +1782,8 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               responder{campaign.replyFlow.steps?.[0]?.acceptAnyReply
                 ? ' (qualquer mensagem serve)'
                 : ' com a palavra-chave configurada'}
-              . Esta campanha <strong>não precisa de "Retomar"</strong> — ela avança sozinha ao receber a resposta.
-              Clique em "Sincronizar status" se o progresso estiver travado na tela.
+              . Use <strong>Pausar</strong> se quiser interromper temporariamente; depois clique em{' '}
+              <strong>Retomar</strong>.
             </p>
           </div>
         </div>
@@ -1801,7 +1814,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           sent={
             useReplyFlowPrimaryFunnel
               ? uiPerformance.total
-              : uiPerformance.total || (campaign.successCount || 0) + (campaign.failedCount || 0)
+              : uiPerformance.total || metrics.ok + metrics.fail
           }
           delivered={uiPerformance.delivered}
           read={uiPerformance.read}

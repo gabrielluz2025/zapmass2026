@@ -70,11 +70,13 @@ import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import {
+  getCampaignPlannedSendTotal,
   getCampaignProgressMetrics,
   healStuckRunningCampaignsList,
   isCampaignLikelyStartedOnServer,
   isRunningStatusButWorkComplete
 } from '../utils/campaignMetrics';
+import { isConversationalMultiStepCampaign } from '../utils/campaignStageCount';
 import { computeNextRunIso, localDateTimeToUtcIso } from '../utils/campaignSchedule';
 import { parseFirestoreDateToIso } from '../utils/followUp';
 import {
@@ -3032,12 +3034,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const resumeCampaign = (campaignId: string) => {
     setCampaigns((prev) => {
+      const camp = prev.find((c) => c.id === campaignId);
+      let nextStatus = CampaignStatus.RUNNING;
+      if (camp && isConversationalMultiStepCampaign(camp)) {
+        const planned = getCampaignPlannedSendTotal(camp);
+        const processed = camp.processedCount ?? 0;
+        if (planned > 0 && processed >= planned) {
+          nextStatus = CampaignStatus.WAITING_REPLY;
+        }
+      }
       const next = prev.map((c) =>
-        c.id === campaignId ? { ...c, status: CampaignStatus.RUNNING } : c
+        c.id === campaignId ? { ...c, status: nextStatus } : c
       );
       const u = currentUidRef.current;
       if (u) {
-        patchCampaignPersist(u, campaignId, { status: CampaignStatus.RUNNING });
+        patchCampaignPersist(u, campaignId, { status: nextStatus });
       }
       return next;
     });

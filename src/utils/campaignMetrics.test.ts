@@ -44,16 +44,21 @@ describe('campaignMetrics — fluxo conversacional', () => {
     expect(isRunningStatusButWorkComplete(c)).toBe(false);
   });
 
-  it('campanha sequencial multi-etapa mantém contacts × stages', () => {
+  it('limita contadores inflados enquanto aguarda resposta (retry duplicado no servidor)', () => {
     const c = baseCampaign({
-      messageStages: ['Msg 1', 'Msg 2'],
-      successCount: 1,
-      processedCount: 1
+      status: CampaignStatus.WAITING_REPLY,
+      replyFlow: {
+        enabled: true,
+        steps: [{ body: 'Etapa 1' }, { body: 'Etapa 2' }]
+      },
+      successCount: 2,
+      processedCount: 2,
+      totalContacts: 1
     });
-    expect(getCampaignPlannedSendTotal(c)).toBe(2);
     const m = getCampaignProgressMetrics(c);
-    expect(m.pending).toBe(1);
-    expect(m.progressPct).toBe(50);
+    expect(m.ok).toBe(1);
+    expect(m.reported).toBe(1);
+    expect(m.progressPct).toBe(100);
   });
 });
 

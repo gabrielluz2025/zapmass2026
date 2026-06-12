@@ -1540,6 +1540,8 @@ interface MessageQueueItem {
     };
     /** Idempotência: definido após envio bem-sucedido para evitar reenvio em retry do BullMQ. */
     _sentOk?: boolean;
+    /** Evita contabilizar processed/success duas vezes se o job for reprocessado após falha tardia. */
+    _progressAccounted?: boolean;
     /** Motor multi-etapas lazy: identifica contactId e stepIndex desta entrega. */
     multiStepContact?: {
         contactId: string;
@@ -2244,6 +2246,17 @@ function finishCampaignJob(campaignId: string | undefined, success: boolean) {
         campaignPendingJobs.set(campaignId, pending);
         void saveCampaignRuntimeToRedis(campaignId);
     }
+}
+
+async function accountCampaignJobOnce(
+    job: Job<MessageQueueItem>,
+    item: MessageQueueItem,
+    success: boolean
+): Promise<void> {
+    if (item._progressAccounted) return;
+    item._progressAccounted = true;
+    await job.updateData(item).catch(() => {});
+    finishCampaignJob(item.campaignId, success);
 }
 
 /** Campanha ativa pertence ao tenant; reconcilia ownerUid de membro da equipa. */
@@ -3055,11 +3068,10 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
 async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const item = job.data;
 
-    // Idempotência: se o envio já foi marcado ok em tentativa anterior (antes da falha do handler),
-    // não reenviar — apenas contabilizar como sucesso e sair.
+    // Idempotência: envio já confirmado — só fecha contadores do job, sem reenviar nem recontar.
     if (item._sentOk) {
         bumpQueueSize(item.connectionId, -1);
-        finishCampaignJob(item.campaignId, true);
+        await accountCampaignJobOnce(job, item, true);
         return;
     }
 
@@ -3365,7 +3377,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         }
     }
 
-    finishCampaignJob(item.campaignId, true);
+    await accountCampaignJobOnce(job, item, true);
 
     publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {
         campaignId: item.campaignId,
@@ -3444,6 +3456,9 @@ function ensureCampaignWorker() {
 
         if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
             bumpQueueSize(item.connectionId, -1);
+            if (item._sentOk || item._progressAccounted) {
+                return;
+            }
             finishCampaignJob(item.campaignId, false);
             const campaignState = item.campaignId ? campaignsById.get(item.campaignId) : undefined;
             publishOwnerEvent(campaignState?.ownerUid, 'campaign:message-sent', {

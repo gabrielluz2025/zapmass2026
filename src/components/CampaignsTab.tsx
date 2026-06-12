@@ -168,7 +168,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     if (campaign.status === CampaignStatus.SCHEDULED) {
       return;
     }
-    if (campaign.status === CampaignStatus.RUNNING) {
+    if (campaign.status === CampaignStatus.RUNNING || campaign.status === CampaignStatus.WAITING_REPLY) {
       pauseCampaign(id);
       appendAudit({
         action: 'campaign_pause',

@@ -43,9 +43,19 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
   const plannedSendTotal = Math.max(0, getCampaignPlannedSendTotal(campaign));
   let ok = Math.max(0, Math.floor(Number(campaign.successCount) || 0));
   let fail = Math.max(0, Math.floor(Number(campaign.failedCount) || 0));
-  const reported = Math.max(0, Math.floor(Number(campaign.processedCount) || 0));
+  let reported = Math.max(0, Math.floor(Number(campaign.processedCount) || 0));
   let effectiveProcessed =
     plannedSendTotal <= 0 ? 0 : Math.min(plannedSendTotal, Math.max(reported, ok + fail));
+  if (
+    isConversationalMultiStepCampaign(campaign) &&
+    campaign.status === CampaignStatus.WAITING_REPLY &&
+    total > 0
+  ) {
+    ok = Math.min(ok, total);
+    fail = Math.min(fail, total);
+    effectiveProcessed = Math.min(effectiveProcessed, total);
+    reported = Math.min(reported, total);
+  }
   if (
     campaign.status === CampaignStatus.COMPLETED &&
     plannedSendTotal > 0 &&
@@ -117,6 +127,19 @@ export function isCampaignLikelyStartedOnServer(c: Campaign | undefined): boolea
     return true;
   }
   return (c.processedCount ?? 0) > 0 || (c.successCount ?? 0) > 0 || (c.failedCount ?? 0) > 0;
+}
+
+/** Campanha em fila, aguardando resposta ou pausada — exibe Pausar/Retomar na UI. */
+export function isCampaignPauseControlVisible(status: CampaignStatus): boolean {
+  return (
+    status === CampaignStatus.RUNNING ||
+    status === CampaignStatus.WAITING_REPLY ||
+    status === CampaignStatus.PAUSED
+  );
+}
+
+export function isCampaignPauseAction(status: CampaignStatus): boolean {
+  return status === CampaignStatus.RUNNING || status === CampaignStatus.WAITING_REPLY;
 }
 
 export type CampaignProgressMetrics = ReturnType<typeof getCampaignProgressMetrics>;
