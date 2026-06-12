@@ -209,19 +209,19 @@ jobs:
           EXPECTED="${GITHUB_SHA::7}"
           echo "==> SSH reportou falha; conferindo se producao ja esta em ${EXPECTED}..."
           verified=0
-          for i in $(seq 1 24); do
+          for i in $(seq 1 12); do
             resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
             if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
               ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
-              echo "tentativa ${i}/24: version=${ver:-?} esperado=${EXPECTED}"
+              echo "tentativa ${i}/12: version=${ver:-?} esperado=${EXPECTED}"
               if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
                 verified=1
                 break
               fi
             else
-              echo "tentativa ${i}/24: health indisponivel"
+              echo "tentativa ${i}/12: health indisponivel"
             fi
-            sleep 15
+            sleep 10
           done
           if [ "${verified}" = "1" ]; then
             echo "verified=true" >> "$GITHUB_OUTPUT"
@@ -229,16 +229,18 @@ jobs:
             echo "==> Producao ja no commit certo — pulando retries SSH."
           else
             echo "verified=false" >> "$GITHUB_OUTPUT"
-            echo "==> Versao em producao ainda nao confere; aguardando 180s antes do retry SSH..."
-            sleep 180
+            echo "==> Versao em producao ainda nao confere; aguardando 60s antes do retry SSH..."
+            sleep 60
           fi
 
       - name: VPS — deploy retry SSH (2)
         id: deploy_vps_retry
         if: >-
+          always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
           steps.verify_prod.outputs.verified != 'true'
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -276,21 +278,24 @@ jobs:
 
       - name: Aguardar retry SSH (3)
         if: >-
+          always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
           steps.verify_prod.outputs.verified != 'true' &&
           steps.deploy_vps_retry.outcome == 'failure'
         run: |
-          echo "==> Segundo retry SSH falhou. Terceira tentativa em 180s…"
-          sleep 180
+          echo "==> Segundo retry SSH falhou. Terceira tentativa em 60s…"
+          sleep 60
 
       - name: VPS — deploy retry SSH (3)
         id: deploy_vps_retry2
         if: >-
+          always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
           steps.verify_prod.outputs.verified != 'true' &&
           steps.deploy_vps_retry.outcome == 'failure'
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}

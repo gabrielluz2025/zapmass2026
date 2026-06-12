@@ -7,11 +7,23 @@ HP="${HOST_PORT:-3001}"
 TRIES="${DEPLOY_HEALTH_TRIES:-200}"
 WAIT_FIRST="${DEPLOY_HEALTH_INITIAL_WAIT:-60}"
 EXPECTED="${VITE_GIT_REF:-${GHA_SHA:-}}"
+EXPECTED_SHORT="${EXPECTED:0:7}"
 
 echo "==> gha-healthcheck: porta ${HP}, ate ${TRIES} tentativas (~$((TRIES * 6))s)"
 echo "==> versao esperada: ${EXPECTED:-?}"
 
 sleep "${WAIT_FIRST}"
+
+_version_matches() {
+  local ver="$1"
+  [ -z "${ver}" ] && return 1
+  [ -z "${EXPECTED}" ] && return 0
+  [ "${ver}" = "${EXPECTED}" ] && return 0
+  [ "${ver}" = "${GITHUB_SHA:-}" ] && return 0
+  [ -n "${EXPECTED_SHORT}" ] && [ "${ver}" = "${EXPECTED_SHORT}" ] && return 0
+  [ -n "${EXPECTED_SHORT}" ] && [ "${ver:0:7}" = "${EXPECTED_SHORT}" ] && return 0
+  return 1
+}
 
 _poll() {
   local n="$1"
@@ -21,11 +33,16 @@ _poll() {
     ver="$(curl -sf "http://127.0.0.1:${HP}/api/health" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)"
     echo "tentativa ${i}/${n}: HTTP ${code} version=${ver:-?}"
     if [ "${code}" = "200" ]; then
-      if [ -n "${EXPECTED}" ] && [ -n "${ver}" ] && [ "${ver}" != "${EXPECTED}" ]; then
-        echo "AVISO: version=${ver} != esperado ${EXPECTED} (API ja responde — aceite para nao bloquear deploy)"
+      if _version_matches "${ver}"; then
+        echo "OK: API saudavel (version=${ver:-?})"
+        exit 0
       fi
-      echo "OK: API saudavel (version=${ver:-?})"
-      exit 0
+      if [ -n "${EXPECTED}" ] && [ -n "${ver}" ]; then
+        echo "AVISO: HTTP 200 mas version=${ver} != esperado ${EXPECTED} (rolling update Swarm?)"
+      else
+        echo "OK: API saudavel (version=${ver:-?})"
+        exit 0
+      fi
     fi
     sleep 6
   done
@@ -43,5 +60,5 @@ if [ -f deployment/recover-api-swarm.sh ]; then
   bash deployment/recover-api-swarm.sh && exit 0
 fi
 
-echo "FALHA: API sem HTTP 200 apos recover"
+echo "FALHA: API sem HTTP 200 / versao esperada apos recover"
 exit 1
