@@ -6,6 +6,14 @@ import { apiFetchJson } from '../../utils/apiFetchAuth';
 import { useMainLayoutNav } from '../../context/MainLayoutNavContext';
 import { openChatByConversationIdNavigate } from '../../utils/openChatByConversationIdNav';
 
+function isServerConfigError(msg: string): boolean {
+  return (
+    msg.includes('Firebase Admin') ||
+    msg.includes('configurado no servidor') ||
+    msg.includes('Postgres indispon')
+  );
+}
+
 export type InboxClientFeedbackRow = {
   id: string;
   conversationId: string;
@@ -56,8 +64,12 @@ export const ClientAttendanceFeedbackSection: React.FC = () => {
       setRows(items);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Falha ao carregar.';
-      setError(msg);
-      toast.error(msg);
+      if (isServerConfigError(msg)) {
+        setError(null);
+        setRows([]);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }

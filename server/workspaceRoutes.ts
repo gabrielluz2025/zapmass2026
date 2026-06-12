@@ -23,6 +23,8 @@ import {
 } from './inboxClientSurvey.js';
 import { getSurveyLinksBaseOrigin } from './publicSurveyAppOrigin.js';
 import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
+import { getZapmassPool } from './db/postgres.js';
+import { resolveAuthPrincipal } from './resolveAuth.js';
 
 function parseBearer(req: Request): string | null {
   const h = req.headers.authorization || '';
@@ -433,16 +435,54 @@ export function registerWorkspaceRoutes(app: Express): void {
 
   /** Avaliações enviadas pelos clientes (link público WhatsApp after inbox finish). Dono ou equipa. */
   app.get('/api/workspace/inbox-client-feedback', async (req: Request, res: Response) => {
-    const adminApp = getFirebaseAdmin();
-    if (!adminApp) {
-      return res.status(503).json({ ok: false, error: 'Firebase Admin não configurado no servidor.' });
-    }
     const token = parseBearer(req);
     if (!token) {
       return res.status(401).json({ ok: false, error: 'Envie Authorization: Bearer.' });
     }
     const limitRaw = Number(req.query.limit ?? 80);
     const limit = Math.max(1, Math.min(200, Number.isFinite(limitRaw) ? limitRaw : 80));
+
+    const pool = vpsAuthEnabled() ? getZapmassPool() : null;
+    if (pool) {
+      try {
+        const principal = await resolveAuthPrincipal(token);
+        if (!principal) {
+          return res.status(401).json({ ok: false, error: 'Token inválido.' });
+        }
+        const r = await pool.query<{
+          id: string;
+          conversation_id: string;
+          rating: number | null;
+          comment: string | null;
+          created_at: Date;
+        }>(
+          `SELECT id::text, conversation_id, rating, comment, created_at
+           FROM zapmass.inbox_attendance_feedback
+           WHERE tenant_id = $1::uuid
+             AND COALESCE(trim(actor_subject_id), '') = ''
+           ORDER BY created_at DESC
+           LIMIT $2`,
+          [principal.tenantUid, limit]
+        );
+        const items = r.rows.map((row) => ({
+          id: row.id,
+          conversationId: row.conversation_id,
+          rating: typeof row.rating === 'number' ? row.rating : null,
+          comment: row.comment,
+          source: 'whatsapp_link',
+          createdAt: row.created_at.toISOString()
+        }));
+        return res.json({ ok: true, items });
+      } catch (e) {
+        console.error('[workspace/inbox-client-feedback vps]', e);
+        return res.status(503).json({ ok: false, error: 'Postgres indisponível.' });
+      }
+    }
+
+    const adminApp = getFirebaseAdmin();
+    if (!adminApp) {
+      return res.json({ ok: true, items: [] });
+    }
     try {
       const { tenantUid } = await resolveWorkspaceParticipant(adminApp, token);
       const snap = await adminApp
