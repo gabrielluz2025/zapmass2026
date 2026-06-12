@@ -29,6 +29,13 @@ function parseArgs(argv: string[]) {
     const email = emailIdx >= 0 ? argv[emailIdx + 1]?.trim() : '';
     return { mode: 'assign' as const, apply, connId, email };
   }
+  const renameIdx = argv.indexOf('--rename');
+  if (renameIdx >= 0) {
+    const connId = argv[renameIdx + 1]?.trim();
+    const nameIdx = argv.indexOf('--name', renameIdx);
+    const name = nameIdx >= 0 ? argv[nameIdx + 1]?.trim() : '';
+    return { mode: 'rename' as const, apply, connId, name };
+  }
   if (auto) return { mode: 'auto' as const, apply };
   return { mode: 'normalize' as const, apply };
 }
@@ -175,6 +182,30 @@ async function main() {
     backup(settingsFile);
     row.ownerUid = target.id;
     row.createdByUid = target.id;
+    settings[args.connId] = row;
+    fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
+    console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');
+    return;
+  }
+
+  if (args.mode === 'rename') {
+    if (!args.connId || !args.name) {
+      console.error('Uso: --rename <conn_id> --name "Nome do canal" [--apply]');
+      process.exit(1);
+    }
+    const row = settings[args.connId];
+    if (!row) {
+      console.error(`[repair] Canal ausente: ${args.connId}`);
+      process.exit(1);
+    }
+    const prior = row.friendlyName || labelFor(args.connId, row, evo);
+    console.log(`\n[repair] ${args.connId}: "${prior}" → "${args.name}"`);
+    if (!args.apply) {
+      console.log('\nAdicione --apply para gravar.');
+      return;
+    }
+    backup(settingsFile);
+    row.friendlyName = args.name;
     settings[args.connId] = row;
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
     console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');

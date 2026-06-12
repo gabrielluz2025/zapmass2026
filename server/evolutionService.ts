@@ -205,8 +205,17 @@ async function enrichConnectionMeta(instanceName: string): Promise<void> {
                 conn.profilePicUrl = row.profilePicUrl;
                 changed = true;
             }
-            if (typeof row.profileName === 'string' && row.profileName && !conn.profileName) {
-                conn.profileName = row.profileName;
+            if (typeof row.profileName === 'string' && row.profileName.trim()) {
+                conn.profileName = row.profileName.trim();
+                if (isGenericConnectionLabel(conn.friendlyName, instanceName)) {
+                    conn.friendlyName = conn.profileName;
+                    mergeConnectionSettingsCache(instanceName, {
+                        friendlyName: conn.friendlyName,
+                        ownerUid: conn.ownerUid,
+                        createdByUid: connectionsSettingsCache[instanceName]?.createdByUid,
+                    });
+                    saveConnectionsSettings();
+                }
                 changed = true;
             }
         }
@@ -619,10 +628,7 @@ function ensureCachedConnectionsInRamForOwner(ownerUid: string): string[] {
     for (const [connId, row] of Object.entries(connectionsSettingsCache)) {
         if (!row?.ownerUid || !tenantOwnsConnection(uid, connId)) continue;
         if (connections.has(connId)) continue;
-        const friendlyName =
-            typeof row.friendlyName === 'string' && row.friendlyName.trim()
-                ? row.friendlyName.trim()
-                : connId;
+        const friendlyName = resolveDisplayFriendlyName(connId, undefined, row);
         const instance: EvolutionInstance = {
             instanceName: connId,
             friendlyName,
@@ -1449,6 +1455,7 @@ async function hydrateInstancesFromEvolution() {
                 proxy: existing?.proxy,
             };
             applySettingsToInstance(instanceObj);
+            healConnectionFriendlyName(instanceName);
 
             if (existing && mappedState !== prevStatus) {
                 applyConnectionStateUpdate(
@@ -1615,6 +1622,67 @@ function pickNonEmptyUid(...candidates: Array<string | undefined>): string | und
     return undefined;
 }
 
+/** Nome técnico conn_* ou igual ao id — não é o nome escolhido pelo usuário. */
+function isGenericConnectionLabel(name: string | undefined, connId: string): boolean {
+    const n = (name || '').trim();
+    const id = (connId || '').trim();
+    if (!n) return true;
+    if (id && n === id) return true;
+    return /^conn_\d+_\d+$/i.test(n);
+}
+
+function resolveDisplayFriendlyName(
+    connId: string,
+    conn?: EvolutionInstance,
+    cached?: ConnectionSettingsPayload
+): string {
+    const mem = conn ?? connections.get(connId);
+    const row = cached ?? connectionsSettingsCache[connId];
+    const candidates = [row?.friendlyName, mem?.friendlyName, mem?.profileName];
+    for (const c of candidates) {
+        const v = (c || '').trim();
+        if (v && !isGenericConnectionLabel(v, connId)) return v;
+    }
+    const profile = (mem?.profileName || '').trim();
+    if (profile) return profile;
+    return connId;
+}
+
+/** Substitui rótulo conn_* pelo nome do perfil WhatsApp ou nome salvo. */
+function healConnectionFriendlyName(connId: string, opts?: { skipRam?: boolean }): boolean {
+    const id = String(connId || '').trim();
+    if (!id) return false;
+    const conn = opts?.skipRam ? undefined : connections.get(id);
+    const row = connectionsSettingsCache[id];
+    const current = (conn?.friendlyName || row?.friendlyName || '').trim();
+    if (current && !isGenericConnectionLabel(current, id)) return false;
+    const resolved = resolveDisplayFriendlyName(id, conn, row);
+    if (isGenericConnectionLabel(resolved, id)) return false;
+    if (conn) conn.friendlyName = resolved;
+    mergeConnectionSettingsCache(id, {
+        friendlyName: resolved,
+        ownerUid: conn?.ownerUid ?? row?.ownerUid,
+        createdByUid: row?.createdByUid,
+    });
+    return true;
+}
+
+/** Cura rótulos genéricos conn_* em settings + RAM. */
+export function healAllGenericConnectionFriendlyNames(): number {
+    let changed = 0;
+    for (const connId of Object.keys(connectionsSettingsCache)) {
+        if (healConnectionFriendlyName(connId, { skipRam: true })) changed += 1;
+    }
+    for (const [connId] of connections.entries()) {
+        if (healConnectionFriendlyName(connId)) changed += 1;
+    }
+    if (changed > 0) {
+        saveConnectionsSettings();
+        log('info', `Nomes de canal curados (conn_* → perfil/nome salvo): ${changed}`);
+    }
+    return changed;
+}
+
 /** Restaura ownerUid a partir de createdByUid (settings + RAM). */
 function healConnectionOwnerFromSettings(connectionId: string, opts?: { skipRam?: boolean }): boolean {
     const id = String(connectionId || '').trim();
@@ -1686,6 +1754,14 @@ function mergeConnectionSettingsCache(connectionId: string, patch: ConnectionSet
         createdByUid,
         friendlyName: patch.friendlyName ?? prev.friendlyName ?? mem?.friendlyName,
     };
+    const resolvedName = resolveDisplayFriendlyName(connectionId, mem, connectionsSettingsCache[connectionId]);
+    if (!isGenericConnectionLabel(resolvedName, connectionId)) {
+        connectionsSettingsCache[connectionId].friendlyName = resolvedName;
+        if (mem && isGenericConnectionLabel(mem.friendlyName, connectionId)) {
+            mem.friendlyName = resolvedName;
+            connections.set(connectionId, mem);
+        }
+    }
     if (ownerUid && mem && !mem.ownerUid) {
         mem.ownerUid = ownerUid;
         connections.set(connectionId, mem);
@@ -1786,6 +1862,7 @@ function applySettingsToInstance(conn: EvolutionInstance) {
         if (healedOwner) {
             conn.ownerUid = healedOwner;
         }
+        healConnectionFriendlyName(conn.instanceName);
     } else {
         conn.dailyLimit = undefined;
         conn.growthRate = undefined;
@@ -3702,7 +3779,10 @@ export function init(socketIO: SocketIOServer) {
 
     void normalizeConnectionOwnersInSettings().then(() => {
         healAllOrphanConnectionOwners();
-        return hydrateInstancesFromEvolution().then(() => reconcileConnectionHealth());
+        return hydrateInstancesFromEvolution().then(() => {
+            healAllGenericConnectionFriendlyNames();
+            return reconcileConnectionHealth();
+        });
     });
     if (!connectionHealthTimer) {
         connectionHealthTimer = setInterval(() => {
@@ -3992,7 +4072,7 @@ export function getConnections(): WhatsAppConnection[] {
 
         result.push({
             id,
-            name: conn.friendlyName || id,
+            name: resolveDisplayFriendlyName(id, conn),
             ownerUid: resolveOwnerUid(id),
             phoneNumber: conn.phoneNumber || null,
             status,
@@ -4319,7 +4399,11 @@ export function renameConnection(connectionId: string, newName: string): boolean
     const conn = connections.get(connectionId);
     if (!conn) return false;
     conn.friendlyName = newName;
-    mergeConnectionSettingsCache(connectionId, { friendlyName: newName, ownerUid: conn.ownerUid });
+    mergeConnectionSettingsCache(connectionId, {
+        friendlyName: newName,
+        ownerUid: conn.ownerUid,
+        createdByUid: connectionsSettingsCache[connectionId]?.createdByUid ?? conn.ownerUid,
+    });
     saveConnectionsSettings();
     const ownerUid = resolveOwnerUid(connectionId);
     publishOwnerEvent(ownerUid, 'connections-update', filterByConnectionScope(ownerUid || '', getConnections()));
@@ -4471,6 +4555,7 @@ export default {
     assignConnectionOwner,
     reassignConnectionOwnerAdmin,
     healAllOrphanConnectionOwners,
+    healAllGenericConnectionFriendlyNames,
     listOrphanOpenConnectionIds,
     loadChatHistory,
     loadMessageMedia,
