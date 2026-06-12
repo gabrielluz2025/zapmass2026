@@ -122,6 +122,8 @@ function healOwnersFromCreators(settings: Record<string, SettingsRow>): number {
   }
   return changed;
 }
+
+function isSylvesterChannel(label: string): boolean {
   const n = label.toLowerCase();
   return n.includes('sylvester') || n.includes('stallone');
 }

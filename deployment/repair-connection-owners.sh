@@ -17,10 +17,8 @@ fi
 if [ -n "$CID" ]; then
   echo "==> repair (container $(docker inspect -f '{{.Name}}' "$CID" | sed 's#^/##'))"
   SCRIPT="/app/scripts/repair-connection-owners.ts"
-  if ! docker exec "$CID" test -f "$SCRIPT" 2>/dev/null; then
-    docker exec "$CID" mkdir -p /app/scripts
-    docker cp "$ROOT/scripts/repair-connection-owners.ts" "${CID}:${SCRIPT}"
-  fi
+  docker exec "$CID" mkdir -p /app/scripts
+  docker cp "$ROOT/scripts/repair-connection-owners.ts" "${CID}:${SCRIPT}"
   exec docker exec -e DATA_DIR=/app/data "$CID" ./node_modules/.bin/tsx "$SCRIPT" "$@"
 fi
 
