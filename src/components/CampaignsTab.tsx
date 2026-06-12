@@ -301,7 +301,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
       if (msg.includes('Demoramos a confirmar no servidor')) {
-        toast.error(msg, { duration: 10000 });
+        toast.error(msg, { duration: 12_000 });
         setViewState('list');
         setSubTab('overview');
         return;

@@ -105,6 +105,20 @@ export function healStuckRunningCampaignsList(list: Campaign[]): Campaign[] {
   return list.map(healStuckRunningCampaign);
 }
 
+/** Campanha já saiu do rascunho ou já registrou envios — útil após timeout de ACK do socket. */
+export function isCampaignLikelyStartedOnServer(c: Campaign | undefined): boolean {
+  if (!c) return false;
+  if (
+    c.status === CampaignStatus.RUNNING ||
+    c.status === CampaignStatus.WAITING_REPLY ||
+    c.status === CampaignStatus.PAUSED ||
+    c.status === CampaignStatus.COMPLETED
+  ) {
+    return true;
+  }
+  return (c.processedCount ?? 0) > 0 || (c.successCount ?? 0) > 0 || (c.failedCount ?? 0) > 0;
+}
+
 export type CampaignProgressMetrics = ReturnType<typeof getCampaignProgressMetrics>;
 
 /**

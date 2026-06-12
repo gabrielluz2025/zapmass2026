@@ -1385,21 +1385,6 @@ const registerSocketHandlers = () => {
         }).catch(() => {});
         return;
       }
-      if (!evolutionService.anySelectedConnectionsOpenInMemory(connectionIds)) {
-        await evolutionService.refreshConnectionsForCampaign(connectionIds).catch(() => undefined);
-      }
-      const hasConnected =
-        evolutionService.anySelectedConnectionsOpenInMemory(connectionIds) ||
-        (await evolutionService.anySelectedConnectionsOpen(connectionIds));
-      if (!hasConnected) {
-        userLog('campaign:error', { campaignId, reason: 'Nenhum canal conectado', connectionIds });
-        const err =
-          'Canal offline no servidor. Abra Conexões, reconecte o chip ou atualize a página (F5) e tente de novo.';
-        callback?.({ ok: false, error: err });
-        socket.emit('campaign-error', { error: err, campaignId });
-        notifyCampaignSocketError(uid, err, campaignId);
-        return;
-      }
       userLog('ui:start-campaign', { campaignId, connections: connectionIds.length, total: numbers?.length || 0, delaySeconds });
       try {
         const stages =
@@ -1435,11 +1420,25 @@ const registerSocketHandlers = () => {
             }
           : undefined;
 
-        // Libera a UI imediatamente; enfileiramento continua em background.
+        // Libera a UI imediatamente; ping/reconnect de chips e fila rodam em background.
         callback?.({ ok: true });
 
         void (async () => {
           try {
+            if (!evolutionService.anySelectedConnectionsOpenInMemory(connectionIds)) {
+              await evolutionService.refreshConnectionsForCampaign(connectionIds).catch(() => undefined);
+            }
+            const hasConnected =
+              evolutionService.anySelectedConnectionsOpenInMemory(connectionIds) ||
+              (await evolutionService.anySelectedConnectionsOpen(connectionIds));
+            if (!hasConnected) {
+              userLog('campaign:error', { campaignId, reason: 'Nenhum canal conectado', connectionIds });
+              const err =
+                'Canal offline no servidor. Abra Conexões, reconecte o chip ou atualize a página (F5) e tente de novo.';
+              socket.emit('campaign-error', { error: err, campaignId });
+              notifyCampaignSocketError(uid, err, campaignId);
+              return;
+            }
             const ok = await evolutionService.startCampaign(
               numbers,
               stages,

@@ -72,6 +72,7 @@ import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import {
   getCampaignProgressMetrics,
   healStuckRunningCampaignsList,
+  isCampaignLikelyStartedOnServer,
   isRunningStatusButWorkComplete
 } from '../utils/campaignMetrics';
 import { computeNextRunIso, localDateTimeToUtcIso } from '../utils/campaignSchedule';
@@ -99,6 +100,31 @@ async function yieldToUiThread(): Promise<void> {
 /** Mensagem quando o ACK da campanha ultrapassa o tempo — o servidor pode já ter iniciado mesmo assim. */
 const START_CAMPAIGN_ACK_TIMEOUT_MESSAGE =
   'Demoramos a confirmar no servidor; a campanha pode já ter iniciado — veja a lista de campanhas antes de repetir o disparo.';
+
+const START_CAMPAIGN_SERVER_POLL_MS = 2_000;
+const START_CAMPAIGN_SERVER_POLL_MAX_MS = 30_000;
+
+async function sleepMs(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function confirmCampaignStartedViaApi(
+  campaignId: string,
+  maxMs: number = START_CAMPAIGN_SERVER_POLL_MAX_MS
+): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    try {
+      const list = await fetchCampaigns();
+      const hit = list.find((c) => c.id === campaignId);
+      if (isCampaignLikelyStartedOnServer(hit)) return true;
+    } catch {
+      /* próxima tentativa */
+    }
+    await sleepMs(START_CAMPAIGN_SERVER_POLL_MS);
+  }
+  return false;
+}
 
 /**
  * Tempo máximo até ack da campanha (callback / campaign-started / campaign-error).
@@ -3282,7 +3308,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         );
       });
 
-      if (!response.ok) throw new Error(response.error || 'Falha ao iniciar campanha.');
+      if (!response.ok) {
+        const timedOut = response.error === START_CAMPAIGN_ACK_TIMEOUT_MESSAGE;
+        if (timedOut) {
+          await reloadVpsCampaignsRef.current();
+          const confirmed = await confirmCampaignStartedViaApi(campaignRef.id);
+          if (confirmed) {
+            await reloadVpsCampaignsRef.current();
+          } else {
+            throw new Error(START_CAMPAIGN_ACK_TIMEOUT_MESSAGE);
+          }
+        } else {
+          throw new Error(response.error || 'Falha ao iniciar campanha.');
+        }
+      }
 
       socket.emit('ui-log', {
         action: 'start-campaign',

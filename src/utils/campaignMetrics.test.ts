@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CampaignStatus, type Campaign } from '../types';
-import { getCampaignPlannedSendTotal, getCampaignProgressMetrics, isRunningStatusButWorkComplete } from './campaignMetrics';
+import { getCampaignPlannedSendTotal, getCampaignProgressMetrics, isCampaignLikelyStartedOnServer, isRunningStatusButWorkComplete } from './campaignMetrics';
 
 const baseCampaign = (patch: Partial<Campaign> = {}): Campaign => ({
   id: 'c1',
@@ -54,5 +54,19 @@ describe('campaignMetrics — fluxo conversacional', () => {
     const m = getCampaignProgressMetrics(c);
     expect(m.pending).toBe(1);
     expect(m.progressPct).toBe(50);
+  });
+});
+
+describe('isCampaignLikelyStartedOnServer', () => {
+  it('detecta campanha ativa ou com envios', () => {
+    expect(isCampaignLikelyStartedOnServer(undefined)).toBe(false);
+    expect(isCampaignLikelyStartedOnServer(baseCampaign({ status: CampaignStatus.DRAFT }))).toBe(false);
+    expect(isCampaignLikelyStartedOnServer(baseCampaign({ status: CampaignStatus.RUNNING }))).toBe(true);
+    expect(isCampaignLikelyStartedOnServer(baseCampaign({ status: CampaignStatus.WAITING_REPLY }))).toBe(true);
+    expect(
+      isCampaignLikelyStartedOnServer(
+        baseCampaign({ status: CampaignStatus.DRAFT, successCount: 1, processedCount: 1 })
+      )
+    ).toBe(true);
   });
 });
