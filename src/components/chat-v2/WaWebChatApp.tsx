@@ -62,6 +62,7 @@ export const WaWebChatApp: React.FC<{
   const [draftConversations, setDraftConversations] = useState<Conversation[]>([]);
   const [search, setSearch] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [connectionFilterId, setConnectionFilterId] = useState<string | 'ALL'>('ALL');
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyExhausted, setHistoryExhausted] = useState<Record<string, boolean>>({});
   const [mobileShowThread, setMobileShowThread] = useState(false);
@@ -155,6 +156,7 @@ export const WaWebChatApp: React.FC<{
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return sortedConversations.filter((c) => {
+      if (connectionFilterId !== 'ALL' && c.connectionId !== connectionFilterId) return false;
       if (unreadOnly && unreadCount(c) === 0) return false;
       if (!q) return true;
       const disp = displayById.get(c.id);
@@ -164,7 +166,7 @@ export const WaWebChatApp: React.FC<{
       const preview = (c.lastMessage || '').toLowerCase();
       return primary.includes(q) || sub.includes(q) || phone.includes(q) || preview.includes(q);
     });
-  }, [sortedConversations, search, unreadOnly, displayById]);
+  }, [sortedConversations, search, unreadOnly, connectionFilterId, displayById]);
 
   const selected = useMemo(
     () => sortedConversations.find((c) => c.id === selectedId) ?? null,
@@ -470,6 +472,8 @@ export const WaWebChatApp: React.FC<{
         selectedId={selectedId}
         search={search}
         unreadOnly={unreadOnly}
+        connectionFilterId={connectionFilterId}
+        onConnectionFilterChange={setConnectionFilterId}
         socketStatus={isBackendConnected ? socketStatus : 'offline'}
         syncing={syncing}
         chipsConnected={connectedChannels.length}

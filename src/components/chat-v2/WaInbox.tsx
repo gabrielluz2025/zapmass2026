@@ -6,6 +6,7 @@ import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
   connectionBadgeHue,
   connectionDisplayLabel,
+  countDistinctConnectionIds,
   formatListTime,
   inboxListTitle,
   unreadCount
@@ -25,6 +26,8 @@ type Props = {
   selectedId: string | null;
   search: string;
   unreadOnly: boolean;
+  connectionFilterId: string | 'ALL';
+  onConnectionFilterChange: (id: string | 'ALL') => void;
   socketStatus: WaSocketStatus;
   chipsConnected: number;
   connections: WhatsAppConnection[];
@@ -47,6 +50,8 @@ export const WaInbox: React.FC<Props> = ({
   selectedId,
   search,
   unreadOnly,
+  connectionFilterId,
+  onConnectionFilterChange,
   socketStatus,
   chipsConnected,
   connections,
@@ -74,7 +79,10 @@ export const WaInbox: React.FC<Props> = ({
       loadMoreLockRef.current = false;
     }, 800);
   }, [inboxHasMore, inboxLoadingMore, onLoadMore]);
-  const showChannelLabels = connections.length > 1;
+
+  const showMultiChannelUi = connections.length > 1;
+  const showChannelDots = showMultiChannelUi && countDistinctConnectionIds(conversations) > 1;
+
   const virtualizer = useVirtualizer({
     count: conversations.length,
     getScrollElement: () => scrollRef.current,
@@ -82,9 +90,7 @@ export const WaInbox: React.FC<Props> = ({
       const conv = conversations[i];
       if (!conv) return 72;
       const disp = displayById.get(conv.id);
-      let h = disp?.fromDatabase && disp?.whatsappSubtitle ? 88 : 72;
-      if (showChannelLabels) h += 18;
-      return h;
+      return disp?.fromDatabase && disp?.whatsappSubtitle ? 88 : 72;
     },
     overscan: 10,
     getItemKey: (i) => conversations[i]?.id ?? i,
@@ -95,6 +101,33 @@ export const WaInbox: React.FC<Props> = ({
     () => allConversations.reduce((n, c) => n + unreadCount(c), 0),
     [allConversations]
   );
+
+  const channelCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of allConversations) {
+      const id = (c.connectionId || '').trim();
+      if (!id) continue;
+      map.set(id, (map.get(id) ?? 0) + 1);
+    }
+    return map;
+  }, [allConversations]);
+
+  const channelPills = useMemo(() => {
+    if (!showMultiChannelUi) return [];
+    return connections
+      .map((conn) => {
+        const label = connectionDisplayLabel(connections, conn.id);
+        if (!label) return null;
+        return {
+          id: conn.id,
+          label,
+          count: channelCounts.get(conn.id) ?? 0,
+          hue: connectionBadgeHue(conn.id),
+          connected: conn.status === 'CONNECTED',
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null && x.count > 0);
+  }, [showMultiChannelUi, connections, channelCounts]);
 
   const statusText = useMemo(() => {
     if (syncing) return 'Sincronizando conversas…';
@@ -107,6 +140,19 @@ export const WaInbox: React.FC<Props> = ({
   }, [syncing, socketStatus, chipsConnected]);
 
   const stripOffline = socketStatus === 'offline';
+  const showAllActive = !unreadOnly && connectionFilterId === 'ALL';
+
+  const handleShowAll = useCallback(() => {
+    onConnectionFilterChange('ALL');
+    if (unreadOnly) onToggleUnread();
+  }, [onConnectionFilterChange, unreadOnly, onToggleUnread]);
+
+  const handleChannelPill = useCallback(
+    (id: string) => {
+      onConnectionFilterChange(connectionFilterId === id ? 'ALL' : id);
+    },
+    [connectionFilterId, onConnectionFilterChange]
+  );
 
   return (
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
@@ -148,15 +194,44 @@ export const WaInbox: React.FC<Props> = ({
         </label>
       </div>
 
-      {totalUnread > 0 && (
+      <div className="wa-filter-row flex-shrink-0">
         <button
           type="button"
-          className={`wa-filter-unread ${unreadOnly ? 'wa-filter-unread--on' : ''}`}
-          onClick={onToggleUnread}
+          className="wa-filter-pill"
+          data-active={showAllActive ? 'true' : 'false'}
+          onClick={handleShowAll}
         >
-          {unreadOnly ? 'Mostrar todas' : `Não lidas (${totalUnread})`}
+          Todas
         </button>
-      )}
+        {totalUnread > 0 && (
+          <button
+            type="button"
+            className="wa-filter-pill"
+            data-active={unreadOnly ? 'true' : 'false'}
+            onClick={onToggleUnread}
+          >
+            Não lidas {totalUnread}
+          </button>
+        )}
+        {channelPills.map((pill) => (
+          <button
+            key={pill.id}
+            type="button"
+            className="wa-filter-pill wa-filter-pill--channel"
+            data-active={connectionFilterId === pill.id ? 'true' : 'false'}
+            title={pill.connected ? pill.label : `${pill.label} (offline)`}
+            onClick={() => handleChannelPill(pill.id)}
+          >
+            <span
+              className="wa-filter-pill-dot"
+              aria-hidden
+              style={{ background: `hsl(${pill.hue}, 52%, 42%)` }}
+            />
+            <span className="truncate max-w-[9rem]">{pill.label}</span>
+            {pill.count > 0 && <span className="opacity-70">{pill.count}</span>}
+          </button>
+        ))}
+      </div>
 
       <div
         ref={scrollRef}
@@ -165,7 +240,9 @@ export const WaInbox: React.FC<Props> = ({
       >
         {conversations.length === 0 ? (
           <p className="text-center text-sm py-10 px-4" style={{ color: 'var(--wa-text-3)' }}>
-            Nenhuma conversa. Conecte um chip e use Atualizar, ou aguarde novas mensagens.
+            {connectionFilterId !== 'ALL' || unreadOnly
+              ? 'Nenhuma conversa com esses filtros.'
+              : 'Nenhuma conversa. Conecte um chip e use Atualizar, ou aguarde novas mensagens.'}
           </p>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
@@ -179,10 +256,10 @@ export const WaInbox: React.FC<Props> = ({
               const unread = unreadCount(conv);
               const selected = conv.id === selectedId;
               const online = isContactPresenceOnline(conv);
-              const channelLabel = showChannelLabels
+              const channelHue = connectionBadgeHue(conv.connectionId);
+              const channelLabel = showChannelDots
                 ? connectionDisplayLabel(connections, conv.connectionId)
                 : null;
-              const channelHue = channelLabel ? connectionBadgeHue(conv.connectionId) : 0;
 
               return (
                 <button
@@ -190,25 +267,34 @@ export const WaInbox: React.FC<Props> = ({
                   type="button"
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  className={`wa-conv-row absolute left-0 w-full text-left ${selected ? 'wa-conv-row--active' : ''}`}
+                  className="wa-conv-row absolute left-0 w-full text-left"
+                  data-active={selected ? 'true' : 'false'}
                   style={{ height: row.size, transform: `translateY(${row.start}px)` }}
                   onClick={() => onSelect(conv.id)}
                 >
                   <span className="wa-conv-avatar-wrap relative flex-shrink-0">
-                  <img
-                    src={avatarById.get(conv.id) || ''}
-                    alt=""
-                    className="wa-conv-avatar"
-                    width={48}
-                    height={48}
-                    loading="lazy"
-                    onError={(e) => {
-                      const el = e.currentTarget;
-                      el.onerror = null;
-                      el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=00a884&color=fff&size=200&bold=true`;
-                    }}
-                  />
-                  {online && <span className="wa-presence-dot" aria-hidden title="Online" />}
+                    <img
+                      src={avatarById.get(conv.id) || ''}
+                      alt=""
+                      className="wa-conv-avatar"
+                      width={48}
+                      height={48}
+                      loading="lazy"
+                      onError={(e) => {
+                        const el = e.currentTarget;
+                        el.onerror = null;
+                        el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=00a884&color=fff&size=200&bold=true`;
+                      }}
+                    />
+                    {showChannelDots && conv.connectionId && (
+                      <span
+                        className="wa-channel-dot"
+                        aria-hidden
+                        title={channelLabel ? `Canal: ${channelLabel}` : undefined}
+                        style={{ background: `hsl(${channelHue}, 52%, 42%)` }}
+                      />
+                    )}
+                    {online && <span className="wa-presence-dot" aria-hidden title="Online" />}
                   </span>
                   <div className="wa-conv-body min-w-0 flex-1">
                     <div className="flex justify-between gap-2 items-start">
@@ -226,21 +312,11 @@ export const WaInbox: React.FC<Props> = ({
                             {display.whatsappSubtitle}
                           </span>
                         )}
-                        {channelLabel && (
-                          <span
-                            className="wa-conv-channel truncate block"
-                            title={`Canal: ${channelLabel}`}
-                            style={{
-                              background: `hsla(${channelHue}, 52%, 42%, 0.16)`,
-                              color: `hsl(${channelHue}, 48%, 32%)`,
-                              borderColor: `hsla(${channelHue}, 52%, 42%, 0.35)`
-                            }}
-                          >
-                            {channelLabel}
-                          </span>
-                        )}
                       </div>
-                      <span className="wa-conv-time flex-shrink-0 pt-0.5">
+                      <span
+                        className="wa-conv-time flex-shrink-0 pt-0.5"
+                        data-unread={unread > 0 ? 'true' : 'false'}
+                      >
                         {formatListTime(conv)}
                       </span>
                     </div>

@@ -244,6 +244,15 @@ export function connectionBadgeHue(connectionId: string): number {
   return Math.abs(h) % 360;
 }
 
+export function countDistinctConnectionIds(conversations: Pick<Conversation, 'connectionId'>[]): number {
+  const ids = new Set<string>();
+  for (const c of conversations) {
+    const id = (c.connectionId || '').trim();
+    if (id) ids.add(id);
+  }
+  return ids.size;
+}
+
 export function connectionDisplayLabel(
   connections: Pick<WhatsAppConnection, 'id' | 'name' | 'phoneNumber'>[],
   connectionId: string

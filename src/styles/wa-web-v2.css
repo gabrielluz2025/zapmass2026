@@ -112,6 +112,29 @@
   color: var(--wa-green-strong);
 }
 
+.wa-chat-pro .wa-filter-pill--channel {
+  max-width: 11rem;
+}
+
+.wa-chat-pro .wa-filter-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.wa-chat-pro .wa-channel-dot {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 2px solid var(--wa-panel, #fff);
+  box-sizing: border-box;
+  z-index: 1;
+}
+
 .wa-chat-pro .wa-empty-pro {
   flex: 1;
   display: flex;
