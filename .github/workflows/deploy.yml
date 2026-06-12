@@ -198,28 +198,47 @@ jobs:
             echo "==> build/stack OK — healthcheck longo"
             bash deployment/gha-healthcheck.sh
 
-      - name: Aguardar retry SSH (timeout porta 22)
+      - name: Verificar versao em producao (evita retry desnecessario)
+        id: verify_prod
         if: >-
+          always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure'
         run: |
-          echo "==> SSH falhou. Verificando se o deploy já está no ar via health check..."
-          for i in $(seq 1 12); do
-            if curl -sf --max-time 10 https://zap-mass.com/api/health | grep -q '"status":"ok"'; then
-              echo "==> Health check OK — deploy já concluído. Pulando retry SSH."
-              exit 0
+          set -euo pipefail
+          EXPECTED="${GITHUB_SHA::7}"
+          echo "==> SSH reportou falha; conferindo se producao ja esta em ${EXPECTED}..."
+          verified=0
+          for i in $(seq 1 24); do
+            resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
+            if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
+              ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
+              echo "tentativa ${i}/24: version=${ver:-?} esperado=${EXPECTED}"
+              if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
+                verified=1
+                break
+              fi
+            else
+              echo "tentativa ${i}/24: health indisponivel"
             fi
-            echo "tentativa ${i}/12 health check falhou, aguardando 15s..."
             sleep 15
           done
-          echo "==> Health check não respondeu, aguardando mais 180s antes do retry SSH..."
-          sleep 180
+          if [ "${verified}" = "1" ]; then
+            echo "verified=true" >> "$GITHUB_OUTPUT"
+            echo "## Deploy confirmado em producao (version=${ver})" >> "$GITHUB_STEP_SUMMARY"
+            echo "==> Producao ja no commit certo — pulando retries SSH."
+          else
+            echo "verified=false" >> "$GITHUB_OUTPUT"
+            echo "==> Versao em producao ainda nao confere; aguardando 180s antes do retry SSH..."
+            sleep 180
+          fi
 
       - name: VPS — deploy retry SSH (2)
         id: deploy_vps_retry
         if: >-
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_vps.outcome == 'failure'
+          steps.deploy_vps.outcome == 'failure' &&
+          steps.verify_prod.outputs.verified != 'true'
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -259,6 +278,7 @@ jobs:
         if: >-
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
+          steps.verify_prod.outputs.verified != 'true' &&
           steps.deploy_vps_retry.outcome == 'failure'
         run: |
           echo "==> Segundo retry SSH falhou. Terceira tentativa em 180s…"
@@ -269,6 +289,7 @@ jobs:
         if: >-
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
+          steps.verify_prod.outputs.verified != 'true' &&
           steps.deploy_vps_retry.outcome == 'failure'
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -305,11 +326,40 @@ jobs:
             fi
             bash deployment/gha-healthcheck.sh
 
+      - name: Verificar versao em producao (pos-retries)
+        id: verify_prod_final
+        if: >-
+          always() &&
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.deploy_vps.outcome == 'failure' &&
+          steps.verify_prod.outputs.verified != 'true' &&
+          !(steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
+        run: |
+          set -euo pipefail
+          EXPECTED="${GITHUB_SHA::7}"
+          echo "==> Ultima conferencia de versao em producao (${EXPECTED})..."
+          for i in $(seq 1 12); do
+            resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
+            if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
+              ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
+              echo "tentativa ${i}/12: version=${ver:-?}"
+              if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
+                echo "verified=true" >> "$GITHUB_OUTPUT"
+                echo "## Deploy confirmado em producao apos retries (version=${ver})" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            sleep 15
+          done
+          echo "verified=false" >> "$GITHUB_OUTPUT"
+
       - name: Falhar job se SSH/deploy falhou
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
+          steps.verify_prod.outputs.verified != 'true' &&
+          steps.verify_prod_final.outputs.verified != 'true' &&
           !(steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         run: |
           echo "::error::SSH/deploy falhou apos 3 tentativas (timeout :22 ou script na VPS). Re-run failed jobs ou deploy manual na VPS."
@@ -319,9 +369,9 @@ jobs:
       # Isto adiciona texto legível no separador "Summary" da execução.
       - name: Tag de versão automática após deploy bem-sucedido
         if: >-
-          success() &&
+          (success() || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true') &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          (steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
+          (steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
