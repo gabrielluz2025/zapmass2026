@@ -1348,369 +1348,276 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return c?.status === ConnectionStatus.CONNECTED;
   }).length;
 
-  // Donut geometry (hero)
-  const donutSize = 200;
-  const donutStroke = 18;
-  const donutR = (donutSize - donutStroke) / 2;
-  const donutC = 2 * Math.PI * donutR;
-  const successArc = (metrics.ok / Math.max(1, metrics.plannedSendTotal)) * donutC;
-  const failArc = (metrics.fail / Math.max(1, metrics.plannedSendTotal)) * donutC;
+  const statusLabel = isWaitingForReplies
+    ? 'Aguardando respostas'
+    : isRunning
+    ? 'Em execução'
+    : isPaused
+    ? 'Pausada'
+    : isScheduled
+    ? 'Agendada'
+    : isDone
+    ? 'Concluída'
+    : 'Pendente';
 
   return (
-    <div className="space-y-5 pb-20">
-      {/* ============================ HERO MISSION REPORT ============================ */}
+    <div className="space-y-4 pb-20">
+      {/* ============================ HEADER ============================ */}
       <div
-        className="relative overflow-hidden rounded-2xl"
-        style={{
-          background: 'linear-gradient(135deg, var(--surface-0) 0%, var(--surface-1) 100%)',
-          border: '1px solid var(--border)'
-        }}
+        className="rounded-2xl overflow-hidden"
+        style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
       >
-        <div
-          className="absolute top-0 left-0 w-1.5 h-full"
-          style={{ background: accent, boxShadow: `0 0 28px ${accentHex}66` }}
-        />
-        <div
-          className="absolute -top-28 -right-28 w-96 h-96 rounded-full opacity-[0.1] pointer-events-none"
-          style={{ background: `radial-gradient(circle, ${accentHex} 0%, transparent 60%)` }}
-        />
-        <div
-          className="absolute inset-0 pointer-events-none opacity-[0.04]"
-          style={{
-            backgroundImage:
-              'linear-gradient(to right, var(--text-2) 1px, transparent 1px), linear-gradient(to bottom, var(--text-2) 1px, transparent 1px)',
-            backgroundSize: '28px 28px'
-          }}
-          aria-hidden
-        />
+        {/* Accent top bar */}
+        <div className="h-[3px]" style={{ background: accent }} />
 
-        <div className="relative p-5 sm:p-6">
-          {/* Top action bar */}
-          <div className="flex items-center justify-between gap-2 mb-5">
-            <Button variant="secondary" size="sm" leftIcon={<ArrowLeft className="w-4 h-4" />} onClick={onBack}>
+        <div className="p-4 sm:p-5 space-y-4">
+          {/* Row 1: Navigation + Actions */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<ArrowLeft className="w-4 h-4" />}
+              onClick={onBack}
+            >
               Voltar
             </Button>
+
             <div className="flex items-center gap-2 flex-wrap justify-end">
               {showPauseResume && (
                 <Button
                   variant={pauseAction ? 'secondary' : 'primary'}
                   size="sm"
-                  leftIcon={pauseAction ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  leftIcon={pauseAction ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                   onClick={() => onTogglePause(campaign.id)}
-                  title={
-                    pauseAction
-                      ? 'Pausar envios e respostas automáticas desta campanha'
-                      : 'Retomar campanha pausada'
-                  }
+                  title={pauseAction ? 'Pausar envios desta campanha' : 'Retomar campanha pausada'}
                 >
                   {pauseAction ? 'Pausar' : 'Retomar'}
                 </Button>
               )}
-              {isWaitingForReplies && (
+              {(isWaitingForReplies || isRunning) && (
                 <Button
                   variant="secondary"
                   size="sm"
-                  leftIcon={<RefreshCw className="w-4 h-4" />}
+                  leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
                   onClick={() => {
                     void reloadPersistedLogs();
                     void reloadServerReport();
-                    toast.success('Dados da campanha atualizados.');
+                    toast.success('Dados atualizados.');
                   }}
-                  title="Recarregar logs e métricas sem alterar o status"
+                  title="Recarregar logs e métricas"
                 >
-                  Atualizar dados
+                  Atualizar
                 </Button>
               )}
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
-                leftIcon={<Share2 className="w-4 h-4" />}
+                leftIcon={<Share2 className="w-3.5 h-3.5" />}
                 onClick={shareReport}
-                title="Copiar resumo para compartilhar"
+                title="Copiar resumo"
               >
                 Compartilhar
               </Button>
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
-                leftIcon={<Download className="w-4 h-4" />}
+                leftIcon={<Download className="w-3.5 h-3.5" />}
                 onClick={exportReportCsv}
-                title="Arquivo CSV com UTF-8 (abre no Excel). Inclui mensagem e canal."
+                title="CSV / Excel"
               >
-                CSV / Excel
+                CSV
               </Button>
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
-                leftIcon={<FileSpreadsheet className="w-4 h-4" />}
-                onClick={exportReportXlsx}
-                title="Planilha .xlsx (Excel / LibreOffice)"
-              >
-                XLSX
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                leftIcon={<FileJson className="w-4 h-4" />}
+                leftIcon={<FileJson className="w-3.5 h-3.5" />}
                 onClick={exportReportJson}
-                title="Exportar JSON (automação / backup estruturado)"
+                title="JSON"
               >
                 JSON
               </Button>
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
-                leftIcon={<Printer className="w-4 h-4" />}
+                leftIcon={<Printer className="w-3.5 h-3.5" />}
                 onClick={printReportForPdf}
-                title="Abre janela para imprimir ou guardar como PDF"
+                title="Imprimir / PDF"
               >
-                Imprimir / PDF
+                PDF
               </Button>
             </div>
           </div>
 
-          {/* Bento grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-            {/* Title + metadata (span 7) */}
-            <div className="lg:col-span-7 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap mb-2">
-                <span
-                  className="text-[10px] font-extrabold uppercase tracking-[0.18em]"
-                  style={{ color: 'var(--text-3)' }}
-                >
-                  Mission Report
-                </span>
-                <Badge variant={statusVariant} dot={isRunning || isWaitingForReplies}>
-                  {isWaitingForReplies
-                    ? 'Aguardando respostas'
-                    : isRunning
-                    ? 'Em execução'
-                    : isPaused
-                    ? 'Pausada'
-                    : isScheduled
-                    ? 'Agendada'
-                    : isDone
-                    ? 'Concluída'
-                    : 'Pendente'}
-                </Badge>
-              </div>
+          {/* Row 2: Title + Status */}
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
               <h1
-                className="font-black tracking-tight leading-[1.05] mb-3"
-                style={{
-                  color: 'var(--text-1)',
-                  fontSize: 'clamp(26px, 3.2vw, 38px)'
-                }}
+                className="font-black leading-tight mb-1 truncate"
+                style={{ color: 'var(--text-1)', fontSize: 'clamp(22px, 2.8vw, 32px)' }}
               >
                 {campaign.name}
               </h1>
-              <div
-                className="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[12.5px]"
-                style={{ color: 'var(--text-3)' }}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span style={{ color: 'var(--text-2)' }}>{startedFmt.date}</span>
-                  <span>às {startedFmt.time}</span>
-                  <span className="text-[11px] opacity-70">({startedFmt.relative})</span>
+              <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[12px]" style={{ color: 'var(--text-3)' }}>
+                <span className="inline-flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  {startedFmt.date}
+                  <span className="opacity-60">às {startedFmt.time}</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  {campaign.contactListName || 'Lista direta'}
+                <span className="inline-flex items-center gap-1">
+                  <Users className="w-3 h-3" />
+                  {(campaign.totalContacts || 0).toLocaleString('pt-BR')} contatos
                 </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5" />
-                  <span style={{ color: 'var(--text-2)' }}>{(campaign.totalContacts || 0).toLocaleString('pt-BR')}</span>
-                  contatos
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5" />
+                <span className="inline-flex items-center gap-1">
+                  <Smartphone className="w-3 h-3" />
                   <span style={{ color: onlineChips > 0 ? '#10b981' : 'var(--text-2)' }}>
                     {onlineChips}/{(campaign.selectedConnectionIds || []).length}
                   </span>
-                  chip{(campaign.selectedConnectionIds || []).length > 1 ? 's' : ''} online
+                  &nbsp;chips
                 </span>
-              </div>
-
-              {/* Vital stats */}
-              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <VitalStat
-                  label="Tempo"
-                  value={formatDuration(elapsedSec)}
-                  hint={isDone ? 'Total' : isRunning ? 'decorrido' : 'pausada'}
-                />
-                <VitalStat
-                  label="Ritmo"
-                  value={throughputPerMin > 0 ? `${throughputPerMin}/min` : '—'}
-                  hint={isRunning ? 'média viva' : 'média final'}
-                  accent="#3b82f6"
-                />
-                <VitalStat
-                  label={isRunning ? 'ETA' : 'Restantes'}
-                  value={
-                    isRunning && etaSec > 0
-                      ? formatDuration(etaSec)
-                      : remaining.toLocaleString('pt-BR')
-                  }
-                  hint={
-                    isRunning && etaSec > 0
-                      ? `termina ~${new Date(Date.now() + etaSec * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
-                      : isRunning
-                      ? 'calculando…'
-                      : remaining > 0
-                      ? 'aguardando'
-                      : 'concluído'
-                  }
-                  accent="#f59e0b"
-                />
-                <VitalStat
-                  label="Taxa sucesso"
-                  value={`${successRate}%`}
-                  hint={successRate >= 90 ? 'excelente' : successRate >= 70 ? 'bom' : 'acompanhar'}
-                  accent={successRate >= 90 ? '#10b981' : successRate >= 70 ? '#3b82f6' : '#f59e0b'}
-                />
+                {campaign.contactListName && (
+                  <span className="inline-flex items-center gap-1">
+                    <FileSpreadsheet className="w-3 h-3" />
+                    {campaign.contactListName}
+                  </span>
+                )}
               </div>
             </div>
+            <Badge variant={statusVariant} dot={isRunning || isWaitingForReplies} className="shrink-0 text-[12px] px-3 py-1">
+              {statusLabel}
+              {isRunning && (
+                <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+              )}
+            </Badge>
+          </div>
 
-            {/* Progress donut (span 5) */}
-            <div className="lg:col-span-5 flex justify-center lg:justify-end">
-              <div className="relative" style={{ width: donutSize, height: donutSize }}>
-                <svg width={donutSize} height={donutSize} viewBox={`0 0 ${donutSize} ${donutSize}`}>
-                  <defs>
-                    <linearGradient id="heroSuccess" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="#10b981" />
-                      <stop offset="100%" stopColor="#059669" />
-                    </linearGradient>
-                    <linearGradient id="heroFail" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="#ef4444" />
-                      <stop offset="100%" stopColor="#dc2626" />
-                    </linearGradient>
-                  </defs>
-                  <circle
-                    cx={donutSize / 2}
-                    cy={donutSize / 2}
-                    r={donutR}
-                    fill="none"
-                    stroke="var(--surface-2)"
-                    strokeWidth={donutStroke}
-                  />
-                  {/* Success arc */}
-                  <circle
-                    cx={donutSize / 2}
-                    cy={donutSize / 2}
-                    r={donutR}
-                    fill="none"
-                    stroke="url(#heroSuccess)"
-                    strokeWidth={donutStroke}
-                    strokeDasharray={`${successArc} ${donutC}`}
-                    strokeDashoffset={0}
-                    strokeLinecap="round"
-                    transform={`rotate(-90 ${donutSize / 2} ${donutSize / 2})`}
-                    style={{
-                      transition: 'stroke-dasharray 1s ease-out',
-                      filter: 'drop-shadow(0 0 8px rgba(16,185,129,0.5))'
-                    }}
-                  />
-                  {/* Failed arc (continues after success) */}
-                  {metrics.fail > 0 && (
-                    <circle
-                      cx={donutSize / 2}
-                      cy={donutSize / 2}
-                      r={donutR}
-                      fill="none"
-                      stroke="url(#heroFail)"
-                      strokeWidth={donutStroke}
-                      strokeDasharray={`${failArc} ${donutC}`}
-                      strokeDashoffset={-successArc}
-                      strokeLinecap="round"
-                      transform={`rotate(-90 ${donutSize / 2} ${donutSize / 2})`}
-                    />
-                  )}
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span
-                    className="text-[11px] font-bold uppercase tracking-[0.14em]"
-                    style={{ color: 'var(--text-3)' }}
-                  >
-                    Progresso
-                  </span>
-                  <span
-                    className="text-[54px] font-black tabular-nums leading-none"
-                    style={{
-                      background: `linear-gradient(135deg, ${accentHex}, ${accentHex}aa)`,
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text'
-                    }}
-                  >
-                    {progress}%
-                  </span>
-                  <span className="text-[11px] mt-0.5 tabular-nums" style={{ color: 'var(--text-3)' }}>
-                    {metrics.effectiveProcessed.toLocaleString('pt-BR')} /{' '}
-                    {metrics.plannedSendTotal.toLocaleString('pt-BR')}
-                  </span>
-                  {isRunning && (
-                    <div className="mt-1 flex items-center gap-1">
-                      <span
-                        className="w-1.5 h-1.5 rounded-full animate-pulse"
-                        style={{ background: '#10b981' }}
-                      />
-                      <span
-                        className="text-[9.5px] font-bold uppercase tracking-widest"
-                        style={{ color: '#10b981' }}
-                      >
-                        AO VIVO
-                      </span>
-                    </div>
-                  )}
+          {/* Row 3: Progress bar */}
+          <div>
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-[11.5px] font-medium" style={{ color: 'var(--text-3)' }}>
+                {metrics.effectiveProcessed.toLocaleString('pt-BR')} / {metrics.plannedSendTotal.toLocaleString('pt-BR')} enviados
+              </span>
+              <span className="text-[13px] font-black tabular-nums" style={{ color: accentHex }}>
+                {progress}%
+              </span>
+            </div>
+            <div className="relative h-2 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+              {/* success bar */}
+              <div
+                className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(100, (metrics.ok / Math.max(1, metrics.plannedSendTotal)) * 100)}%`,
+                  background: accentHex,
+                  boxShadow: `0 0 8px ${accentHex}88`
+                }}
+              />
+              {/* fail bar */}
+              {metrics.fail > 0 && (
+                <div
+                  className="absolute top-0 h-full rounded-full"
+                  style={{
+                    left: `${Math.min(100, (metrics.ok / Math.max(1, metrics.plannedSendTotal)) * 100)}%`,
+                    width: `${Math.min(100, (metrics.fail / Math.max(1, metrics.plannedSendTotal)) * 100)}%`,
+                    background: '#ef4444'
+                  }}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Row 4: Mini stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {[
+              {
+                label: 'Taxa sucesso',
+                value: `${successRate}%`,
+                color: successRate >= 90 ? '#10b981' : successRate >= 70 ? '#3b82f6' : '#f59e0b'
+              },
+              {
+                label: 'Tempo',
+                value: formatDuration(elapsedSec),
+                hint: isDone ? 'total' : isRunning ? 'em andamento' : 'pausado',
+                color: 'var(--text-2)'
+              },
+              {
+                label: 'Ritmo',
+                value: throughputPerMin > 0 ? `${throughputPerMin}/min` : '—',
+                hint: isRunning ? 'ao vivo' : 'média',
+                color: '#3b82f6'
+              },
+              {
+                label: isRunning ? 'ETA' : 'Pendentes',
+                value: isRunning && etaSec > 0 ? formatDuration(etaSec) : remaining.toLocaleString('pt-BR'),
+                hint: isRunning && etaSec > 0
+                  ? `~${new Date(Date.now() + etaSec * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                  : remaining > 0 ? 'aguardando' : 'concluído',
+                color: '#f59e0b'
+              }
+            ].map((s) => (
+              <div
+                key={s.label}
+                className="rounded-xl px-3 py-2.5"
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+              >
+                <div className="text-[10px] font-bold uppercase tracking-[0.12em] mb-0.5" style={{ color: 'var(--text-3)' }}>
+                  {s.label}
                 </div>
+                <div className="text-[15px] font-black tabular-nums leading-tight" style={{ color: s.color }}>
+                  {s.value}
+                </div>
+                {s.hint && (
+                  <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>{s.hint}</div>
+                )}
               </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* ============================ KPI PILLS (clickable filters) ============================ */}
+      {/* ============================ KPI ROW ============================ */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <KpiPill
-          label="Entregues"
-          value={(useReplyFlowPrimaryFunnel ? uiPerformance.delivered : metrics.ok).toLocaleString('pt-BR')}
-          helper={
-            useReplyFlowPrimaryFunnel
-              ? `${uiPerformance.deliveryPct}% (etapa 1)`
-              : `${successRate}% do total`
-          }
-          color="#10b981"
-          onClick={() => handleFilterClick('SENT_GROUP')}
-        />
-        <KpiPill
-          label="Responderam"
-          value={uiPerformance.replied.toLocaleString('pt-BR')}
-          helper={uiPerformance.replied > 0 ? `${uiPerformance.replyPct}%` : 'sem respostas'}
-          color="#8b5cf6"
-          onClick={() => handleFilterClick('REPLIED')}
-        />
-        <KpiPill
-          label="Falhas"
-          value={metrics.fail.toLocaleString('pt-BR')}
-          helper={metrics.fail > 0 ? `${failureRate}%` : 'nenhuma'}
-          color="#ef4444"
-          onClick={() => handleFilterClick('FAILED')}
-        />
-        <KpiPill
-          label="Pendentes"
-          value={pendingKpi.toLocaleString('pt-BR')}
-          helper={
-            isWaitingForReplies
-              ? 'etapas seguintes aguardam resposta'
+        {[
+          {
+            label: 'Entregues',
+            value: (useReplyFlowPrimaryFunnel ? uiPerformance.delivered : metrics.ok).toLocaleString('pt-BR'),
+            helper: useReplyFlowPrimaryFunnel ? `${uiPerformance.deliveryPct}% · etapa 1` : `${successRate}% do total`,
+            color: '#10b981',
+            filter: 'SENT_GROUP' as ReportFilter
+          },
+          {
+            label: 'Responderam',
+            value: uiPerformance.replied.toLocaleString('pt-BR'),
+            helper: uiPerformance.replied > 0 ? `${uiPerformance.replyPct}%` : 'sem respostas ainda',
+            color: '#8b5cf6',
+            filter: 'REPLIED' as ReportFilter
+          },
+          {
+            label: 'Falhas',
+            value: metrics.fail.toLocaleString('pt-BR'),
+            helper: metrics.fail > 0 ? `${failureRate}% dos envios` : 'nenhuma falha',
+            color: metrics.fail > 0 ? '#ef4444' : 'var(--text-2)',
+            filter: 'FAILED' as ReportFilter
+          },
+          {
+            label: isWaitingForReplies ? 'Aguardando' : 'Pendentes',
+            value: pendingKpi.toLocaleString('pt-BR'),
+            helper: isWaitingForReplies
+              ? 'resposta do contato'
               : isRunning
-              ? `fila ao vivo${etaSec > 0 ? ` · ETA ${formatDuration(etaSec)}` : ''}`
-              : pendingKpi > 0
-              ? 'fila aguardando'
-              : 'sem fila'
+              ? `fila ativa${etaSec > 0 ? ` · ~${formatDuration(etaSec)}` : ''}`
+              : pendingKpi > 0 ? 'na fila' : 'concluído',
+            color: '#f59e0b',
+            filter: 'PENDING' as ReportFilter
           }
-          color="#f59e0b"
-          onClick={() => handleFilterClick('PENDING')}
-        />
+        ].map((kpi) => (
+          <KpiPill
+            key={kpi.label}
+            label={kpi.label}
+            value={kpi.value}
+            helper={kpi.helper}
+            color={kpi.color}
+            onClick={() => handleFilterClick(kpi.filter)}
+          />
+        ))}
       </div>
 
       {/* ===== BANNER: reenvio de falhas após conclusão ===== */}
@@ -1761,31 +1668,19 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
       {campaign.replyFlow?.enabled && (isRunning || isWaitingForReplies) && (campaign.replyFlow.steps?.length || 0) > 1 && (
         <div
-          className="rounded-xl px-4 py-3 flex items-start gap-3"
+          className="rounded-xl px-4 py-2.5 flex items-center gap-3"
           style={{
-            background: 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(16,185,129,0.08))',
-            border: '1px solid rgba(245,158,11,0.28)'
+            background: 'rgba(245,158,11,0.08)',
+            border: '1px solid rgba(245,158,11,0.22)'
           }}
         >
-          <div
-            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(245,158,11,0.18)' }}
-          >
-            <Reply className="w-4 h-4" style={{ color: '#d97706' }} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
-              Fluxo por resposta — aguardando respostas
-            </p>
-            <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-              Etapa 1 já foi enviada. A etapa 2 será disparada automaticamente assim que o contato
-              responder{campaign.replyFlow.steps?.[0]?.acceptAnyReply
-                ? ' (qualquer mensagem serve)'
-                : ' com a palavra-chave configurada'}
-              . Use <strong>Pausar</strong> se quiser interromper temporariamente; depois clique em{' '}
-              <strong>Retomar</strong>.
-            </p>
-          </div>
+          <Reply className="w-4 h-4 shrink-0" style={{ color: '#d97706' }} />
+          <p className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
+            <strong style={{ color: 'var(--text-1)' }}>Fluxo ativo —</strong>{' '}
+            etapa 1 enviada. Etapa 2 dispara ao receber resposta
+            {campaign.replyFlow.steps?.[0]?.acceptAnyReply ? ' (qualquer mensagem)' : ' com palavra-chave'}.
+            Use <strong>Pausar</strong> para interromper.
+          </p>
         </div>
       )}
 
@@ -1884,38 +1779,53 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           failedPerChip={performance.failedPerChip}
         />
 
-        {/* Logs ao vivo */}
-        <Card className="p-4 flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2">
+        {/* Logs do disparo — expandido para diagnóstico */}
+        <Card
+          className="flex flex-col gap-0 overflow-hidden"
+          style={{ border: '1px solid var(--border-subtle)' }}
+        >
+          <div
+            className="flex items-center justify-between gap-2 px-4 py-3"
+            style={{ borderBottom: '1px solid var(--border-subtle)' }}
+          >
             <div className="flex items-center gap-2.5 min-w-0">
               <div
-                className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                 style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)' }}
               >
-                <Terminal className="w-4 h-4" style={{ color: '#10b981' }} />
+                <Terminal className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
               </div>
               <div className="min-w-0">
-                <h3 className="ui-title text-[14px]">Logs do disparo</h3>
-                <p className="ui-subtitle text-[11.5px] truncate">Eventos em tempo real desta campanha</p>
+                <h3 className="font-bold text-[13.5px]" style={{ color: 'var(--text-1)' }}>
+                  Log do disparo
+                </h3>
+                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                  Número normalizado + status de cada envio
+                </p>
               </div>
-              {isRunning && (
-                <Badge variant="success" className="shrink-0">
-                  Ao vivo
-                </Badge>
+              {(isRunning || isWaitingForReplies) && (
+                <span
+                  className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}
+                >
+                  AO VIVO
+                </span>
               )}
             </div>
             <Button variant="ghost" size="sm" onClick={() => setShowLogModal(true)}>
               Ver todos
             </Button>
           </div>
-          <CampaignDispatchLogs
-            logs={campaignLogs}
-            filter={logFilter}
-            onFilterChange={setLogFilter}
-            variant="compact"
-            isRunning={isRunning}
-            maxItems={8}
-          />
+          <div className="flex-1 p-3">
+            <CampaignDispatchLogs
+              logs={campaignLogs}
+              filter={logFilter}
+              onFilterChange={setLogFilter}
+              variant="compact"
+              isRunning={isRunning}
+              maxItems={10}
+            />
+          </div>
         </Card>
       </div>
 
@@ -2441,46 +2351,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 // =====================================================================
 // SUBCOMPONENTES LOCAIS
 // =====================================================================
-interface VitalStatProps {
-  label: string;
-  value: React.ReactNode;
-  hint?: React.ReactNode;
-  accent?: string;
-}
-
-const VitalStat: React.FC<VitalStatProps> = ({ label, value, hint, accent }) => (
-  <div
-    className="rounded-xl p-2.5 relative overflow-hidden"
-    style={{
-      background: 'var(--surface-1)',
-      border: '1px solid var(--border-subtle)'
-    }}
-  >
-    {accent && (
-      <div
-        className="absolute top-0 left-0 w-full h-0.5"
-        style={{ background: accent, opacity: 0.7 }}
-      />
-    )}
-    <div
-      className="text-[9.5px] font-extrabold uppercase tracking-[0.14em] mb-0.5"
-      style={{ color: 'var(--text-3)' }}
-    >
-      {label}
-    </div>
-    <div
-      className="text-[15.5px] font-black tabular-nums leading-tight"
-      style={{ color: 'var(--text-1)' }}
-    >
-      {value}
-    </div>
-    {hint && (
-      <div className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-        {hint}
-      </div>
-    )}
-  </div>
-);
 
 interface KpiPillProps {
   label: string;

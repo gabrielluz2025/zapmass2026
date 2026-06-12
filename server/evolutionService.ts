@@ -2983,30 +2983,56 @@ async function sendMessageInternal(
     try {
         const number = normalizeOutboundNumber(to);
 
-        log('info', `Enviando mensagem via ${connectionId}`, { to: number });
+        if (!number) {
+            log('warn', `Número inválido após normalização — envio ignorado`, { to, connectionId });
+            return { ok: false };
+        }
+
+        // Log explícito do número normalizado para facilitar diagnóstico de entrega
+        log('info', `Enviando mensagem via ${connectionId}`, { toNormalized: number, toOriginal: to });
 
         const response = await api.post(`/message/sendText/${evoInst(connectionId)}`, {
             number,
             text: message,
-            textMessage: {
-                text: message
-            },
+            textMessage: { text: message },
             delay: 1200,
         });
 
-        const messageId = response.data?.key?.id || response.data?.key?._serialized;
-        if (response.data?.key) {
-            log('info', `✅ Mensagem enviada com sucesso`, { to: number, messageId });
+        const responseData = response.data;
+        const messageId = responseData?.key?.id || responseData?.key?._serialized;
+
+        if (responseData?.key) {
+            log('info', `✅ Mensagem aceita pela Evolution API`, {
+                toNormalized: number,
+                messageId,
+                status: responseData?.status,
+            });
             return { ok: true, messageId: messageId ? String(messageId) : undefined };
         }
 
+        // Fallback: algumas versões da Evolution respondem sem campo 'key'
+        if (responseData?.message === 'Message Sent' || responseData?.id) {
+            const altId = String(responseData?.id || '');
+            log('info', `✅ Mensagem aceita (formato alternativo)`, { toNormalized: number, altId });
+            return { ok: true, messageId: altId || undefined };
+        }
+
+        // Evolution retornou 2xx mas sem 'key' — pode ser falha silenciosa
+        log('warn', `Evolution respondeu sem campo 'key' — possível falha de entrega`, {
+            toNormalized: number,
+            toOriginal: to,
+            connectionId,
+            responseSnippet: JSON.stringify(responseData).slice(0, 400),
+        });
         return { ok: false };
     } catch (error: any) {
-        log('error', `Erro ao enviar mensagem`, {
+        log('error', `Erro HTTP ao enviar mensagem`, {
             connectionId,
-            to,
+            toOriginal: to,
+            toNormalized: normalizeOutboundNumber(to),
             error: error.message,
-            response: error.response?.data,
+            httpStatus: error.response?.status,
+            responseBody: JSON.stringify(error.response?.data || {}).slice(0, 500),
         });
         return { ok: false };
     }
@@ -3168,7 +3194,19 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
     }
 
-    log('info', 'Tentando envio', { to: item.to, connectionId: item.connectionId, campaignId: item.campaignId });
+    const normalizedDest = normalizeOutboundNumber(item.to);
+    log('info', 'Tentando envio', {
+        toNormalized: normalizedDest,
+        toOriginal: item.to,
+        connectionId: item.connectionId,
+        campaignId: item.campaignId,
+    });
+    emitCampaignLog(
+        'INFO',
+        `Enviando para ${normalizedDest}`,
+        { campaignId: item.campaignId, to: normalizedDest, connectionId: item.connectionId },
+        campaignState?.ownerUid
+    );
 
     let mediaToSend = item.media;
     const mediaLookup = item.mediaLookupKey || item.campaignId;
@@ -3219,7 +3257,13 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!sendResult.ok) {
-        throw new Error('Falha no envio');
+        emitCampaignLog(
+            'ERROR',
+            `Falha ao enviar para ${normalizedDest} — Evolution API não confirmou entrega`,
+            { campaignId: item.campaignId, to: normalizedDest, connectionId: item.connectionId },
+            campaignState?.ownerUid
+        );
+        throw new Error(`Falha no envio para ${normalizedDest}`);
     }
 
     // Marca envio OK antes de qualquer lógica pós-envio: se o processo cair aqui,
