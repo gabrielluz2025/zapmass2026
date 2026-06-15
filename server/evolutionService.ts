@@ -1985,6 +1985,32 @@ function evoInst(instanceName: string): string {
 // Controle de pausa por campanha
 const pausedCampaigns = new Set<string>();
 
+// Limite de frequência: ownerUid → phone → última vez enviado (ms epoch)
+// Evita reenviar para o mesmo contato em menos de FREQUENCY_CAP_MS.
+const frequencyCap = new Map<string, Map<string, number>>();
+const FREQUENCY_CAP_MS = 24 * 60 * 60 * 1000; // 24 h (padrão)
+
+function getFrequencyCap(ownerUid: string): Map<string, number> {
+    let m = frequencyCap.get(ownerUid);
+    if (!m) { m = new Map(); frequencyCap.set(ownerUid, m); }
+    return m;
+}
+
+function checkFrequencyCap(ownerUid: string | undefined, phone: string): boolean {
+    if (!ownerUid) return false; // sem owner = sem limitação
+    const key = phone.replace(/\D/g, '').slice(-11);
+    const cap = getFrequencyCap(ownerUid);
+    const last = cap.get(key);
+    if (!last) return false;
+    return (Date.now() - last) < FREQUENCY_CAP_MS;
+}
+
+function recordFrequencyCap(ownerUid: string | undefined, phone: string): void {
+    if (!ownerUid) return;
+    const key = phone.replace(/\D/g, '').slice(-11);
+    getFrequencyCap(ownerUid).set(key, Date.now());
+}
+
 // ──── Mídia de campanha: armazenada em arquivo temporário em vez de RAM ───────
 // Evita OOM em campanhas simultâneas com imagens/áudios grandes.
 const campaignMediaById = new Map<string, CampaignMediaPayload & { _diskPath?: string }>();
@@ -2038,6 +2064,10 @@ interface CampaignRuntimeState {
     failCount: number;
     lastLoggedProcessed: number;
     isRunning: boolean;
+    /** Janela deslizante dos últimos 20 resultados para auto-pausa por taxa de erro. */
+    recentOutcomes: boolean[];
+    /** Evita emitir múltiplos alertas de auto-pausa seguidos. */
+    autoPauseEmitted?: boolean;
 }
 
 const campaignsById = new Map<string, CampaignRuntimeState>();
@@ -2130,6 +2160,11 @@ function emitCampaignLog(
     }
 }
 
+/** Limiar para auto-pausa: se >= AUTO_PAUSE_FAIL_THRESHOLD % dos últimos AUTO_PAUSE_WINDOW jobs falharem. */
+const AUTO_PAUSE_WINDOW = 20;
+const AUTO_PAUSE_FAIL_THRESHOLD = 0.6; // 60%
+const AUTO_PAUSE_MIN_PROCESSED = 10;   // só avalia após atingir este mínimo
+
 function bumpCampaignProgress(campaignId: string | undefined, success: boolean) {
     if (!campaignId) return;
     const state = campaignsById.get(campaignId);
@@ -2138,6 +2173,44 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
     state.processed += 1;
     if (success) state.successCount += 1;
     else state.failCount += 1;
+
+    // ── Auto-pausa por alta taxa de erros ───────────────────────────────────────
+    state.recentOutcomes.push(success);
+    if (state.recentOutcomes.length > AUTO_PAUSE_WINDOW) {
+        state.recentOutcomes.shift();
+    }
+    if (
+        !state.autoPauseEmitted &&
+        state.isRunning &&
+        !pausedCampaigns.has(campaignId) &&
+        state.processed >= AUTO_PAUSE_MIN_PROCESSED &&
+        state.recentOutcomes.length >= AUTO_PAUSE_WINDOW
+    ) {
+        const recentFails = state.recentOutcomes.filter((ok) => !ok).length;
+        const failRate = recentFails / state.recentOutcomes.length;
+        if (failRate >= AUTO_PAUSE_FAIL_THRESHOLD) {
+            state.autoPauseEmitted = true;
+            pausedCampaigns.add(campaignId);
+            const pct = Math.round(failRate * 100);
+            log('warn', `[auto-pausa] Campanha ${campaignId} pausada: ${pct}% de falhas nos últimos ${AUTO_PAUSE_WINDOW} jobs`, {
+                campaignId, failRate: pct, recentFails, window: AUTO_PAUSE_WINDOW,
+            });
+            emitCampaignLog(
+                'WARN',
+                `⚠️ Campanha pausada automaticamente: ${pct}% de falhas nos últimos ${AUTO_PAUSE_WINDOW} envios`,
+                { campaignId, failRate: pct, recentFails, window: AUTO_PAUSE_WINDOW },
+                state.ownerUid
+            );
+            if (state.ownerUid) {
+                publishOwnerEvent(state.ownerUid, 'campaign-auto-paused', {
+                    campaignId,
+                    reason: 'high_failure_rate',
+                    failRatePct: pct,
+                });
+            }
+        }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
 
     publishOwnerEvent(state.ownerUid, 'campaign-progress', {
         total: state.total,
@@ -2405,6 +2478,7 @@ async function loadCampaignRuntimeFromRedis(campaignId: string): Promise<Campaig
             failCount: parsed.failCount || 0,
             lastLoggedProcessed: parsed.lastLoggedProcessed || 0,
             isRunning: parsed.isRunning !== false,
+            recentOutcomes: [],
         };
     } catch {
         return null;
@@ -2444,6 +2518,7 @@ async function ensureCampaignRuntimeInMemory(campaignId: string, fallbackOwnerUi
             failCount: 0,
             lastLoggedProcessed: 0,
             isRunning: true,
+            recentOutcomes: [],
         });
         log('info', `[reconcile] Runtime mínimo criado para campanha ${campaignId} (sem Redis)`, { ownerUid: uid });
     }
@@ -3195,6 +3270,24 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     const normalizedDest = normalizeOutboundNumber(item.to);
+
+    // ── Limite de frequência: não reenviar para o mesmo contato em 24 h ───────
+    if (item.campaignId && checkFrequencyCap(campaignState?.ownerUid, item.to)) {
+        log('info', `[freq-cap] Contato ${normalizedDest} já recebeu mensagem nas últimas 24 h — pulando`, {
+            campaignId: item.campaignId, to: normalizedDest,
+        });
+        emitCampaignLog(
+            'WARN',
+            `Contato ${normalizedDest} ignorado: já recebeu mensagem nas últimas 24 h`,
+            { campaignId: item.campaignId, to: normalizedDest },
+            campaignState?.ownerUid
+        );
+        bumpQueueSize(item.connectionId, -1);
+        await accountCampaignJobOnce(job, item, true); // conta como "ok" (não como falha)
+        return;
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     log('info', 'Tentando envio', {
         toNormalized: normalizedDest,
         toOriginal: item.to,
@@ -3270,6 +3363,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     // o retry do BullMQ detecta _sentOk=true e não reenvia (idempotência).
     item._sentOk = true;
     await job.updateData(item).catch(() => {});
+
+    // Registra timestamp de envio para o limitador de frequência (24 h).
+    recordFrequencyCap(campaignState?.ownerUid, item.to);
 
     if (conn) {
         conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;
@@ -3662,6 +3758,7 @@ export async function startCampaign(
         failCount: 0,
         lastLoggedProcessed: 0,
         isRunning: true,
+        recentOutcomes: [],
     });
     // Persiste runtime no Redis imediatamente para sobreviver a restarts.
     void saveCampaignRuntimeToRedis(cid);

@@ -31,6 +31,7 @@ import { CampaignCockpitHero } from './campaigns/CampaignCockpitHero';
 import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
 import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
+import { CampaignPreviewModal } from './campaigns/CampaignPreviewModal';
 
 interface CampaignsTabProps {
   connections: WhatsAppConnection[];
@@ -81,6 +82,20 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   const [pendingDraft, setPendingDraft] = useState<CampaignWizardDraft | null>(null);
   const [dismissedInsights, setDismissedInsights] = useState<string[]>(loadDismissed);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Preview de campanha antes do disparo
+  const [previewPayload, setPreviewPayload] = useState<null | {
+    name: string; message: string; messageStages: string[];
+    replyFlow?: CampaignReplyFlow; connectedIds: string[];
+    numbers: string[]; recipients: Array<{ phone: string; vars: Record<string, string> }>;
+    contactListMeta: { id?: string; name?: string };
+    delaySeconds: number; launchMode?: 'now' | 'schedule';
+    schedule?: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean; onceLocalDate?: string; onceLocalTime?: string };
+    channelWeights?: Record<string, number>;
+    mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
+    followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
+  }>(null);
+  const [previewConfirmLoading, setPreviewConfirmLoading] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(LS_TEST_OPEN, testOpen ? '1' : '0');
@@ -203,7 +218,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     });
   };
 
-  const handleSubmitCampaign = async (payload: {
+  /** Executa o disparo real após confirmação no preview. */
+  const executeSubmitCampaign = async (payload: {
     name: string;
     message: string;
     messageStages: string[];
@@ -307,6 +323,25 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         return;
       }
       throw err;
+    }
+  };
+
+  /** Intercepta o disparo — mostra preview antes de executar. */
+  const handleSubmitCampaign = async (payload: Parameters<typeof executeSubmitCampaign>[0]) => {
+    setPreviewPayload(payload);
+  };
+
+  const handlePreviewConfirm = async () => {
+    if (!previewPayload) return;
+    setPreviewConfirmLoading(true);
+    try {
+      await executeSubmitCampaign(previewPayload);
+      setPreviewPayload(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
+      toast.error(msg, { duration: 9000 });
+    } finally {
+      setPreviewConfirmLoading(false);
     }
   };
 
@@ -456,6 +491,27 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         }}
         onAccepted={onRiskAccepted}
       />
+
+      {previewPayload && (
+        <CampaignPreviewModal
+          isOpen={true}
+          onClose={() => setPreviewPayload(null)}
+          onConfirm={() => void handlePreviewConfirm()}
+          campaignName={previewPayload.name}
+          message={previewPayload.message}
+          messageStages={previewPayload.messageStages}
+          chipCount={previewPayload.connectedIds.length}
+          contactCount={previewPayload.numbers.length}
+          delaySeconds={previewPayload.delaySeconds}
+          launchMode={previewPayload.launchMode ?? 'now'}
+          sampleRecipients={previewPayload.recipients.slice(0, 3).map((r) => ({
+            phone: r.phone,
+            vars: r.vars,
+            name: r.vars['nome_completo'] || r.vars['nome'] || r.phone,
+          }))}
+          isLoading={previewConfirmLoading}
+        />
+      )}
 
       {viewState === 'create' ? (
         <NewCampaignWizard

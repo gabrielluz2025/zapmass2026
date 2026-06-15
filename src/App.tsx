@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
-import { Crown, Loader2, Zap } from 'lucide-react';
+import { Crown, Loader2, Search, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
 import { PreLoginLanding } from './components/PreLoginLanding';
@@ -13,7 +13,8 @@ import { ImprovementSuggestionButton } from './components/shell/ImprovementSugge
 import { NotificationBell } from './components/shell/NotificationBell';
 import { NotificationProvider } from './context/NotificationContext';
 import { firestoreTimeToMs } from './utils/firestoreTime';
-import { ZapMassProvider, useZapMassConnectionsSlice } from './context/ZapMassContext';
+import { ZapMassProvider, useZapMassConnectionsSlice, useZapMassCore } from './context/ZapMassContext';
+import { GlobalSearch } from './components/ui/GlobalSearch';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppConfigProvider } from './context/AppConfigContext';
 import { SubscriptionProvider, useSubscription } from './context/SubscriptionContext';
@@ -107,15 +108,29 @@ function formatAccessEndPtBR(v: unknown): string | null {
 
 const MainLayout: React.FC = () => {
   const connections = useZapMassConnectionsSlice();
+  const { campaigns, contacts } = useZapMassCore();
   const { user } = useAuth();
   const { readOnlyMode, readOnlyMessage, subscription, enforce, hasFullAccess } = useSubscription();
   const { currentView, setCurrentView } = useAppView();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [trialEndedOpen, setTrialEndedOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const trialEndTimerRef = useRef<number | null>(null);
   const trialEndedHandledRef = useRef(false);
 
   const isAdmin = isPlatformAdminUser(user);
+
+  // Cmd+K / Ctrl+K abre a paleta de busca global
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(() => {
     if (!enforce || !user || !subscription) return;
@@ -285,6 +300,19 @@ const MainLayout: React.FC = () => {
           headerUpgradeNearLatency={headerUpgradeNearLatency}
           topBarActions={
             <>
+              <button
+                type="button"
+                onClick={() => setSearchOpen(true)}
+                title="Busca global (Ctrl+K)"
+                className="hidden sm:flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-3)', background: 'var(--surface-1)' }}
+              >
+                <Search className="w-3.5 h-3.5" />
+                Buscar
+                <kbd className="ml-1 rounded px-1 py-0.5 text-[9px] font-bold" style={{ background: 'var(--surface-2)' }}>
+                  ⌘K
+                </kbd>
+              </button>
               <NotificationBell />
               <ImprovementSuggestionButton currentView={currentView} />
             </>
@@ -295,6 +323,15 @@ const MainLayout: React.FC = () => {
       </MainLayoutNavProvider>
       <UpgradeProModal isOpen={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
       <TrialEndedModal isOpen={trialEndedOpen} onClose={() => setTrialEndedOpen(false)} />
+      {searchOpen && (
+        <GlobalSearch
+          campaigns={campaigns}
+          contacts={contacts}
+          connections={connections}
+          onNavigate={setCurrentView}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
     </>
   );
 };

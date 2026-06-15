@@ -1295,6 +1295,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ) {
           return prev;
         }
+        // ── Detecta chip offline (open → não-open) e notifica com toast ──────
+        const prevMap = new Map(scopedPrev.map((c) => [c.id, c.status]));
+        for (const conn of result) {
+            const prevStatus = prevMap.get(conn.id);
+            const isNowOffline =
+                prevStatus === ConnectionStatus.CONNECTED &&
+                conn.status !== ConnectionStatus.CONNECTED;
+            if (isNowOffline) {
+                const label = conn.name || conn.phoneNumber || conn.id;
+                toast.error(`Chip desconectado: ${label}`, {
+                    icon: '📵',
+                    duration: 7000,
+                    id: `chip-offline-${conn.id}`,
+                });
+            }
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         connectionsRef.current = result;
         return result;
       });
@@ -2020,6 +2038,24 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             void Notification.requestPermission();
           }
         } catch { /* Notificações não suportadas — ignora silenciosamente */ }
+      }
+    );
+
+    socket.on(
+      'campaign-auto-paused',
+      ({ campaignId, failRatePct }: { campaignId?: string; reason?: string; failRatePct?: number }) => {
+        const pct = failRatePct ?? '?';
+        toast.error(
+          `Campanha pausada automaticamente: ${pct}% de falhas nos últimos envios. Verifique os chips e retome manualmente.`,
+          { duration: 12000, icon: '⚠️', id: `auto-pause-${campaignId}` }
+        );
+        if (campaignId) {
+          setCampaigns((prev) =>
+            prev.map((c) =>
+              c.id === campaignId ? { ...c, status: CampaignStatus.PAUSED } : c
+            )
+          );
+        }
       }
     );
 
