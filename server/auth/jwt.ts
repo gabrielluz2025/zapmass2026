@@ -10,7 +10,9 @@ export type AccessTokenClaims = {
   tenantUid: string;
 };
 
-const ACCESS_TTL_SEC = Number(process.env.ZAPMASS_ACCESS_TTL_SEC || 900);
+// Padrão: 8h (28800s). Suficiente para sessões de trabalho sem forçar logout durante disparos.
+// Sobrescrever via ZAPMASS_ACCESS_TTL_SEC no .env da VPS.
+const ACCESS_TTL_SEC = Number(process.env.ZAPMASS_ACCESS_TTL_SEC || 28800);
 const REFRESH_TTL_DAYS = Number(process.env.ZAPMASS_REFRESH_TTL_DAYS || 30);
 
 function jwtSecret(): Uint8Array {

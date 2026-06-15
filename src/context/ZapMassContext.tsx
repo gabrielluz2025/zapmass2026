@@ -3233,6 +3233,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       throw new Error(msg);
     }
 
+    // Verificar Redis antes de iniciar: evita "Tempo esgotado ao enfileirar" surpresa.
+    try {
+      const redisCheck = await fetch('/api/health/redis', { signal: AbortSignal.timeout(6000) });
+      if (!redisCheck.ok) {
+        const body = await redisCheck.json().catch(() => ({})) as { error?: string };
+        throw new Error(
+          body.error ||
+          'Redis indisponível na VPS. O disparo não pode ser iniciado. Verifique o container Redis.'
+        );
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('Redis')) throw e;
+      // Timeout ou falha de rede — não bloqueia (servidor pode estar iniciando)
+      console.warn('[startMassCampaign] Redis health-check falhou (continuando):', e);
+    }
+
     const cleanNumbers = Array.from(
       new Set(
         numbers

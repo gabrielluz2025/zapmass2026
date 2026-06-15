@@ -1575,7 +1575,14 @@ function getRedisConnection(): IORedis | null {
         redisConnection = new IORedis(url, {
             maxRetriesPerRequest: null,
             enableOfflineQueue: false,
-            retryStrategy: (times) => Math.min(times * 500, 5000),
+            // Timeout de conexão TCP: se Redis não responder em 8s, aborta (evita hang infinito)
+            connectTimeout: 8_000,
+            // Timeout por comando: previne que queue.add() trave o event-loop indefinidamente
+            commandTimeout: 12_000,
+            retryStrategy: (times) => {
+                if (times > 10) return null; // desiste após 10 tentativas (~27s)
+                return Math.min(times * 500, 5000);
+            },
             reconnectOnError: () => true,
         });
         redisConnection.on('error', (err) => {
@@ -1583,6 +1590,23 @@ function getRedisConnection(): IORedis | null {
         });
     }
     return redisConnection;
+}
+
+/** Verifica se o Redis está acessível com timeout de 5s. */
+async function pingRedis(): Promise<boolean> {
+    const conn = getRedisConnection();
+    if (!conn) return false;
+    try {
+        const result = await Promise.race([
+            conn.ping(),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Redis ping timeout')), 5_000)
+            ),
+        ]);
+        return result === 'PONG';
+    } catch {
+        return false;
+    }
 }
 
 function getCampaignQueue(): Queue<MessageQueueItem> | null {
@@ -3156,7 +3180,7 @@ async function sendMessageInternal(
     }
 }
 
-const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 20_000;
+const ENQUEUE_CAMPAIGN_TIMEOUT_MS = 45_000;
 
 async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     const queue = getCampaignQueue();
@@ -3766,13 +3790,26 @@ export async function startCampaign(
     ensureReplyFlowEngine();
     ensureCampaignWorker();
 
+    // Verificar Redis antes de enfileirar: se não responder, aborta imediatamente com erro claro.
+    const redisOk = await pingRedis();
+    if (!redisOk) {
+        emitCampaignLog(
+            'ERROR',
+            'Redis indisponível — não foi possível iniciar o disparo. Verifique o container Redis na VPS.',
+            { campaignId: cid },
+            ownerUid
+        );
+        log('error', 'startCampaign abortado: Redis não respondeu ao ping', { campaignId: cid });
+        return false;
+    }
+
     if (useReplyFlow) {
         replyFlowEngine.registerDef(cid, sanitizedReplySteps);
     }
 
     const activeConnectionIds = await filterActiveConnections(connectionIds);
     if (activeConnectionIds.length === 0) {
-        emitCampaignLog('ERROR', 'Nenhum canal respondeu após verificação.', { campaignId: cid });
+        emitCampaignLog('ERROR', 'Nenhum canal respondeu após verificação.', { campaignId: cid }, ownerUid);
         return false;
     }
 

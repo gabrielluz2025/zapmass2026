@@ -368,6 +368,17 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
+/** Verifica Redis rapidamente (sem auth). Usado pelo frontend antes de iniciar disparo. */
+app.get('/api/health/redis', async (_req, res) => {
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (!redisUrl) {
+    return res.status(503).json({ ok: false, configured: false, error: 'REDIS_URL não configurado.' });
+  }
+  const ping = await redisPing(redisUrl);
+  const status = ping.ok ? 200 : 503;
+  return res.status(status).json({ ok: ping.ok, pingMs: ping.pingMs, error: ping.error ?? null });
+});
+
 /** Redis + router de sessão (útil com API + wa-worker). Em produção: redes não privadas ou METRICS_TOKEN. */
 app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   const redisUrl = process.env.REDIS_URL?.trim();
