@@ -1592,21 +1592,14 @@ function getRedisConnection(): IORedis | null {
     return redisConnection;
 }
 
-/** Verifica se o Redis está acessível com timeout de 5s. */
-async function pingRedis(): Promise<boolean> {
-    const conn = getRedisConnection();
-    if (!conn) return false;
-    try {
-        const result = await Promise.race([
-            conn.ping(),
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Redis ping timeout')), 5_000)
-            ),
-        ]);
-        return result === 'PONG';
-    } catch {
-        return false;
-    }
+/** Verifica se o Redis está acessível abrindo uma conexão independente (não interfere no BullMQ). */
+async function pingRedisHealthy(): Promise<boolean> {
+    const url = getRedisUrl();
+    if (!url) return false;
+    // Cria conexão isolada para o ping (não usa a conexão BullMQ que tem enableOfflineQueue:false).
+    const { redisPing } = await import('./redisPing.js');
+    const result = await redisPing(url);
+    return result.ok;
 }
 
 function getCampaignQueue(): Queue<MessageQueueItem> | null {
@@ -3790,17 +3783,13 @@ export async function startCampaign(
     ensureReplyFlowEngine();
     ensureCampaignWorker();
 
-    // Verificar Redis antes de enfileirar: se não responder, aborta imediatamente com erro claro.
-    const redisOk = await pingRedis();
+    // Verificar Redis antes de enfileirar: se não responder, lança erro claro para o socket handler.
+    const redisOk = await pingRedisHealthy();
     if (!redisOk) {
-        emitCampaignLog(
-            'ERROR',
-            'Redis indisponível — não foi possível iniciar o disparo. Verifique o container Redis na VPS.',
-            { campaignId: cid },
-            ownerUid
-        );
+        const redisErr = 'Redis indisponível na VPS — reinicie o container: docker compose restart redis';
+        emitCampaignLog('ERROR', redisErr, { campaignId: cid }, ownerUid);
         log('error', 'startCampaign abortado: Redis não respondeu ao ping', { campaignId: cid });
-        return false;
+        throw new Error(redisErr);
     }
 
     if (useReplyFlow) {
@@ -3809,8 +3798,9 @@ export async function startCampaign(
 
     const activeConnectionIds = await filterActiveConnections(connectionIds);
     if (activeConnectionIds.length === 0) {
-        emitCampaignLog('ERROR', 'Nenhum canal respondeu após verificação.', { campaignId: cid }, ownerUid);
-        return false;
+        const connErr = 'Nenhum chip respondeu — reconecte o WhatsApp no painel de Conexões e tente de novo.';
+        emitCampaignLog('ERROR', connErr, { campaignId: cid }, ownerUid);
+        throw new Error(connErr);
     }
 
     // Verifica se há stageConfigs → motor multi-etapas lazy (qualquer trigger_type)
