@@ -1441,8 +1441,10 @@ const registerSocketHandlers = () => {
             }
           : undefined;
 
-        // Libera a UI imediatamente; ping/reconnect de chips e fila rodam em background.
-        callback?.({ ok: true });
+        // IMPORTANTE: NÃO chamar callback({ ok: true }) antes de iniciar — isso remove os
+        // listeners de 'campaign-error' no frontend antes que a fila seja montada.
+        // O 'campaign-started' emitido pelo startCampaign já resolve a Promise do frontend.
+        // O callback só é chamado aqui em caso de erro imediato (pré-validação).
 
         void (async () => {
           try {
@@ -1456,6 +1458,7 @@ const registerSocketHandlers = () => {
               userLog('campaign:error', { campaignId, reason: 'Nenhum canal conectado', connectionIds });
               const err =
                 'Canal offline no servidor. Abra Conexões, reconecte o chip ou atualize a página (F5) e tente de novo.';
+              callback?.({ ok: false, error: err });
               socket.emit('campaign-error', { error: err, campaignId });
               notifyCampaignSocketError(uid, err, campaignId);
               return;
@@ -1481,15 +1484,15 @@ const registerSocketHandlers = () => {
             if (!ok) {
               const errMsg =
                 'Não foi possível iniciar: verifique se os canais estão conectados e responsivos.';
-              socket.emit('campaign-error', {
-                error: errMsg,
-                campaignId
-              });
+              callback?.({ ok: false, error: errMsg });
+              socket.emit('campaign-error', { error: errMsg, campaignId });
               notifyCampaignSocketError(uid, errMsg, campaignId);
             }
+            // ok === true: 'campaign-started' já foi emitido pelo startCampaign internamente
           } catch (error: any) {
             const messageText = error?.message || 'Falha ao iniciar campanha.';
             userLog('campaign:error', { campaignId, reason: messageText, connectionIds });
+            callback?.({ ok: false, error: messageText });
             socket.emit('campaign-error', { error: messageText, campaignId });
             notifyCampaignSocketError(uid, messageText, campaignId);
           }

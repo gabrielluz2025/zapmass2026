@@ -129,9 +129,10 @@ async function confirmCampaignStartedViaApi(
 }
 
 /**
- * Tempo máximo até ack da campanha (callback / campaign-started / campaign-error).
- * Backend faz ping nos canais, opcional reconnect e espera (~10s) antes de responder — vários chips somam esse tempo.
- * Anexos em base64 atravessam o WebSocket e precisam de ainda mais margem.
+ * Tempo máximo até ack da campanha (campaign-started / campaign-error / callback).
+ * O servidor agora só responde DEPOIS de checar conexões, pingar Redis e enfileirar.
+ * Isso é mais robusto mas exige timeout maior que o antigo "callback imediato".
+ * Estimativa: 5s (chip check) + 2s (Redis ping) + 3s (enfileirar) = ~10s base.
  */
 function startCampaignAckTimeoutMs(
   media?: { dataBase64?: string },
@@ -140,13 +141,13 @@ function startCampaignAckTimeoutMs(
   const b64 = media?.dataBase64;
   if (b64) {
     const approxBytes = (b64.length * 3) / 4;
-    if (approxBytes < 50_000) return 45_000;
-    const ms = 40_000 + (approxBytes / 100_000) * 1_000;
-    return Math.min(900_000, Math.max(90_000, Math.ceil(ms)));
+    if (approxBytes < 50_000) return 60_000;
+    const ms = 50_000 + (approxBytes / 100_000) * 1_000;
+    return Math.min(900_000, Math.max(120_000, Math.ceil(ms)));
   }
-  /** Servidor responde callback cedo; margem curta caso o socket caia no meio do emit. */
+  // Base 30s + 3s por chip (verificação de conexão pode demorar por chip)
   const n = Math.max(1, Math.min(24, Number(connectionIdsCount) || 1));
-  return Math.min(35_000, 12_000 + n * 2_000);
+  return Math.min(75_000, 30_000 + n * 3_000);
 }
 
 const INITIAL_METRICS: DashboardMetrics = {
