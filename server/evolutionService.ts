@@ -1542,6 +1542,8 @@ interface MessageQueueItem {
     _sentOk?: boolean;
     /** Evita contabilizar processed/success duas vezes se o job for reprocessado após falha tardia. */
     _progressAccounted?: boolean;
+    /** Conta quantas vezes o job foi adiado por limite diário — falha definitiva após 3 dias. */
+    _limitDelayCount?: number;
     /** Motor multi-etapas lazy: identifica contactId e stepIndex desta entrega. */
     multiStepContact?: {
         contactId: string;
@@ -1571,22 +1573,39 @@ let campaignQueue: Queue<MessageQueueItem> | null = null;
 function getRedisConnection(): IORedis | null {
     const url = getRedisUrl();
     if (!url) return null;
+
+    // Se a conexão anterior morreu permanentemente, recria tudo do zero.
+    // IORedis status 'end' significa que retryStrategy retornou null — conexão permanentemente fechada.
+    if (redisConnection && redisConnection.status === 'end') {
+        console.warn('[campaign-queue] Conexão Redis morreu permanentemente — recriando…');
+        redisConnection.disconnect();
+        redisConnection = null;
+        campaignQueue = null;
+        // Worker também precisa ser recriado (ele tem um duplicate da conexão morta).
+        if (campaignWorker) {
+            campaignWorker.close().catch(() => {});
+            campaignWorker = null;
+        }
+    }
+
     if (!redisConnection) {
         redisConnection = new IORedis(url, {
             maxRetriesPerRequest: null,
             enableOfflineQueue: false,
-            // Timeout de conexão TCP: se Redis não responder em 8s, aborta (evita hang infinito)
             connectTimeout: 8_000,
-            // Timeout por comando: previne que queue.add() trave o event-loop indefinidamente
             commandTimeout: 12_000,
-            retryStrategy: (times) => {
-                if (times > 10) return null; // desiste após 10 tentativas (~27s)
-                return Math.min(times * 500, 5000);
-            },
+            // Sem limite de retries: reconecta indefinidamente com backoff até 10s.
+            // Isso evita que a conexão morra permanentemente quando o Redis reinicia na VPS.
+            retryStrategy: (times) => Math.min(times * 500, 10_000),
             reconnectOnError: () => true,
         });
         redisConnection.on('error', (err) => {
             console.warn('[campaign-queue] redis error:', err?.message || err);
+        });
+        // Quando a conexão se recupera, garantir que o worker está ativo.
+        redisConnection.on('connect', () => {
+            console.info('[campaign-queue] Redis reconectado — verificando worker…');
+            ensureCampaignWorker();
         });
     }
     return redisConnection;
@@ -3319,7 +3338,21 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                 });
             }
 
-            await job.moveToDelayed(Date.now() + 15000, token);
+            // Adiar até meia-noite (reset diário) em vez de 15s em loop infinito.
+            // DelayedError não conta como attempt — sem limite de tentativas, o loop de 15s
+            // mantinha os jobs "pending" para sempre. Agora retenta 1× por dia.
+            item._limitDelayCount = (item._limitDelayCount || 0) + 1;
+            if (item._limitDelayCount > 3) {
+                // Após 3 dias esperando e limite ainda excedido → falha definitiva
+                throw new Error(
+                    `Limite diário atingido no canal ${conn.friendlyName || item.connectionId} por ${item._limitDelayCount} dias consecutivos. Aumente o limite ou adicione outro chip.`
+                );
+            }
+            await job.updateData(item).catch(() => {});
+            // Calcula ms até a próxima meia-noite (fuso Brasil UTC-3)
+            const nowBr = new Date(Date.now() - 3 * 3600_000);
+            const msBrMidnight = (24 - nowBr.getUTCHours()) * 3600_000 - nowBr.getUTCMinutes() * 60_000 - nowBr.getUTCSeconds() * 1000;
+            await job.moveToDelayed(Date.now() + Math.max(msBrMidnight, 60_000), token);
             throw new DelayedError();
         }
     }
