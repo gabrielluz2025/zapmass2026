@@ -1441,19 +1441,38 @@ const registerSocketHandlers = () => {
             }
           : undefined;
 
-        // IMPORTANTE: NÃO chamar callback({ ok: true }) antes de iniciar — isso remove os
-        // listeners de 'campaign-error' no frontend antes que a fila seja montada.
-        // O 'campaign-started' emitido pelo startCampaign já resolve a Promise do frontend.
-        // O callback só é chamado aqui em caso de erro imediato (pré-validação).
+        // 1. Verificar Redis PRIMEIRO (rápido, 5s) — se estiver fora, não tenta checar chips
+        //    porque a Evolution API também usa Redis e ficaria pendurada, causando timeout no cliente.
+        const redisUrl = process.env.REDIS_URL?.trim();
+        if (redisUrl) {
+          const ping = await redisPing(redisUrl);
+          if (!ping.ok) {
+            const redisErr = 'Redis indisponível na VPS — reinicie o container: docker compose restart redis';
+            userLog('campaign:error', { campaignId, reason: redisErr });
+            callback?.({ ok: false, error: redisErr });
+            socket.emit('campaign-error', { error: redisErr, campaignId });
+            notifyCampaignSocketError(uid, redisErr, campaignId);
+            return;
+          }
+        }
 
+        // 2. Com Redis ok, verificar chips com timeout protegido (evita pendurar o handler).
+        //    Não chamar callback({ ok: true }) antes — isso remove os listeners de campaign-error.
+        //    O campaign-started emitido pelo startCampaign resolve o Promise do frontend.
         void (async () => {
           try {
-            if (!evolutionService.anySelectedConnectionsOpenInMemory(connectionIds)) {
-              await evolutionService.refreshConnectionsForCampaign(connectionIds).catch(() => undefined);
-            }
-            const hasConnected =
-              evolutionService.anySelectedConnectionsOpenInMemory(connectionIds) ||
-              (await evolutionService.anySelectedConnectionsOpen(connectionIds));
+            // Chip check com timeout de 15s para não travar o handler indefinidamente
+            const chipCheckTimeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), 15_000));
+            const chipCheckResult = async (): Promise<boolean> => {
+              if (!evolutionService.anySelectedConnectionsOpenInMemory(connectionIds)) {
+                await evolutionService.refreshConnectionsForCampaign(connectionIds).catch(() => undefined);
+              }
+              return (
+                evolutionService.anySelectedConnectionsOpenInMemory(connectionIds) ||
+                (await evolutionService.anySelectedConnectionsOpen(connectionIds))
+              );
+            };
+            const hasConnected = await Promise.race([chipCheckResult(), chipCheckTimeout]);
             if (!hasConnected) {
               userLog('campaign:error', { campaignId, reason: 'Nenhum canal conectado', connectionIds });
               const err =
