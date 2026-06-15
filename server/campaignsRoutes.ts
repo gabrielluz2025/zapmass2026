@@ -336,4 +336,25 @@ export function registerCampaignsDataRoutes(app: Express): void {
       return res.status(500).json({ ok: false, error: msg });
     }
   });
+
+  /**
+   * GET /api/campaigns/failed-jobs
+   * Retorna os últimos jobs falhos na fila BullMQ com o motivo real do erro.
+   * Útil para diagnóstico quando o disparo não está enviando.
+   */
+  app.get('/api/campaigns/failed-jobs', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const jobs = await evolutionService.getFailedCampaignJobs(30);
+      // Filtra apenas jobs do tenant
+      const tenantConns = evolutionService.getConnectionsForTenant(ctx.tenantId);
+      const ownedIds = new Set(tenantConns.map((c) => c.instanceName || c.id));
+      const filtered = jobs.filter((j) => ownedIds.has(j.connectionId));
+      return res.json({ ok: true, jobs: filtered });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
 }

@@ -3056,22 +3056,28 @@ async function sendMessageInternal(
     connectionId: string,
     to: string,
     message: string
-): Promise<{ ok: boolean; messageId?: string }> {
+): Promise<{ ok: boolean; messageId?: string; errorDetail?: string }> {
     try {
         const number = normalizeOutboundNumber(to);
 
         if (!number) {
             log('warn', `Número inválido após normalização — envio ignorado`, { to, connectionId });
-            return { ok: false };
+            return { ok: false, errorDetail: `Número inválido: ${to}` };
         }
 
         // Log explícito do número normalizado para facilitar diagnóstico de entrega
         log('info', `Enviando mensagem via ${connectionId}`, { toNormalized: number, toOriginal: to });
 
+        // Formato compatível com Evolution API v1 e v2.x:
+        //  - v1: aceita { number, text, delay }
+        //  - v2: aceita { number, options: { delay }, textMessage: { text } }
+        // Enviamos ambos os campos para máxima compatibilidade.
         const response = await api.post(`/message/sendText/${evoInst(connectionId)}`, {
             number,
-            text: message,
+            options: { delay: 1200, presence: 'composing' },
             textMessage: { text: message },
+            // Campos legados v1 — mantidos para compatibilidade retroativa
+            text: message,
             delay: 1200,
         });
 
@@ -3109,7 +3115,6 @@ async function sendMessageInternal(
         }
 
         // Qualquer outra resposta 2xx que não seja um erro explícito — assumir sucesso
-        // (comportamento conservador anterior retornava false e causava retries desnecessários)
         const isExplicitError =
             responseData?.error ||
             (typeof responseData?.message === 'string' && /error|failed|invalid|unauthorized/i.test(responseData.message));
@@ -3122,23 +3127,32 @@ async function sendMessageInternal(
         }
 
         // Evolution retornou 2xx mas com indicação de erro
+        const errMsg2xx = String(responseData?.error || responseData?.message || 'Evolution retornou resposta sem confirmação');
         log('warn', `Evolution respondeu com possível falha de entrega`, {
             toNormalized: number,
             toOriginal: to,
             connectionId,
             responseSnippet: JSON.stringify(responseData).slice(0, 400),
         });
-        return { ok: false };
+        return { ok: false, errorDetail: errMsg2xx };
     } catch (error: any) {
+        const httpStatus: number | undefined = error.response?.status;
+        const respBody = error.response?.data;
+        const respMsg = typeof respBody === 'object'
+            ? (respBody?.message || respBody?.error || JSON.stringify(respBody).slice(0, 200))
+            : String(respBody || '').slice(0, 200);
+        const detail = httpStatus
+            ? `HTTP ${httpStatus}: ${respMsg || error.message}`
+            : error.message;
         log('error', `Erro HTTP ao enviar mensagem`, {
             connectionId,
             toOriginal: to,
             toNormalized: normalizeOutboundNumber(to),
             error: error.message,
-            httpStatus: error.response?.status,
-            responseBody: JSON.stringify(error.response?.data || {}).slice(0, 500),
+            httpStatus,
+            responseBody: JSON.stringify(respBody || {}).slice(0, 500),
         });
-        return { ok: false };
+        return { ok: false, errorDetail: detail };
     }
 }
 
@@ -3353,7 +3367,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         throw new Error('Mensagem vazia após personalização — verifique variáveis e spintax');
     }
 
-    let sendResult: { ok: boolean; messageId?: string } = { ok: false };
+    let sendResult: { ok: boolean; messageId?: string; errorDetail?: string } = { ok: false };
     if (hasMediaPayload) {
         if (mediaToSend.url) {
             sendResult = await sendMediaByUrlInternal(
@@ -3379,13 +3393,19 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!sendResult.ok) {
+        const errDetail = sendResult.errorDetail || 'Evolution API não confirmou entrega';
         emitCampaignLog(
             'ERROR',
-            `Falha ao enviar para ${normalizedDest} — Evolution API não confirmou entrega`,
-            { campaignId: item.campaignId, to: normalizedDest, connectionId: item.connectionId },
+            `Falha ao enviar para ${normalizedDest}`,
+            {
+                campaignId: item.campaignId,
+                to: normalizedDest,
+                connectionId: item.connectionId,
+                error: errDetail,
+            },
             campaignState?.ownerUid
         );
-        throw new Error(`Falha no envio para ${normalizedDest}`);
+        throw new Error(`Falha no envio para ${normalizedDest} — ${errDetail}`);
     }
 
     // Marca envio OK antes de qualquer lógica pós-envio: se o processo cair aqui,
@@ -4741,10 +4761,41 @@ export async function sendTestMessage(
         const result = await sendMessageInternal(connectionId, toNumber, message);
         return result.ok
             ? { ok: true, messageId: result.messageId }
-            : { ok: false, error: 'Evolution API não confirmou entrega (possível chip offline)' };
+            : { ok: false, error: result.errorDetail || 'Evolution API não confirmou entrega (possível chip offline)' };
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         return { ok: false, error: msg };
+    }
+}
+
+/** Retorna últimos N jobs falhos da fila BullMQ de campanhas com seus erros. */
+export async function getFailedCampaignJobs(limit = 20): Promise<Array<{
+    jobId: string;
+    campaignId: string;
+    connectionId: string;
+    to: string;
+    failedReason: string;
+    attemptsMade: number;
+    failedAt?: string;
+}>> {
+    const queue = getCampaignQueue();
+    if (!queue) return [];
+    try {
+        const failed = await queue.getFailed(0, limit - 1);
+        return failed.map((j) => {
+            const d = (j.data || {}) as Partial<MessageQueueItem>;
+            return {
+                jobId: String(j.id || ''),
+                campaignId: String(d.campaignId || ''),
+                connectionId: String(d.connectionId || ''),
+                to: String(d.to || ''),
+                failedReason: j.failedReason || 'desconhecido',
+                attemptsMade: j.attemptsMade ?? 0,
+                failedAt: j.finishedOn ? new Date(j.finishedOn).toISOString() : undefined,
+            };
+        });
+    } catch {
+        return [];
     }
 }
 

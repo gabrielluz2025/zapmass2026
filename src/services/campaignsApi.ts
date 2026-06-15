@@ -197,3 +197,23 @@ export async function apiTestSend(
     body: JSON.stringify({ connectionId, toNumber, message })
   });
 }
+
+export type FailedJob = {
+  jobId: string;
+  campaignId: string;
+  connectionId: string;
+  to: string;
+  failedReason: string;
+  attemptsMade: number;
+  failedAt?: string;
+};
+
+export type FailedJobsResult = {
+  ok: boolean;
+  jobs: FailedJob[];
+};
+
+/** Retorna os jobs falhos da fila BullMQ com o motivo real do erro. */
+export async function apiGetFailedJobs(): Promise<FailedJobsResult> {
+  return apiFetchJson<FailedJobsResult>('/api/campaigns/failed-jobs');
+}
