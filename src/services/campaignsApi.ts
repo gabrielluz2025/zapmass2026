@@ -153,3 +153,47 @@ export async function retryFailedContacts(
   });
   return Number(j.reset) || 0;
 }
+
+// ─── Pré-voo e diagnóstico de disparo ────────────────────────────────────────
+
+export type PreflightConnectionResult = {
+  connectionId: string;
+  status: string;
+  isReady: boolean;
+  error: string | null;
+};
+
+export type PreflightResult = {
+  ok: boolean;
+  allReady: boolean;
+  readyCount: number;
+  totalChecked: number;
+  results: PreflightConnectionResult[];
+};
+
+/** Verifica se os chips estão prontos para disparo (sem enviar mensagem). */
+export async function apiPreflightCheck(connectionIds: string[]): Promise<PreflightResult> {
+  const j = await apiFetchJson<PreflightResult>('/api/campaigns/preflight', {
+    method: 'POST',
+    body: JSON.stringify({ connectionIds })
+  });
+  return j;
+}
+
+export type TestSendResult = {
+  ok: boolean;
+  messageId?: string;
+  error?: string;
+};
+
+/** Envia uma mensagem de teste para validar o chip antes do disparo em massa. */
+export async function apiTestSend(
+  connectionId: string,
+  toNumber: string,
+  message: string
+): Promise<TestSendResult> {
+  return apiFetchJson<TestSendResult>('/api/campaigns/test-send', {
+    method: 'POST',
+    body: JSON.stringify({ connectionId, toNumber, message })
+  });
+}

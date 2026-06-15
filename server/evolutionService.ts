@@ -2068,6 +2068,8 @@ interface CampaignRuntimeState {
     recentOutcomes: boolean[];
     /** Evita emitir múltiplos alertas de auto-pausa seguidos. */
     autoPauseEmitted?: boolean;
+    /** Variáveis de personalização por destinatário — usadas em etapas lazy/multi-step. */
+    _recipientVars?: Map<string, Record<string, string>>;
 }
 
 const campaignsById = new Map<string, CampaignRuntimeState>();
@@ -3092,8 +3094,35 @@ async function sendMessageInternal(
             return { ok: true, messageId: altId || undefined };
         }
 
-        // Evolution retornou 2xx mas sem 'key' — pode ser falha silenciosa
-        log('warn', `Evolution respondeu sem campo 'key' — possível falha de entrega`, {
+        // Evolution v2: campo 'messageId' direto na raiz
+        if (responseData?.messageId) {
+            log('info', `✅ Mensagem aceita (Evolution v2 — campo messageId)`, { toNormalized: number, messageId: responseData.messageId });
+            return { ok: true, messageId: String(responseData.messageId) };
+        }
+
+        // Evolution v2: resposta com 'status' indicando sucesso, sem 'key'
+        const statusOk = typeof responseData?.status === 'string' &&
+            ['PENDING', 'SERVER_ACK', 'DELIVERY_ACK', 'READ', 'PLAYED', 'sent', 'delivered'].includes(responseData.status);
+        if (statusOk) {
+            log('info', `✅ Mensagem aceita (Evolution — status ${responseData.status})`, { toNormalized: number });
+            return { ok: true };
+        }
+
+        // Qualquer outra resposta 2xx que não seja um erro explícito — assumir sucesso
+        // (comportamento conservador anterior retornava false e causava retries desnecessários)
+        const isExplicitError =
+            responseData?.error ||
+            (typeof responseData?.message === 'string' && /error|failed|invalid|unauthorized/i.test(responseData.message));
+        if (!isExplicitError && responseData && typeof responseData === 'object') {
+            log('warn', `Evolution respondeu 2xx sem 'key' — assumindo sucesso preventivo`, {
+                toNormalized: number,
+                responseSnippet: JSON.stringify(responseData).slice(0, 400),
+            });
+            return { ok: true };
+        }
+
+        // Evolution retornou 2xx mas com indicação de erro
+        log('warn', `Evolution respondeu com possível falha de entrega`, {
             toNormalized: number,
             toOriginal: to,
             connectionId,
@@ -3495,18 +3524,19 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
                             },
                             p.delayMs
                         );
-                        // Incrementa pendingJobs para que finishCampaignJob não encerre a campanha prematuramente
-                        if (p.campaignId) {
-                            campaignPendingJobs.set(
-                                p.campaignId,
-                                (campaignPendingJobs.get(p.campaignId) || 0) + 1
-                            );
-                        }
+                        // NÃO incrementar campaignPendingJobs aqui — enqueueCampaignItem já incrementa.
+                        // O duplo incremento anterior inflava o contador e impedia a campanha de finalizar.
                     },
                     onLog: (msg, payload) => emitCampaignLog('INFO', msg, payload, campaignState?.ownerUid),
                     resolveConnectionId: () => item.connectionId,
                     resolveVars: (cid) => {
                         const cleaned = normalizePhoneKey(cid);
+                        // Garante que as variáveis do contato (nome, etc.) são passadas para etapas seguintes
+                        const state = campaignsById.get(item.campaignId || '');
+                        const recipientVars = (state as any)?._recipientVars;
+                        if (recipientVars instanceof Map) {
+                            return recipientVars.get(cleaned) || {};
+                        }
                         return buildRecipientVarsMap(undefined).get(cleaned) || {};
                     },
                     applyVars: (template, cid, vars) => applyMessageVars(template, cid, vars),
@@ -3759,6 +3789,8 @@ export async function startCampaign(
         lastLoggedProcessed: 0,
         isRunning: true,
         recentOutcomes: [],
+        // Guarda variáveis dos destinatários para uso em etapas posteriores (multi-step/reply-flow)
+        _recipientVars: recipientVars,
     });
     // Persiste runtime no Redis imediatamente para sobreviver a restarts.
     void saveCampaignRuntimeToRedis(cid);
@@ -4149,12 +4181,7 @@ export async function handleWebhook(event: any) {
                                         },
                                         p.delayMs
                                     );
-                                    if (p.campaignId) {
-                                        campaignPendingJobs.set(
-                                            p.campaignId,
-                                            (campaignPendingJobs.get(p.campaignId) || 0) + 1
-                                        );
-                                    }
+                                    // NÃO incrementar campaignPendingJobs aqui — enqueueCampaignItem já incrementa.
                                 },
                                 onLog: (msg, payload) =>
                                     emitCampaignLog('INFO', msg, payload, ownerUidForReply),
@@ -4680,6 +4707,47 @@ export async function reassignConnectionOwnerAdmin(
     return { ok: true, priorOwnerUid: prior, newOwnerUid: uid };
 }
 
+// ─── Funções auxiliares exportadas para routes ────────────────────────────────
+
+/** Retorna as conexões pertencentes a um tenant (por ownerUid). */
+export function getConnectionsForTenant(tenantId: string): Array<{ id: string; instanceName: string }> {
+    const result: Array<{ id: string; instanceName: string }> = [];
+    for (const [id] of connections.entries()) {
+        const owner = resolveOwnerUid(id);
+        if (owner === tenantId) {
+            result.push({ id, instanceName: id });
+        }
+    }
+    return result;
+}
+
+/** Retorna o status público de uma conexão (para pré-voo de disparo). */
+export async function getConnectionStatePublic(instanceName: string): Promise<{ status: string; isOpen: boolean }> {
+    const mem = connections.get(instanceName);
+    if (mem?.status === 'open') return { status: 'open', isOpen: true };
+    const raw = await getConnectionState(instanceName, { timeoutMs: 6_000, skipCache: true });
+    const lower = raw.toLowerCase();
+    const isOpen = lower === 'open' || lower === 'connected';
+    return { status: lower, isOpen };
+}
+
+/** Envia mensagem de teste para validar chip antes do disparo em massa. */
+export async function sendTestMessage(
+    connectionId: string,
+    toNumber: string,
+    message: string
+): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+    try {
+        const result = await sendMessageInternal(connectionId, toNumber, message);
+        return result.ok
+            ? { ok: true, messageId: result.messageId }
+            : { ok: false, error: 'Evolution API não confirmou entrega (possível chip offline)' };
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { ok: false, error: msg };
+    }
+}
+
 // Export default
 export default {
     init,
@@ -4721,4 +4789,7 @@ export default {
     getWarmupState,
     markWarmupReady,
     fetchRawInstances,
+    getConnectionsForTenant,
+    getConnectionStatePublic,
+    sendTestMessage,
 };

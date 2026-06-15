@@ -86,6 +86,7 @@ import { Badge, Button, Card, Input, Modal, Tabs } from '../ui';
 import { CampaignDispatchLogs } from './CampaignDispatchLogs';
 import { PerformanceFunnel } from '../PerformanceFunnel';
 import { CampaignScoreCard } from './CampaignScoreCard';
+import { DispatchDiagnosticsPanel } from './DispatchDiagnosticsPanel';
 import {
   aggregateFunnelFromReportRows,
   clampCampaignFunnelMetrics,
@@ -1731,6 +1732,26 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             stageLabels={campaign.stageConfigs.map((s) => s.body.slice(0, 60))}
           />
         )}
+
+        {/* Painel de diagnóstico: exibido quando há falhas significativas (>10% dos envios) */}
+        {(() => {
+          const totalSent = campaign.processedCount || 0;
+          const failedJobs = campaign.failedCount || 0;
+          const failPct = totalSent > 0 ? failedJobs / totalSent : 0;
+          const showDiag = failedJobs >= 3 || (totalSent === 0 && campaign.status === 'RUNNING') || failPct > 0.1;
+          if (!showDiag) return null;
+          return (
+            <DispatchDiagnosticsPanel
+              campaign={campaign}
+              connections={connections}
+              failedCount={failedJobs}
+              onRefresh={() => {
+                void reloadPersistedLogs();
+                void reloadServerReport();
+              }}
+            />
+          );
+        })()}
       </div>
 
       {/* ============================ SCORE + MESSAGE PREVIEW ============================ */}

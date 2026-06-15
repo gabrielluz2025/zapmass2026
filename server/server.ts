@@ -1316,7 +1316,8 @@ const registerSocketHandlers = () => {
           recipients,
           channelWeights,
           mediaAttachment,
-          followUpMediaAttachment
+          followUpMediaAttachment,
+          stageConfigs
         }: {
           numbers?: string[];
           message?: string;
@@ -1347,6 +1348,15 @@ const registerSocketHandlers = () => {
             fileName?: string;
             sendMediaAsDocument?: boolean;
           };
+          stageConfigs?: Array<{
+            body: string;
+            trigger_type: string;
+            trigger_condition?: { contains?: string; regex?: string };
+            timeout_hours?: number;
+            timeout_action?: string;
+            next_step_on_match?: number;
+            next_step_on_no_match?: number;
+          }>;
         },
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
@@ -1452,6 +1462,9 @@ const registerSocketHandlers = () => {
               followUpMedia,
               typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0
                 ? delaySeconds
+                : undefined,
+              Array.isArray(stageConfigs) && stageConfigs.length > 0
+                ? (stageConfigs as import('../src/types.js').CampaignStageConfig[])
                 : undefined
             );
             if (!ok) {
