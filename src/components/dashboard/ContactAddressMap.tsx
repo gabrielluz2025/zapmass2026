@@ -100,11 +100,13 @@ export const ContactAddressMap: React.FC = () => {
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
+  const [geocodeProgress, setGeocodeProgress] = useState<{ done: number; total: number } | null>(null);
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<GeoContactPin[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selectedPin, setSelectedPin] = useState<GeoContactPin | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const autoGeocodeRef = useRef(false);
 
   // ── Inicializa mapa ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -148,6 +150,53 @@ export const ContactAddressMap: React.FC = () => {
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
+
+  // ── Auto-geocodifica endereços pendentes ao carregar ───────────────────────
+  useEffect(() => {
+    if (!summary || autoGeocodeRef.current) return;
+    const pending = Math.max(
+      0,
+      (summary.pinStats?.withFullAddress ?? 0) - (summary.pinStats?.pinsMapped ?? 0)
+    );
+    if (pending <= 0) return;
+
+    autoGeocodeRef.current = true;
+
+    const runBatch = async (remaining: number, doneAcc: number, total: number) => {
+      if (remaining <= 0) {
+        setGeocoding(false);
+        setGeocodeProgress(null);
+        void loadSummary(true);
+        return;
+      }
+      setGeocoding(true);
+      setGeocodeProgress({ done: doneAcc, total });
+      try {
+        const result = await apiGeocodeContacts({ max: 500 });
+        const newDone = doneAcc + result.geocoded;
+        setSummary(result.summary);
+        setGeocodeProgress({ done: newDone, total });
+        // Se ainda houver pendentes, continua
+        const stillPending = Math.max(
+          0,
+          (result.summary.pinStats?.withFullAddress ?? 0) -
+          (result.summary.pinStats?.pinsMapped ?? 0)
+        );
+        if (result.geocoded > 0 && stillPending > 0) {
+          await runBatch(stillPending, newDone, total);
+        } else {
+          setGeocoding(false);
+          setGeocodeProgress(null);
+          void loadSummary(true);
+        }
+      } catch {
+        setGeocoding(false);
+        setGeocodeProgress(null);
+      }
+    };
+
+    void runBatch(pending, 0, pending);
+  }, [summary, loadSummary]);
 
   // ── Pinta pins e clusters no mapa ─────────────────────────────────────────
   useEffect(() => {
@@ -261,17 +310,31 @@ export const ContactAddressMap: React.FC = () => {
     });
   }, []);
 
-  // ── Geocodificar pendentes ─────────────────────────────────────────────────
+  // ── Geocodificar pendentes (manual — força reprocessar) ───────────────────
   const handleGeocode = useCallback(async () => {
     setGeocoding(true);
+    let totalDone = 0;
+    autoGeocodeRef.current = true; // evita loop duplo
     try {
-      const result = await apiGeocodeContacts({ max: 100 });
-      toast.success(`${result.geocoded} endereço(s) geocodificado(s)${result.failed > 0 ? `, ${result.failed} falharam` : ''}.`);
-      setSummary(result.summary);
+      let hasMore = true;
+      while (hasMore) {
+        const result = await apiGeocodeContacts({ max: 500 });
+        totalDone += result.geocoded;
+        setSummary(result.summary);
+        setGeocodeProgress({ done: totalDone, total: totalDone + result.failed });
+        const stillPending = Math.max(
+          0,
+          (result.summary.pinStats?.withFullAddress ?? 0) -
+          (result.summary.pinStats?.pinsMapped ?? 0)
+        );
+        hasMore = result.geocoded > 0 && stillPending > 0;
+      }
+      toast.success(`${totalDone} endereço(s) geocodificado(s) no total.`);
     } catch (e: any) {
       toast.error(e?.message || 'Erro ao geocodificar.');
     } finally {
       setGeocoding(false);
+      setGeocodeProgress(null);
     }
   }, []);
 
@@ -307,7 +370,16 @@ export const ContactAddressMap: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {pendingCount > 0 && (
+            {geocoding && geocodeProgress ? (
+              <div
+                className="flex items-center gap-2 rounded-xl px-3 py-1.5 text-[12px] font-semibold"
+                style={{ background: '#3b82f620', color: PIN_COLOR }}
+              >
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Geocodificando endereços…{' '}
+                {geocodeProgress.done}/{geocodeProgress.total}
+              </div>
+            ) : pendingCount > 0 ? (
               <Button
                 variant="secondary"
                 size="sm"
@@ -317,7 +389,7 @@ export const ContactAddressMap: React.FC = () => {
               >
                 Geocodificar {pendingCount} endereço{pendingCount !== 1 ? 's' : ''}
               </Button>
-            )}
+            ) : null}
             <Button
               variant="ghost"
               size="sm"
@@ -329,6 +401,29 @@ export const ContactAddressMap: React.FC = () => {
             </Button>
           </div>
         </div>
+
+        {/* Barra de progresso de geocodificação */}
+        {geocoding && geocodeProgress && geocodeProgress.total > 0 && (
+          <div className="mt-3">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[11px] font-semibold" style={{ color: PIN_COLOR }}>
+                Mapeando endereços para o mapa...
+              </span>
+              <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                {Math.round((geocodeProgress.done / geocodeProgress.total) * 100)}%
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${Math.round((geocodeProgress.done / geocodeProgress.total) * 100)}%`,
+                  background: PIN_COLOR,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Stats rápidas */}
         {pinStats && (
