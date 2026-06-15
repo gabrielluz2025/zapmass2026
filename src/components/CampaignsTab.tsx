@@ -510,6 +510,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
             name: r.vars['nome_completo'] || r.vars['nome'] || r.phone,
           }))}
           isLoading={previewConfirmLoading}
+          selectedConnectionIds={previewPayload.connectedIds}
         />
       )}
 

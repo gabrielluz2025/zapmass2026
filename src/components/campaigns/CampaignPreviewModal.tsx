@@ -1,17 +1,34 @@
 /**
  * CampaignPreviewModal
  *
- * Exibe preview da mensagem para até 3 contatos de amostra antes do disparo.
- * Substitui variáveis {{nome}}, {{nome_completo}}, etc., e mostra o resultado final.
+ * Preview da campanha antes do disparo com verificação automática de saúde
+ * (Redis + chips) para o usuário saber antes de clicar em "Confirmar".
  */
-import React, { useMemo } from 'react';
-import { Eye, Send, Users, Smartphone, Clock, X, CheckCircle2 } from 'lucide-react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import {
+  CheckCircle2,
+  Clock,
+  Layers,
+  MessageSquare,
+  Rocket,
+  Smartphone,
+  Users,
+  X,
+  AlertTriangle,
+  Loader2,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { campaignClockVars } from '../../utils/campaignClockVars';
+import { apiPreflightCheck } from '../../services/campaignsApi';
 
-// ── helpers de personalização ────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
 
 function applyVars(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
@@ -32,8 +49,20 @@ function renderMessage(template: string, recipientVars: Record<string, string>):
   const merged: Record<string, string> = {};
   Object.entries(clockVars).forEach(([k, v]) => { merged[k.toLowerCase()] = String(v); });
   Object.entries(recipientVars).forEach(([k, v]) => { merged[k.toLowerCase()] = v; });
-  const withVars = applyVars(template, merged);
-  return resolveSpintax(withVars);
+  return resolveSpintax(applyVars(template, merged));
+}
+
+function formatDelay(s: number): string {
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)}min`;
+  return `${(s / 3600).toFixed(1)}h`;
+}
+
+function estimateDuration(contacts: number, delay: number, stages: number): string {
+  const totalSeconds = contacts * delay * stages;
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  if (totalSeconds < 3600) return `~${Math.ceil(totalSeconds / 60)}min`;
+  return `~${(totalSeconds / 3600).toFixed(1)}h`;
 }
 
 // ── tipos ────────────────────────────────────────────────────────────────────
@@ -57,6 +86,16 @@ interface CampaignPreviewModalProps {
   launchMode?: 'now' | 'schedule';
   sampleRecipients: SampleRecipient[];
   isLoading?: boolean;
+  selectedConnectionIds?: string[];
+}
+
+type HealthStatus = 'idle' | 'checking' | 'ok' | 'warn' | 'error';
+
+interface ChipResult {
+  connectionId: string;
+  status: string;
+  isReady: boolean;
+  error: string | null;
 }
 
 // ── componente ───────────────────────────────────────────────────────────────
@@ -74,10 +113,16 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   launchMode = 'now',
   sampleRecipients,
   isLoading = false,
+  selectedConnectionIds = [],
 }) => {
+  const [redisStatus, setRedisStatus] = useState<HealthStatus>('idle');
+  const [chipStatus, setChipStatus] = useState<HealthStatus>('idle');
+  const [chipResults, setChipResults] = useState<ChipResult[]>([]);
+  const [showChipDetails, setShowChipDetails] = useState(false);
+  const [expanded, setExpanded] = useState<number | null>(null);
+
   const allMessages = useMemo(() => {
-    const stages = [message, ...messageStages].filter(Boolean);
-    return stages;
+    return [message, ...messageStages].filter(Boolean);
   }, [message, messageStages]);
 
   const samples = useMemo(() => {
@@ -87,161 +132,368 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     }));
   }, [sampleRecipients, allMessages]);
 
-  const delayLabel =
-    delaySeconds < 60
-      ? `${delaySeconds}s entre mensagens`
-      : `${Math.round(delaySeconds / 60)}min entre mensagens`;
+  const hasUnresolved = samples.some((s) =>
+    s.preview.some((p) => p.includes('{{') && p.includes('}}'))
+  );
 
-  const estimatedMinutes = Math.ceil((contactCount * delaySeconds) / 60);
+  const runHealthCheck = useCallback(async () => {
+    // 1. Verificar Redis
+    setRedisStatus('checking');
+    setChipStatus('checking');
+    try {
+      const r = await fetch('/api/health/redis', {
+        signal: AbortSignal.timeout(6000),
+      });
+      setRedisStatus(r.ok ? 'ok' : 'error');
+    } catch {
+      setRedisStatus('error');
+    }
+
+    // 2. Verificar chips
+    if (selectedConnectionIds.length === 0) {
+      setChipStatus('warn');
+      return;
+    }
+    try {
+      const res = await apiPreflightCheck(selectedConnectionIds);
+      setChipResults(res.results);
+      setChipStatus(res.allReady ? 'ok' : 'error');
+    } catch {
+      setChipStatus('error');
+    }
+  }, [selectedConnectionIds]);
+
+  // Verificação automática ao abrir
+  useEffect(() => {
+    if (isOpen) {
+      runHealthCheck();
+    } else {
+      setRedisStatus('idle');
+      setChipStatus('idle');
+      setChipResults([]);
+      setShowChipDetails(false);
+    }
+  }, [isOpen]);
+
+  const overallHealth: HealthStatus =
+    redisStatus === 'checking' || chipStatus === 'checking'
+      ? 'checking'
+      : redisStatus === 'error' || chipStatus === 'error'
+      ? 'error'
+      : redisStatus === 'ok' && chipStatus === 'ok'
+      ? 'ok'
+      : 'idle';
+
+  const canDispatch = overallHealth === 'ok' || overallHealth === 'idle';
+
+  const palette = {
+    ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
+    error: { bg: '#ef444415', border: '#ef444435', text: '#ef4444', icon: <WifiOff className="w-4 h-4" /> },
+    checking: { bg: 'var(--surface-1)', border: 'var(--border-subtle)', text: 'var(--text-3)', icon: <Loader2 className="w-4 h-4 animate-spin" /> },
+    warn: { bg: '#f59e0b15', border: '#f59e0b35', text: '#f59e0b', icon: <AlertTriangle className="w-4 h-4" /> },
+    idle: { bg: 'var(--surface-1)', border: 'var(--border-subtle)', text: 'var(--text-3)', icon: <Wifi className="w-4 h-4" /> },
+  };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title=""
-      size="lg"
-    >
-      <div className="space-y-5">
-        {/* Header */}
-        <div className="flex items-start gap-3">
+    <Modal isOpen={isOpen} onClose={onClose} title="" size="lg">
+      <div className="space-y-4">
+
+        {/* ── HEADER ────────────────────────────────────────────────────── */}
+        <div
+          className="rounded-2xl p-4 flex items-center gap-4"
+          style={{ background: 'linear-gradient(135deg,#3b82f610 0%,#10b98110 100%)', border: '1px solid var(--border-subtle)' }}
+        >
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: 'linear-gradient(135deg,#3b82f620,#10b98120)' }}
+            className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+            style={{ background: 'linear-gradient(135deg,#3b82f6,#10b981)', boxShadow: '0 4px 14px #3b82f640' }}
           >
-            <Eye className="w-5 h-5" style={{ color: 'var(--brand)' }} />
+            <Rocket className="w-6 h-6 text-white" />
           </div>
-          <div>
-            <h2 className="font-black text-[17px]" style={{ color: 'var(--text-1)' }}>
-              Preview da campanha
+          <div className="flex-1 min-w-0">
+            <h2 className="font-black text-[18px] truncate" style={{ color: 'var(--text-1)' }}>
+              {campaignName}
             </h2>
             <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-              Confirme como as mensagens aparecerão antes de disparar
+              Confira tudo antes de disparar
             </p>
           </div>
+          {launchMode === 'schedule' && (
+            <div
+              className="shrink-0 rounded-full px-3 py-1 text-[11px] font-bold"
+              style={{ background: '#3b82f620', color: '#3b82f6' }}
+            >
+              Agendado
+            </div>
+          )}
         </div>
 
-        {/* Meta resumo */}
-        <div
-          className="rounded-xl p-3 grid grid-cols-2 sm:grid-cols-4 gap-2"
-          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-        >
+        {/* ── STATS CARDS ───────────────────────────────────────────────── */}
+        <div className="grid grid-cols-4 gap-2">
           {[
-            { icon: <Send className="w-3.5 h-3.5" />, label: 'Nome', value: campaignName, span: true },
-            { icon: <Users className="w-3.5 h-3.5" />, label: 'Contatos', value: contactCount.toLocaleString('pt-BR') },
-            { icon: <Smartphone className="w-3.5 h-3.5" />, label: 'Chips', value: String(chipCount) },
-            { icon: <Clock className="w-3.5 h-3.5" />, label: 'Duração', value: `~${estimatedMinutes}min` },
-          ].map((s, i) => (
-            <div key={i} className={s.span ? 'col-span-2 sm:col-span-4' : ''}>
-              <div className="flex items-center gap-1.5 mb-0.5" style={{ color: 'var(--text-3)' }}>
-                {s.icon}
-                <span className="text-[10px] font-semibold uppercase tracking-wider">{s.label}</span>
-              </div>
-              <div
-                className="text-[13px] font-bold truncate"
-                style={{ color: 'var(--text-1)' }}
-              >
-                {s.value}
-              </div>
+            { icon: <Users className="w-4 h-4" />, label: 'Contatos', value: contactCount.toLocaleString('pt-BR'), color: '#3b82f6' },
+            { icon: <Smartphone className="w-4 h-4" />, label: 'Chips', value: String(chipCount), color: '#10b981' },
+            { icon: <Layers className="w-4 h-4" />, label: 'Etapas', value: String(allMessages.length), color: '#8b5cf6' },
+            { icon: <Clock className="w-4 h-4" />, label: 'Duração', value: estimateDuration(contactCount, delaySeconds, allMessages.length), color: '#f59e0b' },
+          ].map((s) => (
+            <div
+              key={s.label}
+              className="rounded-xl p-3 flex flex-col items-center gap-1 text-center"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+            >
+              <div style={{ color: s.color }}>{s.icon}</div>
+              <div className="text-[16px] font-black" style={{ color: 'var(--text-1)' }}>{s.value}</div>
+              <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>{s.label}</div>
             </div>
           ))}
-          <div className="col-span-2 sm:col-span-4 text-[11px]" style={{ color: 'var(--text-3)' }}>
-            ⏱ {delayLabel} &nbsp;·&nbsp;
-            {allMessages.length > 1
-              ? `${allMessages.length} mensagens em sequência (multi-etapas)`
-              : '1 mensagem por contato'}
-          </div>
         </div>
+        <p className="text-[11px] text-center -mt-1" style={{ color: 'var(--text-3)' }}>
+          {formatDelay(delaySeconds)} entre mensagens &nbsp;·&nbsp;
+          {allMessages.length > 1 ? `${allMessages.length} etapas em sequência` : 'mensagem única por contato'}
+        </p>
 
-        {/* Previews por contato */}
-        {samples.length > 0 ? (
-          <div className="space-y-3">
-            <p className="text-[12px] font-semibold" style={{ color: 'var(--text-3)' }}>
-              Amostra para os {samples.length} primeiros contatos:
-            </p>
-            {samples.map((s, idx) => (
+        {/* ── VERIFICAÇÃO DE SAÚDE ──────────────────────────────────────── */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ border: '1px solid var(--border-subtle)' }}
+        >
+          <div
+            className="px-4 py-3 flex items-center justify-between"
+            style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
+          >
+            <div className="flex items-center gap-2">
+              {overallHealth === 'checking' && <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--text-3)' }} />}
+              {overallHealth === 'ok' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+              {overallHealth === 'error' && <AlertTriangle className="w-4 h-4 text-red-500" />}
+              {(overallHealth === 'idle' || overallHealth === 'warn') && <Wifi className="w-4 h-4" style={{ color: 'var(--text-3)' }} />}
+              <span className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
+                {overallHealth === 'checking' ? 'Verificando infraestrutura…' :
+                 overallHealth === 'ok' ? 'Tudo pronto para disparar!' :
+                 overallHealth === 'error' ? 'Problema detectado — veja abaixo' :
+                 'Verificação de pré-disparo'}
+              </span>
+            </div>
+            <button
+              onClick={runHealthCheck}
+              className="flex items-center gap-1.5 text-[11px] rounded-lg px-2 py-1"
+              style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
+              disabled={overallHealth === 'checking'}
+            >
+              <RefreshCw className={`w-3 h-3 ${overallHealth === 'checking' ? 'animate-spin' : ''}`} />
+              Reverificar
+            </button>
+          </div>
+
+          <div className="px-4 py-3 grid grid-cols-2 gap-2">
+            {/* Redis */}
+            {(['idle', 'checking', 'ok', 'error', 'warn'] as HealthStatus[]).includes(redisStatus) && (
               <div
-                key={s.phone}
-                className="rounded-xl overflow-hidden"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                className="rounded-xl px-3 py-2.5 flex items-center gap-2"
+                style={{ background: palette[redisStatus].bg, border: `1px solid ${palette[redisStatus].border}` }}
               >
-                {/* Header do contato */}
-                <div
-                  className="px-3 py-2 flex items-center gap-2 border-b"
-                  style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}
-                >
-                  <div
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black text-white shrink-0"
-                    style={{ background: `hsl(${(idx * 127) % 360}, 60%, 55%)` }}
-                  >
-                    {(s.name || s.phone).charAt(0).toUpperCase()}
+                <span style={{ color: palette[redisStatus].text }}>{palette[redisStatus].icon}</span>
+                <div>
+                  <div className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>Fila Redis</div>
+                  <div className="text-[10px]" style={{ color: palette[redisStatus].text }}>
+                    {redisStatus === 'ok' ? 'Online e respondendo' :
+                     redisStatus === 'error' ? 'Fora do ar — reinicie o Redis' :
+                     redisStatus === 'checking' ? 'Verificando…' : 'Não verificado'}
                   </div>
-                  <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                    {s.name || s.phone}
-                  </span>
-                  <span className="ml-auto text-[10px]" style={{ color: 'var(--text-3)' }}>
-                    {s.phone}
-                  </span>
-                </div>
-
-                {/* Bolhas de mensagem */}
-                <div className="px-3 py-3 space-y-2">
-                  {s.preview.map((msg, mIdx) => (
-                    <div key={mIdx} className="flex justify-end">
-                      <div
-                        className="max-w-[85%] rounded-2xl rounded-tr-sm px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words shadow-sm"
-                        style={{ background: '#25d36620', color: 'var(--text-1)', border: '1px solid #25d36630' }}
-                      >
-                        {msg}
-                        {allMessages.length > 1 && (
-                          <span
-                            className="block mt-1 text-[9px] font-bold uppercase tracking-wider opacity-60"
-                          >
-                            etapa {mIdx + 1}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* Chips */}
+            <div
+              className="rounded-xl px-3 py-2.5 flex items-center gap-2 cursor-pointer"
+              style={{ background: palette[chipStatus].bg, border: `1px solid ${palette[chipStatus].border}` }}
+              onClick={() => chipResults.length > 0 && setShowChipDetails(!showChipDetails)}
+            >
+              <span style={{ color: palette[chipStatus].text }}>{palette[chipStatus].icon}</span>
+              <div className="flex-1">
+                <div className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>WhatsApp Chips</div>
+                <div className="text-[10px]" style={{ color: palette[chipStatus].text }}>
+                  {chipStatus === 'ok' ? `${chipResults.filter(r => r.isReady).length}/${chipResults.length} online` :
+                   chipStatus === 'error' ? `${chipResults.filter(r => !r.isReady).length} chip(s) offline` :
+                   chipStatus === 'checking' ? 'Verificando…' :
+                   chipStatus === 'warn' ? 'Nenhum chip selecionado' : 'Não verificado'}
+                </div>
+              </div>
+              {chipResults.length > 0 && (
+                <span style={{ color: 'var(--text-3)' }}>
+                  {showChipDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </span>
+              )}
+            </div>
           </div>
-        ) : (
-          <div
-            className="rounded-xl px-4 py-8 flex flex-col items-center gap-2 text-center"
-            style={{ background: 'var(--surface-1)' }}
-          >
-            <Eye className="w-8 h-8 opacity-20" />
-            <p className="text-[13px]" style={{ color: 'var(--text-3)' }}>
-              Sem contatos de amostra disponíveis
+
+          {/* Detalhes dos chips */}
+          {showChipDetails && chipResults.length > 0 && (
+            <div className="px-4 pb-3 space-y-1.5">
+              {chipResults.map((r) => (
+                <div
+                  key={r.connectionId}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                  style={{ background: r.isReady ? '#10b98108' : '#ef444408', border: `1px solid ${r.isReady ? '#10b98120' : '#ef444420'}` }}
+                >
+                  {r.isReady
+                    ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                    : <WifiOff className="w-3.5 h-3.5 shrink-0 text-red-400" />}
+                  <span className="text-[11px] flex-1 truncate font-mono" style={{ color: 'var(--text-2)' }}>
+                    {r.connectionId}
+                  </span>
+                  <span
+                    className="text-[9px] font-bold rounded-full px-2 py-0.5"
+                    style={{ background: r.isReady ? '#10b981' : '#ef4444', color: '#fff' }}
+                  >
+                    {r.status.toUpperCase()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Aviso Redis down */}
+          {redisStatus === 'error' && (
+            <div className="px-4 pb-3">
+              <div
+                className="rounded-xl px-3 py-2.5 text-[11px]"
+                style={{ background: '#ef444412', border: '1px solid #ef444430', color: '#ef4444' }}
+              >
+                <strong>Redis fora do ar.</strong> Execute na VPS:{' '}
+                <code className="px-1 py-0.5 rounded text-[10px]" style={{ background: '#ef444420' }}>
+                  docker compose restart redis
+                </code>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── PREVIEW DAS MENSAGENS ─────────────────────────────────────── */}
+        {samples.length > 0 && (
+          <div>
+            <p className="text-[11px] font-bold mb-2 uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+              Amostra — {samples.length} contato{samples.length !== 1 ? 's' : ''}
             </p>
+            <div className="space-y-2">
+              {samples.map((s, idx) => {
+                const isExpanded = expanded === idx;
+                return (
+                  <div
+                    key={s.phone}
+                    className="rounded-2xl overflow-hidden"
+                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    {/* Header contato */}
+                    <button
+                      className="w-full px-3 py-2.5 flex items-center gap-2 text-left"
+                      style={{ background: 'var(--surface-0)', borderBottom: isExpanded ? '1px solid var(--border-subtle)' : 'none' }}
+                      onClick={() => setExpanded(isExpanded ? null : idx)}
+                    >
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-black text-white shrink-0"
+                        style={{ background: `hsl(${(idx * 137) % 360},60%,50%)` }}
+                      >
+                        {(s.name || s.phone).charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                          {s.name || s.phone}
+                        </div>
+                        <div className="text-[10px]" style={{ color: 'var(--text-3)' }}>{s.phone}</div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <div
+                          className="text-[10px] font-bold rounded-full px-2 py-0.5"
+                          style={{ background: '#25d36620', color: '#25d366' }}
+                        >
+                          {allMessages.length} msg{allMessages.length !== 1 ? 's' : ''}
+                        </div>
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} /> : <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />}
+                      </div>
+                    </button>
+
+                    {/* Bolhas */}
+                    {isExpanded && (
+                      <div
+                        className="px-4 py-4 space-y-2"
+                        style={{ background: 'linear-gradient(180deg,#0a0a0a00 0%,#25d36604 100%)' }}
+                      >
+                        {s.preview.map((msg, mIdx) => (
+                          <div key={mIdx} className="flex justify-end">
+                            <div className="max-w-[85%] space-y-1">
+                              {allMessages.length > 1 && (
+                                <div className="text-right">
+                                  <span
+                                    className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                                    style={{ background: '#25d36620', color: '#25d366' }}
+                                  >
+                                    Etapa {mIdx + 1}
+                                  </span>
+                                </div>
+                              )}
+                              <div
+                                className="rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words shadow-sm"
+                                style={{
+                                  background: '#25d36618',
+                                  color: 'var(--text-1)',
+                                  border: '1px solid #25d36628',
+                                }}
+                              >
+                                {msg}
+                                <div className="text-right mt-1">
+                                  <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+                                    {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {/* Aviso de variáveis não resolvidas */}
-        {samples.some((s) => s.preview.some((p) => p.includes('{{') && p.includes('}}'))) && (
+        {/* ── AVISO VARIÁVEIS NÃO RESOLVIDAS ───────────────────────────── */}
+        {hasUnresolved && (
           <div
-            className="rounded-xl px-3 py-2.5 text-[12px]"
-            style={{ background: '#f59e0b18', border: '1px solid #f59e0b40', color: '#d97706' }}
+            className="rounded-xl px-3 py-2.5 flex items-start gap-2 text-[12px]"
+            style={{ background: '#f59e0b12', border: '1px solid #f59e0b35', color: '#d97706' }}
           >
-            ⚠️ Algumas variáveis (<code>{'{{nome}}'}</code>) não foram substituídas — verifique se os contatos têm o campo preenchido.
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              Variáveis <code>{'{{nome}}'}</code> sem valor — verifique se os contatos têm o campo preenchido.
+            </span>
           </div>
         )}
 
-        {/* Ações */}
-        <div className="flex items-center justify-end gap-3 pt-2">
+        {/* ── AÇÕES ──────────────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           <Button variant="ghost" size="sm" onClick={onClose} leftIcon={<X className="w-4 h-4" />}>
             Cancelar
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onConfirm}
-            loading={isLoading}
-            leftIcon={<CheckCircle2 className="w-4 h-4" />}
-          >
-            {launchMode === 'schedule' ? 'Confirmar agendamento' : 'Confirmar e disparar'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {overallHealth === 'error' && (
+              <span className="text-[11px] text-red-400 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Corrija os problemas acima
+              </span>
+            )}
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onConfirm}
+              loading={isLoading}
+              leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
+              disabled={overallHealth === 'error'}
+            >
+              {launchMode === 'schedule' ? 'Confirmar agendamento' : 'Confirmar e disparar'}
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>
