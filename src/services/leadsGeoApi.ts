@@ -184,3 +184,54 @@ export async function apiGeocodeContacts(
     body: JSON.stringify(opts)
   });
 }
+
+export type AddressNormDiff = {
+  contactId: string;
+  name: string;
+  field: string;
+  before: string;
+  after: string;
+  source: 'cep_viacep' | 'cep_brasilapi' | 'abbreviation' | 'state_name' | 'titlecase';
+};
+
+export type NormalizeAddressesResult = {
+  ok: boolean;
+  processed: number;
+  changed: number;
+  unchanged: number;
+  failed: number;
+  diffs: AddressNormDiff[];
+};
+
+/** Dispara a normalização inteligente de endereços (ViaCEP + IBGE + regras) em lote. */
+export async function apiNormalizeAddresses(
+  opts: { max?: number } = {}
+): Promise<NormalizeAddressesResult> {
+  return apiFetchJson('/api/leads-geo/normalize-addresses', {
+    method: 'POST',
+    body: JSON.stringify(opts)
+  });
+}
+
+/** Dispara normalização básica (IBGE + regras) em segundo plano via contacts API. */
+export async function apiNormalizeBatch(opts: { batchSize?: number } = {}): Promise<{ ok: boolean; message: string }> {
+  return apiFetchJson('/api/contacts/normalize-batch', {
+    method: 'POST',
+    body: JSON.stringify(opts)
+  });
+}
+
+/** Dispara normalização full (ViaCEP) via contacts API paginada. */
+export async function apiNormalizeAddressesFull(opts: { offset?: number; limit?: number } = {}): Promise<{
+  ok: boolean;
+  scanned: number;
+  updated: number;
+  samples: Array<{ from: string; to: string }>;
+  hasMore: boolean;
+  nextOffset: number;
+}> {
+  return apiFetchJson('/api/contacts/normalize-addresses', {
+    method: 'POST',
+    body: JSON.stringify(opts)
+  });
+}

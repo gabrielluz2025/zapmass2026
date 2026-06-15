@@ -33,12 +33,12 @@ import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicip
 import { fuzzyResolveCityWithIbge, normCityKey, type IbgeCityIndex } from '../src/utils/ibgeCityLookup.js';
 import { runAddressNormalizationBatch } from './addressNormalizationJob.js';
 
-/** Consulta ViaCEP e retorna cidade/estado corrigidos quando diferem do cadastro. */
+/** Consulta ViaCEP e retorna endereço canônico completo (cidade, estado, rua, bairro). */
 async function lookupViaCep(
   cep: string,
   currentCity: string,
   currentState: string
-): Promise<{ city?: string; state?: string } | null> {
+): Promise<{ city?: string; state?: string; street?: string; neighborhood?: string } | null> {
   try {
     const digits = cep.replace(/\D/g, '');
     if (digits.length !== 8) return null;
@@ -46,17 +46,27 @@ async function lookupViaCep(
       signal: AbortSignal.timeout(3000)
     });
     if (!r.ok) return null;
-    const data = (await r.json()) as { localidade?: string; uf?: string; erro?: boolean };
+    const data = (await r.json()) as {
+      localidade?: string;
+      uf?: string;
+      erro?: boolean;
+      logradouro?: string;
+      bairro?: string;
+    };
     if (data.erro) return null;
     const viaCepCity = String(data.localidade || '').trim();
     const viaCepState = String(data.uf || '').trim().toUpperCase().slice(0, 2);
-    const patch: { city?: string; state?: string } = {};
+    const viaCepStreet = String(data.logradouro || '').trim();
+    const viaCepNb = String(data.bairro || '').trim();
+    const patch: { city?: string; state?: string; street?: string; neighborhood?: string } = {};
     if (viaCepCity && viaCepCity.toLowerCase() !== (currentCity || '').toLowerCase()) {
       patch.city = viaCepCity;
     }
     if (viaCepState && viaCepState !== (currentState || '').toUpperCase()) {
       patch.state = viaCepState;
     }
+    if (viaCepStreet) patch.street = viaCepStreet;
+    if (viaCepNb) patch.neighborhood = viaCepNb;
     return Object.keys(patch).length > 0 ? patch : null;
   } catch {
     return null;
@@ -86,11 +96,26 @@ async function normalizeAddressBeforeSave(contact: Partial<Contact>): Promise<Pa
   let mergedCity = norm.city || contact.city;
   let mergedState = norm.state || contact.state;
 
+  let mergedStreet = norm.street || contact.street;
+  let mergedNeighborhood = norm.neighborhood || contact.neighborhood;
+
   const cepDigits = (contact.zipCode || '').replace(/\D/g, '');
   if (cepDigits.length === 8) {
     const viaCep = await lookupViaCep(cepDigits, mergedCity || '', mergedState || '');
     if (viaCep?.city) mergedCity = viaCep.city;
     if (viaCep?.state) mergedState = viaCep.state;
+    // Aplica rua canônica do ViaCEP quando a atual está vazia ou parece ser o mesmo logradouro com erros
+    if (viaCep?.street) {
+      const existNorm = (mergedStreet || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+      const cepNorm = viaCep.street.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+      if (!existNorm || cepNorm.startsWith(existNorm.slice(0, 8)) || existNorm.startsWith(cepNorm.slice(0, 8))) {
+        mergedStreet = viaCep.street;
+      }
+    }
+    // Preenche bairro se estiver vazio
+    if (viaCep?.neighborhood && !mergedNeighborhood) {
+      mergedNeighborhood = viaCep.neighborhood;
+    }
   }
 
   return {
@@ -98,6 +123,8 @@ async function normalizeAddressBeforeSave(contact: Partial<Contact>): Promise<Pa
     ...norm,
     city: mergedCity,
     state: mergedState,
+    street: mergedStreet,
+    neighborhood: mergedNeighborhood,
     addressNormalizedAt: new Date().toISOString()
   };
 }
@@ -210,7 +237,29 @@ export function registerContactsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Máximo 500 contatos por lote.' });
     }
     try {
-      const ids = await bulkCreateContacts(ctx.tenantId, rows);
+      // Aplica normalização síncrona (IBGE + regras) sem ViaCEP para não atrasar o import.
+      // ViaCEP é aplicado depois pelo job em background.
+      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+      const normalized = rows.map((c) => {
+        const norm = normalizeContactAddressFields(
+          {
+            city: c.city,
+            state: c.state,
+            phone: c.phone,
+            neighborhood: c.neighborhood,
+            street: c.street,
+            zipCode: c.zipCode,
+            number: c.number
+          },
+          ibgeIndex
+        );
+        return { ...c, ...norm };
+      });
+      const ids = await bulkCreateContacts(ctx.tenantId, normalized);
+      // Dispara normalização ViaCEP em background para os novos contatos
+      runAddressNormalizationBatch(ctx.tenantId, 100).catch((e) => {
+        console.warn('[api/contacts/bulk] background normalize error:', e);
+      });
       return res.json({ ok: true, ids, count: ids.length });
     } catch (e) {
       console.error('[api/contacts/bulk]', e);

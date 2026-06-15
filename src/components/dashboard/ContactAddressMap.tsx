@@ -25,7 +25,6 @@ import {
   MapPin,
   RefreshCw,
   Search,
-  Users,
   X,
   Navigation,
   ChevronRight,
@@ -37,11 +36,11 @@ import {
   fetchLeadsGeoSummary,
   apiGeocodeContacts,
   type GeoContactPin,
-  type GeoCluster,
   type LeadsGeoSummary,
 } from '../../services/leadsGeoApi';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import { Button } from '../ui/Button';
+import { AddressIntelligencePanel } from './AddressIntelligencePanel';
 
 // ── Ícones SVG sem PNG ────────────────────────────────────────────────────────
 
@@ -591,6 +590,18 @@ export const ContactAddressMap: React.FC = () => {
         <span className="ml-auto text-[10px]" style={{ color: 'var(--text-3)' }}>
           © OpenStreetMap contributors
         </span>
+      </div>
+
+      {/* ── Painel de inteligência de endereços ── */}
+      <div className="p-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <AddressIntelligencePanel
+          pendingGeocode={pendingCount}
+          withAddress={pinStats?.withFullAddress ?? 0}
+          onAddressesFixed={() => {
+            autoGeocodeRef.current = false;
+            void loadSummary();
+          }}
+        />
       </div>
     </div>
   );

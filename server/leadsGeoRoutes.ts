@@ -14,6 +14,7 @@ import {
   invalidateLeadsGeoSummaryCache,
   isContactGeocodeAvailable
 } from './leadsGeoService.js';
+import { normalizeContactAddresses } from './addressNormalizer.js';
 
 // Limpa o cache em memória ao iniciar o servidor (garante que alterações de lógica geo
 // nunca sirvam dados obsoletos do ciclo anterior de requests).
@@ -109,6 +110,27 @@ export function registerLeadsGeoRoutes(app: Express): void {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  /**
+   * POST /api/leads-geo/normalize-addresses
+   * Corrige automaticamente campos de endereço dos contatos usando ViaCEP / BrasilAPI
+   * e regras de normalização (abreviações, estado por extenso, TitleCase, etc.)
+   * Retorna diff de tudo que foi alterado.
+   */
+  app.post('/api/leads-geo/normalize-addresses', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = (req.body || {}) as { max?: number; force?: boolean };
+    const max = Number(body.max) || 300;
+    try {
+      const result = await normalizeContactAddresses(ctx.tenantId, { max, force: body.force === true });
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[api/leads-geo/normalize-addresses]', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: msg });
     }
   });
 }

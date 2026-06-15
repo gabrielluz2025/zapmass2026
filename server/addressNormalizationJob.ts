@@ -9,8 +9,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Consulta ViaCEP com rate limit embutido e retorna cidade/estado corrigidos. */
-async function viaCepLookup(cep: string): Promise<{ city?: string; state?: string } | null> {
+interface ViaCepResult {
+  city?: string;
+  state?: string;
+  street?: string;
+  neighborhood?: string;
+}
+
+/** Consulta ViaCEP com rate limit embutido e retorna endereço canônico completo. */
+async function viaCepLookup(cep: string): Promise<ViaCepResult | null> {
   try {
     const digits = cep.replace(/\D/g, '');
     if (digits.length !== 8) return null;
@@ -18,11 +25,19 @@ async function viaCepLookup(cep: string): Promise<{ city?: string; state?: strin
       signal: AbortSignal.timeout(4000)
     });
     if (!r.ok) return null;
-    const data = (await r.json()) as { localidade?: string; uf?: string; erro?: boolean };
+    const data = (await r.json()) as {
+      localidade?: string;
+      uf?: string;
+      erro?: boolean;
+      logradouro?: string;
+      bairro?: string;
+    };
     if (data.erro) return null;
     return {
       city: String(data.localidade || '').trim() || undefined,
-      state: String(data.uf || '').trim().toUpperCase().slice(0, 2) || undefined
+      state: String(data.uf || '').trim().toUpperCase().slice(0, 2) || undefined,
+      street: String(data.logradouro || '').trim() || undefined,
+      neighborhood: String(data.bairro || '').trim() || undefined
     };
   } catch {
     return null;
@@ -82,6 +97,9 @@ export async function runAddressNormalizationBatch(
       let mergedCity = norm.city || c.city;
       let mergedState = norm.state || c.state;
 
+      let mergedStreet = norm.street || c.street;
+      let mergedNeighborhood = norm.neighborhood || c.neighborhood;
+
       const cepDigits = (c.zipCode || '').replace(/\D/g, '');
       if (cepDigits.length === 8) {
         if (viaCepCount > 0) await sleep(VIA_CEP_DELAY_MS);
@@ -93,17 +111,42 @@ export async function runAddressNormalizationBatch(
         if (viaCep?.state && viaCep.state !== (mergedState || '').toUpperCase()) {
           mergedState = viaCep.state;
         }
+        // Corrige rua: aplica o logradouro canônico do ViaCEP quando o contato não tem
+        // rua cadastrada ou quando o nome diverge (typos, abreviações, falta de acento).
+        if (viaCep?.street) {
+          const existNorm = (mergedStreet || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+          const cepNorm = viaCep.street.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+          // Substitui se: vazio, ou se a string do CEP contém o que foi digitado (é mais completa), ou vice-versa
+          if (!existNorm || cepNorm.includes(existNorm.slice(0, 8)) || existNorm.includes(cepNorm.slice(0, 8))) {
+            mergedStreet = viaCep.street;
+          }
+        }
+        // Corrige bairro: aplica do ViaCEP quando o bairro está vazio
+        if (viaCep?.neighborhood && !mergedNeighborhood) {
+          mergedNeighborhood = viaCep.neighborhood;
+        }
       }
 
       const finalNorm: Partial<Contact> = {
         ...norm,
         city: mergedCity,
         state: mergedState,
+        street: mergedStreet,
+        neighborhood: mergedNeighborhood,
         addressNormalizedAt: new Date().toISOString()
       };
 
       const changed =
         contactAddressChanged(c, finalNorm) || !c.addressNormalizedAt;
+
+      // Reseta geocodificação quando o endereço mudou → força re-geocoding com dados corretos
+      if (changed && contactAddressChanged(c, finalNorm)) {
+        finalNorm.latitude = undefined;
+        finalNorm.longitude = undefined;
+        finalNorm.geocodedAt = undefined;
+        finalNorm.geocodePrecision = undefined;
+      }
+
       if (changed) {
         items.push({ id: c.id, updates: finalNorm });
       }
