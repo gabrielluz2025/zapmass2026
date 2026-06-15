@@ -175,16 +175,20 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     }
   }, [isOpen]);
 
+  // Redis error é bloqueador imediato — não espera chips terminarem de verificar.
   const overallHealth: HealthStatus =
-    redisStatus === 'checking' || chipStatus === 'checking'
-      ? 'checking'
-      : redisStatus === 'error' || chipStatus === 'error'
+    redisStatus === 'error'
       ? 'error'
+      : chipStatus === 'error'
+      ? 'error'
+      : redisStatus === 'checking' || chipStatus === 'checking'
+      ? 'checking'
       : redisStatus === 'ok' && chipStatus === 'ok'
       ? 'ok'
       : 'idle';
 
-  const canDispatch = overallHealth === 'ok' || overallHealth === 'idle';
+  // Bloqueia disparo enquanto verificação estiver em andamento ou houver erro.
+  const canDispatch = overallHealth === 'ok' || overallHealth === 'idle' || overallHealth === 'warn';
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -489,7 +493,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
               onClick={onConfirm}
               loading={isLoading}
               leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
-              disabled={overallHealth === 'error'}
+              disabled={!canDispatch}
             >
               {launchMode === 'schedule' ? 'Confirmar agendamento' : 'Confirmar e disparar'}
             </Button>
