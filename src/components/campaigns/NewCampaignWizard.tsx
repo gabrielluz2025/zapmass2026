@@ -2096,6 +2096,29 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
                               {conn.phoneNumber || '—'}
                             </p>
+                            {(() => {
+                              const limit = Number(conn.dailyLimit) || 0;
+                              if (limit <= 0) return null;
+                              const sent = Number(conn.messagesSentToday) || 0;
+                              const remaining = Math.max(0, limit - sent);
+                              const pct = Math.min(100, Math.round((sent / limit) * 100));
+                              const danger = remaining === 0;
+                              const warn = !danger && remaining <= Math.max(5, Math.round(limit * 0.15));
+                              const barColor = danger ? '#ef4444' : warn ? '#f59e0b' : '#10b981';
+                              return (
+                                <div className="mt-1">
+                                  <div className="flex items-center justify-between text-[10px] mb-0.5" style={{ color: 'var(--text-3)' }}>
+                                    <span>Limite hoje</span>
+                                    <span style={{ color: barColor, fontWeight: 600 }}>
+                                      {remaining} restante{remaining !== 1 ? 's' : ''}
+                                    </span>
+                                  </div>
+                                  <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} />
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <Badge variant={isOnline ? 'success' : 'danger'} dot>
@@ -2108,6 +2131,52 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   </div>
                 )}
               </Card>
+
+              {(() => {
+                const selOnline = connections.filter(
+                  (c) => selectedConnectionIds.includes(c.id) && c.status === ConnectionStatus.CONNECTED
+                );
+                const withLimit = selOnline.filter((c) => (Number(c.dailyLimit) || 0) > 0);
+                if (withLimit.length === 0) return null;
+                const totalRemaining = withLimit.reduce(
+                  (acc, c) => acc + Math.max(0, (Number(c.dailyLimit) || 0) - (Number(c.messagesSentToday) || 0)),
+                  0
+                );
+                const stagesCount = Math.max(1, messageStages.filter((s) => s.body.trim().length > 0).length);
+                const needed = numbers.length * (campaignFlowMode === 'sequential' ? stagesCount : 1);
+                const insufficient = needed > totalRemaining;
+                return (
+                  <Card>
+                    <div className="flex items-start gap-2.5">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ background: insufficient ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)' }}
+                      >
+                        {insufficient ? (
+                          <AlertCircle className="w-4 h-4" style={{ color: '#ef4444' }} />
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4" style={{ color: '#10b981' }} />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
+                          Capacidade de hoje: {totalRemaining} envio{totalRemaining !== 1 ? 's' : ''} disponíve{totalRemaining !== 1 ? 'is' : 'l'}
+                        </p>
+                        <p className="text-[11.5px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
+                          Esta campanha precisa de ~{needed} envio{needed !== 1 ? 's' : ''}
+                          {campaignFlowMode === 'sequential' && stagesCount > 1
+                            ? ` (${numbers.length} contatos × ${stagesCount} etapas)`
+                            : ''}
+                          .{' '}
+                          {insufficient
+                            ? 'O excedente fica em fila e sai amanhã, quando os limites zerarem. Adicione outro chip ou aumente o limite para enviar tudo hoje.'
+                            : 'Cabe dentro do limite diário dos chips selecionados.'}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })()}
 
               {campaignFlowMode === 'sequential' && getConnectedSelectedIds().length > 1 && onlineConnections.length > 0 && (
                 <Card>

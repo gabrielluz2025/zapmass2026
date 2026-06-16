@@ -567,6 +567,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [now, setNow] = useState(Date.now());
   const [openRow, setOpenRow] = useState<ReportRow | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [retryingPhone, setRetryingPhone] = useState<string | null>(null);
   const [showRetryBanner, setShowRetryBanner] = useState(false);
 
   const isRunning = campaign.status === CampaignStatus.RUNNING;
@@ -1152,6 +1153,42 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       setRetrying(false);
     }
   }, [detailedReport, campaign, replyPhonesFromLogs, startCampaign]);
+
+  const handleRetryOne = useCallback(async (phone: string) => {
+    const clean = String(phone || '').replace(/\D/g, '');
+    if (clean.length < 10) {
+      toast.error('Número inválido para reenvio.');
+      return;
+    }
+    const connId = (campaign.selectedConnectionIds || [])[0];
+    if (!connId) {
+      toast.error('Nenhum chip configurado nesta campanha.');
+      return;
+    }
+    setRetryingPhone(clean);
+    try {
+      await startCampaign(
+        connId,
+        [clean],
+        campaign.message,
+        campaign.selectedConnectionIds || [],
+        undefined,
+        `${campaign.name} — Reenvio 1 contato`,
+        {
+          messageStages: campaign.messageStages,
+          replyFlow: campaign.replyFlow,
+          delaySeconds: campaign.delaySeconds,
+          channelWeights: campaign.channelWeights
+        }
+      );
+      toast.success(`Reenvio iniciado para ${clean}.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao reenviar contato.';
+      toast.error(msg);
+    } finally {
+      setRetryingPhone(null);
+    }
+  }, [campaign, startCampaign]);
 
   const handleFilterClick = (filter: ReportFilter) => {
     setDetailFilter(filter);
@@ -2255,9 +2292,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   </div>
                 )}
                 {modalStatus === 'FAILED' && (
-                  <div className="flex items-start gap-2" style={{ color: 'var(--danger)' }}>
-                    <XCircle className="w-3.5 h-3.5 mt-0.5" />
-                    <span>{openRow.errorMessage || 'Falha no envio.'}</span>
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-2" style={{ color: 'var(--danger)' }}>
+                      <XCircle className="w-3.5 h-3.5 mt-0.5" />
+                      <span>{openRow.errorMessage || 'Falha no envio.'}</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retryingPhone === openRow.phone.replace(/\D/g, '') ? 'animate-spin' : ''}`} />}
+                      onClick={() => handleRetryOne(openRow.phone)}
+                      disabled={retryingPhone !== null}
+                    >
+                      {retryingPhone === openRow.phone.replace(/\D/g, '') ? 'Reenviando…' : 'Reenviar este contato'}
+                    </Button>
                   </div>
                 )}
               </div>
