@@ -17,6 +17,7 @@ import {
   CampaignStatus,
   Campaign, 
   CampaignReplyFlow,
+  CampaignStageConfig,
   CampaignScheduleSlot,
   DashboardMetrics, 
   ZapMassContextType,
@@ -3201,6 +3202,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      stageConfigs?: CampaignStageConfig[];
       mediaAttachment?: {
         dataBase64: string;
         mimeType: string;
@@ -3357,6 +3359,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             delaySeconds: options?.delaySeconds,
             recipients: cleanRecipients,
             channelWeights: options?.channelWeights,
+            stageConfigs: options?.stageConfigs,
             mediaAttachment: options?.mediaAttachment,
             followUpMediaAttachment: options?.followUpMediaAttachment
           },

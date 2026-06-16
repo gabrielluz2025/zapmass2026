@@ -10,7 +10,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { CampaignReplyFlow, CampaignScheduleSlot, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../types';
+import { CampaignReplyFlow, CampaignScheduleSlot, CampaignStageConfig, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../types';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
@@ -92,6 +92,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     delaySeconds: number; launchMode?: 'now' | 'schedule';
     schedule?: { timeZone: string; slots: CampaignScheduleSlot[]; repeatWeekly: boolean; onceLocalDate?: string; onceLocalTime?: string };
     channelWeights?: Record<string, number>;
+    stageConfigs?: CampaignStageConfig[];
     mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
   }>(null);
@@ -238,6 +239,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       onceLocalTime?: string;
     };
     channelWeights?: Record<string, number>;
+    stageConfigs?: CampaignStageConfig[];
     mediaAttachment?: {
       dataBase64: string;
       mimeType: string;
@@ -292,6 +294,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,
                 channelWeights: payload.channelWeights,
+                stageConfigs: payload.stageConfigs,
                 mediaAttachment: payload.mediaAttachment,
                 followUpMediaAttachment: payload.followUpMediaAttachment
               }

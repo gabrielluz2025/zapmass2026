@@ -28,6 +28,8 @@ import toast from 'react-hot-toast';
 import {
   CampaignReplyFlow,
   CampaignScheduleSlot,
+  CampaignStageConfig,
+  CampaignStageTriggerType,
   Contact,
   ContactList,
   ConnectionStatus,
@@ -138,6 +140,8 @@ interface NewCampaignWizardProps {
     };
     /** Peso por chip (somente uso real no servidor no modo sequencial; 1 = igual em todos). */
     channelWeights?: Record<string, number>;
+    /** Gatilhos avançados por etapa (motor multi-etapas persistente). Opcional. */
+    stageConfigs?: CampaignStageConfig[];
     /**
      * Anexo unico (foto, video, audio ou arquivo) que segue junto com a 1a etapa,
      * com o texto da 1a etapa como legenda. Disponivel apenas em "disparar
@@ -191,6 +195,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('reply');
   /** Força o usuário a escolher explicitamente o modo de envio no passo de mensagem. */
   const [flowModeChosen, setFlowModeChosen] = useState(false);
+  /** Modo sequencial: gatilhos avançados por etapa (motor multi-etapas). Opt-in. */
+  const [seqAdvancedTriggers, setSeqAdvancedTriggers] = useState(false);
+  /** Config de gatilho por etapa (keyed por stage.id). Define como avança p/ a próxima. */
+  const [seqStageTriggers, setSeqStageTriggers] = useState<
+    Record<string, { type: CampaignStageTriggerType; timeoutHours?: number }>
+  >({});
   const [selectedListId, setSelectedListId] = useState('');
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   /** Distribuição de carga entre chips (somente modo sequencial, 2+ conectados). */
@@ -1158,6 +1168,24 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       return;
     }
     const stagesBodies = messageStages.map((s) => s.body.trim()).filter((b) => b.length > 0);
+    // Gatilhos avançados (motor multi-etapas): só no modo sequencial com opt-in e 2+ etapas.
+    const stageConfigs: CampaignStageConfig[] | undefined =
+      campaignFlowMode === 'sequential' && seqAdvancedTriggers && messageStages.filter((s) => s.body.trim()).length >= 2
+        ? messageStages
+            .filter((s) => s.body.trim().length > 0)
+            .map((s, idx, arr) => {
+              const isLast = idx === arr.length - 1;
+              const cfg = seqStageTriggers[s.id];
+              const type: CampaignStageTriggerType = isLast ? 'delay' : cfg?.type || 'delay';
+              return {
+                body: s.body.trim(),
+                trigger_type: type,
+                ...(type === 'any_reply'
+                  ? { timeout_hours: cfg?.timeoutHours ?? 24, timeout_action: 'complete' as const }
+                  : {})
+              };
+            })
+        : undefined;
     const useReplyFlow = campaignFlowMode === 'reply';
     const replyFlow: CampaignReplyFlow | undefined = !useReplyFlow ? undefined : {
       enabled: true,
@@ -1196,6 +1224,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         recipients: buildRecipients(),
         contactListMeta,
         delaySeconds,
+        ...(stageConfigs ? { stageConfigs } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
         ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {})
       };
@@ -1921,6 +1950,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   launchMode={launchMode}
                   newMessageStage={newMessageStage}
                   delaySeconds={delaySeconds}
+                  advancedTriggers={seqAdvancedTriggers}
+                  onToggleAdvancedTriggers={setSeqAdvancedTriggers}
+                  stageTriggers={seqStageTriggers}
+                  onChangeStageTrigger={(stageId, cfg) =>
+                    setSeqStageTriggers((prev) => ({ ...prev, [stageId]: cfg }))
+                  }
                 />
               ) : (
                 <CampaignReplyFlowEditor

@@ -9,12 +9,15 @@
  * apenas o campo `body` de cada etapa é relevante.
  */
 import React from 'react';
-import { Plus, Trash2, ArrowDown, Clock } from 'lucide-react';
+import { Plus, Trash2, ArrowDown, Clock, Zap, MessageCircle } from 'lucide-react';
 import { CampaignMessageComposer } from './CampaignMessageComposer';
 import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
 import type { ReplyMessageStage } from './CampaignReplyFlowEditor';
+import type { CampaignStageTriggerType } from '../../types';
 import { Button } from '../ui';
 import { insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
+
+type StageTriggerCfg = { type: CampaignStageTriggerType; timeoutHours?: number };
 
 type Props = {
   stages: ReplyMessageStage[];
@@ -27,6 +30,10 @@ type Props = {
   launchMode?: 'now' | 'schedule';
   newMessageStage: () => ReplyMessageStage;
   delaySeconds: number;
+  advancedTriggers: boolean;
+  onToggleAdvancedTriggers: (on: boolean) => void;
+  stageTriggers: Record<string, StageTriggerCfg>;
+  onChangeStageTrigger: (stageId: string, cfg: StageTriggerCfg) => void;
 };
 
 export const CampaignSequentialEditor: React.FC<Props> = ({
@@ -40,6 +47,10 @@ export const CampaignSequentialEditor: React.FC<Props> = ({
   launchMode,
   newMessageStage,
   delaySeconds,
+  advancedTriggers,
+  onToggleAdvancedTriggers,
+  stageTriggers,
+  onChangeStageTrigger,
 }) => {
   const patchStageBody = (idx: number, body: string) => {
     setStages((prev) => prev.map((s, i) => (i === idx ? { ...s, body } : s)));
@@ -70,6 +81,26 @@ export const CampaignSequentialEditor: React.FC<Props> = ({
           envios — sem depender de resposta.
         </span>
       </div>
+
+      <label
+        className="flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer"
+        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+      >
+        <input
+          type="checkbox"
+          checked={advancedTriggers}
+          onChange={(e) => onToggleAdvancedTriggers(e.target.checked)}
+        />
+        <span className="flex-1">
+          <span className="block text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+            Gatilhos avançados por etapa
+          </span>
+          <span className="block text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+            Defina, em cada etapa, como avançar: por intervalo, imediatamente ou só quando o contato responder.
+          </span>
+        </span>
+        <Zap className="w-4 h-4 shrink-0" style={{ color: advancedTriggers ? '#8b5cf6' : 'var(--text-3)' }} />
+      </label>
 
       {stages.map((stage, idx) => (
         <React.Fragment key={stage.id}>
@@ -132,15 +163,81 @@ export const CampaignSequentialEditor: React.FC<Props> = ({
             />
           </div>
           {idx < stages.length - 1 && (
-            <div className="flex justify-center" aria-hidden>
-              <div
-                className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                style={{ background: 'var(--surface-1)', color: 'var(--text-3)' }}
-              >
-                <ArrowDown className="w-3 h-3" />
-                aguarda ~{intervalLabel}
+            advancedTriggers ? (
+              (() => {
+                const cfg = stageTriggers[stage.id] || { type: 'delay' as CampaignStageTriggerType };
+                const opts: Array<{ v: CampaignStageTriggerType; label: string; icon: React.ReactNode }> = [
+                  { v: 'delay', label: `Após ~${intervalLabel}`, icon: <Clock className="w-3 h-3" /> },
+                  { v: 'immediate', label: 'Imediato', icon: <ArrowDown className="w-3 h-3" /> },
+                  { v: 'any_reply', label: 'Se responder', icon: <MessageCircle className="w-3 h-3" /> },
+                ];
+                return (
+                  <div
+                    className="rounded-lg px-3 py-2 space-y-2"
+                    style={{ background: 'var(--surface-1)', border: '1px dashed var(--border)' }}
+                  >
+                    <p className="text-[10.5px] font-semibold" style={{ color: 'var(--text-3)' }}>
+                      Avançar para a etapa {idx + 2} quando:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {opts.map((o) => {
+                        const active = cfg.type === o.v;
+                        return (
+                          <button
+                            key={o.v}
+                            type="button"
+                            onClick={() => onChangeStageTrigger(stage.id, { ...cfg, type: o.v })}
+                            className="flex items-center gap-1 text-[10.5px] font-semibold px-2 py-1 rounded-full border transition-colors"
+                            style={{
+                              borderColor: active ? 'rgba(139,92,246,0.5)' : 'var(--border-subtle)',
+                              background: active ? 'rgba(139,92,246,0.12)' : 'var(--surface-0)',
+                              color: active ? '#8b5cf6' : 'var(--text-3)',
+                            }}
+                          >
+                            {o.icon}
+                            {o.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {cfg.type === 'any_reply' && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                          Esperar até
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={168}
+                          value={cfg.timeoutHours ?? 24}
+                          onChange={(e) =>
+                            onChangeStageTrigger(stage.id, {
+                              ...cfg,
+                              timeoutHours: Math.max(1, Math.min(168, Number(e.target.value) || 24)),
+                            })
+                          }
+                          className="w-16 rounded border px-2 py-1 text-[11px]"
+                          style={{ borderColor: 'var(--border)', background: 'var(--surface-0)', color: 'var(--text-1)' }}
+                        />
+                        <span className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                          horas pela resposta (depois segue mesmo assim)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="flex justify-center" aria-hidden>
+                <div
+                  className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--surface-1)', color: 'var(--text-3)' }}
+                >
+                  <ArrowDown className="w-3 h-3" />
+                  aguarda ~{intervalLabel}
+                </div>
               </div>
-            </div>
+            )
           )}
         </React.Fragment>
       ))}
