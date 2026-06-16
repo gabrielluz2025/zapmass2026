@@ -431,6 +431,17 @@ if [ "$SWARM_ENABLED" = "1" ] || { [ "$SWARM_ENABLED" = "auto" ] && [ "$IS_SWARM
   fi
 else
   echo "==> docker compose build + up"
+  # Compose: REDIS_URL deve usar DNS interno redis:6379 (host.docker.internal é só Swarm).
+  if [ -f .env ] && grep -qE '^REDIS_URL=' .env 2>/dev/null; then
+    if grep -qE '^REDIS_URL=.*(host\.docker\.internal|localhost|127\.0\.0\.1)' .env 2>/dev/null; then
+      echo "==> corrigindo REDIS_URL no .env para Compose (redis://redis:6379)"
+      sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://redis:6379|' .env
+      export REDIS_URL=redis://redis:6379
+    fi
+  else
+    echo 'REDIS_URL=redis://redis:6379' >> .env
+    export REDIS_URL=redis://redis:6379
+  fi
   if [ "${ZAPMASS_DOCKER_BUILD_NO_CACHE:-0}" = "1" ]; then
     echo "==> ZAPMASS_DOCKER_BUILD_NO_CACHE=1 — compose build --no-cache"
     docker compose build --no-cache

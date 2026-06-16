@@ -7,7 +7,7 @@ import { Copy, Check, Terminal, Server } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export const VPS_REDIS_FIX_COMMAND =
-  'cd /opt/zapmass && docker compose restart redis && sleep 3 && docker compose restart zapmass';
+  "sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://redis:6379|' /opt/zapmass/.env && cd /opt/zapmass && docker compose up -d zapmass";
 
 export const VPS_FULL_REDEPLOY_COMMAND =
   'cd /opt/zapmass && git pull origin main && docker compose up -d --build';
@@ -54,7 +54,7 @@ export const DispatchFixPanel: React.FC<Props> = ({
         />
         <FixStep
           n={2}
-          label="Reinicie Redis e o app ZapMass"
+          label="Corrija REDIS_URL e reinicie o app"
           command={VPS_REDIS_FIX_COMMAND}
           copied={copied === 'quick'}
           onCopy={() => copy(VPS_REDIS_FIX_COMMAND, 'quick')}
