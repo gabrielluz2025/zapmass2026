@@ -1,9 +1,9 @@
 /**
  * Instruções copiáveis para restaurar a fila de disparo (Redis + app).
- * Reutilizado no preview de campanha e no Centro de Comando.
+ * Reutilizado no preview de campanha e no Broadcast Studio.
  */
 import React, { useState } from 'react';
-import { Copy, Check, Terminal, Server } from 'lucide-react';
+import { Copy, Check, Terminal, Server, WifiOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export const VPS_REDIS_FIX_COMMAND =
@@ -20,6 +20,9 @@ type Props = {
   fixCommand?: string;
   /** Detalhe técnico (ex.: host errado no REDIS_URL) */
   detail?: string | null;
+  /** network = timeout no browser; redis = fila offline no servidor */
+  mode?: 'redis' | 'network';
+  onRetry?: () => void;
 };
 
 export const DispatchFixPanel: React.FC<Props> = ({
@@ -27,10 +30,15 @@ export const DispatchFixPanel: React.FC<Props> = ({
   compact = false,
   fixCommand,
   detail,
+  mode = 'redis',
+  onRetry,
 }) => {
   const [copied, setCopied] = useState<'quick' | 'full' | null>(null);
   const quickCommand = fixCommand?.trim() || VPS_REDIS_FIX_COMMAND;
-  const panelTitle = detail?.trim() || title;
+  const isNetwork = mode === 'network';
+  const panelTitle = isNetwork
+    ? 'Conexão com o servidor instável. O motor pode estar online — aguardamos reconexão automática.'
+    : detail?.trim() || title;
 
   const copy = async (text: string, which: 'quick' | 'full') => {
     try {
@@ -42,6 +50,41 @@ export const DispatchFixPanel: React.FC<Props> = ({
       toast.error('Não foi possível copiar. Selecione o texto manualmente.');
     }
   };
+
+  if (isNetwork) {
+    return (
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)' }}
+      >
+        <div className="px-3.5 py-2.5 flex items-start gap-2.5">
+          <WifiOff className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+          <div className="min-w-0">
+            <p className="text-[11.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
+              {panelTitle}
+            </p>
+            <ul className="mt-2 text-[10.5px] space-y-1 list-disc pl-4" style={{ color: 'var(--text-3)' }}>
+              <li>Verifique sua internet ou VPN</li>
+              <li>Recarregue a página se persistir por mais de 1 minuto</li>
+              <li>Só use os comandos VPS abaixo se o problema continuar após recarregar</li>
+            </ul>
+          </div>
+        </div>
+        <div className="px-3.5 pb-3.5 flex flex-wrap gap-2">
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-bold"
+              style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)', color: 'var(--text-1)' }}
+            >
+              Tentar agora
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -56,10 +99,7 @@ export const DispatchFixPanel: React.FC<Props> = ({
       </div>
 
       <div className={`px-3.5 pb-3.5 ${compact ? 'space-y-2' : 'space-y-2.5'}`}>
-        <FixStep
-          n={1}
-          label="Conecte na VPS (SSH ou terminal do painel Hostinger)"
-        />
+        <FixStep n={1} label="Conecte na VPS (SSH ou terminal do painel Hostinger)" />
         <FixStep
           n={2}
           label="Corrija REDIS_URL e reinicie o app"

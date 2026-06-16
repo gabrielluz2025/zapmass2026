@@ -1,14 +1,23 @@
 import IORedis from 'ioredis';
 
+type RedisPingOptions = {
+  connectTimeout?: number;
+  commandTimeout?: number;
+  maxRetriesPerRequest?: number;
+};
+
 /** Ping rápido para health checks (abre conexão dedicada e fecha no fim). */
-export async function redisPing(redisUrl: string): Promise<{ ok: boolean; pingMs?: number; error?: string }> {
+export async function redisPing(
+  redisUrl: string,
+  opts?: RedisPingOptions
+): Promise<{ ok: boolean; pingMs?: number; error?: string }> {
   const t0 = Date.now();
   let client: IORedis | null = null;
   try {
     client = new IORedis(redisUrl, {
-      maxRetriesPerRequest: 1,
-      connectTimeout: 5000,
-      commandTimeout: 5000,
+      maxRetriesPerRequest: opts?.maxRetriesPerRequest ?? 1,
+      connectTimeout: opts?.connectTimeout ?? 5000,
+      commandTimeout: opts?.commandTimeout ?? 5000,
       lazyConnect: true,
       enableOfflineQueue: false,
       retryStrategy: (times) => (times <= 2 ? Math.min(times * 300, 900) : null),

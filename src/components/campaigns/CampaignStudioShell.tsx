@@ -61,7 +61,24 @@ export const CampaignStudioShell: React.FC<Props> = ({
     return { running, scheduled, onlineChips, sentToday, total: campaigns.length };
   }, [campaigns, connections]);
 
-  const ready = healthUi === 'ok' && stats.onlineChips.length > 0;
+  const ready = (healthUi === 'ok' || healthUi === 'reconnecting') && stats.onlineChips.length > 0;
+
+  const motorTitle =
+    healthUi === 'checking'
+      ? 'Sincronizando…'
+      : healthUi === 'reconnecting'
+      ? 'Reconectando ao servidor…'
+      : ready
+      ? 'Pronto para disparar'
+      : healthUi === 'error'
+      ? health?.reachable === false
+        ? 'Conexão instável'
+        : 'Fila indisponível'
+      : 'Conecte um chip WhatsApp';
+
+  const showErrorPanel = healthUi === 'error';
+  const errorPanelMode =
+    health?.reachable === false || health?.kind === 'network' ? ('network' as const) : ('redis' as const);
 
   const nav: NavItem[] = [
     { id: 'overview', label: 'Painel', hint: 'Métricas e pulso', icon: <BarChart3 className="w-4 h-4" /> },
@@ -168,19 +185,19 @@ export const CampaignStudioShell: React.FC<Props> = ({
                 Status do motor
               </p>
               <p className="text-[15px] font-black mt-0.5" style={{ color: 'var(--text-1)' }}>
-                {healthUi === 'checking'
-                  ? 'Sincronizando…'
-                  : ready
-                  ? 'Pronto para disparar'
-                  : healthUi === 'error'
-                  ? 'Fila indisponível'
-                  : 'Conecte um chip WhatsApp'}
+                {motorTitle}
               </p>
+              {healthUi === 'reconnecting' && (
+                <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                  Mantendo o último status estável — nova verificação em andamento.
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill
                 label="Redis"
                 ok={healthUi === 'ok'}
+                warn={healthUi === 'reconnecting'}
                 checking={healthUi === 'checking'}
                 sub={health?.redis.pingMs != null ? `${health.redis.pingMs}ms` : undefined}
               />
@@ -189,7 +206,12 @@ export const CampaignStudioShell: React.FC<Props> = ({
                 ok={stats.onlineChips.length > 0}
                 value={`${stats.onlineChips.length}/${connections.length}`}
               />
-              <StatusPill label="Fila" ok={healthUi === 'ok'} value={String(stats.running.length)} />
+              <StatusPill
+                label="Fila"
+                ok={healthUi === 'ok'}
+                warn={healthUi === 'reconnecting'}
+                value={String(stats.running.length)}
+              />
               <button
                 type="button"
                 onClick={() => void check()}
@@ -202,20 +224,31 @@ export const CampaignStudioShell: React.FC<Props> = ({
             </div>
           </div>
 
-          {healthUi === 'error' && (
+          {showErrorPanel && (
             <div className="px-4 pb-4 sm:px-5">
               <DispatchFixPanel
                 compact
+                mode={errorPanelMode}
                 fixCommand={health?.fixCommand}
-                detail={health?.redis.misconfigHint ?? health?.redis.error}
+                detail={
+                  errorPanelMode === 'redis'
+                    ? health?.redis.misconfigHint ?? health?.redis.error
+                    : health?.redis.error
+                }
+                onRetry={() => void check()}
               />
             </div>
           )}
 
-          {healthUi === 'ok' && (
+          {(healthUi === 'ok' || healthUi === 'reconnecting') && (
             <div
               className="h-[2px]"
-              style={{ background: 'linear-gradient(90deg, #6366f1, #22d3ee, #6366f1)' }}
+              style={{
+                background:
+                  healthUi === 'reconnecting'
+                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b)'
+                    : 'linear-gradient(90deg, #6366f1, #22d3ee, #6366f1)',
+              }}
             />
           )}
         </div>
@@ -290,29 +323,56 @@ export const CampaignStudioShell: React.FC<Props> = ({
 const StatusPill: React.FC<{
   label: string;
   ok: boolean;
+  warn?: boolean;
   checking?: boolean;
   value?: string;
   sub?: string;
-}> = ({ label, ok, checking, value, sub }) => (
-  <div
-    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold"
-    style={{
-      background: checking ? 'var(--surface-0)' : ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-      border: `1px solid ${checking ? 'var(--border-subtle)' : ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
-      color: checking ? 'var(--text-3)' : ok ? '#22c55e' : '#ef4444',
-    }}
-  >
-    {checking ? (
-      <RefreshCw className="w-3 h-3 animate-spin" />
-    ) : ok ? (
-      <CheckCircle2 className="w-3 h-3" />
-    ) : (
-      <AlertTriangle className="w-3 h-3" />
-    )}
-    {label}
-    {value && <span className="tabular-nums">{value}</span>}
-    {sub && (
-      <span className="font-normal opacity-70 tabular-nums">{sub}</span>
-    )}
-  </div>
-);
+}> = ({ label, ok, warn, checking, value, sub }) => {
+  const tone = checking ? 'checking' : warn ? 'warn' : ok ? 'ok' : 'bad';
+  const styles = {
+    checking: {
+      bg: 'var(--surface-0)',
+      border: 'var(--border-subtle)',
+      color: 'var(--text-3)',
+    },
+    warn: {
+      bg: 'rgba(245,158,11,0.12)',
+      border: 'rgba(245,158,11,0.35)',
+      color: '#f59e0b',
+    },
+    ok: {
+      bg: 'rgba(34,197,94,0.12)',
+      border: 'rgba(34,197,94,0.3)',
+      color: '#22c55e',
+    },
+    bad: {
+      bg: 'rgba(239,68,68,0.12)',
+      border: 'rgba(239,68,68,0.3)',
+      color: '#ef4444',
+    },
+  }[tone];
+
+  return (
+    <div
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold"
+      style={{
+        background: styles.bg,
+        border: `1px solid ${styles.border}`,
+        color: styles.color,
+      }}
+    >
+      {checking ? (
+        <RefreshCw className="w-3 h-3 animate-spin" />
+      ) : warn ? (
+        <RefreshCw className="w-3 h-3 animate-spin" />
+      ) : ok ? (
+        <CheckCircle2 className="w-3 h-3" />
+      ) : (
+        <AlertTriangle className="w-3 h-3" />
+      )}
+      {label}
+      {value && <span className="tabular-nums">{value}</span>}
+      {sub && <span className="font-normal opacity-70 tabular-nums">{sub}</span>}
+    </div>
+  );
+};

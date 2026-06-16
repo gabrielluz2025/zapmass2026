@@ -379,10 +379,10 @@ app.get('/api/health/redis', async (_req, res) => {
   if (!redisUrl) {
     return res.status(503).json({ ok: false, configured: false, error: 'REDIS_URL não configurado.' });
   }
-  let ping = await redisPing(redisUrl);
+  let ping = await redisPing(redisUrl, { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 });
   if (!ping.ok && ping.error?.includes('Connection is closed')) {
     evolutionService.resetCampaignRedisConnection();
-    ping = await redisPing(redisUrl);
+    ping = await redisPing(redisUrl, { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 });
   }
   const misconfigHint = getRedisUrlMisconfigHint(redisUrl);
   const status = ping.ok ? 200 : 503;
@@ -399,30 +399,42 @@ app.get('/api/health/redis', async (_req, res) => {
  * Saúde unificada do motor de disparo (Redis + fila).
  * Público — usado pelo Centro de Comando e preview de campanha.
  */
+const DISPATCH_HEALTH_CACHE_MS = 5_000;
+let dispatchHealthCache: { at: number; status: number; body: Record<string, unknown> } | null = null;
+
 app.get('/api/health/dispatch', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
+
+  const now = Date.now();
+  if (dispatchHealthCache && now - dispatchHealthCache.at < DISPATCH_HEALTH_CACHE_MS) {
+    return res.status(dispatchHealthCache.status).json(dispatchHealthCache.body);
+  }
+
   const redisUrl = process.env.REDIS_URL?.trim();
   if (!redisUrl) {
-    return res.status(503).json({
+    const body = {
       ok: false,
       ready: false,
       redis: { ok: false, configured: false, error: 'REDIS_URL não configurado.' },
       fixCommand: 'cd /opt/zapmass && docker compose up -d redis zapmass',
-    });
+    };
+    dispatchHealthCache = { at: now, status: 503, body };
+    return res.status(503).json(body);
   }
   const misconfigHint = getRedisUrlMisconfigHint(redisUrl);
-  let ping = await redisPing(redisUrl);
+  const pingOpts = { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 };
+  let ping = await redisPing(redisUrl, pingOpts);
   if (!ping.ok && ping.error?.includes('Connection is closed')) {
     evolutionService.resetCampaignRedisConnection();
-    ping = await redisPing(redisUrl);
+    ping = await redisPing(redisUrl, pingOpts);
   }
   const ok = ping.ok;
   const fixEnvCommand =
     misconfigHint != null
       ? "sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://redis:6379|' /opt/zapmass/.env && cd /opt/zapmass && docker compose up -d zapmass"
       : 'cd /opt/zapmass && docker compose restart redis && sleep 3 && docker compose restart zapmass';
-  return res.status(ok ? 200 : 503).json({
+  const body = {
     ok,
     ready: ok,
     redis: {
@@ -435,7 +447,10 @@ app.get('/api/health/dispatch', async (_req, res) => {
     },
     fixCommand: fixEnvCommand,
     checkedAt: new Date().toISOString(),
-  });
+  };
+  const status = ok ? 200 : 503;
+  dispatchHealthCache = { at: now, status, body };
+  return res.status(status).json(body);
 });
 
 /** Redis + router de sessão (útil com API + wa-worker). Em produção: redes não privadas ou METRICS_TOKEN. */

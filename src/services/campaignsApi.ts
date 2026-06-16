@@ -181,9 +181,14 @@ export async function fetchCampaignMediaAttachments(campaignId: string): Promise
 
 // ─── Saúde do motor de disparo ───────────────────────────────────────────────
 
+export type DispatchHealthKind = 'ok' | 'redis_down' | 'misconfig' | 'network';
+
 export type DispatchHealth = {
   ok: boolean;
   ready: boolean;
+  kind?: DispatchHealthKind;
+  /** Resposta HTTP recebida do servidor (false = timeout/rede no browser). */
+  reachable?: boolean;
   redis: {
     ok: boolean;
     configured?: boolean;
@@ -196,29 +201,52 @@ export type DispatchHealth = {
   checkedAt?: string;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Ping unificado Redis + metadados (endpoint público, sem auth). */
-export async function fetchDispatchHealth(): Promise<DispatchHealth> {
-  try {
-    const r = await fetch(apiUrl(`/api/health/dispatch?_=${Date.now()}`), {
-      signal: AbortSignal.timeout(12_000),
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' },
-    });
-    const j = (await r.json().catch(() => ({}))) as Partial<DispatchHealth>;
-    return {
-      ok: Boolean(j.ok),
-      ready: Boolean(j.ready),
-      redis: j.redis ?? { ok: false, error: 'Resposta inválida do servidor' },
-      fixCommand: j.fixCommand,
-      checkedAt: j.checkedAt,
-    };
-  } catch {
-    return {
-      ok: false,
-      ready: false,
-      redis: { ok: false, error: 'Servidor inacessível ou timeout' },
-    };
+export async function fetchDispatchHealth(options?: { retries?: number }): Promise<DispatchHealth> {
+  const retries = Math.max(0, options?.retries ?? 2);
+  let last: DispatchHealth = {
+    ok: false,
+    ready: false,
+    kind: 'network',
+    reachable: false,
+    redis: { ok: false, error: 'Servidor inacessível ou timeout' },
+  };
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(apiUrl(`/api/health/dispatch?_=${Date.now()}`), {
+        signal: AbortSignal.timeout(18_000),
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      const j = (await r.json().catch(() => ({}))) as Partial<DispatchHealth>;
+      const redis = j.redis ?? { ok: false, error: 'Resposta inválida do servidor' };
+      const ok = Boolean(j.ok);
+      const kind: DispatchHealthKind = ok
+        ? 'ok'
+        : redis.misconfigHint
+        ? 'misconfig'
+        : 'redis_down';
+      return {
+        ok,
+        ready: Boolean(j.ready),
+        kind,
+        reachable: true,
+        redis,
+        fixCommand: j.fixCommand,
+        checkedAt: j.checkedAt ?? new Date().toISOString(),
+      };
+    } catch {
+      if (attempt < retries) {
+        await sleep(700 * (attempt + 1));
+        continue;
+      }
+    }
   }
+
+  return last;
 }
 
 /** GET /api/health/redis sem cache (evita 503 antigo preso no browser). */
