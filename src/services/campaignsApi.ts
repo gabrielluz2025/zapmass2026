@@ -175,8 +175,10 @@ export type DispatchHealth = {
 /** Ping unificado Redis + metadados (endpoint público, sem auth). */
 export async function fetchDispatchHealth(): Promise<DispatchHealth> {
   try {
-    const r = await fetch(apiUrl('/api/health/dispatch'), {
-      signal: AbortSignal.timeout(8000),
+    const r = await fetch(apiUrl(`/api/health/dispatch?_=${Date.now()}`), {
+      signal: AbortSignal.timeout(12_000),
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
     });
     const j = (await r.json().catch(() => ({}))) as Partial<DispatchHealth>;
     return {
@@ -192,6 +194,21 @@ export async function fetchDispatchHealth(): Promise<DispatchHealth> {
       ready: false,
       redis: { ok: false, error: 'Servidor inacessível ou timeout' },
     };
+  }
+}
+
+/** GET /api/health/redis sem cache (evita 503 antigo preso no browser). */
+export async function fetchRedisHealth(): Promise<{ ok: boolean; pingMs?: number; error?: string | null }> {
+  try {
+    const r = await fetch(apiUrl(`/api/health/redis?_=${Date.now()}`), {
+      signal: AbortSignal.timeout(12_000),
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; pingMs?: number; error?: string | null };
+    return { ok: Boolean(j.ok), pingMs: j.pingMs, error: j.error ?? null };
+  } catch {
+    return { ok: false, error: 'Servidor inacessível ou timeout' };
   }
 }
 

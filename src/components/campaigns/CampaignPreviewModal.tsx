@@ -26,7 +26,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { campaignClockVars } from '../../utils/campaignClockVars';
-import { apiPreflightCheck } from '../../services/campaignsApi';
+import { apiPreflightCheck, fetchRedisHealth } from '../../services/campaignsApi';
 import { DispatchFixPanel } from './DispatchFixPanel';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -143,9 +143,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     setChipStatus('checking');
     let redisOk = false;
     try {
-      const r = await fetch('/api/health/redis', {
-        signal: AbortSignal.timeout(6000),
-      });
+      const r = await fetchRedisHealth();
       redisOk = r.ok;
       setRedisStatus(r.ok ? 'ok' : 'error');
     } catch {

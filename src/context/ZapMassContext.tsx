@@ -58,7 +58,8 @@ import {
   apiDeleteAllCampaigns,
   apiDeleteCampaign,
   apiUpdateCampaign,
-  fetchCampaigns
+  fetchCampaigns,
+  fetchRedisHealth
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import { useWorkspace } from './WorkspaceContext';
@@ -3238,11 +3239,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     // Verificar Redis antes de iniciar: evita "Tempo esgotado ao enfileirar" surpresa.
     try {
-      const redisCheck = await fetch('/api/health/redis', { signal: AbortSignal.timeout(6000) });
-      if (!redisCheck.ok) {
-        const body = await redisCheck.json().catch(() => ({})) as { error?: string };
+      const r = await fetchRedisHealth();
+      if (!r.ok) {
         throw new Error(
-          body.error ||
+          r.error ||
           'Redis indisponível na VPS. O disparo não pode ser iniciado. Verifique o container Redis.'
         );
       }

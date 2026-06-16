@@ -1,11 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
-  BarChart3,
   ChevronDown,
   ChevronUp,
   Command,
-  LayoutDashboard,
-  Plus,
   Send,
   Smartphone,
 } from 'lucide-react';
@@ -17,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { isWhatsAppRiskAcknowledged, saveWhatsAppRiskAck } from '../utils/whatsappRiskStorage';
 import { appendAudit } from '../utils/campaignMissionStorage';
 import { buildDraftFromCampaign } from '../utils/campaignDraft';
-import { Badge, Button, Card, Input, Select, Tabs as UITabs, Modal } from './ui';
+import { Badge, Button, Card, Input, Select, Modal } from './ui';
 import {
   CampaignDetails,
   CampaignMissionControl,
@@ -28,7 +25,7 @@ import {
   CampaignWeekScheduleView
 } from './campaigns';
 import { CampaignAbComparison } from './campaigns/CampaignAbComparison';
-import { CampaignCommandCenter } from './campaigns/CampaignCommandCenter';
+import { CampaignStudioShell, type CampaignStudioTab } from './campaigns/CampaignStudioShell';
 import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
 import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
@@ -38,7 +35,7 @@ interface CampaignsTabProps {
   connections: WhatsAppConnection[];
 }
 
-type SubTab = 'overview' | 'mission' | 'campaigns' | 'create';
+type SubTab = CampaignStudioTab;
 
 const LS_TEST_OPEN = 'zapmass.campaigns.testOpen';
 const LS_DISMISSED = 'zapmass.campaigns.dismissedInsights';
@@ -545,165 +542,123 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           onTogglePause={toggleCampaignStatus}
         />
       ) : (
-        <div className="space-y-5 pb-24 lg:pb-10">
-
-          <CampaignCommandCenter
-            campaigns={campaigns}
-            connections={connections}
-            onCreate={requestCreateFlow}
-            onOpenDetails={openDetails}
-            onTogglePause={toggleCampaignStatus}
-            onGoCampaigns={() => setSubTab('campaigns')}
-          />
-
-          <CampaignInsightsBanner
-            campaigns={campaigns}
-            connections={connections}
-            onOpenDetails={openDetails}
-            dismissedIds={dismissedInsights}
-            onDismiss={dismissInsight}
-            onTogglePause={toggleCampaignStatus}
-          />
-
-          <CampaignTemplatesGallery onUseTemplate={openWizardWithDraft} />
-
-          {/* Teste de disparo — colapsável */}
-          <Card>
-            <button
-              type="button"
-              onClick={() => setTestOpen((v) => !v)}
-              className="w-full flex items-center gap-2.5 text-left"
-              aria-expanded={testOpen}
-            >
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                style={{ background: 'rgba(59,130,246,0.12)' }}
-              >
-                <Smartphone className="w-4 h-4 text-blue-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="ui-title text-[14.5px]">Teste de disparo</h3>
-                <p className="ui-subtitle text-[11.5px] truncate">
-                  Valide o envio em 1 número antes de rodar uma campanha cheia
-                </p>
-              </div>
-              <Badge variant="info">Depuração</Badge>
-              <span
-                className="p-1 rounded-md transition-colors shrink-0"
-                style={{ color: 'var(--text-3)' }}
-                aria-hidden
-              >
-                {testOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </span>
-            </button>
-
-            {testOpen && (
-              <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="ui-eyebrow mb-1.5 block">Conexão origem</label>
-                    <Select value={testFromConn} onChange={(e) => setTestFromConn(e.target.value)}>
-                      <option value="">Selecione...</option>
-                      {connections
-                        .filter((c) => c.status === ConnectionStatus.CONNECTED)
-                        .map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="ui-eyebrow mb-1.5 block">Número destino</label>
-                    <Input
-                      placeholder="Ex: 5511999999999"
-                      value={testToPhone}
-                      onChange={(e) => setTestToPhone(e.target.value.replace(/\D/g, ''))}
-                    />
-                  </div>
-                  <div>
-                    <label className="ui-eyebrow mb-1.5 block">Mensagem</label>
-                    <Input
-                      value={testMessage}
-                      onChange={(e) => setTestMessage(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mt-4 gap-3 flex-wrap">
-                  <div
-                    className="text-[12.5px] min-h-[20px]"
-                    style={{
-                      color: testResult?.startsWith('Enviado')
-                        ? 'var(--brand-600)'
-                        : testResult?.startsWith('Erro')
-                        ? '#ef4444'
-                        : 'var(--text-3)'
-                    }}
-                  >
-                    {testResult || 'Aguardando teste...'}
-                  </div>
-                  <Button
-                    variant="primary"
-                    leftIcon={<Send className="w-4 h-4" />}
-                    disabled={!testFromConn || !testToPhone || !testMessage.trim()}
-                    onClick={handleTestDispatch}
-                  >
-                    Testar disparo
-                  </Button>
-                </div>
-              </div>
-            )}
-          </Card>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <UITabs
-              value={subTab}
-              onChange={(v) => handleSubTabChange(v as SubTab)}
-              items={[
-                { id: 'overview', label: 'Dashboard', icon: <BarChart3 className="w-3.5 h-3.5" /> },
-                { id: 'mission', label: 'Centro', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
-                { id: 'campaigns', label: `Campanhas (${campaigns.length})`, icon: <Send className="w-3.5 h-3.5" /> },
-                { id: 'create', label: 'Nova', icon: <Plus className="w-3.5 h-3.5" /> }
-              ]}
-            />
-            <div className="flex-1" />
-            <button
-              type="button"
-              onClick={() => setShortcutsOpen(true)}
-              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors"
-              style={{
-                background: 'var(--surface-1)',
-                color: 'var(--text-3)',
-                border: '1px solid var(--border-subtle)'
-              }}
-              title="Atalhos de teclado"
-            >
-              <Command className="w-3.5 h-3.5" />
-              Atalhos
-            </button>
-          </div>
-
-          {subTab === 'mission' && (
-            <CampaignMissionControl
-              campaigns={campaigns}
-              connections={connections}
-              onOpenDetails={openDetails}
-              onApplyDraft={(draft) => openWizardWithDraft(draft)}
-              onCreate={requestCreateFlow}
-            />
+        <CampaignStudioShell
+          campaigns={campaigns}
+          connections={connections}
+          subTab={subTab}
+          onSubTabChange={handleSubTabChange}
+          onCreate={requestCreateFlow}
+          onOpenDetails={openDetails}
+        >
+          {subTab === 'overview' && (
+            <div className="space-y-4">
+              <CampaignInsightsBanner
+                campaigns={campaigns}
+                connections={connections}
+                onOpenDetails={openDetails}
+                dismissedIds={dismissedInsights}
+                onDismiss={dismissInsight}
+                onTogglePause={toggleCampaignStatus}
+              />
+              <CampaignsOverview
+                campaigns={campaigns}
+                connections={connections}
+                onOpenDetails={openDetails}
+                onViewAll={() => setSubTab('campaigns')}
+                onCreate={requestCreateFlow}
+              />
+              <CampaignTemplatesGallery onUseTemplate={openWizardWithDraft} />
+            </div>
           )}
 
-          {subTab === 'overview' && (
-            <CampaignsOverview
-              campaigns={campaigns}
-              connections={connections}
-              onOpenDetails={openDetails}
-              onViewAll={() => {
-                setSubTab('campaigns');
-                setViewState('list');
-              }}
-              onCreate={requestCreateFlow}
-            />
+          {subTab === 'mission' && (
+            <div className="space-y-4">
+              <CampaignMissionControl
+                campaigns={campaigns}
+                connections={connections}
+                onOpenDetails={openDetails}
+                onApplyDraft={(draft) => openWizardWithDraft(draft)}
+                onCreate={requestCreateFlow}
+              />
+              <Card>
+                <button
+                  type="button"
+                  onClick={() => setTestOpen((v) => !v)}
+                  className="w-full flex items-center gap-2.5 text-left"
+                  aria-expanded={testOpen}
+                >
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: 'rgba(99,102,241,0.12)' }}
+                  >
+                    <Smartphone className="w-4 h-4 text-indigo-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="ui-title text-[14.5px]">Teste de disparo</h3>
+                    <p className="ui-subtitle text-[11.5px] truncate">
+                      Valide o envio em 1 número antes de rodar uma campanha cheia
+                    </p>
+                  </div>
+                  <Badge variant="info">Depuração</Badge>
+                  <span className="p-1 rounded-md shrink-0" style={{ color: 'var(--text-3)' }} aria-hidden>
+                    {testOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </span>
+                </button>
+                {testOpen && (
+                  <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="ui-eyebrow mb-1.5 block">Conexão origem</label>
+                        <Select value={testFromConn} onChange={(e) => setTestFromConn(e.target.value)}>
+                          <option value="">Selecione...</option>
+                          {connections
+                            .filter((c) => c.status === ConnectionStatus.CONNECTED)
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="ui-eyebrow mb-1.5 block">Número destino</label>
+                        <Input
+                          placeholder="Ex: 5511999999999"
+                          value={testToPhone}
+                          onChange={(e) => setTestToPhone(e.target.value.replace(/\D/g, ''))}
+                        />
+                      </div>
+                      <div>
+                        <label className="ui-eyebrow mb-1.5 block">Mensagem</label>
+                        <Input value={testMessage} onChange={(e) => setTestMessage(e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-4 gap-3 flex-wrap">
+                      <div
+                        className="text-[12.5px] min-h-[20px]"
+                        style={{
+                          color: testResult?.startsWith('Enviado')
+                            ? 'var(--brand-600)'
+                            : testResult?.startsWith('Erro')
+                            ? '#ef4444'
+                            : 'var(--text-3)',
+                        }}
+                      >
+                        {testResult || 'Aguardando teste...'}
+                      </div>
+                      <Button
+                        variant="primary"
+                        leftIcon={<Send className="w-4 h-4" />}
+                        disabled={!testFromConn || !testToPhone || !testMessage.trim()}
+                        onClick={handleTestDispatch}
+                      >
+                        Testar disparo
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </div>
           )}
 
           {subTab === 'campaigns' && (
@@ -720,7 +675,24 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
               />
             </div>
           )}
-        </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              type="button"
+              onClick={() => setShortcutsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold"
+              style={{
+                background: 'var(--surface-1)',
+                color: 'var(--text-3)',
+                border: '1px solid var(--border-subtle)',
+              }}
+              title="Atalhos de teclado"
+            >
+              <Command className="w-3.5 h-3.5" />
+              Atalhos
+            </button>
+          </div>
+        </CampaignStudioShell>
       )}
 
       {viewState === 'list' && (

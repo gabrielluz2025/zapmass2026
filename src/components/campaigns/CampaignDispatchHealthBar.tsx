@@ -11,6 +11,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, RefreshCw, Server, Smartphone, Layers, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { fetchRedisHealth } from '../../services/campaignsApi';
 import { WhatsAppConnection, ConnectionStatus } from '../../types';
 
 type Health = 'checking' | 'ok' | 'error';
@@ -28,7 +29,7 @@ export const CampaignDispatchHealthBar: React.FC<Props> = ({ connections }) => {
   const checkRedis = useCallback(async () => {
     setRedis('checking');
     try {
-      const r = await fetch('/api/health/redis', { signal: AbortSignal.timeout(6000) });
+      const r = await fetchRedisHealth();
       setRedis(r.ok ? 'ok' : 'error');
     } catch {
       setRedis('error');

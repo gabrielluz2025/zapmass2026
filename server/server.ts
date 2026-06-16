@@ -373,6 +373,8 @@ app.get('/api/health', async (_req, res) => {
 
 /** Verifica Redis rapidamente (sem auth). Usado pelo frontend antes de iniciar disparo. */
 app.get('/api/health/redis', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   const redisUrl = process.env.REDIS_URL?.trim();
   if (!redisUrl) {
     return res.status(503).json({ ok: false, configured: false, error: 'REDIS_URL não configurado.' });
@@ -398,6 +400,8 @@ app.get('/api/health/redis', async (_req, res) => {
  * Público — usado pelo Centro de Comando e preview de campanha.
  */
 app.get('/api/health/dispatch', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
   const redisUrl = process.env.REDIS_URL?.trim();
   if (!redisUrl) {
     return res.status(503).json({

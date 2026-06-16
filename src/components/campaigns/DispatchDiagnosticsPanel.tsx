@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Campaign, WhatsAppConnection } from '../../types';
-import { apiPreflightCheck, apiTestSend, retryFailedContacts, apiGetFailedJobs } from '../../services/campaignsApi';
+import { apiPreflightCheck, apiTestSend, retryFailedContacts, apiGetFailedJobs, fetchRedisHealth } from '../../services/campaignsApi';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 
@@ -76,7 +76,7 @@ export const DispatchDiagnosticsPanel: React.FC<Props> = ({
   const checkRedis = useCallback(async () => {
     setRedisStatus('checking');
     try {
-      const r = await fetch('/api/health/redis', { signal: AbortSignal.timeout(6000) });
+      const r = await fetchRedisHealth();
       setRedisStatus(r.ok ? 'ok' : 'error');
     } catch {
       setRedisStatus('error');
