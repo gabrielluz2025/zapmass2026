@@ -3,6 +3,9 @@
 # Abra uma sessao SSH pelo seu PC (ou terminal browser do painel) e execute:
 #   cd /opt/zapmass && bash deployment/manual-pull-deploy.sh
 #
+# Se git pull falhar por alteração local em deployment/vps-deploy.sh:
+#   cd /opt/zapmass && git checkout -- deployment/vps-deploy.sh && git pull origin main
+#   ou: bash deployment/vps-safe-pull.sh
 # Se ficar "aguardando lock" 10 min e falhar:
 #   bash deployment/deploy-lock-diagnose.sh
 #   bash deployment/clear-stale-deploy-lock.sh   # só se não houver deploy ativo

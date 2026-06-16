@@ -26,6 +26,7 @@ import {
 } from './campaigns';
 import { CampaignAbComparison } from './campaigns/CampaignAbComparison';
 import { CampaignStudioShell, type CampaignStudioTab } from './campaigns/CampaignStudioShell';
+import { CampaignStudioSection } from './campaigns/CampaignStudioSection';
 import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
 import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
@@ -567,7 +568,9 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 onViewAll={() => setSubTab('campaigns')}
                 onCreate={requestCreateFlow}
               />
-              <CampaignTemplatesGallery onUseTemplate={openWizardWithDraft} />
+              <CampaignStudioSection title="Templates prontos" subtitle="Comece a partir de um modelo testado">
+                <CampaignTemplatesGallery onUseTemplate={openWizardWithDraft} />
+              </CampaignStudioSection>
             </div>
           )}
 

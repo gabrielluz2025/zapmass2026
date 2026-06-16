@@ -1375,7 +1375,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         style={{
           background: 'var(--surface-1)',
           border: '1px solid var(--border-subtle)',
-          boxShadow: '0 1px 6px rgba(0,0,0,0.06)'
+          boxShadow: '0 1px 6px rgba(0,0,0,0.06)',
+          borderLeft: '3px solid #6366f1',
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -1390,7 +1391,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           </button>
           <div className="min-w-0">
             <h1 className="text-[16px] font-bold leading-tight truncate" style={{ color: 'var(--text-1)' }}>
-              Nova Campanha
+              Nova campanha · Broadcast Studio
             </h1>
             <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
               Configure passo a passo: público, mensagem, canais e revisão
@@ -1399,9 +1400,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         </div>
         <div
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg flex-shrink-0"
-          style={{ background: 'var(--surface-selected-brand)', border: '1px solid rgba(16,185,129,0.2)' }}
+          style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.28)' }}
         >
-          <span className="text-[11px] font-bold" style={{ color: 'var(--brand-700)' }}>
+          <span className="text-[11px] font-bold" style={{ color: '#818cf8' }}>
             Passo {step} de 4
           </span>
         </div>
@@ -1423,7 +1424,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             left: '12.5%',
             width: `${((step - 1) / 3) * 75}%`,
             height: 2,
-            background: 'var(--brand-500)',
+            background: 'linear-gradient(90deg, #6366f1, #22d3ee)',
             zIndex: 0,
             transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)'
           }}
