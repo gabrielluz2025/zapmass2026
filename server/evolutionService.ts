@@ -1513,6 +1513,7 @@ interface CampaignMediaPayload {
     mimeType: string;
     fileName: string;
     caption?: string;
+    sendMediaAsDocument?: boolean;
 }
 
 interface MessageQueueItem {
@@ -2120,6 +2121,16 @@ function saveCampaignMediaToDisk(campaignId: string, media: CampaignMediaPayload
         const ext = media.fileName?.split('.').pop() || 'bin';
         const filePath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, `${campaignId}.${ext}`);
         fs.writeFileSync(filePath, Buffer.from(media.base64, 'base64'));
+        const metaPath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, `${campaignId}.meta.json`);
+        fs.writeFileSync(
+            metaPath,
+            JSON.stringify({
+                mimeType: media.mimeType,
+                fileName: media.fileName || `anexo.${ext}`,
+                sendMediaAsDocument: (media as CampaignMediaPayload & { sendMediaAsDocument?: boolean }).sendMediaAsDocument === true,
+                caption: media.caption,
+            })
+        );
         return filePath;
     } catch (e: any) {
         log('warn', 'Falha ao salvar mídia de campanha em disco — usando RAM como fallback', { campaignId, error: e?.message });
@@ -2137,11 +2148,109 @@ function loadCampaignMediaFromDisk(diskPath: string, mimeType: string, fileName:
 }
 
 function deleteCampaignMediaFromDisk(campaignId: string): void {
-    const meta = campaignMediaById.get(campaignId);
-    if (meta?._diskPath) {
-        try { fs.unlinkSync(meta._diskPath); } catch { /* ignora */ }
+    releaseCampaignMediaFromMemory(campaignId);
+    purgeCampaignMediaFilesOnDisk(campaignId);
+}
+
+function releaseCampaignMediaFromMemory(storageKey: string): void {
+    campaignMediaById.delete(storageKey);
+}
+
+function purgeCampaignMediaFilesOnDisk(storageKey: string): void {
+    if (!storageKey) return;
+    try {
+        ensureCampaignMediaDir();
+        const prefix = `${storageKey}.`;
+        for (const fileName of fs.readdirSync(CAMPAIGN_MEDIA_TEMP_DIR)) {
+            if (fileName.startsWith(prefix)) {
+                try {
+                    fs.unlinkSync(path.join(CAMPAIGN_MEDIA_TEMP_DIR, fileName));
+                } catch {
+                    /* ignora */
+                }
+            }
+        }
+    } catch {
+        /* ignora */
     }
-    campaignMediaById.delete(campaignId);
+}
+
+function resolveStoredCampaignMedia(storageKey: string): (CampaignMediaPayload & { sendMediaAsDocument?: boolean }) | null {
+    if (!storageKey) return null;
+    const inMem = campaignMediaById.get(storageKey);
+    if (inMem) {
+        if (inMem.base64) return inMem;
+        if (inMem._diskPath) {
+            return loadCampaignMediaFromDisk(inMem._diskPath, inMem.mimeType, inMem.fileName, inMem.caption);
+        }
+    }
+    try {
+        ensureCampaignMediaDir();
+        const files = fs.readdirSync(CAMPAIGN_MEDIA_TEMP_DIR);
+        const dataFile = files.find((f) => f.startsWith(`${storageKey}.`) && !f.endsWith('.meta.json'));
+        if (!dataFile) return null;
+        const diskPath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, dataFile);
+        const metaPath = path.join(CAMPAIGN_MEDIA_TEMP_DIR, `${storageKey}.meta.json`);
+        let mimeType = 'application/octet-stream';
+        let fileName = dataFile.slice(storageKey.length + 1);
+        let sendMediaAsDocument = false;
+        if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as {
+                mimeType?: string;
+                fileName?: string;
+                sendMediaAsDocument?: boolean;
+            };
+            mimeType = meta.mimeType || mimeType;
+            fileName = meta.fileName || fileName;
+            sendMediaAsDocument = meta.sendMediaAsDocument === true;
+        }
+        const loaded = loadCampaignMediaFromDisk(diskPath, mimeType, fileName);
+        if (!loaded) return null;
+        if (sendMediaAsDocument) loaded.sendMediaAsDocument = true;
+        return loaded;
+    } catch {
+        return null;
+    }
+}
+
+export type CampaignMediaAttachmentDto = {
+    dataBase64: string;
+    mimeType: string;
+    fileName: string;
+    sendMediaAsDocument?: boolean;
+};
+
+export function getCampaignMediaAttachmentsForRetry(campaignId: string): {
+    mediaAttachment?: CampaignMediaAttachmentDto;
+    followUpMediaAttachment?: CampaignMediaAttachmentDto;
+} {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return {};
+    const toDto = (payload: (CampaignMediaPayload & { sendMediaAsDocument?: boolean }) | null) => {
+        if (!payload?.base64) return undefined;
+        return {
+            dataBase64: payload.base64,
+            mimeType: payload.mimeType,
+            fileName: payload.fileName,
+            ...(payload.sendMediaAsDocument ? { sendMediaAsDocument: true } : {}),
+        } satisfies CampaignMediaAttachmentDto;
+    };
+    const mediaAttachment = toDto(resolveStoredCampaignMedia(cid));
+    const followUpMediaAttachment = toDto(resolveStoredCampaignMedia(campaignMediaStorageKey(cid, 1)));
+    return {
+        ...(mediaAttachment ? { mediaAttachment } : {}),
+        ...(followUpMediaAttachment ? { followUpMediaAttachment } : {}),
+    };
+}
+
+/** Remove arquivos de mídia da campanha (ex.: ao excluir campanha no painel). */
+export function purgeCampaignMediaFiles(campaignId: string): void {
+    const cid = String(campaignId || '').trim();
+    if (!cid) return;
+    releaseCampaignMediaFromMemory(cid);
+    releaseCampaignMediaFromMemory(campaignMediaStorageKey(cid, 1));
+    purgeCampaignMediaFilesOnDisk(cid);
+    purgeCampaignMediaFilesOnDisk(campaignMediaStorageKey(cid, 1));
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -2377,7 +2486,8 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
     }
 
     state.isRunning = false;
-    deleteCampaignMediaFromDisk(campaignId);
+    releaseCampaignMediaFromMemory(campaignId);
+    releaseCampaignMediaFromMemory(campaignMediaStorageKey(campaignId, 1));
     void deleteCampaignRuntimeFromRedis(campaignId);
     if (state.ownerUid) {
         void persistCampaignProgressToFirestore(

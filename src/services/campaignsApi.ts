@@ -155,6 +155,30 @@ export async function retryFailedContacts(
   return Number(j.reset) || 0;
 }
 
+export type CampaignMediaAttachmentPayload = {
+  dataBase64: string;
+  mimeType: string;
+  fileName: string;
+  sendMediaAsDocument?: boolean;
+};
+
+export async function fetchCampaignMediaAttachments(campaignId: string): Promise<{
+  mediaAttachment?: CampaignMediaAttachmentPayload;
+  followUpMediaAttachment?: CampaignMediaAttachmentPayload;
+}> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/media-attachments`;
+  const j = await apiFetchJson<{
+    ok?: boolean;
+    mediaAttachment?: CampaignMediaAttachmentPayload;
+    followUpMediaAttachment?: CampaignMediaAttachmentPayload;
+  }>(path);
+  if (j.ok === false) return {};
+  return {
+    ...(j.mediaAttachment ? { mediaAttachment: j.mediaAttachment } : {}),
+    ...(j.followUpMediaAttachment ? { followUpMediaAttachment: j.followUpMediaAttachment } : {}),
+  };
+}
+
 // ─── Saúde do motor de disparo ───────────────────────────────────────────────
 
 export type DispatchHealth = {

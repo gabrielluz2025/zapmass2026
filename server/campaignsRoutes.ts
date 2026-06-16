@@ -69,6 +69,7 @@ export function registerCampaignsDataRoutes(app: Express): void {
     try {
       const ok = await deleteCampaign(ctx.tenantId, id);
       if (!ok) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      evolutionService.purgeCampaignMediaFiles(id);
       return res.json({ ok: true });
     } catch (e) {
       console.error('[api/campaigns DELETE]', id, e);
@@ -91,6 +92,9 @@ export function registerCampaignsDataRoutes(app: Express): void {
     }
     try {
       const { deleted, missing } = await deleteCampaigns(ctx.tenantId, ids);
+      for (const id of deleted) {
+        evolutionService.purgeCampaignMediaFiles(id);
+      }
       return res.json({ ok: true, deleted, missing });
     } catch (e) {
       console.error('[api/campaigns bulk-delete]', e);
@@ -240,6 +244,23 @@ export function registerCampaignsDataRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/campaigns/failed-contacts]', e);
       return res.status(500).json({ ok: false, error: 'Erro ao listar contatos falhos.' });
+    }
+  });
+
+  /** Anexos de mídia salvos da campanha (para reenvio com foto/vídeo/arquivo). */
+  app.get('/api/campaigns/:id/media-attachments', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    if (!campaignId) return res.status(400).json({ ok: false, error: 'ID inválido.' });
+    try {
+      const owned = await evolutionService.ensureTenantOwnsCampaign(ctx.tenantId, campaignId);
+      if (!owned) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      const attachments = evolutionService.getCampaignMediaAttachmentsForRetry(campaignId);
+      return res.json({ ok: true, ...attachments });
+    } catch (e) {
+      console.error('[api/campaigns/media-attachments]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao carregar anexos da campanha.' });
     }
   });
 

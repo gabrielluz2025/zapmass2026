@@ -1,7 +1,8 @@
 import React from 'react';
-import { AlertTriangle, RefreshCw, Smartphone } from 'lucide-react';
+import { AlertTriangle, Paperclip, RefreshCw, Smartphone } from 'lucide-react';
 import { ConnectionStatus, WhatsAppConnection } from '../../types';
 import { Button, Modal, Select } from '../ui';
+import { fetchCampaignMediaAttachments } from '../../services/campaignsApi';
 
 export type CampaignRetryDialogState = {
   phones: string[];
@@ -12,6 +13,7 @@ type Props = {
   isOpen: boolean;
   onClose: () => void;
   state: CampaignRetryDialogState | null;
+  campaignId: string;
   connections: WhatsAppConnection[];
   campaignConnectionIds: string[];
   loading?: boolean;
@@ -22,6 +24,7 @@ export const CampaignRetryDialog: React.FC<Props> = ({
   isOpen,
   onClose,
   state,
+  campaignId,
   connections,
   campaignConnectionIds,
   loading = false,
@@ -29,6 +32,29 @@ export const CampaignRetryDialog: React.FC<Props> = ({
 }) => {
   const phones = state?.phones ?? [];
   const failedId = state?.failedConnectionId;
+  const [mediaLabels, setMediaLabels] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    if (!isOpen || !campaignId) {
+      setMediaLabels([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchCampaignMediaAttachments(campaignId)
+      .then((media) => {
+        if (cancelled) return;
+        const labels: string[] = [];
+        if (media.mediaAttachment?.fileName) labels.push(media.mediaAttachment.fileName);
+        if (media.followUpMediaAttachment?.fileName) labels.push(media.followUpMediaAttachment.fileName);
+        setMediaLabels(labels);
+      })
+      .catch(() => {
+        if (!cancelled) setMediaLabels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, campaignId]);
 
   const candidates = React.useMemo(() => {
     const ids = campaignConnectionIds.length > 0 ? campaignConnectionIds : connections.map((c) => c.id);
@@ -77,6 +103,18 @@ export const CampaignRetryDialog: React.FC<Props> = ({
             <span style={{ color: 'var(--text-2)' }}>
               O chip <strong>{failedConn?.name || failedId}</strong> está offline. Escolha outro canal abaixo para
               redirecionar o reenvio.
+            </span>
+          </div>
+        )}
+
+        {mediaLabels.length > 0 && (
+          <div
+            className="rounded-xl px-3 py-2.5 flex items-start gap-2 text-[12px]"
+            style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.22)' }}
+          >
+            <Paperclip className="w-4 h-4 shrink-0 mt-0.5 text-indigo-500" />
+            <span style={{ color: 'var(--text-2)' }}>
+              Anexo original incluído no reenvio: <strong>{mediaLabels.join(', ')}</strong>
             </span>
           </div>
         )}

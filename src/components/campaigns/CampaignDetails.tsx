@@ -97,6 +97,7 @@ import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
 import { CampaignStageRepliesCell } from './CampaignStageRepliesCell';
 import { CampaignRetryDialog, type CampaignRetryDialogState } from './CampaignRetryDialog';
+import { fetchCampaignMediaAttachments } from '../../services/campaignsApi';
 import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
 import { CampaignMultiStepDashboard } from './CampaignMultiStepDashboard';
 import {
@@ -1124,6 +1125,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }
       setRetrying(true);
       try {
+        let mediaAttachment: Awaited<ReturnType<typeof fetchCampaignMediaAttachments>>['mediaAttachment'];
+        let followUpMediaAttachment: Awaited<ReturnType<typeof fetchCampaignMediaAttachments>>['followUpMediaAttachment'];
+        try {
+          const media = await fetchCampaignMediaAttachments(campaign.id);
+          mediaAttachment = media.mediaAttachment;
+          followUpMediaAttachment = media.followUpMediaAttachment;
+        } catch {
+          /* reenvio segue só com texto se anexo indisponível */
+        }
         await startCampaign(
           connectionId,
           cleanPhones,
@@ -1136,9 +1146,15 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             replyFlow: campaign.replyFlow?.enabled ? campaign.replyFlow : undefined,
             stageConfigs: campaign.stageConfigs,
             delaySeconds: campaign.delaySeconds,
+            ...(mediaAttachment ? { mediaAttachment } : {}),
+            ...(followUpMediaAttachment ? { followUpMediaAttachment } : {}),
           }
         );
-        toast.success(`Reenvio iniciado para ${cleanPhones.length} contato(s).`);
+        toast.success(
+          mediaAttachment || followUpMediaAttachment
+            ? `Reenvio iniciado para ${cleanPhones.length} contato(s) com anexo original.`
+            : `Reenvio iniciado para ${cleanPhones.length} contato(s).`
+        );
         setShowRetryBanner(false);
         setRetryDialog(null);
       } catch (err) {
@@ -2419,6 +2435,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         isOpen={retryDialog != null}
         onClose={() => !retrying && setRetryDialog(null)}
         state={retryDialog}
+        campaignId={campaign.id}
         connections={connections}
         campaignConnectionIds={campaign.selectedConnectionIds || []}
         loading={retrying}
