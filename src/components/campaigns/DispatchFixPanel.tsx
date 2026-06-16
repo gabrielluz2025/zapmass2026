@@ -16,13 +16,21 @@ type Props = {
   /** Mensagem curta acima dos passos */
   title?: string;
   compact?: boolean;
+  /** Comando vindo da API (prioridade sobre o padrão) */
+  fixCommand?: string;
+  /** Detalhe técnico (ex.: host errado no REDIS_URL) */
+  detail?: string | null;
 };
 
 export const DispatchFixPanel: React.FC<Props> = ({
   title = 'A fila de disparo (Redis) está offline. Sem ela, nenhuma campanha envia mensagens.',
   compact = false,
+  fixCommand,
+  detail,
 }) => {
   const [copied, setCopied] = useState<'quick' | 'full' | null>(null);
+  const quickCommand = fixCommand?.trim() || VPS_REDIS_FIX_COMMAND;
+  const panelTitle = detail?.trim() || title;
 
   const copy = async (text: string, which: 'quick' | 'full') => {
     try {
@@ -43,7 +51,7 @@ export const DispatchFixPanel: React.FC<Props> = ({
       <div className="px-3.5 py-2.5 flex items-start gap-2.5">
         <Server className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
         <p className="text-[11.5px] leading-snug" style={{ color: '#fca5a5' }}>
-          {title}
+          {panelTitle}
         </p>
       </div>
 
@@ -55,9 +63,9 @@ export const DispatchFixPanel: React.FC<Props> = ({
         <FixStep
           n={2}
           label="Corrija REDIS_URL e reinicie o app"
-          command={VPS_REDIS_FIX_COMMAND}
+          command={quickCommand}
           copied={copied === 'quick'}
-          onCopy={() => copy(VPS_REDIS_FIX_COMMAND, 'quick')}
+          onCopy={() => copy(quickCommand, 'quick')}
         />
         {!compact && (
           <FixStep

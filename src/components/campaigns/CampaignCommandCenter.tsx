@@ -175,7 +175,9 @@ export const CampaignCommandCenter: React.FC<Props> = ({
                 {redisUi === 'checking'
                   ? 'Verificando fila e canais…'
                   : redisUi === 'error'
-                  ? 'Bloqueado — Redis offline'
+                  ? health?.redis.misconfigHint
+                    ? 'Bloqueado — REDIS_URL errada no .env'
+                    : 'Bloqueado — Redis offline'
                   : stats.onlineChips.length === 0
                   ? 'Redis OK — conecte um chip'
                   : 'Pronto para disparar'}
@@ -218,7 +220,16 @@ export const CampaignCommandCenter: React.FC<Props> = ({
 
         {/* Alerta Redis — bloqueador */}
         {redisUi === 'error' && (
-          <DispatchFixPanel compact />
+          <DispatchFixPanel
+            compact
+            fixCommand={health?.fixCommand}
+            detail={health?.redis.misconfigHint ?? health?.redis.error}
+            title={
+              health?.redis.host === 'host.docker.internal'
+                ? 'REDIS_URL aponta para host.docker.internal (Swarm antigo). No Docker Compose use redis://redis:6379.'
+                : undefined
+            }
+          />
         )}
 
         {/* KPI tiles */}

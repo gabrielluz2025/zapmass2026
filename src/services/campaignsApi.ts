@@ -165,6 +165,8 @@ export type DispatchHealth = {
     configured?: boolean;
     pingMs?: number;
     error?: string | null;
+    host?: string;
+    misconfigHint?: string | null;
   };
   fixCommand?: string;
   checkedAt?: string;
