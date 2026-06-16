@@ -140,10 +140,12 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     // 1. Verificar Redis
     setRedisStatus('checking');
     setChipStatus('checking');
+    let redisOk = false;
     try {
       const r = await fetch('/api/health/redis', {
         signal: AbortSignal.timeout(6000),
       });
+      redisOk = r.ok;
       setRedisStatus(r.ok ? 'ok' : 'error');
     } catch {
       setRedisStatus('error');
@@ -154,8 +156,21 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setChipStatus('warn');
       return;
     }
+    // Se o Redis está fora, a Evolution API também fica lenta/sem resposta.
+    // Não trava em "Verificando..." — marca chips como não verificados (Redis é o bloqueador).
+    if (!redisOk) {
+      setChipStatus('warn');
+      setChipResults([]);
+      return;
+    }
     try {
-      const res = await apiPreflightCheck(selectedConnectionIds);
+      // Timeout de segurança: nunca deixa o check preso em "Verificando…".
+      const res = await Promise.race([
+        apiPreflightCheck(selectedConnectionIds),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 12000)
+        ),
+      ]);
       setChipResults(res.results);
       setChipStatus(res.allReady ? 'ok' : 'error');
     } catch {
@@ -319,7 +334,9 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                   {chipStatus === 'ok' ? `${chipResults.filter(r => r.isReady).length}/${chipResults.length} online` :
                    chipStatus === 'error' ? `${chipResults.filter(r => !r.isReady).length} chip(s) offline` :
                    chipStatus === 'checking' ? 'Verificando…' :
-                   chipStatus === 'warn' ? 'Nenhum chip selecionado' : 'Não verificado'}
+                   chipStatus === 'warn'
+                     ? (selectedConnectionIds.length === 0 ? 'Nenhum chip selecionado' : 'Resolva o Redis primeiro')
+                     : 'Não verificado'}
                 </div>
               </div>
               {chipResults.length > 0 && (
