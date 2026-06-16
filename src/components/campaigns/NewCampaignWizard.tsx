@@ -57,6 +57,7 @@ import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { CampaignFlowModePicker } from './CampaignFlowModePicker';
 import { CampaignSequentialEditor } from './CampaignSequentialEditor';
+import { createLibraryItem } from '../../services/campaignLibraryApi';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
@@ -195,6 +196,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('reply');
   /** Força o usuário a escolher explicitamente o modo de envio no passo de mensagem. */
   const [flowModeChosen, setFlowModeChosen] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   /** Modo sequencial: gatilhos avançados por etapa (motor multi-etapas). Opt-in. */
   const [seqAdvancedTriggers, setSeqAdvancedTriggers] = useState(false);
   /** Config de gatilho por etapa (keyed por stage.id). Define como avança p/ a próxima. */
@@ -816,6 +818,35 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setStep(1);
     onDraftConsumed?.();
   }, [initialDraft, onDraftConsumed]);
+
+  const buildCurrentDraft = (): CampaignWizardDraft => ({
+    name: name.trim(),
+    sendMode,
+    selectedListId,
+    manualNumbers,
+    selectedConnectionIds,
+    channelWeightMode,
+    channelWeights: channelWeightsById,
+    delaySeconds,
+    campaignFlowMode,
+    messageStages: messageStages.map((s) => ({
+      id: s.id,
+      body: s.body,
+      acceptAnyReply: s.acceptAnyReply,
+      validTokensText: s.validTokensText,
+      invalidReplyBody: s.invalidReplyBody,
+      marketingEffect: s.marketingEffect ?? 'none'
+    })),
+    filterCities: Array.from(filterCities),
+    filterChurches: Array.from(filterChurches),
+    filterRoles: Array.from(filterRoles),
+    filterProfessions: Array.from(filterProfessions),
+    filterDDDs: Array.from(filterDDDs),
+    filterTemps: Array.from(filterTemps),
+    filterSearch,
+    selectedContactPhones: Array.from(selectedContactPhones),
+    manualSelection
+  });
 
   const setActiveMessageBody = (body: string) => {
     setMessageStages((prev) => prev.map((s, i) => (i === activeStageIdx ? { ...s, body } : s)));
@@ -1983,30 +2014,30 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   type="button"
                   variant="secondary"
                   size="sm"
+                  loading={savingTemplate}
                   leftIcon={<Sparkles className="w-3.5 h-3.5" />}
-                  onClick={() => {
+                  onClick={async () => {
+                    if (!flowModeChosen || messageStages.every((s) => !s.body.trim())) {
+                      toast.error('Escolha o modo e escreva ao menos uma etapa antes de salvar.');
+                      return;
+                    }
+                    const tplName = window.prompt(
+                      'Nome do modelo (ficará salvo na sua biblioteca):',
+                      name.trim() || 'Meu modelo'
+                    );
+                    if (!tplName || !tplName.trim()) return;
+                    setSavingTemplate(true);
                     try {
-                      localStorage.setItem(
-                        'zapmass:last_wizard_template_payload',
-                        JSON.stringify({
-                          delaySeconds,
-                          campaignFlowMode,
-                          stages: messageStages.map((s) => ({
-                            body: s.body,
-                            acceptAnyReply: s.acceptAnyReply,
-                            validTokensText: s.validTokensText,
-                            invalidReplyBody: s.invalidReplyBody,
-                            marketingEffect: s.marketingEffect
-                          }))
-                        })
-                      );
-                      toast.success('Rascunho guardado. Em Campanhas → Centro → Modelos, dê um nome e clique em Salvar modelo.');
+                      await createLibraryItem('templates', tplName.trim(), buildCurrentDraft());
+                      toast.success('Modelo salvo na sua biblioteca (Centro → Modelos).');
                     } catch {
-                      toast.error('Não foi possível guardar o rascunho.');
+                      toast.error('Não foi possível salvar o modelo no servidor.');
+                    } finally {
+                      setSavingTemplate(false);
                     }
                   }}
                 >
-                  Guardar como modelo
+                  Salvar como modelo
                 </Button>
 
                 <div className="cw-risk-panel" data-level={messageRisk.level}>

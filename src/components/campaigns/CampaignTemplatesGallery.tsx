@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Cake,
   DollarSign,
@@ -6,9 +6,13 @@ import {
   HandHeart,
   MessageCircleHeart,
   RefreshCcw,
-  Sparkles
+  Sparkles,
+  Bookmark,
+  Trash2
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import type { CampaignWizardDraft } from '../../types/campaignMission';
+import { listLibrary, deleteLibraryItem, LibraryItem } from '../../services/campaignLibraryApi';
 
 interface CampaignTemplate {
   id: string;
@@ -215,6 +219,94 @@ export const CampaignTemplatesGallery: React.FC<CampaignTemplatesGalleryProps> =
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
         {TEMPLATES.map((tpl) => (
           <TemplateCard key={tpl.id} template={tpl} onClick={() => onUseTemplate(tpl.buildDraft())} />
+        ))}
+      </div>
+
+      <SavedTemplatesSection onUseTemplate={onUseTemplate} />
+    </div>
+  );
+};
+
+const SavedTemplatesSection: React.FC<{ onUseTemplate: (draft: CampaignWizardDraft) => void }> = ({
+  onUseTemplate
+}) => {
+  const [items, setItems] = useState<LibraryItem<CampaignWizardDraft>[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listLibrary<CampaignWizardDraft>('templates');
+      setItems(list);
+    } catch {
+      // silencioso — biblioteca pode estar indisponível
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await deleteLibraryItem('templates', id);
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      toast.success('Modelo removido.');
+    } catch {
+      toast.error('Não foi possível remover.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  if (loading) return null;
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+      <div className="flex items-center gap-2 mb-2.5">
+        <Bookmark className="w-4 h-4" style={{ color: '#8b5cf6' }} />
+        <h4 className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
+          Meus modelos salvos
+        </h4>
+        <span className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+          ({items.length})
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="group flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+          >
+            <button
+              type="button"
+              className="flex-1 min-w-0 text-left"
+              onClick={() => onUseTemplate(item.doc)}
+            >
+              <p className="text-[12.5px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                {item.name}
+              </p>
+              <p className="text-[10.5px] truncate" style={{ color: 'var(--text-3)' }}>
+                {item.doc?.campaignFlowMode === 'reply' ? 'Fluxo por respostas' : 'Sequência automática'} ·{' '}
+                {item.doc?.messageStages?.length || 0} etapa(s)
+              </p>
+            </button>
+            <button
+              type="button"
+              className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 shrink-0"
+              onClick={() => handleDelete(item.id)}
+              disabled={deletingId === item.id}
+              aria-label={`Remover ${item.name}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         ))}
       </div>
     </div>
