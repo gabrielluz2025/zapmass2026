@@ -69,11 +69,24 @@ export const DispatchDiagnosticsPanel: React.FC<Props> = ({
   const [jobsLoading, setJobsLoading] = useState(false);
   const [showAllJobs, setShowAllJobs] = useState(false);
 
+  const [redisStatus, setRedisStatus] = useState<CheckStatus>('idle');
+
   const selectedIds = campaign.selectedConnectionIds || [];
 
-  // Carrega jobs falhos automaticamente ao montar
+  const checkRedis = useCallback(async () => {
+    setRedisStatus('checking');
+    try {
+      const r = await fetch('/api/health/redis', { signal: AbortSignal.timeout(6000) });
+      setRedisStatus(r.ok ? 'ok' : 'error');
+    } catch {
+      setRedisStatus('error');
+    }
+  }, []);
+
+  // Carrega jobs falhos + status do Redis automaticamente ao montar
   useEffect(() => {
     loadFailedJobs();
+    void checkRedis();
   }, []);
 
   const loadFailedJobs = useCallback(async () => {
@@ -207,6 +220,53 @@ export const DispatchDiagnosticsPanel: React.FC<Props> = ({
       </div>
 
       <div className="p-5 space-y-5">
+
+        {/* ── Seção 0: Infraestrutura (Redis / fila) ── */}
+        <div
+          className="rounded-xl p-4 flex items-center gap-3"
+          style={{
+            background:
+              redisStatus === 'error' ? '#ef444410' : redisStatus === 'ok' ? '#10b98110' : 'var(--surface-1)',
+            border: `1px solid ${
+              redisStatus === 'error' ? '#ef444430' : redisStatus === 'ok' ? '#10b98130' : 'var(--border-subtle)'
+            }`,
+          }}
+        >
+          {redisStatus === 'checking' ? (
+            <RefreshCw className="w-4 h-4 shrink-0 animate-spin" style={{ color: 'var(--text-3)' }} />
+          ) : redisStatus === 'ok' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+          ) : redisStatus === 'error' ? (
+            <XCircle className="w-4 h-4 shrink-0 text-red-500" />
+          ) : (
+            <HelpCircle className="w-4 h-4 shrink-0" style={{ color: 'var(--text-3)' }} />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
+              Fila de envio (Redis){' '}
+              {redisStatus === 'ok'
+                ? '— operacional'
+                : redisStatus === 'error'
+                ? '— indisponível'
+                : redisStatus === 'checking'
+                ? '— verificando…'
+                : ''}
+            </p>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+              {redisStatus === 'error'
+                ? 'Sem Redis a fila não processa. Verifique o container redis na VPS.'
+                : 'Motor de fila que processa os envios em segundo plano.'}
+            </p>
+          </div>
+          <button
+            onClick={checkRedis}
+            className="text-[11px] flex items-center gap-1 shrink-0"
+            style={{ color: 'var(--text-3)' }}
+          >
+            <RefreshCw className={`w-3 h-3 ${redisStatus === 'checking' ? 'animate-spin' : ''}`} />
+            Reverificar
+          </button>
+        </div>
 
         {/* ── Seção 1: Erros reais da fila ── */}
         <div
@@ -363,6 +423,17 @@ export const DispatchDiagnosticsPanel: React.FC<Props> = ({
                       </div>
                       <div className="text-[11px]" style={{ color: 'var(--text-3)' }}>
                         {r.isReady ? 'Online e pronto' : (r.error || `Offline (${r.status})`)}
+                        {(() => {
+                          const limit = Number(conn?.dailyLimit) || 0;
+                          if (limit <= 0) return null;
+                          const sent = Number(conn?.messagesSentToday) || 0;
+                          const remaining = Math.max(0, limit - sent);
+                          return (
+                            <span style={{ color: remaining === 0 ? '#ef4444' : 'var(--text-3)' }}>
+                              {' '}· limite hoje {sent}/{limit} ({remaining} restante{remaining !== 1 ? 's' : ''})
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div
