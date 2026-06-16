@@ -51,6 +51,7 @@ import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
 import { campaignClockVars } from '../utils/campaignClockVars';
 import { DDDPulseMap } from './dashboard/DDDPulseMap';
 import { ContactAddressMap } from './dashboard/ContactAddressMap';
+import { CommercialIntelligenceMap } from './dashboard/CommercialIntelligenceMap';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
 import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
@@ -1171,6 +1172,7 @@ export const DashboardTab: React.FC = () => {
       </div>
 
       <DDDPulseMap contacts={contacts} campaigns={campaigns} isLive={isBackendConnected} />
+      <CommercialIntelligenceMap />
       <ContactAddressMap />
 
       {campaignGeo && Object.keys(campaignGeo.byUf || {}).length > 0 && (

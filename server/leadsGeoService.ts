@@ -327,7 +327,7 @@ function parseCoord(v: unknown): number | undefined {
 }
 
 /** Normaliza campos legados (rua, numero, bairro…) antes de geocodificar ou montar pins. */
-function hydrateContactForGeo(c: Contact): Contact {
+export function hydrateContactForGeo(c: Contact): Contact {
   const raw = c as Contact & Record<string, unknown>;
   const street = String(c.street || raw.rua || raw.logradouro || raw.endereco || '').trim();
   const number = String(c.number || raw.numero || raw.num || '').trim();
@@ -694,7 +694,7 @@ function resolveContactGeoPlace(
   );
 }
 
-function resolveContactCityState(
+export function resolveContactCityState(
   c: Contact,
   nbToCityMap?: ReadonlyMap<string, { city: string; state: string }>
 ): { city: string; state: string } {
@@ -707,7 +707,7 @@ function contactCoordsValid(c: Contact, lat: number, lng: number, maxKm = 55): b
   return isCoordPlausibleForCity(lat, lng, city, state, maxKm);
 }
 
-function storedContactCoords(c: Contact): { lat: number; lng: number } | null {
+export function storedContactCoords(c: Contact): { lat: number; lng: number } | null {
   const h = hydrateContactForGeo(c);
   if (!Number.isFinite(h.latitude) || !Number.isFinite(h.longitude)) return null;
   const fixed = fixBrazilCoord(h.latitude!, h.longitude!);
@@ -967,7 +967,7 @@ function alignClustersToExactPins(clusters: GeoCluster[], pins: GeoContactPin[])
 }
 
 /** Só campos usados no mapa — evita carregar doc inteiro (tags, histórico, etc.) em bases grandes. */
-async function loadTenantContacts(tenantId: string): Promise<Contact[]> {
+export async function loadTenantContacts(tenantId: string): Promise<Contact[]> {
   const pool = getZapmassPool();
   if (pool) {
     const r = await pool.query<ContactRow>(

@@ -5,6 +5,8 @@ declare module '*.md?raw' {
   export default src;
 }
 
+declare module 'leaflet.heat';
+
 interface ImportMetaEnv {
   readonly VITE_MARKETING_PRICE_MONTHLY?: string;
   readonly VITE_MARKETING_PRICE_ANNUAL?: string;

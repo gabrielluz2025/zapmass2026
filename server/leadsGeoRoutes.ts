@@ -15,6 +15,8 @@ import {
   isContactGeocodeAvailable
 } from './leadsGeoService.js';
 import { normalizeContactAddresses } from './addressNormalizer.js';
+import { buildCommercialIntelligence } from './leadsIntelligenceService.js';
+import { getBrazilStatesGeoJson } from './brazilStatesGeoJson.js';
 
 // Limpa o cache em memória ao iniciar o servidor (garante que alterações de lógica geo
 // nunca sirvam dados obsoletos do ciclo anterior de requests).
@@ -119,6 +121,39 @@ export function registerLeadsGeoRoutes(app: Express): void {
    * e regras de normalização (abreviações, estado por extenso, TitleCase, etc.)
    * Retorna diff de tudo que foi alterado.
    */
+  /**
+   * GET /api/leads-geo/intelligence
+   * Mapa de Inteligência Comercial: cruza geografia dos contatos com o resultado
+   * das campanhas (conversão por região) — zonas quentes/frias, cobertura nacional.
+   */
+  app.get('/api/leads-geo/intelligence', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const result = await buildCommercialIntelligence(ctx.tenantId);
+      return res.json({ ok: true, ...result });
+    } catch (e) {
+      console.error('[api/leads-geo/intelligence]', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
+  /**
+   * GET /api/leads-geo/br-states-geojson
+   * Polígonos oficiais dos estados (IBGE), cacheados, para o choropleth.
+   */
+  app.get('/api/leads-geo/br-states-geojson', async (_req: Request, res: Response) => {
+    try {
+      const geo = await getBrazilStatesGeoJson();
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.json(geo);
+    } catch (e) {
+      console.error('[api/leads-geo/br-states-geojson]', e);
+      return res.status(502).json({ ok: false, error: 'Não foi possível carregar os polígonos dos estados.' });
+    }
+  });
+
   app.post('/api/leads-geo/normalize-addresses', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;

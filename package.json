@@ -48,6 +48,7 @@
     "ioredis": "^5.10.1",
     "jose": "^6.2.3",
     "leaflet": "^1.9.4",
+    "leaflet.heat": "^0.2.0",
     "lucide-react": "^0.344.0",
     "marked": "^18.0.2",
     "pg": "^8.21.0",

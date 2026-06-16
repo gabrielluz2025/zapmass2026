@@ -203,7 +203,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       : 'idle';
 
   // Bloqueia disparo enquanto verificação estiver em andamento ou houver erro.
-  const canDispatch = overallHealth === 'ok' || overallHealth === 'idle' || overallHealth === 'warn';
+  const canDispatch = overallHealth === 'ok' || overallHealth === 'idle';
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -283,7 +283,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
               {overallHealth === 'checking' && <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--text-3)' }} />}
               {overallHealth === 'ok' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
               {overallHealth === 'error' && <AlertTriangle className="w-4 h-4 text-red-500" />}
-              {(overallHealth === 'idle' || overallHealth === 'warn') && <Wifi className="w-4 h-4" style={{ color: 'var(--text-3)' }} />}
+              {overallHealth === 'idle' && <Wifi className="w-4 h-4" style={{ color: 'var(--text-3)' }} />}
               <span className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
                 {overallHealth === 'checking' ? 'Verificando infraestrutura…' :
                  overallHealth === 'ok' ? 'Tudo pronto para disparar!' :

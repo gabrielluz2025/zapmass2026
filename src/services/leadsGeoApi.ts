@@ -213,6 +213,95 @@ export async function apiNormalizeAddresses(
   });
 }
 
+// ── Mapa de Inteligência Comercial ────────────────────────────────────────────
+
+export type RegionTemperature = 'hot' | 'warm' | 'cold' | 'untouched';
+
+export type RegionConversion = {
+  key: string;
+  label: string;
+  city: string;
+  state: string;
+  lat: number | null;
+  lng: number | null;
+  leads: number;
+  contacted: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  replied: number;
+  failed: number;
+  replyRate: number;
+  deliveryRate: number;
+  coverageRate: number;
+  temperature: RegionTemperature;
+  score: number;
+};
+
+export type HeatPoint = { lat: number; lng: number; weight: number };
+
+export type CommercialIntelligence = {
+  generatedAt: string;
+  national: {
+    totalLeads: number;
+    geoLeads: number;
+    contactedLeads: number;
+    sent: number;
+    delivered: number;
+    read: number;
+    replied: number;
+    failed: number;
+    replyRate: number;
+    deliveryRate: number;
+    coveragePct: number;
+    statesCovered: number;
+    campaignsConsidered: number;
+  };
+  byCity: RegionConversion[];
+  byState: RegionConversion[];
+  heatPoints: HeatPoint[];
+  hotZones: RegionConversion[];
+  coldZones: RegionConversion[];
+};
+
+const INTELLIGENCE_TIMEOUT_MS = 120_000;
+
+/** Carrega o Mapa de Inteligência Comercial (geografia x conversão de campanhas). */
+export async function fetchCommercialIntelligence(): Promise<CommercialIntelligence> {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), INTELLIGENCE_TIMEOUT_MS);
+  try {
+    const j = await apiFetchJson<CommercialIntelligence & { ok?: boolean }>(
+      '/api/leads-geo/intelligence',
+      { signal: ctrl.signal }
+    );
+    return {
+      generatedAt: j.generatedAt,
+      national: j.national,
+      byCity: Array.isArray(j.byCity) ? j.byCity : [],
+      byState: Array.isArray(j.byState) ? j.byState : [],
+      heatPoints: Array.isArray(j.heatPoints) ? j.heatPoints : [],
+      hotZones: Array.isArray(j.hotZones) ? j.hotZones : [],
+      coldZones: Array.isArray(j.coldZones) ? j.coldZones : []
+    };
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error('O mapa demorou demais para carregar. Tente novamente.');
+    }
+    throw e;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/** GeoJSON dos estados (IBGE) para o choropleth. */
+export async function fetchBrazilStatesGeoJson(): Promise<{
+  type: 'FeatureCollection';
+  features: Array<{ type: 'Feature'; properties: Record<string, unknown>; geometry: unknown }>;
+}> {
+  return apiFetchJson('/api/leads-geo/br-states-geojson');
+}
+
 /** Dispara normalização básica (IBGE + regras) em segundo plano via contacts API. */
 export async function apiNormalizeBatch(opts: { batchSize?: number } = {}): Promise<{ ok: boolean; message: string }> {
   return apiFetchJson('/api/contacts/normalize-batch', {
