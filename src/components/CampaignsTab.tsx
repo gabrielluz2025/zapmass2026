@@ -29,6 +29,7 @@ import {
 } from './campaigns';
 import { CampaignCockpitHero } from './campaigns/CampaignCockpitHero';
 import { CampaignAbComparison } from './campaigns/CampaignAbComparison';
+import { CampaignDispatchHealthBar } from './campaigns/CampaignDispatchHealthBar';
 import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
 import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
@@ -656,6 +657,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
               </div>
             );
           })()}
+
+          <CampaignDispatchHealthBar connections={connections} />
 
           <CampaignCockpitHero
             campaigns={campaigns}
