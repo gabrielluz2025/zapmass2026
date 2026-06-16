@@ -97,6 +97,7 @@ import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing } from './redisPing.js';
+import { getRedisUrlMisconfigHint, parseRedisHost } from './redisConfig.js';
 import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
 import { securityHeadersMiddleware } from './securityHeaders.js';
@@ -376,9 +377,20 @@ app.get('/api/health/redis', async (_req, res) => {
   if (!redisUrl) {
     return res.status(503).json({ ok: false, configured: false, error: 'REDIS_URL não configurado.' });
   }
-  const ping = await redisPing(redisUrl);
+  let ping = await redisPing(redisUrl);
+  if (!ping.ok && ping.error?.includes('Connection is closed')) {
+    evolutionService.resetCampaignRedisConnection();
+    ping = await redisPing(redisUrl);
+  }
+  const misconfigHint = getRedisUrlMisconfigHint(redisUrl);
   const status = ping.ok ? 200 : 503;
-  return res.status(status).json({ ok: ping.ok, pingMs: ping.pingMs, error: ping.error ?? null });
+  return res.status(status).json({
+    ok: ping.ok,
+    pingMs: ping.pingMs,
+    error: ping.error ?? misconfigHint ?? null,
+    host: parseRedisHost(redisUrl),
+    misconfigHint,
+  });
 });
 
 /**
@@ -395,8 +407,17 @@ app.get('/api/health/dispatch', async (_req, res) => {
       fixCommand: 'cd /opt/zapmass && docker compose up -d redis zapmass',
     });
   }
-  const ping = await redisPing(redisUrl);
+  const misconfigHint = getRedisUrlMisconfigHint(redisUrl);
+  let ping = await redisPing(redisUrl);
+  if (!ping.ok && ping.error?.includes('Connection is closed')) {
+    evolutionService.resetCampaignRedisConnection();
+    ping = await redisPing(redisUrl);
+  }
   const ok = ping.ok;
+  const fixEnvCommand =
+    misconfigHint != null
+      ? "sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://redis:6379|' /opt/zapmass/.env && cd /opt/zapmass && docker compose up -d zapmass"
+      : 'cd /opt/zapmass && docker compose restart redis && sleep 3 && docker compose restart zapmass';
   return res.status(ok ? 200 : 503).json({
     ok,
     ready: ok,
@@ -404,9 +425,11 @@ app.get('/api/health/dispatch', async (_req, res) => {
       ok: ping.ok,
       configured: true,
       pingMs: ping.pingMs,
-      error: ping.error ?? null,
+      error: ping.error ?? misconfigHint ?? null,
+      host: parseRedisHost(redisUrl),
+      misconfigHint,
     },
-    fixCommand: 'cd /opt/zapmass && docker compose restart redis && sleep 3 && docker compose restart zapmass',
+    fixCommand: fixEnvCommand,
     checkedAt: new Date().toISOString(),
   });
 });

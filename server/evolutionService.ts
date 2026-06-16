@@ -1575,10 +1575,14 @@ function getRedisConnection(): IORedis | null {
     if (!url) return null;
 
     // Se a conexão anterior morreu permanentemente, recria tudo do zero.
-    // IORedis status 'end' significa que retryStrategy retornou null — conexão permanentemente fechada.
-    if (redisConnection && redisConnection.status === 'end') {
-        console.warn('[campaign-queue] Conexão Redis morreu permanentemente — recriando…');
-        redisConnection.disconnect();
+    // IORedis status 'end'/'close' — conexão fechada (ex.: após restart do Redis na VPS).
+    if (redisConnection && (redisConnection.status === 'end' || redisConnection.status === 'close')) {
+        console.warn('[campaign-queue] Conexão Redis fechada — recriando…');
+        try {
+            redisConnection.disconnect();
+        } catch {
+            /* ignore */
+        }
         redisConnection = null;
         campaignQueue = null;
         // Worker também precisa ser recriado (ele tem um duplicate da conexão morta).
@@ -1609,6 +1613,24 @@ function getRedisConnection(): IORedis | null {
         });
     }
     return redisConnection;
+}
+
+/** Força recriação da conexão BullMQ (útil após restart do Redis ou URL corrigida). */
+export function resetCampaignRedisConnection(): void {
+    if (redisConnection) {
+        try {
+            redisConnection.disconnect();
+        } catch {
+            /* ignore */
+        }
+    }
+    redisConnection = null;
+    campaignQueue = null;
+    if (campaignWorker) {
+        campaignWorker.close().catch(() => {});
+        campaignWorker = null;
+    }
+    console.info('[campaign-queue] Conexão Redis resetada manualmente');
 }
 
 /** Verifica se o Redis está acessível abrindo uma conexão independente (não interfere no BullMQ). */
