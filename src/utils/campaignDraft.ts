@@ -36,7 +36,11 @@ export function buildDraftFromCampaign(c: Campaign): CampaignWizardDraft {
     channelWeightMode: 'equal',
     channelWeights: { ...(c.channelWeights || {}) },
     delaySeconds: c.delaySeconds ?? 45,
-    campaignFlowMode: c.replyFlow?.enabled ? 'reply' : 'sequential',
+    campaignFlowMode: c.replyFlow?.enabled
+      ? 'reply'
+      : (c.messageStages?.length ?? 0) <= 1 && !c.stageConfigs?.length
+      ? 'single'
+      : 'sequential',
     messageStages: stages,
     filterCities: [],
     filterChurches: [],

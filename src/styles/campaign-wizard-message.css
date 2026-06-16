@@ -39,6 +39,16 @@
 }
 
 /* Modo: segment control */
+.cw-flow-segment-3 {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .cw-flow-segment-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 .cw-flow-segment {
   display: grid;
   grid-template-columns: 1fr 1fr;

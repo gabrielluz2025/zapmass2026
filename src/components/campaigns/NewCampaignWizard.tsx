@@ -55,7 +55,8 @@ import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassCo
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
-import { CampaignFlowModePicker } from './CampaignFlowModePicker';
+import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowModePicker';
+import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
 import { CampaignSequentialEditor } from './CampaignSequentialEditor';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
@@ -65,8 +66,6 @@ import {
   mediaShouldSendAsDocument
 } from '../../utils/whatsappMediaLimits';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
-
-type CampaignFlowMode = 'sequential' | 'reply';
 
 type MessageStageOptionDraft = {
   id: string;
@@ -191,11 +190,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [sendMode, setSendMode] = useState<SendMode>('list');
   const [manualNumbers, setManualNumbers] = useState('');
   const [name, setName] = useState('');
-  const [messageStages, setMessageStages] = useState<MessageStageDraft[]>(() => [newMessageStage(), newMessageStage()]);
+  const [messageStages, setMessageStages] = useState<MessageStageDraft[]>(() => [newMessageStage()]);
   const [activeStageIdx, setActiveStageIdx] = useState(0);
-  const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('reply');
-  /** Força o usuário a escolher explicitamente o modo de envio no passo de mensagem. */
-  const [flowModeChosen, setFlowModeChosen] = useState(false);
+  const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('single');
+  const [flowModeChosen, setFlowModeChosen] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
   /** Modo sequencial: gatilhos avançados por etapa (motor multi-etapas). Opt-in. */
   const [seqAdvancedTriggers, setSeqAdvancedTriggers] = useState(false);
@@ -860,6 +858,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     if (mode === 'reply') {
       setMessageStages((prev) => (prev.length < 2 ? [...prev, newMessageStage()] : prev));
     }
+    if (mode === 'single') {
+      setMessageStages((prev) => (prev.length === 0 ? [newMessageStage()] : [prev[0]]));
+      setActiveStageIdx(0);
+    }
     setCampaignFlowMode(mode);
     setFlowModeChosen(true);
   };
@@ -967,7 +969,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       }));
 
   const stageCountOk =
-    campaignFlowMode === 'sequential'
+    campaignFlowMode === 'single' || campaignFlowMode === 'sequential'
       ? messageStages.length >= 1
       : messageStages[0]?.optionsMode === 'conditional'
       ? messageStages.length >= 1
@@ -1218,25 +1220,27 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             })
         : undefined;
     const useReplyFlow = campaignFlowMode === 'reply';
-    const replyFlow: CampaignReplyFlow | undefined = !useReplyFlow ? undefined : {
-      enabled: true,
-      steps: messageStages.map((s) => ({
-        body: s.body.trim(),
-        acceptAnyReply: s.acceptAnyReply,
-        validTokens: parseValidTokensText(s.validTokensText),
-        invalidReplyBody: s.invalidReplyBody.trim(),
-        marketingEffect: s.marketingEffect ?? 'none',
-        ...(Array.isArray(s.options) && s.options.length > 0
-          ? {
-              options: s.options.map((opt) => ({
-                tokens: parseValidTokensText(opt.tokensText),
-                reply: opt.reply.trim(),
-                marketingEffect: opt.marketingEffect ?? 'none'
-              }))
-            }
-          : {})
-      }))
-    };
+    const replyFlow: CampaignReplyFlow | undefined = useReplyFlow
+      ? {
+          enabled: true,
+          steps: messageStages.map((s) => ({
+            body: s.body.trim(),
+            acceptAnyReply: s.acceptAnyReply,
+            validTokens: parseValidTokensText(s.validTokensText),
+            invalidReplyBody: s.invalidReplyBody.trim(),
+            marketingEffect: s.marketingEffect ?? 'none',
+            ...(Array.isArray(s.options) && s.options.length > 0
+              ? {
+                  options: s.options.map((opt) => ({
+                    tokens: parseValidTokensText(opt.tokensText),
+                    reply: opt.reply.trim(),
+                    marketingEffect: opt.marketingEffect ?? 'none'
+                  }))
+                }
+              : {})
+          }))
+        }
+      : undefined;
     const contactListMeta =
       sendMode === 'list' && selectedList
         ? { id: selectedList.id, name: selectedList.name }
@@ -1248,8 +1252,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       const base = {
         name: name.trim(),
         message: stagesBodies[0] || '',
-        messageStages: stagesBodies,
-        replyFlow,
+        messageStages: campaignFlowMode === 'single' ? [] : stagesBodies.slice(1),
+        replyFlow: campaignFlowMode === 'reply' ? replyFlow : undefined,
         connectedIds,
         numbers,
         recipients: buildRecipients(),
@@ -1970,6 +1974,23 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 >
                   Escolha acima <strong>como as mensagens serão enviadas</strong> para liberar o editor de etapas.
                 </div>
+              ) : campaignFlowMode === 'single' ? (
+                <CampaignSingleMessageEditor
+                  body={messageStages[0]?.body ?? ''}
+                  onBodyChange={(body) =>
+                    setMessageStages((prev) => {
+                      const first = prev[0] ?? newMessageStage();
+                      return [{ ...first, body }];
+                    })
+                  }
+                  onInsertVariable={insertVariable}
+                  msgRef={msgRef}
+                  attachment={campaignAttachment}
+                  attachmentInputRef={attachmentInputRef}
+                  onPickAttachment={onPickAttachment}
+                  onRemoveAttachment={removeAttachment}
+                  launchMode={launchMode}
+                />
               ) : campaignFlowMode === 'sequential' ? (
                 <CampaignSequentialEditor
                   stages={messageStages}
@@ -2666,7 +2687,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <ReviewRow label="Intervalo" value={`${delaySeconds}s entre envios`} />
                 <ReviewRow
                   label="Modo"
-                  value={campaignFlowMode === 'reply' ? 'Fluxo por respostas' : 'Sequência automática'}
+                  value={
+                    campaignFlowMode === 'single'
+                      ? 'Disparo único'
+                      : campaignFlowMode === 'reply'
+                      ? 'Fluxo por respostas'
+                      : 'Sequência automática'
+                  }
                 />
                 <div
                   className="rounded-lg p-3 text-[12px] leading-snug -mt-1"
@@ -2675,7 +2702,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     border: '1px solid rgba(59, 130, 246, 0.16)'
                   }}
                 >
-                  {campaignFlowMode === 'sequential' ? (
+                  {campaignFlowMode === 'single' ? (
+                    <span style={{ color: 'var(--text-2)' }}>
+                      Cada contato recebe apenas uma mensagem. Respostas não disparam follow-up automático.
+                    </span>
+                  ) : campaignFlowMode === 'sequential' ? (
                     <span style={{ color: 'var(--text-2)' }}>
                       Todas as etapas serão enviadas em fila para cada contato (intervalo entre cada envio). Não é
                       necessário que o destinatário responda entre uma mensagem e outra.
@@ -2689,7 +2720,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 </div>
                 <ReviewRow
                   label="Etapas"
-                  value={`${messageStages.length} mensagem${messageStages.length !== 1 ? 'ns' : ''} por contato`}
+                  value={
+                    campaignFlowMode === 'single'
+                      ? '1 mensagem por contato'
+                      : `${messageStages.length} mensagem${messageStages.length !== 1 ? 'ns' : ''} por contato`
+                  }
                 />
                 <ReviewRow label="Estimativa" value={<span>{estimateLabel}</span>} />
                 {launchMode === 'schedule' && !abLabEnabled && (

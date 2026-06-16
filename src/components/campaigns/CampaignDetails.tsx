@@ -96,6 +96,7 @@ import { CampaignDetailInsights } from './CampaignDetailInsights';
 import { CampaignMessagePreview } from './CampaignMessagePreview';
 import { CampaignChipsPodium } from './CampaignChipsPodium';
 import { CampaignStageRepliesCell } from './CampaignStageRepliesCell';
+import { CampaignRetryDialog, type CampaignRetryDialogState } from './CampaignRetryDialog';
 import { ReplyFlowStageFunnels } from './ReplyFlowStageFunnels';
 import { CampaignMultiStepDashboard } from './CampaignMultiStepDashboard';
 import {
@@ -567,7 +568,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [now, setNow] = useState(Date.now());
   const [openRow, setOpenRow] = useState<ReportRow | null>(null);
   const [retrying, setRetrying] = useState(false);
-  const [retryingPhone, setRetryingPhone] = useState<string | null>(null);
+  const [retryDialog, setRetryDialog] = useState<CampaignRetryDialogState | null>(null);
   const [showRetryBanner, setShowRetryBanner] = useState(false);
 
   const isRunning = campaign.status === CampaignStatus.RUNNING;
@@ -1114,7 +1115,47 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     }
   }, [isDone, performance.counts.FAILED]);
 
-  const handleRetryFailed = useCallback(async () => {
+  const executeRetry = useCallback(
+    async (connectionId: string, phones: string[]) => {
+      const cleanPhones = phones.map((p) => String(p).replace(/\D/g, '')).filter((p) => p.length >= 10);
+      if (cleanPhones.length === 0) {
+        toast.error('Nenhum número válido para reenvio.');
+        return;
+      }
+      setRetrying(true);
+      try {
+        await startCampaign(
+          connectionId,
+          cleanPhones,
+          campaign.message,
+          [connectionId],
+          undefined,
+          `${campaign.name} — Reenvio (${cleanPhones.length})`,
+          {
+            messageStages: campaign.messageStages?.length ? campaign.messageStages : [],
+            replyFlow: campaign.replyFlow?.enabled ? campaign.replyFlow : undefined,
+            stageConfigs: campaign.stageConfigs,
+            delaySeconds: campaign.delaySeconds,
+          }
+        );
+        toast.success(`Reenvio iniciado para ${cleanPhones.length} contato(s).`);
+        setShowRetryBanner(false);
+        setRetryDialog(null);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Erro ao iniciar reenvio.';
+        toast.error(msg);
+      } finally {
+        setRetrying(false);
+      }
+    },
+    [campaign, startCampaign]
+  );
+
+  const openRetryDialog = useCallback((phones: string[], failedConnectionId?: string) => {
+    setRetryDialog({ phones, failedConnectionId });
+  }, []);
+
+  const handleRetryFailed = useCallback(() => {
     const failedRows = detailedReport.filter(
       (r) => effectiveCampaignReportStatus(r, replyPhonesFromLogs) === 'FAILED'
     );
@@ -1122,73 +1163,17 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       toast.error('Nenhum contato com falha encontrado.');
       return;
     }
-    const connId = (campaign.selectedConnectionIds || [])[0];
-    if (!connId) {
-      toast.error('Nenhum chip configurado nesta campanha.');
-      return;
-    }
     const failedPhones = failedRows.map((r) => r.phone);
-    setRetrying(true);
-    try {
-      await startCampaign(
-        connId,
-        failedPhones,
-        campaign.message,
-        campaign.selectedConnectionIds || [],
-        undefined,
-        `${campaign.name} — Reenvio (${failedPhones.length})`,
-        {
-          messageStages: campaign.messageStages,
-          replyFlow: campaign.replyFlow,
-          delaySeconds: campaign.delaySeconds,
-          channelWeights: campaign.channelWeights
-        }
-      );
-      toast.success(`Reenvio iniciado para ${failedPhones.length} contato(s).`);
-      setShowRetryBanner(false);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro ao iniciar reenvio.';
-      toast.error(msg);
-    } finally {
-      setRetrying(false);
-    }
-  }, [detailedReport, campaign, replyPhonesFromLogs, startCampaign]);
+    const topFailedConn = failedRows.find((r) => r.connectionId)?.connectionId;
+    openRetryDialog(failedPhones, topFailedConn);
+  }, [detailedReport, replyPhonesFromLogs, openRetryDialog]);
 
-  const handleRetryOne = useCallback(async (phone: string) => {
-    const clean = String(phone || '').replace(/\D/g, '');
-    if (clean.length < 10) {
-      toast.error('Número inválido para reenvio.');
-      return;
-    }
-    const connId = (campaign.selectedConnectionIds || [])[0];
-    if (!connId) {
-      toast.error('Nenhum chip configurado nesta campanha.');
-      return;
-    }
-    setRetryingPhone(clean);
-    try {
-      await startCampaign(
-        connId,
-        [clean],
-        campaign.message,
-        campaign.selectedConnectionIds || [],
-        undefined,
-        `${campaign.name} — Reenvio 1 contato`,
-        {
-          messageStages: campaign.messageStages,
-          replyFlow: campaign.replyFlow,
-          delaySeconds: campaign.delaySeconds,
-          channelWeights: campaign.channelWeights
-        }
-      );
-      toast.success(`Reenvio iniciado para ${clean}.`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro ao reenviar contato.';
-      toast.error(msg);
-    } finally {
-      setRetryingPhone(null);
-    }
-  }, [campaign, startCampaign]);
+  const handleRetryOne = useCallback(
+    (phone: string, failedConnectionId?: string) => {
+      openRetryDialog([phone], failedConnectionId);
+    },
+    [openRetryDialog]
+  );
 
   const handleFilterClick = (filter: ReportFilter) => {
     setDetailFilter(filter);
@@ -2147,16 +2132,32 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                           )}
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyPhone(item.phone);
-                            }}
-                            className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-2)]"
-                            title="Copiar número"
-                          >
-                            <Copy className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
-                          </button>
+                          <div className="inline-flex items-center gap-1">
+                            {displayStatus === 'FAILED' && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRetryOne(item.phone, item.connectionId);
+                                }}
+                                className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-2)]"
+                                title="Reenviar mensagem"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyPhone(item.phone);
+                              }}
+                              className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-2)]"
+                              title="Copiar número"
+                            >
+                              <Copy className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2300,11 +2301,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     <Button
                       size="sm"
                       variant="secondary"
-                      leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retryingPhone === openRow.phone.replace(/\D/g, '') ? 'animate-spin' : ''}`} />}
-                      onClick={() => handleRetryOne(openRow.phone)}
-                      disabled={retryingPhone !== null}
+                      leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
+                      onClick={() => handleRetryOne(openRow.phone, openRow.connectionId)}
+                      disabled={retrying}
                     >
-                      {retryingPhone === openRow.phone.replace(/\D/g, '') ? 'Reenviando…' : 'Reenviar este contato'}
+                      Reenviar este contato
                     </Button>
                   </div>
                 )}
@@ -2413,6 +2414,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           );
         })()}
       </Modal>
+
+      <CampaignRetryDialog
+        isOpen={retryDialog != null}
+        onClose={() => !retrying && setRetryDialog(null)}
+        state={retryDialog}
+        connections={connections}
+        campaignConnectionIds={campaign.selectedConnectionIds || []}
+        loading={retrying}
+        onConfirm={(connectionId, phones) => void executeRetry(connectionId, phones)}
+      />
     </div>
   );
 };

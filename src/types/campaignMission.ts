@@ -12,7 +12,7 @@ export interface CampaignWizardDraft {
   channelWeightMode: 'equal' | 'custom';
   channelWeights: Record<string, number>;
   delaySeconds: number;
-  campaignFlowMode: 'sequential' | 'reply';
+  campaignFlowMode: 'sequential' | 'reply' | 'single';
   messageStages: Array<{
     id: string;
     body: string;
@@ -40,7 +40,7 @@ export interface SavedCampaignTemplate {
   createdAt: string;
   updatedAt: string;
   delaySeconds: number;
-  campaignFlowMode: 'sequential' | 'reply';
+  campaignFlowMode: 'sequential' | 'reply' | 'single';
   stages: Array<{
     body: string;
     acceptAnyReply: boolean;
