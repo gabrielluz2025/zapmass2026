@@ -28,6 +28,7 @@ import {
   CampaignWeekScheduleView
 } from './campaigns';
 import { CampaignCockpitHero } from './campaigns/CampaignCockpitHero';
+import { CampaignAbComparison } from './campaigns/CampaignAbComparison';
 import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
 import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
@@ -817,6 +818,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           {subTab === 'campaigns' && (
             <div className="space-y-4">
               <CampaignWeekScheduleView campaigns={campaigns} onOpenDetails={openDetails} />
+              <CampaignAbComparison campaigns={campaigns} onOpenCampaign={openDetails} />
               <CampaignsList
                 campaigns={campaigns}
                 onOpenDetails={openDetails}
