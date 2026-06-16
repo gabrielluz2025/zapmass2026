@@ -3399,8 +3399,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       const likelyStillRunning = msg.includes('Demoramos a confirmar no servidor');
+      // Rollback seguro: só apaga a campanha se confirmarmos que ela NÃO iniciou
+      // no servidor. Caso contrário, um erro tardio (ex.: campaign-error após jobs
+      // já enfileirados) apagaria uma campanha que está enviando de verdade.
       if (!likelyStillRunning) {
-        await apiDeleteCampaign(campaignRef.id).catch(() => {});
+        let actuallyStarted = false;
+        try {
+          actuallyStarted = await confirmCampaignStartedViaApi(campaignRef.id);
+        } catch {
+          // Não foi possível confirmar — por segurança, NÃO apaga (evita sumir
+          // campanha viva). Mantém o doc; usuário pode ver/limpar na lista.
+          actuallyStarted = true;
+        }
+        if (!actuallyStarted) {
+          await apiDeleteCampaign(campaignRef.id).catch(() => {});
+        }
         void reloadVpsCampaignsRef.current();
       }
       throw error;

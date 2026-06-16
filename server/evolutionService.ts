@@ -2023,8 +2023,11 @@ const pausedCampaigns = new Set<string>();
 
 // Limite de frequência: ownerUid → phone → última vez enviado (ms epoch)
 // Evita reenviar para o mesmo contato em menos de FREQUENCY_CAP_MS.
+// Persistido no Redis (TTL automático) para sobreviver a restart do container;
+// o Map em memória é apenas cache rápido / fallback quando Redis está fora.
 const frequencyCap = new Map<string, Map<string, number>>();
 const FREQUENCY_CAP_MS = 24 * 60 * 60 * 1000; // 24 h (padrão)
+const FREQUENCY_CAP_TTL_SEC = Math.floor(FREQUENCY_CAP_MS / 1000);
 
 function getFrequencyCap(ownerUid: string): Map<string, number> {
     let m = frequencyCap.get(ownerUid);
@@ -2032,19 +2035,47 @@ function getFrequencyCap(ownerUid: string): Map<string, number> {
     return m;
 }
 
-function checkFrequencyCap(ownerUid: string | undefined, phone: string): boolean {
-    if (!ownerUid) return false; // sem owner = sem limitação
-    const key = phone.replace(/\D/g, '').slice(-11);
-    const cap = getFrequencyCap(ownerUid);
-    const last = cap.get(key);
-    if (!last) return false;
-    return (Date.now() - last) < FREQUENCY_CAP_MS;
+function freqCapRedisKey(ownerUid: string, phoneKey: string): string {
+    return `zapmass:freqcap:${ownerUid}:${phoneKey}`;
 }
 
-function recordFrequencyCap(ownerUid: string | undefined, phone: string): void {
+async function checkFrequencyCap(ownerUid: string | undefined, phone: string): Promise<boolean> {
+    if (!ownerUid) return false; // sem owner = sem limitação
+    const key = phone.replace(/\D/g, '').slice(-11);
+
+    // 1. Cache em memória (rápido).
+    const cap = getFrequencyCap(ownerUid);
+    const last = cap.get(key);
+    if (last && (Date.now() - last) < FREQUENCY_CAP_MS) return true;
+
+    // 2. Redis (persistente entre restarts).
+    try {
+        const redis = getRedisConnection();
+        if (redis && redis.status === 'ready') {
+            const exists = await redis.exists(freqCapRedisKey(ownerUid, key));
+            if (exists) {
+                cap.set(key, Date.now()); // reidrata o cache
+                return true;
+            }
+        }
+    } catch {
+        // Redis indisponível — usa só o resultado em memória (já avaliado acima).
+    }
+    return false;
+}
+
+async function recordFrequencyCap(ownerUid: string | undefined, phone: string): Promise<void> {
     if (!ownerUid) return;
     const key = phone.replace(/\D/g, '').slice(-11);
     getFrequencyCap(ownerUid).set(key, Date.now());
+    try {
+        const redis = getRedisConnection();
+        if (redis && redis.status === 'ready') {
+            await redis.set(freqCapRedisKey(ownerUid, key), String(Date.now()), 'EX', FREQUENCY_CAP_TTL_SEC);
+        }
+    } catch {
+        // Sem Redis: fica só em memória (degrada graciosamente).
+    }
 }
 
 // ──── Mídia de campanha: armazenada em arquivo temporário em vez de RAM ───────
@@ -3365,7 +3396,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const normalizedDest = normalizeOutboundNumber(item.to);
 
     // ── Limite de frequência: não reenviar para o mesmo contato em 24 h ───────
-    if (item.campaignId && checkFrequencyCap(campaignState?.ownerUid, item.to)) {
+    if (item.campaignId && (await checkFrequencyCap(campaignState?.ownerUid, item.to))) {
         log('info', `[freq-cap] Contato ${normalizedDest} já recebeu mensagem nas últimas 24 h — pulando`, {
             campaignId: item.campaignId, to: normalizedDest,
         });
@@ -3464,7 +3495,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     await job.updateData(item).catch(() => {});
 
     // Registra timestamp de envio para o limitador de frequência (24 h).
-    recordFrequencyCap(campaignState?.ownerUid, item.to);
+    await recordFrequencyCap(campaignState?.ownerUid, item.to);
 
     if (conn) {
         conn.messagesSentToday = (conn.messagesSentToday || 0) + 1;

@@ -53,6 +53,8 @@ import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassCo
 import { Badge, Button, Card, Input, SectionHeader, Textarea } from '../ui';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
+import { CampaignFlowModePicker } from './CampaignFlowModePicker';
+import { CampaignSequentialEditor } from './CampaignSequentialEditor';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
@@ -187,6 +189,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [messageStages, setMessageStages] = useState<MessageStageDraft[]>(() => [newMessageStage(), newMessageStage()]);
   const [activeStageIdx, setActiveStageIdx] = useState(0);
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('reply');
+  /** Força o usuário a escolher explicitamente o modo de envio no passo de mensagem. */
+  const [flowModeChosen, setFlowModeChosen] = useState(false);
   const [selectedListId, setSelectedListId] = useState('');
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   /** Distribuição de carga entre chips (somente modo sequencial, 2+ conectados). */
@@ -771,6 +775,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setSelectedConnectionIds(initialDraft.selectedConnectionIds);
     setDelaySeconds(initialDraft.delaySeconds);
     setCampaignFlowMode(initialDraft.campaignFlowMode);
+    // Draft/template/clone já traz o modo definido — não força reescolha.
+    setFlowModeChosen(true);
     setMessageStages(
       initialDraft.messageStages.map((s) => ({
         ...newMessageStage(),
@@ -814,6 +820,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       setMessageStages((prev) => (prev.length < 2 ? [...prev, newMessageStage()] : prev));
     }
     setCampaignFlowMode(mode);
+    setFlowModeChosen(true);
   };
 
   const addMessageStage = () => {
@@ -918,12 +925,19 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         return toks.length > 0 && s.invalidReplyBody.trim().length > 0;
       }));
 
+  const stageCountOk =
+    campaignFlowMode === 'sequential'
+      ? messageStages.length >= 1
+      : messageStages[0]?.optionsMode === 'conditional'
+      ? messageStages.length >= 1
+      : messageStages.length >= 2;
   const canGoFromMessage =
+    flowModeChosen &&
     name.trim().length > 0 &&
     messageStages.length > 0 &&
     messageStages.every((s) => s.body.trim().length > 0) &&
     replyFlowGatesOk &&
-    (messageStages[0]?.optionsMode === 'conditional' ? messageStages.length >= 1 : messageStages.length >= 2);
+    stageCountOk;
   const canGoFromChannels = connectedIds.length > 0;
   const abLabOk =
     !abLabEnabled ||
@@ -1144,7 +1158,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       return;
     }
     const stagesBodies = messageStages.map((s) => s.body.trim()).filter((b) => b.length > 0);
-    const replyFlow: CampaignReplyFlow = {
+    const useReplyFlow = campaignFlowMode === 'reply';
+    const replyFlow: CampaignReplyFlow | undefined = !useReplyFlow ? undefined : {
       enabled: true,
       steps: messageStages.map((s) => ({
         body: s.body.trim(),
@@ -1885,24 +1900,48 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 />
               </div>
 
-              <CampaignReplyFlowEditor
-                stages={messageStages}
-                setStages={setMessageStages}
-                msgRef={msgRef}
-                invalidReplyRef={invalidReplyRef}
-                attachment={campaignAttachment}
-                attachmentInputRef={attachmentInputRef}
-                onPickAttachment={onPickAttachment}
-                onRemoveAttachment={removeAttachment}
-                followUpAttachment={followUpAttachment}
-                followUpAttachmentInputRef={followUpAttachmentInputRef}
-                onPickFollowUpAttachment={onPickFollowUpAttachment}
-                onRemoveFollowUpAttachment={removeFollowUpAttachment}
-                launchMode={launchMode}
-                newStageOption={newMessageStageOption}
-                newMessageStage={newMessageStage}
-                onInsertInvalidVariable={insertInvalidReplyVariable}
-              />
+              <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
+
+              {!flowModeChosen ? (
+                <div
+                  className="rounded-xl px-4 py-6 text-center text-[12.5px]"
+                  style={{ background: 'var(--surface-1)', border: '1px dashed var(--border)', color: 'var(--text-3)' }}
+                >
+                  Escolha acima <strong>como as mensagens serão enviadas</strong> para liberar o editor de etapas.
+                </div>
+              ) : campaignFlowMode === 'sequential' ? (
+                <CampaignSequentialEditor
+                  stages={messageStages}
+                  setStages={setMessageStages}
+                  msgRef={msgRef}
+                  attachment={campaignAttachment}
+                  attachmentInputRef={attachmentInputRef}
+                  onPickAttachment={onPickAttachment}
+                  onRemoveAttachment={removeAttachment}
+                  launchMode={launchMode}
+                  newMessageStage={newMessageStage}
+                  delaySeconds={delaySeconds}
+                />
+              ) : (
+                <CampaignReplyFlowEditor
+                  stages={messageStages}
+                  setStages={setMessageStages}
+                  msgRef={msgRef}
+                  invalidReplyRef={invalidReplyRef}
+                  attachment={campaignAttachment}
+                  attachmentInputRef={attachmentInputRef}
+                  onPickAttachment={onPickAttachment}
+                  onRemoveAttachment={removeAttachment}
+                  followUpAttachment={followUpAttachment}
+                  followUpAttachmentInputRef={followUpAttachmentInputRef}
+                  onPickFollowUpAttachment={onPickFollowUpAttachment}
+                  onRemoveFollowUpAttachment={removeFollowUpAttachment}
+                  launchMode={launchMode}
+                  newStageOption={newMessageStageOption}
+                  newMessageStage={newMessageStage}
+                  onInsertInvalidVariable={insertInvalidReplyVariable}
+                />
+              )}
 
               <div className="cw-msg-footer">
                 <Button
