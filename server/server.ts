@@ -381,6 +381,36 @@ app.get('/api/health/redis', async (_req, res) => {
   return res.status(status).json({ ok: ping.ok, pingMs: ping.pingMs, error: ping.error ?? null });
 });
 
+/**
+ * Saúde unificada do motor de disparo (Redis + fila).
+ * Público — usado pelo Centro de Comando e preview de campanha.
+ */
+app.get('/api/health/dispatch', async (_req, res) => {
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (!redisUrl) {
+    return res.status(503).json({
+      ok: false,
+      ready: false,
+      redis: { ok: false, configured: false, error: 'REDIS_URL não configurado.' },
+      fixCommand: 'cd /opt/zapmass && docker compose up -d redis zapmass',
+    });
+  }
+  const ping = await redisPing(redisUrl);
+  const ok = ping.ok;
+  return res.status(ok ? 200 : 503).json({
+    ok,
+    ready: ok,
+    redis: {
+      ok: ping.ok,
+      configured: true,
+      pingMs: ping.pingMs,
+      error: ping.error ?? null,
+    },
+    fixCommand: 'cd /opt/zapmass && docker compose restart redis && sleep 3 && docker compose restart zapmass',
+    checkedAt: new Date().toISOString(),
+  });
+});
+
 /** Redis + router de sessão (útil com API + wa-worker). Em produção: redes não privadas ou METRICS_TOKEN. */
 app.get('/api/health/deep', metricsAccessMiddleware, async (_req, res) => {
   const redisUrl = process.env.REDIS_URL?.trim();

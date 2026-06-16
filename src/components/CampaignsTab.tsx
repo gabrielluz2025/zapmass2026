@@ -27,9 +27,8 @@ import {
   NewCampaignWizard,
   CampaignWeekScheduleView
 } from './campaigns';
-import { CampaignCockpitHero } from './campaigns/CampaignCockpitHero';
 import { CampaignAbComparison } from './campaigns/CampaignAbComparison';
-import { CampaignDispatchHealthBar } from './campaigns/CampaignDispatchHealthBar';
+import { CampaignCommandCenter } from './campaigns/CampaignCommandCenter';
 import { CampaignTemplatesGallery } from './campaigns/CampaignTemplatesGallery';
 import { CampaignInsightsBanner } from './campaigns/CampaignInsightsBanner';
 import { WhatsAppRiskAcceptModal } from './legal/WhatsAppRiskAcceptModal';
@@ -548,124 +547,13 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       ) : (
         <div className="space-y-5 pb-24 lg:pb-10">
 
-          {/* ── Launch Pad hero ── */}
-          {(() => {
-            const running = campaigns.filter(c => c.status === CampaignStatus.RUNNING);
-            const scheduled = campaigns.filter(c => c.status === CampaignStatus.SCHEDULED);
-            const paused = campaigns.filter(c => c.status === CampaignStatus.PAUSED);
-            const connOnline = connections.filter(c => c.status === ConnectionStatus.CONNECTED);
-            return (
-              <div
-                className="relative overflow-hidden rounded-[26px] animate-fade-in-up"
-                style={{
-                  background: 'linear-gradient(145deg,#0c0d1a 0%,#111328 55%,#080910 100%)',
-                  border: '1px solid rgba(139,92,246,0.22)',
-                  boxShadow: '0 28px 80px -28px rgba(139,92,246,0.22)'
-                }}
-              >
-                {/* Stars bg */}
-                <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
-                  {[...Array(24)].map((_,i) => (
-                    <div key={i} className="absolute rounded-full bg-white"
-                      style={{
-                        width: i%5===0?2:1, height: i%5===0?2:1,
-                        top:`${(i*37+11)%95}%`, left:`${(i*53+7)%95}%`,
-                        opacity: 0.12 + (i%4)*0.06,
-                        animation:`ping ${2+i%3}s cubic-bezier(0,0,0.2,1) infinite ${i*0.3}s`
-                      }} />
-                  ))}
-                </div>
-                {/* Acento topo */}
-                <div className="absolute inset-x-0 top-0 h-[2px] pointer-events-none"
-                  style={{ background:'linear-gradient(90deg,transparent,#8b5cf6 35%,#ec4899 65%,transparent)' }} aria-hidden />
-                {/* Glow */}
-                <div className="absolute -top-20 right-1/3 w-72 h-72 rounded-full pointer-events-none opacity-15"
-                  style={{ background:'radial-gradient(circle,#8b5cf6,transparent 70%)', filter:'blur(48px)' }} aria-hidden />
-
-                <div className="relative z-10 px-5 py-5 sm:px-8 sm:py-7">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-                    {/* Ícone + título */}
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 text-[22px]"
-                        style={{ background:'linear-gradient(135deg,#8b5cf6,#6d28d9)', boxShadow:'0 12px 32px -8px rgba(139,92,246,0.6)' }}>
-                        🚀
-                      </div>
-                      <div>
-                        <h2 className="text-[18px] sm:text-[22px] font-black leading-tight" style={{ color:'#fff' }}>
-                          Launch Pad
-                        </h2>
-                        <p className="text-[11.5px] mt-0.5" style={{ color:'rgba(255,255,255,0.4)' }}>
-                          Central de disparos — {campaigns.length} campanha{campaigns.length !== 1 ? 's' : ''} no total
-                        </p>
-                      </div>
-                    </div>
-                    {/* Botão principal */}
-                    <button type="button" onClick={requestCreateFlow}
-                      className="group inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-bold text-white shrink-0 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-                      style={{ background:'linear-gradient(135deg,#8b5cf6,#6d28d9)', boxShadow:'0 8px 24px -8px rgba(139,92,246,0.7)' }}>
-                      <Plus className="w-4 h-4 transition-transform group-hover:rotate-90" />
-                      Nova campanha
-                    </button>
-                  </div>
-
-                  {/* Status tiles */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-5">
-                    {[
-                      { label:'Em execução', val:running.length, color:'#10b981', emoji:'▶️', onClick:() => setSubTab('campaigns') },
-                      { label:'Agendadas', val:scheduled.length, color:'#3b82f6', emoji:'🕐', onClick:() => setSubTab('campaigns') },
-                      { label:'Pausadas', val:paused.length, color:'#f59e0b', emoji:'⏸️', onClick:() => setSubTab('campaigns') },
-                      { label:'Canais online', val:connOnline.length, color:'#8b5cf6', emoji:'📶', onClick:undefined },
-                    ].map(t => (
-                      <button key={t.label} type="button" onClick={t.onClick}
-                        className="flex flex-col gap-1.5 rounded-xl px-3 py-3 text-left transition-all duration-200 hover:scale-[1.03] disabled:cursor-default"
-                        disabled={!t.onClick}
-                        style={{ background:`${t.color}10`, border:`1px solid ${t.color}28` }}>
-                        <span className="text-[13px]">{t.emoji}</span>
-                        <span className="text-[22px] font-black tabular-nums leading-none" style={{ color:'#fff' }}>{t.val}</span>
-                        <span className="text-[9.5px] font-bold uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.35)' }}>{t.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Missões ativas inline */}
-                  {running.length > 0 && (
-                    <div className="mt-4 flex flex-col gap-2">
-                      <span className="text-[9.5px] font-bold uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.3)' }}>
-                        Missões em voo
-                      </span>
-                      {running.slice(0,3).map(c => {
-                        const pct = c.totalContacts > 0 ? Math.round((c.successCount/c.totalContacts)*100) : 0;
-                        return (
-                          <button key={c.id} type="button" onClick={() => openDetails(c.id)}
-                            className="flex items-center gap-3 rounded-xl px-4 py-2.5 text-left hover:opacity-90 transition-opacity"
-                            style={{ background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.2)' }}>
-                            <span className="text-[16px] shrink-0">🚀</span>
-                            <div className="flex-1 min-w-0">
-                              <span className="text-[12.5px] font-bold truncate block" style={{ color:'#fff' }}>{c.name}</span>
-                              <div className="mt-1 h-1.5 rounded-full overflow-hidden" style={{ background:'rgba(255,255,255,0.06)' }}>
-                                <div className="h-full rounded-full transition-all duration-700"
-                                  style={{ width:`${pct}%`, background:'linear-gradient(90deg,#10b981,#34d399)' }} />
-                              </div>
-                            </div>
-                            <span className="text-[12px] font-bold shrink-0 tabular-nums" style={{ color:'#10b981' }}>{pct}%</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-          <CampaignDispatchHealthBar connections={connections} />
-
-          <CampaignCockpitHero
+          <CampaignCommandCenter
             campaigns={campaigns}
             connections={connections}
             onCreate={requestCreateFlow}
             onOpenDetails={openDetails}
             onTogglePause={toggleCampaignStatus}
+            onGoCampaigns={() => setSubTab('campaigns')}
           />
 
           <CampaignInsightsBanner

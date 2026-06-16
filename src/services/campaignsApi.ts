@@ -1,4 +1,5 @@
 import type { Campaign } from '../types';
+import { apiUrl } from '../utils/apiBase';
 import { apiFetchJson } from '../utils/apiFetchAuth';
 
 export async function fetchCampaigns(): Promise<Campaign[]> {
@@ -152,6 +153,44 @@ export async function retryFailedContacts(
     body: JSON.stringify({ stepIndex })
   });
   return Number(j.reset) || 0;
+}
+
+// ─── Saúde do motor de disparo ───────────────────────────────────────────────
+
+export type DispatchHealth = {
+  ok: boolean;
+  ready: boolean;
+  redis: {
+    ok: boolean;
+    configured?: boolean;
+    pingMs?: number;
+    error?: string | null;
+  };
+  fixCommand?: string;
+  checkedAt?: string;
+};
+
+/** Ping unificado Redis + metadados (endpoint público, sem auth). */
+export async function fetchDispatchHealth(): Promise<DispatchHealth> {
+  try {
+    const r = await fetch(apiUrl('/api/health/dispatch'), {
+      signal: AbortSignal.timeout(8000),
+    });
+    const j = (await r.json().catch(() => ({}))) as Partial<DispatchHealth>;
+    return {
+      ok: Boolean(j.ok),
+      ready: Boolean(j.ready),
+      redis: j.redis ?? { ok: false, error: 'Resposta inválida do servidor' },
+      fixCommand: j.fixCommand,
+      checkedAt: j.checkedAt,
+    };
+  } catch {
+    return {
+      ok: false,
+      ready: false,
+      redis: { ok: false, error: 'Servidor inacessível ou timeout' },
+    };
+  }
 }
 
 // ─── Pré-voo e diagnóstico de disparo ────────────────────────────────────────

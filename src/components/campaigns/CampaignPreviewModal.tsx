@@ -27,6 +27,7 @@ import { Button } from '../ui/Button';
 import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { campaignClockVars } from '../../utils/campaignClockVars';
 import { apiPreflightCheck } from '../../services/campaignsApi';
+import { DispatchFixPanel } from './DispatchFixPanel';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setChipResults([]);
       setShowChipDetails(false);
     }
-  }, [isOpen]);
+  }, [isOpen, runHealthCheck]);
 
   // Redis error é bloqueador imediato — não espera chips terminarem de verificar.
   const overallHealth: HealthStatus =
@@ -202,8 +203,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       ? 'ok'
       : 'idle';
 
-  // Bloqueia disparo enquanto verificação estiver em andamento ou houver erro.
-  const canDispatch = overallHealth === 'ok' || overallHealth === 'idle';
+  const canDispatch = overallHealth === 'ok';
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -373,18 +373,10 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             </div>
           )}
 
-          {/* Aviso Redis down */}
+          {/* Correção Redis — passos copiáveis */}
           {redisStatus === 'error' && (
             <div className="px-4 pb-3">
-              <div
-                className="rounded-xl px-3 py-2.5 text-[11px]"
-                style={{ background: '#ef444412', border: '1px solid #ef444430', color: '#ef4444' }}
-              >
-                <strong>Redis fora do ar.</strong> Execute na VPS:{' '}
-                <code className="px-1 py-0.5 rounded text-[10px]" style={{ background: '#ef444420' }}>
-                  docker compose restart redis
-                </code>
-              </div>
+              <DispatchFixPanel compact />
             </div>
           )}
         </div>
