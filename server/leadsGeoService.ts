@@ -1233,7 +1233,6 @@ async function buildLeadsGeoSummaryInner(
   };
 
   /** Pins aproximados em espiral são caros com dezenas de milhares de contatos. */
-  const lightMode = query.light === true;
   const skipApproxPins = lightMode || (!nameSearchActive && filtered.length > 2500);
 
   const clusterMap = new Map<string, GeoCluster>();
