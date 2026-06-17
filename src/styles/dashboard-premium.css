@@ -386,7 +386,56 @@
   background: rgba(20, 184, 166, 0.55);
 }
 
+.bm-canvas__scan,
+.bn-canvas__scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(13, 148, 136, 0.08) 48%,
+    rgba(13, 148, 136, 0.18) 50%,
+    rgba(13, 148, 136, 0.08) 52%,
+    transparent 100%
+  );
+  animation: bnScanMove 4.5s ease-in-out infinite;
+}
+
+@keyframes bnScanMove {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.bn-canvas__stage {
+  background: radial-gradient(ellipse 90% 80% at 50% 45%, rgba(13, 148, 136, 0.06), transparent 70%);
+  border: 1px solid rgba(214, 211, 209, 0.9);
+}
+
+.bn-canvas--hero {
+  position: relative;
+  min-height: 100%;
+}
+
+.bn-canvas--hero .bn-canvas__stage {
+  background: radial-gradient(ellipse 85% 75% at 50% 42%, rgba(13, 148, 136, 0.12), transparent 72%);
+}
+
+.zm-pulse {
+  --zm-stat-accent: #0d9488;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .bn-canvas__scan {
+    animation: none;
+    opacity: 0.3;
+  }
+}
+
   .zm-dashboard > .zm-dash-section,
   .zm-hero-orb,
   .zm-intel-bar,

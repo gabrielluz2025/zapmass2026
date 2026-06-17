@@ -49,7 +49,7 @@ import {
 } from '../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
 import { campaignClockVars } from '../utils/campaignClockVars';
-import { TerritoryCommandCenter } from './dashboard/TerritoryCommandCenter';
+import { DashboardPulsePanel } from './dashboard/DashboardPulsePanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
 import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
@@ -855,293 +855,29 @@ export const DashboardTab: React.FC = () => {
 
   return (
     <div className="zm-dashboard space-y-5 pb-10">
-      {/* ========== HERO: Mission Control ========== */}
-      <div
-        className="zm-dash-section zm-hero-mission relative overflow-hidden rounded-[28px]"
-        style={{
-          background: 'linear-gradient(145deg, #060e1a 0%, #0b1829 50%, #071220 100%)',
-          border: '1px solid rgba(16,185,129,0.22)',
-          boxShadow: '0 30px 90px -30px rgba(16,185,129,0.25), 0 0 0 1px rgba(16,185,129,0.08)'
-        }}
-      >
-        <div className="zm-hero-orb zm-hero-orb--green" aria-hidden />
-        <div className="zm-hero-orb zm-hero-orb--blue" aria-hidden />
-        {/* Grid de linhas finas — textura de terminal */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-[0.04]"
-          style={{ backgroundImage: 'linear-gradient(rgba(16,185,129,1) 1px,transparent 1px),linear-gradient(90deg,rgba(16,185,129,1) 1px,transparent 1px)', backgroundSize: '40px 40px' }}
-          aria-hidden
-        />
-        {/* Radar concêntrico decorativo */}
-        <div className="absolute -bottom-28 -left-28 pointer-events-none" aria-hidden>
-          {[220,160,100,50].map((s,i) => (
-            <div key={i} className="absolute rounded-full border"
-              style={{ width:s, height:s, top:'50%', left:'50%', transform:'translate(-50%,-50%)',
-                borderColor:`rgba(16,185,129,${0.06+i*0.04})`,
-                animation: i === 0 ? 'ping 3s cubic-bezier(0,0,0.2,1) infinite' : undefined
-              }} />
-          ))}
-        </div>
-        {/* Acento verde topo */}
-        <div className="absolute inset-x-0 top-0 h-[2px] pointer-events-none"
-          style={{ background: 'linear-gradient(90deg,transparent 0%,#10b981 30%,#3b82f6 65%,#8b5cf6 85%,transparent 100%)' }}
-          aria-hidden />
-
-        <div className="relative z-10 px-5 py-6 sm:px-8 sm:py-7">
-          {/* ── Status strip ── */}
-          <div className="flex items-center gap-3 flex-wrap mb-5">
-            <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
-              style={
-                isBackendConnected
-                  ? { background: 'rgba(16,185,129,0.14)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }
-                  : { background: 'rgba(245,158,11,0.14)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.35)' }
-              }
-            >
-              <span className="relative flex w-1.5 h-1.5">
-                {isBackendConnected ? (
-                  <>
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                  </>
-                ) : (
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500 animate-pulse" />
-                )}
-              </span>
-              {isBackendConnected ? 'Servidor online' : 'Reconectando…'}
-            </span>
-            <span className="text-[11px] font-semibold" style={{ color:'rgba(255,255,255,0.35)' }}>
-              <Clock className="w-3 h-3 inline-block mr-1" />
-              {now.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
-              {' · '}
-              {now.toLocaleDateString('pt-BR', { weekday:'short', day:'numeric', month:'short' })}
-            </span>
-            {onlineCount > 0 && (
-              <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold"
-                style={{ background:'rgba(59,130,246,0.14)', color:'#60a5fa', border:'1px solid rgba(59,130,246,0.28)' }}>
-                <Wifi className="w-3 h-3" />
-                {onlineCount}/{connections.length} canais
-              </span>
-            )}
-          </div>
-
-          {/* ── Greeting + KPI strip ── */}
-          <div className="flex flex-col lg:flex-row lg:items-center gap-6 lg:gap-10">
-            {/* Saudação */}
-            <div className="flex-1 min-w-0">
-              <h1 className="text-[26px] sm:text-[36px] font-black leading-[1.1] tracking-tight"
-                style={{ color:'#fff' }}>
-                {greeting},{' '}
-                <span style={{ background:'linear-gradient(90deg,#10b981,#3b82f6)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
-                  {firstName}
-                </span>
-                <span className="ml-1.5 text-[22px]">{hour < 6 ? '🌙' : hour < 12 ? '☀️' : hour < 18 ? '🌤️' : '🌙'}</span>
-              </h1>
-              {segmentXp.dashboardTagline && (
-                <p className="mt-2 text-[13px] leading-relaxed max-w-lg" style={{ color:'rgba(255,255,255,0.45)' }}>
-                  {segmentXp.dashboardTagline}
-                </p>
-              )}
-              {/* CTAs */}
-              <div className="flex items-center gap-2.5 mt-5 flex-wrap">
-                <button type="button" onClick={() => setCurrentView('campaigns')}
-                  className="group inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-bold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-                  style={{ background:'linear-gradient(135deg,#10b981,#059669)', boxShadow:'0 8px 24px -8px rgba(16,185,129,0.7)' }}>
-                  <Rocket className="w-3.5 h-3.5 transition-transform group-hover:-translate-y-0.5" />
-                  Nova campanha
-                </button>
-                <button type="button" onClick={() => setCurrentView('connections')}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 hover:-translate-y-0.5"
-                  style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', border:'1px solid rgba(255,255,255,0.12)' }}>
-                  <Smartphone className="w-3.5 h-3.5" style={{ color:'#10b981' }} />
-                  Conectar canal
-                </button>
-                <button type="button" onClick={() => setCurrentView('help')}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 hover:-translate-y-0.5"
-                  style={{ background:'rgba(59,130,246,0.1)', color:'rgba(255,255,255,0.7)', border:'1px solid rgba(59,130,246,0.25)' }}>
-                  <BookOpen className="w-3.5 h-3.5" style={{ color:'#60a5fa' }} />
-                  Guia
-                </button>
-              </div>
-            </div>
-
-            {/* KPI tiles horizontais */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-2 lg:gap-3 shrink-0 lg:max-w-[480px]">
-              {[
-                { label:'Enviadas', val: metrics.totalSent.toLocaleString('pt-BR'), color:'#10b981', icon:<Send className="w-3.5 h-3.5" /> },
-                { label:'Entregues', val:`${deliveryRate}%`, color:'#3b82f6', icon:<CheckCheck className="w-3.5 h-3.5" /> },
-                { label:'Lidas', val:`${readRate}%`, color:'#8b5cf6', icon:<CheckCheck className="w-3.5 h-3.5" /> },
-                { label:'Respostas', val: metrics.totalReplied.toLocaleString('pt-BR'), color:'#f59e0b', icon:<Reply className="w-3.5 h-3.5" /> },
-              ].map((k) => (
-                <button
-                  key={k.label}
-                  type="button"
-                  className="zm-hero-kpi rounded-xl px-3 py-3 flex flex-col gap-1 text-left"
-                  style={{ background: `${k.color}12`, border: `1px solid ${k.color}28` }}
-                  onClick={() =>
-                    k.label === 'Enviadas' ? setCurrentView('campaigns') : scrollToFunnel()
-                  }
-                  title={
-                    k.label === 'Enviadas'
-                      ? 'Abrir campanhas'
-                      : 'Ver funil de desempenho'
-                  }
-                >
-                  <div className="flex items-center gap-1.5" style={{ color: k.color }}>
-                    {k.icon}
-                    <span
-                      className="text-[9px] font-bold uppercase tracking-widest"
-                      style={{ color: 'rgba(255,255,255,0.4)' }}
-                    >
-                      {k.label}
-                    </span>
-                  </div>
-                  <span className="text-[22px] font-black leading-none tabular-nums" style={{ color: '#fff' }}>
-                    {k.val}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Insights strip ── */}
-          {(bestWindow || contacts.length > 0) && (
-            <div className="mt-5 flex flex-wrap gap-2">
-              {bestWindow && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold"
-                  style={{ background:'rgba(245,158,11,0.12)', color:'#fbbf24', border:'1px solid rgba(245,158,11,0.22)' }}>
-                  <Zap className="w-3.5 h-3.5" />
-                  Melhor horário: <strong>{bestWindow.label}</strong>
-                </span>
-              )}
-              {contacts.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold"
-                  style={{ background:'rgba(139,92,246,0.12)', color:'#a78bfa', border:'1px solid rgba(139,92,246,0.22)' }}>
-                  <Users className="w-3.5 h-3.5" />
-                  <strong>{contacts.length.toLocaleString('pt-BR')}</strong> contatos na base
-                </span>
-              )}
-              {campaigns.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold"
-                  style={{ background:'rgba(16,185,129,0.10)', color:'#34d399', border:'1px solid rgba(16,185,129,0.2)' }}>
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  <strong>{campaigns.length}</strong> campanha{campaigns.length > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Convites de equipa — visível desde o Painel */}
-      <button
-        type="button"
-        onClick={() => setCurrentView('team')}
-        className="zm-dash-section group w-full text-left rounded-2xl border px-4 py-4 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-        style={{
-          borderColor: 'rgba(16,185,129,0.35)',
-          background:
-            'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(59,130,246,0.05))'
-        }}
-      >
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-          style={{
-            background: 'linear-gradient(135deg, #10b981, #059669)',
-            color: '#fff',
-            boxShadow: '0 8px 24px -8px rgba(16,185,129,0.55)'
-          }}
-        >
-          <UserPlus className="w-5 h-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[14px] sm:text-[15px] font-bold" style={{ color: 'var(--text-1)' }}>
-            Adicionar funcionário ou sócio à conta
-          </p>
-          <p className="text-[12px] sm:text-[12.5px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-            Gera um código, envia por WhatsApp e a pessoa entra com o Google próprio — mesmos números e campanhas.
-          </p>
-        </div>
-        <span
-          className="inline-flex items-center justify-center gap-1 px-4 py-2 rounded-xl text-[12.5px] font-bold whitespace-nowrap self-start sm:self-center"
-          style={{ background: '#10b981', color: '#fff' }}
-        >
-          Funcionários
-          <ArrowRight className="w-4 h-4 opacity-90 group-hover:translate-x-0.5 transition-transform" />
-        </span>
-      </button>
-
-      {/* ========== QUICK ACTIONS: atalhos grandes coloridos ========== */}
-      <div className="zm-dash-section grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <QuickAction
-          label="Campanhas"
-          hint="Crie e acompanhe disparos em massa"
-          icon={<Rocket className="w-5 h-5" />}
-          gradient={['#10b981', '#059669']}
-          onClick={() => setCurrentView('campaigns')}
-        />
-        <QuickAction
-          label="Canais"
-          hint="Conecte WhatsApps e gerencie QR codes"
-          icon={<Smartphone className="w-5 h-5" />}
-          gradient={['#3b82f6', '#1d4ed8']}
-          onClick={() => setCurrentView('connections')}
-        />
-        <QuickAction
-          label="Contatos"
-          hint="Importe listas e edite aniversários"
-          icon={<Users className="w-5 h-5" />}
-          gradient={['#8b5cf6', '#6d28d9']}
-          onClick={() => setCurrentView('contacts')}
-        />
-        <QuickAction
-          label="Aquecimento"
-          hint="Reduza o risco de banimento dos chips"
-          icon={<Flame className="w-5 h-5" />}
-          gradient={['#f59e0b', '#d97706']}
-          onClick={() => setCurrentView('warmup')}
-        />
-      </div>
-
-      {/* STAT CARDS - com glow, progress e animação */}
-      <div className="zm-dash-section grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <DashboardStat
-          label="Enviadas"
-          value={animSent.toLocaleString('pt-BR')}
-          icon={<Send className="w-4 h-4" />}
-          gradient={['#10b981', '#059669']}
-          helper={metrics.totalSent > 0 ? `${campaigns.length} campanha${campaigns.length > 1 ? 's' : ''} registrada${campaigns.length > 1 ? 's' : ''}` : 'Aguardando a primeira campanha'}
-          progress={metrics.totalSent > 0 ? 100 : 0}
-          onClick={() => setCurrentView('campaigns')}
-        />
-        <DashboardStat
-          label="Entregues"
-          value={animDelivered.toLocaleString('pt-BR')}
-          icon={<CheckCheck className="w-4 h-4" />}
-          gradient={['#3b82f6', '#1d4ed8']}
-          helper={metrics.totalSent > 0 ? `${deliveryRate}% dos envios chegaram` : 'Ainda sem envios'}
-          progress={deliveryRate}
-          onClick={scrollToFunnel}
-        />
-        <DashboardStat
-          label="Lidas"
-          value={animRead.toLocaleString('pt-BR')}
-          icon={<CheckCheck className="w-4 h-4" />}
-          gradient={['#8b5cf6', '#6d28d9']}
-          helper={metrics.totalSent > 0 ? `${readRate}% taxa de leitura` : 'Aguardando leituras'}
-          progress={readRate}
-          onClick={scrollToFunnel}
-        />
-        <DashboardStat
-          label="Respostas"
-          value={animReplied.toLocaleString('pt-BR')}
-          icon={<Reply className="w-4 h-4" />}
-          gradient={['#f59e0b', '#d97706']}
-          helper={metrics.totalSent > 0 ? `${replyRate}% engajamento` : 'Aguardando engajamento'}
-          progress={replyRate}
-          onClick={scrollToFunnel}
-        />
-      </div>
+      <DashboardPulsePanel
+        firstName={firstName}
+        greeting={greeting}
+        segmentTagline={segmentXp.dashboardTagline}
+        isBackendConnected={isBackendConnected}
+        now={now}
+        onlineCount={onlineCount}
+        connectionsTotal={connections.length}
+        metrics={metrics}
+        deliveryRate={deliveryRate}
+        readRate={readRate}
+        replyRate={replyRate}
+        animSent={animSent}
+        animDelivered={animDelivered}
+        animRead={animRead}
+        animReplied={animReplied}
+        campaigns={campaigns}
+        contacts={contacts}
+        campaignGeo={campaignGeo}
+        bestWindow={bestWindow}
+        onNavigate={setCurrentView}
+        onScrollFunnel={scrollToFunnel}
+      />
 
       <div className="zm-dash-section">
       <DashboardIntelPanel
@@ -1166,13 +902,6 @@ export const DashboardTab: React.FC = () => {
         onNavigateToChat={(phone, name) => openChatNavigate(setCurrentView, phone, name)}
       />
       </div>
-
-      <TerritoryCommandCenter
-        contacts={contacts}
-        campaigns={campaigns}
-        campaignGeo={campaignGeo}
-        isLive={isBackendConnected}
-      />
 
       <div
         ref={funnelSectionRef}
