@@ -49,7 +49,7 @@ import {
 } from '../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
 import { campaignClockVars } from '../utils/campaignClockVars';
-import { DashboardOrbitPanel } from './dashboard/DashboardOrbitPanel';
+import { DashboardCommandPanel } from './dashboard/DashboardCommandPanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
 import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
@@ -855,7 +855,7 @@ export const DashboardTab: React.FC = () => {
 
   return (
     <div className="zm-dashboard space-y-5 pb-10">
-      <DashboardOrbitPanel
+      <DashboardCommandPanel
         firstName={firstName}
         greeting={greeting}
         segmentTagline={segmentXp.dashboardTagline}
@@ -873,7 +873,7 @@ export const DashboardTab: React.FC = () => {
         animReplied={animReplied}
         campaigns={campaigns}
         contacts={contacts}
-        campaignGeo={campaignGeo}
+        conversations={deferredConversations}
         bestWindow={bestWindow}
         onNavigate={setCurrentView}
         onScrollFunnel={scrollToFunnel}

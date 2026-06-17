@@ -433,6 +433,47 @@
   --zm-stat-accent: #6366f1;
 }
 
+/* Centro de comando — hero com mapa OSM */
+.zm-command {
+  position: relative;
+  --zm-stat-accent: #6366f1;
+}
+
+.zm-command-mesh {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 12% 8%, rgba(99, 102, 241, 0.14), transparent 55%),
+    radial-gradient(ellipse 45% 40% at 88% 22%, rgba(236, 72, 153, 0.1), transparent 50%),
+    radial-gradient(ellipse 50% 45% at 70% 95%, rgba(14, 165, 233, 0.08), transparent 55%);
+  animation: zmHeroMesh 14s ease-in-out infinite;
+}
+
+.zm-command-stat {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.zm-command-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--zm-stat-accent) 35%, transparent);
+}
+
+.zm-territory-map .leaflet-container {
+  font-family: inherit;
+  background: #e7e5e4;
+  z-index: 0;
+}
+
+.zm-territory-map .leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12) !important;
+}
+
+.zm-territory-map .leaflet-control-zoom a {
+  border-radius: 8px !important;
+}
+
 .zm-orbit-dock-btn {
   position: relative;
 }
