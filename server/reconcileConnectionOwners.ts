@@ -3,6 +3,7 @@
  * Corrige vazamento quando um canal foi criado sob a conta errada (ex.: Patrícia na conta Gabriel).
  */
 import { tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
+import { normalizeConnectionLabel } from '../src/utils/normalizeConnectionLabel.js';
 
 export type ConnectionSettingsRow = {
   ownerUid?: string;
@@ -85,11 +86,7 @@ export async function fetchEvolutionConnectionLabels(): Promise<Record<string, s
 }
 
 function normalizeLabel(value: string): string {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .trim();
+  return normalizeConnectionLabel(value);
 }
 
 function labelOf(

@@ -1,4 +1,5 @@
 import { tenantScopeUidsMatch } from './tenantUidScope';
+import { normalizeConnectionLabel } from './normalizeConnectionLabel';
 
 /**
  * Canais criados antes do isolamento por conta: id sem "__" (ex.: timestamp).
@@ -97,10 +98,7 @@ export function connectionNameLeaksToViewer(
   const email = String(viewerEmail || '').toLowerCase();
   const raw = String(connectionName || '').trim();
   if (!raw || (connectionId && raw === connectionId)) return false;
-  const name = raw
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase();
+  const name = normalizeConnectionLabel(raw);
 
   if (/patr[ií]cia|marcondes/.test(name) && !email.includes('paty.contact')) return true;
   if (/sylvester|stallone/.test(name) && !email.includes('sylvesterstallone')) return true;
