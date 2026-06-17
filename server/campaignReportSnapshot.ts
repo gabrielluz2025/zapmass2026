@@ -14,6 +14,7 @@ import type { CampaignLogRow } from './repositories/campaignsRepository.js';
 import { listCampaignLogs } from './repositories/campaignsRepository.js';
 import { getCampaign } from './repositories/campaignsRepository.js';
 import { mergeUpdateCampaign } from './repositories/campaignsRepository.js';
+import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
 
 export type CampaignReportSnapshotRow = {
   phone: string;
@@ -66,6 +67,26 @@ export async function buildCampaignReportSnapshot(
   const logRows = await listCampaignLogs(tenantId, campaignId, { limit: 500, offset: 0 });
   const scoped = logRowsToScoped(logRows, campaignId);
   const replyHints = buildReplyHintsFromLogs(scoped, campaignId);
+
+  const allowed = Array.isArray(campaign.selectedConnectionIds)
+    ? campaign.selectedConnectionIds.filter(Boolean)
+    : [];
+  try {
+    const { getConversations } = await import('./evolutionService.js');
+    const fromChat = buildCampaignInboundRepliesMap(campaignId, getConversations(), allowed);
+    for (const [rk, inbound] of Object.entries(fromChat)) {
+      const prev = replyHints.get(rk);
+      if (!prev || inbound.replyTimestampMs >= prev.replyTimestampMs) {
+        replyHints.set(rk, {
+          phone: rk,
+          replyTimestampMs: inbound.replyTimestampMs,
+          replyText: inbound.replyText
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[campaignReportSnapshot] inbound chat merge:', (e as Error)?.message || e);
+  }
 
   const primary = buildPrimaryReportRowsFromLogs(
     scoped,

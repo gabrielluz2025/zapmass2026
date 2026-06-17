@@ -24,6 +24,7 @@ import {
 } from './campaignTenantScope.js';
 import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { GEO_UNKNOWN_UF, phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
+import { normPhoneKey } from '../src/utils/brPhoneNormalize.js';
 import { campaignRotationIndexFromPhone, resolveCampaignSpintax } from '../shared/campaignSpintax.js';
 import { campaignClockVars } from '../src/utils/campaignClockVars.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
@@ -1861,7 +1862,49 @@ export const clearFunnelStats = (ownerUid?: string) => {
 const toPhoneKey = (chatIdOrPhone: string): string => {
     const raw = String(chatIdOrPhone || '');
     const beforeAt = raw.split('@')[0];
-    return beforeAt.replace(/\D/g, '');
+    return normPhoneKey(beforeAt) || beforeAt.replace(/\D/g, '');
+};
+
+/** Último disparo deste chip+telefone (para atribuir resposta à campanha certa). */
+export function resolveLatestCampaignForReply(
+    connectionId: string,
+    phoneDigits: string
+): { campaignId?: string; ownerUid?: string } {
+    const target = toPhoneKey(phoneDigits);
+    if (!target || target.length < 8 || !connectionId) return {};
+
+    const direct = latestCampaignSendByConnPhone.get(`${connectionId}|${target}`);
+    if (direct?.campaignId) {
+        return {
+            campaignId: direct.campaignId,
+            ownerUid: campaignGeoOwnerById.get(direct.campaignId)
+        };
+    }
+
+    let best: { campaignId: string; ts: number } | null = null;
+    for (const [key, val] of latestCampaignSendByConnPhone) {
+        if (!key.startsWith(`${connectionId}|`)) continue;
+        const pk = key.slice(connectionId.length + 1);
+        if (pk !== target && toPhoneKey(pk) !== target) continue;
+        if (!val.campaignId) continue;
+        if (!best || val.ts >= best.ts) best = { campaignId: val.campaignId, ts: val.ts };
+    }
+    if (best) {
+        return {
+            campaignId: best.campaignId,
+            ownerUid: campaignGeoOwnerById.get(best.campaignId)
+        };
+    }
+
+    for (const [, meta] of campaignMsgMeta) {
+        if (meta.connId !== connectionId || !meta.campaignId) continue;
+        if (toPhoneKey(meta.phoneNorm) !== target) continue;
+        return {
+            campaignId: meta.campaignId,
+            ownerUid: campaignGeoOwnerById.get(meta.campaignId)
+        };
+    }
+    return {};
 };
 const getFunnelConvKey = (connectionId: string, chatIdOrPhone: string) => {
     return `${connectionId}:${toPhoneKey(chatIdOrPhone)}`;
@@ -1922,7 +1965,7 @@ const trackCampaignSend = (msgId: string, conversationId: string, ts: number, ph
     const [connId, chatPart] = conversationId.split(':');
     const ownerUid = currentCampaign.ownerUid || (cidForMeta ? campaignGeoOwnerById.get(cidForMeta) : undefined) || undefined;
     const digits = toPhoneKey(phoneDigits || '');
-    const phoneNorm = digits.length >= 10 ? digits : toPhoneKey(chatPart || '');
+    const phoneNorm = toPhoneKey(phoneDigits || chatPart || '');
     const sentKey = funnelRecipientDedupKey(ownerUid, cidForMeta, connId || '', phoneNorm);
     let countFunnelSent = true;
     if (sentKey) {
@@ -2157,7 +2200,7 @@ const handleIncomingForFunnel = (
     }
 
     const phoneNorm =
-        (hint.length >= 10 ? hint : '') || (chatPart ? toPhoneKey(chatPart) : '');
+        toPhoneKey(phoneDigitsHint || '') || toPhoneKey(chatPart || '');
     const ufHint = phoneDigitsToUf(phoneNorm || toPhoneKey(chatPart || '')) || GEO_UNKNOWN_UF;
 
     if (list && list.length > 0) {
@@ -6820,42 +6863,44 @@ export function logCampaignContactReply(
     connectionId: string,
     phoneDigits: string,
     preview: string,
-    explicitCampaignId?: string
+    explicitCampaignId?: string,
+    explicitOwnerUid?: string
 ): void {
     const phoneNorm = toPhoneKey(phoneDigits);
     if (phoneNorm.length < 8) return;
     const text = String(preview || '').trim().slice(0, 500);
     if (!text) return;
 
-    const emitForCampaign = (campaignId: string) => {
-        const owner = campaignGeoOwnerById.get(campaignId);
-        const payload = {
-            campaignId,
-            connectionId,
-            phoneDigits: phoneNorm,
-            replyPreview: text,
-            to: phoneNorm,
-        };
-        emitToOwnerUid('campaign-log', owner, {
-            timestamp: new Date().toISOString(),
-            level: 'INFO',
-            message: 'Resposta do contato',
-            payload,
-        });
-        if (owner) {
-            void persistCampaignLogToFirestore(owner, campaignId, 'INFO', 'Resposta do contato', payload);
-        }
+    const resolved = explicitCampaignId
+        ? {
+              campaignId: explicitCampaignId,
+              ownerUid: explicitOwnerUid || campaignGeoOwnerById.get(explicitCampaignId)
+          }
+        : resolveLatestCampaignForReply(connectionId, phoneNorm);
+    const campaignId = resolved.campaignId || explicitCampaignId;
+    if (!campaignId) return;
+
+    const owner = resolved.ownerUid || explicitOwnerUid || campaignGeoOwnerById.get(campaignId);
+    const payload = {
+        campaignId,
+        connectionId,
+        phoneDigits: phoneNorm,
+        replyPreview: text,
+        to: phoneNorm
     };
-
-    const cid = String(explicitCampaignId || '').trim();
-    if (cid) {
-        emitForCampaign(cid);
-        return;
+    emitToOwnerUid('campaign-log', owner, {
+        timestamp: new Date().toISOString(),
+        level: 'INFO',
+        message: 'Resposta do contato',
+        payload
+    });
+    if (owner) {
+        void persistCampaignLogToFirestore(owner, campaignId, 'INFO', 'Resposta do contato', payload).then(
+            () => {
+                void persistCampaignReportSnapshot(owner, campaignId);
+            }
+        );
     }
-
-    const locKey = `${connectionId}|${phoneNorm}`;
-    const latest = latestCampaignSendByConnPhone.get(locKey);
-    if (latest?.campaignId) emitForCampaign(latest.campaignId);
 }
 
 /** Registra campanha Evolution no mapa de geo/funil (antes do 1º envio). */
@@ -6877,8 +6922,9 @@ export function evolutionTrackMessageSent(
     ownerUid?: string
 ): void {
     evolutionRegisterCampaign(campaignId, ownerUid);
-    const convId = `${connectionId}:${phoneDigits}`;
-    trackCampaignSend(messageId, convId, Date.now(), phoneDigits, campaignId);
+    const phoneNorm = toPhoneKey(phoneDigits);
+    const convId = `${connectionId}:${phoneNorm}`;
+    trackCampaignSend(messageId, convId, Date.now(), phoneNorm, campaignId);
 }
 
 /**
@@ -6900,20 +6946,26 @@ export function evolutionTrackIncomingReply(
     phoneDigits: string,
     opts?: { campaignId?: string; ownerUid?: string }
 ): void {
+    const phoneNorm = toPhoneKey(phoneDigits);
+    const resolved = opts?.campaignId
+        ? { campaignId: opts.campaignId, ownerUid: opts.ownerUid || campaignGeoOwnerById.get(opts.campaignId) }
+        : resolveLatestCampaignForReply(connectionId, phoneNorm);
+    const campaignId = resolved.campaignId || opts?.campaignId;
+    const ownerUid = resolved.ownerUid || opts?.ownerUid;
+
     const counted = handleIncomingForFunnel(
-        `${connectionId}:${phoneDigits}`,
+        `${connectionId}:${phoneNorm}`,
         Date.now(),
-        phoneDigits,
-        opts?.campaignId,
-        opts?.ownerUid
+        phoneNorm,
+        campaignId,
+        ownerUid
     );
-    if (!counted && opts?.campaignId) {
-        const phoneNorm = toPhoneKey(phoneDigits);
+    if (!counted && campaignId) {
         applyCampaignReplyCount({
-            campaignId: opts.campaignId,
-            ownerUid: opts.ownerUid,
+            campaignId,
+            ownerUid,
             connId: connectionId,
-            phoneNorm,
+            phoneNorm
         });
     }
 }

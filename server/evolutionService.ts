@@ -40,6 +40,7 @@ import {
     evolutionTrackMessageAck,
     evolutionTrackMessageSent,
     logCampaignContactReply,
+    resolveLatestCampaignForReply,
     getCampaignGeoOwner,
     publishOwnerEvent,
     recordConnectionDispatch,
@@ -4687,21 +4688,29 @@ export async function handleWebhook(event: any) {
                         });
                     }
 
-                    evolutionTrackIncomingReply(instance, phoneDigits);
+                    const replyResolved = resolveLatestCampaignForReply(instance, phoneDigits);
+                    const replyCampaignId =
+                        replyFlowEngine?.resolveCampaignIdForIncoming(
+                            instance,
+                            phoneDigits,
+                            incomingConvId
+                        ) || replyResolved.campaignId;
+                    const replyOwnerUid = messageOwnerUid || replyResolved.ownerUid;
+
+                    evolutionTrackIncomingReply(instance, phoneDigits, {
+                        campaignId: replyCampaignId,
+                        ownerUid: replyOwnerUid
+                    });
                     const replyPreview =
                         String(bodyText || '').slice(0, 80) ||
                         (nonTextReply ? '[resposta sem texto legível — mídia/botão/etc.]' : '');
                     if (replyPreview) {
-                        const replyCampaignId = replyFlowEngine?.resolveCampaignIdForIncoming(
-                            instance,
-                            phoneDigits,
-                            incomingConvId
-                        );
                         logCampaignContactReply(
                             instance,
                             phoneDigits,
                             replyPreview,
-                            replyCampaignId
+                            replyCampaignId,
+                            replyOwnerUid
                         );
                     }
                 }
