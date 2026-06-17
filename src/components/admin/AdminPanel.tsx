@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History, Sparkles,
-  TrendingUp, KeyRound, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle
+  TrendingUp, KeyRound, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle, Megaphone
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
 import { useAuth } from '../../context/AuthContext';
 import { Button, Card, CardHeader, Badge, StatCard, SectionHeader, EmptyState, Modal, Textarea } from '../ui';
+import { AdminAnnouncementsTab } from './AdminAnnouncementsTab';
 import {
   LANDING_TRIAL_BODY_MAX_CHARS,
   LANDING_TRIAL_TITLE_MAX_CHARS
@@ -14,7 +15,7 @@ import {
 import { resolveLandingTrialCopy } from '../../utils/landingTrialResolved';
 import { apiUrl } from '../../utils/apiBase';
 
-type AdminTab = 'config' | 'access' | 'suggestions';
+type AdminTab = 'config' | 'access' | 'suggestions' | 'announcements';
 
 function suggestionCategoryPt(code: string | undefined): string {
   const m: Record<string, string> = {
@@ -747,6 +748,18 @@ export const AdminPanel: React.FC = () => {
               </button>
               <button
                 type="button"
+                onClick={() => setTab('announcements')}
+                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
+                  tab === 'announcements'
+                    ? 'bg-white dark:bg-slate-900 text-violet-700 dark:text-violet-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <Megaphone className="w-3.5 h-3.5" />
+                Comunicados
+              </button>
+              <button
+                type="button"
                 onClick={() => setTab('suggestions')}
                 className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
                   tab === 'suggestions'
@@ -761,6 +774,8 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
       </Card>
+
+      {tab === 'announcements' && <AdminAnnouncementsTab />}
 
       {tab === 'config' && (
         <div className="space-y-6">

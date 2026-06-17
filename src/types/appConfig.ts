@@ -1,4 +1,17 @@
 /** Documento Firestore `appConfig/global` + resposta de GET /api/app-config (valores vazios = usar fallback no cliente). */
+export type SystemAnnouncementKind = 'info' | 'warning' | 'error';
+
+export type SystemAnnouncement = {
+  active: boolean;
+  title: string;
+  body: string;
+  kind: SystemAnnouncementKind;
+  showBanner: boolean;
+  updatedAt: string;
+  expiresAt: string | null;
+  publishedBy?: string;
+};
+
 export interface AppConfigGlobal {
   marketingPriceMonthly: string;
   marketingPriceAnnual: string;
@@ -8,6 +21,8 @@ export interface AppConfigGlobal {
   landingTrialTitle: string;
   /** Se vazio, o cliente usa texto padrao da landing. */
   landingTrialBody: string;
+  /** Aviso global (manutenção, etc.) — visível a todos os utilizadores. */
+  systemAnnouncement?: SystemAnnouncement | null;
 }
 
 export const DEFAULT_APP_CONFIG: AppConfigGlobal = {
@@ -15,5 +30,6 @@ export const DEFAULT_APP_CONFIG: AppConfigGlobal = {
   marketingPriceAnnual: '',
   trialHours: 1,
   landingTrialTitle: '',
-  landingTrialBody: ''
+  landingTrialBody: '',
+  systemAnnouncement: null
 };

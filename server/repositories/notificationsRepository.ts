@@ -103,3 +103,34 @@ export async function deleteNotificationPg(tenantId: string, id: string): Promis
   );
   return (r.rowCount ?? 0) > 0;
 }
+
+export async function listActiveTenantIdsPg(): Promise<string[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const r = await pool.query<{ id: string }>(
+    `SELECT id::text FROM zapmass.users WHERE disabled_at IS NULL ORDER BY email`
+  );
+  return r.rows.map((row) => row.id);
+}
+
+export async function broadcastNotificationPg(payload: {
+  title: string;
+  body: string;
+  kind: PersistedNotificationKind;
+}): Promise<number> {
+  const pool = getZapmassPool();
+  if (!pool) return 0;
+  const ids = await listActiveTenantIdsPg();
+  if (ids.length === 0) return 0;
+  let sent = 0;
+  for (const tenantId of ids) {
+    await insertNotificationPg(tenantId, {
+      title: payload.title,
+      body: payload.body,
+      kind: payload.kind,
+      category: 'system'
+    });
+    sent += 1;
+  }
+  return sent;
+}

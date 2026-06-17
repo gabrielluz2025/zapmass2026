@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { clampLandingTrialBody, clampLandingTrialTitle } from '../constants/landingTrialLimits';
-import type { AppConfigGlobal } from '../types/appConfig';
+import type { AppConfigGlobal, SystemAnnouncement } from '../types/appConfig';
 import { DEFAULT_APP_CONFIG } from '../types/appConfig';
 import { apiUrl } from '../utils/apiBase';
 
@@ -15,6 +15,33 @@ const AppConfigContext = createContext<AppConfigContextValue>({
   loading: true,
   reload: async () => {}
 });
+
+function parseAnnouncement(raw: unknown): SystemAnnouncement | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (o.active !== true) return null;
+  const title = typeof o.title === 'string' ? o.title.trim() : '';
+  const body = typeof o.body === 'string' ? o.body.trim() : '';
+  if (!title || !body) return null;
+  const kind =
+    o.kind === 'info' || o.kind === 'warning' || o.kind === 'error' ? o.kind : 'info';
+  const expiresAt =
+    typeof o.expiresAt === 'string' && o.expiresAt.trim() ? o.expiresAt.trim() : null;
+  if (expiresAt) {
+    const t = Date.parse(expiresAt);
+    if (Number.isFinite(t) && t <= Date.now()) return null;
+  }
+  return {
+    active: true,
+    title,
+    body,
+    kind,
+    showBanner: o.showBanner !== false,
+    updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : new Date().toISOString(),
+    expiresAt,
+    publishedBy: typeof o.publishedBy === 'string' ? o.publishedBy : undefined
+  };
+}
 
 function normalizePayload(raw: unknown): AppConfigGlobal {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -31,7 +58,8 @@ function normalizePayload(raw: unknown): AppConfigGlobal {
     marketingPriceAnnual: typeof o.marketingPriceAnnual === 'string' ? o.marketingPriceAnnual : '',
     trialHours,
     landingTrialTitle: clampLandingTrialTitle(typeof o.landingTrialTitle === 'string' ? o.landingTrialTitle : ''),
-    landingTrialBody: clampLandingTrialBody(typeof o.landingTrialBody === 'string' ? o.landingTrialBody : '')
+    landingTrialBody: clampLandingTrialBody(typeof o.landingTrialBody === 'string' ? o.landingTrialBody : ''),
+    systemAnnouncement: parseAnnouncement(o.systemAnnouncement)
   };
 }
 

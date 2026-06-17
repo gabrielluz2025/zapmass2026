@@ -111,8 +111,12 @@ export function registerAdminAppConfigRoutes(app: Express): void {
   app.get('/api/app-config', async (_req: Request, res: Response) => {
     try {
       const { loadAppConfigGlobal } = await import('./appConfigStore.js');
-      const config = await loadAppConfigGlobal();
-      return res.json({ ok: true, config });
+      const { loadSystemAnnouncementPg } = await import('./repositories/appConfigRepository.js');
+      const [config, systemAnnouncement] = await Promise.all([
+        loadAppConfigGlobal(),
+        loadSystemAnnouncementPg()
+      ]);
+      return res.json({ ok: true, config: { ...config, systemAnnouncement } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/app-config]', msg);

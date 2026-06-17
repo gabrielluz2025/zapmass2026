@@ -3,6 +3,7 @@ import { Crown } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { ReconnectingBanner } from './ReconnectingBanner';
+import { SystemAnnouncementBanner } from './SystemAnnouncementBanner';
 import { useZapMassSocket } from '../../context/ZapMassContext';
 import { useSessionUsageHeartbeat } from '../../hooks/useSessionUsageHeartbeat';
 
@@ -102,6 +103,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           nearLatencySlot={headerUpgradeNearLatency}
         />
         <ReconnectingBanner />
+        <SystemAnnouncementBanner />
         {readOnly && readOnlyBanner && (
           <div
             className="px-4 py-2.5 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
