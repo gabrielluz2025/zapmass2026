@@ -47,6 +47,19 @@ import {
 const BLUMENAU_CENTER: L.LatLngExpression = [-26.9194, -49.0661];
 const BLUMENAU_ZOOM = 12;
 
+const MAP_TILE_DARK =
+  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const MAP_TILE_LIGHT = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+const HEAT_GRADIENT_PRO: Record<number, string> = {
+  0.0: '#1e1b4b',
+  0.25: '#4338ca',
+  0.45: '#6366f1',
+  0.6: '#a855f7',
+  0.75: '#f97316',
+  1.0: '#ef4444'
+};
+
 const TEMP_COLOR: Record<ContactTemperature, string> = {
   hot: '#ef4444',
   warm: '#f59e0b',
@@ -89,6 +102,35 @@ type NeighborhoodContactRow = {
   temp: ContactTemperature;
 };
 
+function formatCompactCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return n > 0 ? String(n) : '';
+}
+
+function territoryBubbleIcon(
+  count: number,
+  color: string,
+  maxCount: number,
+  selected: boolean
+): L.DivIcon {
+  const t = count / Math.max(1, maxCount);
+  const size = Math.round(34 + Math.sqrt(t) * 30);
+  const label = formatCompactCount(count);
+  const selectedCls = selected ? ' zm-territory-bubble--selected' : '';
+  return L.divIcon({
+    className: 'zm-territory-bubble-wrap',
+    html: `<div class="zm-territory-bubble${selectedCls}" style="--bubble-size:${size}px;--bubble-color:${color}"><span class="zm-territory-bubble__count">${label}</span></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2]
+  });
+}
+
+function territoryPopupHtml(label: string, count: number, tempLine: string): string {
+  return `<strong>${label}</strong><br/><span style="opacity:0.85">${count.toLocaleString('pt-BR')} contatos</span>${tempLine}<br/><span style="font-size:11px;color:#a5b4fc">Clique para explorar</span>`;
+}
+
 function tempIcon(color: string, size = 12): L.DivIcon {
   return L.divIcon({
     className: '',
@@ -100,16 +142,6 @@ function tempIcon(color: string, size = 12): L.DivIcon {
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-}
-
-function clusterRadius(count: number): number {
-  return Math.min(42, 10 + Math.sqrt(count) * 4);
-}
-
-function clusterFill(count: number, max: number): string {
-  const t = max > 0 ? count / max : 0;
-  const alpha = 0.25 + t * 0.45;
-  return `rgba(99, 102, 241, ${alpha})`;
 }
 
 function normalizeKey(s: string): string {
@@ -299,12 +331,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const rootRef = useRef<HTMLDivElement>(null);
   const layersRef = useRef<L.Layer[]>([]);
   const lastGeoErrorToastRef = useRef(0);
+  const lastFlyKeyRef = useRef('');
 
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [apiSyncing, setApiSyncing] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('temperature');
+  const [viewMode, setViewMode] = useState<ViewMode>('heatmap');
   const [selectedNb, setSelectedNb] = useState<string | null>(null);
   const [mapActive, setMapActive] = useState(!deferLoad);
 
@@ -407,9 +440,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       zoom: BLUMENAU_ZOOM,
       zoomControl: !compact,
     });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-      maxZoom: 19,
+    L.tileLayer(compact ? MAP_TILE_LIGHT : MAP_TILE_DARK, {
+      attribution: compact ? '© OpenStreetMap' : '© OpenStreetMap © CARTO',
+      subdomains: compact ? 'abc' : 'abcd',
+      maxZoom: 20,
     }).addTo(map);
     mapRef.current = map;
     return () => {
@@ -477,96 +511,76 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     const clusters = mapSummary.clusters.filter((c) => c.lat != null && c.lng != null);
     const maxCount = Math.max(1, ...clusters.map((c) => c.count));
 
-    const bindClusterClick = (circle: L.CircleMarker, cluster: (typeof clusters)[0], extra = '') => {
+    const clusterTempLine = (cluster: (typeof clusters)[0]) => {
       const nbStats = blumenauNbStats?.get(normBlumenauNbKey(cluster.label));
-      const tempLine =
-        nbStats && nbStats.total > 0
-          ? `<br/>${CONTACT_TEMP_LABEL[dominantNeighborhoodTemp(nbStats)]} · ${nbStats.hot}Q ${nbStats.warm}M ${nbStats.cold}F`
-          : '';
-      circle.bindPopup(
-        `<strong>${cluster.label}</strong><br/>${cluster.count.toLocaleString('pt-BR')} contatos${tempLine}${extra}<br/>
-        <span style="font-size:11px;color:#6366f1">Clique para ver a lista</span>`
-      );
-      circle.on('click', () => {
-        selectNeighborhood(cluster.label);
-      });
+      return nbStats && nbStats.total > 0
+        ? `<br/>${CONTACT_TEMP_LABEL[dominantNeighborhoodTemp(nbStats)]} · ${nbStats.hot}Q ${nbStats.warm}M ${nbStats.cold}F`
+        : '';
     };
 
-    const paintClusterLabel = (lat: number, lng: number, count: number) => {
-      if (count < 1) return;
-      const label = L.marker([lat, lng], {
-        icon: L.divIcon({
-          className: '',
-          html: `<span style="font-size:10px;font-weight:800;color:#1e1b4b;text-shadow:0 0 4px #fff">${count}</span>`,
-          iconAnchor: [8, 8]
-        }),
-        interactive: false
+    const addTerritoryMarker = (
+      cluster: (typeof clusters)[0],
+      lat: number,
+      lng: number,
+      count: number,
+      color: string
+    ) => {
+      if (count < 1 && blumenauFocus) return;
+      const nbKey = normBlumenauNbKey(cluster.label.split('·')[0]?.trim() || cluster.label);
+      const isSelected = selectedNb ? normBlumenauNbKey(selectedNb) === nbKey : false;
+      const marker = L.marker([lat, lng], {
+        icon: territoryBubbleIcon(count, color, maxCount, isSelected),
+        zIndexOffset: isSelected ? 1000 : Math.round(count)
       });
-      label.addTo(map);
-      layersRef.current.push(label);
+      marker.bindPopup(territoryPopupHtml(cluster.label, count, clusterTempLine(cluster)), {
+        className: 'zm-territory-popup'
+      });
+      marker.on('click', () => selectNeighborhood(cluster.label));
+      marker.addTo(map);
+      layersRef.current.push(marker);
     };
+
+    const paintHeatUnderlay = () => {
+      const points: [number, number, number][] = [];
+      for (const cluster of clusters) {
+        const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
+        if (!isMapCoordValid(lat, lng) || cluster.count < 1) continue;
+        const nbStats = blumenauNbStats?.get(normBlumenauNbKey(cluster.label));
+        const temp = nbStats && nbStats.total > 0 ? dominantNeighborhoodTemp(nbStats) : 'new';
+        const tempBoost =
+          temp === 'hot' ? 1 : temp === 'warm' ? 0.78 : temp === 'cold' ? 0.55 : 0.35;
+        const weight = (0.2 + (cluster.count / maxCount) * 0.8) * tempBoost;
+        points.push([lat, lng, weight]);
+      }
+      if (points.length === 0) return;
+      const hl = heatLayer(points, {
+        radius: compact ? 32 : 42,
+        blur: compact ? 22 : 28,
+        maxZoom: 14,
+        minOpacity: compact ? 0.35 : 0.45,
+        gradient: HEAT_GRADIENT_PRO
+      });
+      hl.addTo(map);
+      layersRef.current.push(hl);
+    };
+
+    if (viewMode === 'heatmap' || (viewMode === 'temperature' && !compact)) {
+      paintHeatUnderlay();
+    }
 
     if (viewMode === 'circles') {
       for (const cluster of clusters) {
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
         if (!isMapCoordValid(lat, lng)) continue;
-        const circle = L.circleMarker([lat, lng], {
-          radius: Math.max(8, clusterRadius(cluster.count)),
-          fillColor: clusterFill(cluster.count, maxCount),
-          color: '#6366f1',
-          weight: 2,
-          opacity: 0.9,
-          fillOpacity: cluster.count > 0 ? 0.85 : 0.25
-        });
-        bindClusterClick(circle, cluster);
-        circle.addTo(map);
-        layersRef.current.push(circle);
-        if (cluster.count >= 3) paintClusterLabel(lat, lng, cluster.count);
+        addTerritoryMarker(cluster, lat, lng, cluster.count, '#6366f1');
       }
     } else if (viewMode === 'heatmap') {
-      const points: [number, number, number][] = [];
-
       for (const cluster of clusters) {
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
-        if (!isMapCoordValid(lat, lng)) continue;
+        if (!isMapCoordValid(lat, lng) || cluster.count < 1) continue;
         const nbStats = blumenauNbStats?.get(normBlumenauNbKey(cluster.label));
-        const temp = nbStats && nbStats.total > 0 ? dominantNeighborhoodTemp(nbStats) : 'new';
-        const tempBoost =
-          temp === 'hot' ? 1 : temp === 'warm' ? 0.75 : temp === 'cold' ? 0.5 : 0.3;
-        const weight = (0.25 + (cluster.count / maxCount) * 0.75) * tempBoost;
-        points.push([lat, lng, weight]);
-      }
-
-      if (points.length > 0) {
-        const hl = heatLayer(points, {
-          radius: compact ? 28 : 36,
-          blur: compact ? 18 : 24,
-          maxZoom: 14,
-          minOpacity: 0.4,
-          gradient: {
-            0.1: '#38bdf8',
-            0.35: '#6366f1',
-            0.55: '#eab308',
-            0.75: '#f97316',
-            1: '#ef4444'
-          }
-        });
-        hl.addTo(map);
-        layersRef.current.push(hl);
-      }
-
-      for (const cluster of clusters) {
-        const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
-        if (!isMapCoordValid(lat, lng)) continue;
-        const hit = L.circleMarker([lat, lng], {
-          radius: Math.max(16, clusterRadius(cluster.count)),
-          fillOpacity: 0,
-          opacity: 0,
-          fillColor: '#000'
-        });
-        bindClusterClick(hit, cluster);
-        hit.addTo(map);
-        layersRef.current.push(hit);
+        const temp = nbStats && nbStats.total > 0 ? dominantNeighborhoodTemp(nbStats) : 'hot';
+        addTerritoryMarker(cluster, lat, lng, cluster.count, TEMP_COLOR[temp]);
       }
     } else {
       for (const cluster of clusters) {
@@ -576,19 +590,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         const count = nbStats?.total ?? cluster.count;
         const temp =
           nbStats && nbStats.total > 0 ? dominantNeighborhoodTemp(nbStats) : count > 0 ? 'new' : 'new';
-        const color = TEMP_COLOR[temp];
-        const circle = L.circleMarker([lat, lng], {
-          radius: Math.max(10, clusterRadius(Math.max(1, count))),
-          fillColor: color,
-          color: '#fff',
-          weight: 2,
-          opacity: 0.95,
-          fillOpacity: count > 0 ? 0.82 : 0.35
-        });
-        bindClusterClick(circle, cluster);
-        circle.addTo(map);
-        layersRef.current.push(circle);
-        if (count >= 1) paintClusterLabel(lat, lng, count);
+        addTerritoryMarker(cluster, lat, lng, count, TEMP_COLOR[temp]);
       }
 
       if (!blumenauFocus) {
@@ -600,7 +602,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           const marker = L.marker([lat, lng], {
             icon: tempIcon(TEMP_COLOR[temp], 10)
           });
-          marker.bindPopup(`<strong>${pin.name}</strong><br/>${CONTACT_TEMP_LABEL[temp]}`);
+          marker.bindPopup(`<strong>${pin.name}</strong><br/>${CONTACT_TEMP_LABEL[temp]}`, {
+            className: 'zm-territory-popup'
+          });
           marker.addTo(map);
           layersRef.current.push(marker);
         }
@@ -608,12 +612,26 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
 
     const vp = mapSummary.mapViewport;
-    if (vp) {
-      map.flyTo([vp.lat, vp.lng], vp.zoom, { duration: 0.8 });
-    } else if (blumenauFocus) {
-      map.flyTo(BLUMENAU_CENTER, BLUMENAU_ZOOM, { duration: 0.6 });
+    const flyKey = `${city}|${vp?.lat ?? ''}|${vp?.lng ?? ''}|${vp?.zoom ?? ''}`;
+    if (flyKey !== lastFlyKeyRef.current) {
+      lastFlyKeyRef.current = flyKey;
+      if (vp) {
+        map.flyTo([vp.lat, vp.lng], vp.zoom, { duration: 0.8 });
+      } else if (blumenauFocus) {
+        map.flyTo(BLUMENAU_CENTER, BLUMENAU_ZOOM, { duration: 0.6 });
+      }
     }
-  }, [mapSummary, viewMode, tempsByContact, city, compact, selectNeighborhood, blumenauNbStats, blumenauFocus]);
+  }, [
+    mapSummary,
+    viewMode,
+    tempsByContact,
+    city,
+    compact,
+    selectNeighborhood,
+    blumenauNbStats,
+    blumenauFocus,
+    selectedNb
+  ]);
 
   useEffect(() => {
     paintMap();
@@ -667,15 +685,24 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   ];
 
   const listPreview = neighborhoodContacts.slice(0, compact ? 40 : 80);
+  const proUi = !compact;
+  const regionLeadCount = useMemo(() => {
+    if (blumenauFocus && blumenauNbStats) {
+      return [...blumenauNbStats.values()].reduce((acc, s) => acc + s.total, 0);
+    }
+    return mapSummary?.stats.filteredTotal ?? 0;
+  }, [blumenauFocus, blumenauNbStats, mapSummary?.stats.filteredTotal]);
 
   return (
     <div
       ref={rootRef}
-      className={`zm-territory-map flex flex-col ${compact ? 'h-[320px]' : 'h-[min(52vh,520px)]'}`}
+      className={`zm-territory-map flex flex-col ${proUi ? 'zm-territory-map--pro' : ''} ${compact ? 'h-[320px]' : 'h-[min(58vh,560px)]'}`}
     >
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-          <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
+      <div className={proUi ? 'zm-territory-map__toolbar' : 'flex flex-wrap items-center gap-2 mb-3'}>
+        <div className={`flex items-center gap-2 flex-1 min-w-[200px] ${proUi ? 'relative' : ''}`}>
+          <MapPin
+            className={`w-4 h-4 shrink-0 ${proUi ? 'absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400' : 'text-indigo-500'}`}
+          />
           <input
             list="zm-city-presets"
             value={city}
@@ -684,7 +711,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               setSelectedNb(null);
               setCity(e.target.value);
             }}
-            className="flex-1 min-w-0 rounded-xl border border-stone-200/80 bg-white/90 px-3 py-2 text-[13px] font-semibold text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/50 disabled:opacity-60"
+            className={
+              proUi
+                ? 'zm-territory-map__city-input w-full pl-9'
+                : 'flex-1 min-w-0 rounded-xl border border-stone-200/80 bg-white/90 px-3 py-2 text-[13px] font-semibold text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/50 disabled:opacity-60'
+            }
             placeholder="Cidade · UF (ex: Blumenau · SC)"
           />
           <datalist id="zm-city-presets">
@@ -714,15 +745,19 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           GPS
         </Button>
 
-        <div className="flex gap-1 p-0.5 rounded-xl bg-stone-100 border border-stone-200/80">
+        <div className={proUi ? 'zm-territory-map__mode-toggle' : 'flex gap-1 p-0.5 rounded-xl bg-stone-100 border border-stone-200/80'}>
           {viewModes.map((m) => (
             <button
               key={m.id}
               type="button"
               onClick={() => setViewMode(m.id)}
-              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                viewMode === m.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-stone-500'
-              }`}
+              className={
+                proUi
+                  ? `zm-territory-map__mode-btn${viewMode === m.id ? ' zm-territory-map__mode-btn--active' : ''}`
+                  : `px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                      viewMode === m.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-stone-500'
+                    }`
+              }
             >
               {m.label}
             </button>
@@ -757,56 +792,66 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       </div>
 
       <div className="flex flex-1 min-h-0 gap-3">
-        <div className="relative flex-1 min-w-0 rounded-2xl overflow-hidden border border-stone-200/90 shadow-inner bg-stone-100">
+        <div
+          className={
+            proUi
+              ? 'zm-territory-map__frame relative flex-1 min-w-0'
+              : 'relative flex-1 min-w-0 rounded-2xl overflow-hidden border border-stone-200/90 shadow-inner bg-stone-100'
+          }
+        >
           <div ref={containerRef} className="absolute inset-0 z-0" />
           {loading && !mapSummary && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-sm">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            <div
+              className={`absolute inset-0 z-10 flex items-center justify-center backdrop-blur-sm ${proUi ? 'bg-slate-950/70' : 'bg-white/60'}`}
+            >
+              <Loader2 className={`w-8 h-8 animate-spin ${proUi ? 'text-indigo-400' : 'text-indigo-600'}`} />
             </div>
           )}
           {apiSyncing && mapSummary && !summary && (
-            <div className="absolute top-3 right-3 z-[500] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
+            <div className={proUi ? 'zm-territory-map__sync-badge' : 'absolute top-3 right-3 z-[500] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600'}>
               <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />
               Sincronizando mapa…
             </div>
           )}
           {!mapActive && deferLoad && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-stone-50/90 text-[12px] font-semibold text-stone-500">
+            <div
+              className={`absolute inset-0 z-10 flex items-center justify-center text-[12px] font-semibold ${proUi ? 'bg-slate-950/85 text-slate-400' : 'bg-stone-50/90 text-stone-500'}`}
+            >
               Mapa carrega ao rolar até aqui…
             </div>
           )}
 
-          <div className="absolute bottom-3 left-3 z-[500] flex flex-wrap gap-2">
+          <div className={proUi ? 'zm-territory-map__legend' : 'absolute bottom-3 left-3 z-[500] flex flex-wrap gap-2'}>
             {viewMode === 'temperature' ? (
               (['hot', 'warm', 'cold', 'new'] as ContactTemperature[]).map((t) => (
                 <span
                   key={t}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm"
+                  className={
+                    proUi
+                      ? 'zm-territory-map__legend-chip'
+                      : 'inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm'
+                  }
                 >
                   <span className="w-2 h-2 rounded-full" style={{ background: TEMP_COLOR[t] }} />
                   {CONTACT_TEMP_LABEL[t]} ({tempCounts[t]})
                 </span>
               ))
             ) : viewMode === 'heatmap' ? (
-              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
-                <span className="w-8 h-2 rounded-full bg-gradient-to-r from-sky-400 via-amber-400 to-red-500" />
-                Calor por bairro (35 regiões)
-              </span>
-            ) : blumenauFocus ? (
-              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
-                35 bairros · cor = temperatura dominante
+              <span className={proUi ? 'zm-territory-map__legend-chip' : 'inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600'}>
+                <span className="w-10 h-2 rounded-full bg-gradient-to-r from-indigo-900 via-violet-500 to-orange-500" />
+                Densidade territorial
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
-                <span className="w-3 h-3 rounded-full bg-indigo-500/60 border border-indigo-600" />
-                Clique no bairro para ver contatos
+              <span className={proUi ? 'zm-territory-map__legend-chip' : 'inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600'}>
+                <span className="w-3 h-3 rounded-full bg-indigo-500/80 border border-indigo-300" />
+                Volume por região
               </span>
             )}
           </div>
         </div>
 
         {!compact && (
-          <aside className="w-[240px] shrink-0 rounded-2xl border border-stone-200/90 bg-white/95 flex flex-col overflow-hidden hidden lg:flex">
+          <aside className="zm-territory-map__rank hidden lg:flex">
             {selectedNb ? (
               <>
                 <div className="p-3 border-b border-stone-100 bg-indigo-50/60">
@@ -896,66 +941,62 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                 </div>
               </>
             ) : (
-              <div className="p-3 overflow-y-auto flex-1">
-                <p className="text-[10px] font-extrabold uppercase tracking-wider text-stone-400 mb-2 flex items-center gap-1">
-                  <Users className="w-3 h-3" />
-                  {blumenauFocus
-                    ? `35 bairros · ${city.split('·')[0]?.trim()}`
-                    : `Top bairros · ${city.split('·')[0]?.trim()}`}
-                </p>
-                {topNeighborhoods.length === 0 ? (
-                  <p className="text-[11px] text-stone-500 leading-relaxed">
-                    Cadastre CEP e bairro nos contatos ou use &quot;Mapear CEP&quot; para posicionar leads.
+              <>
+                <div className="zm-territory-map__rank-head">
+                  <p className="zm-territory-map__rank-title">
+                    {blumenauFocus ? '35 bairros oficiais' : 'Ranking territorial'}
                   </p>
-                ) : (
-                  <ol className="space-y-2 max-h-[min(42vh,360px)] overflow-y-auto pr-1">
-                    {topNeighborhoods.map(({ label, count }, i) => (
-                      <li key={label}>
-                        <button
-                          type="button"
-                          onClick={() => selectNeighborhood(label)}
-                          className="w-full text-left group"
-                        >
-                          <div className="flex items-center justify-between gap-1 mb-0.5">
-                            <span className="text-[11px] font-bold text-stone-800 truncate group-hover:text-indigo-700">
-                              {i + 1}. {label.split('·')[0]?.trim()}
-                            </span>
-                            <span className="text-[11px] font-black tabular-nums text-indigo-600">
-                              {count.toLocaleString('pt-BR')}
-                            </span>
-                          </div>
-                          <div className="h-1 rounded-full bg-stone-100 overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
-                              style={{
-                                width: `${Math.round(
-                                  (count / Math.max(1, topNeighborhoods[0]?.count || 1)) * 100
-                                )}%`,
-                              }}
-                            />
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-
-                <div className="mt-4 pt-3 border-t border-stone-100 space-y-1.5">
-                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Temperatura</p>
-                  <div className="flex items-center gap-1.5 text-[10px] text-stone-600">
-                    <Flame className="w-3 h-3 text-red-500" /> Quente
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px] text-stone-600">
-                    <Sun className="w-3 h-3 text-amber-500" /> Morno
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px] text-stone-600">
-                    <Snowflake className="w-3 h-3 text-sky-400" /> Frio
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px] text-stone-600">
-                    <Thermometer className="w-3 h-3 text-stone-400" /> Sem hist.
-                  </div>
+                  <p className="zm-territory-map__rank-sub">
+                    {regionLeadCount.toLocaleString('pt-BR')}
+                    <span className="text-[13px] font-semibold text-slate-400 ml-1.5">leads mapeados</span>
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">{city}</p>
                 </div>
-              </div>
+                <div className="zm-territory-map__rank-list">
+                  {topNeighborhoods.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 leading-relaxed px-1">
+                      Cadastre CEP e bairro nos contatos ou use &quot;Mapear CEP&quot;.
+                    </p>
+                  ) : (
+                    <ol className="space-y-1">
+                      {topNeighborhoods.slice(0, 14).map(({ label, count }, i) => {
+                        const nbName = label.split('·')[0]?.trim() || label;
+                        const active =
+                          selectedNb && normBlumenauNbKey(selectedNb) === normBlumenauNbKey(nbName);
+                        return (
+                          <li key={label}>
+                            <button
+                              type="button"
+                              onClick={() => selectNeighborhood(label)}
+                              className={`zm-territory-map__rank-item${active ? ' zm-territory-map__rank-item--active' : ''}`}
+                            >
+                              <div className="zm-territory-map__rank-row">
+                                <span className="zm-territory-map__rank-name">
+                                  <span className="text-slate-500 font-black mr-1.5 tabular-nums">{i + 1}</span>
+                                  {nbName}
+                                </span>
+                                <span className="zm-territory-map__rank-count">
+                                  {count.toLocaleString('pt-BR')}
+                                </span>
+                              </div>
+                              <div className="zm-territory-map__rank-bar">
+                                <div
+                                  className="zm-territory-map__rank-bar-fill"
+                                  style={{
+                                    width: `${Math.round(
+                                      (count / Math.max(1, topNeighborhoods[0]?.count || 1)) * 100
+                                    )}%`
+                                  }}
+                                />
+                              </div>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  )}
+                </div>
+              </>
             )}
           </aside>
         )}
@@ -977,16 +1018,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       )}
 
       {summary && (
-        <p className="mt-2 text-[10px] text-stone-500 tabular-nums">
-          {summary.stats.filteredTotal.toLocaleString('pt-BR')} contatos na região ·{' '}
-          {summary.stats.withNeighborhood.toLocaleString('pt-BR')} com bairro
-          {blumenauFocus
-            ? ` · ${BLUMENAU_OFFICIAL_NEIGHBORHOODS.length} bairros oficiais (mapa leve)`
-            : ` · ${summary.pinStats?.pinsMapped ?? 0} pins por endereço/CEP`}
+        <p className={`mt-2 text-[10px] tabular-nums ${proUi ? 'text-slate-500' : 'text-stone-500'}`}>
+          {summary.stats.filteredTotal.toLocaleString('pt-BR')} contatos na região
+          {blumenauFocus ? ` · ${BLUMENAU_OFFICIAL_NEIGHBORHOODS.length} zonas` : ''}
           {summary.topConcentration
-            ? ` · maior bairro: ${summary.topConcentration.label.split('·')[0]?.trim()} (${summary.topConcentration.count})`
+            ? ` · pico: ${summary.topConcentration.label.split('·')[0]?.trim()}`
             : ''}
-          {summary.stale ? ' · atualizando…' : ''}
+          {summary.stale ? ' · sincronizando…' : ''}
         </p>
       )}
     </div>
