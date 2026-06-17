@@ -35,6 +35,19 @@ if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
     fi
 fi
 
+RESET_SCRIPT="${ZAPMASS_ROOT}/scripts/reset-vps-user-password.ts"
+if [ ! -f "$RESET_SCRIPT" ]; then
+    err "Script ausente: ${RESET_SCRIPT} (faça git pull origin main)"
+    exit 1
+fi
+
+# Imagens antigas não incluem o script — copia do host (funciona sem rebuild).
+if ! docker exec "$CONTAINER" test -f /app/scripts/reset-vps-user-password.ts 2>/dev/null; then
+    log "Script ausente na imagem — a copiar do host..."
+    docker exec "$CONTAINER" mkdir -p /app/scripts
+    docker cp "$RESET_SCRIPT" "${CONTAINER}:/app/scripts/reset-vps-user-password.ts"
+fi
+
 log "A redefinir senha de ${EMAIL} via ${CONTAINER} ..."
 docker exec \
     -e "RESET_EMAIL=${EMAIL}" \

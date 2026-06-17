@@ -4,7 +4,8 @@
 #
 # USO (na VPS):
 #   sudo bash deployment/clientes/scripts/corrigir-502.sh demo
-#   ZAPMASS_SKIP_DOCKER_BUILD=1 sudo bash ...   # só recria container (build já feito)
+#   sudo -E ZAPMASS_SKIP_DOCKER_BUILD=1 bash ...   # só recria container (build já feito)
+#   bash ... demo --skip-build                     # equivalente ao skip acima
 #
 set -euo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +13,9 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exigir_root
 
 SLUG="$(normalizar_slug "${1:-demo}")"
+if [ "${2:-}" = "--skip-build" ]; then
+    export ZAPMASS_SKIP_DOCKER_BUILD=1
+fi
 if ! cliente_existe "$SLUG"; then
     err "Cliente '${SLUG}' não encontrado em ${CLIENTES_DIR}."
     exit 1
