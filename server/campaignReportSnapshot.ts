@@ -15,6 +15,7 @@ import { listCampaignLogs } from './repositories/campaignsRepository.js';
 import { getCampaign } from './repositories/campaignsRepository.js';
 import { mergeUpdateCampaign } from './repositories/campaignsRepository.js';
 import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
+import { enrichCampaignReportRow } from '../src/utils/campaignReportRowEnrichment.js';
 
 export type CampaignReportSnapshotRow = {
   phone: string;
@@ -73,7 +74,7 @@ export async function buildCampaignReportSnapshot(
     : [];
   try {
     const { getConversations } = await import('./evolutionService.js');
-    const fromChat = buildCampaignInboundRepliesMap(campaignId, getConversations(), allowed);
+    const fromChat = buildCampaignInboundRepliesMap(campaignId, getConversations(), allowed, scoped);
     for (const [rk, inbound] of Object.entries(fromChat)) {
       const prev = replyHints.get(rk);
       if (!prev || inbound.replyTimestampMs >= prev.replyTimestampMs) {
@@ -96,22 +97,49 @@ export async function buildCampaignReportSnapshot(
     []
   );
 
+  let conversations: Awaited<ReturnType<typeof import('./evolutionService.js')['getConversations']>> = [];
+  try {
+    const { getConversations } = await import('./evolutionService.js');
+    conversations = getConversations();
+  } catch {
+    /* chat indisponível */
+  }
+
   const rowByPhone = new Map<string, CampaignReportSnapshotRow>();
   for (const r of primary) {
     const rk = recipientKeyForCampaignReport(r.phone);
     if (!rk) continue;
     const hint = replyHints.get(rk);
-    const status = hint ? 'REPLIED' : r.status;
+    const enriched = enrichCampaignReportRow(
+      {
+        phone: r.phone,
+        status: hint ? 'REPLIED' : r.status,
+        sentTimestampMs: r.sentTimestampMs,
+        contactName: r.contactName,
+        connectionId: r.connectionId,
+        replyText: r.replyText || hint?.replyText,
+        replyTime: r.replyTime,
+        replyTimestampMs: r.replyTimestampMs || hint?.replyTimestampMs
+      },
+      {
+        campaignId,
+        replyHint: hint,
+        scopedLogs: scoped,
+        conversations,
+        allowedConnectionIds: allowed
+      }
+    );
+    const status = enriched.status;
     const next: CampaignReportSnapshotRow = {
       phone: r.phone,
-      contactName: r.contactName,
+      contactName: enriched.contactName || r.contactName,
       status,
       sentTime: r.sentTime,
       sentTimestampMs: r.sentTimestampMs,
-      replyText: r.replyText || hint?.replyText,
-      replyTime: r.replyTime || (hint ? new Date(hint.replyTimestampMs).toLocaleTimeString('pt-BR') : undefined),
-      replyTimestampMs: r.replyTimestampMs || hint?.replyTimestampMs,
-      connectionId: r.connectionId || hint?.connectionId,
+      replyText: enriched.replyText || hint?.replyText,
+      replyTime: enriched.replyTime || (hint ? new Date(hint.replyTimestampMs).toLocaleTimeString('pt-BR') : undefined),
+      replyTimestampMs: enriched.replyTimestampMs || hint?.replyTimestampMs,
+      connectionId: enriched.connectionId || r.connectionId || hint?.connectionId,
       errorMessage: r.errorMessage
     };
     const prev = rowByPhone.get(rk);
@@ -136,16 +164,21 @@ export async function buildCampaignReportSnapshot(
 
   let replied = 0;
   let delivered = 0;
+  let read = 0;
   for (const row of rows) {
     if (row.status === 'REPLIED') {
       replied++;
+      read++;
       delivered++;
-    } else if (['DELIVERED', 'READ'].includes(row.status)) {
+    } else if (row.status === 'READ') {
+      read++;
+      delivered++;
+    } else if (row.status === 'DELIVERED') {
       delivered++;
     }
   }
   const sent = Math.max(rows.length, campaign.totalContacts || 0, stageFunnels[0]?.sent || 0);
-  const totals = clampCampaignFunnelMetrics(sent, Math.max(delivered, replied), replied, replied);
+  const totals = clampCampaignFunnelMetrics(sent, delivered, read, replied);
 
   return {
     builtAt: new Date().toISOString(),

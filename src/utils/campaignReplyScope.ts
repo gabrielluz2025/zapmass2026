@@ -41,6 +41,39 @@ export function firstReplyAfterCampaignSend(
   return best;
 }
 
+/** Mapa telefone → timestamp do último log "Mensagem enviada" desta campanha. */
+export function buildCampaignSendTimestampsFromLogs(
+  logs: Array<{ timestamp: string; payload?: unknown }>,
+  campaignId: string
+): Map<string, number> {
+  const cid = String(campaignId || '').trim();
+  const out = new Map<string, number>();
+  if (!cid) return out;
+  for (const log of logs) {
+    if (!log.payload || typeof log.payload !== 'object') continue;
+    const p = log.payload as CampaignLogPayloadLike;
+    if (!campaignLogPayloadMatchesCampaign(p, cid)) continue;
+    if (String(p.message || '') !== CAMPAIGN_SENT_LOG_MESSAGE) continue;
+    const rk = logPayloadPhoneKey(p);
+    if (!rk) continue;
+    const ts = new Date(log.timestamp).getTime();
+    const prev = out.get(rk);
+    if (!prev || ts >= prev) out.set(rk, ts);
+  }
+  return out;
+}
+
+/** Timestamp do último envio desta campanha para o telefone (via logs). */
+export function latestCampaignSendTimestampFromLogs(
+  logs: Array<{ timestamp: string; payload?: unknown }>,
+  campaignId: string,
+  phoneKey: string
+): number {
+  const rk = recipientKeyForCampaignReport(phoneKey);
+  if (!rk) return 0;
+  return buildCampaignSendTimestampsFromLogs(logs, campaignId).get(rk) || 0;
+}
+
 export function hasCampaignSendLogForPhone(
   logs: Array<{ timestamp: string; payload?: unknown }>,
   campaignId: string,

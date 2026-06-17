@@ -59,6 +59,17 @@ export async function getCampaignDoc(
   return r.rows[0]?.doc ?? null;
 }
 
+/** Resolve tenant (owner uid) só pelo id da campanha — usado quando mapa em RAM foi perdido. */
+export async function resolveCampaignTenantId(campaignId: string): Promise<string | null> {
+  const pool = getZapmassPool();
+  if (!pool || !isUuid(campaignId)) return null;
+  const r = await pool.query<{ tenant_id: string }>(
+    `SELECT tenant_id::text FROM zapmass.campaigns WHERE id = $1::uuid LIMIT 1`,
+    [campaignId]
+  );
+  return r.rows[0]?.tenant_id ?? null;
+}
+
 export async function createCampaign(
   tenantId: string,
   payload: Record<string, unknown>

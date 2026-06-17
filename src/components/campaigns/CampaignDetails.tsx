@@ -1646,8 +1646,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         {[
           {
             label: 'Entregues',
-            value: (useReplyFlowPrimaryFunnel ? uiPerformance.delivered : metrics.ok).toLocaleString('pt-BR'),
-            helper: useReplyFlowPrimaryFunnel ? `${uiPerformance.deliveryPct}% · etapa 1` : `${successRate}% do total`,
+            value: uiPerformance.delivered.toLocaleString('pt-BR'),
+            helper:
+              uiPerformance.delivered > 0
+                ? `${uiPerformance.deliveryPct}% do total`
+                : useReplyFlowPrimaryFunnel
+                  ? '0% · etapa 1'
+                  : 'confirmação no aparelho pendente',
             color: '#10b981',
             filter: 'SENT_GROUP' as ReportFilter
           },

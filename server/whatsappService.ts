@@ -38,6 +38,7 @@ import { hydrateChatArchiveForConversation, mergeChatArchiveIntoConversation } f
 import { getFirebaseAdmin } from './firebaseAdmin.js';
 import { getFirestore } from 'firebase-admin/firestore';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
+import { resolveCampaignTenantId } from './repositories/campaignsRepository.js';
 import { persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import {
     getTenantDispatchSettings,
@@ -6894,13 +6895,16 @@ export function logCampaignContactReply(
         message: 'Resposta do contato',
         payload
     });
-    if (owner) {
-        void persistCampaignLogToFirestore(owner, campaignId, 'INFO', 'Resposta do contato', payload).then(
-            () => {
-                void persistCampaignReportSnapshot(owner, campaignId);
-            }
-        );
-    }
+    void (async () => {
+        let uid = owner;
+        if (!uid && campaignId) {
+            uid = (await resolveCampaignTenantId(campaignId)) || undefined;
+            if (uid) campaignGeoOwnerById.set(campaignId, uid);
+        }
+        if (!uid) return;
+        await persistCampaignLogToFirestore(uid, campaignId, 'INFO', 'Resposta do contato', payload);
+        await persistCampaignReportSnapshot(uid, campaignId);
+    })();
 }
 
 /** Registra campanha Evolution no mapa de geo/funil (antes do 1º envio). */

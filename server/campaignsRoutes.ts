@@ -163,15 +163,25 @@ export function registerCampaignsDataRoutes(app: Express): void {
 
     const replies: Record<string, { replyText: string; replyTimestampMs: number }> = {};
 
+    const logRows = await listCampaignLogs(ctx.tenantId, campaignId, { limit: 500, offset: 0 });
+    const scopedForReply = logRows.map((r) => ({
+      timestamp: r.created_at.toISOString(),
+      payload: r.payload
+    }));
+
     try {
       const { getConversations } = await import('./evolutionService.js');
-      const fromChat = buildCampaignInboundRepliesMap(campaignId, getConversations(), allowed);
+      const fromChat = buildCampaignInboundRepliesMap(
+        campaignId,
+        getConversations(),
+        allowed,
+        scopedForReply
+      );
       Object.assign(replies, fromChat);
     } catch (e) {
       console.warn('[api/campaigns/inbound-replies] evolution:', e);
     }
 
-    const logRows = await listCampaignLogs(ctx.tenantId, campaignId, { limit: 500, offset: 0 });
     const replyLogMessages = new Set([
       'Resposta recebida no fluxo por etapas',
       'Resposta do contato'

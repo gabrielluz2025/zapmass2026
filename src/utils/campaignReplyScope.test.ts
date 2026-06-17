@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../types';
 import {
+  buildCampaignSendTimestampsFromLogs,
   firstReplyAfterCampaignSend,
   hasCampaignSendLogForPhone,
   latestCampaignSendTimestampMs
@@ -32,6 +33,21 @@ describe('campaignReplyScope', () => {
       mk({ sender: 'them', timestampMs: 6000, text: 'depois' })
     ];
     expect(firstReplyAfterCampaignSend(msgs, 5000)?.text).toBe('depois');
+  });
+
+  it('buildCampaignSendTimestampsFromLogs usa último envio por telefone', () => {
+    const logs = [
+      {
+        timestamp: '2026-01-01T10:00:00Z',
+        payload: { campaignId: 'c1', message: 'Mensagem enviada', to: '5511999999999' }
+      },
+      {
+        timestamp: '2026-01-01T10:05:00Z',
+        payload: { campaignId: 'c1', message: 'Mensagem enviada', to: '5511999999999' }
+      }
+    ];
+    const map = buildCampaignSendTimestampsFromLogs(logs, 'c1');
+    expect(map.get('5511999999999')).toBe(new Date('2026-01-01T10:05:00Z').getTime());
   });
 
   it('hasCampaignSendLogForPhone exige log de envio da mesma campanha', () => {

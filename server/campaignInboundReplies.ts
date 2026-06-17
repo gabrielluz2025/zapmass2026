@@ -1,9 +1,38 @@
 import type { ChatMessage, Conversation } from './types.js';
 import { recipientKeyForCampaignReport } from '../src/utils/campaignReportDedupe.js';
 import {
+  buildCampaignSendTimestampsFromLogs,
   firstReplyAfterCampaignSend,
   latestCampaignSendTimestampMs
 } from '../src/utils/campaignReplyScope.js';
+
+function phoneKeysMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const sa = a.replace(/\D/g, '');
+  const sb = b.replace(/\D/g, '');
+  if (!sa || !sb) return false;
+  if (sa === sb) return true;
+  const minLen = Math.min(sa.length, sb.length);
+  if (minLen >= 10 && sa.slice(-minLen) === sb.slice(-minLen)) return true;
+  return false;
+}
+
+function resolveSendTimestampMs(
+  messages: ChatMessage[],
+  campaignId: string,
+  phoneKey: string,
+  sendTimestampsByPhone: Map<string, number>
+): number {
+  const fromChat = latestCampaignSendTimestampMs(messages, campaignId);
+  if (fromChat > 0) return fromChat;
+  const direct = sendTimestampsByPhone.get(phoneKey);
+  if (direct) return direct;
+  for (const [k, ts] of sendTimestampsByPhone) {
+    if (phoneKeysMatch(k, phoneKey)) return ts;
+  }
+  return 0;
+}
 
 const MEDIA_LABEL: Record<string, string> = {
   image: '[Imagem]',
@@ -27,11 +56,13 @@ function replyDisplayText(msg: ChatMessage): string {
 export function buildCampaignInboundRepliesMap(
   campaignId: string,
   conversations: Conversation[],
-  allowedConnectionIds: string[]
+  allowedConnectionIds: string[],
+  scopedLogs: Array<{ timestamp: string; payload?: unknown }> = []
 ): Record<string, { replyText: string; replyTimestampMs: number }> {
   const cid = String(campaignId || '').trim();
   if (!cid) return {};
   const allowed = new Set((allowedConnectionIds || []).filter(Boolean));
+  const sendTimestampsByPhone = buildCampaignSendTimestampsFromLogs(scopedLogs, cid);
   const out: Record<string, { replyText: string; replyTimestampMs: number }> = {};
 
   for (const conv of conversations) {
@@ -42,7 +73,7 @@ export function buildCampaignInboundRepliesMap(
     if (!rk) continue;
 
     const msgs = conv.messages || [];
-    const sendTs = latestCampaignSendTimestampMs(msgs, cid);
+    const sendTs = resolveSendTimestampMs(msgs, cid, rk, sendTimestampsByPhone);
     if (!sendTs) continue;
 
     const reply = firstReplyAfterCampaignSend(msgs, sendTs);
