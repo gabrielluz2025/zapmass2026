@@ -733,7 +733,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             setSelectedNb(null);
             void useMyLocation();
           }}
-          title="Usar GPS do dispositivo (permita localização no navegador)"
+          title="Detectar minha localização automaticamente"
           leftIcon={
             gpsLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

@@ -4,7 +4,7 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { loadDispatchSettingsPg, saveDispatchSettingsPg } from './repositories/tenantSettingsRepository.js';
 
-export type OperatingLocationSource = 'manual' | 'gps';
+export type OperatingLocationSource = 'manual' | 'gps' | 'ip';
 
 export interface OperatingLocation {
   cityLabel: string;
@@ -80,7 +80,9 @@ function extractFromDoc(raw: Record<string, unknown> | null | undefined): Operat
   const lat = Number(raw.operatingLat ?? raw.operatingLatitude);
   const lng = Number(raw.operatingLng ?? raw.operatingLongitude);
   const source =
-    raw.operatingSource === 'gps' || raw.operatingSource === 'manual'
+    raw.operatingSource === 'gps' ||
+    raw.operatingSource === 'manual' ||
+    raw.operatingSource === 'ip'
       ? raw.operatingSource
       : undefined;
   const updatedAt = typeof raw.operatingUpdatedAt === 'string' ? raw.operatingUpdatedAt : undefined;

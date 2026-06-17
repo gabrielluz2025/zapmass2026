@@ -3,12 +3,13 @@ import toast from 'react-hot-toast';
 import {
   fetchOperatingLocation,
   saveOperatingLocationFromGps,
+  saveOperatingLocationFromIp,
   saveOperatingLocationManual,
   type OperatingLocation,
   type OperatingLocationSource
 } from '../services/operatingLocationApi';
 import {
-  describeGeolocationError,
+  queryGeolocationPermission,
   requestBrowserGeolocation
 } from '../utils/geolocationHelpers';
 
@@ -80,36 +81,45 @@ export function useOperatingLocation(fallbackCity = 'Blumenau · SC') {
   );
 
   const useMyLocation = useCallback(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      toast.error('Geolocalização não disponível neste navegador. Digite a cidade manualmente.');
-      return;
-    }
-
     setGpsLoading(true);
-
-    // Dispara o prompt do navegador imediatamente no clique (sem await antes).
-    const posPromise = requestBrowserGeolocation({ enableHighAccuracy: true, timeout: 15_000 }).catch(
-      (firstErr) => {
-        if (
-          firstErr instanceof GeolocationPositionError &&
-          firstErr.code === firstErr.TIMEOUT
-        ) {
-          return requestBrowserGeolocation({ enableHighAccuracy: false, timeout: 20_000 });
-        }
-        throw firstErr;
-      }
-    );
 
     void (async () => {
       try {
-        const pos = await posPromise;
-        const loc = await saveOperatingLocationFromGps(pos.coords.latitude, pos.coords.longitude);
+        const permission = await queryGeolocationPermission();
+
+        if (permission === 'granted') {
+          try {
+            const pos = await requestBrowserGeolocation({ enableHighAccuracy: true, timeout: 12_000 }).catch(
+              (firstErr) => {
+                if (
+                  firstErr instanceof GeolocationPositionError &&
+                  firstErr.code === firstErr.TIMEOUT
+                ) {
+                  return requestBrowserGeolocation({ enableHighAccuracy: false, timeout: 15_000 });
+                }
+                throw firstErr;
+              }
+            );
+            const loc = await saveOperatingLocationFromGps(pos.coords.latitude, pos.coords.longitude);
+            skipNextSave.current = true;
+            setCityLabelState(loc.cityLabel);
+            setSource('gps');
+            toast.success(`Localização: ${loc.cityLabel}`);
+            return;
+          } catch {
+            /* GPS falhou — tenta detecção automática pela rede */
+          }
+        }
+
+        const loc = await saveOperatingLocationFromIp();
         skipNextSave.current = true;
         setCityLabelState(loc.cityLabel);
-        setSource('gps');
-        toast.success(`Localização: ${loc.cityLabel}`);
+        setSource('ip');
+        toast.success(`Localização detectada: ${loc.cityLabel}`);
       } catch (e) {
-        toast.error(describeGeolocationError(e), { duration: 8000 });
+        toast.error(
+          e instanceof Error ? e.message : 'Não foi possível detectar sua localização. Digite a cidade no campo.'
+        );
       } finally {
         setGpsLoading(false);
       }

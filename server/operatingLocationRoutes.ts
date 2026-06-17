@@ -1,5 +1,7 @@
 import type { Express, Request, Response } from 'express';
+import { getClientIp, isPrivateOrLoopbackIp } from './clientIp.js';
 import { requireTenant } from './httpTenant.js';
+import { resolveIpGeolocation } from './ipGeolocation.js';
 import { reverseGeocodeNominatim } from './nominatimGeocode.js';
 import {
   loadOperatingLocation,
@@ -36,7 +38,9 @@ export function registerOperatingLocationRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Informe cidade e UF (ex.: Blumenau · SC).' });
     }
     const source: OperatingLocationSource | undefined =
-      body.source === 'gps' || body.source === 'manual' ? body.source : 'manual';
+      body.source === 'gps' || body.source === 'manual' || body.source === 'ip'
+        ? body.source
+        : 'manual';
     const lat = body.latitude !== undefined ? Number(body.latitude) : undefined;
     const lng = body.longitude !== undefined ? Number(body.longitude) : undefined;
 
@@ -65,7 +69,7 @@ export function registerOperatingLocationRoutes(app: Express): void {
     }
 
     const rev = await reverseGeocodeNominatim(lat, lng);
-    if (!rev.ok) {
+    if (rev.ok === false) {
       const msg =
         rev.status === 'DISABLED'
           ? 'Geocodificação desativada no servidor.'
@@ -85,6 +89,42 @@ export function registerOperatingLocationRoutes(app: Express): void {
       return res.json({ ok: true, location, resolved: rev });
     } catch (e) {
       console.error('[api/operating-location/from-gps]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível salvar a localização.' });
+    }
+  });
+
+  app.post('/api/operating-location/from-ip', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+
+    const clientIp = getClientIp(req);
+    if (!clientIp || isPrivateOrLoopbackIp(clientIp)) {
+      return res.status(422).json({
+        ok: false,
+        error: 'Não foi possível detectar sua localização pela rede. Informe a cidade manualmente.',
+        status: 'PRIVATE_IP'
+      });
+    }
+
+    const geo = await resolveIpGeolocation(clientIp);
+    if (geo.ok === false) {
+      const msg =
+        geo.status === 'DISABLED'
+          ? 'Detecção automática de localização desativada no servidor.'
+          : 'Não foi possível detectar sua localização pela rede. Informe a cidade manualmente.';
+      return res.status(422).json({ ok: false, error: msg, status: geo.status });
+    }
+
+    try {
+      const location = await saveOperatingLocation(ctx.tenantId, {
+        cityLabel: geo.cityLabel,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        source: 'ip'
+      });
+      return res.json({ ok: true, location, resolved: geo });
+    } catch (e) {
+      console.error('[api/operating-location/from-ip]', e);
       return res.status(500).json({ ok: false, error: 'Não foi possível salvar a localização.' });
     }
   });

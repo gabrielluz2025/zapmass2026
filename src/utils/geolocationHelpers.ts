@@ -16,10 +16,7 @@ export async function queryGeolocationPermission(): Promise<GeolocationPermissio
 }
 
 export function geolocationPermissionDeniedMessage(): string {
-  return (
-    'Localização bloqueada no navegador. Clique no ícone ao lado do endereço (cadeado ou ⓘ) → ' +
-    'Permissões → Localização → Permitir. Ou digite a cidade manualmente no campo ao lado.'
-  );
+  return 'Não foi possível usar o GPS. A localização será detectada automaticamente pela rede.';
 }
 
 export function describeGeolocationError(error: unknown): string {

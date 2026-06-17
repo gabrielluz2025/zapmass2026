@@ -1,6 +1,6 @@
 import { apiFetchJson } from '../utils/apiFetchAuth';
 
-export type OperatingLocationSource = 'manual' | 'gps';
+export type OperatingLocationSource = 'manual' | 'gps' | 'ip';
 
 export type OperatingLocation = {
   cityLabel: string;
@@ -37,4 +37,12 @@ export async function saveOperatingLocationFromGps(
   return j.location;
 }
 
-export { readBrowserGeolocation, requestBrowserGeolocation } from '../utils/geolocationHelpers';
+export async function saveOperatingLocationFromIp(): Promise<OperatingLocation> {
+  const j = await apiFetchJson<{ ok: boolean; location: OperatingLocation }>(
+    '/api/operating-location/from-ip',
+    { method: 'POST' }
+  );
+  return j.location;
+}
+
+export { readBrowserGeolocation, requestBrowserGeolocation, queryGeolocationPermission } from '../utils/geolocationHelpers';
