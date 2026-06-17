@@ -47,7 +47,16 @@ for dir in "${CLIENTES_DIR}"/*/; do
         continue
     fi
 
-    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${porta}/api/health" 2>/dev/null || echo 000)"
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${porta}/api/health" 2>/dev/null || true)"
+    code="${code:-000}"
+    if [ "$code" != "200" ]; then
+        for _ in 1 2 3; do
+            sleep 2
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${porta}/api/health" 2>/dev/null || true)"
+            code="${code:-000}"
+            [ "$code" = "200" ] && break
+        done
+    fi
     health="$code"
     [ "$code" = "200" ] && health="OK"
 

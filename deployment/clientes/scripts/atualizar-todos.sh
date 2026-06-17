@@ -14,8 +14,13 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 exigir_root
 
-log "A reconstruir imagem zapmass-zapmass:latest..."
-(cd "$ZAPMASS_ROOT" && docker compose build)
+GIT_REF="$(git -C "$ZAPMASS_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+export VITE_GIT_REF="$GIT_REF"
+
+log "A reconstruir imagem zapmass-zapmass:latest (${GIT_REF})..."
+(cd "$ZAPMASS_ROOT" && docker compose build \
+    --build-arg "CACHEBUST=${GIT_REF}" \
+    --build-arg "VITE_GIT_REF=${GIT_REF}")
 
 log "A reiniciar instancia principal (se existir)..."
 if [ -f "${ZAPMASS_ROOT}/docker-compose.yml" ]; then

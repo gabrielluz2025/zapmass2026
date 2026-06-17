@@ -69,7 +69,11 @@ render_template \
     "TIER=${TIER}" \
     "WWEBJS_WEB_VERSION_URL=${WWEBJS_URL}"
 
-printf '\nHOST_PORT=%s\n' "$PORTA" >> "${ENV_FILE}"
+if grep -qE '^HOST_PORT=' "${ENV_FILE}"; then
+    sed -i "s/^HOST_PORT=.*/HOST_PORT=${PORTA}/" "${ENV_FILE}"
+else
+    printf '\nHOST_PORT=%s\n' "$PORTA" >> "${ENV_FILE}"
+fi
 chmod 600 "${ENV_FILE}"
 
 render_template \
@@ -97,6 +101,11 @@ bash "${SELF_DIR}/setup-nginx-rate-limit.sh" || true
 
 NGINX_FILE="${NGINX_AVAILABLE}/zapmass-${SLUG}"
 if [ -f "$NGINX_FILE" ]; then
+    case "$DOMINIO" in
+        zap-mass.com|www.zap-mass.com)
+            warn "Domínio ${DOMINIO} conflita com a instância principal — considere demo.zap-mass.com (ou outro subdomínio)."
+            ;;
+    esac
     render_template \
         "${TEMPLATES_DIR}/nginx-cliente.conf.template" \
         "$NGINX_FILE" \

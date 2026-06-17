@@ -53,7 +53,8 @@ for dir in "${dirs[@]}"; do
         health_col="-"
     else
         status_col="ativo"
-        code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${porta}/api/health" 2>/dev/null || echo 000)"
+        code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${porta}/api/health" 2>/dev/null || true)"
+        code="${code:-000}"
         if [ "$code" = "200" ]; then health_col="${C_GREEN}OK${C_END}"; else health_col="${C_RED}${code}${C_END}"; fi
     fi
 
