@@ -1,4 +1,37 @@
-# ZapMass — provisionamento por cliente
+# ZapMass — provisionamento por cliente (Plano B completo)
+
+Cada **cliente pagante** recebe uma instância **isolada**: container próprio, Postgres dedicado, índice Redis próprio, domínio HTTPS, limites de CPU/RAM, backup diário e rate limit Nginx.
+
+**Checklist operacional:** [CHECKLIST-ONBOARDING.md](./CHECKLIST-ONBOARDING.md)
+
+## O que o Plano B inclui
+
+| Camada | Isolamento |
+|--------|------------|
+| **Container** | `zapmass-cli-<slug>` — porta local 3100+ (só Nginx expõe) |
+| **Dados WhatsApp** | `/opt/zapmass/clientes/<slug>/data` |
+| **Postgres** | Base `zapmass_cli_<slug>` |
+| **Redis** | Índice DB 2–15 (0=stack, 1=Evolution) |
+| **Rede** | Ligado a `zapmass_default` (redis, postgres, evolution) |
+| **Recursos** | Limites CPU/RAM por tier (starter / pro / business) |
+| **Nginx** | Virtual-host + HTTPS + rate limit 35 req/s |
+| **Backup** | Cron 03:15 UTC + `backup-cliente.sh` |
+| **Monitor** | `monitor-clientes.sh` |
+
+## Scripts Plano B
+
+| Script | Função |
+|--------|--------|
+| `novo-cliente.sh` | Cria cliente (`--tier`, `--dominio`, `--sem-ssl`) |
+| `provision-pos-pagamento.sh` | Alias pós-venda / webhook |
+| `migrar-cliente-plano-b.sh` | Atualiza cliente antigo (ex.: demo) |
+| `migrar-todos-plano-b.sh` | Migra todos os slugs existentes |
+| `setup-nginx-rate-limit.sh` | Instala rate limit (uma vez) |
+| `setup-backup-cron.sh` | Cron backup diário (uma vez) |
+| `backup-todos-clientes.sh` | Backup em massa (cron) |
+| `monitor-clientes.sh` | Health + RAM/CPU por cliente |
+| `listar-clientes.sh` | Lista slugs, tier, health |
+| `atualizar-todos.sh` | Nova versão em todos os containers |
 
 Este directório contém scripts para criar, gerir e remover **instâncias isoladas do ZapMass**, uma por cliente, todas na mesma VPS.
 
@@ -113,17 +146,13 @@ Documentação espelhada (visão geral do projeto): `README.md` na raiz do repos
 
 Todos ficam em `/opt/zapmass/deployment/clientes/scripts/`. Correm com `sudo`.
 
-### Criar um cliente novo
+### Criar um cliente novo (Plano B)
 
 ```bash
 sudo bash /opt/zapmass/deployment/clientes/scripts/novo-cliente.sh acme
-# usa acme.zap-mass.com
-
-sudo bash /opt/zapmass/deployment/clientes/scripts/novo-cliente.sh acme --dominio whatsapp.acme.com
-# com domínio próprio do cliente (DNS desse domínio tem de apontar para a VPS)
-
+sudo bash /opt/zapmass/deployment/clientes/scripts/novo-cliente.sh acme --tier pro
+sudo bash /opt/zapmass/deployment/clientes/scripts/novo-cliente.sh acme --dominio whatsapp.acme.com --tier business
 sudo bash /opt/zapmass/deployment/clientes/scripts/novo-cliente.sh teste --sem-ssl
-# não tenta emitir HTTPS (útil para testes rápidos)
 ```
 
 O script:

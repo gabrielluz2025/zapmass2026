@@ -38,4 +38,5 @@ log "A limpar imagens antigas..."
 docker image prune -f >/dev/null || true
 
 ok "Todos os containers foram atualizados para a imagem mais recente."
-bash "${SELF_DIR}/listar-clientes.sh" || true
+bash "${SELF_DIR}/setup-nginx-rate-limit.sh" 2>/dev/null || true
+bash "${SELF_DIR}/monitor-clientes.sh" 2>/dev/null | head -25 || true

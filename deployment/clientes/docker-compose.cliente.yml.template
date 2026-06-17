@@ -1,14 +1,5 @@
-# Template de docker-compose para UMA instancia isolada por cliente.
-# Este ficheiro e gerado automaticamente em /opt/zapmass/clientes/<slug>/docker-compose.yml
-# pelo script novo-cliente.sh. NAO editar a mao a copia gerada.
-#
-# Variaveis substituidas ({{ ... }}):
-#   {{SLUG}}       - identificador do cliente (ex.: acme)
-#   {{HOST_PORT}}  - porta no host (ex.: 3101)
-#   {{DATA_DIR}}   - caminho absoluto da pasta de dados no host
-#
-# A imagem "zapmass-zapmass:latest" e construida uma unica vez em /opt/zapmass
-# e reutilizada por todos os containers de cliente (poupa disco e tempo).
+# Plano B — instância isolada por cliente (template gerado por novo-cliente.sh).
+# Variáveis {{SLUG}}, {{HOST_PORT}}, {{DATA_DIR}}, {{SHARED_NETWORK}}, {{MEM_LIMIT}}, {{CPU_LIMIT}}
 
 services:
   zapmass:
@@ -16,12 +7,11 @@ services:
     container_name: zapmass-cli-{{SLUG}}
     init: true
     ports:
-      - "{{HOST_PORT}}:3001"
+      - "127.0.0.1:{{HOST_PORT}}:3001"
     environment:
       NODE_ENV: production
       PORT: "3001"
-      # Credenciais Firebase Admin partilhadas entre todos os clientes.
-      # Colocar /opt/zapmass/secrets/firebase-admin.json no host.
+      CLIENT_ID: "{{SLUG}}"
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
     env_file:
       - path: .env
@@ -30,4 +20,32 @@ services:
       - {{DATA_DIR}}:/app/data
       - /opt/zapmass/secrets:/run/secrets:ro
     restart: unless-stopped
-    shm_size: "2gb"
+    shm_size: "1536m"
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:3001/api/health || exit 1"]
+      interval: 30s
+      timeout: 12s
+      retries: 3
+      start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: "40m"
+        max-file: "4"
+    deploy:
+      resources:
+        limits:
+          cpus: "{{CPU_LIMIT}}"
+          memory: {{MEM_LIMIT}}
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+    networks:
+      - default
+      - zapmass_shared
+
+networks:
+  zapmass_shared:
+    external: true
+    name: {{SHARED_NETWORK}}

@@ -109,6 +109,126 @@ render_template() {
 
 gerar_chave() { openssl rand -hex 24 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32 | head -n1; }
 
+# --- Plano B: rede Compose, Postgres, Redis, tiers ---
+
+ler_postgres_password() {
+    local f="${ZAPMASS_ROOT}/.env"
+    local pass=""
+    if [ -f "$f" ]; then
+        pass="$(grep -E '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=' "$f" 2>/dev/null | tail -1 \
+            | sed -E 's/^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=//' | tr -d '\r"'\'')"
+    fi
+    printf '%s' "${pass:-evolution-secure-pass-2026}"
+}
+
+postgres_container_name() {
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'postgres' | head -1 || true
+}
+
+compose_shared_network() {
+    local net
+    net="$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -E '^zapmass_default$|^zapmass_zapmass_default$' | head -1 || true)"
+    if [ -n "$net" ]; then
+        printf '%s' "$net"
+        return 0
+    fi
+    net="$(swarm_overlay_network)"
+    printf '%s' "$net"
+}
+
+db_name_para_slug() {
+    local slug="$1"
+    local safe
+    safe="$(printf '%s' "$slug" | tr '-' '_')"
+    printf 'zapmass_cli_%s' "$safe"
+}
+
+# Redis DB 2–15 para clientes (0 stack, 1 Evolution).
+proximo_redis_db() {
+    local usadas_file db
+    usadas_file="$(mktemp)"
+    trap 'rm -f "$usadas_file"' RETURN
+    echo "1" >> "$usadas_file"
+    if [ -d "$CLIENTES_DIR" ]; then
+        grep -hE '^REDIS_URL=.*redis://' "$CLIENTES_DIR"/*/.env 2>/dev/null \
+            | sed -n 's#.*/\([0-9]\+\)$#\1#p' >> "$usadas_file" || true
+    fi
+    for db in $(seq 2 15); do
+        if ! grep -qx "$db" "$usadas_file"; then
+            printf '%s' "$db"
+            return 0
+        fi
+    done
+    err "Sem índice Redis livre (2–15). Limite de clientes na VPS."
+    return 1
+}
+
+ensure_client_database() {
+    local db_name="$1"
+    local pg pass
+    pg="$(postgres_container_name)"
+    if [ -z "$pg" ]; then
+        warn "Container Postgres não encontrado — DB ${db_name} será criada no 1.º arranque do app."
+        return 0
+    fi
+    pass="$(ler_postgres_password)"
+    local exists
+    exists="$(docker exec "$pg" psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${db_name}'" 2>/dev/null || true)"
+    if [ "$exists" = "1" ]; then
+        log "Base Postgres ${db_name} já existe."
+        return 0
+    fi
+    log "A criar base Postgres ${db_name}..."
+    docker exec "$pg" psql -U postgres -c "CREATE DATABASE ${db_name};" >/dev/null
+    ok "Base ${db_name} criada."
+}
+
+tier_recursos() {
+    local tier="${1:-starter}"
+    case "$tier" in
+        business)
+            MEM_LIMIT="3072M"
+            CPU_LIMIT="2.0"
+            ;;
+        pro)
+            MEM_LIMIT="2048M"
+            CPU_LIMIT="1.5"
+            ;;
+        starter|*)
+            MEM_LIMIT="1536M"
+            CPU_LIMIT="1.0"
+            ;;
+    esac
+    export MEM_LIMIT CPU_LIMIT
+}
+
+ler_wwebjs_bundle_url() {
+    local bundle="${TEMPLATES_DIR}/../wwebjs-default-bundle.env"
+    local url=""
+    if [ -f "$bundle" ]; then
+        # shellcheck disable=SC1090
+        . "$bundle" 2>/dev/null || true
+        url="${WWEBJS_WEB_VERSION_URL:-}"
+    fi
+    if [ -z "$url" ]; then
+        url="https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1034300341-alpha.html"
+    fi
+    printf '%s' "$url"
+}
+
+ligar_cliente_rede_compose() {
+    local slug="$1"
+    local net
+    net="$(compose_shared_network)"
+    if [ -z "$net" ]; then
+        warn "Rede Compose partilhada não encontrada — cliente ${slug} sem Redis/Postgres internos."
+        return 0
+    fi
+    if docker network connect "$net" "zapmass-cli-${slug}" 2>/dev/null; then
+        log "Cliente ${slug} ligado à rede ${net}."
+    fi
+}
+
 # Remove contentores duplicados/orfaos (ex.: 7679e29ff1bc_zapmass-cli-demo) antes do compose up.
 limpar_containers_cliente() {
     local slug="$1"
@@ -160,5 +280,6 @@ recriar_cliente_compose() {
     local slug="$2"
     limpar_containers_cliente "$slug"
     (cd "$dir" && docker compose up -d --force-recreate --remove-orphans)
+    ligar_cliente_rede_compose "$slug"
     ligar_cliente_rede_swarm "$slug"
 }

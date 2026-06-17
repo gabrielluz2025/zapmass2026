@@ -171,6 +171,8 @@ type Props = {
   /** Ex.: "Blumenau · SC" */
   defaultCity?: string;
   compact?: boolean;
+  /** Só carrega geo/API quando o mapa entra no viewport (performance). */
+  deferLoad?: boolean;
 };
 
 export const TerritoryLeadsMap: React.FC<Props> = ({
@@ -178,9 +180,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   conversations,
   defaultCity = 'Blumenau · SC',
   compact = false,
+  deferLoad = false,
 }) => {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const layersRef = useRef<L.Layer[]>([]);
 
   const [city, setCity] = useState(defaultCity);
@@ -189,6 +193,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [geocoding, setGeocoding] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('circles');
   const [selectedNb, setSelectedNb] = useState<string | null>(null);
+  const [mapActive, setMapActive] = useState(!deferLoad);
 
   const tempsByContact = useMemo(
     () => computeContactTemperatures(contacts, conversations),
@@ -246,7 +251,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    if (!mapActive || !containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current, {
       center: BLUMENAU_CENTER,
       zoom: BLUMENAU_ZOOM,
@@ -261,7 +266,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       map.remove();
       mapRef.current = null;
     };
-  }, [compact]);
+  }, [compact, mapActive]);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
@@ -281,8 +286,25 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [city, selectedNb]);
 
   useEffect(() => {
+    if (!deferLoad || mapActive || !rootRef.current) return;
+    const el = rootRef.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setMapActive(true);
+          obs.disconnect();
+        }
+      },
+      { rootMargin: '120px', threshold: 0.05 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [deferLoad, mapActive]);
+
+  useEffect(() => {
+    if (!mapActive) return;
     void loadSummary();
-  }, [loadSummary]);
+  }, [loadSummary, mapActive]);
 
   const paintMap = useCallback(() => {
     const map = mapRef.current;
@@ -474,7 +496,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const listPreview = neighborhoodContacts.slice(0, compact ? 40 : 80);
 
   return (
-    <div className={`zm-territory-map flex flex-col ${compact ? 'h-[320px]' : 'h-[min(52vh,520px)]'}`}>
+    <div
+      ref={rootRef}
+      className={`zm-territory-map flex flex-col ${compact ? 'h-[320px]' : 'h-[min(52vh,520px)]'}`}
+    >
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="flex items-center gap-2 flex-1 min-w-[200px]">
           <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
@@ -543,6 +568,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           {loading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-sm">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            </div>
+          )}
+          {!mapActive && deferLoad && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-stone-50/90 text-[12px] font-semibold text-stone-500">
+              Mapa carrega ao rolar até aqui…
             </div>
           )}
 

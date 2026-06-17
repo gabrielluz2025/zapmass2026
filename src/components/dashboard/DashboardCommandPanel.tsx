@@ -242,6 +242,7 @@ export const DashboardCommandPanel: React.FC<Props> = ({
             contacts={contacts}
             conversations={conversations}
             defaultCity="Blumenau · SC"
+            deferLoad
           />
         </div>
       </div>

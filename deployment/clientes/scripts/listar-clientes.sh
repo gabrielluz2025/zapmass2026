@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lista todos os clientes provisionados e o seu estado.
+# Lista clientes Plano B e estado operacional.
 #
 # USO:
 #   sudo bash /opt/zapmass/deployment/clientes/scripts/listar-clientes.sh
@@ -13,8 +13,8 @@ if [ ! -d "$CLIENTES_DIR" ] || [ -z "$(ls -A "$CLIENTES_DIR" 2>/dev/null || true
     exit 0
 fi
 
-printf '%-20s %-35s %-8s %-12s %-10s\n' "SLUG" "DOMINIO" "PORTA" "CONTAINER" "HEALTH"
-printf '%-20s %-35s %-8s %-12s %-10s\n' "----" "-------" "-----" "---------" "------"
+printf '%-16s %-28s %-6s %-8s %-10s %-8s\n' "SLUG" "DOMINIO" "TIER" "PORTA" "STATUS" "HEALTH"
+printf '%-16s %-28s %-6s %-8s %-10s %-8s\n' "----" "-------" "----" "-----" "------" "------"
 
 for dir in "${CLIENTES_DIR}"/*/; do
     [ -d "$dir" ] || continue
@@ -23,12 +23,14 @@ for dir in "${CLIENTES_DIR}"/*/; do
 
     env_file="${dir}.env"
     if [ ! -f "$env_file" ]; then
-        printf '%-20s %-35s %-8s %-12s %-10s\n' "$slug" "(sem .env)" "-" "-" "-"
+        printf '%-16s %-28s %-6s %-8s %-10s %-8s\n' "$slug" "(sem .env)" "-" "-" "-" "-"
         continue
     fi
 
     dominio="$(grep -E '^PUBLIC_URL=' "$env_file" | sed 's#^PUBLIC_URL=https\?://##' | head -n1)"
     porta="$(grep -E '^HOST_PORT=' "$env_file" | sed 's/^HOST_PORT=//' | head -n1)"
+    tier="$(grep -E '^TIER=' "$env_file" | sed 's/^TIER=//' | head -n1)"
+    tier="${tier:-?}"
     container_name="zapmass-cli-${slug}"
 
     container_status="$(docker ps --filter "name=^${container_name}$" --format '{{.Status}}' 2>/dev/null || echo '')"
@@ -41,5 +43,5 @@ for dir in "${CLIENTES_DIR}"/*/; do
         if [ "$code" = "200" ]; then health_col="${C_GREEN}OK${C_END}"; else health_col="${C_RED}${code}${C_END}"; fi
     fi
 
-    printf '%-20s %-35s %-8s %-12s %-10b\n' "$slug" "${dominio:-?}" "${porta:-?}" "$status_col" "$health_col"
+    printf '%-16s %-28s %-6s %-8s %-10s %-8b\n' "$slug" "${dominio:-?}" "$tier" "${porta:-?}" "$status_col" "$health_col"
 done

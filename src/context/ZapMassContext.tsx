@@ -244,7 +244,7 @@ function connectionListHasStaleConnecting(list: WhatsAppConnection[]): boolean {
   );
 }
 
-const CONTACTS_PAGE_SIZE = 10_000;
+const CONTACTS_PAGE_SIZE = 800;
 
 /** Postgres já retorna ORDER BY sort_name — só anexa sem reordenar (evita O(n log n) a cada página). */
 function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
