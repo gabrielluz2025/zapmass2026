@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import { firebaseUidToTenantUuid, isUuid } from '../server/auth/tenantUidScopeServer.js';
 
 dotenv.config();
 
@@ -64,6 +65,13 @@ function resolveCanonicalOwner(raw: string, users: UserRow[]): string | null {
   if (byFirebase) return byFirebase.id;
   const byId = users.find((row) => row.id === u);
   if (byId) return byId.id;
+  if (!isUuid(u)) {
+    try {
+      return firebaseUidToTenantUuid(u);
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 
@@ -184,7 +192,7 @@ async function main() {
     row.createdByUid = target.id;
     settings[args.connId] = row;
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
-    console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');
+    console.log('[repair] OK. Reinicie: docker restart zapmass-cli-demo');
     return;
   }
 
@@ -208,7 +216,7 @@ async function main() {
     row.friendlyName = args.name;
     settings[args.connId] = row;
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
-    console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');
+    console.log('[repair] OK. Reinicie: docker restart zapmass-cli-demo');
     return;
   }
 
@@ -262,7 +270,7 @@ async function main() {
       settings[p.connId] = { ...settings[p.connId], ownerUid: p.to, createdByUid: p.to };
     }
     fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
-    console.log('[repair] OK. Reinicie: docker restart zapmass-zapmass-1');
+    console.log('[repair] OK. Reinicie: docker restart zapmass-cli-demo');
     return;
   }
 

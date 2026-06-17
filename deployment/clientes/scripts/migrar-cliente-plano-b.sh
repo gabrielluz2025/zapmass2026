@@ -54,6 +54,10 @@ ensure_client_database "$DB_NAME"
 
 log "Migrando ${SLUG} → Plano B (tier ${TIER})..."
 
+PREV_DB_URL="$(grep -E '^ZAPMASS_DATABASE_URL=' "$ENV_FILE" 2>/dev/null | sed 's/^ZAPMASS_DATABASE_URL=//' | head -n1 || true)"
+PREV_MP_TOKEN="$(grep -E '^MERCADOPAGO_ACCESS_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^MERCADOPAGO_ACCESS_TOKEN=//' | head -n1 || true)"
+PREV_MP_BACK="$(grep -E '^MERCADOPAGO_BACK_URL=' "$ENV_FILE" 2>/dev/null | sed 's/^MERCADOPAGO_BACK_URL=//' | head -n1 || true)"
+
 cp "${ENV_FILE}" "${ENV_FILE}.bak.$(date +%Y%m%d%H%M%S)"
 
 render_template \
@@ -73,6 +77,26 @@ if grep -qE '^HOST_PORT=' "${ENV_FILE}"; then
     sed -i "s/^HOST_PORT=.*/HOST_PORT=${PORTA}/" "${ENV_FILE}"
 else
     printf '\nHOST_PORT=%s\n' "$PORTA" >> "${ENV_FILE}"
+fi
+
+# Cliente legado com dados em DB partilhada (ex.: demo → zapmass_db): não forçar zapmass_cli_<slug> vazia.
+if [ -n "$PREV_DB_URL" ] && [[ "$PREV_DB_URL" != *"/${DB_NAME}"* ]] && [[ "$PREV_DB_URL" == *"@postgres:"* ]]; then
+    warn "Mantendo ZAPMASS_DATABASE_URL legado (${PREV_DB_URL##*/}) — dados não migrados para ${DB_NAME}."
+    sed -i "s|^ZAPMASS_DATABASE_URL=.*|ZAPMASS_DATABASE_URL=${PREV_DB_URL}|" "${ENV_FILE}"
+fi
+if [ -n "$PREV_MP_TOKEN" ]; then
+    if grep -qE '^MERCADOPAGO_ACCESS_TOKEN=' "${ENV_FILE}"; then
+        sed -i "s|^MERCADOPAGO_ACCESS_TOKEN=.*|MERCADOPAGO_ACCESS_TOKEN=${PREV_MP_TOKEN}|" "${ENV_FILE}"
+    else
+        printf 'MERCADOPAGO_ACCESS_TOKEN=%s\n' "$PREV_MP_TOKEN" >> "${ENV_FILE}"
+    fi
+fi
+if [ -n "$PREV_MP_BACK" ]; then
+    if grep -qE '^MERCADOPAGO_BACK_URL=' "${ENV_FILE}"; then
+        sed -i "s|^MERCADOPAGO_BACK_URL=.*|MERCADOPAGO_BACK_URL=${PREV_MP_BACK}|" "${ENV_FILE}"
+    else
+        printf 'MERCADOPAGO_BACK_URL=%s\n' "$PREV_MP_BACK" >> "${ENV_FILE}"
+    fi
 fi
 chmod 600 "${ENV_FILE}"
 
