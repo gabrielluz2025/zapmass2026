@@ -46,6 +46,7 @@ POSTGRES_PASSWORD="$(ler_postgres_password)"
 EVOLUTION_API_KEY="$(grep -E '^EVOLUTION_API_KEY=' "$ENV_FILE" | sed 's/^EVOLUTION_API_KEY=//' | head -n1)"
 EVOLUTION_API_KEY="${EVOLUTION_API_KEY:-zapmass-secure-key-2026}"
 WWEBJS_URL="$(ler_wwebjs_bundle_url)"
+JWT_SECRET="$(ler_jwt_secret)"
 SHARED_NET="$(compose_shared_network)"
 SHARED_NET_RENDER="${SHARED_NET:-zapmass_default}"
 
@@ -71,7 +72,8 @@ render_template \
     "DB_NAME=${DB_NAME}" \
     "REDIS_DB=${REDIS_DB}" \
     "TIER=${TIER}" \
-    "WWEBJS_WEB_VERSION_URL=${WWEBJS_URL}"
+    "WWEBJS_WEB_VERSION_URL=${WWEBJS_URL}" \
+    "JWT_SECRET=${JWT_SECRET}"
 
 if grep -qE '^HOST_PORT=' "${ENV_FILE}"; then
     sed -i "s/^HOST_PORT=.*/HOST_PORT=${PORTA}/" "${ENV_FILE}"
@@ -98,6 +100,7 @@ if [ -n "$PREV_MP_BACK" ]; then
         printf 'MERCADOPAGO_BACK_URL=%s\n' "$PREV_MP_BACK" >> "${ENV_FILE}"
     fi
 fi
+sincronizar_jwt_cliente "$ENV_FILE"
 chmod 600 "${ENV_FILE}"
 
 render_template \

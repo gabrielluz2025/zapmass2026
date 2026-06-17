@@ -109,6 +109,45 @@ render_template() {
 
 gerar_chave() { openssl rand -hex 24 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32 | head -n1; }
 
+# JWT da stack principal — clientes Plano B precisam do MESMO segredo para login.
+ler_jwt_secret() {
+    local f="${ZAPMASS_ROOT}/.env"
+    local secret=""
+    if [ -f "$f" ]; then
+        secret="$(grep -E '^[[:space:]]*(export[[:space:]]+)?ZAPMASS_JWT_SECRET=' "$f" 2>/dev/null | tail -1 \
+            | sed -E 's/^[[:space:]]*(export[[:space:]]+)?ZAPMASS_JWT_SECRET=//' \
+            | tr -d $'\r"\'')"
+    fi
+    if [ -z "$secret" ] || [ "${#secret}" -lt 16 ]; then
+        secret="$(openssl rand -hex 32 2>/dev/null || gerar_chave)"
+        warn "ZAPMASS_JWT_SECRET ausente/curto em ${f} — gerado novo (grave no .env principal)."
+        if [ -f "$f" ]; then
+            if grep -qE '^[[:space:]]*(export[[:space:]]+)?ZAPMASS_JWT_SECRET=' "$f" 2>/dev/null; then
+                sed -i -E "s|^[[:space:]]*(export[[:space:]]+)?ZAPMASS_JWT_SECRET=.*|ZAPMASS_JWT_SECRET=${secret}|" "$f"
+            else
+                printf '\nZAPMASS_JWT_SECRET=%s\n' "$secret" >>"$f"
+            fi
+        fi
+    fi
+    printf '%s' "$secret"
+}
+
+sincronizar_jwt_cliente() {
+    local env_file="$1"
+    local secret
+    secret="$(ler_jwt_secret)"
+    if [ ! -f "$env_file" ]; then
+        warn "Sem .env do cliente para sincronizar JWT: ${env_file}"
+        return 1
+    fi
+    if grep -qE '^[[:space:]]*ZAPMASS_JWT_SECRET=' "$env_file" 2>/dev/null; then
+        sed -i -E "s|^[[:space:]]*ZAPMASS_JWT_SECRET=.*|ZAPMASS_JWT_SECRET=${secret}|" "$env_file"
+    else
+        printf '\nZAPMASS_JWT_SECRET=%s\n' "$secret" >>"$env_file"
+    fi
+    ok "ZAPMASS_JWT_SECRET sincronizado em ${env_file}"
+}
+
 # --- Plano B: rede Compose, Postgres, Redis, tiers ---
 
 ler_postgres_password() {

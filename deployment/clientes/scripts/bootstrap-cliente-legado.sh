@@ -105,6 +105,7 @@ POSTGRES_PASSWORD="$(ler_postgres_password)"
 EVOLUTION_API_KEY="$(ler_env_container EVOLUTION_API_KEY)"
 EVOLUTION_API_KEY="${EVOLUTION_API_KEY:-zapmass-secure-key-2026}"
 WWEBJS_URL="$(ler_wwebjs_bundle_url)"
+JWT_SECRET="$(ler_jwt_secret)"
 MP_TOKEN="$(ler_env_container MERCADOPAGO_ACCESS_TOKEN)"
 MP_BACK="$(ler_env_container MERCADOPAGO_BACK_URL)"
 OLD_DB="$(ler_env_container ZAPMASS_DATABASE_URL)"
@@ -128,7 +129,8 @@ if [ ! -f "$ENV_FILE" ]; then
         "DB_NAME=${DB_NAME}" \
         "REDIS_DB=${REDIS_DB}" \
         "TIER=${TIER}" \
-        "WWEBJS_WEB_VERSION_URL=${WWEBJS_URL}"
+        "WWEBJS_WEB_VERSION_URL=${WWEBJS_URL}" \
+        "JWT_SECRET=${JWT_SECRET}"
     printf '\nHOST_PORT=%s\n' "$PORTA" >> "$ENV_FILE"
     if [ -n "$MP_TOKEN" ]; then
         printf 'MERCADOPAGO_ACCESS_TOKEN=%s\n' "$MP_TOKEN" >> "$ENV_FILE"
@@ -142,6 +144,7 @@ if [ ! -f "$ENV_FILE" ]; then
     ok ".env criado."
 else
     log ".env já existe — mantido."
+    sincronizar_jwt_cliente "$ENV_FILE"
 fi
 
 if [ "$SEM_MIGRAR" -eq 1 ]; then

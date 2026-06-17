@@ -203,7 +203,15 @@ export function registerVpsAuthRoutes(app: Express): void {
       });
     } catch (e) {
       console.error('[auth/login]', e);
-      return res.status(500).json({ ok: false, error: 'Falha ao iniciar sessão.' });
+      const detail = e instanceof Error ? e.message : String(e);
+      const configErr =
+        detail.includes('ZAPMASS_JWT_SECRET') || detail.includes('POSTGRES_UNAVAILABLE');
+      return res.status(500).json({
+        ok: false,
+        error: configErr
+          ? 'Autenticação mal configurada no servidor. Contacte o suporte.'
+          : 'Falha ao iniciar sessão.'
+      });
     }
   });
 

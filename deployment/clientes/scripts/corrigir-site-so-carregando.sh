@@ -51,6 +51,10 @@ fi
 definir_env "$ENV_FILE" WA_FULL_INBOX_SYNC 0
 ok "WA_FULL_INBOX_SYNC=0 em ${ENV_FILE}"
 
+# 1b) JWT obrigatório no container demo (sem isto: "Falha ao iniciar sessão" no login)
+sincronizar_jwt_cliente "$ENV_FILE"
+definir_env "$ENV_FILE" TRUST_PROXY 1
+
 # 2) Para instância main duplicada (mesma DB + Evolution = event loop bloqueado)
 if [ -f "${ZAPMASS_ROOT}/docker-compose.yml" ]; then
     log "A parar serviço zapmass da stack principal (mantém Postgres/Redis/Evolution)..."

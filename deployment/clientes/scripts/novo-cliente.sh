@@ -86,6 +86,7 @@ POSTGRES_PASSWORD="$(ler_postgres_password)"
 EVOLUTION_API_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' "${ZAPMASS_ROOT}/.env" 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' || true)"
 EVOLUTION_API_KEY="${EVOLUTION_API_KEY:-zapmass-secure-key-2026}"
 WWEBJS_URL="$(ler_wwebjs_bundle_url)"
+JWT_SECRET="$(ler_jwt_secret)"
 tier_recursos "$TIER"
 
 DIR="$(cliente_dir "$SLUG")"
@@ -110,7 +111,8 @@ render_template \
     "DB_NAME=${DB_NAME}" \
     "REDIS_DB=${REDIS_DB}" \
     "TIER=${TIER}" \
-    "WWEBJS_WEB_VERSION_URL=${WWEBJS_URL}"
+    "WWEBJS_WEB_VERSION_URL=${WWEBJS_URL}" \
+    "JWT_SECRET=${JWT_SECRET}"
 
 printf '\nHOST_PORT=%s\n' "$PORTA" >> "${DIR}/.env"
 chmod 600 "${DIR}/.env"
