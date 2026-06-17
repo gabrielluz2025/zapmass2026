@@ -24,6 +24,7 @@ import { authProfileLimiter } from './httpRateLimit.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import { parseBearer } from './resolveAuth.js';
 import { signAccessToken, accessTokenTtlSec } from './auth/jwt.js';
+import { resolvePhotoUrl } from './auth/resolvePhotoUrl.js';
 
 const ALLOWED_PHOTO_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
@@ -91,7 +92,7 @@ function ownerRowToPayload(row: {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
-    photoUrl: row.photo_url || null,
+    photoUrl: resolvePhotoUrl(row.photo_url),
     role: 'owner',
     tenantUid: row.id
   };
@@ -110,7 +111,7 @@ function staffRowToPayload(
     id: row.id,
     email: principal.email,
     displayName: row.display_name || null,
-    photoUrl: row.photo_url || null,
+    photoUrl: resolvePhotoUrl(row.photo_url),
     role: 'staff',
     tenantUid: principal.tenantUid,
     ownerUid: principal.tenantUid,

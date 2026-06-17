@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Menu, Activity, Zap, Wifi, WifiOff, LogOut, User as UserIcon } from 'lucide-react';
+import { Menu, Activity, Zap, Wifi, WifiOff, LogOut } from 'lucide-react';
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
+import { ProfileAvatar } from './ProfileAvatar';
 
 interface TopBarProps {
   currentView: string;
@@ -60,12 +61,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   const displayName = user?.displayName || user?.email?.split('@')[0] || 'Usuário';
   const email = user?.email || '';
   const photoURL = user?.photoURL || null;
-  const initials = displayName
-    .split(/\s+/)
-    .map((p) => p[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
 
   return (
     <div
@@ -174,21 +169,12 @@ export const TopBar: React.FC<TopBarProps> = ({
             }}
             title={email}
           >
-            {photoURL ? (
-              <img
-                src={photoURL}
-                alt=""
-                className="w-7 h-7 rounded-md object-cover"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div
-                className="w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-bold"
-                style={{ background: 'var(--brand-600)', color: '#fff' }}
-              >
-                {initials || <UserIcon className="w-3.5 h-3.5" />}
-              </div>
-            )}
+            <ProfileAvatar
+              photoURL={photoURL}
+              displayName={displayName}
+              className="w-7 h-7 rounded-md object-cover"
+              fallbackClassName="w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-bold"
+            />
             <span
               className="hidden md:inline text-[12px] font-semibold max-w-[110px] truncate"
               style={{ color: 'var(--text-1)' }}
@@ -210,21 +196,13 @@ export const TopBar: React.FC<TopBarProps> = ({
                 className="px-3.5 py-3 flex items-center gap-3"
                 style={{ borderBottom: '1px solid var(--border-subtle)' }}
               >
-                {photoURL ? (
-                  <img
-                    src={photoURL}
-                    alt=""
-                    className="w-10 h-10 rounded-lg object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center font-bold"
-                    style={{ background: 'var(--brand-600)', color: '#fff' }}
-                  >
-                    {initials || <UserIcon className="w-4 h-4" />}
-                  </div>
-                )}
+                <ProfileAvatar
+                  photoURL={photoURL}
+                  displayName={displayName}
+                  className="w-10 h-10 rounded-lg object-cover"
+                  fallbackClassName="w-10 h-10 rounded-lg flex items-center justify-center font-bold"
+                  iconClassName="w-4 h-4"
+                />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
                     {displayName}

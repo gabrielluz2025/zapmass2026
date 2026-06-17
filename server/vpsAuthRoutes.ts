@@ -20,6 +20,7 @@ import {
 import { authRegisterLimiter, authLoginLimiter, authEmailStepLimiter } from './httpRateLimit.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 import { buildVpsUserPayload } from './auth/profilePayload.js';
+import { resolvePhotoUrl } from './auth/resolvePhotoUrl.js';
 
 const REFRESH_COOKIE = 'zapmass_refresh';
 
@@ -155,7 +156,7 @@ export function registerVpsAuthRoutes(app: Express): void {
           id: user.id,
           email: user.email,
           displayName: user.display_name,
-          photoUrl: user.photo_url || null,
+          photoUrl: resolvePhotoUrl(user.photo_url),
           role: 'owner',
           tenantUid: user.id
         },
@@ -195,7 +196,7 @@ export function registerVpsAuthRoutes(app: Express): void {
           id: user.id,
           email: user.email,
           displayName: user.display_name,
-          photoUrl: user.photo_url || null,
+          photoUrl: resolvePhotoUrl(user.photo_url),
           role: 'owner',
           tenantUid: user.id
         },
@@ -268,7 +269,7 @@ export function registerVpsAuthRoutes(app: Express): void {
         id: user.id,
         email: user.email,
         displayName: user.display_name,
-        photoUrl: user.photo_url || null,
+        photoUrl: resolvePhotoUrl(user.photo_url),
         role: 'owner',
         tenantUid: user.id
       },

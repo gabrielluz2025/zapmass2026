@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
+import { ProfileAvatar } from './ProfileAvatar';
 import { getSavedMode, toggleMode } from '../../theme';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 import { canAccessCreatorStudio } from '../../utils/creatorStudioAccess';
@@ -343,12 +344,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const displayName = user.displayName || user.email?.split('@')[0] || 'Usuario';
           const email = user.email || '';
           const photoURL = user.photoURL || null;
-          const initials = displayName
-            .split(/\s+/)
-            .map((p) => p[0])
-            .join('')
-            .slice(0, 2)
-            .toUpperCase();
           return (
             <div
               className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg transition-all group"
@@ -356,21 +351,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               title={email}
             >
               <div className="relative flex-shrink-0">
-                {photoURL ? (
-                  <img
-                    src={photoURL}
-                    alt=""
-                    className="w-8 h-8 rounded-md object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div
-                    className="w-8 h-8 rounded-md flex items-center justify-center text-[11px] font-bold"
-                    style={{ background: '#059669', color: '#fff' }}
-                  >
-                    {initials || 'ZM'}
-                  </div>
-                )}
+                <ProfileAvatar
+                  photoURL={photoURL}
+                  displayName={displayName}
+                  className="w-8 h-8 rounded-md object-cover"
+                  fallbackClassName="w-8 h-8 rounded-md flex items-center justify-center text-[11px] font-bold"
+                  fallbackStyle={{ background: '#059669', color: '#fff' }}
+                />
                 <div
                   className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 bg-emerald-400"
                   style={{ borderColor: 'var(--sidebar-bg)' }}

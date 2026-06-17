@@ -148,6 +148,27 @@ sincronizar_jwt_cliente() {
     ok "ZAPMASS_JWT_SECRET sincronizado em ${env_file}"
 }
 
+# Fotos de perfil /uploads da stack principal → volume do cliente Plano B.
+sincronizar_uploads_legado() {
+    local slug="$1"
+    local legacy="${ZAPMASS_ROOT}/data/public/uploads"
+    local target
+    target="$(cliente_data "$slug")/public/uploads"
+    if [ ! -d "$legacy" ]; then
+        log "Sem uploads legados em ${legacy} — nada a copiar."
+        return 0
+    fi
+    mkdir -p "$target"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a "$legacy/" "$target/" 2>/dev/null || true
+    else
+        cp -a "$legacy/." "$target/" 2>/dev/null || true
+    fi
+    local n
+    n="$(find "$target" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+    ok "Uploads legados sincronizados (${n} ficheiros) → ${target}"
+}
+
 # --- Plano B: rede Compose, Postgres, Redis, tiers ---
 
 ler_postgres_password() {

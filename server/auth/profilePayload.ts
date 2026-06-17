@@ -1,6 +1,7 @@
 import type { AuthPrincipal } from './types.js';
 import { findUserById } from './userRepository.js';
 import { findStaffMemberById } from './staffRepository.js';
+import { resolvePhotoUrl } from './resolvePhotoUrl.js';
 
 export type VpsUserPayload = {
   id: string;
@@ -22,7 +23,7 @@ export async function buildVpsUserPayload(principal: AuthPrincipal): Promise<Vps
       id: member.id,
       email: owner?.email || principal.email,
       displayName: member.display_name || null,
-      photoUrl: member.photo_url || null,
+      photoUrl: resolvePhotoUrl(member.photo_url),
       role: 'staff',
       tenantUid: principal.tenantUid,
       ownerUid: principal.tenantUid,
@@ -35,7 +36,7 @@ export async function buildVpsUserPayload(principal: AuthPrincipal): Promise<Vps
     id: user.id,
     email: user.email,
     displayName: user.display_name,
-    photoUrl: user.photo_url || null,
+    photoUrl: resolvePhotoUrl(user.photo_url),
     role: 'owner',
     tenantUid: user.id
   };
