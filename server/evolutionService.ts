@@ -57,6 +57,7 @@ import {
     parseEvolutionMessageStatus
 } from './evolutionMessageStatus.js';
 import { isLegacyConnectionId } from '../src/utils/connectionScope.js';
+import { tenantScopeUidsMatch } from './auth/tenantUidScopeServer.js';
 import {
     filterByConnectionScope,
     ownsConnectionForTenant as ownsConnectionForUid,
@@ -441,9 +442,9 @@ export function assignConnectionOwner(
     if (!uid || uid === 'anonymous') return false;
     const conn = connections.get(connectionId);
     if (!conn) return false;
-    if (conn.ownerUid && conn.ownerUid !== uid) {
+    if (conn.ownerUid && !tenantScopeUidsMatch(conn.ownerUid, uid)) {
         const prior = opts?.replacePriorOwner?.trim();
-        if (!prior || conn.ownerUid !== prior) return false;
+        if (!prior || !tenantScopeUidsMatch(conn.ownerUid, prior)) return false;
     }
     const fromId = ownerUidFromConnectionId(connectionId);
     if (fromId && fromId !== uid) return false;
@@ -4444,18 +4445,25 @@ export function init(socketIO: SocketIOServer) {
 
     void normalizeConnectionOwnersInSettings().then(async () => {
         healAllOrphanConnectionOwners();
+        const { refreshTenantUsersCache } = await import('./reconcileConnectionOwners.js');
+        await refreshTenantUsersCache();
+        await hydrateInstancesFromEvolution();
         const reconciled = await autoReconcileConnectionOwners();
         if (reconciled.applied.length > 0 || reconciled.removed.length > 0) {
             log('warn', 'Isolamento: canais reatribuídos no boot', {
                 applied: reconciled.applied,
                 removed: reconciled.removed,
-                migrated: reconciled.migrated,
+                errors: reconciled.errors,
+            });
+        } else if (reconciled.actions.length > 0 && reconciled.errors.length > 0) {
+            log('warn', 'Isolamento: falha ao reatribuir canais', {
+                actions: reconciled.actions.length,
+                errors: reconciled.errors,
             });
         }
-        return hydrateInstancesFromEvolution().then(() => {
-            healAllGenericConnectionFriendlyNames();
-            return reconcileConnectionHealth();
-        });
+        await hydrateInstancesFromEvolution();
+        healAllGenericConnectionFriendlyNames();
+        return reconcileConnectionHealth();
     });
     if (!connectionHealthTimer) {
         connectionHealthTimer = setInterval(() => {
@@ -5134,8 +5142,19 @@ export async function autoReconcileConnectionOwners(opts?: { dryRun?: boolean })
     migrated: Array<{ connId: string; threads: number; messages: number }>;
     errors: Array<{ connId: string; error: string }>;
 }> {
-    const { planConnectionOwnerReconciliation } = await import('./reconcileConnectionOwners.js');
-    const actions = await planConnectionOwnerReconciliation(connectionsSettingsCache);
+    const { planConnectionOwnerReconciliation, fetchEvolutionConnectionLabels, refreshTenantUsersCache } =
+        await import('./reconcileConnectionOwners.js');
+    await refreshTenantUsersCache();
+    const evolutionLabels = await fetchEvolutionConnectionLabels();
+    const ramLabels: Record<string, string> = {};
+    for (const [id, conn] of connections.entries()) {
+        const n = conn.friendlyName?.trim();
+        if (n && n !== id) ramLabels[id] = n;
+    }
+    const mergedLabels = { ...evolutionLabels, ...ramLabels };
+    const actions = await planConnectionOwnerReconciliation(connectionsSettingsCache, {
+        evolutionLabels: mergedLabels
+    });
     const empty = {
         ok: true,
         dryRun: Boolean(opts?.dryRun),
@@ -5216,7 +5235,11 @@ export async function reassignConnectionOwnerAdmin(
         }
     }
 
-    if (opts?.priorOwnerUid?.trim() && prior && prior !== opts.priorOwnerUid.trim()) {
+    if (
+        opts?.priorOwnerUid?.trim() &&
+        prior &&
+        !tenantScopeUidsMatch(prior, opts.priorOwnerUid.trim())
+    ) {
         return {
             ok: false,
             error: `ownerUid atual (${prior}) não confere com priorOwnerUid informado.`,
@@ -5239,7 +5262,12 @@ export async function reassignConnectionOwnerAdmin(
             };
         }
     } else {
-        if (prior && prior !== uid && opts?.priorOwnerUid?.trim() && prior !== opts.priorOwnerUid.trim()) {
+        if (
+            prior &&
+            !tenantScopeUidsMatch(prior, uid) &&
+            opts?.priorOwnerUid?.trim() &&
+            !tenantScopeUidsMatch(prior, opts.priorOwnerUid.trim())
+        ) {
             return { ok: false, error: 'Canal ausente na RAM e priorOwnerUid não confere.', priorOwnerUid: prior };
         }
         if (!connectionsSettingsCache[id]) {

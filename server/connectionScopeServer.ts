@@ -4,6 +4,7 @@ import {
   isLegacyConnectionId
 } from '../src/utils/connectionScope.js';
 import { expandTenantScopeUids } from './auth/tenantUidScopeServer.js';
+import { shouldHideConnectionFromTenant } from './reconcileConnectionOwners.js';
 
 /** Escopo no servidor: aceita Firebase legado + UUID Postgres do mesmo tenant. */
 export function ownsConnectionForTenant(
@@ -26,10 +27,9 @@ export function ownsConnectionForTenant(
   return false;
 }
 
-export function filterByConnectionScope<T extends { id?: string; connectionId?: string; ownerUid?: string }>(
-  tenantUid: string | null | undefined,
-  list: T[]
-): T[] {
+export function filterByConnectionScope<
+  T extends { id?: string; connectionId?: string; ownerUid?: string; name?: string }
+>(tenantUid: string | null | undefined, list: T[]): T[] {
   return list.filter((item) => {
     const key =
       typeof item.connectionId === 'string' && item.connectionId
@@ -40,7 +40,12 @@ export function filterByConnectionScope<T extends { id?: string; connectionId?: 
     if (!key) return false;
     const meta =
       typeof item.ownerUid === 'string' ? item.ownerUid : undefined;
-    return ownsConnectionForTenant(tenantUid, key, meta);
+    if (!ownsConnectionForTenant(tenantUid, key, meta)) return false;
+    const displayName = typeof item.name === 'string' ? item.name : undefined;
+    if (shouldHideConnectionFromTenant(String(tenantUid || ''), key, displayName, meta)) {
+      return false;
+    }
+    return true;
   });
 }
 

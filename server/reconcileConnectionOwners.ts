@@ -37,6 +37,53 @@ export type ReconcileAction = ReconcileAssignAction | ReconcileRemoveAction;
 
 const MIN_MATCH_SCORE = 50;
 
+let cachedTenantUsers: TenantUser[] = [];
+
+export async function refreshTenantUsersCache(): Promise<TenantUser[]> {
+  cachedTenantUsers = await loadTenantUsersFromPostgres();
+  return cachedTenantUsers;
+}
+
+export function getCachedTenantUsers(): TenantUser[] {
+  return cachedTenantUsers;
+}
+
+/** Nomes vindos da Evolution (profileName) — settings.json pode não ter friendlyName. */
+export async function fetchEvolutionConnectionLabels(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  try {
+    const axios = (await import('axios')).default;
+    const { evolutionConfig } = await import('./evolutionConfig.js');
+    const apiUrl = evolutionConfig.apiUrl.replace(/\/$/, '');
+    const res = await axios.get(`${apiUrl}/instance/fetchInstances`, {
+      headers: evolutionConfig.apiKey ? { apikey: evolutionConfig.apiKey } : {},
+      timeout: 20_000
+    });
+    const raw = res.data;
+    const list = Array.isArray(raw) ? raw : Array.isArray(raw?.instances) ? raw.instances : [];
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue;
+      const row = item as Record<string, unknown>;
+      const id = String(
+        row.name || row.instanceName || (row.instance as Record<string, unknown> | undefined)?.instanceName || ''
+      ).trim();
+      if (!id) continue;
+      const profileName =
+        (typeof row.profileName === 'string' && row.profileName.trim()) ||
+        (typeof (row.profile as Record<string, unknown> | undefined)?.name === 'string'
+          ? String((row.profile as Record<string, unknown>).name).trim()
+          : '');
+      if (profileName) out[id] = profileName;
+    }
+  } catch (e) {
+    console.warn(
+      '[reconcile] Evolution indisponível para labels:',
+      e instanceof Error ? e.message : String(e)
+    );
+  }
+  return out;
+}
+
 function normalizeLabel(value: string): string {
   return String(value || '')
     .normalize('NFD')
@@ -45,12 +92,20 @@ function normalizeLabel(value: string): string {
     .trim();
 }
 
-function labelOf(connId: string, row: ConnectionSettingsRow): string {
-  return (row.friendlyName || connId).trim();
+function labelOf(
+  connId: string,
+  row: ConnectionSettingsRow,
+  evolutionLabels?: Record<string, string>
+): string {
+  return (row.friendlyName || evolutionLabels?.[connId] || connId).trim();
 }
 
-function isOrphanOffline(connId: string, row: ConnectionSettingsRow): boolean {
-  const label = labelOf(connId, row);
+function isOrphanOffline(
+  connId: string,
+  row: ConnectionSettingsRow,
+  evolutionLabels?: Record<string, string>
+): boolean {
+  const label = labelOf(connId, row, evolutionLabels);
   if (label !== connId) return false;
   return /^conn_\d+_\d+$/.test(connId);
 }
@@ -123,22 +178,25 @@ export async function loadTenantUsersFromPostgres(): Promise<TenantUser[]> {
 /** Simula correções sem gravar. */
 export async function planConnectionOwnerReconciliation(
   settings: Record<string, ConnectionSettingsRow>,
-  users?: TenantUser[]
+  opts?: { users?: TenantUser[]; evolutionLabels?: Record<string, string> }
 ): Promise<ReconcileAction[]> {
-  const tenantUsers = users ?? (await loadTenantUsersFromPostgres());
+  const evolutionLabels = opts?.evolutionLabels;
+  const tenantUsers = opts?.users ?? cachedTenantUsers.length > 0
+    ? cachedTenantUsers
+    : await loadTenantUsersFromPostgres();
   if (tenantUsers.length === 0) return [];
 
   const actions: ReconcileAction[] = [];
 
   for (const [connId, row] of Object.entries(settings)) {
-    const label = labelOf(connId, row);
+    const label = labelOf(connId, row, evolutionLabels);
     const currentOwnerRaw = row.ownerUid?.trim() || null;
     const currentUser = resolveUserByUid(tenantUsers, currentOwnerRaw);
     const currentOwnerUid = currentUser?.id ?? currentOwnerRaw;
 
     const best = resolveBestOwner(label, tenantUsers);
     if (!best) {
-      if (isOrphanOffline(connId, row)) {
+      if (isOrphanOffline(connId, row, evolutionLabels)) {
         actions.push({
           kind: 'remove',
           connId,
@@ -170,6 +228,37 @@ export async function planConnectionOwnerReconciliation(
   }
 
   return actions;
+}
+
+/**
+ * Bloqueia exibição quando o nome do chip (Evolution) pertence claramente a outro tenant,
+ * mesmo que ownerUid em settings esteja errado (ex.: Patrícia na conta Gabriel).
+ */
+export function shouldHideConnectionFromTenant(
+  tenantUid: string,
+  connectionId: string,
+  displayName: string | undefined,
+  metadataOwnerUid?: string | null
+): boolean {
+  const users = cachedTenantUsers;
+  if (!users.length) return false;
+
+  const label = String(displayName || '').trim();
+  if (!label || label === connectionId || /^conn_\d+_\d+$/.test(label)) return false;
+
+  const best = resolveBestOwner(label, users);
+  if (!best) return false;
+
+  if (tenantScopeUidsMatch(tenantUid, best.user.id)) return false;
+
+  const meta = String(metadataOwnerUid || '').trim();
+  if (meta && tenantScopeUidsMatch(meta, best.user.id)) return false;
+
+  const viewer = users.find((u) => tenantScopeUidsMatch(u.id, tenantUid));
+  const viewerScore = viewer ? scoreUserForConnectionLabel(viewer, label) : 0;
+  if (viewerScore >= best.score) return false;
+
+  return true;
 }
 
 export async function resolveCanonicalTenantId(uid: string): Promise<string> {

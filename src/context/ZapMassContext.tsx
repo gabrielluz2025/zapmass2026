@@ -63,7 +63,7 @@ import {
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import { useWorkspace } from './WorkspaceContext';
-import { filterByConnectionScope, ownsConnectionForUid } from '../utils/connectionScope';
+import { filterConnectionsForViewer, ownsConnectionForUid } from '../utils/connectionScope';
 import {
   mergeConnectionStatus,
   mergeWhatsAppConnectionLists
@@ -1140,13 +1140,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           conversations?: Conversation[];
           conversationsCount?: number;
         };
-        const list = (Array.isArray(data.connections) ? data.connections : []).filter((conn) =>
-          ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
-        );
+        const list = scopeConnections(Array.isArray(data.connections) ? data.connections : []);
         setConnections((prev) => {
-          const scopedPrev = prev.filter((conn) =>
-            ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
-          );
+          const scopedPrev = scopeConnections(prev);
           if (list.length === 0) {
             if (scopedPrev.length === 0) return prev;
             connectionsRef.current = [];
@@ -1259,15 +1255,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     syncBackendConnected();
     queueMicrotask(() => syncBackendConnected());
 
+    const viewerEmail = sessionUser?.email ?? null;
+    const scopeConnections = (list: WhatsAppConnection[]) =>
+      filterConnectionsForViewer(getOwnerUidForConnectionScope(), viewerEmail, list);
+
     socket.on('connections-update', (updatedConnections: WhatsAppConnection[]) => {
-      const ownerUid = getOwnerUidForConnectionScope();
-      const mine = (Array.isArray(updatedConnections) ? updatedConnections : []).filter((conn) =>
-        ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
-      );
+      const mine = scopeConnections(Array.isArray(updatedConnections) ? updatedConnections : []);
       setConnections((prev) => {
-        const scopedPrev = prev.filter((conn) =>
-          ownsConnectionForUid(ownerUid, conn.id, conn.ownerUid)
-        );
+        const scopedPrev = scopeConnections(prev);
         if (mine.length === 0) {
           if (scopedPrev.length === 0) return prev;
           connectionsRef.current = [];
@@ -3598,8 +3593,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const connectionsSlice = useMemo(() => {
     const scopeUid = effectiveWorkspaceUid ?? sessionUser?.uid ?? null;
-    return { connections: filterByConnectionScope(scopeUid, connections) };
-  }, [connections, effectiveWorkspaceUid, sessionUser?.uid]);
+    return {
+      connections: filterConnectionsForViewer(scopeUid, sessionUser?.email ?? null, connections)
+    };
+  }, [connections, effectiveWorkspaceUid, sessionUser?.uid, sessionUser?.email]);
 
   const stableLoadMoreInbox = useStableCallback(loadMoreInbox);
 

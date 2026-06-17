@@ -11,6 +11,8 @@ import dotenv from 'dotenv';
 import {
   migrateChatForConnection,
   planConnectionOwnerReconciliation,
+  fetchEvolutionConnectionLabels,
+  refreshTenantUsersCache,
   type ConnectionSettingsRow
 } from '../server/reconcileConnectionOwners.js';
 
@@ -40,7 +42,9 @@ async function main() {
   }
 
   const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, ConnectionSettingsRow>;
-  const actions = await planConnectionOwnerReconciliation(settings);
+  await refreshTenantUsersCache();
+  const evolutionLabels = await fetchEvolutionConnectionLabels();
+  const actions = await planConnectionOwnerReconciliation(settings, { evolutionLabels });
 
   console.log(`\n=== Isolamento de canais (${apply ? 'APLICAR' : 'simulação'}) ===\n`);
   if (actions.length === 0) {
@@ -75,7 +79,12 @@ async function main() {
     settings[a.connId] = {
       ...settings[a.connId],
       ownerUid: a.toOwnerUid,
-      createdByUid: a.toOwnerUid
+      createdByUid: a.toOwnerUid,
+      ...(evolutionLabels[a.connId]?.trim() && evolutionLabels[a.connId] !== a.connId
+        ? { friendlyName: evolutionLabels[a.connId].trim() }
+        : a.label !== a.connId
+          ? { friendlyName: a.label }
+          : {})
     };
 
     if (prevOwner && prevOwner !== a.toOwnerUid) {

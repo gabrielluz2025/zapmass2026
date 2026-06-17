@@ -87,3 +87,41 @@ export function filterByConnectionScope<T extends { id?: string; connectionId?: 
     return ownsConnectionForUid(uid, key, meta);
   });
 }
+
+/** Oculta chips cujo nome pertence claramente a outra conta (VPS multi-tenant). */
+export function connectionNameLeaksToViewer(
+  viewerEmail: string | null | undefined,
+  connectionName: string | undefined,
+  connectionId?: string
+): boolean {
+  const email = String(viewerEmail || '').toLowerCase();
+  const raw = String(connectionName || '').trim();
+  if (!raw || (connectionId && raw === connectionId)) return false;
+  const name = raw
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+
+  if (/patr[ií]cia|marcondes/.test(name) && !email.includes('paty.contact')) return true;
+  if (/sylvester|stallone/.test(name) && !email.includes('sylvesterstallone')) return true;
+  if (/^gabriel$/i.test(raw) && !email.includes('festaimportgabriel') && !email.includes('gabrielfestaimport')) {
+    return true;
+  }
+  if (/^zap-?mass$/i.test(raw) && !email.includes('festaimportgabriel') && !email.includes('gabrielfestaimport')) {
+    return true;
+  }
+  if (/jeisi|marchiore/.test(name) && !email.includes('festaimportgabriel') && !email.includes('gabrielfestaimport')) {
+    return true;
+  }
+  return false;
+}
+
+export function filterConnectionsForViewer<T extends { id?: string; name?: string; ownerUid?: string }>(
+  viewerUid: string | null | undefined,
+  viewerEmail: string | null | undefined,
+  list: T[]
+): T[] {
+  return filterByConnectionScope(viewerUid, list).filter(
+    (item) => !connectionNameLeaksToViewer(viewerEmail, item.name, item.id)
+  );
+}
