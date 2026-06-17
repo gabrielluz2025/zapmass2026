@@ -80,6 +80,8 @@ export type LeadsGeoQuery = {
   neighborhood?: string;
   /** Busca parcial no nome do contato (mín. 2 caracteres). */
   name?: string;
+  /** Resposta leve: só agregação por bairro, sem pins individuais. */
+  light?: boolean;
 };
 
 function buildQueryString(q: LeadsGeoQuery): string {
@@ -90,6 +92,7 @@ function buildQueryString(q: LeadsGeoQuery): string {
   if (q.ddd) p.set('ddd', q.ddd);
   if (q.neighborhood) p.set('neighborhood', q.neighborhood);
   if (q.name) p.set('name', q.name);
+  if (q.light) p.set('light', '1');
   const s = p.toString();
   return s ? `?${s}` : '';
 }

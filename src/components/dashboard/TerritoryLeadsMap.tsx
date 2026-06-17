@@ -33,6 +33,12 @@ import {
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import { exportLeadsGeoXlsx } from '../../utils/exportLeadsGeoXlsx';
 import { Button } from '../ui/Button';
+import {
+  BLUMENAU_OFFICIAL_NEIGHBORHOODS,
+  isBlumenauCity,
+  matchOfficialNeighborhood,
+  normBlumenauNbKey
+} from '../../../shared/blumenauNeighborhoods';
 
 const BLUMENAU_CENTER: L.LatLngExpression = [-26.9194, -49.0661];
 const BLUMENAU_ZOOM = 12;
@@ -136,6 +142,55 @@ function matchesCity(contactCity: string, filterCity: string): boolean {
   return c.includes(baseToken) || base.includes(c.split(' ')[0] || c);
 }
 
+type NbTempStats = {
+  label: string;
+  hot: number;
+  warm: number;
+  cold: number;
+  new: number;
+  total: number;
+};
+
+function dominantNeighborhoodTemp(stats: NbTempStats): ContactTemperature {
+  const ranked: [ContactTemperature, number][] = [
+    ['hot', stats.hot],
+    ['warm', stats.warm],
+    ['cold', stats.cold],
+    ['new', stats.new]
+  ];
+  ranked.sort((a, b) => b[1] - a[1]);
+  return ranked[0][1] > 0 ? ranked[0][0] : 'new';
+}
+
+function buildBlumenauNbStats(
+  contacts: Contact[],
+  city: string,
+  tempsByContact: Record<string, { temp: ContactTemperature }>
+): Map<string, NbTempStats> {
+  const map = new Map<string, NbTempStats>();
+  for (const name of BLUMENAU_OFFICIAL_NEIGHBORHOODS) {
+    map.set(normBlumenauNbKey(name), {
+      label: name,
+      hot: 0,
+      warm: 0,
+      cold: 0,
+      new: 0,
+      total: 0
+    });
+  }
+  for (const c of contacts) {
+    if (!matchesCity(c.city || '', city)) continue;
+    const official = matchOfficialNeighborhood(c.neighborhood || '');
+    if (!official) continue;
+    const slot = map.get(normBlumenauNbKey(official));
+    if (!slot) continue;
+    const t = tempsByContact[c.id]?.temp || 'new';
+    slot[t]++;
+    slot.total++;
+  }
+  return map;
+}
+
 function slugFile(s: string): string {
   return normalizeKey(s).replace(/\s+/g, '_').slice(0, 40) || 'bairro';
 }
@@ -186,32 +241,53 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const layersRef = useRef<L.Layer[]>([]);
+  const lastGeoErrorToastRef = useRef(0);
 
   const [city, setCity] = useState(defaultCity);
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('circles');
+  const [viewMode, setViewMode] = useState<ViewMode>('temperature');
   const [selectedNb, setSelectedNb] = useState<string | null>(null);
   const [mapActive, setMapActive] = useState(!deferLoad);
+
+  const blumenauFocus = isBlumenauCity(city);
 
   const tempsByContact = useMemo(
     () => computeContactTemperatures(contacts, conversations),
     [contacts, conversations]
   );
 
+  const blumenauNbStats = useMemo(() => {
+    if (!blumenauFocus) return null;
+    return buildBlumenauNbStats(contacts, city, tempsByContact);
+  }, [blumenauFocus, contacts, city, tempsByContact]);
+
   const topNeighborhoods = useMemo(() => {
+    if (blumenauFocus && blumenauNbStats) {
+      return BLUMENAU_OFFICIAL_NEIGHBORHOODS.map((name) => {
+        const stats = blumenauNbStats.get(normBlumenauNbKey(name));
+        return { label: name, count: stats?.total ?? 0 };
+      }).sort((a, b) => b.count - a.count);
+    }
     const entries = Object.entries(summary?.byNeighborhood || {});
     return entries
       .sort((a, b) => b[1] - a[1])
       .slice(0, compact ? 8 : 12)
       .map(([label, count]) => ({ label, count }));
-  }, [summary?.byNeighborhood, compact]);
+  }, [blumenauFocus, blumenauNbStats, summary?.byNeighborhood, compact]);
 
   const neighborhoodContacts = useMemo((): NeighborhoodContactRow[] => {
     if (!selectedNb) return [];
     return contacts
-      .filter((c) => matchesCity(c.city || '', city) && matchesNeighborhood(c.neighborhood || '', selectedNb))
+      .filter((c) => {
+        if (!matchesCity(c.city || '', city)) return false;
+        if (blumenauFocus) {
+          const official = matchOfficialNeighborhood(c.neighborhood || '');
+          return official === selectedNb || matchesNeighborhood(c.neighborhood || '', selectedNb);
+        }
+        return matchesNeighborhood(c.neighborhood || '', selectedNb);
+      })
       .map((c) => ({
         id: c.id,
         name: c.name || 'Sem nome',
@@ -227,7 +303,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         if (td !== 0) return td;
         return a.name.localeCompare(b.name, 'pt-BR');
       });
-  }, [selectedNb, contacts, city, tempsByContact]);
+  }, [selectedNb, contacts, city, tempsByContact, blumenauFocus]);
 
   const nbTempBreakdown = useMemo(() => {
     const counts = { hot: 0, warm: 0, cold: 0, new: 0 };
@@ -236,15 +312,25 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [neighborhoodContacts]);
 
   const tempCounts = useMemo(() => {
+    if (blumenauFocus && blumenauNbStats) {
+      const counts = { hot: 0, warm: 0, cold: 0, new: 0 };
+      for (const stats of blumenauNbStats.values()) {
+        if (stats.total === 0) {
+          counts.new++;
+          continue;
+        }
+        counts[dominantNeighborhoodTemp(stats)]++;
+      }
+      return counts;
+    }
     const pins = summary?.contactPins || [];
     const counts = { hot: 0, warm: 0, cold: 0, new: 0 };
-    for (const pin of pins) {
-      const cid = pin.id;
-      const t = tempsByContact[cid]?.temp || 'new';
+    for (const pin of pins.slice(0, 400)) {
+      const t = tempsByContact[pin.id]?.temp || 'new';
       counts[t]++;
     }
     return counts;
-  }, [summary?.contactPins, tempsByContact]);
+  }, [blumenauFocus, blumenauNbStats, summary?.contactPins, tempsByContact]);
 
   const selectNeighborhood = useCallback((nb: string) => {
     setSelectedNb(nb.split('·')[0]?.trim() || nb);
@@ -275,11 +361,16 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         layer: 'neighborhood',
         city,
         neighborhood: selectedNb || undefined,
+        light: true
       });
       setSummary(data);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao carregar mapa.';
-      toast.error(msg);
+      const now = Date.now();
+      if (now - lastGeoErrorToastRef.current > 12_000) {
+        lastGeoErrorToastRef.current = now;
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -318,9 +409,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     const clusters = summary.clusters.filter((c) => c.lat != null && c.lng != null);
     const maxCount = Math.max(1, ...clusters.map((c) => c.count));
 
-    const bindClusterClick = (circle: L.CircleMarker, cluster: (typeof clusters)[0]) => {
+    const bindClusterClick = (circle: L.CircleMarker, cluster: (typeof clusters)[0], extra = '') => {
+      const nbStats = blumenauNbStats?.get(normBlumenauNbKey(cluster.label));
+      const tempLine =
+        nbStats && nbStats.total > 0
+          ? `<br/>${CONTACT_TEMP_LABEL[dominantNeighborhoodTemp(nbStats)]} · ${nbStats.hot}Q ${nbStats.warm}M ${nbStats.cold}F`
+          : '';
       circle.bindPopup(
-        `<strong>${cluster.label}</strong><br/>${cluster.count.toLocaleString('pt-BR')} contatos<br/>
+        `<strong>${cluster.label}</strong><br/>${cluster.count.toLocaleString('pt-BR')} contatos${tempLine}${extra}<br/>
         <span style="font-size:11px;color:#6366f1">Clique para ver a lista</span>`
       );
       circle.on('click', () => {
@@ -328,34 +424,36 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       });
     };
 
+    const paintClusterLabel = (lat: number, lng: number, count: number) => {
+      if (count < 1) return;
+      const label = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: '',
+          html: `<span style="font-size:10px;font-weight:800;color:#1e1b4b;text-shadow:0 0 4px #fff">${count}</span>`,
+          iconAnchor: [8, 8]
+        }),
+        interactive: false
+      });
+      label.addTo(map);
+      layersRef.current.push(label);
+    };
+
     if (viewMode === 'circles') {
       for (const cluster of clusters) {
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
         if (!isMapCoordValid(lat, lng)) continue;
         const circle = L.circleMarker([lat, lng], {
-          radius: clusterRadius(cluster.count),
+          radius: Math.max(8, clusterRadius(cluster.count)),
           fillColor: clusterFill(cluster.count, maxCount),
           color: '#6366f1',
           weight: 2,
           opacity: 0.9,
-          fillOpacity: 0.85,
+          fillOpacity: cluster.count > 0 ? 0.85 : 0.25
         });
         bindClusterClick(circle, cluster);
         circle.addTo(map);
         layersRef.current.push(circle);
-
-        if (cluster.count >= 3) {
-          const label = L.marker([lat, lng], {
-            icon: L.divIcon({
-              className: '',
-              html: `<span style="font-size:11px;font-weight:800;color:#312e81;text-shadow:0 0 4px #fff">${cluster.count}</span>`,
-              iconAnchor: [8, 8],
-            }),
-            interactive: false,
-          });
-          label.addTo(map);
-          layersRef.current.push(label);
-        }
+        if (cluster.count >= 3) paintClusterLabel(lat, lng, cluster.count);
       }
     } else if (viewMode === 'heatmap') {
       const points: [number, number, number][] = [];
@@ -363,35 +461,27 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       for (const cluster of clusters) {
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
         if (!isMapCoordValid(lat, lng)) continue;
-        const weight = 0.35 + (cluster.count / maxCount) * 0.65;
-        for (let i = 0; i < Math.min(cluster.count, 12); i++) {
-          const jitter = 0.002 * (i % 4);
-          points.push([lat + jitter * (i % 2 ? 1 : -1), lng + jitter * (i % 3 ? 1 : -1), weight]);
-        }
-      }
-
-      for (const pin of summary.contactPins.slice(0, compact ? 600 : 1800)) {
-        const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
-        if (!isMapCoordValid(lat, lng)) continue;
-        const temp = tempsByContact[pin.id]?.temp || 'new';
-        const w = temp === 'hot' ? 1 : temp === 'warm' ? 0.7 : temp === 'cold' ? 0.45 : 0.25;
-        points.push([lat, lng, w]);
+        const nbStats = blumenauNbStats?.get(normBlumenauNbKey(cluster.label));
+        const temp = nbStats && nbStats.total > 0 ? dominantNeighborhoodTemp(nbStats) : 'new';
+        const tempBoost =
+          temp === 'hot' ? 1 : temp === 'warm' ? 0.75 : temp === 'cold' ? 0.5 : 0.3;
+        const weight = (0.25 + (cluster.count / maxCount) * 0.75) * tempBoost;
+        points.push([lat, lng, weight]);
       }
 
       if (points.length > 0) {
         const hl = heatLayer(points, {
-          radius: compact ? 22 : 30,
-          blur: compact ? 16 : 22,
-          maxZoom: 15,
-          minOpacity: 0.35,
+          radius: compact ? 28 : 36,
+          blur: compact ? 18 : 24,
+          maxZoom: 14,
+          minOpacity: 0.4,
           gradient: {
-            0.15: '#312e81',
+            0.1: '#38bdf8',
             0.35: '#6366f1',
-            0.55: '#22c55e',
-            0.72: '#eab308',
-            0.88: '#f97316',
-            1: '#ef4444',
-          },
+            0.55: '#eab308',
+            0.75: '#f97316',
+            1: '#ef4444'
+          }
         });
         hl.addTo(map);
         layersRef.current.push(hl);
@@ -401,46 +491,61 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
         if (!isMapCoordValid(lat, lng)) continue;
         const hit = L.circleMarker([lat, lng], {
-          radius: Math.max(14, clusterRadius(cluster.count)),
+          radius: Math.max(16, clusterRadius(cluster.count)),
           fillOpacity: 0,
           opacity: 0,
-          fillColor: '#000',
+          fillColor: '#000'
         });
         bindClusterClick(hit, cluster);
         hit.addTo(map);
         layersRef.current.push(hit);
       }
     } else {
-      const pins = summary.contactPins.slice(0, compact ? 800 : 2500);
-      for (const pin of pins) {
-        const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
+      for (const cluster of clusters) {
+        const { lat, lng } = fixBrazilCoord(cluster.lat!, cluster.lng!);
         if (!isMapCoordValid(lat, lng)) continue;
-        const cid = pin.id;
-        const temp = tempsByContact[cid]?.temp || 'new';
-        const marker = L.marker([lat, lng], {
-          icon: tempIcon(TEMP_COLOR[temp], temp === 'hot' ? 14 : 11),
+        const nbStats = blumenauNbStats?.get(normBlumenauNbKey(cluster.label));
+        const count = nbStats?.total ?? cluster.count;
+        const temp =
+          nbStats && nbStats.total > 0 ? dominantNeighborhoodTemp(nbStats) : count > 0 ? 'new' : 'new';
+        const color = TEMP_COLOR[temp];
+        const circle = L.circleMarker([lat, lng], {
+          radius: Math.max(10, clusterRadius(Math.max(1, count))),
+          fillColor: color,
+          color: '#fff',
+          weight: 2,
+          opacity: 0.95,
+          fillOpacity: count > 0 ? 0.82 : 0.35
         });
-        marker.bindPopup(
-          `<strong>${pin.name}</strong><br/>
-          ${pin.neighborhood ? `${pin.neighborhood}<br/>` : ''}
-          ${CONTACT_TEMP_LABEL[temp]} · ${pin.city}<br/>
-          <span style="font-size:11px;color:#6366f1">Clique no bairro no ranking para exportar</span>`
-        );
-        if (pin.neighborhood) {
-          marker.on('click', () => selectNeighborhood(pin.neighborhood));
+        bindClusterClick(circle, cluster);
+        circle.addTo(map);
+        layersRef.current.push(circle);
+        if (count >= 1) paintClusterLabel(lat, lng, count);
+      }
+
+      if (!blumenauFocus) {
+        const pins = summary.contactPins.slice(0, compact ? 120 : 200);
+        for (const pin of pins) {
+          const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
+          if (!isMapCoordValid(lat, lng)) continue;
+          const temp = tempsByContact[pin.id]?.temp || 'new';
+          const marker = L.marker([lat, lng], {
+            icon: tempIcon(TEMP_COLOR[temp], 10)
+          });
+          marker.bindPopup(`<strong>${pin.name}</strong><br/>${CONTACT_TEMP_LABEL[temp]}`);
+          marker.addTo(map);
+          layersRef.current.push(marker);
         }
-        marker.addTo(map);
-        layersRef.current.push(marker);
       }
     }
 
     const vp = summary.mapViewport;
     if (vp) {
       map.flyTo([vp.lat, vp.lng], vp.zoom, { duration: 0.8 });
-    } else if (city.toLowerCase().includes('blumenau')) {
+    } else if (blumenauFocus) {
       map.flyTo(BLUMENAU_CENTER, BLUMENAU_ZOOM, { duration: 0.6 });
     }
-  }, [summary, viewMode, tempsByContact, city, compact, selectNeighborhood]);
+  }, [summary, viewMode, tempsByContact, city, compact, selectNeighborhood, blumenauNbStats, blumenauFocus]);
 
   useEffect(() => {
     paintMap();
@@ -449,7 +554,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const handleGeocode = async () => {
     setGeocoding(true);
     try {
-      const r = await apiGeocodeContacts({ max: 400, city, force: false });
+      const r = await apiGeocodeContacts({ max: 80, city, force: false });
       setSummary(r.summary);
       toast.success(`${r.geocoded} endereço(s) mapeado(s) via CEP/OpenStreetMap.`);
     } catch {
@@ -488,9 +593,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [summary?.filters.cities]);
 
   const viewModes: { id: ViewMode; label: string }[] = [
-    { id: 'circles', label: 'Bairros' },
-    { id: 'heatmap', label: 'Calor' },
     { id: 'temperature', label: 'Temperatura' },
+    { id: 'circles', label: 'Volume' },
+    { id: 'heatmap', label: 'Calor' }
   ];
 
   const listPreview = neighborhoodContacts.slice(0, compact ? 40 : 80);
@@ -589,8 +694,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               ))
             ) : viewMode === 'heatmap' ? (
               <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
-                <span className="w-8 h-2 rounded-full bg-gradient-to-r from-indigo-700 via-emerald-400 to-red-500" />
-                Densidade por bairro + temperatura
+                <span className="w-8 h-2 rounded-full bg-gradient-to-r from-sky-400 via-amber-400 to-red-500" />
+                Calor por bairro (35 regiões)
+              </span>
+            ) : blumenauFocus ? (
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
+                35 bairros · cor = temperatura dominante
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
@@ -695,14 +804,16 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               <div className="p-3 overflow-y-auto flex-1">
                 <p className="text-[10px] font-extrabold uppercase tracking-wider text-stone-400 mb-2 flex items-center gap-1">
                   <Users className="w-3 h-3" />
-                  Top bairros · {city.split('·')[0]?.trim()}
+                  {blumenauFocus
+                    ? `35 bairros · ${city.split('·')[0]?.trim()}`
+                    : `Top bairros · ${city.split('·')[0]?.trim()}`}
                 </p>
                 {topNeighborhoods.length === 0 ? (
                   <p className="text-[11px] text-stone-500 leading-relaxed">
                     Cadastre CEP e bairro nos contatos ou use &quot;Mapear CEP&quot; para posicionar leads.
                   </p>
                 ) : (
-                  <ol className="space-y-2">
+                  <ol className="space-y-2 max-h-[min(42vh,360px)] overflow-y-auto pr-1">
                     {topNeighborhoods.map(({ label, count }, i) => (
                       <li key={label}>
                         <button
@@ -773,8 +884,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       {summary && (
         <p className="mt-2 text-[10px] text-stone-500 tabular-nums">
           {summary.stats.filteredTotal.toLocaleString('pt-BR')} contatos na região ·{' '}
-          {summary.stats.withNeighborhood.toLocaleString('pt-BR')} com bairro ·{' '}
-          {summary.pinStats?.pinsMapped ?? 0} pins por endereço/CEP
+          {summary.stats.withNeighborhood.toLocaleString('pt-BR')} com bairro
+          {blumenauFocus
+            ? ` · ${BLUMENAU_OFFICIAL_NEIGHBORHOODS.length} bairros oficiais (mapa leve)`
+            : ` · ${summary.pinStats?.pinsMapped ?? 0} pins por endereço/CEP`}
           {summary.topConcentration
             ? ` · maior bairro: ${summary.topConcentration.label.split('·')[0]?.trim()} (${summary.topConcentration.count})`
             : ''}

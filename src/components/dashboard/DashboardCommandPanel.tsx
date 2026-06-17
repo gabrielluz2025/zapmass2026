@@ -224,8 +224,8 @@ export const DashboardCommandPanel: React.FC<Props> = ({
                 Mapa por bairro · CEP e endereço
               </h2>
               <p className="text-[12px] text-stone-500 mt-1 max-w-lg">
-                OpenStreetMap gratuito. Padrão Blumenau — altere a cidade no seletor. Veja concentração
-                por bairro e contatos quentes, mornos e frios.
+                OpenStreetMap · Blumenau: 35 bairros oficiais com temperatura por região (mapa leve, sem
+                milhares de pins).
               </p>
             </div>
             <button

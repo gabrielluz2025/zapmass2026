@@ -23,6 +23,13 @@ import {
 } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import {
+  BLUMENAU_OFFICIAL_NEIGHBORHOODS,
+  blumenauSpreadCoord,
+  isBlumenauCity,
+  matchOfficialNeighborhood,
+  normBlumenauNbKey
+} from '../shared/blumenauNeighborhoods.js';
+import {
   cityToApproxCoord,
   dddToApproxCoord,
   phoneToDdd,
@@ -127,6 +134,8 @@ export type LeadsGeoQuery = {
   neighborhood?: string;
   /** Busca parcial no nome do contato (mín. 2 caracteres). */
   name?: string;
+  /** Sem pins individuais — só clusters/agregação (mapa leve). */
+  light?: boolean;
 };
 
 type GeoCacheFile = Record<string, { lat: number; lng: number; at: string }>;
@@ -144,7 +153,8 @@ function summaryCacheKey(tenantId: string, query: LeadsGeoQuery): string {
     city: query.city ?? '',
     ddd: query.ddd ?? '',
     neighborhood: query.neighborhood ?? '',
-    name: query.name ?? ''
+    name: query.name ?? '',
+    light: query.light ? 1 : 0
   })}`;
 }
 
@@ -1116,7 +1126,8 @@ async function buildLeadsGeoSummaryInner(
   };
 
   /** Pins aproximados em espiral são caros com dezenas de milhares de contatos. */
-  const skipApproxPins = !nameSearchActive && filtered.length > 2500;
+  const lightMode = query.light === true;
+  const skipApproxPins = lightMode || (!nameSearchActive && filtered.length > 2500);
 
   const clusterMap = new Map<string, GeoCluster>();
   const byState: Record<string, number> = {};
@@ -1136,13 +1147,15 @@ async function buildLeadsGeoSummaryInner(
   let withNeighborhood = 0;
   let withPhone = 0;
   const contactPins: GeoContactPin[] = [];
-  const maxContactPins = nameSearchActive
-    ? 800
-    : query.neighborhood
-      ? 6000
-      : query.city
-        ? 3500
-        : 1500;
+  const maxContactPins = lightMode
+    ? 0
+    : nameSearchActive
+      ? 800
+      : query.neighborhood
+        ? 6000
+        : query.city
+          ? 3500
+          : 1500;
   let filteredWithFullAddress = 0;
   let pinsMapped = 0;
   let pinsApproximate = 0;
@@ -1343,6 +1356,10 @@ async function buildLeadsGeoSummaryInner(
   let clusters = mergeDuplicateClusters([...clusterMap.values()], layer);
   clusters = alignClustersToExactPins(clusters, contactPins);
 
+  if (isBlumenauCity(query.city || '') && layer === 'neighborhood') {
+    clusters = consolidateBlumenauOfficialNeighborhoods(clusters, byNeighborhood, cache);
+  }
+
   const clustersMapped = clusters.filter((c) => c.mapped && c.lat != null).length;
   const clustersPending = clusters.filter((c) => {
     if (c.precision === 'ddd' || c.precision === 'state') return false;
@@ -1391,6 +1408,72 @@ async function buildLeadsGeoSummaryInner(
     pinStats: { withFullAddress: filteredWithFullAddress, pinsMapped, pinsApproximate, pinsPending },
     mapViewport
   };
+}
+
+/** Agrega clusters em exatamente os 35 bairros oficiais de Blumenau (mapa leve). */
+function consolidateBlumenauOfficialNeighborhoods(
+  clusters: GeoCluster[],
+  byNeighborhood: Record<string, number>,
+  cache: GeoCacheFile
+): GeoCluster[] {
+  const byKey = new Map<string, GeoCluster>();
+
+  BLUMENAU_OFFICIAL_NEIGHBORHOODS.forEach((name, idx) => {
+    const spread = blumenauSpreadCoord(idx);
+    const key = clusterKey('neighborhood', { city: 'Blumenau', neighborhood: name });
+    byKey.set(normBlumenauNbKey(name), {
+      key,
+      label: name,
+      city: 'Blumenau',
+      state: 'SC',
+      neighborhood: name,
+      ddd: '47',
+      count: 0,
+      lat: spread.lat,
+      lng: spread.lng,
+      precision: 'neighborhood',
+      mapped: false,
+      sampleNames: []
+    });
+  });
+
+  for (const c of clusters) {
+    const official = matchOfficialNeighborhood(c.neighborhood || c.label);
+    if (!official) continue;
+    const k = normBlumenauNbKey(official);
+    const slot = byKey.get(k);
+    if (!slot) continue;
+    slot.count += c.count;
+    if (c.sampleNames?.length) {
+      slot.sampleNames = [...slot.sampleNames, ...c.sampleNames].slice(0, 5);
+    }
+    if (c.lat != null && c.lng != null && (c.mapped || !slot.mapped)) {
+      slot.lat = c.lat;
+      slot.lng = c.lng;
+      slot.mapped = c.mapped || !!cache[c.key];
+    }
+  }
+
+  for (const [label, count] of Object.entries(byNeighborhood)) {
+    const official = matchOfficialNeighborhood(label);
+    if (!official) continue;
+    const k = normBlumenauNbKey(official);
+    const slot = byKey.get(k);
+    if (!slot) continue;
+    slot.count = Math.max(slot.count, count);
+  }
+
+  for (const slot of byKey.values()) {
+    if (slot.lat != null && slot.lng != null) continue;
+    const picked = pickClusterCoords(slot, cache);
+    if (picked) {
+      slot.lat = picked.lat;
+      slot.lng = picked.lng;
+      slot.mapped = picked.mapped;
+    }
+  }
+
+  return [...byKey.values()].sort((a, b) => b.count - a.count);
 }
 
 function computeMapViewport(
