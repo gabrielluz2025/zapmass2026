@@ -59,17 +59,23 @@ if [ -f "${ZAPMASS_ROOT}/docker-compose.yml" ]; then
     ok "Instância main parada — tráfego só via container ${SLUG}."
 fi
 
-# 3) Nginx principal → porta do cliente
-NGINX_MAIN="${NGINX_AVAILABLE}/zapmass"
-if [ ! -f "$NGINX_MAIN" ]; then
-    NGINX_MAIN="${NGINX_AVAILABLE}/zap-mass"
-fi
-if [ -f "$NGINX_MAIN" ]; then
-    sed -i -E "s|proxy_pass http://127\\.0\\.0\\.1:[0-9]+;|proxy_pass http://127.0.0.1:${PORT};|g" "$NGINX_MAIN"
-    ok "Nginx ${NGINX_MAIN} → 127.0.0.1:${PORT}"
-else
-    warn "Ficheiro Nginx principal não encontrado — ajuste manual proxy_pass para :${PORT}"
-fi
+# 3) Nginx (HTTP + HTTPS / certbot) → porta do cliente
+ajustar_nginx_proxy_porta() {
+    local porta="$1"
+    local f
+    local dirs=("$NGINX_AVAILABLE" "$NGINX_ENABLED" "/etc/nginx/conf.d")
+    for dir in "${dirs[@]}"; do
+        [ -d "$dir" ] || continue
+        for f in "$dir"/*; do
+            [ -f "$f" ] || continue
+            if grep -qE 'proxy_pass http://127\.0\.0\.1:[0-9]+|zap-mass\.com|zap\.mass\.com' "$f" 2>/dev/null; then
+                sed -i -E "s|proxy_pass http://127\\.0\\.0\\.1:[0-9]+;|proxy_pass http://127.0.0.1:${porta};|g" "$f"
+                ok "Nginx $(basename "$f") → 127.0.0.1:${porta}"
+            fi
+        done
+    done
+}
+ajustar_nginx_proxy_porta "$PORT"
 
 # 4) Remove vhost duplicado do cliente (server_name conflitante)
 for f in "${NGINX_ENABLED}/zapmass-${SLUG}" "${NGINX_ENABLED}/zapmass_${SLUG}"; do
@@ -106,9 +112,20 @@ done
 
 if [ "$ok_health" = "1" ]; then
     ver="$(grep -o '"version":"[^"]*"' /tmp/zm-health.json 2>/dev/null | head -1 || true)"
-    ok "API respondeu HTTP 200 ${ver:-}"
+    ok "API local respondeu HTTP 200 ${ver:-}"
 else
-    warn "Health ainda não respondeu — veja: docker logs zapmass-cli-${SLUG} --tail 80"
+    warn "Health local ainda não respondeu — veja: docker logs zapmass-cli-${SLUG} --tail 80"
+fi
+
+log "Testando HTTPS público https://${DOMINIO}/api/health ..."
+pub_code="$(curl -sS -o /tmp/zm-health-pub.json -w '%{http_code}' --max-time 12 "https://${DOMINIO}/api/health" 2>/dev/null || echo 000)"
+if [ "$pub_code" = "200" ]; then
+    pub_ver="$(grep -o '"version":"[^"]*"' /tmp/zm-health-pub.json 2>/dev/null | head -1 || true)"
+    ok "HTTPS público OK ${pub_ver:-}"
+else
+    warn "HTTPS retornou HTTP ${pub_code} (502 = Nginx SSL ainda aponta para porta antiga)."
+    warn "Corrija manualmente: grep -r proxy_pass /etc/nginx/sites-enabled/ | grep 127.0.0.1"
+    warn "Depois: sed em TODOS os ficheiros com zap-mass.com e nginx -t && reload."
 fi
 
 echo ""
