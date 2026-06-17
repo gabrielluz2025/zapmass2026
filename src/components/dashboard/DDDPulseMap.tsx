@@ -149,6 +149,8 @@ interface DDDPulseMapProps {
   contacts: Contact[];
   campaigns?: Campaign[];
   isLive?: boolean;
+  /** Dentro do Territory Command — sem card/header duplicado */
+  embedded?: boolean;
 }
 
 // ──────────────────────────── helpers ───────────────────────────────────────
@@ -169,6 +171,7 @@ export const DDDPulseMap: React.FC<DDDPulseMapProps> = ({
   contacts,
   campaigns = [],
   isLive = false,
+  embedded = false,
 }) => {
   const [metric, setMetric] = useState<DDDPulseMetric>('contacts');
   const [hovered, setHovered] = useState<string | null>(null);
@@ -240,75 +243,78 @@ export const DDDPulseMap: React.FC<DDDPulseMapProps> = ({
     : REGION_ORDER;
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
-      {/* ── Header ── */}
-      <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-[18px]"
-              style={{ background: 'linear-gradient(135deg,#3b82f620,#8b5cf620)' }}
-            >
-              🌎
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-[15px]" style={{ color: 'var(--text-1)' }}>
-                  Pulso Nacional
-                </h3>
-                {isLive && (
-                  <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                    style={{ background: '#10b98120', color: '#10b981' }}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                    AO VIVO
-                  </span>
-                )}
+    <div
+      className={embedded ? 'h-full flex flex-col' : 'rounded-2xl overflow-hidden'}
+      style={embedded ? undefined : { background: 'var(--surface-0)', border: '1px solid var(--border)' }}
+    >
+      <div
+        className={`${embedded ? 'px-4 pt-3 pb-2' : 'px-5 py-4'} border-b`}
+        style={{ borderColor: embedded ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)' }}
+      >
+        {!embedded && (
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-[18px]"
+                style={{ background: 'linear-gradient(135deg,#3b82f620,#8b5cf620)' }}
+              >
+                🌎
               </div>
-              <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                Distribuição de {metric === 'contacts' ? 'contatos' : 'disparos'} por DDD · inferência por código de área
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-[15px]" style={{ color: 'var(--text-1)' }}>
+                    Pulso Nacional
+                  </h3>
+                  {isLive && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                      style={{ background: '#10b98120', color: '#10b981' }}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                      AO VIVO
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                  Distribuição de {metric === 'contacts' ? 'contatos' : 'disparos'} por DDD · inferência por código de área
+                </p>
+              </div>
             </div>
           </div>
+        )}
 
-          {/* Controles */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Filtro de região */}
-            <div className="flex gap-1 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap justify-between">
+          <div className="flex gap-1 flex-wrap">
+            <button
+              onClick={() => setSelectedRegion(null)}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+              style={{
+                background: selectedRegion === null ? 'var(--brand)' : embedded ? 'rgba(255,255,255,0.06)' : 'var(--surface-2)',
+                color: selectedRegion === null ? '#fff' : embedded ? '#cbd5e1' : 'var(--text-2)',
+              }}
+            >
+              Todas
+            </button>
+            {REGION_ORDER.map((r) => (
               <button
-                onClick={() => setSelectedRegion(null)}
+                key={r}
+                onClick={() => setSelectedRegion(selectedRegion === r ? null : r)}
                 className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
                 style={{
-                  background: selectedRegion === null ? 'var(--brand)' : 'var(--surface-2)',
-                  color: selectedRegion === null ? '#fff' : 'var(--text-2)',
+                  background: selectedRegion === r ? REGION_COLORS[r].bg : embedded ? 'rgba(255,255,255,0.06)' : 'var(--surface-2)',
+                  color: selectedRegion === r ? '#fff' : embedded ? '#cbd5e1' : 'var(--text-2)',
+                  boxShadow: selectedRegion === r ? `0 0 12px ${REGION_COLORS[r].glow}` : 'none',
                 }}
               >
-                Todas
+                {r}
               </button>
-              {REGION_ORDER.map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setSelectedRegion(selectedRegion === r ? null : r)}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
-                  style={{
-                    background: selectedRegion === r ? REGION_COLORS[r].bg : 'var(--surface-2)',
-                    color: selectedRegion === r ? '#fff' : 'var(--text-2)',
-                    boxShadow: selectedRegion === r ? `0 0 12px ${REGION_COLORS[r].glow}` : 'none',
-                  }}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
-        </div>
-
-        {/* Totalizador */}
-        <div className="mt-3 flex items-center gap-4 flex-wrap">
-          <span className="text-[28px] font-black tabular-nums" style={{ color: 'var(--text-1)' }}>
+          <span
+            className={`${embedded ? 'text-[20px]' : 'text-[28px]'} font-black tabular-nums`}
+            style={{ color: embedded ? '#f8fafc' : 'var(--text-1)' }}
+          >
             {totalShown.toLocaleString('pt-BR')}
-          </span>
-          <span className="text-[13px]" style={{ color: 'var(--text-3)' }}>
-            {metric === 'contacts' ? 'contatos mapeados por DDD' : 'disparos registrados'}
           </span>
         </div>
       </div>
@@ -500,7 +506,7 @@ export const DDDPulseMap: React.FC<DDDPulseMapProps> = ({
         </div>
       </div>
 
-      {/* ── Rodapé ── */}
+      {!embedded && (
       <div
         className="px-5 py-2.5 border-t flex items-center gap-2"
         style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
@@ -512,6 +518,7 @@ export const DDDPulseMap: React.FC<DDDPulseMapProps> = ({
           {contacts.length.toLocaleString('pt-BR')} contatos importados
         </span>
       </div>
+      )}
     </div>
   );
 };

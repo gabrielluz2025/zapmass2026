@@ -49,9 +49,7 @@ import {
 } from '../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
 import { campaignClockVars } from '../utils/campaignClockVars';
-import { DDDPulseMap } from './dashboard/DDDPulseMap';
-import { ContactAddressMap } from './dashboard/ContactAddressMap';
-import { CommercialIntelligenceMap } from './dashboard/CommercialIntelligenceMap';
+import { TerritoryCommandCenter } from './dashboard/TerritoryCommandCenter';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
 import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
@@ -70,7 +68,6 @@ import {
   computeAccountDashboardSummary,
   computeAdminOpsSnapshot
 } from '../utils/dashboardAccountSummary';
-import { BrazilCampaignMap, GeoLayer } from './dashboard/BrazilCampaignMap';
 // Contato de aniversariante ja enriquecido com dias restantes e idade
 interface UpcomingBirthday {
   id: string;
@@ -307,7 +304,6 @@ export const DashboardTab: React.FC = () => {
     warmupChipStats
   } = useZapMassCore();
   const { systemMetrics } = useZapMassUiSnapshot();
-  const [geoLayer, setGeoLayer] = useState<GeoLayer>('delivered');
   const { setCurrentView } = useAppView();
   const { user } = useAuth();
   const { subscription } = useSubscription();
@@ -1171,31 +1167,12 @@ export const DashboardTab: React.FC = () => {
       />
       </div>
 
-      <DDDPulseMap contacts={contacts} campaigns={campaigns} isLive={isBackendConnected} />
-      <CommercialIntelligenceMap />
-      <ContactAddressMap />
-
-      {campaignGeo && Object.keys(campaignGeo.byUf || {}).length > 0 && (
-        <Card className="zm-dash-section">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center brand-soft">
-              <span className="text-base">🗺️</span>
-            </div>
-            <div>
-              <h3 className="ui-title text-[15px]">Cobertura Geográfica</h3>
-              <p className="ui-subtitle text-[12px]">Distribuição de envios por estado (inferência por DDD)</p>
-            </div>
-          </div>
-          <BrazilCampaignMap
-            byUf={campaignGeo.byUf}
-            layer={geoLayer}
-            onLayerChange={setGeoLayer}
-            isLive={false}
-            campaignLabel={campaignGeo.campaignId ?? undefined}
-            updatedAt={campaignGeo.updatedAt}
-          />
-        </Card>
-      )}
+      <TerritoryCommandCenter
+        contacts={contacts}
+        campaigns={campaigns}
+        campaignGeo={campaignGeo}
+        isLive={isBackendConnected}
+      />
 
       <div
         ref={funnelSectionRef}

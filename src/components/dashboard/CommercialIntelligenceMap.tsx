@@ -79,7 +79,7 @@ function coverageColor(replyRate: number, contacted: number): string {
   return '#b91c1c';
 }
 
-export const CommercialIntelligenceMap: React.FC = () => {
+export const CommercialIntelligenceMap: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
@@ -302,7 +302,12 @@ export const CommercialIntelligenceMap: React.FC = () => {
   }, [nat]);
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}>
+    <div
+      className={embedded ? 'h-full flex flex-col' : 'rounded-2xl overflow-hidden'}
+      style={embedded ? undefined : { background: 'var(--surface-0)', border: '1px solid var(--border)' }}
+    >
+      {!embedded && (
+      <>
       {/* Header */}
       <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <div className="flex items-start justify-between flex-wrap gap-3">
@@ -336,9 +341,25 @@ export const CommercialIntelligenceMap: React.FC = () => {
           </div>
         )}
       </div>
+      </>
+      )}
+
+      {embedded && (
+        <div className="px-4 py-2 border-b flex items-center justify-end" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <Button variant="ghost" size="sm" onClick={() => void load()} loading={loading} leftIcon={<RefreshCw className="w-3.5 h-3.5" />}>
+            Atualizar
+          </Button>
+        </div>
+      )}
 
       {/* Seletor de camadas */}
-      <div className="px-4 py-3 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+      <div
+        className="px-4 py-3 border-b flex items-center gap-2 flex-wrap"
+        style={{
+          borderColor: embedded ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)',
+          background: embedded ? 'transparent' : 'var(--surface-1)',
+        }}
+      >
         <Layers className="w-4 h-4" style={{ color: 'var(--text-3)' }} />
         {([
           { id: 'conversion' as MapLayer, label: 'Conversão', icon: <Target className="w-3.5 h-3.5" /> },
@@ -379,9 +400,11 @@ export const CommercialIntelligenceMap: React.FC = () => {
             <Button variant="secondary" size="sm" onClick={() => void load()}>Tentar novamente</Button>
           </div>
         )}
-        <div ref={mapContainerRef} style={{ height: '460px', width: '100%', zIndex: 0 }} />
+        <div ref={mapContainerRef} style={{ height: embedded ? '400px' : '460px', width: '100%', zIndex: 0 }} />
       </div>
 
+      {!embedded && (
+      <>
       {/* Legenda */}
       <div className="px-5 py-2.5 border-t flex flex-wrap items-center gap-4" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
         {layer === 'conversion' && (
@@ -429,6 +452,8 @@ export const CommercialIntelligenceMap: React.FC = () => {
             onClick={flyToRegion}
           />
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -91,7 +91,7 @@ const CITY_ZOOM = 12;
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-export const ContactAddressMap: React.FC = () => {
+export const ContactAddressMap: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Layer[]>([]);
@@ -345,9 +345,11 @@ export const ContactAddressMap: React.FC = () => {
 
   return (
     <div
-      className="rounded-2xl overflow-hidden"
-      style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
+      className={embedded ? 'h-full flex flex-col' : 'rounded-2xl overflow-hidden'}
+      style={embedded ? undefined : { background: 'var(--surface-0)', border: '1px solid var(--border)' }}
     >
+      {!embedded && (
+      <>
       {/* ── Header ── */}
       <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <div className="flex items-start justify-between flex-wrap gap-3">
@@ -444,9 +446,17 @@ export const ContactAddressMap: React.FC = () => {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* ── Barra de busca ── */}
-      <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+      <div
+        className="px-4 py-3 border-b"
+        style={{
+          borderColor: embedded ? 'rgba(255,255,255,0.06)' : 'var(--border-subtle)',
+          background: embedded ? 'transparent' : 'var(--surface-1)',
+        }}
+      >
         <div className="relative max-w-[480px]">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
@@ -568,10 +578,12 @@ export const ContactAddressMap: React.FC = () => {
 
         <div
           ref={mapContainerRef}
-          style={{ height: '480px', width: '100%', zIndex: 0 }}
+          style={{ height: embedded ? '400px' : '480px', width: '100%', zIndex: 0 }}
         />
       </div>
 
+      {!embedded && (
+      <>
       {/* ── Legenda ── */}
       <div
         className="px-5 py-2.5 border-t flex flex-wrap items-center gap-4"
@@ -603,6 +615,8 @@ export const ContactAddressMap: React.FC = () => {
           }}
         />
       </div>
+      </>
+      )}
     </div>
   );
 };
