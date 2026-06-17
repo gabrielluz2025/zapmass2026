@@ -28,6 +28,7 @@
     "docker:logs": "docker compose logs -f",
     "session:resilience-check": "tsx scripts/session-resilience-check.ts",
     "diagnose:connection-owners": "tsx scripts/diagnose-connection-owners.ts",
+    "reset:vps-password": "tsx scripts/reset-vps-user-password.ts",
     "repair:connection-owners": "tsx scripts/repair-connection-owners.ts",
     "deploy:firestore-rules": "firebase deploy --only firestore:rules",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
