@@ -40,8 +40,10 @@ export const AppConfigProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
+    const ctrl = new AbortController();
+    const tid = window.setTimeout(() => ctrl.abort(), 12_000);
     try {
-      const res = await fetch(apiUrl('/api/app-config'));
+      const res = await fetch(apiUrl('/api/app-config'), { signal: ctrl.signal });
       const data = await res.json().catch(() => ({}));
       if (data?.ok && data?.config) {
         setConfig(normalizePayload(data.config));
@@ -51,6 +53,7 @@ export const AppConfigProvider: React.FC<{ children: ReactNode }> = ({ children 
     } catch {
       setConfig(DEFAULT_APP_CONFIG);
     } finally {
+      window.clearTimeout(tid);
       setLoading(false);
     }
   }, []);

@@ -110,7 +110,7 @@ if [ -f .env ]; then
   fi
   # Swarm: wa-worker deploy.replicas vem de ${WA_WORKER_REPLICAS:-0} no docker-stack (vazio = 0 réplicas).
   echo "==> ZAPMASS_API_SESSION_MODE=${ZAPMASS_API_SESSION_MODE:-monolith} WA_WORKER_REPLICAS=${WA_WORKER_REPLICAS:-0}"
-  echo "==> WA_FULL_INBOX_SYNC=${WA_FULL_INBOX_SYNC:-1} (0=Pipeline só tempo real, sem puxar inbox do telefone ao conectar)"
+  echo "==> WA_FULL_INBOX_SYNC=${WA_FULL_INBOX_SYNC:-0} (0=Pipeline só tempo real, sem puxar inbox do telefone ao conectar)"
   echo "==> WA_CHAT_ARCHIVE=${WA_CHAT_ARCHIVE:-1} (0 desliga arquivo Firestore das conversas no servidor)"
   if [ "${ZAPMASS_API_SESSION_MODE:-monolith}" != "api" ] && [ "${WA_WORKER_REPLICAS:-0}" = "0" ]; then
     echo "==> AVISO: worker com 0 réplicas. Para API separada do Chromium (split): no .env use ZAPMASS_API_SESSION_MODE=api e WA_WORKER_REPLICAS=1 (ver .env.example)."

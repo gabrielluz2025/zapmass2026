@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Crown, Loader2, Search, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
@@ -28,31 +28,81 @@ import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
 import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
+import { lazyWithRetry } from './utils/lazyWithRetry';
 
 /** Rota pública `/avaliacao` — não entra no bundle principal. */
-const ClientSatisfactionSurveyPage = lazy(() =>
-  import('./components/ClientSatisfactionSurveyPage').then((m) => ({ default: m.ClientSatisfactionSurveyPage }))
+const ClientSatisfactionSurveyPage = lazyWithRetry(
+  () =>
+    import('./components/ClientSatisfactionSurveyPage').then((m) => ({
+      default: m.ClientSatisfactionSurveyPage
+    })),
+  'survey'
 );
 
 /** Painéis autenticados — primeiro paint mais rápido; carrega sob demanda. */
-const DashboardTab = lazy(() => import('./components/DashboardTab').then((m) => ({ default: m.DashboardTab })));
-const ChatTab = lazy(() => import('./components/ChatTab').then((m) => ({ default: m.ChatTab })));
-const CampaignsTab = lazy(() => import('./components/CampaignsTab').then((m) => ({ default: m.CampaignsTab })));
-const ContactsTab = lazy(() => import('./components/ContactsTab').then((m) => ({ default: m.ContactsTab })));
-const ReportsTab = lazy(() => import('./components/ReportsTab').then((m) => ({ default: m.ReportsTab })));
-const SettingsTab = lazy(() => import('./components/SettingsTab').then((m) => ({ default: m.SettingsTab })));
-const MySubscriptionTab = lazy(() => import('./components/billing/MySubscriptionTab').then((m) => ({ default: m.MySubscriptionTab })));
-const WarmupTab = lazy(() => import('./components/WarmupTab').then((m) => ({ default: m.WarmupTab })));
-const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then((m) => ({ default: m.AdminPanel })));
-const AdminServerTab = lazy(() => import('./components/AdminServerTab').then((m) => ({ default: m.AdminServerTab })));
-const CreatorStudio = lazy(() => import('./components/creator/CreatorStudio').then((m) => ({ default: m.CreatorStudio })));
-const TutorialPage = lazy(() => import('./components/help/TutorialPage').then((m) => ({ default: m.TutorialPage })));
-const WorkspaceTeamPage = lazy(() => import('./pages/WorkspaceTeamPage').then((m) => ({ default: m.WorkspaceTeamPage })));
-const ReligiousNewMemberTab = lazy(() =>
-  import('./components/religious/ReligiousNewMemberTab').then((m) => ({ default: m.ReligiousNewMemberTab }))
+const DashboardTab = lazyWithRetry(
+  () => import('./components/DashboardTab').then((m) => ({ default: m.DashboardTab })),
+  'dashboard'
 );
-const PastoralVisitsTab = lazy(() =>
-  import('./components/religious/PastoralVisitsTab').then((m) => ({ default: m.PastoralVisitsTab }))
+const ChatTab = lazyWithRetry(
+  () => import('./components/ChatTab').then((m) => ({ default: m.ChatTab })),
+  'chat'
+);
+const CampaignsTab = lazyWithRetry(
+  () => import('./components/CampaignsTab').then((m) => ({ default: m.CampaignsTab })),
+  'campaigns'
+);
+const ContactsTab = lazyWithRetry(
+  () => import('./components/ContactsTab').then((m) => ({ default: m.ContactsTab })),
+  'contacts'
+);
+const ReportsTab = lazyWithRetry(
+  () => import('./components/ReportsTab').then((m) => ({ default: m.ReportsTab })),
+  'reports'
+);
+const SettingsTab = lazyWithRetry(
+  () => import('./components/SettingsTab').then((m) => ({ default: m.SettingsTab })),
+  'settings'
+);
+const MySubscriptionTab = lazyWithRetry(
+  () => import('./components/billing/MySubscriptionTab').then((m) => ({ default: m.MySubscriptionTab })),
+  'subscription'
+);
+const WarmupTab = lazyWithRetry(
+  () => import('./components/WarmupTab').then((m) => ({ default: m.WarmupTab })),
+  'warmup'
+);
+const AdminPanel = lazyWithRetry(
+  () => import('./components/admin/AdminPanel').then((m) => ({ default: m.AdminPanel })),
+  'admin'
+);
+const AdminServerTab = lazyWithRetry(
+  () => import('./components/AdminServerTab').then((m) => ({ default: m.AdminServerTab })),
+  'admin-server'
+);
+const CreatorStudio = lazyWithRetry(
+  () => import('./components/creator/CreatorStudio').then((m) => ({ default: m.CreatorStudio })),
+  'creator'
+);
+const TutorialPage = lazyWithRetry(
+  () => import('./components/help/TutorialPage').then((m) => ({ default: m.TutorialPage })),
+  'tutorial'
+);
+const WorkspaceTeamPage = lazyWithRetry(
+  () => import('./pages/WorkspaceTeamPage').then((m) => ({ default: m.WorkspaceTeamPage })),
+  'team'
+);
+const ReligiousNewMemberTab = lazyWithRetry(
+  () =>
+    import('./components/religious/ReligiousNewMemberTab').then((m) => ({
+      default: m.ReligiousNewMemberTab
+    })),
+  'religious-new'
+);
+const PastoralVisitsTab = lazyWithRetry(
+  () =>
+    import('./components/religious/PastoralVisitsTab').then((m) => ({ default: m.PastoralVisitsTab })),
+  'pastoral'
 );
 
 /** Placeholder quando um chunk de vista ainda está a carregar (skeleton + indicador). */
@@ -340,17 +390,55 @@ const GateOrApp: React.FC = () => {
   const { loading: workspaceLoading } = useWorkspace();
   const { loading: profileLoading, needsSegmentOnboarding } = useAppProfile();
   const { loading, enforce, needsOnboardingGate } = useSubscription();
+  const [slowGate, setSlowGate] = useState(false);
+
+  useEffect(() => {
+    if (!workspaceLoading && !profileLoading && !loading) {
+      setSlowGate(false);
+      return;
+    }
+    const t = window.setTimeout(() => setSlowGate(true), 40_000);
+    return () => window.clearTimeout(t);
+  }, [workspaceLoading, profileLoading, loading]);
+
   if (workspaceLoading) {
-    return <SessionSpinner label="Carregando workspace..." />;
+    return (
+      <>
+        <SessionSpinner label="Carregando workspace..." />
+        {slowGate && (
+          <p className="fixed bottom-6 left-0 right-0 text-center text-[12px] px-4" style={{ color: 'var(--text-3)' }}>
+            O servidor está demorando — aguarde ou recarregue com Ctrl+Shift+R.
+          </p>
+        )}
+      </>
+    );
   }
   if (profileLoading) {
-    return <SessionSpinner label="Carregando perfil..." />;
+    return (
+      <>
+        <SessionSpinner label="Carregando perfil..." />
+        {slowGate && (
+          <p className="fixed bottom-6 left-0 right-0 text-center text-[12px] px-4" style={{ color: 'var(--text-3)' }}>
+            O servidor está demorando — aguarde ou recarregue com Ctrl+Shift+R.
+          </p>
+        )}
+      </>
+    );
   }
   if (needsSegmentOnboarding) {
     return <SegmentOnboardingScreen />;
   }
   if (loading) {
-    return <SessionSpinner label="Carregando assinatura..." />;
+    return (
+      <>
+        <SessionSpinner label="Carregando assinatura..." />
+        {slowGate && (
+          <p className="fixed bottom-6 left-0 right-0 text-center text-[12px] px-4" style={{ color: 'var(--text-3)' }}>
+            O servidor está demorando — aguarde ou recarregue com Ctrl+Shift+R.
+          </p>
+        )}
+      </>
+    );
   }
   if (enforce && needsOnboardingGate) {
     return <HardGateScreen />;

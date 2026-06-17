@@ -57,13 +57,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const boot = async () => {
-      let v = getVpsAuthUser();
-      if (!v) {
-        await vpsRefreshAccessToken();
-        v = getVpsAuthUser();
+      try {
+        let v = getVpsAuthUser();
+        if (!v) {
+          await vpsRefreshAccessToken();
+          v = getVpsAuthUser();
+        }
+        setUser(v ? vpsUserToSessionUser(v) : null);
+      } catch {
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setUser(v ? vpsUserToSessionUser(v) : null);
-      setLoading(false);
     };
     void boot();
   }, []);

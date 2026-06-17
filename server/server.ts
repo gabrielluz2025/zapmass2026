@@ -360,14 +360,17 @@ registerConnectionsSyncRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', async (_req, res) => {
-  const mp = await getMercadoPagoHealthCached();
+  const mp = await Promise.race([
+    getMercadoPagoHealthCached().catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
+  ]);
   res.json({
     status: 'ok',
     serverTime: new Date(),
     version: getAppVersion(),
-    mercadopagoConfigured: mp.configured,
-    mercadopagoCheckoutAvailable: mp.valid,
-    mercadopagoMode: mp.mode ?? null
+    mercadopagoConfigured: mp?.configured ?? false,
+    mercadopagoCheckoutAvailable: mp?.valid ?? false,
+    mercadopagoMode: mp?.mode ?? null
   });
 });
 

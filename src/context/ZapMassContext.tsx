@@ -890,7 +890,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsVpsOffsetRef.current = 0;
       setContactsHasMore(false);
       void reloadVpsContactsRef.current();
-      void refreshContactsSavedTotalRef.current();
       void reloadVpsContactListsRef.current();
       void reloadVpsCampaignsRef.current();
     };

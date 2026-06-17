@@ -96,7 +96,7 @@ services:
       # Sync Pipeline: emitir lista parcial durante getChats/Store — exportado em deployment/vps-deploy.sh antes do stack deploy.
       WA_SYNC_CONV_EMIT_EVERY: ${WA_SYNC_CONV_EMIT_EVERY:-}
       # 1 = puxar inbox do telefone ao conectar; 0 = só tempo real (campanhas, envios, mensagens recebidas).
-      WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-1}
+      WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-0}
       # 1 (default): arquivar mensagens no Firestore (users/{uid}/waChatThreads) — Firebase Admin obrigatório.
       WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
     env_file:
@@ -148,7 +148,7 @@ services:
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase-admin.json
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
       WA_SYNC_CONV_EMIT_EVERY: ${WA_SYNC_CONV_EMIT_EVERY:-}
-      WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-1}
+      WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-0}
       WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
     extra_hosts:
       - "host.docker.internal:host-gateway"
