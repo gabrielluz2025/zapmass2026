@@ -463,6 +463,8 @@ if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml
   echo "==> atualizar containers dos clientes"
   # shellcheck source=deployment/clientes/scripts/_comum.sh
   . "$(dirname "$0")/clientes/scripts/_comum.sh"
+  read -r _prod_slug _prod_port _prod_dom <<<"$(resolver_cliente_producao)"
+  _client_fail=0
   for dir in /opt/zapmass/clientes/*/; do
     slug="$(basename "$dir")"
     case "$slug" in
@@ -470,10 +472,23 @@ if [ -d /opt/zapmass/clientes ] && ls /opt/zapmass/clientes/*/docker-compose.yml
     esac
     [ -f "${dir}docker-compose.yml" ] || continue
     echo "    - cliente: ${slug}"
+    _port="$(grep -E '^HOST_PORT=' "${dir}.env" 2>/dev/null | tail -1 | sed 's/^HOST_PORT=//' | tr -d $'\r"\'')"
+    _port="${_port:-3100}"
     if ! recriar_cliente_compose "$dir" "$slug"; then
-      echo "AVISO: falha ao atualizar cliente ${slug} (deploy principal continua)" >&2
+      echo "ERRO: falha ao atualizar cliente ${slug}" >&2
+      if [ "$slug" = "${_prod_slug}" ]; then _client_fail=1; fi
+      continue
+    fi
+    if ! aguardar_health_cliente_versao "$slug" "$_port" "${VITE_GIT_REF:-}" 240; then
+      echo "ERRO: cliente ${slug} nao ficou saudavel na versao ${VITE_GIT_REF:-?}" >&2
+      if [ "$slug" = "${_prod_slug}" ]; then _client_fail=1; fi
     fi
   done
+  if [ "${_client_fail}" = "1" ]; then
+    echo "ERRO: deploy do site publico (${_prod_dom:-zap-mass.com}) falhou — ver docker logs zapmass-cli-${_prod_slug}"
+    exit 1
+  fi
+  unset _prod_slug _prod_port _prod_dom _client_fail _port
 else
   echo "==> sem clientes adicionais"
 fi

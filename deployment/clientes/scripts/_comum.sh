@@ -425,3 +425,64 @@ recriar_cliente_compose() {
     ligar_cliente_rede_compose "$slug"
     ligar_cliente_rede_swarm "$slug"
 }
+
+# Resolve slug/porta/dominio do cliente que serve o site publico (ex.: zap-mass.com).
+resolver_cliente_producao() {
+    local pub="${PUBLIC_APP_URL:-https://zap-mass.com}"
+    pub="${pub#https://}"
+    pub="${pub#http://}"
+    pub="${pub%%/*}"
+    pub="${pub#www.}"
+
+    if [ -d "$CLIENTES_DIR" ]; then
+        local dir slug env_file dom port
+        for dir in "${CLIENTES_DIR}"/*/; do
+            [ -d "$dir" ] || continue
+            slug="$(basename "$dir")"
+            [[ "$slug" == *removido* ]] && continue
+            env_file="$(cliente_env "$slug")"
+            [ -f "$env_file" ] || continue
+            dom="$(grep -E '^PUBLIC_URL=' "$env_file" 2>/dev/null | tail -1 \
+                | sed -E 's#^PUBLIC_URL=https?://##; s#/$##; s#^www\.##' | tr -d $'\r"\'')"
+            port="$(grep -E '^HOST_PORT=' "$env_file" 2>/dev/null | tail -1 | sed 's/^HOST_PORT=//' | tr -d $'\r"\'')"
+            [ -n "$port" ] || port="3100"
+            if [ "$dom" = "$pub" ] || { [ "$pub" = "zap-mass.com" ] && [ "$slug" = "demo" ]; }; then
+                printf '%s %s %s' "$slug" "$port" "${dom:-$pub}"
+                return 0
+            fi
+        done
+    fi
+
+    printf '%s %s %s' "demo" "3100" "${pub:-zap-mass.com}"
+}
+
+# Aguarda health local com versao esperada (commit curto ou SHA).
+aguardar_health_cliente_versao() {
+    local slug="$1"
+    local port="$2"
+    local expected="${3:-}"
+    local max_sec="${4:-180}"
+    local expected_short="${expected:0:7}"
+    local waited=0 code ver
+
+    log "Aguardando versao ${expected:-?} em 127.0.0.1:${port} (${slug}, ate ${max_sec}s)..."
+    while [ "$waited" -lt "$max_sec" ]; do
+        code="$(curl -sS -o /tmp/zm-health.json -w '%{http_code}' --max-time 5 "http://127.0.0.1:${port}/api/health" 2>/dev/null || echo 000)"
+        if [ "$code" = "200" ]; then
+            ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /tmp/zm-health.json 2>/dev/null | head -1 || true)"
+            if [ -z "$expected" ] \
+                || [ "$ver" = "$expected" ] \
+                || [ "$ver" = "$expected_short" ] \
+                || [ "${ver:0:7}" = "$expected_short" ]; then
+                ok "Cliente ${slug} OK (version=${ver:-?})"
+                return 0
+            fi
+            warn "Cliente ${slug} HTTP 200 mas version=${ver:-?} != ${expected}"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+    err "Cliente ${slug} nao ficou na versao ${expected} em ${max_sec}s."
+    docker logs "zapmass-cli-${slug}" --tail 60 2>&1 | tail -60 || true
+    return 1
+}
