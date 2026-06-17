@@ -354,7 +354,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   onTogglePause
 }) => {
   const conversations = useZapMassConversations();
-  const { contacts, contactLists, campaignGeo, startCampaign } = useZapMassCore();
+  const { contacts, contactLists, campaignGeo, startCampaign, loadChatHistory } = useZapMassCore();
   const { user } = useAuth();
   // Para membros de equipa, user.uid != effectiveWorkspaceUid. Os logs sao
   // persistidos no path do workspace, entao precisamos usar o uid efetivo
@@ -369,6 +369,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [serverInboundReplies, setServerInboundReplies] = useState<
     Record<string, CampaignInboundReplyDto>
   >({});
+  const [reportLoading, setReportLoading] = useState(true);
   const [logsHasMore, setLogsHasMore] = useState(false);
   const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const LOGS_PAGE = 200;
@@ -395,12 +396,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       };
     });
 
-  const reloadServerReport = useCallback(async () => {
-    if (!campaign.id) return;
-    const snap = await fetchCampaignReport(campaign.id);
-    if (snap) setServerSnapshot(snap);
-  }, [campaign.id]);
-
   const reloadPersistedLogs = useCallback(async () => {
     if (!dataUid) {
       setPersistedLogs([]);
@@ -411,26 +406,52 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     setLogsHasMore(hasMore);
   }, [dataUid, campaign.id]);
 
-  useEffect(() => {
-    if (!dataUid) {
+  const reloadServerReport = useCallback(async () => {
+    if (!campaign.id) return;
+    const snap = await fetchCampaignReport(campaign.id);
+    if (snap) setServerSnapshot(snap);
+  }, [campaign.id]);
+
+  const reloadInboundReplies = useCallback(async () => {
+    if (!campaign.id) return;
+    const replies = await fetchCampaignInboundReplies(campaign.id);
+    setServerInboundReplies(replies);
+  }, [campaign.id]);
+
+  const refreshCampaignData = useCallback(async () => {
+    if (!dataUid || !campaign.id) {
       setPersistedLogs([]);
       setServerSnapshot(null);
+      setServerInboundReplies({});
+      setReportLoading(false);
       return;
     }
-    let cancelled = false;
-    Promise.all([
-      reloadPersistedLogs(),
-      reloadServerReport().catch(() => null)
-    ]).catch((err) => {
-      if (cancelled) return;
+    setReportLoading(true);
+    try {
+      await Promise.all([
+        reloadPersistedLogs(),
+        reloadServerReport(),
+        reloadInboundReplies()
+      ]);
+    } catch (err) {
       setPersistedLogs([]);
-      toast.error('Nao foi possivel carregar logs persistidos da campanha.');
-      if (import.meta.env.DEV) console.warn('[CampaignDetails] logs load error:', err);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [dataUid, reloadPersistedLogs, reloadServerReport]);
+      toast.error('Nao foi possivel carregar o relatorio da campanha.');
+      if (import.meta.env.DEV) console.warn('[CampaignDetails] refresh error:', err);
+    } finally {
+      setReportLoading(false);
+    }
+  }, [dataUid, campaign.id, reloadPersistedLogs, reloadServerReport, reloadInboundReplies]);
+
+  useEffect(() => {
+    setServerSnapshot(campaign.reportSnapshot ?? null);
+    setServerInboundReplies({});
+    setPersistedLogs([]);
+    setReportLoading(true);
+  }, [campaign.id]);
+
+  useEffect(() => {
+    void refreshCampaignData();
+  }, [refreshCampaignData]);
 
   useEffect(() => {
     if (campaign.status !== CampaignStatus.COMPLETED) return;
@@ -445,10 +466,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       setTimeout(() => {
         reloadPersistedLogs().catch(() => {});
         reloadServerReport().catch(() => {});
+        reloadInboundReplies().catch(() => {});
       }, ms)
     );
     return () => timers.forEach(clearTimeout);
-  }, [campaign.status, campaign.id, reloadPersistedLogs, reloadServerReport]);
+  }, [campaign.status, campaign.id, reloadPersistedLogs, reloadServerReport, reloadInboundReplies]);
 
   const loadMoreLogs = async () => {
     if (!dataUid || logsLoadingMore || !logsHasMore) return;
@@ -537,32 +559,54 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
   const replyPhonesFromLogs = useMemo(() => {
     const fromLogs = buildReplyHintsFromLogs(scopedCampaignLogs, campaign.id);
-    if (serverReplyHints.size === 0) return fromLogs;
     const merged = new Map(fromLogs);
     for (const [k, v] of serverReplyHints) {
       const prev = merged.get(k);
       if (!prev || v.replyTimestampMs >= prev.replyTimestampMs) merged.set(k, v);
     }
-    return merged;
-  }, [scopedCampaignLogs, campaign.id, serverReplyHints]);
-
-  useEffect(() => {
-    if (!campaign.id) {
-      setServerInboundReplies({});
-      return;
+    for (const [rk, inbound] of Object.entries(serverInboundReplies)) {
+      const prev = merged.get(rk);
+      if (!prev || inbound.replyTimestampMs >= prev.replyTimestampMs) {
+        merged.set(rk, {
+          phone: rk,
+          replyTimestampMs: inbound.replyTimestampMs,
+          replyText: inbound.replyText
+        });
+      }
     }
-    let cancelled = false;
-    fetchCampaignInboundReplies(campaign.id)
-      .then((replies) => {
-        if (!cancelled) setServerInboundReplies(replies);
-      })
-      .catch(() => {
-        if (!cancelled) setServerInboundReplies({});
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [campaign.id, logsForReport.length, persistedLogs.length, conversations.length]);
+    return merged;
+  }, [scopedCampaignLogs, campaign.id, serverReplyHints, serverInboundReplies]);
+
+  /** Carrega historico do chat dos contatos da campanha para enriquecer entregue/lido/resposta. */
+  useEffect(() => {
+    if (reportLoading || !loadChatHistory) return;
+    const seen = new Set<string>();
+    const tasks: Promise<unknown>[] = [];
+    for (const log of scopedCampaignLogs) {
+      if (!log.payload || typeof log.payload !== 'object') continue;
+      const p = log.payload as { message?: string; connectionId?: string; to?: string; phoneDigits?: string };
+      if (String(p.message || '') !== CAMPAIGN_SENT_LOG_MESSAGE) continue;
+      const conn = String(p.connectionId || '').trim();
+      const rk = logPayloadPhoneKey(p);
+      if (!conn || !rk) continue;
+      const convId = `${conn}:${rk.replace(/\D/g, '')}@s.whatsapp.net`;
+      if (seen.has(convId)) continue;
+      seen.add(convId);
+      tasks.push(loadChatHistory(convId, 400, false));
+    }
+    if (tasks.length === 0) return;
+    void Promise.all(tasks).then(() => {
+      reloadInboundReplies().catch(() => {});
+      reloadServerReport().catch(() => {});
+    });
+  }, [
+    reportLoading,
+    scopedCampaignLogs,
+    campaign.id,
+    loadChatHistory,
+    reloadInboundReplies,
+    reloadServerReport
+  ]);
 
   const reportSectionRef = useRef<HTMLDivElement>(null);
   const [detailFilter, setDetailFilter] = useState<ReportFilter>('ALL');
@@ -601,9 +645,10 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     const id = setInterval(() => {
       reloadPersistedLogs().catch(() => {});
       reloadServerReport().catch(() => {});
+      reloadInboundReplies().catch(() => {});
     }, 12_000);
     return () => clearInterval(id);
-  }, [isDone, isWaitingForReplies, reloadPersistedLogs, reloadServerReport]);
+  }, [isDone, isWaitingForReplies, reloadPersistedLogs, reloadServerReport, reloadInboundReplies]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -686,51 +731,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     };
   };
 
-  // Detailed report — VPS: snapshot persistido; ao vivo: logs + conversas
+  // Detailed report — sempre logs + conversas + snapshot do servidor (sem atalho parcial)
   const detailedReport = useMemo<ReportRow[]>(() => {
     const allowedConns = campaign.selectedConnectionIds || [];
     const scopedLogs = scopedCampaignLogs;
     const replyHints = replyPhonesFromLogs;
-
-    if (serverSnapshot?.rows?.length) {
-      return dedupeCampaignReportRowsByRecipient(
-        serverSnapshot.rows.map((r) => {
-          const rk = recipientKeyForCampaignReport(r.phone);
-          const hint = replyHints.get(rk);
-          let row: ReportRow = {
-            id: `snap-${rk}`,
-            phone: r.phone,
-            contactName:
-              r.contactName ||
-              findContactName(r.phone, contacts) ||
-              `+${r.phone}`,
-            status: effectiveCampaignReportStatus(
-              { phone: r.phone, status: r.status },
-              replyHints
-            ) as ReportStatus,
-            sentTime: r.sentTime,
-            sentTimestampMs: r.sentTimestampMs,
-            replyText: r.replyText || hint?.replyText,
-            replyTime: r.replyTime,
-            replyTimestampMs: r.replyTimestampMs || hint?.replyTimestampMs,
-            connectionId: r.connectionId || hint?.connectionId,
-            errorMessage: r.errorMessage
-          };
-          row = applyReplyHintsToReportRow(row, hint) as ReportRow;
-          row = applyServerInboundReplyToRow(row, serverInboundReplies[rk]);
-          const found = findCampaignMessage(r.phone, campaign.id, allowedConns, conversations);
-          if (found) {
-            row = {
-              ...row,
-              conversationId: found.conv.id,
-              profilePicUrl: found.conv.profilePicUrl,
-              sentMessage: found.msg.text || row.sentMessage
-            };
-          }
-          return attachStageReplies(row);
-        })
-      );
-    }
 
     const primary = buildPrimaryReportRowsFromLogs(
       scopedLogs,
@@ -740,7 +745,44 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       contactLists
     );
 
-    if (primary.length === 0) {
+    const mergedByPhone = new Map<string, ReportRow>();
+    for (const row of primary) {
+      mergedByPhone.set(recipientKeyForCampaignReport(row.phone), row as ReportRow);
+    }
+
+    if (serverSnapshot?.rows?.length) {
+      for (const snap of serverSnapshot.rows) {
+        const rk = recipientKeyForCampaignReport(snap.phone);
+        if (!rk) continue;
+        const hint = replyHints.get(rk);
+        const snapRow: ReportRow = {
+          id: `snap-${rk}`,
+          phone: snap.phone,
+          contactName:
+            snap.contactName ||
+            findContactName(snap.phone, contacts) ||
+            `+${snap.phone}`,
+          status: effectiveCampaignReportStatus(
+            { phone: snap.phone, status: snap.status },
+            replyHints
+          ) as ReportStatus,
+          sentTime: snap.sentTime,
+          sentTimestampMs: snap.sentTimestampMs,
+          replyText: snap.replyText || hint?.replyText,
+          replyTime: snap.replyTime,
+          replyTimestampMs: snap.replyTimestampMs || hint?.replyTimestampMs,
+          connectionId: snap.connectionId || hint?.connectionId,
+          errorMessage: snap.errorMessage
+        };
+        const existing = mergedByPhone.get(rk);
+        mergedByPhone.set(
+          rk,
+          existing ? (pickBetterCampaignReportRow(existing, snapRow) as ReportRow) : snapRow
+        );
+      }
+    }
+
+    if (mergedByPhone.size === 0) {
       const legacy = buildLegacyEstimateReportRows({ campaign, contacts, contactLists });
       if (!legacy?.length) return [];
       return dedupeCampaignReportRowsByRecipient(
@@ -755,11 +797,6 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
           legacyEstimate: true
         }))
       );
-    }
-
-    const mergedByPhone = new Map<string, ReportRow>();
-    for (const row of primary) {
-      mergedByPhone.set(recipientKeyForCampaignReport(row.phone), row as ReportRow);
     }
 
     for (const convRow of buildRowsFromConversations(campaign, contacts, conversations)) {
@@ -1462,17 +1499,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                     : 'Retomar disparo'}
                 </Button>
               )}
-              {(isWaitingForReplies || isRunning) && (
+              {(isWaitingForReplies || isRunning || isDone) && (
                 <Button
                   variant="secondary"
                   size="sm"
-                  leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${reportLoading ? 'animate-spin' : ''}`} />}
+                  disabled={reportLoading}
                   onClick={() => {
-                    void reloadPersistedLogs();
-                    void reloadServerReport();
-                    toast.success('Dados atualizados.');
+                    void refreshCampaignData().then(() => toast.success('Relatorio atualizado.'));
                   }}
-                  title="Recarregar logs e métricas"
+                  title="Recarregar logs, entregas e respostas"
                 >
                   Atualizar
                 </Button>
@@ -1557,6 +1593,20 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               )}
             </Badge>
           </div>
+
+          {reportLoading && (
+            <div
+              className="rounded-xl px-3 py-2 flex items-center gap-2 text-[12px]"
+              style={{
+                background: 'var(--surface-1)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-2)'
+              }}
+            >
+              <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" style={{ color: accentHex }} />
+              Sincronizando relatorio (logs, entregas e respostas)...
+            </div>
+          )}
 
           {/* Row 3: Progress bar */}
           <div>
@@ -1817,8 +1867,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               connections={connections}
               failedCount={failedJobs}
               onRefresh={() => {
-                void reloadPersistedLogs();
-                void reloadServerReport();
+                void refreshCampaignData();
               }}
             />
           );

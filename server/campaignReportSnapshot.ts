@@ -15,6 +15,7 @@ import { listCampaignLogs } from './repositories/campaignsRepository.js';
 import { getCampaign } from './repositories/campaignsRepository.js';
 import { mergeUpdateCampaign } from './repositories/campaignsRepository.js';
 import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
+import { buildCampaignReportConversationContext } from './campaignReportConversations.js';
 import { enrichCampaignReportRow } from '../src/utils/campaignReportRowEnrichment.js';
 
 export type CampaignReportSnapshotRow = {
@@ -72,9 +73,16 @@ export async function buildCampaignReportSnapshot(
   const allowed = Array.isArray(campaign.selectedConnectionIds)
     ? campaign.selectedConnectionIds.filter(Boolean)
     : [];
+
+  const conversations = await buildCampaignReportConversationContext(
+    tenantId,
+    campaignId,
+    scoped,
+    allowed
+  );
+
   try {
-    const { getConversations } = await import('./evolutionService.js');
-    const fromChat = buildCampaignInboundRepliesMap(campaignId, getConversations(), allowed, scoped);
+    const fromChat = buildCampaignInboundRepliesMap(campaignId, conversations, allowed, scoped);
     for (const [rk, inbound] of Object.entries(fromChat)) {
       const prev = replyHints.get(rk);
       if (!prev || inbound.replyTimestampMs >= prev.replyTimestampMs) {
@@ -96,14 +104,6 @@ export async function buildCampaignReportSnapshot(
     campaign,
     []
   );
-
-  let conversations: Awaited<ReturnType<typeof import('./evolutionService.js')['getConversations']>> = [];
-  try {
-    const { getConversations } = await import('./evolutionService.js');
-    conversations = getConversations();
-  } catch {
-    /* chat indisponível */
-  }
 
   const rowByPhone = new Map<string, CampaignReportSnapshotRow>();
   for (const r of primary) {

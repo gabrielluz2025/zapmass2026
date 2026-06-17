@@ -19,6 +19,7 @@ import {
   resetFailedContactsAtStep,
 } from './repositories/campaignContactStateRepository.js';
 import { buildCampaignInboundRepliesMap } from './campaignInboundReplies.js';
+import { buildCampaignReportConversationContext } from './campaignReportConversations.js';
 import { recipientKeyForCampaignReport } from '../src/utils/campaignReportDedupe.js';
 import {
   buildCampaignReportSnapshot,
@@ -170,10 +171,15 @@ export function registerCampaignsDataRoutes(app: Express): void {
     }));
 
     try {
-      const { getConversations } = await import('./evolutionService.js');
+      const conversations = await buildCampaignReportConversationContext(
+        ctx.tenantId,
+        campaignId,
+        scopedForReply,
+        allowed
+      );
       const fromChat = buildCampaignInboundRepliesMap(
         campaignId,
-        getConversations(),
+        conversations,
         allowed,
         scopedForReply
       );
