@@ -1,5 +1,6 @@
 import { listContacts } from './repositories/contactsRepository.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import type { Conversation } from './types.js';
 import {
   buildPhoneDigitLookupKeys,
@@ -31,7 +32,8 @@ function normalizeNameKey(name: string): string {
 }
 
 async function crmPhoneIndexesForTenant(tenantUid: string) {
-  const hit = crmPhoneCache.get(tenantUid);
+  const pgTenant = resolvePostgresTenantId(tenantUid);
+  const hit = crmPhoneCache.get(pgTenant);
   if (hit && Date.now() - hit.at < CRM_PHONE_CACHE_MS) return hit;
   const byName = new Map<string, string>();
   const byDigits = new Map<string, string>();
@@ -50,7 +52,7 @@ async function crmPhoneIndexesForTenant(tenantUid: string) {
     }
   }
   const entry = { at: Date.now(), byName, byDigits };
-  crmPhoneCache.set(tenantUid, entry);
+  crmPhoneCache.set(pgTenant, entry);
   return entry;
 }
 

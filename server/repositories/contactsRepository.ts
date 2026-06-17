@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { getZapmassPool } from '../db/postgres.js';
+import { resolvePostgresTenantId } from '../auth/firebaseUidMap.js';
 import type { Contact } from '../../src/types.js';
 import {
   contactToDocPayload,
@@ -13,12 +14,17 @@ import {
 const DEFAULT_LIMIT = 10_000;
 const BULK_INSERT_CHUNK = 100;
 
+function pgTenantId(tenantId: string): string {
+  return resolvePostgresTenantId(String(tenantId || '').trim());
+}
+
 export async function countContacts(tenantId: string): Promise<number> {
   const pool = getZapmassPool();
   if (!pool) return 0;
+  const tid = pgTenantId(tenantId);
   const r = await pool.query<{ n: string }>(
     `SELECT COUNT(*)::text AS n FROM zapmass.contacts WHERE tenant_id = $1::uuid`,
-    [tenantId]
+    [tid]
   );
   return Number(r.rows[0]?.n || 0);
 }
@@ -29,6 +35,7 @@ export async function listContacts(
 ): Promise<Contact[]> {
   const pool = getZapmassPool();
   if (!pool) return [];
+  const tid = pgTenantId(tenantId);
   const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), 10_000);
   const offset = Math.max(opts.offset ?? 0, 0);
   const r = await pool.query<ContactRow>(
@@ -37,7 +44,7 @@ export async function listContacts(
      WHERE tenant_id = $1::uuid
      ORDER BY sort_name ASC, id ASC
      LIMIT $2 OFFSET $3`,
-    [tenantId, limit, offset]
+    [tid, limit, offset]
   );
   return r.rows.map(rowToContact);
 }
@@ -45,10 +52,11 @@ export async function listContacts(
 export async function getContactById(tenantId: string, id: string): Promise<Contact | null> {
   const pool = getZapmassPool();
   if (!pool) return null;
+  const tid = pgTenantId(tenantId);
   const r = await pool.query<ContactRow>(
     `SELECT id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at
      FROM zapmass.contacts WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-    [tenantId, id]
+    [tid, id]
   );
   return r.rows[0] ? rowToContact(r.rows[0]) : null;
 }
@@ -56,6 +64,7 @@ export async function getContactById(tenantId: string, id: string): Promise<Cont
 export async function createContact(tenantId: string, contact: Partial<Contact>): Promise<Contact> {
   const pool = getZapmassPool();
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const tid = pgTenantId(tenantId);
   const id = contact.id && /^[0-9a-f-]{36}$/i.test(contact.id) ? contact.id : randomUUID();
   const name = String(contact.name || 'Sem Nome').slice(0, 500);
   const phone = String(contact.phone || '').slice(0, 64);
@@ -64,7 +73,7 @@ export async function createContact(tenantId: string, contact: Partial<Contact>)
     `INSERT INTO zapmass.contacts (id, tenant_id, name, phone, sort_name, doc)
      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb)
      RETURNING id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at`,
-    [id, tenantId, name, phone, sortNameForContact(name), JSON.stringify(doc)]
+    [id, tid, name, phone, sortNameForContact(name), JSON.stringify(doc)]
   );
   return rowToContact(r.rows[0]!);
 }
@@ -77,6 +86,7 @@ export async function bulkCreateContacts(
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
   if (rows.length === 0) return [];
 
+  const tid = pgTenantId(tenantId);
   const ids: string[] = [];
   const client = await pool.connect();
   try {
@@ -84,7 +94,7 @@ export async function bulkCreateContacts(
     for (let offset = 0; offset < rows.length; offset += BULK_INSERT_CHUNK) {
       const chunk = rows.slice(offset, offset + BULK_INSERT_CHUNK);
       const values: string[] = [];
-      const params: unknown[] = [tenantId];
+      const params: unknown[] = [tid];
       let paramIdx = 2;
       for (const contact of chunk) {
         const id = randomUUID();
@@ -145,12 +155,13 @@ export async function updateContact(
   const doc = contactToDocPayload(merged);
   const pool = getZapmassPool();
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const tid = pgTenantId(tenantId);
   const r = await pool.query<ContactRow>(
     `UPDATE zapmass.contacts
      SET name = $3, phone = $4, sort_name = $5, doc = $6::jsonb, updated_at = now()
      WHERE tenant_id = $1::uuid AND id = $2::uuid
      RETURNING id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at`,
-    [tenantId, id, name, phone, sortNameForContact(name), JSON.stringify(doc)]
+    [tid, id, name, phone, sortNameForContact(name), JSON.stringify(doc)]
   );
   return r.rows[0] ? rowToContact(r.rows[0]) : null;
 }
@@ -162,6 +173,7 @@ export async function bulkUpdateContacts(
   if (items.length === 0) return;
   const pool = getZapmassPool();
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
+  const tid = pgTenantId(tenantId);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -169,7 +181,7 @@ export async function bulkUpdateContacts(
     const r = await client.query<ContactRow>(
       `SELECT id::text, tenant_id::text, name, phone, sort_name, doc, created_at, updated_at
        FROM zapmass.contacts WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
-      [tenantId, ids]
+      [tid, ids]
     );
     const existingById = new Map(r.rows.map((row) => [row.id, rowToContact(row)]));
     for (const { id, updates } of items) {
@@ -183,7 +195,7 @@ export async function bulkUpdateContacts(
         `UPDATE zapmass.contacts
          SET name = $3, phone = $4, sort_name = $5, doc = $6::jsonb, updated_at = now()
          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-        [tenantId, id, name, phone, sortNameForContact(name), JSON.stringify(doc)]
+        [tid, id, name, phone, sortNameForContact(name), JSON.stringify(doc)]
       );
     }
     await client.query('COMMIT');
@@ -198,9 +210,10 @@ export async function bulkUpdateContacts(
 export async function deleteContact(tenantId: string, id: string): Promise<boolean> {
   const pool = getZapmassPool();
   if (!pool) return false;
+  const tid = pgTenantId(tenantId);
   const r = await pool.query(
     `DELETE FROM zapmass.contacts WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-    [tenantId, id]
+    [tid, id]
   );
   return (r.rowCount ?? 0) > 0;
 }
@@ -208,6 +221,7 @@ export async function deleteContact(tenantId: string, id: string): Promise<boole
 export async function deleteAllContacts(tenantId: string): Promise<number> {
   const pool = getZapmassPool();
   if (!pool) return 0;
-  const r = await pool.query(`DELETE FROM zapmass.contacts WHERE tenant_id = $1::uuid`, [tenantId]);
+  const tid = pgTenantId(tenantId);
+  const r = await pool.query(`DELETE FROM zapmass.contacts WHERE tenant_id = $1::uuid`, [tid]);
   return r.rowCount ?? 0;
 }
