@@ -49,7 +49,7 @@ import {
 } from '../utils/weddingAnniversary';
 import { campaignRecipientNameVars } from '../utils/contactNameNormalize';
 import { campaignClockVars } from '../utils/campaignClockVars';
-import { DashboardPulsePanel } from './dashboard/DashboardPulsePanel';
+import { DashboardOrbitPanel } from './dashboard/DashboardOrbitPanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
 import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
@@ -855,7 +855,7 @@ export const DashboardTab: React.FC = () => {
 
   return (
     <div className="zm-dashboard space-y-5 pb-10">
-      <DashboardPulsePanel
+      <DashboardOrbitPanel
         firstName={firstName}
         greeting={greeting}
         segmentTagline={segmentXp.dashboardTagline}

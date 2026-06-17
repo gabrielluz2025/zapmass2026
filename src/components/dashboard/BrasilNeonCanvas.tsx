@@ -12,8 +12,8 @@ type Props = {
   contacts: Contact[];
   campaignGeo: CampaignGeoState;
   isLive?: boolean;
-  /** hero = mapa em destaque, controles flutuantes, sem cabeçalho duplicado */
-  variant?: 'default' | 'hero';
+  /** default | hero | sidebar (coluna lateral compacta) */
+  variant?: 'default' | 'hero' | 'sidebar';
 };
 
 /** Posição aproximada de cada UF no viewBox 0–100 (silhueta do Brasil). */
@@ -67,6 +67,8 @@ function heatColor(intensity: number, layer: Layer): string {
 
 export const BrasilNeonCanvas: React.FC<Props> = ({ contacts, campaignGeo, isLive, variant = 'default' }) => {
   const isHero = variant === 'hero';
+  const isSidebar = variant === 'sidebar';
+  const isCompact = isHero || isSidebar;
   const [layer, setLayer] = useState<Layer>('contacts');
   const [hoverUf, setHoverUf] = useState<string | null>(null);
 
@@ -109,8 +111,10 @@ export const BrasilNeonCanvas: React.FC<Props> = ({ contacts, campaignGeo, isLiv
   const hasCampaign = campaignByUf.size > 0;
 
   return (
-    <div className={`bn-canvas h-full flex flex-col ${isHero ? 'bn-canvas--hero' : ''}`}>
-      {!isHero && (
+    <div
+      className={`bn-canvas h-full flex flex-col ${isHero ? 'bn-canvas--hero' : ''} ${isSidebar ? 'bn-canvas--sidebar' : ''}`}
+    >
+      {!isCompact && (
         <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
           <div>
             <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-teal-700/80">Mapa único</p>
@@ -130,7 +134,9 @@ export const BrasilNeonCanvas: React.FC<Props> = ({ contacts, campaignGeo, isLiv
         className={
           isHero
             ? 'absolute top-4 right-4 z-20 flex gap-1 p-1 rounded-xl bg-white/90 backdrop-blur-md shadow-lg border border-stone-200/80'
-            : 'flex gap-1 p-1 rounded-xl bg-stone-100/90 mb-3 w-fit'
+            : isSidebar
+              ? 'flex gap-0.5 p-0.5 rounded-lg bg-white border border-slate-200 mb-2 w-full'
+              : 'flex gap-1 p-1 rounded-xl bg-stone-100/90 mb-3 w-fit'
         }
       >
         {(
@@ -144,7 +150,9 @@ export const BrasilNeonCanvas: React.FC<Props> = ({ contacts, campaignGeo, isLiv
             type="button"
             disabled={'disabled' in opt && opt.disabled}
             onClick={() => setLayer(opt.id)}
-            className="px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all disabled:opacity-40"
+            className={`rounded-lg text-[11px] font-bold transition-all disabled:opacity-40 flex-1 ${
+              isSidebar ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5'
+            }`}
             style={{
               background: layer === opt.id ? '#fff' : 'transparent',
               color: layer === opt.id ? '#0f766e' : '#78716c',
@@ -158,7 +166,11 @@ export const BrasilNeonCanvas: React.FC<Props> = ({ contacts, campaignGeo, isLiv
 
       <div
         className={`relative flex-1 overflow-hidden bn-canvas__stage ${
-          isHero ? 'min-h-[320px] rounded-none border-0' : 'min-h-[280px] rounded-2xl'
+          isHero
+            ? 'min-h-[320px] rounded-none border-0'
+            : isSidebar
+              ? 'min-h-[180px] rounded-xl border-slate-200/80'
+              : 'min-h-[280px] rounded-2xl'
         }`}
       >
         <div className="bn-canvas__scan" aria-hidden />
@@ -206,7 +218,7 @@ export const BrasilNeonCanvas: React.FC<Props> = ({ contacts, campaignGeo, isLiv
         )}
       </div>
 
-      {!isHero && (
+      {!isCompact && (
         <>
           <div className="mt-3 flex items-center justify-between gap-2">
             <p className="text-[22px] font-black tabular-nums text-stone-900">{total.toLocaleString('pt-BR')}</p>
@@ -233,6 +245,15 @@ export const BrasilNeonCanvas: React.FC<Props> = ({ contacts, campaignGeo, isLiv
             </ul>
           )}
         </>
+      )}
+
+      {isSidebar && (
+        <p className="mt-2 text-center text-[11px] font-bold text-slate-600 tabular-nums">
+          {total.toLocaleString('pt-BR')}{' '}
+          <span className="text-slate-400 font-semibold">
+            {layer === 'contacts' ? 'contatos' : 'eventos'}
+          </span>
+        </p>
       )}
 
       {isHero && isLive && (
