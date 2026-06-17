@@ -116,7 +116,8 @@ ler_postgres_password() {
     local pass=""
     if [ -f "$f" ]; then
         pass="$(grep -E '^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=' "$f" 2>/dev/null | tail -1 \
-            | sed -E 's/^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=//' | tr -d '\r"'\'')"
+            | sed -E 's/^[[:space:]]*(export[[:space:]]+)?POSTGRES_PASSWORD=//' \
+            | tr -d $'\r"\'')"
     fi
     printf '%s' "${pass:-evolution-secure-pass-2026}"
 }
