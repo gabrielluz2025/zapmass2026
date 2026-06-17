@@ -1,4 +1,5 @@
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
+import { forceAppHardReload, isChunkLoadError } from './utils/chunkLoadRecovery';
 
 type Props = { children: ReactNode };
 type State = { hasError: boolean; error: Error | null };
@@ -22,24 +23,29 @@ export class ErrorBoundary extends Component<Props, State> {
       return this.props.children;
     }
     const { message, stack } = this.state.error;
+    const chunkStale = isChunkLoadError(this.state.error);
     return (
       <div
         className="min-h-screen p-6 font-sans"
         style={{ background: '#0a0a0a', color: '#e5e5e5' }}
       >
-        <h1 className="text-lg font-semibold text-white mb-2">Erro ao carregar o aplicativo</h1>
+        <h1 className="text-lg font-semibold text-white mb-2">
+          {chunkStale ? 'Versão desatualizada no navegador' : 'Erro ao carregar o aplicativo'}
+        </h1>
         <p className="text-sm text-neutral-300 mb-4" style={{ maxWidth: 560 }}>
-          {message}
+          {chunkStale
+            ? 'O ZapMass foi atualizado no servidor, mas o seu navegador ainda tinha arquivos antigos. Clique abaixo para recarregar com a versão nova.'
+            : message}
         </p>
-        {import.meta.env.DEV && stack ? (
+        {import.meta.env.DEV && stack && !chunkStale ? (
           <pre className="text-xs overflow-auto p-3 rounded bg-black/40 text-neutral-400 max-h-64">{stack}</pre>
         ) : null}
         <button
           type="button"
           className="mt-6 px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-500"
-          onClick={() => window.location.reload()}
+          onClick={() => (chunkStale ? forceAppHardReload('boundary') : window.location.reload())}
         >
-          Recarregar página
+          {chunkStale ? 'Atualizar para versão nova' : 'Recarregar página'}
         </button>
       </div>
     );

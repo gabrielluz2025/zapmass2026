@@ -24,6 +24,7 @@ import { canAccessCreatorStudio } from './utils/creatorStudioAccess';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { AppProfileProvider, useAppProfile } from './context/AppProfileContext';
 import { SegmentOnboardingScreen } from './components/onboarding/SegmentOnboardingScreen';
+import { TabLoadErrorBoundary } from './components/TabLoadErrorBoundary';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
@@ -333,7 +334,9 @@ const MainLayout: React.FC = () => {
   };
 
   const renderContent = () => (
-    <Suspense fallback={<LazyViewSpinner />}>{renderContentInner()}</Suspense>
+    <TabLoadErrorBoundary label={currentView}>
+      <Suspense fallback={<LazyViewSpinner />}>{renderContentInner()}</Suspense>
+    </TabLoadErrorBoundary>
   );
 
   return (

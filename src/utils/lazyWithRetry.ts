@@ -1,6 +1,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
+import { forceAppHardReload, isChunkLoadError } from './chunkLoadRecovery';
 
-/** Import dinâmico com retry único via reload (chunks 404 após deploy). */
+/** Import dinâmico com retry via reload forçado (chunks 404 após deploy). */
 export function lazyWithRetry<T extends ComponentType<unknown>>(
   factory: () => Promise<{ default: T }>,
   label = 'view'
@@ -16,10 +17,12 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
       }
       return mod;
     } catch (err) {
+      if (!isChunkLoadError(err)) throw err;
       try {
-        if (!sessionStorage.getItem(reloadKey)) {
-          sessionStorage.setItem(reloadKey, '1');
-          window.location.reload();
+        const attempts = Number(sessionStorage.getItem(reloadKey) || '0');
+        if (attempts < 1) {
+          sessionStorage.setItem(reloadKey, String(attempts + 1));
+          forceAppHardReload(label);
           return new Promise<{ default: T }>(() => {}) as never;
         }
         sessionStorage.removeItem(reloadKey);
