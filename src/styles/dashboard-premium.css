@@ -474,6 +474,10 @@
   border-radius: 8px !important;
 }
 
+.zm-territory-map .leaflet-heatmap-layer {
+  mix-blend-mode: multiply;
+}
+
 .zm-orbit-dock-btn {
   position: relative;
 }
