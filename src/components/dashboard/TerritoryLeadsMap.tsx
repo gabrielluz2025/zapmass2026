@@ -8,6 +8,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.heat';
 import {
   ChevronLeft,
+  Crosshair,
   Download,
   Flame,
   Loader2,
@@ -25,6 +26,7 @@ import {
   apiGeocodeContacts,
   type LeadsGeoSummary,
 } from '../../services/leadsGeoApi';
+import { useOperatingLocation } from '../../hooks/useOperatingLocation';
 import {
   computeContactTemperatures,
   CONTACT_TEMP_LABEL,
@@ -42,15 +44,6 @@ import {
 
 const BLUMENAU_CENTER: L.LatLngExpression = [-26.9194, -49.0661];
 const BLUMENAU_ZOOM = 12;
-
-const CITY_PRESETS = [
-  'Blumenau · SC',
-  'Florianópolis · SC',
-  'Joinville · SC',
-  'Curitiba · PR',
-  'São Paulo · SP',
-  'Porto Alegre · RS',
-];
 
 const TEMP_COLOR: Record<ContactTemperature, string> = {
   hot: '#ef4444',
@@ -237,13 +230,20 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   compact = false,
   deferLoad = false,
 }) => {
+  const {
+    cityLabel: city,
+    setCityLabel: setCity,
+    gpsLoading,
+    loading: locationLoading,
+    useMyLocation,
+    cityPresets
+  } = useOperatingLocation(defaultCity);
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const layersRef = useRef<L.Layer[]>([]);
   const lastGeoErrorToastRef = useRef(0);
 
-  const [city, setCity] = useState(defaultCity);
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
@@ -588,9 +588,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const cityOptions = useMemo(() => {
     const fromApi = summary?.filters.cities || [];
-    const set = new Set<string>([...CITY_PRESETS, ...fromApi]);
+    const set = new Set<string>([...cityPresets, ...fromApi]);
     return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [summary?.filters.cities]);
+  }, [summary?.filters.cities, cityPresets]);
 
   const viewModes: { id: ViewMode; label: string }[] = [
     { id: 'temperature', label: 'Temperatura' },
@@ -611,11 +611,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           <input
             list="zm-city-presets"
             value={city}
+            disabled={locationLoading}
             onChange={(e) => {
               setSelectedNb(null);
               setCity(e.target.value);
             }}
-            className="flex-1 min-w-0 rounded-xl border border-stone-200/80 bg-white/90 px-3 py-2 text-[13px] font-semibold text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/50"
+            className="flex-1 min-w-0 rounded-xl border border-stone-200/80 bg-white/90 px-3 py-2 text-[13px] font-semibold text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/50 disabled:opacity-60"
             placeholder="Cidade · UF (ex: Blumenau · SC)"
           />
           <datalist id="zm-city-presets">
@@ -624,6 +625,25 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             ))}
           </datalist>
         </div>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={locationLoading || gpsLoading}
+          onClick={() => {
+            setSelectedNb(null);
+            void useMyLocation();
+          }}
+          leftIcon={
+            gpsLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Crosshair className="w-3.5 h-3.5" />
+            )
+          }
+        >
+          GPS
+        </Button>
 
         <div className="flex gap-1 p-0.5 rounded-xl bg-stone-100 border border-stone-200/80">
           {viewModes.map((m) => (

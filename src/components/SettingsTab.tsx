@@ -9,6 +9,7 @@ import {
   FileWarning,
   Layers,
   Moon,
+  MapPin,
   Palette,
   Save,
   ShieldCheck,
@@ -42,6 +43,7 @@ import toast from 'react-hot-toast';
 import { Badge, Button, Card, Input, SectionHeader } from './ui';
 import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
 import { AccountProfileEditor } from './settings/AccountProfileEditor';
+import { OperatingLocationEditor } from './settings/OperatingLocationEditor';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useAppProfile } from '../context/AppProfileContext';
 import {
@@ -606,6 +608,21 @@ export const SettingsTab: React.FC = () => {
                 <Badge variant="info">Info</Badge>
               </div>
             </div>
+          </Card>
+
+          <Card className="lg:col-span-2">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--surface-selected-brand)' }}>
+                <MapPin className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />
+              </div>
+              <div>
+                <h2 className="ui-title text-[15px]">Região de operação</h2>
+                <p className="ui-subtitle text-[12.5px]">
+                  Cidade usada no mapa territorial — manual ou via GPS do dispositivo.
+                </p>
+              </div>
+            </div>
+            <OperatingLocationEditor />
           </Card>
         </div>
       )}
