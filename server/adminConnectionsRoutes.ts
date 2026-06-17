@@ -160,6 +160,21 @@ export function registerAdminConnectionsRoutes(app: Express): void {
     });
   });
 
+  /** Reconciliação automática de donos (Patrícia → conta correta, etc.). */
+  app.post('/api/admin/connections/auto-reconcile', async (req: Request, res: Response) => {
+    const auth = await assertAdminFromBearer(req, res);
+    if (!auth) return;
+
+    if (!useEvolutionEngine()) {
+      res.status(400).json({ ok: false, error: 'Disponível apenas com ZAPMASS_WHATSAPP_ENGINE=evolution.' });
+      return;
+    }
+
+    const dryRun = req.query.dryRun === '1' || (req.body as { dryRun?: boolean })?.dryRun === true;
+    const result = await evolutionService.autoReconcileConnectionOwners({ dryRun });
+    res.json({ ok: result.ok, ...result, reconciledBy: auth.uid });
+  });
+
   /** Reatribui ownerUid de canal legado (reparo manual pós vazamento). */
   app.post('/api/admin/connections/reassign-owner', async (req: Request, res: Response) => {
     const auth = await assertAdminFromBearer(req, res);

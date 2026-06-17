@@ -4442,8 +4442,16 @@ export function init(socketIO: SocketIOServer) {
         webhookUrl: evolutionConfig.webhookUrl,
     });
 
-    void normalizeConnectionOwnersInSettings().then(() => {
+    void normalizeConnectionOwnersInSettings().then(async () => {
         healAllOrphanConnectionOwners();
+        const reconciled = await autoReconcileConnectionOwners();
+        if (reconciled.applied.length > 0 || reconciled.removed.length > 0) {
+            log('warn', 'Isolamento: canais reatribuídos no boot', {
+                applied: reconciled.applied,
+                removed: reconciled.removed,
+                migrated: reconciled.migrated,
+            });
+        }
         return hydrateInstancesFromEvolution().then(() => {
             healAllGenericConnectionFriendlyNames();
             return reconcileConnectionHealth();
@@ -5115,6 +5123,64 @@ export async function ensureConnectionsHydrated(): Promise<void> {
 }
 
 /**
+ * Reconcilia ownerUid errado (ex.: canal da Patrícia na conta Gabriel) com base no Postgres.
+ */
+export async function autoReconcileConnectionOwners(opts?: { dryRun?: boolean }): Promise<{
+    ok: boolean;
+    dryRun: boolean;
+    actions: import('./reconcileConnectionOwners.js').ReconcileAction[];
+    applied: string[];
+    removed: string[];
+    migrated: Array<{ connId: string; threads: number; messages: number }>;
+    errors: Array<{ connId: string; error: string }>;
+}> {
+    const { planConnectionOwnerReconciliation } = await import('./reconcileConnectionOwners.js');
+    const actions = await planConnectionOwnerReconciliation(connectionsSettingsCache);
+    const empty = {
+        ok: true,
+        dryRun: Boolean(opts?.dryRun),
+        actions,
+        applied: [] as string[],
+        removed: [] as string[],
+        migrated: [] as Array<{ connId: string; threads: number; messages: number }>,
+        errors: [] as Array<{ connId: string; error: string }>,
+    };
+    if (opts?.dryRun || actions.length === 0) {
+        return empty;
+    }
+
+    const applied: string[] = [];
+    const removed: string[] = [];
+    const migrated: Array<{ connId: string; threads: number; messages: number }> = [];
+    const errors: Array<{ connId: string; error: string }> = [];
+
+    for (const action of actions) {
+        if (action.kind === 'remove') {
+            delete connectionsSettingsCache[action.connId];
+            connections.delete(action.connId);
+            removed.push(action.connId);
+            continue;
+        }
+
+        const prior = action.fromOwnerUid || undefined;
+        const result = await reassignConnectionOwnerAdmin(action.connId, action.toOwnerUid, {
+            priorOwnerUid: prior,
+        });
+        if (result.ok) {
+            applied.push(action.connId);
+        } else {
+            errors.push({ connId: action.connId, error: result.error || 'reassign falhou' });
+        }
+    }
+
+    if (removed.length > 0) {
+        saveConnectionsSettings();
+    }
+
+    return { ok: errors.length === 0, dryRun: false, actions, applied, removed, migrated, errors };
+}
+
+/**
  * Corrige ownerUid de canal legado `conn_*` (admin / reparo pós vazamento entre tenants).
  * Hidrata Evolution, atualiza RAM + connections_settings.json e notifica donos afetados.
  */
@@ -5131,6 +5197,24 @@ export async function reassignConnectionOwnerAdmin(
 
     await hydrateInstancesFromEvolution();
     const prior = resolveOwnerUid(id);
+
+    if (prior && prior !== uid) {
+        try {
+            const { migrateChatForConnection } = await import('./reconcileConnectionOwners.js');
+            const migrated = await migrateChatForConnection(prior, uid, id);
+            if (migrated.threads > 0) {
+                log('info', 'Chats migrados na reassign de canal', {
+                    connectionId: id,
+                    priorOwnerUid: prior,
+                    newOwnerUid: uid,
+                    ...migrated,
+                });
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            log('warn', 'Falha ao migrar chats na reassign', { connectionId: id, error: msg });
+        }
+    }
 
     if (opts?.priorOwnerUid?.trim() && prior && prior !== opts.priorOwnerUid.trim()) {
         return {
@@ -5286,6 +5370,7 @@ export default {
     getInboxPageForOwner,
     assignConnectionOwner,
     reassignConnectionOwnerAdmin,
+    autoReconcileConnectionOwners,
     healAllOrphanConnectionOwners,
     healAllGenericConnectionFriendlyNames,
     listOrphanOpenConnectionIds,
