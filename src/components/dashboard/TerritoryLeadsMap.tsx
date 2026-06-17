@@ -302,6 +302,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [apiSyncing, setApiSyncing] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('temperature');
   const [selectedNb, setSelectedNb] = useState<string | null>(null);
@@ -418,7 +419,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [compact, mapActive]);
 
   const loadSummary = useCallback(async () => {
-    setLoading(true);
+    const hasLocalFallback = !!(blumenauFocus && localBlumenauSummary);
+    if (!hasLocalFallback) setLoading(true);
+    else setApiSyncing(true);
     try {
       const data = await fetchLeadsGeoSummary({
         layer: 'neighborhood',
@@ -428,6 +431,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       });
       setSummary(data);
     } catch (e) {
+      if (hasLocalFallback) return;
       const msg = e instanceof Error ? e.message : 'Erro ao carregar mapa.';
       const now = Date.now();
       if (now - lastGeoErrorToastRef.current > 12_000) {
@@ -436,8 +440,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       }
     } finally {
       setLoading(false);
+      setApiSyncing(false);
     }
-  }, [city, selectedNb]);
+  }, [city, selectedNb, blumenauFocus, localBlumenauSummary]);
 
   useEffect(() => {
     if (!deferLoad || mapActive || !rootRef.current) return;
@@ -759,7 +764,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
             </div>
           )}
-          {loading && mapSummary && !summary && (
+          {apiSyncing && mapSummary && !summary && (
             <div className="absolute top-3 right-3 z-[500] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
               <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />
               Sincronizando mapa…

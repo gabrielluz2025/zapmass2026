@@ -1058,6 +1058,102 @@ export async function warmupLeadsGeoCache(): Promise<void> {
   }
 }
 
+/** Resposta rápida para mapa territorial de Blumenau (35 bairros, modo light). */
+function buildBlumenauLightNeighborhoodSummary(
+  contacts: Contact[],
+  query: LeadsGeoQuery
+): LeadsGeoSummary {
+  const cache = readGeoCache();
+  const selectedNb = query.neighborhood?.split('·')[0]?.trim() || '';
+  const selectedNbKey = selectedNb ? normBlumenauNbKey(selectedNb) : '';
+
+  const byKey = new Map<string, GeoCluster>();
+  BLUMENAU_OFFICIAL_NEIGHBORHOODS.forEach((name, idx) => {
+    const spread = blumenauSpreadCoord(idx);
+    byKey.set(normBlumenauNbKey(name), {
+      key: clusterKey('neighborhood', { city: 'Blumenau', neighborhood: name }),
+      label: name,
+      city: 'Blumenau',
+      state: 'SC',
+      neighborhood: name,
+      ddd: '47',
+      count: 0,
+      lat: spread.lat,
+      lng: spread.lng,
+      precision: 'neighborhood',
+      mapped: false,
+      sampleNames: []
+    });
+  });
+
+  let filteredTotal = 0;
+  let withNeighborhood = 0;
+  const byNeighborhood: Record<string, number> = {};
+
+  for (const raw of contacts) {
+    const c = hydrateContactForGeo(raw);
+    const cityRaw = `${c.city || ''} ${c.state || ''}`.trim();
+    if (!isBlumenauCity(cityRaw) && !isBlumenauCity(c.city || '')) continue;
+
+    const official = matchOfficialNeighborhood(c.neighborhood || '');
+    if (!official) continue;
+    if (selectedNbKey && normBlumenauNbKey(official) !== selectedNbKey) continue;
+
+    filteredTotal++;
+    withNeighborhood++;
+    const slot = byKey.get(normBlumenauNbKey(official));
+    if (!slot) continue;
+    slot.count++;
+    byNeighborhood[official] = (byNeighborhood[official] || 0) + 1;
+    if (slot.sampleNames.length < 5 && c.name) {
+      slot.sampleNames.push(String(c.name).slice(0, 40));
+    }
+  }
+
+  let clusters = [...byKey.values()].sort((a, b) => b.count - a.count);
+  clusters = consolidateBlumenauOfficialNeighborhoods(clusters, byNeighborhood, cache);
+
+  const top = clusters.find((c) => c.count > 0) || clusters[0];
+  const topConcentration = top
+    ? {
+        label: top.label,
+        count: top.count,
+        sharePct: filteredTotal > 0 ? Math.round((1000 * top.count) / filteredTotal) / 10 : 0,
+        key: top.key
+      }
+    : null;
+
+  return {
+    stats: {
+      totalContacts: contacts.length,
+      withAnyAddress: filteredTotal,
+      withCity: filteredTotal,
+      withNeighborhood,
+      withPhone: contacts.filter((c) => (c.phone || '').replace(/\D/g, '').length >= 10).length,
+      clusters: clusters.length,
+      clustersMapped: clusters.filter((c) => c.mapped && c.lat != null).length,
+      clustersPending: clusters.filter((c) => !cache[c.key]).length,
+      filteredTotal
+    },
+    layer: 'neighborhood',
+    clusters,
+    byState: { SC: filteredTotal },
+    byDdd: { '47': filteredTotal },
+    byCity: { 'Blumenau · SC': filteredTotal },
+    byNeighborhood,
+    filters: {
+      cities: ['Blumenau · SC'],
+      states: ['SC'],
+      ddds: ['47'],
+      neighborhoods: [...BLUMENAU_OFFICIAL_NEIGHBORHOODS]
+    },
+    topConcentration,
+    contactPins: [],
+    pinStats: { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
+    mapViewport: { lat: -26.9194, lng: -49.0661, zoom: 12 }
+  };
+}
+
 async function buildLeadsGeoSummaryInner(
   tenantId: string,
   query: LeadsGeoQuery = {}
@@ -1068,6 +1164,12 @@ async function buildLeadsGeoSummaryInner(
       : 'city';
 
   const contacts = await loadTenantContacts(tenantId);
+  const lightMode = query.light === true;
+
+  if (lightMode && layer === 'neighborhood' && isBlumenauCity(query.city || '')) {
+    return buildBlumenauLightNeighborhoodSummary(contacts, query);
+  }
+
   const ibgeIndex = getIbgeMunicipiosIndex();
   const nbToCityMap = buildNeighborhoodToCityMap(
     contacts.map((c) => ({
