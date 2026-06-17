@@ -148,23 +148,43 @@ sincronizar_jwt_cliente() {
     ok "ZAPMASS_JWT_SECRET sincronizado em ${env_file}"
 }
 
+# Origem dos uploads da stack principal (bind mount ou volume Docker zapmass-data).
+_uploads_legado_dir() {
+    local d mp vol
+    for d in "${ZAPMASS_ROOT}/data/public/uploads"; do
+        if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then
+            printf '%s' "$d"
+            return 0
+        fi
+    done
+    for vol in zapmass_zapmass-data zapmass-data; do
+        mp="$(docker volume inspect "$vol" --format '{{.Mountpoint}}' 2>/dev/null || true)"
+        d="${mp}/public/uploads"
+        if [ -n "$mp" ] && [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then
+            printf '%s' "$d"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Fotos de perfil /uploads da stack principal → volume do cliente Plano B.
 sincronizar_uploads_legado() {
     local slug="$1"
-    local legacy="${ZAPMASS_ROOT}/data/public/uploads"
-    local target
+    local legacy target n
     target="$(cliente_data "$slug")/public/uploads"
-    if [ ! -d "$legacy" ]; then
-        log "Sem uploads legados em ${legacy} — nada a copiar."
+    legacy="$(_uploads_legado_dir || true)"
+    if [ -z "$legacy" ]; then
+        log "Sem uploads legados (nem ${ZAPMASS_ROOT}/data nem volume zapmass-data) — reenvie a foto em Configurações se necessário."
         return 0
     fi
     mkdir -p "$target"
+    log "A copiar uploads de ${legacy} → ${target} ..."
     if command -v rsync >/dev/null 2>&1; then
         rsync -a "$legacy/" "$target/" 2>/dev/null || true
     else
         cp -a "$legacy/." "$target/" 2>/dev/null || true
     fi
-    local n
     n="$(find "$target" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
     ok "Uploads legados sincronizados (${n} ficheiros) → ${target}"
 }
