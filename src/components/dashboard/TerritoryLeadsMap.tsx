@@ -24,6 +24,7 @@ import type { Contact, Conversation } from '../../types';
 import {
   fetchLeadsGeoSummary,
   apiGeocodeContacts,
+  type GeoCluster,
   type LeadsGeoSummary,
 } from '../../services/leadsGeoApi';
 import { useOperatingLocation } from '../../hooks/useOperatingLocation';
@@ -37,6 +38,7 @@ import { exportLeadsGeoXlsx } from '../../utils/exportLeadsGeoXlsx';
 import { Button } from '../ui/Button';
 import {
   BLUMENAU_OFFICIAL_NEIGHBORHOODS,
+  blumenauSpreadCoord,
   isBlumenauCity,
   matchOfficialNeighborhood,
   normBlumenauNbKey
@@ -184,6 +186,60 @@ function buildBlumenauNbStats(
   return map;
 }
 
+function buildLocalBlumenauSummary(
+  blumenauNbStats: Map<string, NbTempStats>,
+  totalContacts: number
+): LeadsGeoSummary {
+  const clusters: GeoCluster[] = BLUMENAU_OFFICIAL_NEIGHBORHOODS.map((name, idx) => {
+    const { lat, lng } = blumenauSpreadCoord(idx);
+    const stats = blumenauNbStats.get(normBlumenauNbKey(name));
+    return {
+      key: `blumenau-${normBlumenauNbKey(name)}`,
+      label: name,
+      city: 'Blumenau',
+      state: 'SC',
+      neighborhood: name,
+      ddd: '47',
+      count: stats?.total ?? 0,
+      lat,
+      lng,
+      precision: 'neighborhood',
+      mapped: false,
+      sampleNames: []
+    };
+  });
+  const filteredTotal = [...blumenauNbStats.values()].reduce((acc, s) => acc + s.total, 0);
+  return {
+    stats: {
+      totalContacts,
+      withAnyAddress: filteredTotal,
+      withCity: filteredTotal,
+      withNeighborhood: filteredTotal,
+      withPhone: 0,
+      clusters: clusters.length,
+      clustersMapped: 0,
+      clustersPending: clusters.length,
+      filteredTotal
+    },
+    layer: 'neighborhood',
+    clusters,
+    byState: { SC: filteredTotal },
+    byDdd: { '47': filteredTotal },
+    byCity: { 'Blumenau · SC': filteredTotal },
+    byNeighborhood: Object.fromEntries(clusters.map((c) => [c.label, c.count])),
+    filters: {
+      cities: ['Blumenau · SC'],
+      states: ['SC'],
+      ddds: ['47'],
+      neighborhoods: [...BLUMENAU_OFFICIAL_NEIGHBORHOODS]
+    },
+    topConcentration: null,
+    contactPins: [],
+    pinStats: { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
+    mapViewport: { lat: -26.9194, lng: -49.0661, zoom: BLUMENAU_ZOOM }
+  };
+}
+
 function slugFile(s: string): string {
   return normalizeKey(s).replace(/\s+/g, '_').slice(0, 40) || 'bairro';
 }
@@ -262,6 +318,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     if (!blumenauFocus) return null;
     return buildBlumenauNbStats(contacts, city, tempsByContact);
   }, [blumenauFocus, contacts, city, tempsByContact]);
+
+  const localBlumenauSummary = useMemo(() => {
+    if (!blumenauFocus || !blumenauNbStats) return null;
+    return buildLocalBlumenauSummary(blumenauNbStats, contacts.length);
+  }, [blumenauFocus, blumenauNbStats, contacts.length]);
+
+  const mapSummary = summary ?? localBlumenauSummary;
 
   const topNeighborhoods = useMemo(() => {
     if (blumenauFocus && blumenauNbStats) {
@@ -399,14 +462,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const paintMap = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !summary) return;
+    if (!map || !mapSummary) return;
 
     for (const layer of layersRef.current) {
       map.removeLayer(layer);
     }
     layersRef.current = [];
 
-    const clusters = summary.clusters.filter((c) => c.lat != null && c.lng != null);
+    const clusters = mapSummary.clusters.filter((c) => c.lat != null && c.lng != null);
     const maxCount = Math.max(1, ...clusters.map((c) => c.count));
 
     const bindClusterClick = (circle: L.CircleMarker, cluster: (typeof clusters)[0], extra = '') => {
@@ -524,7 +587,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       }
 
       if (!blumenauFocus) {
-        const pins = summary.contactPins.slice(0, compact ? 120 : 200);
+        const pins = mapSummary.contactPins.slice(0, compact ? 120 : 200);
         for (const pin of pins) {
           const { lat, lng } = fixBrazilCoord(pin.lat, pin.lng);
           if (!isMapCoordValid(lat, lng)) continue;
@@ -539,13 +602,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       }
     }
 
-    const vp = summary.mapViewport;
+    const vp = mapSummary.mapViewport;
     if (vp) {
       map.flyTo([vp.lat, vp.lng], vp.zoom, { duration: 0.8 });
     } else if (blumenauFocus) {
       map.flyTo(BLUMENAU_CENTER, BLUMENAU_ZOOM, { duration: 0.6 });
     }
-  }, [summary, viewMode, tempsByContact, city, compact, selectNeighborhood, blumenauNbStats, blumenauFocus]);
+  }, [mapSummary, viewMode, tempsByContact, city, compact, selectNeighborhood, blumenauNbStats, blumenauFocus]);
 
   useEffect(() => {
     paintMap();
@@ -634,6 +697,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             setSelectedNb(null);
             void useMyLocation();
           }}
+          title="Usar GPS do dispositivo (permita localização no navegador)"
           leftIcon={
             gpsLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -690,9 +754,15 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       <div className="flex flex-1 min-h-0 gap-3">
         <div className="relative flex-1 min-w-0 rounded-2xl overflow-hidden border border-stone-200/90 shadow-inner bg-stone-100">
           <div ref={containerRef} className="absolute inset-0 z-0" />
-          {loading && (
+          {loading && !mapSummary && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-sm">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            </div>
+          )}
+          {loading && mapSummary && !summary && (
+            <div className="absolute top-3 right-3 z-[500] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
+              <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />
+              Sincronizando mapa…
             </div>
           )}
           {!mapActive && deferLoad && (

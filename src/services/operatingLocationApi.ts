@@ -37,16 +37,4 @@ export async function saveOperatingLocationFromGps(
   return j.location;
 }
 
-export function readBrowserGeolocation(): Promise<GeolocationPosition> {
-  return new Promise((resolve, reject) => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      reject(new Error('Geolocalização não disponível neste navegador.'));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      timeout: 20000,
-      maximumAge: 60_000
-    });
-  });
-}
+export { readBrowserGeolocation } from '../utils/geolocationHelpers';

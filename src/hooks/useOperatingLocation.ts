@@ -8,6 +8,11 @@ import {
   type OperatingLocation,
   type OperatingLocationSource
 } from '../services/operatingLocationApi';
+import {
+  describeGeolocationError,
+  geolocationPermissionDeniedMessage,
+  queryGeolocationPermission
+} from '../utils/geolocationHelpers';
 
 const CITY_PRESETS = [
   'Blumenau · SC',
@@ -79,24 +84,37 @@ export function useOperatingLocation(fallbackCity = 'Blumenau · SC') {
   const useMyLocation = useCallback(async () => {
     setGpsLoading(true);
     try {
-      const pos = await readBrowserGeolocation();
+      const perm = await queryGeolocationPermission();
+      if (perm === 'unsupported') {
+        toast.error('Geolocalização não disponível neste navegador. Digite a cidade manualmente.');
+        return;
+      }
+      if (perm === 'denied') {
+        toast.error(geolocationPermissionDeniedMessage(), { duration: 9000 });
+        return;
+      }
+
+      let pos: GeolocationPosition;
+      try {
+        pos = await readBrowserGeolocation({ enableHighAccuracy: true, timeout: 15_000 });
+      } catch (firstErr) {
+        if (
+          firstErr instanceof GeolocationPositionError &&
+          firstErr.code === firstErr.TIMEOUT
+        ) {
+          pos = await readBrowserGeolocation({ enableHighAccuracy: false, timeout: 20_000 });
+        } else {
+          throw firstErr;
+        }
+      }
+
       const loc = await saveOperatingLocationFromGps(pos.coords.latitude, pos.coords.longitude);
       skipNextSave.current = true;
       setCityLabelState(loc.cityLabel);
       setSource('gps');
       toast.success(`Localização: ${loc.cityLabel}`);
     } catch (e) {
-      const msg =
-        e instanceof GeolocationPositionError
-          ? e.code === e.PERMISSION_DENIED
-            ? 'Permita o acesso à localização no navegador.'
-            : e.code === e.TIMEOUT
-              ? 'Tempo esgotado ao obter GPS. Tente de novo.'
-              : 'Não foi possível obter sua localização.'
-          : e instanceof Error
-            ? e.message
-            : 'Falha ao usar GPS.';
-      toast.error(msg);
+      toast.error(describeGeolocationError(e), { duration: 8000 });
     } finally {
       setGpsLoading(false);
     }
