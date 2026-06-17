@@ -2,6 +2,8 @@ import type { Express, Request, Response } from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
+import { vpsDataEnabled } from './auth/dataMode.js';
+import { getZapmassPool } from './db/postgres.js';
 import { assertAdminFromBearer, adminEmailSet } from './adminAuth.js';
 import {
   clampLandingTrialBodyInput,
@@ -18,6 +20,7 @@ import {
   listAdminAccessAudit,
   putAdminAccessUser
 } from './adminAccessUsers.js';
+import { loadAdminUserInsightsPg, listAdminProductSuggestionsPg } from './adminUserInsightsPg.js';
 
 function sanitizePutBody(body: unknown): Partial<AppConfigGlobal> {
   if (!body || typeof body !== 'object') return {};
@@ -194,14 +197,22 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     try {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
-      const adminApp = getFirebaseAdmin();
-      if (!adminApp) {
-        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-      }
-      const db = getFirestore(adminApp);
       const uid = String(req.query.uid || '').trim();
       if (!uid) {
         return res.status(400).json({ ok: false, error: 'Informe uid.' });
+      }
+
+      if (vpsDataEnabled() && getZapmassPool()) {
+        const insights = await loadAdminUserInsightsPg(uid);
+        if (!insights) {
+          return res.status(404).json({ ok: false, error: 'Utilizador não encontrado.' });
+        }
+        return res.json({ ok: true, insights });
+      }
+
+      const adminApp = getFirebaseAdmin();
+      if (!adminApp) {
+        return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
       }
 
       const userRec = await getAuth(adminApp).getUser(uid).catch(() => null);
@@ -209,6 +220,7 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const accountCreatedAt = userRec?.metadata?.creationTime ? new Date(userRec.metadata.creationTime).toISOString() : null;
       const lastSignInAt = userRec?.metadata?.lastSignInTime ? new Date(userRec.metadata.lastSignInTime).toISOString() : null;
 
+      const db = getFirestore(adminApp);
       // Isolamento estrito por conta: insights admin usam apenas users/{uid}/...
       const merged = await loadMergedUserInsightData(db, uid, { includeLegacyRoot: false });
       const { contacts, lists, campaigns, conns, rawMinActivityEpoch } = merged;
@@ -333,12 +345,19 @@ export function registerAdminAppConfigRoutes(app: Express): void {
       const auth = await assertAdminFromBearer(req, res);
       if (!auth) return;
 
+      const limit = Math.min(200, Math.max(10, Number.parseInt(String(req.query.limit || ''), 10) || 100));
+
+      if (vpsDataEnabled() && getZapmassPool()) {
+        const items = await listAdminProductSuggestionsPg(limit);
+        console.log('[api/admin/product-suggestions]', auth.email, 'count=', items.length, '(postgres)');
+        return res.json({ ok: true, items, usedFallback: false });
+      }
+
       const adminApp = getFirebaseAdmin();
       if (!adminApp) {
         return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
       }
 
-      const limit = Math.min(200, Math.max(10, Number.parseInt(String(req.query.limit || ''), 10) || 100));
       const db = getFirestore(adminApp);
 
       type SuggestionItem = {
@@ -450,15 +469,19 @@ export function registerAdminAppConfigRoutes(app: Express): void {
         const auth = await assertAdminFromBearer(req, res);
         if (!auth) return;
 
-        const adminApp = getFirebaseAdmin();
-        if (!adminApp) {
-          return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
-        }
-
         const uid = String(req.params.uid || '').trim();
         const id = String(req.params.id || '').trim();
         if (!uid || !id) {
           return res.status(400).json({ ok: false, error: 'Parâmetros uid/id obrigatórios.' });
+        }
+
+        if (vpsDataEnabled() && getZapmassPool()) {
+          return res.json({ ok: true, items: [] });
+        }
+
+        const adminApp = getFirebaseAdmin();
+        if (!adminApp) {
+          return res.status(503).json({ ok: false, error: 'Firebase Admin nao configurado no servidor.' });
         }
 
         const db = getFirestore(adminApp);
