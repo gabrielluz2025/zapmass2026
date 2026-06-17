@@ -34,7 +34,7 @@ for dir in "${CLIENTES_DIR}"/*/; do
     [ -d "$dir" ] || continue
     slug="$(basename "$dir")"
     [[ "$slug" == *removido* ]] && continue
-    env_file="${dir}.env"
+    env_file="$(cliente_env "$slug")"
     [ -f "$env_file" ] || continue
 
     porta="$(grep -E '^HOST_PORT=' "$env_file" | sed 's/^HOST_PORT=//' | head -n1)"
@@ -59,5 +59,13 @@ for dir in "${CLIENTES_DIR}"/*/; do
 done
 
 echo
+orphans="$(docker ps -a --filter 'name=zapmass-cli-' --format '{{.Names}}' 2>/dev/null | while read -r n; do
+  slug="${n#zapmass-cli-}"
+  [ -d "$(cliente_dir "$slug")" ] || echo "$n"
+done)"
+if [ -n "$orphans" ]; then
+  echo "Containers sem pasta em clientes/ (migrar ou reprovisionar):"
+  echo "$orphans" | sed 's/^/  /'
+fi
 echo "Disco backups: $(du -sh "${ZAPMASS_ROOT}/backups" 2>/dev/null | awk '{print $1}' || echo '?')"
 echo "Comando: bash ${SELF_DIR}/listar-clientes.sh"
