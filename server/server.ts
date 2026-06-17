@@ -2138,7 +2138,7 @@ const bootstrap = async () => {
 
   registerSocketHandlers();
   startScheduledCampaignRunner();
-  setTimeout(() => { void warmupLeadsGeoCache(); }, 5000);
+  setTimeout(() => { void warmupLeadsGeoCache(); }, 45_000);
   await startSessionControlPlane();
   if (isSessionBusRemote()) {
     const w = getWhatsappProcessWorkerCount();

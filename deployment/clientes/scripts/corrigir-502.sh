@@ -57,10 +57,22 @@ build_imagem_plano_b
 bash "$SELF_DIR/corrigir-site-so-carregando.sh" "$SLUG"
 
 pub_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 "https://${DOMINIO}/api/health" 2>/dev/null || echo 000)"
+if [ "$pub_code" != "200" ]; then
+    local_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || echo 000)"
+    if [ "$local_code" = "200" ]; then
+        warn "API local OK mas HTTPS=${pub_code} — recarregando Nginx..."
+        nginx -t 2>/dev/null && (systemctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null || true)
+        sleep 3
+        pub_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 "https://${DOMINIO}/api/health" 2>/dev/null || echo 000)"
+    elif aguardar_health_cliente "$SLUG" "$PORT" 120; then
+        pub_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 "https://${DOMINIO}/api/health" 2>/dev/null || echo 000)"
+    fi
+fi
+
 if [ "$pub_code" = "200" ]; then
     ok "Site recuperado — https://${DOMINIO}/ responde HTTP 200."
 else
     err "HTTPS ainda retorna HTTP ${pub_code}."
-    err "Veja: docker logs ${CONTAINER} --tail 100"
+    err "Diagnóstico: docker ps -a --filter name=${CONTAINER} && docker logs ${CONTAINER} --tail 100"
     exit 1
 fi

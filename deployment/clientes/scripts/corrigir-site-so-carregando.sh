@@ -105,23 +105,10 @@ log "A recriar zapmass-cli-${SLUG}..."
 CLIENT_DIR="$(cliente_dir "$SLUG")"
 recriar_cliente_compose "$CLIENT_DIR" "$SLUG"
 
-# 6) Health local
-log "Aguardando /api/health em 127.0.0.1:${PORT} (até 120s)..."
+# 6) Health local (Chromium/WhatsApp podem levar >2 min após recreate)
 ok_health=0
-for i in $(seq 1 24); do
-    code="$(curl -sS -o /tmp/zm-health.json -w '%{http_code}' --max-time 5 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || echo 000)"
-    if [ "$code" = "200" ]; then
-        ok_health=1
-        break
-    fi
-    sleep 5
-done
-
-if [ "$ok_health" = "1" ]; then
-    ver="$(grep -o '"version":"[^"]*"' /tmp/zm-health.json 2>/dev/null | head -1 || true)"
-    ok "API local respondeu HTTP 200 ${ver:-}"
-else
-    warn "Health local ainda não respondeu — veja: docker logs zapmass-cli-${SLUG} --tail 80"
+if aguardar_health_cliente "$SLUG" "$PORT" 180; then
+    ok_health=1
 fi
 
 log "Testando HTTPS público https://${DOMINIO}/api/health ..."

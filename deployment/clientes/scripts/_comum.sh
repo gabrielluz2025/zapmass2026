@@ -383,6 +383,40 @@ build_imagem_plano_b() {
     ok "Imagem zapmass-zapmass:latest atualizada (${git_ref})."
 }
 
+# Aguarda /api/health local (WhatsApp/Chromium demoram no arranque pós-recreate).
+aguardar_health_cliente() {
+    local slug="$1"
+    local port="$2"
+    local max_sec="${3:-180}"
+    local container="zapmass-cli-${slug}"
+    local waited=0
+    local code hstatus
+
+    log "Aguardando /api/health em 127.0.0.1:${port} (até ${max_sec}s)..."
+    while [ "$waited" -lt "$max_sec" ]; do
+        code="$(curl -sS -o /tmp/zm-health.json -w '%{http_code}' --max-time 5 "http://127.0.0.1:${port}/api/health" 2>/dev/null || echo 000)"
+        if [ "$code" = "200" ]; then
+            local ver
+            ver="$(grep -o '"version":"[^"]*"' /tmp/zm-health.json 2>/dev/null | head -1 || true)"
+            ok "API local respondeu HTTP 200 em ~${waited}s ${ver:-}"
+            return 0
+        fi
+
+        hstatus="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo missing)"
+        if [ "$hstatus" = "unhealthy" ]; then
+            warn "Container ${container} unhealthy — últimas linhas do log:"
+            docker logs "$container" --tail 25 2>&1 | tail -25 || true
+        fi
+
+        sleep 5
+        waited=$((waited + 5))
+    done
+
+    err "Health local não respondeu em ${max_sec}s (HTTP ${code:-000}, docker health=${hstatus:-?})."
+    docker logs "$container" --tail 80 2>&1 | tail -80 || true
+    return 1
+}
+
 recriar_cliente_compose() {
     local dir="$1"
     local slug="$2"

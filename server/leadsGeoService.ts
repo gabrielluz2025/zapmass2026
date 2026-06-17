@@ -1047,7 +1047,12 @@ export async function warmupLeadsGeoCache(): Promise<void> {
     );
     for (const row of r.rows) {
       try {
-        await buildLeadsGeoSummary(row.tenant_id, {});
+        // Modo light + Blumenau: aquece o cache do painel sem varrer geocode de toda a base.
+        await buildLeadsGeoSummary(row.tenant_id, {
+          layer: 'neighborhood',
+          city: 'Blumenau · SC',
+          light: true
+        });
         console.log(`[geo-warmup] tenant ${row.tenant_id} pré-aquecido`);
       } catch (e) {
         console.warn('[geo-warmup] falha para tenant', row.tenant_id, e);
