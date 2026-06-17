@@ -356,6 +356,33 @@ ligar_cliente_rede_swarm() {
     fi
 }
 
+# Rebuild da imagem usada pelos containers Plano B (zapmass-zapmass:latest).
+build_imagem_plano_b() {
+    local git_ref
+    git_ref="$(cd "$ZAPMASS_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo plano-b)"
+    if [ "${ZAPMASS_SKIP_DOCKER_BUILD:-0}" = "1" ]; then
+        if docker image inspect zapmass-zapmass:latest >/dev/null 2>&1 \
+            || docker image inspect zapmass:latest >/dev/null 2>&1; then
+            warn "ZAPMASS_SKIP_DOCKER_BUILD=1 — reutiliza imagem existente."
+            docker tag zapmass:latest zapmass-zapmass:latest 2>/dev/null || true
+            return 0
+        fi
+        err "ZAPMASS_SKIP_DOCKER_BUILD=1 mas não há imagem zapmass:latest."
+        return 1
+    fi
+    log "Docker build (Plano B) — commit ${git_ref}..."
+    export DOCKER_BUILDKIT=1
+    if ! (cd "$ZAPMASS_ROOT" && docker build -t zapmass:latest \
+        --build-arg CACHEBUST="${git_ref}" \
+        --build-arg VITE_GIT_REF="${git_ref}" \
+        .); then
+        err "docker build falhou — tente BUILDKIT ou mais RAM; ou ZAPMASS_SKIP_DOCKER_BUILD=1 se a imagem já estiver OK."
+        return 1
+    fi
+    docker tag zapmass:latest zapmass-zapmass:latest
+    ok "Imagem zapmass-zapmass:latest atualizada (${git_ref})."
+}
+
 recriar_cliente_compose() {
     local dir="$1"
     local slug="$2"
