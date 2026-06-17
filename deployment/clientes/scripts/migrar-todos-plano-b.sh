@@ -24,15 +24,24 @@ if [ "${#dirs[@]}" -eq 0 ]; then
 fi
 
 n=0
+sem_compose=""
 for dir in "${dirs[@]}"; do
     [ -d "$dir" ] || continue
     slug="$(basename "$dir")"
     [[ "$slug" == *removido* ]] && continue
-    [ -f "${dir}/docker-compose.yml" ] || continue
+    if [ ! -f "${dir}/docker-compose.yml" ]; then
+        sem_compose="${sem_compose} ${slug}"
+        continue
+    fi
     log "Migrando ${slug}..."
     bash "${SELF_DIR}/migrar-cliente-plano-b.sh" "$slug" || warn "Falha: ${slug}"
     n=$((n + 1))
 done
+
+if [ -n "$sem_compose" ]; then
+    warn "Sem docker-compose.yml (cliente legado):${sem_compose}"
+    warn "Use: sudo bash ${SELF_DIR}/bootstrap-cliente-legado.sh <slug>"
+fi
 
 if [ "$n" -eq 0 ]; then
     warn "Nenhum cliente migrado — verifique ls ${CLIENTES_DIR}/"

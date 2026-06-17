@@ -54,6 +54,14 @@ curl -sf https://<dominio>/api/health
 
 ## Migrar cliente antigo (ex.: demo)
 
+Se a pasta `clientes/<slug>/` existe mas **faltam** `.env` / `docker-compose.yml` (container legado):
+
+```bash
+sudo bash deployment/clientes/scripts/bootstrap-cliente-legado.sh demo --dominio zap-mass.com --port 3100
+```
+
+Cliente já com ficheiros Plano B:
+
 ```bash
 sudo bash deployment/clientes/scripts/migrar-cliente-plano-b.sh demo --tier starter
 # ou todos de uma vez:
