@@ -1,5 +1,6 @@
 import { listContacts } from './repositories/contactsRepository.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import type { Conversation } from './types.js';
 import {
   buildCrmNameIndex,
@@ -11,11 +12,12 @@ const crmIndexCache = new Map<string, { at: number; index: ReturnType<typeof bui
 const CRM_CACHE_MS = 45_000;
 
 async function crmIndexForTenant(tenantUid: string) {
-  const hit = crmIndexCache.get(tenantUid);
+  const pgTenant = resolvePostgresTenantId(tenantUid);
+  const hit = crmIndexCache.get(pgTenant);
   if (hit && Date.now() - hit.at < CRM_CACHE_MS) return hit.index;
-  const contacts = vpsDataEnabled() ? await listContacts(tenantUid, { limit: 8000 }) : [];
+  const contacts = vpsDataEnabled() ? await listContacts(pgTenant, { limit: 8000 }) : [];
   const index = buildCrmNameIndex(contacts);
-  crmIndexCache.set(tenantUid, { at: Date.now(), index });
+  crmIndexCache.set(pgTenant, { at: Date.now(), index });
   return index;
 }
 

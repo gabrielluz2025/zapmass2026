@@ -22,6 +22,7 @@ import {
   recordContactReply,
 } from './repositories/campaignContactStateRepository.js';
 import { usePostgresCampaigns } from './campaignStore.js';
+import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 
 // ─── Tipos exportados ────────────────────────────────────────────────────────
 
@@ -213,7 +214,8 @@ export async function onContactReply(params: {
   const { tenantId, contactId, replyText, stageConfigsResolver, connectionId, callbacks, ownerUid } =
     params;
 
-  const state = await findWaitingReplyStateForContact(tenantId, contactId);
+  const pgTenantId = resolvePostgresTenantId(tenantId);
+  const state = await findWaitingReplyStateForContact(pgTenantId, contactId);
   if (!state) return false;
 
   const { campaign_id: campaignId, current_step_index: currentStepIndex } = state;
