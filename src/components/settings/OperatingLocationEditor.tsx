@@ -45,7 +45,7 @@ export const OperatingLocationEditor: React.FC<Props> = ({ compact = false, clas
           size="sm"
           disabled={loading || gpsLoading}
           onClick={() => void useMyLocation()}
-          title="Detectar minha localização automaticamente"
+          title="Usar GPS do dispositivo (permita se o navegador pedir)"
           leftIcon={
             gpsLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

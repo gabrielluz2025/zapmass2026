@@ -30,9 +30,94 @@ export function isIpGeolocationEnabled(): boolean {
   return process.env.IP_GEO_DISABLED !== '1';
 }
 
+async function fetchIpApi(ip: string): Promise<IpGeolocationResult> {
+  const fields = 'status,message,countryCode,region,regionName,city,lat,lon';
+  const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=${fields}&lang=pt-BR`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      return { ok: false, status: 'HTTP_ERROR', message: `ip-api retornou ${res.status}.` };
+    }
+    const data = (await res.json()) as {
+      status?: string;
+      message?: string;
+      countryCode?: string;
+      region?: string;
+      regionName?: string;
+      city?: string;
+      lat?: number;
+      lon?: number;
+    };
+    if (data.status !== 'success') {
+      return {
+        ok: false,
+        status: data.status || 'FAIL',
+        message: data.message || 'ip-api sem resultado.'
+      };
+    }
+    const lat = Number(data.lat);
+    const lng = Number(data.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return { ok: false, status: 'INVALID_COORDS', message: 'Coordenadas inválidas (ip-api).' };
+    }
+    return {
+      ok: true,
+      cityLabel: formatCityLabel(data.city || data.regionName || '', data.region || '', data.countryCode || ''),
+      latitude: lat,
+      longitude: lng,
+      countryCode: data.countryCode
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchIpWhoIs(ip: string): Promise<IpGeolocationResult> {
+  const url = `https://ipwho.is/${encodeURIComponent(ip)}?lang=pt`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      return { ok: false, status: 'HTTP_ERROR', message: `ipwho.is retornou ${res.status}.` };
+    }
+    const data = (await res.json()) as {
+      success?: boolean;
+      message?: string;
+      country_code?: string;
+      region_code?: string;
+      city?: string;
+      latitude?: number;
+      longitude?: number;
+    };
+    if (!data.success) {
+      return {
+        ok: false,
+        status: 'FAIL',
+        message: data.message || 'ipwho.is sem resultado.'
+      };
+    }
+    const lat = Number(data.latitude);
+    const lng = Number(data.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return { ok: false, status: 'INVALID_COORDS', message: 'Coordenadas inválidas (ipwho.is).' };
+    }
+    return {
+      ok: true,
+      cityLabel: formatCityLabel(data.city || '', data.region_code || '', data.country_code || ''),
+      latitude: lat,
+      longitude: lng,
+      countryCode: data.country_code
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Geolocalização aproximada por IP (sem permissão do navegador).
- * ip-api.com — uso no servidor; limite gratuito ~45 req/min por IP de origem.
  */
 export async function resolveIpGeolocation(ip: string): Promise<IpGeolocationResult> {
   if (!isIpGeolocationEnabled()) {
@@ -44,59 +129,24 @@ export async function resolveIpGeolocation(ip: string): Promise<IpGeolocationRes
     return { ok: false, status: 'NO_IP', message: 'IP do cliente indisponível.' };
   }
 
-  const fields = 'status,message,countryCode,region,regionName,city,lat,lon';
-  const url = `http://ip-api.com/json/${encodeURIComponent(trimmed)}?fields=${fields}&lang=pt-BR`;
+  const primary = await fetchIpApi(trimmed);
+  if (primary.ok) return primary;
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8_000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
+  const fallback = await fetchIpWhoIs(trimmed);
+  if (fallback.ok) return fallback;
 
-    if (!res.ok) {
-      return { ok: false, status: 'HTTP_ERROR', message: `Serviço de IP retornou ${res.status}.` };
-    }
+  const errStatus =
+    fallback.ok === false ? fallback.status : primary.ok === false ? primary.status : 'FAIL';
+  const errMessage =
+    fallback.ok === false
+      ? fallback.message
+      : primary.ok === false
+        ? primary.message
+        : 'Não foi possível localizar pelo IP.';
 
-    const data = (await res.json()) as {
-      status?: string;
-      message?: string;
-      countryCode?: string;
-      region?: string;
-      regionName?: string;
-      city?: string;
-      lat?: number;
-      lon?: number;
-    };
-
-    if (data.status !== 'success') {
-      return {
-        ok: false,
-        status: data.status || 'FAIL',
-        message: data.message || 'Não foi possível localizar pelo IP.'
-      };
-    }
-
-    const lat = Number(data.lat);
-    const lng = Number(data.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return { ok: false, status: 'INVALID_COORDS', message: 'Coordenadas inválidas do serviço de IP.' };
-    }
-
-    const cityLabel = formatCityLabel(
-      data.city || data.regionName || '',
-      data.region || '',
-      data.countryCode || ''
-    );
-
-    return {
-      ok: true,
-      cityLabel,
-      latitude: lat,
-      longitude: lng,
-      countryCode: data.countryCode
-    };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, status: 'FETCH_ERROR', message: msg };
-  }
+  return {
+    ok: false,
+    status: errStatus,
+    message: errMessage
+  };
 }

@@ -20,16 +20,23 @@ export function isPrivateOrLoopbackIp(ip: string): boolean {
 
 /** IP público do cliente (atrás de proxy reverso com trust proxy activo). */
 export function getClientIp(req: Request): string {
-  const fromExpress = normalizeIp(req.ip);
-  if (fromExpress && !isPrivateOrLoopbackIp(fromExpress)) return fromExpress;
+  const headerCandidates = [
+    req.headers['cf-connecting-ip'],
+    req.headers['x-real-ip'],
+    req.headers['x-forwarded-for']
+  ];
 
-  const xf = req.headers['x-forwarded-for'];
-  if (typeof xf === 'string') {
-    for (const part of xf.split(',')) {
+  for (const raw of headerCandidates) {
+    if (typeof raw !== 'string') continue;
+    const parts = raw.includes(',') ? raw.split(',') : [raw];
+    for (const part of parts) {
       const candidate = normalizeIp(part);
       if (candidate && !isPrivateOrLoopbackIp(candidate)) return candidate;
     }
   }
+
+  const fromExpress = normalizeIp(req.ip);
+  if (fromExpress && !isPrivateOrLoopbackIp(fromExpress)) return fromExpress;
 
   const socketIp = normalizeIp(req.socket?.remoteAddress);
   if (socketIp && !isPrivateOrLoopbackIp(socketIp)) return socketIp;
