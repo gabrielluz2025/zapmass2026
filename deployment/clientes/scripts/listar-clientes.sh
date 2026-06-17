@@ -8,20 +8,34 @@ set -euo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/_comum.sh"
 
-if [ ! -d "$CLIENTES_DIR" ] || [ -z "$(ls -A "$CLIENTES_DIR" 2>/dev/null || true)" ]; then
+if [ ! -d "$CLIENTES_DIR" ]; then
     log "Nenhum cliente provisionado em ${CLIENTES_DIR}."
+    exit 0
+fi
+
+shopt -s nullglob
+dirs=("${CLIENTES_DIR}"/*/)
+shopt -u nullglob
+
+if [ "${#dirs[@]}" -eq 0 ]; then
+    log "Nenhuma subpasta de cliente em ${CLIENTES_DIR}."
+    orphans="$(docker ps -a --filter 'name=zapmass-cli-' --format '{{.Names}}' 2>/dev/null || true)"
+    if [ -n "$orphans" ]; then
+        warn "Containers órfãos (sem pasta):"
+        echo "$orphans" | sed 's/^/  /'
+    fi
     exit 0
 fi
 
 printf '%-16s %-28s %-6s %-8s %-10s %-8s\n' "SLUG" "DOMINIO" "TIER" "PORTA" "STATUS" "HEALTH"
 printf '%-16s %-28s %-6s %-8s %-10s %-8s\n' "----" "-------" "----" "-----" "------" "------"
 
-for dir in "${CLIENTES_DIR}"/*/; do
+for dir in "${dirs[@]}"; do
     [ -d "$dir" ] || continue
     slug="$(basename "$dir")"
     [[ "$slug" == *removido* ]] && continue
 
-    env_file="${dir}.env"
+    env_file="$(cliente_env "$slug")"
     if [ ! -f "$env_file" ]; then
         printf '%-16s %-28s %-6s %-8s %-10s %-8s\n' "$slug" "(sem .env)" "-" "-" "-" "-"
         continue
