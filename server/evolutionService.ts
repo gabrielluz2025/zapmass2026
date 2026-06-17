@@ -27,7 +27,7 @@ import {
 } from './replyFlowEngine.js';
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
-import { persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
+import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import {
     getTenantDispatchSettings,
     resolveCampaignDispatchSettings,
@@ -1550,6 +1550,8 @@ interface MessageQueueItem {
         contactId: string;
         stepIndex: number;
     };
+    /** Reenvio manual: ignora limite de 24 h entre campanhas. */
+    skipFrequencyCap?: boolean;
 }
 
 interface WarmupItem {
@@ -2444,6 +2446,10 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
                 state.processed
             );
         }
+    }
+
+    if (state.processed >= state.total) {
+        void tryFinalizeOrHoldCampaign(campaignId);
     }
 }
 
@@ -3528,7 +3534,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const normalizedDest = normalizeOutboundNumber(item.to);
 
     // ── Limite de frequência: não reenviar para o mesmo contato em 24 h ───────
-    if (item.campaignId && (await checkFrequencyCap(campaignState?.ownerUid, item.to))) {
+    if (item.campaignId && !item.skipFrequencyCap && (await checkFrequencyCap(campaignState?.ownerUid, item.to))) {
         log('info', `[freq-cap] Contato ${normalizedDest} já recebeu mensagem nas últimas 24 h — pulando`, {
             campaignId: item.campaignId, to: normalizedDest,
         });
@@ -3912,6 +3918,234 @@ function ensureCampaignWorker() {
     });
 
     log('info', 'Worker BullMQ de campanhas iniciado');
+}
+
+/**
+ * Reenvia / retoma disparos na **mesma** campanha (falhos ou pendentes por etapa).
+ */
+export async function redispatchCampaign(
+    tenantId: string,
+    campaignId: string,
+    options: {
+        mode?: 'failed' | 'resume';
+        connectionIds?: string[];
+        phones?: string[];
+        stepIndex?: number;
+        skipFrequencyCap?: boolean;
+    } = {}
+): Promise<{ ok: boolean; enqueued: number; error?: string }> {
+    const mode = options.mode || 'failed';
+    const skipFrequencyCap = options.skipFrequencyCap !== false;
+
+    const { getCampaign } = await import('./repositories/campaignsRepository.js');
+    const campaign = await getCampaign(tenantId, campaignId);
+    if (!campaign) return { ok: false, enqueued: 0, error: 'Campanha não encontrada.' };
+
+    const pendingJobs = campaignPendingJobs.get(campaignId) || 0;
+    const memState = campaignsById.get(campaignId);
+    if (pendingJobs > 0 && memState?.isRunning) {
+        return { ok: false, enqueued: 0, error: 'Campanha ainda em execução. Aguarde ou pause antes de reenviar.' };
+    }
+
+    pausedCampaigns.delete(campaignId);
+
+    const connectionIds =
+        options.connectionIds?.length ? options.connectionIds : campaign.selectedConnectionIds || [];
+    if (connectionIds.length === 0) {
+        return { ok: false, enqueued: 0, error: 'Nenhum chip selecionado.' };
+    }
+
+    const activeConnectionIds = await filterActiveConnections(connectionIds);
+    if (activeConnectionIds.length === 0) {
+        return { ok: false, enqueued: 0, error: 'Nenhum chip online. Reconecte no painel de Conexões.' };
+    }
+
+    const redisOk = await pingRedisHealthy();
+    if (!redisOk) {
+        return { ok: false, enqueued: 0, error: 'Redis indisponível — disparo não pode ser retomado.' };
+    }
+
+    ensureCampaignWorker();
+
+    let stageConfigs = campaignStageConfigsById.get(campaignId);
+    if (!stageConfigs?.length && Array.isArray(campaign.stageConfigs)) {
+        stageConfigs = campaign.stageConfigs.filter((s) => String(s?.body || '').trim().length > 0);
+        if (stageConfigs.length) campaignStageConfigsById.set(campaignId, stageConfigs);
+    }
+    const useLazyMotor = Boolean(stageConfigs?.length);
+
+    type Target = { phone: string; stepIndex: number };
+    let targets: Target[] = [];
+
+    if (usePostgresCampaigns()) {
+        const { listContactsForRedispatch } = await import('./repositories/campaignContactStateRepository.js');
+        const rows = await listContactsForRedispatch(campaignId, mode, options.stepIndex);
+        targets = rows.map((r) => ({ phone: r.contactId, stepIndex: r.stepIndex }));
+    }
+
+    if (targets.length === 0) {
+        const snap = await buildCampaignReportSnapshot(tenantId, campaignId);
+        const failedRows = (snap?.rows || []).filter((r) => {
+            const st = String(r.status || '').toUpperCase();
+            return st === 'FAILED' || st === 'FAIL' || st === 'ERROR';
+        });
+        targets = failedRows.map((r) => ({
+            phone: String(r.phone || '').replace(/\D/g, ''),
+            stepIndex: typeof options.stepIndex === 'number' ? options.stepIndex : 0,
+        }));
+    }
+
+    if (options.phones?.length) {
+        const allow = new Set(
+            options.phones.map((p) => normalizePhoneKey(p)).filter((p) => p.length >= 8)
+        );
+        targets = targets.filter((t) => allow.has(normalizePhoneKey(t.phone)));
+    }
+
+    const seen = new Set<string>();
+    targets = targets.filter((t) => {
+        const k = `${normalizePhoneKey(t.phone)}@${t.stepIndex}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return normalizePhoneKey(t.phone).length >= 8;
+    });
+
+    if (targets.length === 0) {
+        return {
+            ok: false,
+            enqueued: 0,
+            error:
+                mode === 'failed'
+                    ? 'Nenhum contato com falha para reenviar.'
+                    : 'Nada pendente para retomar nesta campanha.',
+        };
+    }
+
+    const replyFlow = campaign.replyFlow;
+    const sanitizedReplySteps =
+        replyFlow?.enabled && Array.isArray(replyFlow.steps) && replyFlow.steps.length >= 1
+            ? sanitizeReplyFlowSteps(replyFlow.steps)
+            : [];
+    const useReplyFlow = sanitizedReplySteps.length >= 1;
+    if (useReplyFlow) {
+        ensureReplyFlowEngine();
+        replyFlowEngine.registerDef(campaignId, sanitizedReplySteps);
+    }
+
+    const templates = (
+        campaign.messageStages?.length ? campaign.messageStages : [campaign.message]
+    )
+        .map((t) => String(t || '').trim())
+        .filter((t) => t.length > 0);
+
+    const dispatchSettings = resolveCampaignDispatchSettings(tenantId, campaign.delaySeconds);
+    const hasMedia = campaignMediaById.has(campaignId);
+    const prev = campaignsById.get(campaignId);
+    const recipientVars = prev?._recipientVars || buildRecipientVarsMap(undefined);
+    const baseProcessed = prev?.processed ?? campaign.processedCount ?? 0;
+
+    campaignsById.set(campaignId, {
+        ownerUid: tenantId,
+        total: baseProcessed + targets.length,
+        processed: baseProcessed,
+        successCount: prev?.successCount ?? campaign.successCount ?? 0,
+        failCount: prev?.failCount ?? campaign.failedCount ?? 0,
+        lastLoggedProcessed: prev?.lastLoggedProcessed ?? baseProcessed,
+        isRunning: true,
+        recentOutcomes: prev?.recentOutcomes ?? [],
+        _recipientVars: recipientVars,
+    });
+    campaignPendingJobs.set(campaignId, (campaignPendingJobs.get(campaignId) || 0) + targets.length);
+    void saveCampaignRuntimeToRedis(campaignId);
+
+    let enqueued = 0;
+    try {
+        for (let i = 0; i < targets.length; i++) {
+            const { phone, stepIndex } = targets[i];
+            const cleanPhone = normalizePhoneKey(phone);
+            const assignedConnectionId = activeConnectionIds[i % activeConnectionIds.length];
+            const staggerDelay = i * dispatchSettings.minDelayMs;
+            const vars = recipientVars.get(cleanPhone) || {};
+
+            if (useLazyMotor && stageConfigs?.[stepIndex]) {
+                const stage = stageConfigs[stepIndex];
+                const personalizedMessage = applyMessageVars(stage.body, cleanPhone, vars, i);
+                await enqueueCampaignItem(
+                    {
+                        connectionId: assignedConnectionId,
+                        to: phone,
+                        message: personalizedMessage,
+                        campaignId,
+                        ownerUid: tenantId,
+                        stageIndex: stepIndex,
+                        sendAsMedia: hasMedia && stepIndex === 0,
+                        skipFrequencyCap,
+                        multiStepContact: { contactId: cleanPhone, stepIndex },
+                    },
+                    staggerDelay
+                );
+            } else if (useReplyFlow && stepIndex === 0) {
+                const personalizedMessage = applyMessageVars(sanitizedReplySteps[0].body, cleanPhone, vars, i);
+                await enqueueCampaignItem(
+                    {
+                        connectionId: assignedConnectionId,
+                        to: phone,
+                        message: personalizedMessage,
+                        campaignId,
+                        ownerUid: tenantId,
+                        sendAsMedia: hasMedia,
+                        skipFrequencyCap,
+                        replyFlowOpen: {
+                            campaignId,
+                            phoneDigits: cleanPhone,
+                            vars,
+                            ownerUid: tenantId,
+                        },
+                    },
+                    staggerDelay
+                );
+            } else {
+                const template = templates[stepIndex] || templates[0] || campaign.message;
+                const personalizedMessage = applyMessageVars(template, cleanPhone, vars, i);
+                await enqueueCampaignItem(
+                    {
+                        connectionId: assignedConnectionId,
+                        to: phone,
+                        message: personalizedMessage,
+                        campaignId,
+                        ownerUid: tenantId,
+                        stageIndex: stepIndex,
+                        sendAsMedia: hasMedia && stepIndex === 0,
+                        skipFrequencyCap,
+                    },
+                    staggerDelay
+                );
+            }
+            enqueued++;
+        }
+
+        emitCampaignLog(
+            'INFO',
+            `Reenvio na mesma campanha: ${enqueued} contato(s) (${mode})`,
+            { campaignId, mode, enqueued, stepIndex: options.stepIndex },
+            tenantId
+        );
+        void persistCampaignProgressToFirestore(
+            tenantId,
+            campaignId,
+            prev?.successCount ?? campaign.successCount ?? 0,
+            prev?.failCount ?? campaign.failedCount ?? 0,
+            baseProcessed,
+            'RUNNING'
+        );
+        publishOwnerEvent(tenantId, 'campaign-started', { total: enqueued, campaignId, redispatch: true });
+        return { ok: true, enqueued };
+    } catch (err: unknown) {
+        campaignsById.delete(campaignId);
+        campaignPendingJobs.delete(campaignId);
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, enqueued: 0, error: msg || 'Falha ao enfileirar reenvio.' };
+    }
 }
 
 /**

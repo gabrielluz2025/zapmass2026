@@ -45,6 +45,7 @@ import {
   fetchCampaignInboundReplies,
   fetchCampaignLogs,
   fetchCampaignReport,
+  redispatchCampaign,
   type CampaignInboundReplyDto,
   type CampaignLogDto,
   type CampaignReportSnapshotDto
@@ -52,6 +53,8 @@ import {
 import { useWorkspace } from '../../context/WorkspaceContext';
 import {
   getCampaignProgressMetrics,
+  healStuckCampaignStatus,
+  isCampaignEffectivelyDone,
   isCampaignPauseAction,
   isCampaignPauseControlVisible,
   mergeCampaignMetricsWithReport
@@ -572,14 +575,16 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [retryDialog, setRetryDialog] = useState<CampaignRetryDialogState | null>(null);
   const [showRetryBanner, setShowRetryBanner] = useState(false);
 
-  const isRunning = campaign.status === CampaignStatus.RUNNING;
-  const isPaused = campaign.status === CampaignStatus.PAUSED;
-  const isDone = campaign.status === CampaignStatus.COMPLETED;
-  const isScheduled = campaign.status === CampaignStatus.SCHEDULED;
-  const isWaitingReplyStatus = campaign.status === CampaignStatus.WAITING_REPLY;
+  const campaignLive = useMemo(() => healStuckCampaignStatus(campaign), [campaign]);
+
+  const isRunning = campaignLive.status === CampaignStatus.RUNNING;
+  const isPaused = campaignLive.status === CampaignStatus.PAUSED;
+  const isDone = isCampaignEffectivelyDone(campaignLive);
+  const isScheduled = campaignLive.status === CampaignStatus.SCHEDULED;
+  const isWaitingReplyStatus = campaignLive.status === CampaignStatus.WAITING_REPLY;
   const showPauseResume =
-    !isDone && !isScheduled && isCampaignPauseControlVisible(campaign.status);
-  const pauseAction = isCampaignPauseAction(campaign.status);
+    !isDone && !isScheduled && isCampaignPauseControlVisible(campaignLive.status);
+  const pauseAction = isCampaignPauseAction(campaignLive.status);
   // Fluxo por resposta aguardando: campanha ativa (ou presa em DRAFT com envios já feitos)
   // com pelo menos 1 mensagem enviada e ainda aguardando respostas para avançar às próximas etapas.
   const isWaitingForReplies =
@@ -588,7 +593,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       !isDone &&
       !isScheduled &&
       (isRunning || isPaused ||
-        (campaign.status === CampaignStatus.DRAFT && (campaign.processedCount ?? 0) > 0)));
+        (campaignLive.status === CampaignStatus.DRAFT && (campaignLive.processedCount ?? 0) > 0)));
 
   /** Campanha concluída ou aguardando respostas: sincroniza logs persistidos com ACK/respostas tardias. */
   useEffect(() => {
@@ -607,7 +612,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return () => clearInterval(id);
   }, [isRunning]);
 
-  const m = useMemo(() => getCampaignProgressMetrics(campaign), [campaign]);
+  const m = useMemo(() => getCampaignProgressMetrics(campaignLive), [campaignLive]);
 
   const statusVariant: 'success' | 'warning' | 'info' | 'neutral' = isRunning
     ? 'success'
@@ -1125,35 +1130,13 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
       }
       setRetrying(true);
       try {
-        let mediaAttachment: Awaited<ReturnType<typeof fetchCampaignMediaAttachments>>['mediaAttachment'];
-        let followUpMediaAttachment: Awaited<ReturnType<typeof fetchCampaignMediaAttachments>>['followUpMediaAttachment'];
-        try {
-          const media = await fetchCampaignMediaAttachments(campaign.id);
-          mediaAttachment = media.mediaAttachment;
-          followUpMediaAttachment = media.followUpMediaAttachment;
-        } catch {
-          /* reenvio segue só com texto se anexo indisponível */
-        }
-        await startCampaign(
-          connectionId,
-          cleanPhones,
-          campaign.message,
-          [connectionId],
-          undefined,
-          `${campaign.name} — Reenvio (${cleanPhones.length})`,
-          {
-            messageStages: campaign.messageStages?.length ? campaign.messageStages : [],
-            replyFlow: campaign.replyFlow?.enabled ? campaign.replyFlow : undefined,
-            stageConfigs: campaign.stageConfigs,
-            delaySeconds: campaign.delaySeconds,
-            ...(mediaAttachment ? { mediaAttachment } : {}),
-            ...(followUpMediaAttachment ? { followUpMediaAttachment } : {}),
-          }
-        );
+        await redispatchCampaign(campaign.id, {
+          mode: 'failed',
+          connectionIds: [connectionId],
+          phones: cleanPhones,
+        });
         toast.success(
-          mediaAttachment || followUpMediaAttachment
-            ? `Reenvio iniciado para ${cleanPhones.length} contato(s) com anexo original.`
-            : `Reenvio iniciado para ${cleanPhones.length} contato(s).`
+          `Reenvio iniciado na mesma campanha para ${cleanPhones.length} contato(s).`
         );
         setShowRetryBanner(false);
         setRetryDialog(null);
@@ -1164,8 +1147,31 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
         setRetrying(false);
       }
     },
-    [campaign, startCampaign]
+    [campaign.id]
   );
+
+  const handleResumeRedispatch = useCallback(async () => {
+    const onlineIds = (campaign.selectedConnectionIds || []).filter(
+      (id) => connections.find((c) => c.id === id)?.status === ConnectionStatus.CONNECTED
+    );
+    if (onlineIds.length === 0) {
+      toast.error('Nenhum chip online. Conecte um canal antes de retomar.');
+      return;
+    }
+    setRetrying(true);
+    try {
+      const n = await redispatchCampaign(campaign.id, {
+        mode: 'resume',
+        connectionIds: onlineIds,
+      });
+      toast.success(`Campanha retomada — ${n} contato(s) na fila (de onde parou).`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao retomar campanha.';
+      toast.error(msg);
+    } finally {
+      setRetrying(false);
+    }
+  }, [campaign.id, campaign.selectedConnectionIds, connections]);
 
   const openRetryDialog = useCallback((phones: string[], failedConnectionId?: string) => {
     setRetryDialog({ phones, failedConnectionId });
@@ -1387,6 +1393,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     return c?.status === ConnectionStatus.CONNECTED;
   }).length;
 
+  const canResumeSameCampaign =
+    !isRunning &&
+    !isScheduled &&
+    (isWaitingForReplies || metrics.pending > 0 || performance.counts.FAILED > 0);
+
   const statusLabel = isWaitingForReplies
     ? 'Aguardando respostas'
     : isRunning
@@ -1431,6 +1442,24 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                   title={pauseAction ? 'Pausar envios desta campanha' : 'Retomar campanha pausada'}
                 >
                   {pauseAction ? 'Pausar' : 'Retomar'}
+                </Button>
+              )}
+              {canResumeSameCampaign && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />}
+                  disabled={retrying}
+                  onClick={() =>
+                    performance.counts.FAILED > 0 && !isWaitingForReplies && metrics.pending === 0
+                      ? handleRetryFailed()
+                      : void handleResumeRedispatch()
+                  }
+                  title="Reenviar falhas ou retomar etapas pendentes na mesma campanha"
+                >
+                  {performance.counts.FAILED > 0 && !isWaitingForReplies && metrics.pending === 0
+                    ? 'Reenviar falhas'
+                    : 'Retomar disparo'}
                 </Button>
               )}
               {(isWaitingForReplies || isRunning) && (
@@ -1679,8 +1708,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
               {performance.counts.FAILED} envio{performance.counts.FAILED !== 1 ? 's' : ''} falharam nesta campanha
             </p>
             <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: 'var(--text-2)' }}>
-              Deseja reenviar automaticamente para os contatos com falha? Uma nova campanha será criada com
-              os mesmos chips e mensagem.
+              Reenvie na <strong>mesma campanha</strong> — mantém histórico, etapas e anexos originais.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CampaignStatus, type Campaign } from '../types';
-import { getCampaignPlannedSendTotal, getCampaignProgressMetrics, isCampaignLikelyStartedOnServer, isRunningStatusButWorkComplete } from './campaignMetrics';
+import { getCampaignPlannedSendTotal, getCampaignProgressMetrics, healStuckCampaignStatus, isCampaignLikelyStartedOnServer, isCampaignQueueWorkComplete, isRunningStatusButWorkComplete } from './campaignMetrics';
 
 const baseCampaign = (patch: Partial<Campaign> = {}): Campaign => ({
   id: 'c1',
@@ -73,5 +73,18 @@ describe('isCampaignLikelyStartedOnServer', () => {
         baseCampaign({ status: CampaignStatus.DRAFT, successCount: 1, processedCount: 1 })
       )
     ).toBe(true);
+  });
+});
+
+describe('healStuckCampaignStatus', () => {
+  it('cura DRAFT→COMPLETED quando fila esgotada (sem reply flow)', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.DRAFT,
+      totalContacts: 1,
+      processedCount: 1,
+      successCount: 1
+    });
+    expect(healStuckCampaignStatus(c).status).toBe(CampaignStatus.COMPLETED);
+    expect(isCampaignQueueWorkComplete(c)).toBe(true);
   });
 });

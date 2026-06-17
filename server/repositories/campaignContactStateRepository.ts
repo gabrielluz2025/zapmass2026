@@ -310,6 +310,31 @@ export async function listFailedContactsAtStep(
   return r.rows;
 }
 
+/** Contatos elegíveis para reenvio / retomada na mesma campanha. */
+export async function listContactsForRedispatch(
+  campaignId: string,
+  mode: 'failed' | 'resume',
+  stepIndex?: number
+): Promise<Array<{ contactId: string; stepIndex: number }>> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const statuses = mode === 'failed' ? ['failed'] : ['failed', 'pending', 'waiting_delay'];
+  const params: unknown[] = [campaignId, statuses];
+  let stepClause = '';
+  if (typeof stepIndex === 'number') {
+    stepClause = ' AND current_step_index = $3';
+    params.push(stepIndex);
+  }
+  const r = await pool.query<{ contact_id: string; current_step_index: number }>(
+    `SELECT contact_id, current_step_index
+     FROM zapmass.campaign_contact_state
+     WHERE campaign_id = $1::uuid AND status = ANY($2::text[])${stepClause}
+     ORDER BY current_step_index, updated_at`,
+    params
+  );
+  return r.rows.map((row) => ({ contactId: row.contact_id, stepIndex: row.current_step_index }));
+}
+
 /** Reseta falhos para pending, permitindo reenvio. */
 export async function resetFailedContactsAtStep(
   campaignId: string,

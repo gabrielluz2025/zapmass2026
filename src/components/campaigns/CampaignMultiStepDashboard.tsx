@@ -84,7 +84,7 @@ export function CampaignMultiStepDashboard({ campaign, stageLabels = [] }: Props
     setRetrying(stepIndex);
     try {
       const n = await retryFailedContacts(campaign.id, stepIndex);
-      toast.success(`${n} contato(s) resetado(s) para reenvio.`);
+      toast.success(`${n} contato(s) reenviado(s) na mesma campanha.`);
       void load();
     } catch {
       toast.error('Erro ao resetar contatos falhos.');

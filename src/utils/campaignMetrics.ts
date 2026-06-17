@@ -84,23 +84,31 @@ export function getCampaignProgressMetrics(campaign: Campaign) {
 }
 
 /**
- * O servidor conclui a fila e o evento `campaign-complete` ou a escrita no Firestore
- * pode falhar; o documento fica `RUNNING` com contadores que já batem 100% da fila.
- * A UI nesse caso deve tratar a campanha como concluída.
+ * Fila inicial concluída (sem etapas conversacionais pendentes).
+ * Inclui DRAFT/RUNNING/PAUSED com contadores 100% — comum quando o evento
+ * `campaign-finished` não atualizou o documento.
  */
-export function isRunningStatusButWorkComplete(c: Campaign): boolean {
-  if (c.status !== CampaignStatus.RUNNING) return false;
+export function isCampaignQueueWorkComplete(c: Campaign): boolean {
+  if (c.status === CampaignStatus.COMPLETED) return true;
+  if (c.status === CampaignStatus.SCHEDULED) return false;
   if (isConversationalMultiStepCampaign(c)) return false;
   const m = getCampaignProgressMetrics(c);
   if (m.plannedSendTotal <= 0) return false;
-  return m.pending === 0;
+  return m.pending === 0 && m.effectiveProcessed > 0;
+}
+
+/** @deprecated Use isCampaignQueueWorkComplete */
+export function isRunningStatusButWorkComplete(c: Campaign): boolean {
+  if (c.status !== CampaignStatus.RUNNING && c.status !== CampaignStatus.DRAFT) return false;
+  return isCampaignQueueWorkComplete(c);
 }
 
 /**
- * Ajusta em memória `RUNNING` → `COMPLETED` quando a fila já foi toda contabilizada.
+ * Ajusta em memória status → `COMPLETED` quando a fila já foi toda contabilizada.
  */
-export function healStuckRunningCampaign(c: Campaign): Campaign {
-  if (!isRunningStatusButWorkComplete(c)) return c;
+export function healStuckCampaignStatus(c: Campaign): Campaign {
+  if (!isCampaignQueueWorkComplete(c)) return c;
+  if (c.status === CampaignStatus.COMPLETED) return c;
   const m = getCampaignProgressMetrics(c);
   return {
     ...c,
@@ -111,11 +119,21 @@ export function healStuckRunningCampaign(c: Campaign): Campaign {
   };
 }
 
+/** @deprecated Use healStuckCampaignStatus */
+export function healStuckRunningCampaign(c: Campaign): Campaign {
+  return healStuckCampaignStatus(c);
+}
+
 export function healStuckRunningCampaignsList(list: Campaign[]): Campaign[] {
-  return list.map(healStuckRunningCampaign);
+  return list.map(healStuckCampaignStatus);
 }
 
 /** Campanha já saiu do rascunho ou já registrou envios — útil após timeout de ACK do socket. */
+/** UI: campanha terminou (status explícito ou fila esgotada nos contadores). */
+export function isCampaignEffectivelyDone(c: Campaign): boolean {
+  return c.status === CampaignStatus.COMPLETED || isCampaignQueueWorkComplete(c);
+}
+
 export function isCampaignLikelyStartedOnServer(c: Campaign | undefined): boolean {
   if (!c) return false;
   if (

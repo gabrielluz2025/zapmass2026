@@ -269,14 +269,58 @@ export function registerCampaignsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const campaignId = String(req.params.id || '').trim();
-    const body = req.body as { stepIndex?: number };
+    const body = req.body as { stepIndex?: number; connectionIds?: string[] };
     const stepIndex = typeof body.stepIndex === 'number' ? body.stepIndex : 0;
     try {
+      const owned = await evolutionService.ensureTenantOwnsCampaign(ctx.tenantId, campaignId);
+      if (!owned) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
       const reset = await resetFailedContactsAtStep(campaignId, stepIndex);
-      return res.json({ ok: true, reset });
+      const redispatch = await evolutionService.redispatchCampaign(ctx.tenantId, campaignId, {
+        mode: 'failed',
+        stepIndex,
+        connectionIds: Array.isArray(body.connectionIds) ? body.connectionIds : undefined,
+        skipFrequencyCap: true,
+      });
+      return res.json({
+        ok: true,
+        reset,
+        enqueued: redispatch.enqueued,
+        error: redispatch.ok ? undefined : redispatch.error,
+      });
     } catch (e) {
       console.error('[api/campaigns/retry-failed]', e);
       return res.status(500).json({ ok: false, error: 'Erro ao resetar contatos falhos.' });
+    }
+  });
+
+  /** Reenvio / retomada na mesma campanha (falhos ou pendências por etapa). */
+  app.post('/api/campaigns/:id/redispatch', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const campaignId = String(req.params.id || '').trim();
+    const body = req.body as {
+      mode?: 'failed' | 'resume';
+      connectionIds?: string[];
+      phones?: string[];
+      stepIndex?: number;
+    };
+    try {
+      const owned = await evolutionService.ensureTenantOwnsCampaign(ctx.tenantId, campaignId);
+      if (!owned) return res.status(404).json({ ok: false, error: 'Campanha não encontrada.' });
+      const result = await evolutionService.redispatchCampaign(ctx.tenantId, campaignId, {
+        mode: body.mode === 'resume' ? 'resume' : 'failed',
+        connectionIds: Array.isArray(body.connectionIds) ? body.connectionIds : undefined,
+        phones: Array.isArray(body.phones) ? body.phones : undefined,
+        stepIndex: typeof body.stepIndex === 'number' ? body.stepIndex : undefined,
+        skipFrequencyCap: true,
+      });
+      if (!result.ok) {
+        return res.status(400).json({ ok: false, error: result.error || 'Não foi possível reenviar.' });
+      }
+      return res.json({ ok: true, enqueued: result.enqueued });
+    } catch (e) {
+      console.error('[api/campaigns/redispatch]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao reenviar campanha.' });
     }
   });
 

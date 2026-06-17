@@ -76,7 +76,7 @@ import {
   getCampaignProgressMetrics,
   healStuckRunningCampaignsList,
   isCampaignLikelyStartedOnServer,
-  isRunningStatusButWorkComplete
+  isCampaignQueueWorkComplete
 } from '../utils/campaignMetrics';
 import { isConversationalMultiStepCampaign } from '../utils/campaignStageCount';
 import { computeNextRunIso, localDateTimeToUtcIso } from '../utils/campaignSchedule';
@@ -662,8 +662,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const syncStuckCampaignsToFirestore = useCallback((raw: Campaign[], uid: string) => {
     for (const c of raw) {
-      if (c.status !== CampaignStatus.RUNNING) continue;
-      if (!isRunningStatusButWorkComplete(c)) continue;
+      if (c.status === CampaignStatus.COMPLETED || c.status === CampaignStatus.SCHEDULED) continue;
+      if (!isCampaignQueueWorkComplete(c)) continue;
       if (campaignFirestoreHealRef.current.has(c.id)) continue;
       campaignFirestoreHealRef.current.add(c.id);
       const m = getCampaignProgressMetrics(c);

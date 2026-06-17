@@ -8,6 +8,7 @@ import {
   rowToCampaign,
   type CampaignRow
 } from './campaignMapper.js';
+import { healStuckCampaignStatus } from '../../src/utils/campaignMetrics.js';
 
 export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
   const pool = getZapmassPool();
@@ -17,7 +18,21 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
      FROM zapmass.campaigns WHERE tenant_id = $1::uuid ORDER BY created_at DESC`,
     [tenantId]
   );
-  return r.rows.map(rowToCampaign);
+  const out: Campaign[] = [];
+  for (const row of r.rows) {
+    const raw = rowToCampaign(row);
+    const healed = healStuckCampaignStatus(raw);
+    out.push(healed);
+    if (healed.status !== raw.status) {
+      void mergeUpdateCampaign(tenantId, raw.id, {
+        status: healed.status,
+        processedCount: healed.processedCount,
+        successCount: healed.successCount,
+        failedCount: healed.failedCount
+      }).catch(() => {});
+    }
+  }
+  return out;
 }
 
 export async function getCampaign(tenantId: string, campaignId: string): Promise<Campaign | null> {

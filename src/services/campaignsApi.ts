@@ -145,14 +145,36 @@ export async function fetchCampaignContactStates(
 
 export async function retryFailedContacts(
   campaignId: string,
-  stepIndex: number
+  stepIndex: number,
+  connectionIds?: string[]
 ): Promise<number> {
   const path = `/api/campaigns/${encodeURIComponent(campaignId)}/retry-failed`;
-  const j = await apiFetchJson<{ reset?: number }>(path, {
+  const j = await apiFetchJson<{ reset?: number; enqueued?: number; error?: string }>(path, {
     method: 'POST',
-    body: JSON.stringify({ stepIndex })
+    body: JSON.stringify({ stepIndex, connectionIds })
   });
-  return Number(j.reset) || 0;
+  if (j.error && !(j.enqueued && j.enqueued > 0)) {
+    throw new Error(j.error);
+  }
+  return Number(j.enqueued ?? j.reset) || 0;
+}
+
+export async function redispatchCampaign(
+  campaignId: string,
+  body: {
+    mode?: 'failed' | 'resume';
+    connectionIds?: string[];
+    phones?: string[];
+    stepIndex?: number;
+  }
+): Promise<number> {
+  const path = `/api/campaigns/${encodeURIComponent(campaignId)}/redispatch`;
+  const j = await apiFetchJson<{ ok?: boolean; enqueued?: number; error?: string }>(path, {
+    method: 'POST',
+    body: JSON.stringify(body)
+  });
+  if (j.ok === false) throw new Error(j.error || 'Falha ao reenviar campanha.');
+  return Number(j.enqueued) || 0;
 }
 
 export type CampaignMediaAttachmentPayload = {
