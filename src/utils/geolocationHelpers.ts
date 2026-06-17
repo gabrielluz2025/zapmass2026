@@ -36,7 +36,11 @@ export function describeGeolocationError(error: unknown): string {
   return 'Falha ao usar GPS. Informe a cidade manualmente.';
 }
 
-export function readBrowserGeolocation(options?: {
+/**
+ * Deve ser chamado de forma síncrona no handler de clique — o prompt do navegador
+ * só aparece se getCurrentPosition rodar ainda dentro do gesto do usuário.
+ */
+export function requestBrowserGeolocation(options?: {
   enableHighAccuracy?: boolean;
   timeout?: number;
 }): Promise<GeolocationPosition> {
@@ -52,3 +56,6 @@ export function readBrowserGeolocation(options?: {
     });
   });
 }
+
+/** @deprecated use requestBrowserGeolocation — mantido para imports antigos */
+export const readBrowserGeolocation = requestBrowserGeolocation;

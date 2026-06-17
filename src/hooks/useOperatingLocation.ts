@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   fetchOperatingLocation,
-  readBrowserGeolocation,
   saveOperatingLocationFromGps,
   saveOperatingLocationManual,
   type OperatingLocation,
@@ -10,8 +9,7 @@ import {
 } from '../services/operatingLocationApi';
 import {
   describeGeolocationError,
-  geolocationPermissionDeniedMessage,
-  queryGeolocationPermission
+  requestBrowserGeolocation
 } from '../utils/geolocationHelpers';
 
 const CITY_PRESETS = [
@@ -81,43 +79,41 @@ export function useOperatingLocation(fallbackCity = 'Blumenau · SC') {
     [persistManual]
   );
 
-  const useMyLocation = useCallback(async () => {
-    setGpsLoading(true);
-    try {
-      const perm = await queryGeolocationPermission();
-      if (perm === 'unsupported') {
-        toast.error('Geolocalização não disponível neste navegador. Digite a cidade manualmente.');
-        return;
-      }
-      if (perm === 'denied') {
-        toast.error(geolocationPermissionDeniedMessage(), { duration: 9000 });
-        return;
-      }
+  const useMyLocation = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      toast.error('Geolocalização não disponível neste navegador. Digite a cidade manualmente.');
+      return;
+    }
 
-      let pos: GeolocationPosition;
-      try {
-        pos = await readBrowserGeolocation({ enableHighAccuracy: true, timeout: 15_000 });
-      } catch (firstErr) {
+    setGpsLoading(true);
+
+    // Dispara o prompt do navegador imediatamente no clique (sem await antes).
+    const posPromise = requestBrowserGeolocation({ enableHighAccuracy: true, timeout: 15_000 }).catch(
+      (firstErr) => {
         if (
           firstErr instanceof GeolocationPositionError &&
           firstErr.code === firstErr.TIMEOUT
         ) {
-          pos = await readBrowserGeolocation({ enableHighAccuracy: false, timeout: 20_000 });
-        } else {
-          throw firstErr;
+          return requestBrowserGeolocation({ enableHighAccuracy: false, timeout: 20_000 });
         }
+        throw firstErr;
       }
+    );
 
-      const loc = await saveOperatingLocationFromGps(pos.coords.latitude, pos.coords.longitude);
-      skipNextSave.current = true;
-      setCityLabelState(loc.cityLabel);
-      setSource('gps');
-      toast.success(`Localização: ${loc.cityLabel}`);
-    } catch (e) {
-      toast.error(describeGeolocationError(e), { duration: 8000 });
-    } finally {
-      setGpsLoading(false);
-    }
+    void (async () => {
+      try {
+        const pos = await posPromise;
+        const loc = await saveOperatingLocationFromGps(pos.coords.latitude, pos.coords.longitude);
+        skipNextSave.current = true;
+        setCityLabelState(loc.cityLabel);
+        setSource('gps');
+        toast.success(`Localização: ${loc.cityLabel}`);
+      } catch (e) {
+        toast.error(describeGeolocationError(e), { duration: 8000 });
+      } finally {
+        setGpsLoading(false);
+      }
+    })();
   }, []);
 
   useEffect(

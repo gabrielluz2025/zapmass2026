@@ -37,4 +37,4 @@ export async function saveOperatingLocationFromGps(
   return j.location;
 }
 
-export { readBrowserGeolocation } from '../utils/geolocationHelpers';
+export { readBrowserGeolocation, requestBrowserGeolocation } from '../utils/geolocationHelpers';
