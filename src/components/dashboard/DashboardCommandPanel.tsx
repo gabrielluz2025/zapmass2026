@@ -1,12 +1,11 @@
 /**
- * Centro de comando — visão estratégica + mapa territorial PRO (dark).
+ * Centro de comando — saudação compacta + atlas territorial em largura total.
  */
 import React from 'react';
 import {
   ArrowUpRight,
   BookOpen,
   Flame,
-  MapPinned,
   Rocket,
   Send,
   Smartphone,
@@ -17,7 +16,6 @@ import {
   Zap,
 } from 'lucide-react';
 import type { Campaign, Contact, Conversation, DashboardMetrics } from '../../types';
-import { FunnelOrbitVisual } from './FunnelOrbitVisual';
 import { TerritoryLeadsMap } from './TerritoryLeadsMap';
 
 type NavView = 'campaigns' | 'connections' | 'contacts' | 'warmup' | 'team' | 'help';
@@ -62,13 +60,6 @@ export const DashboardCommandPanel: React.FC<Props> = ({
   now,
   onlineCount,
   connectionsTotal,
-  replyRate,
-  animSent,
-  animDelivered,
-  animRead,
-  animReplied,
-  deliveryRate,
-  readRate,
   campaigns,
   contacts,
   conversations,
@@ -76,158 +67,77 @@ export const DashboardCommandPanel: React.FC<Props> = ({
   onNavigate,
   onScrollFunnel,
 }) => {
-  const orbitRings = [
-    { label: 'Enviadas', value: animSent, pct: 100, color: '#6366f1' },
-    { label: 'Entregues', value: animDelivered, pct: deliveryRate, color: '#0ea5e9' },
-    { label: 'Lidas', value: animRead, pct: readRate, color: '#a855f7' },
-    { label: 'Respostas', value: animReplied, pct: replyRate, color: '#f97316' },
-  ];
-
   return (
-    <section className="zm-command-v2 zm-dash-section">
-      <div className="zm-command-v2__mesh" aria-hidden />
-
-      <header className="relative z-10 flex flex-wrap items-center gap-3 px-5 sm:px-7 py-3.5 border-b border-white/[0.06] bg-slate-950/90 text-white">
+    <section className="zm-command-v3 zm-dash-section">
+      <header className="zm-command-v3__status">
         <span
-          className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest ${
-            isBackendConnected ? 'text-emerald-400' : 'text-amber-400'
-          }`}
+          className={`zm-command-v3__pill ${isBackendConnected ? 'zm-command-v3__pill--ok' : 'zm-command-v3__pill--warn'}`}
         >
-          <span
-            className={`w-2 h-2 rounded-full ${isBackendConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}
-          />
-          {isBackendConnected ? 'Operação online' : 'Reconectando'}
+          <span className="zm-command-v3__dot" />
+          {isBackendConnected ? 'Online' : 'Reconectando'}
         </span>
-        <span className="hidden sm:inline text-[11px] text-slate-500 tabular-nums">
+        <span className="zm-command-v3__time">
           {now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
           {' · '}
           {now.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })}
         </span>
         {connectionsTotal > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-sky-400/90">
+          <span className="zm-command-v3__channels">
             <Wifi className="w-3.5 h-3.5" />
-            {onlineCount}/{connectionsTotal} canais
+            {onlineCount}/{connectionsTotal}
           </span>
         )}
-        <span className="ml-auto text-[11px] font-medium text-slate-500">
-          {contacts.length.toLocaleString('pt-BR')} contatos
-        </span>
       </header>
 
-      <div className="relative z-10 grid grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <div className="zm-command-v2__aside flex flex-col gap-5 border-b xl:border-b-0">
-          <div>
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.24em] text-indigo-400/80 mb-2">
-              Visão estratégica
-            </p>
-            <h1 className="text-[26px] sm:text-[30px] font-black text-white leading-[1.08] tracking-tight">
-              {greeting},{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-violet-300 to-rose-300">
-                {firstName}
-              </span>
-            </h1>
-            {segmentTagline && (
-              <p className="mt-2 text-[12px] text-slate-400 leading-relaxed">{segmentTagline}</p>
-            )}
-          </div>
-
-          <div className="flex justify-center xl:justify-start py-1">
-            <FunnelOrbitVisual
-              rings={orbitRings}
-              centerLabel="engajamento"
-              centerValue={`${replyRate}%`}
-              onClick={onScrollFunnel}
-              size={176}
-            />
-          </div>
-          <p className="text-[11px] text-slate-500 text-center xl:text-left -mt-2">
-            Toque no funil abaixo para ver envios, entregas e respostas.
-          </p>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onNavigate('campaigns')}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[12px] font-bold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-lg shadow-indigo-900/40 transition-all hover:-translate-y-0.5"
-            >
-              <Rocket className="w-4 h-4" />
-              Nova campanha
-            </button>
-            <button
-              type="button"
-              onClick={onScrollFunnel}
-              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-slate-300 bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.07] transition-colors"
-            >
-              <TrendingUp className="w-4 h-4 text-indigo-400" />
-              Funil
-            </button>
-          </div>
-
-          <div className="flex flex-wrap gap-2 mt-auto pb-1">
+      <div className="zm-command-v3__intro">
+        <div className="zm-command-v3__greet">
+          <h1>
+            {greeting}, <span>{firstName}</span>
+          </h1>
+          {segmentTagline && <p>{segmentTagline}</p>}
+          <div className="zm-command-v3__tags">
             {bestWindow && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-200 border border-amber-500/20">
+              <span>
                 <Zap className="w-3 h-3" />
-                Pico: <strong>{bestWindow.label}</strong>
+                Pico {bestWindow.label}
               </span>
             )}
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-violet-500/10 text-violet-200 border border-violet-500/20">
+            <span>
               <Users className="w-3 h-3" />
-              <strong>{contacts.length.toLocaleString('pt-BR')}</strong>
+              {contacts.length.toLocaleString('pt-BR')} contatos
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-indigo-500/10 text-indigo-200 border border-indigo-500/20">
+            <span>
               <Send className="w-3 h-3" />
-              <strong>{campaigns.length}</strong> camp.
+              {campaigns.length} campanhas
             </span>
           </div>
         </div>
-
-        <div className="zm-command-v2__map-zone">
-          <div className="zm-command-v2__map-header">
-            <div>
-              <p className="zm-command-v2__map-eyebrow">
-                <MapPinned className="w-3.5 h-3.5" />
-                Território de leads
-              </p>
-              <h2 className="zm-command-v2__map-title">
-                Onde estão seus leads quentes, mornos e frios
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate('contacts')}
-              className="zm-command-v2__map-link"
-            >
-              Base de contatos
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <TerritoryLeadsMap
-            contacts={contacts}
-            conversations={conversations}
-            defaultCity="Blumenau · SC"
-            deferLoad
-          />
+        <div className="zm-command-v3__actions">
+          <button type="button" className="zm-command-v3__primary" onClick={() => onNavigate('campaigns')}>
+            <Rocket className="w-4 h-4" />
+            Nova campanha
+          </button>
+          <button type="button" className="zm-command-v3__ghost" onClick={onScrollFunnel}>
+            <TrendingUp className="w-4 h-4" />
+            Funil
+          </button>
+          <button type="button" className="zm-command-v3__ghost" onClick={() => onNavigate('contacts')}>
+            Contatos
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
-      <footer className="relative z-10 flex flex-wrap items-center gap-2 px-5 sm:px-7 py-2.5 bg-black/40 border-t border-white/[0.05]">
+      <TerritoryLeadsMap contacts={contacts} conversations={conversations} defaultCity="Blumenau · SC" deferLoad />
+
+      <footer className="zm-command-v3__dock">
         {dockItems.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onNavigate(item.id)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
-          >
-            <item.icon className="w-4 h-4 text-indigo-400" />
+          <button key={item.id} type="button" onClick={() => onNavigate(item.id)}>
+            <item.icon className="w-4 h-4" />
             {item.label}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => onNavigate('team')}
-          className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold text-orange-300/90 hover:text-white hover:bg-orange-500/10 transition-colors"
-        >
+        <button type="button" className="zm-command-v3__invite" onClick={() => onNavigate('team')}>
           <UserPlus className="w-4 h-4" />
           Convidar equipe
         </button>

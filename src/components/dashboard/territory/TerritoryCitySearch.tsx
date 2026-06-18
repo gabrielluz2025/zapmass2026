@@ -78,8 +78,8 @@ export const TerritoryCitySearch: React.FC<Props> = ({
   };
 
   return (
-    <div ref={rootRef} className="zm-geo-search">
-      <Search className="zm-geo-search__icon" aria-hidden />
+    <div ref={rootRef} className="zm-atlas-search">
+      <Search className="zm-atlas-search__icon" aria-hidden />
       <input
         type="search"
         value={draft}
@@ -98,21 +98,21 @@ export const TerritoryCitySearch: React.FC<Props> = ({
             apply(draft);
           }
         }}
-        className="zm-geo-search__input"
+        className="zm-atlas-search__input"
         placeholder="Buscar cidade · UF"
         autoComplete="off"
         aria-label="Cidade do mapa territorial"
       />
-      {(searching || saving) && <Loader2 className="zm-geo-search__spinner animate-spin" aria-hidden />}
+      {(searching || saving) && <Loader2 className="zm-atlas-search__spinner animate-spin" aria-hidden />}
       {open && suggestions.length > 0 && (
-        <ul className="zm-geo-search__dropdown" role="listbox">
+        <ul className="zm-atlas-search__dropdown" role="listbox">
           {suggestions.map((s) => {
             const label = formatCityLabel(s.city, s.state);
             return (
               <li key={`${s.city}-${s.state}`}>
-                <button type="button" className="zm-geo-search__option" onMouseDown={() => apply(label)}>
+                <button type="button" className="zm-atlas-search__option" onMouseDown={() => apply(label)}>
                   <span>{s.city}</span>
-                  <span className="zm-geo-search__uf">{s.state}</span>
+                  <span className="zm-atlas-search__uf">{s.state}</span>
                 </button>
               </li>
             );

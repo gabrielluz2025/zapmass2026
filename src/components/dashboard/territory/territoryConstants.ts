@@ -3,6 +3,8 @@ import type { ContactTemperature } from '../../../utils/contactTemperature';
 export const MAP_TILE_DARK =
   'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 export const MAP_TILE_LIGHT = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const MAP_TILE_POSITRON =
+  'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 
 export const BLUMENAU_CENTER: [number, number] = [-26.9194, -49.0661];
 export const BLUMENAU_ZOOM = 12;

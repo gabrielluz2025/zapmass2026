@@ -18,3 +18,14 @@ export type NeighborhoodRow = {
 };
 
 export type RegionTempTotals = Record<ContactTemperature, number>;
+
+export type NeighborhoodContactRow = {
+  id: string;
+  name: string;
+  phone: string;
+  neighborhood: string;
+  zipCode: string;
+  street: string;
+  number: string;
+  temp: ContactTemperature;
+};

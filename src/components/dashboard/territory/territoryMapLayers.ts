@@ -1,5 +1,4 @@
 import L from 'leaflet';
-import { CONTACT_TEMP_LABEL } from '../../../utils/contactTemperature';
 import { TEMP_COLOR } from './territoryConstants';
 import type { NeighborhoodRow } from './types';
 
@@ -7,7 +6,8 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export function paintTerritoryCircles(
+/** Halos suaves no mapa — sem labels, sem pills. */
+export function paintTerritoryHeat(
   map: L.Map,
   rows: NeighborhoodRow[],
   selectedKey: string | null,
@@ -20,60 +20,53 @@ export function paintTerritoryCircles(
     if (row.lat == null || row.lng == null || row.count < 1) continue;
 
     const t = row.count / maxCount;
-    const radius = Math.round(7 + Math.sqrt(t) * 14);
+    const radiusM = Math.round(280 + Math.sqrt(t) * 920);
     const selected = selectedKey === row.key;
     const color = TEMP_COLOR[row.dominant];
 
-    const circle = L.circleMarker([row.lat, row.lng], {
-      radius,
+    const halo = L.circle([row.lat, row.lng], {
+      radius: radiusM,
       fillColor: color,
-      fillOpacity: selected ? 0.72 : 0.45,
-      color: selected ? '#fafafa' : color,
-      weight: selected ? 2.5 : 1,
-      opacity: selected ? 1 : 0.65,
-      className: selected ? 'zm-geo-marker zm-geo-marker--active' : 'zm-geo-marker',
+      fillOpacity: selected ? 0.38 : 0.22,
+      color: selected ? color : 'transparent',
+      weight: selected ? 2 : 0,
+      opacity: selected ? 0.85 : 0,
+      className: selected ? 'zm-atlas-halo zm-atlas-halo--active' : 'zm-atlas-halo',
     });
 
-    circle.bindTooltip(
-      `<div class="zm-geo-tip">
-        <strong>${escapeHtml(row.label)}</strong>
-        <span>${row.count.toLocaleString('pt-BR')} contatos</span>
-        ${row.hot ? `<span>${row.hot} quente${row.hot !== 1 ? 's' : ''}</span>` : ''}
-        ${row.warm ? `<span>${row.warm} morno${row.warm !== 1 ? 's' : ''}</span>` : ''}
-        ${row.cold ? `<span>${row.cold} frio${row.cold !== 1 ? 's' : ''}</span>` : ''}
-      </div>`,
-      {
-        className: 'zm-geo-tip-pane',
-        direction: 'top',
-        offset: [0, -6],
-        opacity: 1,
-      }
-    );
+    const core = L.circleMarker([row.lat, row.lng], {
+      radius: Math.round(5 + Math.sqrt(t) * 9),
+      fillColor: color,
+      fillOpacity: selected ? 1 : 0.88,
+      color: '#fff',
+      weight: selected ? 3 : 2,
+      opacity: 1,
+      className: selected ? 'zm-atlas-core zm-atlas-core--active' : 'zm-atlas-core',
+    });
 
-    circle.on('click', () => onSelect(row));
-    circle.addTo(map);
-    layers.push(circle);
+    const tip = `<strong>${escapeHtml(row.label)}</strong>
+      <span>${row.count.toLocaleString('pt-BR')} contatos</span>
+      <span>${row.hot} quente · ${row.warm} morno · ${row.cold} frio</span>`;
 
-    if (selected) {
-      const ring = L.circleMarker([row.lat, row.lng], {
-        radius: radius + 8,
-        fillColor: color,
-        fillOpacity: 0.12,
-        color: color,
-        weight: 1,
-        opacity: 0.5,
-        interactive: false,
-        className: 'zm-geo-marker-ring',
-      });
-      ring.addTo(map);
-      layers.push(ring);
-    }
+    core.bindTooltip(`<div class="zm-atlas-tip">${tip}</div>`, {
+      className: 'zm-atlas-tip-pane',
+      direction: 'top',
+      offset: [0, -4],
+      opacity: 1,
+    });
+
+    const pick = () => onSelect(row);
+    halo.on('click', pick);
+    core.on('click', pick);
+    halo.addTo(map);
+    core.addTo(map);
+    layers.push(halo, core);
   }
 
   return layers;
 }
 
-export function flyToNeighborhoodRows(map: L.Map, rows: NeighborhoodRow[], cityKey: string): void {
+export function flyToNeighborhoodRows(map: L.Map, rows: NeighborhoodRow[]): void {
   const bounds = L.latLngBounds([]);
   for (const row of rows) {
     if (row.lat != null && row.lng != null && row.count > 0) {
@@ -81,6 +74,6 @@ export function flyToNeighborhoodRows(map: L.Map, rows: NeighborhoodRow[], cityK
     }
   }
   if (bounds.isValid()) {
-    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14, animate: true });
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: true });
   }
 }
