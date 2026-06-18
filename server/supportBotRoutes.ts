@@ -6,7 +6,9 @@ import { invalidateSupportBotConfigCache } from './supportBot/supportBotEngine.j
 import {
   loadSupportBotConfigPg,
   loadSupportBotMetricsPg,
+  listSupportBotHandoffsPg,
   normalizeSupportBotConfig,
+  resetSupportBotSessionPg,
   saveSupportBotConfigPg
 } from './supportBot/supportBotRepository.js';
 import type { SupportBotConfig } from './supportBot/supportBotTypes.js';
@@ -45,6 +47,37 @@ export function registerSupportBotRoutes(app: Express): void {
     } catch (e) {
       console.error('[support-bot PATCH]', e);
       return res.status(500).json({ ok: false, error: 'Não foi possível salvar o atendimento automático.' });
+    }
+  });
+
+  app.get('/api/support-bot/handoffs', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    try {
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+      const handoffs = await listSupportBotHandoffsPg(ctx.tenantId, limit);
+      return res.json({ ok: true, handoffs });
+    } catch (e) {
+      console.error('[support-bot handoffs GET]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível carregar o histórico.' });
+    }
+  });
+
+  app.post('/api/support-bot/sessions/reset', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = req.body as { connectionId?: unknown; phoneDigits?: unknown };
+    const connectionId = String(body?.connectionId ?? '').trim();
+    const phoneDigits = String(body?.phoneDigits ?? '').replace(/\D/g, '');
+    if (!connectionId || !phoneDigits) {
+      return res.status(400).json({ ok: false, error: 'Envie connectionId e phoneDigits.' });
+    }
+    try {
+      await resetSupportBotSessionPg(ctx.tenantId, connectionId, phoneDigits);
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error('[support-bot sessions reset]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível reativar o bot nesta conversa.' });
     }
   });
 }

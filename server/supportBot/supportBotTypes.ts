@@ -5,6 +5,21 @@ export type SupportBotMenuOption = {
   handoff?: boolean;
 };
 
+export type SupportBotFaqItem = {
+  id: string;
+  keywords: string[];
+  reply: string;
+};
+
+export type SupportBotHandoffRow = {
+  id: string;
+  connectionId: string;
+  phoneDigits: string;
+  conversationId: string;
+  previewMessage: string;
+  createdAt: string;
+};
+
 export type SupportBotBusinessHours = {
   enabled: boolean;
   timezone: string;
@@ -25,6 +40,11 @@ export type SupportBotConfig = {
   handoffMessage: string;
   invalidOptionMessage: string;
   humanKeywords: string[];
+  /** Respostas automáticas por palavra-chave (antes do menu numérico) */
+  faqItems: SupportBotFaqItem[];
+  /** Cliente digita para voltar ao menu (ex.: menu, 0, reiniciar) */
+  resetKeywords: string[];
+  resetMessage: string;
   businessHours: SupportBotBusinessHours;
   /** Bot só responde fora do horário comercial */
   botOnlyOutsideHours: boolean;
@@ -65,6 +85,20 @@ export const DEFAULT_SUPPORT_BOT_CONFIG: SupportBotConfig = {
   handoffMessage: 'Certo! Vou chamar um atendente humano. Aguarde um instante, por favor. 🙏',
   invalidOptionMessage: 'Não entendi essa opção. Escolha um número do menu abaixo:',
   humanKeywords: ['atendente', 'humano', 'pessoa', 'falar com alguem', 'falar com alguém'],
+  faqItems: [
+    {
+      id: '1',
+      keywords: ['horario', 'horário', 'funciona', 'abre'],
+      reply: 'Atendemos de segunda a sexta, das 9h às 18h (horário de Brasília).'
+    },
+    {
+      id: '2',
+      keywords: ['endereco', 'endereço', 'onde fica', 'localizacao', 'localização'],
+      reply: 'Informe sua cidade na mensagem seguinte que encaminhamos ao time.'
+    }
+  ],
+  resetKeywords: ['menu', 'voltar', 'inicio', 'início', 'reiniciar', '0'],
+  resetMessage: 'Certo! Aqui está o menu novamente:',
   businessHours: {
     enabled: true,
     timezone: 'America/Sao_Paulo',

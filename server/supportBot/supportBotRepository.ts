@@ -3,6 +3,7 @@ import { resolvePostgresTenantId } from '../auth/firebaseUidMap.js';
 import {
   DEFAULT_SUPPORT_BOT_CONFIG,
   type SupportBotConfig,
+  type SupportBotHandoffRow,
   type SupportBotMetrics
 } from './supportBotTypes.js';
 
@@ -25,6 +26,18 @@ function sanitizeOption(raw: unknown, index: number): SupportBotConfig['options'
   return { id, label, reply, ...(handoff ? { handoff: true } : {}) };
 }
 
+function sanitizeFaqItem(raw: unknown, index: number): SupportBotConfig['faqItems'][0] | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = String(o.id ?? index + 1).trim().slice(0, 8) || String(index + 1);
+  const reply = String(o.reply ?? '').trim().slice(0, 2000);
+  const keywords = Array.isArray(o.keywords)
+    ? o.keywords.map((k) => String(k).trim().toLowerCase()).filter(Boolean).slice(0, 12)
+    : [];
+  if (!reply || keywords.length === 0) return null;
+  return { id, keywords, reply };
+}
+
 export function normalizeSupportBotConfig(raw: unknown): SupportBotConfig {
   const base = DEFAULT_SUPPORT_BOT_CONFIG;
   if (!raw || typeof raw !== 'object') return { ...base, options: [...base.options] };
@@ -34,6 +47,11 @@ export function normalizeSupportBotConfig(raw: unknown): SupportBotConfig {
     .slice(0, 5)
     .map((row, i) => sanitizeOption(row, i))
     .filter((x): x is SupportBotConfig['options'][0] => x != null);
+  const faqRaw = Array.isArray(o.faqItems) ? o.faqItems : base.faqItems;
+  const faqItems = faqRaw
+    .slice(0, 15)
+    .map((row, i) => sanitizeFaqItem(row, i))
+    .filter((x): x is SupportBotConfig['faqItems'][0] => x != null);
   const bh = (o.businessHours && typeof o.businessHours === 'object'
     ? o.businessHours
     : {}) as Record<string, unknown>;
@@ -56,6 +74,12 @@ export function normalizeSupportBotConfig(raw: unknown): SupportBotConfig {
     humanKeywords: Array.isArray(o.humanKeywords)
       ? o.humanKeywords.map((k) => String(k).trim().toLowerCase()).filter(Boolean).slice(0, 20)
       : [...base.humanKeywords],
+    faqItems: faqItems.length > 0 ? faqItems : [...base.faqItems],
+    resetKeywords: Array.isArray(o.resetKeywords)
+      ? o.resetKeywords.map((k) => String(k).trim().toLowerCase()).filter(Boolean).slice(0, 15)
+      : [...base.resetKeywords],
+    resetMessage:
+      String(o.resetMessage ?? base.resetMessage).trim().slice(0, 400) || base.resetMessage,
     businessHours: {
       enabled: bh.enabled !== false,
       timezone: String(bh.timezone ?? base.businessHours.timezone).trim().slice(0, 64) || base.businessHours.timezone,
@@ -196,4 +220,90 @@ export async function bumpSupportBotMetricPg(
        updated_at = now()`,
     [tid]
   );
+}
+
+export async function resetSupportBotSessionPg(
+  tenantId: string,
+  connectionId: string,
+  phoneDigits: string
+): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) return;
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid)) return;
+  await pool.query(
+    `UPDATE zapmass.support_bot_sessions
+     SET state = 'menu', handed_off_at = NULL, last_menu_sent_at = NULL, updated_at = now()
+     WHERE tenant_id = $1::uuid AND connection_id = $2 AND phone_digits = $3`,
+    [tid, connectionId, phoneDigits]
+  );
+}
+
+export async function resetSupportBotSessionByConversationPg(
+  tenantId: string,
+  conversationId: string
+): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) return;
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid) || !conversationId.trim()) return;
+  await pool.query(
+    `UPDATE zapmass.support_bot_sessions
+     SET state = 'menu', handed_off_at = NULL, last_menu_sent_at = NULL, updated_at = now()
+     WHERE tenant_id = $1::uuid AND conversation_id = $2`,
+    [tid, conversationId.trim()]
+  );
+}
+
+export async function insertSupportBotHandoffPg(
+  tenantId: string,
+  connectionId: string,
+  phoneDigits: string,
+  conversationId: string,
+  previewMessage: string
+): Promise<void> {
+  const pool = getZapmassPool();
+  if (!pool) return;
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid)) return;
+  await pool.query(
+    `INSERT INTO zapmass.support_bot_handoffs
+       (tenant_id, connection_id, phone_digits, conversation_id, preview_message)
+     VALUES ($1::uuid, $2, $3, $4, $5)`,
+    [tid, connectionId, phoneDigits, conversationId, previewMessage.slice(0, 500)]
+  );
+}
+
+export async function listSupportBotHandoffsPg(
+  tenantId: string,
+  limit = 30
+): Promise<SupportBotHandoffRow[]> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const tid = pgTenantId(tenantId);
+  if (!tid || !isUuid(tid)) return [];
+  const cap = Math.min(100, Math.max(1, Math.round(limit)));
+  const r = await pool.query<{
+    id: string;
+    connection_id: string;
+    phone_digits: string;
+    conversation_id: string;
+    preview_message: string;
+    created_at: Date;
+  }>(
+    `SELECT id, connection_id, phone_digits, conversation_id, preview_message, created_at
+     FROM zapmass.support_bot_handoffs
+     WHERE tenant_id = $1::uuid
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [tid, cap]
+  );
+  return r.rows.map((row) => ({
+    id: row.id,
+    connectionId: row.connection_id,
+    phoneDigits: row.phone_digits,
+    conversationId: row.conversation_id,
+    previewMessage: row.preview_message,
+    createdAt: row.created_at.toISOString()
+  }));
 }

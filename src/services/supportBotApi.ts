@@ -7,6 +7,12 @@ export type SupportBotMenuOption = {
   handoff?: boolean;
 };
 
+export type SupportBotFaqItem = {
+  id: string;
+  keywords: string[];
+  reply: string;
+};
+
 export type SupportBotConfig = {
   enabled: boolean;
   connectionIds: string[];
@@ -17,6 +23,9 @@ export type SupportBotConfig = {
   handoffMessage: string;
   invalidOptionMessage: string;
   humanKeywords: string[];
+  faqItems: SupportBotFaqItem[];
+  resetKeywords: string[];
+  resetMessage: string;
   businessHours: {
     enabled: boolean;
     timezone: string;
@@ -32,6 +41,15 @@ export type SupportBotMetrics = {
   botReplies: number;
   handoffs: number;
   menuShown: number;
+};
+
+export type SupportBotHandoffRow = {
+  id: string;
+  connectionId: string;
+  phoneDigits: string;
+  conversationId: string;
+  previewMessage: string;
+  createdAt: string;
 };
 
 export async function fetchSupportBotConfig(): Promise<{
@@ -69,4 +87,21 @@ export async function saveSupportBotConfig(
       menuShown: Number(j.metrics?.menuShown) || 0
     }
   };
+}
+
+export async function fetchSupportBotHandoffs(limit = 30): Promise<SupportBotHandoffRow[]> {
+  const j = await apiFetchJson<{ handoffs?: SupportBotHandoffRow[] }>(
+    `/api/support-bot/handoffs?limit=${limit}`
+  );
+  return Array.isArray(j.handoffs) ? j.handoffs : [];
+}
+
+export async function resetSupportBotSession(
+  connectionId: string,
+  phoneDigits: string
+): Promise<void> {
+  await apiFetchJson('/api/support-bot/sessions/reset', {
+    method: 'POST',
+    body: JSON.stringify({ connectionId, phoneDigits })
+  });
 }

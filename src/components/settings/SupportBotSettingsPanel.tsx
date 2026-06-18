@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bot, Clock, MessageCircle, Plus, Save, Trash2, UserRound } from 'lucide-react';
+import { Bot, Clock, History, MessageCircle, Plus, RefreshCw, Save, Trash2, UserRound } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useZapMassConnectionsSlice } from '../../context/ZapMassContext';
 import { Button, Card, Input, SectionHeader } from '../ui';
 import {
   fetchSupportBotConfig,
+  fetchSupportBotHandoffs,
+  resetSupportBotSession,
   saveSupportBotConfig,
   type SupportBotConfig,
+  type SupportBotFaqItem,
+  type SupportBotHandoffRow,
   type SupportBotMenuOption,
   type SupportBotMetrics
 } from '../../services/supportBotApi';
@@ -34,6 +38,15 @@ const DEFAULT_CONFIG: SupportBotConfig = {
   handoffMessage: 'Certo! Vou chamar um atendente humano. Aguarde um instante. 🙏',
   invalidOptionMessage: 'Não entendi essa opção. Escolha um número do menu:',
   humanKeywords: ['atendente', 'humano', 'pessoa'],
+  faqItems: [
+    {
+      id: '1',
+      keywords: ['horario', 'horário', 'funciona'],
+      reply: 'Atendemos de segunda a sexta, das 9h às 18h (horário de Brasília).'
+    }
+  ],
+  resetKeywords: ['menu', 'voltar', 'inicio', 'início', 'reiniciar', '0'],
+  resetMessage: 'Certo! Aqui está o menu novamente:',
   businessHours: {
     enabled: true,
     timezone: 'America/Sao_Paulo',
@@ -50,6 +63,41 @@ function menuPreview(config: SupportBotConfig): string {
   return `${config.welcomeMessage}\n\n${config.menuPrompt}\n\n${lines.join('\n')}`;
 }
 
+function keywordsToString(keywords: string[]): string {
+  return keywords.join(', ');
+}
+
+function stringToKeywords(raw: string): string[] {
+  return raw
+    .split(/[,;]+/)
+    .map((k) => k.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function formatPhoneDigits(digits: string): string {
+  const d = digits.replace(/\D/g, '');
+  if (d.length === 13 && d.startsWith('55')) {
+    return `+${d.slice(0, 2)} (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`;
+  }
+  if (d.length === 11) {
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  }
+  return d || '—';
+}
+
+function formatHandoffDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export const SupportBotSettingsPanel: React.FC = () => {
   const connections = useZapMassConnectionsSlice();
   const [loading, setLoading] = useState(true);
@@ -60,6 +108,17 @@ export const SupportBotSettingsPanel: React.FC = () => {
     handoffs: 0,
     menuShown: 0
   });
+  const [handoffs, setHandoffs] = useState<SupportBotHandoffRow[]>([]);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+
+  const loadHandoffs = useCallback(async () => {
+    try {
+      const rows = await fetchSupportBotHandoffs(30);
+      setHandoffs(rows);
+    } catch {
+      /* opcional no painel */
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +129,7 @@ export const SupportBotSettingsPanel: React.FC = () => {
           setConfig(data.config);
           setMetrics(data.metrics);
         }
+        if (!cancelled) await loadHandoffs();
       } catch (e) {
         if (!cancelled) {
           console.error(e);
@@ -82,7 +142,7 @@ export const SupportBotSettingsPanel: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadHandoffs]);
 
   const connectedIds = useMemo(
     () => connections.filter((c) => c.status === 'CONNECTED').map((c) => c.id),
@@ -123,6 +183,43 @@ export const SupportBotSettingsPanel: React.FC = () => {
     }));
   };
 
+  const updateFaq = (index: number, patch: Partial<SupportBotFaqItem>) => {
+    setConfig((prev) => ({
+      ...prev,
+      faqItems: prev.faqItems.map((item, i) => (i === index ? { ...item, ...patch } : item))
+    }));
+  };
+
+  const addFaq = () => {
+    setConfig((prev) => {
+      if (prev.faqItems.length >= 15) return prev;
+      const n = prev.faqItems.length + 1;
+      return {
+        ...prev,
+        faqItems: [...prev.faqItems, { id: String(n), keywords: ['palavra'], reply: '' }]
+      };
+    });
+  };
+
+  const removeFaq = (index: number) => {
+    setConfig((prev) => ({
+      ...prev,
+      faqItems: prev.faqItems.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleResetSession = async (row: SupportBotHandoffRow) => {
+    setResettingId(row.id);
+    try {
+      await resetSupportBotSession(row.connectionId, row.phoneDigits);
+      toast.success('Bot reativado nesta conversa.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao reativar o bot.');
+    } finally {
+      setResettingId(null);
+    }
+  };
+
   const handleSave = useCallback(async () => {
     if (config.options.length === 0) {
       toast.error('Adicione pelo menos uma opção no menu.');
@@ -133,13 +230,20 @@ export const SupportBotSettingsPanel: React.FC = () => {
       const data = await saveSupportBotConfig(config);
       setConfig(data.config);
       setMetrics(data.metrics);
+      await loadHandoffs();
       toast.success('Atendimento automático salvo.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Falha ao salvar.');
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, loadHandoffs]);
+
+  const connectionNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of connections) map.set(c.id, c.name || c.id);
+    return map;
+  }, [connections]);
 
   if (loading) {
     return (
@@ -335,6 +439,95 @@ export const SupportBotSettingsPanel: React.FC = () => {
       </Card>
 
       <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+            FAQ por palavra-chave (máx. 15)
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            leftIcon={<Plus className="w-3.5 h-3.5" />}
+            onClick={addFaq}
+            disabled={config.faqItems.length >= 15}
+          >
+            FAQ
+          </Button>
+        </div>
+        <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+          Se a mensagem do cliente contiver uma palavra-chave, o bot responde automaticamente e mostra o menu de novo.
+        </p>
+        {config.faqItems.map((item, i) => (
+          <div
+            key={`faq-${item.id}-${i}`}
+            className="rounded-xl p-3 space-y-2"
+            style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-1)' }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold" style={{ color: 'var(--text-3)' }}>
+                FAQ {i + 1}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeFaq(i)}
+                className="p-1 rounded hover:bg-[var(--surface-2)]"
+                title="Remover"
+              >
+                <Trash2 className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
+              </button>
+            </div>
+            <div>
+              <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--text-2)' }}>
+                Palavras-chave (separadas por vírgula)
+              </label>
+              <Input
+                value={keywordsToString(item.keywords)}
+                onChange={(e) => updateFaq(i, { keywords: stringToKeywords(e.target.value) })}
+                placeholder="horário, funciona, abre"
+              />
+            </div>
+            <textarea
+              className="w-full min-h-[72px] rounded-xl border px-3 py-2 text-[13px] resize-y"
+              style={{ borderColor: 'var(--border)', background: 'var(--surface-0)', color: 'var(--text-1)' }}
+              placeholder="Resposta automática"
+              value={item.reply}
+              onChange={(e) => updateFaq(i, { reply: e.target.value })}
+            />
+          </div>
+        ))}
+      </Card>
+
+      <Card className="p-5 space-y-3">
+        <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+          Voltar ao menu
+        </p>
+        <div>
+          <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--text-2)' }}>
+            Palavras para reiniciar (vírgula)
+          </label>
+          <Input
+            value={keywordsToString(config.resetKeywords)}
+            onChange={(e) =>
+              setConfig((p) => ({ ...p, resetKeywords: stringToKeywords(e.target.value) }))
+            }
+            placeholder="menu, voltar, 0"
+          />
+        </div>
+        <div>
+          <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--text-2)' }}>
+            Mensagem ao reiniciar
+          </label>
+          <Input
+            value={config.resetMessage}
+            onChange={(e) => setConfig((p) => ({ ...p, resetMessage: e.target.value }))}
+          />
+        </div>
+        <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
+          Quando a equipe finaliza ou liberta a conversa no Bate-papo, o bot também volta a responder automaticamente.
+        </p>
+      </Card>
+
+      <Card className="p-5 space-y-3">
         <p className="text-[13px] font-semibold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
           <Clock className="w-4 h-4" />
           Horário comercial (Brasília)
@@ -404,6 +597,62 @@ export const SupportBotSettingsPanel: React.FC = () => {
         >
           {menuPreview(config)}
         </pre>
+      </Card>
+
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[13px] font-semibold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+            <History className="w-4 h-4" />
+            Histórico de handoffs
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
+            onClick={() => void loadHandoffs()}
+          >
+            Atualizar
+          </Button>
+        </div>
+        {handoffs.length === 0 ? (
+          <p className="text-[12px]" style={{ color: 'var(--text-3)' }}>
+            Nenhum cliente passou para atendente humano ainda.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-72 overflow-auto">
+            {handoffs.map((row) => (
+              <div
+                key={row.id}
+                className="rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3"
+                style={{ border: '1px solid var(--border-subtle)', background: 'var(--surface-1)' }}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                    {formatPhoneDigits(row.phoneDigits)}
+                  </p>
+                  <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
+                    {connectionNameById.get(row.connectionId) || row.connectionId} · {formatHandoffDate(row.createdAt)}
+                  </p>
+                  {row.previewMessage && (
+                    <p className="text-[11.5px] mt-1 line-clamp-2" style={{ color: 'var(--text-2)' }}>
+                      “{row.previewMessage}”
+                    </p>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  loading={resettingId === row.id}
+                  onClick={() => void handleResetSession(row)}
+                >
+                  Reativar bot
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       <Button

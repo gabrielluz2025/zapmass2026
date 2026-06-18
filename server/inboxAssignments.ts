@@ -4,6 +4,7 @@ import { vpsDataEnabled } from './auth/dataMode.js';
 import { getZapmassPool } from './db/postgres.js';
 import { isUidMemberOfTenantPg, listInboxAssignmentsPg } from './repositories/inboxAssignmentsRepository.js';
 import * as inboxPg from './repositories/inboxAssignmentsRepository.js';
+import { resetSupportBotSessionByConversationPg } from './supportBot/supportBotRepository.js';
 import { getWorkspaceMemberUidSetVps } from './auth/staffRepository.js';
 import type { Conversation } from './types.js';
 
@@ -311,6 +312,7 @@ export async function inboxFinishConversation(
       satisfaction
     );
     if (r.ok) rememberRelease(tenantUid, conversationId);
+    if (r.ok) void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -362,6 +364,7 @@ export async function inboxFinishConversation(
   batch.delete(ref);
   await batch.commit();
   rememberRelease(tenantUid, conversationId);
+  void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
   return { ok: true };
 }
 
@@ -375,6 +378,7 @@ export async function inboxReleaseConversation(
   if (usePostgresInbox()) {
     const r = await inboxPg.inboxReleaseConversationPg(tenantUid, authUid, conversationId, isOwner);
     if (r.ok) rememberRelease(tenantUid, conversationId);
+    if (r.ok) void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
     return r;
   }
   const admin = getFirebaseAdmin();
@@ -399,6 +403,7 @@ export async function inboxReleaseConversation(
   }
   await ref.delete();
   rememberRelease(tenantUid, conversationId);
+  void resetSupportBotSessionByConversationPg(tenantUid, conversationId);
   return { ok: true };
 }
 

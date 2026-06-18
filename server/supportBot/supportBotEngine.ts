@@ -4,12 +4,13 @@ import { getClaimerSync } from '../inboxAssignments.js';
 import { insertNotificationPg } from '../repositories/notificationsRepository.js';
 import {
   bumpSupportBotMetricPg,
+  insertSupportBotHandoffPg,
   loadSupportBotConfigPg,
   loadSupportBotSessionPg,
-  normalizeSupportBotConfig,
+  resetSupportBotSessionPg,
   upsertSupportBotSessionPg
 } from './supportBotRepository.js';
-import type { SupportBotConfig, SupportBotMenuOption } from './supportBotTypes.js';
+import type { SupportBotConfig, SupportBotFaqItem, SupportBotMenuOption } from './supportBotTypes.js';
 
 const configCache = new Map<string, { config: SupportBotConfig; at: number }>();
 const CONFIG_TTL_MS = 45_000;
@@ -102,6 +103,42 @@ function wantsHuman(config: SupportBotConfig, bodyText: string): boolean {
   return config.humanKeywords.some((kw) => norm.includes(kw));
 }
 
+function wantsReset(config: SupportBotConfig, bodyText: string): boolean {
+  const norm = normalizeReplyToken(bodyText);
+  if (!norm) return false;
+  return config.resetKeywords.some((kw) => norm === kw || norm.includes(kw));
+}
+
+function matchFaqItem(config: SupportBotConfig, bodyText: string): SupportBotFaqItem | null {
+  const norm = normalizeReplyToken(bodyText);
+  if (!norm) return null;
+  for (const item of config.faqItems) {
+    if (item.keywords.some((kw) => norm.includes(kw))) return item;
+  }
+  return null;
+}
+
+async function sendMenuAndTrack(
+  params: {
+    tenantId: string;
+    connectionId: string;
+    phoneDigits: string;
+    incomingConvId: string;
+    config: SupportBotConfig;
+    sendText: (conversationId: string, text: string) => Promise<void>;
+  },
+  prefix?: string
+): Promise<void> {
+  const { tenantId, connectionId, phoneDigits, incomingConvId, config, sendText } = params;
+  const menu = buildMenuText(config);
+  await sendText(incomingConvId, prefix ? `${prefix}\n\n${menu}` : menu);
+  await upsertSupportBotSessionPg(tenantId, connectionId, phoneDigits, incomingConvId, {
+    state: 'menu',
+    lastMenuSentAt: new Date()
+  });
+  await bumpSupportBotMetricPg(tenantId, 'menuShown');
+}
+
 export type SupportBotIncomingParams = {
   tenantId: string;
   connectionId: string;
@@ -143,6 +180,16 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
   }
 
   const session = await loadSupportBotSessionPg(tenantId, connectionId, phoneDigits);
+
+  if (wantsReset(config, bodyText)) {
+    await resetSupportBotSessionPg(tenantId, connectionId, phoneDigits);
+    await sendMenuAndTrack(
+      { tenantId, connectionId, phoneDigits, incomingConvId, config, sendText },
+      config.resetMessage.trim() || undefined
+    );
+    return;
+  }
+
   if (session?.state === 'handoff') return;
 
   const doHandoff = async (preview: string) => {
@@ -152,6 +199,13 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
       handedOffAt: new Date()
     });
     await bumpSupportBotMetricPg(tenantId, 'handoffs');
+    await insertSupportBotHandoffPg(
+      tenantId,
+      connectionId,
+      phoneDigits,
+      incomingConvId,
+      preview
+    );
     await insertNotificationPg(tenantId, {
       title: 'Atendimento: cliente aguarda humano',
       body: `${preview.slice(0, 120)} — abra o Bate-papo para assumir a conversa.`,
@@ -162,6 +216,14 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
 
   if (wantsHuman(config, bodyText)) {
     await doHandoff(bodyText);
+    return;
+  }
+
+  const faq = matchFaqItem(config, bodyText);
+  if (faq) {
+    await sendText(incomingConvId, faq.reply);
+    await bumpSupportBotMetricPg(tenantId, 'botReplies');
+    await sendMenuAndTrack({ tenantId, connectionId, phoneDigits, incomingConvId, config, sendText });
     return;
   }
 
@@ -176,12 +238,7 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
       await sendText(incomingConvId, reply);
       await bumpSupportBotMetricPg(tenantId, 'botReplies');
     }
-    await sendText(incomingConvId, buildMenuText(config));
-    await upsertSupportBotSessionPg(tenantId, connectionId, phoneDigits, incomingConvId, {
-      state: 'menu',
-      lastMenuSentAt: new Date()
-    });
-    await bumpSupportBotMetricPg(tenantId, 'menuShown');
+    await sendMenuAndTrack({ tenantId, connectionId, phoneDigits, incomingConvId, config, sendText });
     return;
   }
 
@@ -194,10 +251,5 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
     return;
   }
 
-  await sendText(incomingConvId, buildMenuText(config));
-  await upsertSupportBotSessionPg(tenantId, connectionId, phoneDigits, incomingConvId, {
-    state: 'menu',
-    lastMenuSentAt: new Date()
-  });
-  await bumpSupportBotMetricPg(tenantId, 'menuShown');
+  await sendMenuAndTrack({ tenantId, connectionId, phoneDigits, incomingConvId, config, sendText });
 }
