@@ -1,5 +1,5 @@
 /**
- * Bairros oficiais por município + resolução via IBGE (subdistritos) no servidor.
+ * Bairros oficiais por município — listas curadas + OpenStreetMap (Overpass API).
  */
 import { BLUMENAU_OFFICIAL_NEIGHBORHOODS, BLUMENAU_NB_ALIASES } from './blumenauNeighborhoods.js';
 

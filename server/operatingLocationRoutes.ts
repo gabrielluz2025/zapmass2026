@@ -65,12 +65,28 @@ export function registerOperatingLocationRoutes(app: Express): void {
     const fc = parseGeoFilterCity(city);
     try {
       const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
-      const { resolveOfficialNeighborhoods } = await import('./municipalityNeighborhoods.js');
-      const neighborhoods = await resolveOfficialNeighborhoods(fc.city, fc.state, ibgeIndex);
-      return res.json({ ok: true, city: fc.city, state: fc.state, neighborhoods });
+      const { resolveNeighborhoodBundle } = await import('./municipalityNeighborhoods.js');
+      const refresh = String(req.query.refresh || '') === '1';
+      const bundle = refresh
+        ? await (await import('./municipalityNeighborhoods.js')).refreshOsmNeighborhoodsForCity(
+            fc.city,
+            fc.state,
+            ibgeIndex
+          )
+        : await resolveNeighborhoodBundle(fc.city, fc.state, ibgeIndex);
+      return res.json({
+        ok: true,
+        city: bundle.city,
+        state: bundle.state,
+        source: bundle.source,
+        fetchedAt: bundle.fetchedAt,
+        neighborhoods: bundle.names,
+        features: bundle.neighborhoods,
+        warnings: bundle.warnings,
+      });
     } catch (e) {
       console.warn('[api/geo/official-neighborhoods]', e);
-      return res.json({ ok: true, city: fc.city, state: fc.state, neighborhoods: [] });
+      return res.json({ ok: true, city: fc.city, state: fc.state, neighborhoods: [], features: [], warnings: [] });
     }
   });
 

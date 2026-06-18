@@ -22,7 +22,7 @@ import {
   isInsideBrazilBounds
 } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
-import { resolveOfficialNeighborhoods } from './municipalityNeighborhoods.js';
+import { resolveNeighborhoodBundle } from './municipalityNeighborhoods.js';
 import {
   matchCityOfficialNeighborhood,
   normNbKey,
@@ -1194,6 +1194,15 @@ function contactMatchesCityQuery(c: Contact, cityQuery: string): boolean {
   return true;
 }
 
+function osmCentroidForName(
+  name: string,
+  byNameKey: Map<string, { lat: number; lng: number }>
+): { lat: number; lng: number } | null {
+  const hit = byNameKey.get(normNbKey(name));
+  if (!hit || (hit.lat === 0 && hit.lng === 0)) return null;
+  return hit;
+}
+
 /** Resposta rápida para mapa territorial de qualquer cidade (sem geocode pesado). */
 async function buildCityLightNeighborhoodSummary(
   contacts: Contact[],
@@ -1208,7 +1217,14 @@ async function buildCityLightNeighborhoodSummary(
   const selectedNb = query.neighborhood?.split('·')[0]?.trim() || '';
   const selectedNbKey = selectedNb ? normNeighborhoodKey(selectedNb) : '';
 
-  const officialList = await resolveOfficialNeighborhoods(cityName, stateCode, ibgeIndex);
+  const bundle = await resolveNeighborhoodBundle(cityName, stateCode, ibgeIndex);
+  const officialList = bundle.names;
+  const osmCentroids = new Map<string, { lat: number; lng: number }>();
+  for (const nb of bundle.neighborhoods) {
+    if (nb.centroid && (nb.centroid.lat !== 0 || nb.centroid.lng !== 0)) {
+      osmCentroids.set(nb.nameKey, nb.centroid);
+    }
+  }
 
   const byKey = new Map<string, GeoCluster>();
   const byNeighborhood: Record<string, number> = {};
@@ -1218,6 +1234,7 @@ async function buildCityLightNeighborhoodSummary(
 
   for (const [idx, name] of officialList.entries()) {
     const nbKey = normNeighborhoodKey(name);
+    const osm = osmCentroidForName(name, osmCentroids);
     const spread = nbSpreadAroundCity(cityName, stateCode, idx);
     const cacheKey = clusterKey('neighborhood', { city: cityName, neighborhood: name });
     const cached = cache[cacheKey];
@@ -1229,10 +1246,10 @@ async function buildCityLightNeighborhoodSummary(
       neighborhood: name,
       ddd: '—',
       count: 0,
-      lat: cached?.lat ?? spread.lat,
-      lng: cached?.lng ?? spread.lng,
+      lat: cached?.lat ?? osm?.lat ?? spread.lat,
+      lng: cached?.lng ?? osm?.lng ?? spread.lng,
       precision: 'neighborhood',
-      mapped: Boolean(cached?.lat != null),
+      mapped: Boolean(cached?.lat != null || osm != null),
       sampleNames: [],
     });
   }
@@ -1257,6 +1274,7 @@ async function buildCityLightNeighborhoodSummary(
 
     let slot = byKey.get(nbKey);
     if (!slot) {
+      const osm = osmCentroidForName(nb, osmCentroids);
       const spread = nbSpreadAroundCity(cityName, stateCode, byKey.size);
       const cacheKey = clusterKey('neighborhood', { city: cityName, neighborhood: nb });
       const cached = cache[cacheKey];
@@ -1268,10 +1286,10 @@ async function buildCityLightNeighborhoodSummary(
         neighborhood: nb,
         ddd: phoneToDdd(c.phone || '') || '—',
         count: 0,
-        lat: cached?.lat ?? spread.lat,
-        lng: cached?.lng ?? spread.lng,
+        lat: cached?.lat ?? osm?.lat ?? spread.lat,
+        lng: cached?.lng ?? osm?.lng ?? spread.lng,
         precision: 'neighborhood',
-        mapped: Boolean(cached?.lat != null),
+        mapped: Boolean(cached?.lat != null || osm != null),
         sampleNames: [],
       };
       byKey.set(nbKey, slot);
