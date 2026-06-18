@@ -1,104 +1,147 @@
 /**
- * Notifica criadores (email Resend + sino no painel) quando um novo cliente entra:
- * - após iniciar o teste grátis (/api/billing/trial/start)
- * - após primeira assinatura paga (extendPaidSubscription, sem ser simples renovação)
- *
- * Deduplicação: campo userSubscriptions.adminNewClientNotifiedAt (claim atómico).
+ * Notifica administradores (sino no painel + e-mail Resend) sobre eventos da plataforma:
+ * - nova conta (register)
+ * - teste grátis iniciado
+ * - primeira assinatura paga
  */
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdmin } from './firebaseAdmin.js';
-import { findUserById } from './auth/userRepository.js';
+import { findUserByEmail, findUserById } from './auth/userRepository.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
+import { adminEmailSet } from './adminIdentity.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
+import { insertNotificationPg } from './repositories/notificationsRepository.js';
 import { sendNewClientSignupNotificationEmail } from './emailService.js';
 import { tryClaimAdminNewClientNotify } from './subscriptionStore.js';
 
-export type NewSignupSource = 'trial' | 'subscription';
+export type NewSignupSource = 'register' | 'trial' | 'subscription';
+
+async function persistAdminBellNotification(
+  adminEmail: string,
+  payload: { title: string; body: string }
+): Promise<void> {
+  if (vpsDataEnabled()) {
+    const row = await findUserByEmail(adminEmail);
+    if (row) {
+      await insertNotificationPg(row.id, {
+        title: payload.title,
+        body: payload.body,
+        kind: 'success',
+        category: 'admin'
+      });
+    }
+    return;
+  }
+  const adminApp = getFirebaseAdmin();
+  if (!adminApp) return;
+  try {
+    const u = await getAuth(adminApp).getUserByEmail(adminEmail);
+    await persistUserNotification(u.uid, {
+      title: payload.title,
+      body: payload.body,
+      kind: 'success',
+      category: 'admin'
+    });
+  } catch {
+    /* admin pode não existir no Firebase — e-mail ainda é enviado */
+  }
+}
+
+function adminNotifyEmails(): string[] {
+  return [...adminEmailSet()];
+}
+
+async function resolveClientProfile(uid: string): Promise<{ email: string; displayName: string }> {
+  if (vpsDataEnabled()) {
+    const row = await findUserById(uid);
+    return {
+      email: row?.email || '',
+      displayName: (row?.display_name || '').trim()
+    };
+  }
+  const adminApp = getFirebaseAdmin();
+  if (!adminApp) return { email: '', displayName: '' };
+  try {
+    const rec = await getAuth(adminApp).getUser(uid);
+    return {
+      email: rec.email || '',
+      displayName: (rec.displayName || '').trim()
+    };
+  } catch {
+    return { email: '', displayName: '' };
+  }
+}
+
+function sourceLabel(source: NewSignupSource): string {
+  if (source === 'register') return 'Nova conta criada';
+  if (source === 'trial') return 'Teste grátis iniciado';
+  return 'Nova assinatura paga';
+}
+
+function bellTitle(source: NewSignupSource): string {
+  if (source === 'register') return 'Novo cadastro na plataforma';
+  if (source === 'trial') return 'Novo cliente — teste grátis';
+  return 'Novo cliente — assinatura';
+}
 
 export async function notifyAdminsNewClientSignup(params: {
   uid: string;
   source: NewSignupSource;
+  skipClaim?: boolean;
 }): Promise<void> {
-  const { uid, source } = params;
-  const claimed = await tryClaimAdminNewClientNotify(uid);
-  if (!claimed) return;
-
-  const adminApp = getFirebaseAdmin();
-  if (!adminApp) return;
-
-  let email = '';
-  let displayName = '';
-  if (vpsDataEnabled()) {
-    const row = await findUserById(uid);
-    if (row) {
-      email = row.email || '';
-      displayName = (row.display_name || '').trim();
-    }
-  } else {
-    try {
-      const rec = await getAuth(adminApp).getUser(uid);
-      email = rec.email || '';
-      displayName = (rec.displayName || '').trim();
-    } catch (e) {
-      console.warn('[adminNewSignupNotify] getUser', uid, e);
-    }
+  const { uid, source, skipClaim } = params;
+  if (!skipClaim && source !== 'register') {
+    const claimed = await tryClaimAdminNewClientNotify(uid);
+    if (!claimed) return;
   }
 
-  const label = source === 'trial' ? 'Teste grátis iniciado' : 'Nova assinatura paga';
+  const { email, displayName } = await resolveClientProfile(uid);
   const bodyLines = [
     `UID: ${uid}`,
     email ? `E-mail: ${email}` : 'E-mail: (não disponível)',
     displayName ? `Nome: ${displayName}` : null,
-    `Origem: ${source === 'trial' ? 'primeiro acesso — trial' : 'primeira assinatura (Mercado Pago)'}`
+    source === 'register'
+      ? 'Origem: registo de conta (e-mail/senha)'
+      : source === 'trial'
+        ? 'Origem: primeiro acesso — trial'
+        : 'Origem: primeira assinatura (Mercado Pago)'
   ].filter(Boolean);
 
-  const bellTitle = source === 'trial' ? 'Novo cliente — teste grátis' : 'Novo cliente — assinatura';
-  const bellBody = bodyLines.join('\n');
-
-  const rawNotify = (process.env.NEW_CLIENT_NOTIFY_EMAIL || process.env.SUGGESTION_NOTIFY_EMAIL || '').trim();
-  const adminList = (process.env.ADMIN_EMAILS || '').trim();
-  const raw = rawNotify.length > 0 ? rawNotify : adminList;
-  const adminEmails = raw
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s.length > 0 && s.includes('@'));
+  const title = bellTitle(source);
+  const body = bodyLines.join('\n');
+  const emails = adminNotifyEmails();
 
   await Promise.all(
-    adminEmails.map(async (admEmail) => {
-      try {
-        const u = await getAuth(adminApp).getUserByEmail(admEmail);
-        await persistUserNotification(u.uid, {
-          title: bellTitle,
-          body: bellBody,
-          kind: 'success',
-          category: 'admin'
-        });
-      } catch {
-        /* admin pode ainda não ter feito login no projeto — só email */
-      }
-    })
+    emails.map((admEmail) =>
+      persistAdminBellNotification(admEmail, { title, body }).catch((e) => {
+        console.warn('[adminNewSignupNotify] bell', admEmail, e);
+      })
+    )
   );
 
   const ok = await sendNewClientSignupNotificationEmail({
     clientUid: uid,
     clientEmail: email,
     clientName: displayName,
-    sourceLabel: label
+    sourceLabel: sourceLabel(source)
   });
   console.log(
-    '[adminNewSignupNotify] novo cliente',
+    '[adminNewSignupNotify]',
+    source,
     uid,
     email || '(sem email)',
-    source,
     'emailResend=',
     ok
   );
 }
 
-/**
- * Chamado após extendPaidSubscription quando não é renovação antecipada
- * (já era active com accessEndsAt futuro antes deste extend).
- */
+/** Conta nova — sem deduplicação (evento imediato no registo). */
+export async function notifyAdminsNewAccountRegistered(uid: string): Promise<void> {
+  await notifyAdminsNewClientSignup({ uid, source: 'register', skipClaim: true }).catch((e) =>
+    console.error('[adminNewSignupNotify] register', e)
+  );
+}
+
 export async function notifyAdminsNewSignupAfterPaidIfNeeded(
   uid: string,
   opts: { wasRenewal: boolean }

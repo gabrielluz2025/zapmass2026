@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Save, Shield, Users, Lock, Unlock, Clock3, Search, RefreshCw, History, Sparkles,
-  TrendingUp, KeyRound, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle, Megaphone
+  TrendingUp, KeyRound, Copy, BarChart3, Lightbulb, Send, Mail, MessageCircle, CheckCircle2, XCircle, Megaphone,
+  CircleDollarSign, Smartphone
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppConfig } from '../../context/AppConfigContext';
@@ -15,7 +16,7 @@ import {
 import { resolveLandingTrialCopy } from '../../utils/landingTrialResolved';
 import { apiUrl } from '../../utils/apiBase';
 
-type AdminTab = 'config' | 'access' | 'suggestions' | 'announcements';
+type AdminTab = 'config' | 'revenue' | 'access' | 'suggestions' | 'announcements';
 
 function suggestionCategoryPt(code: string | undefined): string {
   const m: Record<string, string> = {
@@ -117,6 +118,35 @@ type AccessUserInsights = {
   } | null;
 };
 
+type PlatformStats = {
+  generatedAt: string;
+  users: { total: number; newLast7Days: number; newLast30Days: number };
+  subscriptions: {
+    active: number;
+    trialing: number;
+    manualGrant: number;
+    blocked: number;
+    none: number;
+  };
+  connections: { total: number; connected: number; tenantsWithConnection: number };
+  revenue: {
+    priceMonthlyBrl: number;
+    priceAnnualBrl: number;
+    estimatedMrrBrl: number;
+    activeMonthlyPlans: number;
+    activeAnnualPlans: number;
+    channelAddonSlots: number;
+  };
+  recentSignups: Array<{
+    uid: string;
+    email: string;
+    createdAt: string | null;
+    status: string;
+    plan: string | null;
+    connectionsConnected: number;
+  }>;
+};
+
 const toPtDateTime = (iso: string | null | undefined): string => {
   if (!iso) return '—';
   try {
@@ -124,6 +154,11 @@ const toPtDateTime = (iso: string | null | undefined): string => {
   } catch {
     return '—';
   }
+};
+
+const formatBrl = (value: number): string => {
+  if (!Number.isFinite(value)) return '—';
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
 /** Duração legível a partir de ms (tempo no app). */
@@ -223,6 +258,8 @@ export const AdminPanel: React.FC = () => {
   const [repliesByKey, setRepliesByKey] = useState<Record<string, SuggestionReply[]>>({});
   const [repliesLoadingKey, setRepliesLoadingKey] = useState<string | null>(null);
   const [repliesOpenKey, setRepliesOpenKey] = useState<string | null>(null);
+  const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
+  const [platformStatsLoading, setPlatformStatsLoading] = useState(false);
 
   useEffect(() => {
     setMarketingPriceMonthly(config.marketingPriceMonthly);
@@ -312,6 +349,32 @@ export const AdminPanel: React.FC = () => {
     if (tab !== 'access') return;
     void loadAccessUsers(search);
     void loadAudit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const loadPlatformStats = async () => {
+    if (!user) return;
+    setPlatformStatsLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(apiUrl('/api/admin/platform-stats'), {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Falha ao carregar ganhos.');
+      }
+      setPlatformStats(data.stats as PlatformStats);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível carregar estatísticas.');
+    } finally {
+      setPlatformStatsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab !== 'revenue') return;
+    void loadPlatformStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -711,13 +774,9 @@ export const AdminPanel: React.FC = () => {
                   Painel do criador
                 </h2>
                 <p className="text-sm mt-2 max-w-2xl leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Ajuste preços, duração do teste e textos exibidos aos clientes; na aba <strong className="text-[var(--text-2)]">Acesso</strong> você
-                  libera planos e bloqueia abusos; na aba <strong className="text-[var(--text-2)]">Sugestões</strong> vê feedback dos utilizadores.
-                  Dados em Firestore (
-                  <code className="text-xs px-1 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80" style={{ color: 'var(--text-2)' }}>
-                    appConfig/global
-                  </code>
-                  , assinaturas).
+                  Ajuste preços e trial na aba <strong className="text-[var(--text-2)]">Comercial</strong>; em{' '}
+                  <strong className="text-[var(--text-2)]">Ganhos</strong> acompanhe MRR, cadastros e canais; em{' '}
+                  <strong className="text-[var(--text-2)]">Acesso</strong> libere planos e bloqueie abusos.
                 </p>
               </div>
             </div>
@@ -733,6 +792,18 @@ export const AdminPanel: React.FC = () => {
               >
                 <TrendingUp className="w-3.5 h-3.5" />
                 Comercial
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('revenue')}
+                className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
+                  tab === 'revenue'
+                    ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                }`}
+              >
+                <CircleDollarSign className="w-3.5 h-3.5" />
+                Ganhos
               </button>
               <button
                 type="button"
@@ -776,6 +847,213 @@ export const AdminPanel: React.FC = () => {
       </Card>
 
       {tab === 'announcements' && <AdminAnnouncementsTab />}
+
+      {tab === 'revenue' && (
+        <div className="space-y-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SectionHeader
+              title="Ganhos e crescimento"
+              description="MRR estimado com base nos planos ativos no Mercado Pago, cadastros recentes e canais WhatsApp conectados na plataforma."
+            />
+            <Button
+              variant="secondary"
+              type="button"
+              disabled={platformStatsLoading}
+              leftIcon={
+                platformStatsLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )
+              }
+              onClick={() => void loadPlatformStats()}
+            >
+              Atualizar
+            </Button>
+          </div>
+
+          {platformStatsLoading && !platformStats ? (
+            <div className="flex items-center justify-center py-16 gap-2" style={{ color: 'var(--text-3)' }}>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              A carregar estatísticas…
+            </div>
+          ) : platformStats ? (
+            <>
+              <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatCard
+                  label="MRR estimado"
+                  value={formatBrl(platformStats.revenue.estimatedMrrBrl)}
+                  icon={<CircleDollarSign className="w-4 h-4 text-emerald-600" />}
+                  helper={`${platformStats.revenue.activeMonthlyPlans} mensais · ${platformStats.revenue.activeAnnualPlans} anuais`}
+                  accent="default"
+                />
+                <StatCard
+                  label="Contas na plataforma"
+                  value={platformStats.users.total}
+                  icon={<Users className="w-4 h-4 text-sky-600" />}
+                  helper={`+${platformStats.users.newLast7Days} (7d) · +${platformStats.users.newLast30Days} (30d)`}
+                  accent="info"
+                />
+                <StatCard
+                  label="Assinaturas ativas"
+                  value={platformStats.subscriptions.active}
+                  icon={<CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                  helper={`${platformStats.subscriptions.trialing} em trial · ${platformStats.subscriptions.manualGrant} manual`}
+                  accent="default"
+                />
+                <StatCard
+                  label="Canais conectados"
+                  value={platformStats.connections.connected}
+                  icon={<Smartphone className="w-4 h-4 text-violet-600" />}
+                  helper={`${platformStats.connections.tenantsWithConnection} contas com WhatsApp · ${platformStats.connections.total} total`}
+                  accent="warning"
+                />
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader
+                    title="Preços configurados (Mercado Pago)"
+                    subtitle="Valores usados no cálculo do MRR estimado."
+                    icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
+                  />
+                  <div className="mt-4 space-y-2 text-sm" style={{ color: 'var(--text-2)' }}>
+                    <p>
+                      Plano mensal: <strong>{formatBrl(platformStats.revenue.priceMonthlyBrl)}</strong>
+                    </p>
+                    <p>
+                      Plano anual: <strong>{formatBrl(platformStats.revenue.priceAnnualBrl)}</strong>{' '}
+                      <span className="text-xs" style={{ color: 'var(--text-3)' }}>
+                        (÷12 no MRR)
+                      </span>
+                    </p>
+                    <p>
+                      Add-ons de canal pagos: <strong>{platformStats.revenue.channelAddonSlots}</strong> slot(s)
+                    </p>
+                    <p className="text-xs pt-2" style={{ color: 'var(--text-3)' }}>
+                      Atualizado em {toPtDateTime(platformStats.generatedAt)}. O MRR é estimativa — confira também o painel do Mercado Pago.
+                    </p>
+                  </div>
+                </Card>
+                <Card>
+                  <CardHeader
+                    title="Resumo de assinaturas"
+                    subtitle="Distribuição de status em todas as contas."
+                    icon={<BarChart3 className="w-4 h-4 text-sky-600" />}
+                  />
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    {[
+                      ['Ativas', platformStats.subscriptions.active],
+                      ['Trial', platformStats.subscriptions.trialing],
+                      ['Manual', platformStats.subscriptions.manualGrant],
+                      ['Bloqueadas', platformStats.subscriptions.blocked],
+                      ['Sem plano', platformStats.subscriptions.none]
+                    ].map(([label, count]) => (
+                      <div
+                        key={String(label)}
+                        className="rounded-lg border px-3 py-2"
+                        style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+                      >
+                        <p className="text-[10px] uppercase font-bold tracking-wide" style={{ color: 'var(--text-3)' }}>
+                          {label}
+                        </p>
+                        <p className="text-lg font-bold mt-0.5" style={{ color: 'var(--text-1)' }}>
+                          {count}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader
+                  title="Cadastros recentes"
+                  subtitle="Últimas 25 contas criadas — com plano e canais conectados."
+                  icon={<Users className="w-4 h-4 text-emerald-600" />}
+                />
+                {platformStats.recentSignups.length === 0 ? (
+                  <EmptyState title="Nenhum cadastro ainda" description="Novos registos aparecerão aqui." />
+                ) : (
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full text-left text-[12.5px]">
+                      <thead>
+                        <tr className="border-b" style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-3)' }}>
+                          <th className="py-2 pr-3 font-semibold">E-mail</th>
+                          <th className="py-2 pr-3 font-semibold">Cadastro</th>
+                          <th className="py-2 pr-3 font-semibold">Plano</th>
+                          <th className="py-2 pr-3 font-semibold">Canais</th>
+                          <th className="py-2 font-semibold">UID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {platformStats.recentSignups.map((row) => (
+                          <tr
+                            key={row.uid}
+                            className="border-b last:border-0"
+                            style={{ borderColor: 'var(--border-subtle)' }}
+                          >
+                            <td className="py-2.5 pr-3 font-medium" style={{ color: 'var(--text-1)' }}>
+                              {row.email || '—'}
+                            </td>
+                            <td className="py-2.5 pr-3" style={{ color: 'var(--text-2)' }}>
+                              {toPtDateTime(row.createdAt)}
+                            </td>
+                            <td className="py-2.5 pr-3">
+                              <Badge variant={statusBadgeVariant(row.status, false)}>
+                                {row.status === 'active'
+                                  ? row.plan === 'annual'
+                                    ? 'Anual'
+                                    : 'Mensal'
+                                  : row.status === 'trialing'
+                                    ? 'Trial'
+                                    : row.status === 'none'
+                                      ? 'Sem plano'
+                                      : row.status}
+                              </Badge>
+                            </td>
+                            <td className="py-2.5 pr-3" style={{ color: 'var(--text-2)' }}>
+                              {row.connectionsConnected > 0 ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                                  <Smartphone className="w-3.5 h-3.5" />
+                                  {row.connectionsConnected}
+                                </span>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td className="py-2.5">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 text-[11px] font-mono opacity-80 hover:opacity-100"
+                                style={{ color: 'var(--text-3)' }}
+                                onClick={() => void copyToClipboard(row.uid, 'UID copiado.')}
+                              >
+                                {row.uid.slice(0, 8)}…
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+
+              <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+                Novos cadastros e assinaturas também chegam no sino de notificações (categoria admin) e por e-mail, se{' '}
+                <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800/80">RESEND_API_KEY</code> estiver configurado.
+              </p>
+            </>
+          ) : (
+            <EmptyState
+              title="Sem dados"
+              description="Não foi possível carregar as estatísticas. Clique em Atualizar."
+            />
+          )}
+        </div>
+      )}
 
       {tab === 'config' && (
         <div className="space-y-6">

@@ -21,6 +21,7 @@ import { authRegisterLimiter, authLoginLimiter, authEmailStepLimiter } from './h
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 import { buildVpsUserPayload } from './auth/profilePayload.js';
 import { resolvePhotoUrl } from './auth/resolvePhotoUrl.js';
+import { notifyAdminsNewAccountRegistered } from './adminNewSignupNotify.js';
 
 const REFRESH_COOKIE = 'zapmass_refresh';
 
@@ -48,7 +49,11 @@ function setRefreshCookie(res: Response, value: string, maxAgeMs: number): void 
 }
 
 function clearRefreshCookie(res: Response): void {
-  res.setHeader('Set-Cookie', `${REFRESH_COOKIE}=; Path=/api/auth; HttpOnly; Max-Age=0`);
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader(
+    'Set-Cookie',
+    `${REFRESH_COOKIE}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
+  );
 }
 
 async function issueSession(
@@ -149,6 +154,7 @@ export function registerVpsAuthRoutes(app: Express): void {
         role: 'owner',
         tenantUid: user.id
       });
+      void notifyAdminsNewAccountRegistered(user.id);
       return res.json({
         ok: true,
         authProvider: 'vps',

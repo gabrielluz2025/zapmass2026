@@ -21,6 +21,7 @@ import {
   putAdminAccessUser
 } from './adminAccessUsers.js';
 import { loadAdminUserInsightsPg, listAdminProductSuggestionsPg } from './adminUserInsightsPg.js';
+import { buildAdminPlatformStats } from './adminPlatformStats.js';
 
 function sanitizePutBody(body: unknown): Partial<AppConfigGlobal> {
   if (!body || typeof body !== 'object') return {};
@@ -189,6 +190,19 @@ export function registerAdminAppConfigRoutes(app: Express): void {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[api/admin/access-audit]', msg);
+      return res.status(500).json({ ok: false, error: msg });
+    }
+  });
+
+  app.get('/api/admin/platform-stats', async (req: Request, res: Response) => {
+    try {
+      const auth = await assertAdminFromBearer(req, res);
+      if (!auth) return;
+      const stats = await buildAdminPlatformStats();
+      return res.json({ ok: true, stats });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[api/admin/platform-stats]', msg);
       return res.status(500).json({ ok: false, error: msg });
     }
   });

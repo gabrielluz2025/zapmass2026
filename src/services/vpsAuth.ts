@@ -13,6 +13,7 @@ export type VpsAuthUser = {
 
 const ACCESS_KEY = 'zapmass_access_token';
 const USER_KEY = 'zapmass_auth_user';
+const LOGOUT_FLAG_KEY = 'zapmass_logout_flag';
 
 /** Auth 100% VPS (Firebase removido do frontend). */
 export function useVpsAuth(): boolean {
@@ -45,6 +46,24 @@ function persistSession(accessToken: string, user: VpsAuthUser): void {
 export function clearVpsSession(): void {
   sessionStorage.removeItem(ACCESS_KEY);
   sessionStorage.removeItem(USER_KEY);
+}
+
+function markLoggedOut(): void {
+  try {
+    sessionStorage.setItem(LOGOUT_FLAG_KEY, String(Date.now()));
+  } catch {
+    /* ignore */
+  }
+}
+
+function consumeLogoutFlag(): boolean {
+  try {
+    const hit = sessionStorage.getItem(LOGOUT_FLAG_KEY);
+    if (hit) sessionStorage.removeItem(LOGOUT_FLAG_KEY);
+    return Boolean(hit);
+  } catch {
+    return false;
+  }
 }
 
 async function parseJson<T>(r: Response): Promise<T & { ok?: boolean; error?: string }> {
@@ -151,6 +170,10 @@ export async function vpsStaffLogin(
 }
 
 export async function vpsRefreshAccessToken(): Promise<string | null> {
+  if (consumeLogoutFlag()) {
+    clearVpsSession();
+    return null;
+  }
   const r = await fetchWithTimeout(
     apiUrl('/api/auth/refresh'),
     {
@@ -174,6 +197,7 @@ export async function vpsRefreshAccessToken(): Promise<string | null> {
 }
 
 export async function vpsLogout(): Promise<void> {
+  markLoggedOut();
   try {
     await fetch(apiUrl('/api/auth/logout'), {
       method: 'POST',

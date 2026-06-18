@@ -138,11 +138,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       await vpsLogout();
       setUser(null);
-      toast.success('Voce saiu da conta.');
     } catch (err: unknown) {
       clearVpsSession();
       setUser(null);
       toast.error(err instanceof Error ? err.message : 'Falha ao sair.');
+    } finally {
+      window.location.replace('/');
     }
   };
 
