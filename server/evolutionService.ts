@@ -3997,6 +3997,12 @@ export async function redispatchCampaign(
         }));
     }
 
+    // Fluxo por resposta não grava campaign_contact_state — retomar via snapshot − enviados.
+    if (targets.length === 0 && mode === 'resume') {
+        const { resolveUnsentStep0TargetsFromSnapshot } = await import('./campaignRedispatchTargets.js');
+        targets = await resolveUnsentStep0TargetsFromSnapshot(tenantId, campaignId, campaign);
+    }
+
     if (options.phones?.length) {
         const allow = new Set(
             options.phones.map((p) => normalizePhoneKey(p)).filter((p) => p.length >= 8)
