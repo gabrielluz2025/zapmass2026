@@ -8,7 +8,7 @@ import {
   officialSpreadCoord,
   resolveContactNeighborhoodForCity,
 } from '../../../../shared/officialNeighborhoods';
-import { clusterMatchesFilterCity, dominantNeighborhoodTemp, matchesCity, matchesNeighborhood, normalizeKey, type NbTempStats } from './territoryMapUtils';
+import { clusterMatchesFilterCity, dominantNeighborhoodTemp, matchesCity, matchesNeighborhood, matchesStateContact, normalizeKey, type NbTempStats } from './territoryMapUtils';
 import type { NeighborhoodRow } from './types';
 
 function emptyStats(label: string): NbTempStats {
@@ -36,9 +36,7 @@ function statsFromContacts(
     if (scope === 'city') {
       if (!matchesCity(c.city || '', city, c.state || '')) continue;
     } else if (stateCode) {
-      const st = normalizeKey(c.state || '');
-      if (st && st !== normalizeKey(stateCode)) continue;
-      if (!st && !matchesCity(c.city || '', city)) continue;
+      if (!matchesStateContact(c, stateCode)) continue;
     }
 
     let nbLabel = (c.neighborhood || '').trim();
@@ -128,9 +126,11 @@ export function buildNeighborhoodRows(input: {
   tempsByContact: Record<string, { temp: ContactTemperature }>;
   clusters: GeoCluster[];
   officialNeighborhoods: string[] | null;
+  filterState?: string;
 }): NeighborhoodRow[] {
   const parsed = parseGeoFilterCity(input.city);
-  const stateCode = parsed.state || input.city.split('·')[1]?.trim() || '';
+  const stateCode =
+    input.filterState || parsed.state || input.city.split('·')[1]?.trim() || '';
   const cityName = parsed.city || input.city.split('·')[0]?.trim() || input.city;
   const officialList =
     input.scope === 'city' && input.officialNeighborhoods && input.officialNeighborhoods.length > 0

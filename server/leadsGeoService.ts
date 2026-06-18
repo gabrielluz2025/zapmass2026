@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import type { Contact } from '../src/types.js';
-import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import {
   knownUfForCity,
   normalizeContactNeighborhood,
@@ -1219,6 +1218,123 @@ function osmCentroidForName(
   return hit;
 }
 
+function contactMatchesStateQuery(c: Contact, stateCode: string): boolean {
+  return contactMatchesFilters(c, { state: stateCode });
+}
+
+/** Resposta rápida — bairros agregados por UF (sem lista OSM por município). */
+function buildStateLightNeighborhoodSummary(
+  contacts: Contact[],
+  query: LeadsGeoQuery
+): LeadsGeoSummary {
+  const stateCode = String(query.state || '')
+    .trim()
+    .toUpperCase()
+    .slice(0, 2);
+  const cache = readGeoCache();
+  const selectedNb = query.neighborhood?.split('·')[0]?.trim() || '';
+  const selectedNbKey = selectedNb ? normNeighborhoodKey(selectedNb) : '';
+
+  const byKey = new Map<string, GeoCluster>();
+  const byNeighborhood: Record<string, number> = {};
+  let filteredTotal = 0;
+  let withNeighborhood = 0;
+  let withPhone = 0;
+  let spreadIdx = 0;
+
+  for (const raw of contacts) {
+    const c = hydrateContactForGeo(raw);
+    if (!contactMatchesStateQuery(c, stateCode)) continue;
+
+    filteredTotal++;
+    if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
+
+    const { city: cityName } = resolveContactCityState(c);
+    let nb = normNeighborhood(c.neighborhood || '', cityName);
+    if (!nb) nb = 'Sem bairro';
+    if (selectedNbKey && normNeighborhoodKey(nb) !== selectedNbKey) continue;
+
+    withNeighborhood++;
+    const nbKey = normNeighborhoodKey(nb);
+    const label = `${nb} · ${stateCode}`;
+    byNeighborhood[label] = (byNeighborhood[label] || 0) + 1;
+
+    let slot = byKey.get(nbKey);
+    if (!slot) {
+      const spread = nbSpreadAroundCity(stateCode, stateCode, spreadIdx++);
+      const cacheKey = clusterKey('neighborhood', { city: stateCode, neighborhood: nb });
+      const cached = cache[cacheKey];
+      slot = {
+        key: cacheKey,
+        label: nb,
+        city: cityName || '—',
+        state: stateCode,
+        neighborhood: nb,
+        ddd: phoneToDdd(c.phone || '') || '—',
+        count: 0,
+        lat: cached?.lat ?? spread.lat,
+        lng: cached?.lng ?? spread.lng,
+        precision: 'neighborhood',
+        mapped: Boolean(cached?.lat != null),
+        sampleNames: [],
+      };
+      byKey.set(nbKey, slot);
+    }
+    slot.count++;
+    if (slot.sampleNames.length < 5 && c.name) {
+      slot.sampleNames.push(String(c.name).slice(0, 40));
+    }
+  }
+
+  const clusters = [...byKey.values()].sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.label.localeCompare(b.label, 'pt-BR');
+  });
+
+  const top = clusters.find((c) => c.count > 0) || clusters[0];
+  const topConcentration = top
+    ? {
+        label: top.label,
+        count: top.count,
+        sharePct: filteredTotal > 0 ? Math.round((1000 * top.count) / filteredTotal) / 10 : 0,
+        key: top.key,
+      }
+    : null;
+
+  const ufCoord = ufToCoord(stateCode);
+  const mapViewport = ufCoord ? { lat: ufCoord.lat, lng: ufCoord.lng, zoom: 7 } : null;
+
+  return {
+    stats: {
+      totalContacts: contacts.length,
+      withAnyAddress: filteredTotal,
+      withCity: filteredTotal,
+      withNeighborhood,
+      withPhone,
+      clusters: clusters.length,
+      clustersMapped: clusters.filter((c) => c.mapped && c.lat != null).length,
+      clustersPending: clusters.filter((c) => !cache[c.key]).length,
+      filteredTotal,
+    },
+    layer: 'neighborhood',
+    clusters,
+    byState: { [stateCode]: filteredTotal },
+    byDdd: {},
+    byCity: {},
+    byNeighborhood,
+    filters: {
+      cities: [],
+      states: [stateCode],
+      ddds: [],
+      neighborhoods: clusters.map((c) => c.neighborhood).filter(Boolean),
+    },
+    topConcentration,
+    contactPins: [],
+    pinStats: { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
+    mapViewport,
+  };
+}
+
 /** Resposta rápida para mapa territorial de qualquer cidade (sem geocode pesado). */
 async function buildCityLightNeighborhoodSummary(
   contacts: Contact[],
@@ -1389,6 +1505,10 @@ async function buildLeadsGeoSummaryInner(
 
   const contacts = await loadTenantContacts(tenantId);
   const lightMode = query.light === true;
+
+  if (lightMode && layer === 'neighborhood' && query.state?.trim() && !query.city?.trim() && !query.neighborhood?.trim()) {
+    return buildStateLightNeighborhoodSummary(contacts, query);
+  }
 
   if (lightMode && layer === 'neighborhood' && query.city?.trim() && !query.neighborhood?.trim()) {
     const ibgeIndex = getIbgeMunicipiosIndex();

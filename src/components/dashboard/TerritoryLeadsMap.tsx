@@ -16,6 +16,7 @@ import {
 import { useOperatingLocation } from '../../hooks/useOperatingLocation';
 import { computeContactTemperatures } from '../../utils/contactTemperature';
 import { parseGeoFilterCity } from '../../utils/contactAddressNormalize';
+import { formatStateLabel, resolveBrazilStateCode, type TerritoryRegionApply } from '../../utils/territoryRegionFilter';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import {
   getStaticOfficialNeighborhoods,
@@ -41,6 +42,7 @@ import {
   rowMatchesTempFilter,
   sumRegionTemps,
 } from './territory/buildNeighborhoodRows';
+import { matchesStateContact } from './territory/territoryMapUtils';
 import { buildContactPinsForNeighborhood } from './territory/buildContactPins';
 import {
   flyToContactPins,
@@ -86,14 +88,29 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [nbGeoLoading, setNbGeoLoading] = useState(false);
   const [mapActive, setMapActive] = useState(!deferLoad);
   const [cityOfficialList, setCityOfficialList] = useState<string[] | null>(null);
+  const [stateRegionLabel, setStateRegionLabel] = useState<string | null>(null);
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
 
   const blumenauFocus = isBlumenauCity(city) && scope === 'city';
   const parsedCity = useMemo(() => parseGeoFilterCity(city), [city]);
-  const stateCode = parsedCity.state;
+  const cityStateCode = parsedCity.state;
+  const effectiveState =
+    scope === 'state'
+      ? stateRegionLabel?.split('·').pop()?.trim() || cityStateCode || ''
+      : cityStateCode;
+
+  const regionSearchValue =
+    scope === 'state' && effectiveState
+      ? stateRegionLabel ||
+        (resolveBrazilStateCode(effectiveState)
+          ? formatStateLabel(resolveBrazilStateCode(effectiveState)!)
+          : effectiveState)
+      : city;
+
   const cityNameOnly = parsedCity.city;
+  const stateCode = effectiveState;
 
   const officialNeighborhoods = useMemo(() => {
     if (scope !== 'city') return null;
@@ -105,7 +122,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       setCityOfficialList(null);
       return;
     }
-    const staticList = getStaticOfficialNeighborhoods(cityNameOnly, stateCode);
+    const staticList = getStaticOfficialNeighborhoods(cityNameOnly, cityStateCode);
     if (staticList && staticList.length > 0) {
       setCityOfficialList(staticList);
       return;
@@ -125,37 +142,46 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [scope, city, cityNameOnly, stateCode, summary?.officialNeighborhoods]);
+  }, [scope, city, cityNameOnly, cityStateCode, summary?.officialNeighborhoods]);
 
   const hasOfficialList = Boolean(officialNeighborhoods?.length) && scope === 'city';
   const isBusy = loading || geocoding || locationSaving || locationLoading;
 
-  const cityContacts = useMemo(() => {
+  const scopeContacts = useMemo(() => {
     if (!mapActive) return [];
+    if (scope === 'state' && stateCode) {
+      return deferredContacts.filter((c) => matchesStateContact(c, stateCode));
+    }
     return deferredContacts.filter((c) => matchesCity(c.city || '', city, c.state || ''));
-  }, [deferredContacts, city, mapActive]);
+  }, [deferredContacts, city, scope, stateCode, mapActive]);
 
   const tempsByContact = useMemo(() => {
     if (!mapActive) return {};
-    return computeContactTemperatures(cityContacts, deferredConversations);
-  }, [cityContacts, deferredConversations, mapActive]);
+    return computeContactTemperatures(scopeContacts, deferredConversations);
+  }, [scopeContacts, deferredConversations, mapActive]);
 
   const clusters = useMemo(() => {
     if (!summary) return [];
-    return filterClustersForScope(summary.clusters, city, scope, hasOfficialList);
-  }, [summary, city, scope, hasOfficialList]);
+    return filterClustersForScope(
+      summary.clusters,
+      scope === 'state' ? regionSearchValue : city,
+      scope,
+      hasOfficialList
+    );
+  }, [summary, city, regionSearchValue, scope, hasOfficialList]);
 
   const allRows = useMemo(
     () =>
       buildNeighborhoodRows({
-        contacts: cityContacts,
-        city,
+        contacts: scopeContacts,
+        city: scope === 'state' ? regionSearchValue : city,
         scope,
         tempsByContact,
         clusters,
         officialNeighborhoods,
+        filterState: scope === 'state' ? stateCode : undefined,
       }),
-    [cityContacts, city, scope, tempsByContact, clusters, officialNeighborhoods]
+    [scopeContacts, city, regionSearchValue, scope, tempsByContact, clusters, officialNeighborhoods, stateCode]
   );
 
   const showAllNeighborhoods = hasOfficialList;
@@ -173,13 +199,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const neighborhoodContacts = useMemo((): NeighborhoodContactRow[] => {
     if (!selectedRow) return [];
     const nb = selectedRow.label;
-    const pool = scope === 'state' ? deferredContacts : cityContacts;
+    const pool = scopeContacts;
     return pool
       .filter((c) => {
-        if (scope === 'state' && stateCode) {
-          const st = (c.state || '').trim();
-          if (st && st.toUpperCase() !== stateCode.toUpperCase()) return false;
-        }
+        if (scope === 'state' && stateCode && !matchesStateContact(c, stateCode)) return false;
         if (hasOfficialList) {
           const resolved = resolveContactNeighborhoodForCity(
             cityNameOnly,
@@ -210,7 +233,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         const td = TEMP_ORDER[a.temp] - TEMP_ORDER[b.temp];
         return td !== 0 ? td : a.name.localeCompare(b.name, 'pt-BR');
       });
-  }, [selectedRow, cityContacts, deferredContacts, scope, stateCode, tempsByContact, hasOfficialList, cityNameOnly]);
+  }, [selectedRow, scopeContacts, scope, stateCode, tempsByContact, hasOfficialList, cityNameOnly, officialNeighborhoods]);
 
   const contactPinsResult = useMemo(() => {
     if (!selectedRow) return { pins: [], unmapped: 0 };
@@ -253,15 +276,23 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     layersRef.current = [];
   }, []);
 
-  const handleCityApply = useCallback(
-    async (label: string) => {
+  const handleRegionApply = useCallback(
+    async (region: TerritoryRegionApply) => {
       setSelectedRow(null);
       setSelectedContactId(null);
       setSummary(null);
-      setScope('city');
       lastViewportKeyRef.current = '';
       clearDataLayers();
-      await applyCityLabel(label);
+
+      if (region.mode === 'state') {
+        setScope('state');
+        setStateRegionLabel(region.label);
+        return;
+      }
+
+      setScope('city');
+      setStateRegionLabel(null);
+      await applyCityLabel(region.label);
     },
     [applyCityLabel, clearDataLayers]
   );
@@ -271,6 +302,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     setSelectedRow(null);
     setSelectedContactId(null);
     lastViewportKeyRef.current = '';
+    if (next === 'state' && cityStateCode) {
+      const uf = resolveBrazilStateCode(cityStateCode);
+      if (uf) setStateRegionLabel(formatStateLabel(uf));
+    }
+    if (next === 'city') {
+      setStateRegionLabel(null);
+    }
   };
 
   const handleSelectRow = (row: NeighborhoodRow | null) => {
@@ -313,7 +351,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       const data = await fetchLeadsGeoSummary({
         layer: 'neighborhood',
         city: scope === 'city' ? city : undefined,
-        state: scope === 'state' ? stateCode : undefined,
+        state: scope === 'state' && stateCode ? stateCode : undefined,
         light: true,
       });
       setSummary(data);
@@ -361,8 +399,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     setNbGeoLoading(true);
     void fetchLeadsGeoSummary({
       layer: 'neighborhood',
-      city,
-      neighborhood: nbLabel,
+      city: scope === 'city' ? city : undefined,
+      state: scope === 'state' && stateCode ? stateCode : undefined,
+      neighborhood: scope === 'city' ? nbLabel : selectedRow.label,
       light: false,
     })
       .then((data) => {
@@ -453,8 +492,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       const cityName = cityNameOnly || city;
       const r = await apiGeocodeContacts({
         max: 200,
-        city,
-        neighborhood: selectedRow ? `${selectedRow.label} · ${cityName}` : undefined,
+        city: scope === 'city' ? city : undefined,
+        state: scope === 'state' ? stateCode : undefined,
+        neighborhood: selectedRow ? (scope === 'city' ? `${selectedRow.label} · ${cityNameOnly || city}` : selectedRow.label) : undefined,
         force: false,
       });
       setSummary(r.summary);
@@ -491,7 +531,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   if (compact) {
     return (
       <div ref={rootRef} className="h-[280px] flex flex-col gap-2">
-        <TerritoryCitySearch value={city} onApply={handleCityApply} saving={locationSaving} />
+        <TerritoryCitySearch
+          value={regionSearchValue}
+          mode={scope}
+          onApply={handleRegionApply}
+          saving={locationSaving}
+        />
         <div className="relative flex-1 rounded-xl overflow-hidden border border-stone-200">
           <div ref={containerRef} className="absolute inset-0" />
         </div>
@@ -505,15 +550,17 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         <div className="zm-atlas__header-text">
           <h2 className="zm-atlas__title">Atlas territorial</h2>
           <p className="zm-atlas__subtitle">
-            {scope === 'city' ? city : `Estado ${stateCode}`} · {nbTotalListed} bairros
+            {scope === 'city' ? city : stateRegionLabel || `Estado ${stateCode}`} · {nbTotalListed}{' '}
+            {scope === 'state' ? 'bairros no estado' : 'bairros'}
             {nbWithData < nbTotalListed ? ` (${nbWithData} com leads)` : ''} ·{' '}
             {regionTotal.toLocaleString('pt-BR')} leads
           </p>
         </div>
         <div className="zm-atlas__tools">
           <TerritoryCitySearch
-            value={city}
-            onApply={handleCityApply}
+            value={regionSearchValue}
+            mode={scope}
+            onApply={handleRegionApply}
             saving={locationSaving}
             disabled={locationLoading}
           />

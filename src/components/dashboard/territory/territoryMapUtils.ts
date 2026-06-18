@@ -2,6 +2,8 @@ import type { GeoCluster } from '../../../services/leadsGeoApi';
 import type { Contact } from '../../../types';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
 import { citiesMatch, normPlaceKey, parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
+import { phoneDigitsToUf } from '../../../utils/brazilPhoneGeo';
+import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import {
   BLUMENAU_OFFICIAL_NEIGHBORHOODS,
   matchOfficialNeighborhood,
@@ -27,6 +29,23 @@ export function matchesNeighborhood(contactNb: string, selected: string): boolea
 
 export function matchesCity(contactCity: string, filterCity: string, contactState?: string): boolean {
   return citiesMatch(contactCity, filterCity, contactState);
+}
+
+/** Contato pertence à UF (campo state ou DDD do telefone). */
+export function matchesStateContact(contact: Contact, stateCode: string): boolean {
+  const uf = String(stateCode || '').trim().toUpperCase().slice(0, 2);
+  if (!uf) return true;
+  const st = String(contact.state || '').trim().toUpperCase().slice(0, 2);
+  if (st && st === uf) return true;
+  const fromPhone = phoneDigitsToUf(contact.phone || '');
+  if (fromPhone === uf) return true;
+  return false;
+}
+
+export function contactStateCode(contact: Contact): string {
+  const st = String(contact.state || '').trim().toUpperCase().slice(0, 2);
+  if (st && resolveBrazilStateCode(st)) return st;
+  return phoneDigitsToUf(contact.phone || '') || '';
 }
 
 /** Filtra clusters da API — evita bairros de outra cidade no mapa. */

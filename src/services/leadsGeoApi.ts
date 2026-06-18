@@ -178,7 +178,7 @@ export async function apiGeocodeLeadsClusters(
 }
 
 export async function apiGeocodeContacts(
-  opts: { max?: number; city?: string; neighborhood?: string; name?: string; force?: boolean } = {}
+  opts: { max?: number; city?: string; state?: string; neighborhood?: string; name?: string; force?: boolean } = {}
 ): Promise<{ geocoded: number; failed: number; summary: LeadsGeoSummary }> {
   return apiFetchJson('/api/leads-geo/geocode-contacts', {
     method: 'POST',
