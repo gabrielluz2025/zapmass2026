@@ -128,6 +128,43 @@ export function matchCityOfficialNeighborhood(
   return matchFromEntry(entry, raw);
 }
 
+/** Casa bairro do contato com um nome da lista oficial/OSM do município. */
+export function matchOfficialNeighborhoodInList(
+  raw: string,
+  officialList: readonly string[]
+): string | null {
+  const key = normNbKey(raw);
+  if (!key) return null;
+  for (const name of officialList) {
+    const nk = normNbKey(name);
+    if (key === nk) return name;
+    if (key.length >= 4 && nk.length >= 4 && (key.includes(nk) || nk.includes(key))) return name;
+  }
+  return null;
+}
+
+/**
+ * Normaliza bairro do contato para a lista do município.
+ * Fora da lista → "Sem bairro" (evita centenas de rótulos soltos no cadastro).
+ */
+export function resolveContactNeighborhoodForCity(
+  city: string,
+  state: string,
+  raw: string,
+  officialList: readonly string[] | null | undefined
+): string {
+  const trimmed = String(raw || '').trim();
+  if (!officialList || officialList.length === 0) {
+    return trimmed || 'Sem bairro';
+  }
+  if (!trimmed) return 'Sem bairro';
+  const staticMatch = matchCityOfficialNeighborhood(city, state, trimmed);
+  if (staticMatch) return staticMatch;
+  const listMatch = matchOfficialNeighborhoodInList(trimmed, officialList);
+  if (listMatch) return listMatch;
+  return 'Sem bairro';
+}
+
 /** Compat Blumenau — delega para matchCityOfficialNeighborhood. */
 export function matchOfficialNeighborhoodForBlumenau(raw: string): string | null {
   return matchCityOfficialNeighborhood('Blumenau', 'SC', raw);

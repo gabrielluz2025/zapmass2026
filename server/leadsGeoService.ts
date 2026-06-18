@@ -26,6 +26,7 @@ import { resolveNeighborhoodBundle } from './municipalityNeighborhoods.js';
 import {
   matchCityOfficialNeighborhood,
   normNbKey,
+  resolveContactNeighborhoodForCity,
 } from '../shared/officialNeighborhoods.js';
 import {
   BLUMENAU_OFFICIAL_NEIGHBORHOODS,
@@ -1096,6 +1097,21 @@ function buildBlumenauLightNeighborhoodSummary(
       sampleNames: []
     });
   });
+  const semKey = normBlumenauNbKey('Sem bairro');
+  byKey.set(semKey, {
+    key: clusterKey('neighborhood', { city: 'Blumenau', neighborhood: 'Sem bairro' }),
+    label: 'Sem bairro',
+    city: 'Blumenau',
+    state: 'SC',
+    neighborhood: 'Sem bairro',
+    ddd: '47',
+    count: 0,
+    lat: blumenauSpreadCoord(0).lat,
+    lng: blumenauSpreadCoord(0).lng,
+    precision: 'neighborhood',
+    mapped: false,
+    sampleNames: []
+  });
 
   let filteredTotal = 0;
   let withNeighborhood = 0;
@@ -1107,15 +1123,15 @@ function buildBlumenauLightNeighborhoodSummary(
     if (!isBlumenauCity(cityRaw) && !isBlumenauCity(c.city || '')) continue;
 
     const official = matchOfficialNeighborhood(c.neighborhood || '');
-    if (!official) continue;
-    if (selectedNbKey && normBlumenauNbKey(official) !== selectedNbKey) continue;
+    const nbName = official || 'Sem bairro';
+    if (selectedNbKey && normBlumenauNbKey(nbName) !== selectedNbKey) continue;
 
     filteredTotal++;
-    withNeighborhood++;
-    const slot = byKey.get(normBlumenauNbKey(official));
+    if (official) withNeighborhood++;
+    const slot = byKey.get(normBlumenauNbKey(nbName));
     if (!slot) continue;
     slot.count++;
-    byNeighborhood[official] = (byNeighborhood[official] || 0) + 1;
+    byNeighborhood[nbName] = (byNeighborhood[nbName] || 0) + 1;
     if (slot.sampleNames.length < 5 && c.name) {
       slot.sampleNames.push(String(c.name).slice(0, 40));
     }
@@ -1262,9 +1278,11 @@ async function buildCityLightNeighborhoodSummary(
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
     let nb = normNeighborhood(c.neighborhood || '', cityName);
-    if (!nb) nb = 'Sem bairro';
-    const official = matchCityOfficialNeighborhood(cityName, stateCode, nb);
-    if (official) nb = official;
+    if (officialList.length > 0) {
+      nb = resolveContactNeighborhoodForCity(cityName, stateCode, nb, officialList);
+    } else if (!nb) {
+      nb = 'Sem bairro';
+    }
     if (selectedNbKey && normNeighborhoodKey(nb) !== selectedNbKey) continue;
 
     withNeighborhood++;
@@ -1274,6 +1292,7 @@ async function buildCityLightNeighborhoodSummary(
 
     let slot = byKey.get(nbKey);
     if (!slot) {
+      if (officialList.length > 0) continue;
       const osm = osmCentroidForName(nb, osmCentroids);
       const spread = nbSpreadAroundCity(cityName, stateCode, byKey.size);
       const cacheKey = clusterKey('neighborhood', { city: cityName, neighborhood: nb });

@@ -149,8 +149,18 @@ export async function fetchLeadsGeoSummary(query: LeadsGeoQuery = {}): Promise<L
     topConcentration: j.topConcentration ?? null,
     contactPins: Array.isArray(j.contactPins) ? j.contactPins : [],
     pinStats: j.pinStats || { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
+    mapViewport: j.mapViewport ?? null,
+    officialNeighborhoods: Array.isArray(j.officialNeighborhoods) ? j.officialNeighborhoods : undefined,
     stale: j.stale === true ? true : undefined
   };
+}
+
+export async function fetchOfficialNeighborhoods(cityLabel: string): Promise<string[]> {
+  const j = await apiFetchJson<{ ok?: boolean; neighborhoods?: string[] }>(
+    `/api/geo/official-neighborhoods?city=${encodeURIComponent(cityLabel)}`,
+    { timeoutMs: 90_000 }
+  );
+  return Array.isArray(j.neighborhoods) ? j.neighborhoods : [];
 }
 
 export async function apiGeocodeLeadsClusters(

@@ -6,6 +6,7 @@ import {
   matchCityOfficialNeighborhood,
   normNbKey,
   officialSpreadCoord,
+  resolveContactNeighborhoodForCity,
 } from '../../../../shared/officialNeighborhoods';
 import { clusterMatchesFilterCity, dominantNeighborhoodTemp, matchesCity, matchesNeighborhood, normalizeKey, type NbTempStats } from './territoryMapUtils';
 import type { NeighborhoodRow } from './types';
@@ -42,18 +43,21 @@ function statsFromContacts(
 
     let nbLabel = (c.neighborhood || '').trim();
     if (officialList && officialList.length > 0 && scope === 'city') {
-      const official = matchCityOfficialNeighborhood(cityName, stateCode, nbLabel);
-      if (official) {
-        nbLabel = official;
-      } else if (nbLabel) {
-        // Bairro fora da lista oficial — mantém como está (ex.: Sem bairro)
-      }
+      nbLabel = resolveContactNeighborhoodForCity(cityName, stateCode, nbLabel, officialList);
+    } else if (!nbLabel) {
+      nbLabel = 'Sem bairro';
     }
-    if (!nbLabel) nbLabel = 'Sem bairro';
 
     const key = normNbKey(nbLabel) || normalizeKey(nbLabel).replace(/\s+/g, '') || 'sem';
     const slot = map.get(key) || emptyStats(nbLabel);
-    if (!map.has(key)) map.set(key, slot);
+    if (!map.has(key)) {
+      if (officialList && officialList.length > 0 && scope === 'city') {
+        const inList = officialList.some((n) => normNbKey(n) === key);
+        const isSem = key === normNbKey('Sem bairro');
+        if (!inList && !isSem) continue;
+      }
+      map.set(key, slot);
+    }
 
     const t = tempsByContact[c.id]?.temp || 'new';
     slot[t]++;
@@ -76,13 +80,13 @@ function mergeClusterNeighborhoods(
 
     let label = rawLabel;
     if (officialList && officialList.length > 0) {
-      const official = matchCityOfficialNeighborhood(cityName, stateCode, rawLabel);
-      if (official) label = official;
+      label = resolveContactNeighborhoodForCity(cityName, stateCode, rawLabel, officialList);
+      if (label === 'Sem bairro') continue;
     }
 
     const key = normNbKey(label) || normalizeKey(label).replace(/\s+/g, '') || 'sem';
-    const slot = map.get(key) || emptyStats(label);
-    if (!map.has(key)) map.set(key, slot);
+    const slot = map.get(key);
+    if (!slot) continue;
 
     if (cl.count > slot.total) {
       const delta = cl.count - slot.total;
@@ -182,7 +186,13 @@ export function buildNeighborhoodRows(input: {
   return rows.sort((a, b) => {
     const ao = a.order ?? 9999;
     const bo = b.order ?? 9999;
-    if (officialList && ao >= 0 && bo >= 0 && ao !== bo) return ao - bo;
+    const aSem = normNbKey(a.label) === normNbKey('Sem bairro');
+    const bSem = normNbKey(b.label) === normNbKey('Sem bairro');
+    if (officialList) {
+      if (aSem && !bSem) return 1;
+      if (bSem && !aSem) return -1;
+      if (ao >= 0 && bo >= 0 && ao !== bo) return ao - bo;
+    }
     if (a.count === 0 && b.count > 0) return 1;
     if (b.count === 0 && a.count > 0) return -1;
     if (b.count !== a.count) return b.count - a.count;

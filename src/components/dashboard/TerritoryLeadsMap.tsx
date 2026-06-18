@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import type { Contact, Conversation } from '../../types';
 import {
   fetchLeadsGeoSummary,
+  fetchOfficialNeighborhoods,
   apiGeocodeContacts,
   type LeadsGeoSummary,
 } from '../../services/leadsGeoApi';
@@ -19,7 +20,7 @@ import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import {
   getStaticOfficialNeighborhoods,
   isBlumenauCity,
-  matchCityOfficialNeighborhood,
+  resolveContactNeighborhoodForCity,
 } from '../../../shared/officialNeighborhoods';
 import { TerritoryCitySearch } from './territory/TerritoryCitySearch';
 import { TerritoryTempRiver } from './territory/TerritoryTempRiver';
@@ -84,6 +85,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [nbGeo, setNbGeo] = useState<LeadsGeoSummary | null>(null);
   const [nbGeoLoading, setNbGeoLoading] = useState(false);
   const [mapActive, setMapActive] = useState(!deferLoad);
+  const [cityOfficialList, setCityOfficialList] = useState<string[] | null>(null);
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
@@ -95,11 +97,35 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const officialNeighborhoods = useMemo(() => {
     if (scope !== 'city') return null;
-    if (summary?.officialNeighborhoods && summary.officialNeighborhoods.length > 0) {
-      return summary.officialNeighborhoods;
+    return cityOfficialList;
+  }, [scope, cityOfficialList]);
+
+  useEffect(() => {
+    if (scope !== 'city') {
+      setCityOfficialList(null);
+      return;
     }
-    return getStaticOfficialNeighborhoods(cityNameOnly, stateCode);
-  }, [summary?.officialNeighborhoods, scope, cityNameOnly, stateCode]);
+    const staticList = getStaticOfficialNeighborhoods(cityNameOnly, stateCode);
+    if (staticList && staticList.length > 0) {
+      setCityOfficialList(staticList);
+      return;
+    }
+    if (summary?.officialNeighborhoods && summary.officialNeighborhoods.length > 0) {
+      setCityOfficialList(summary.officialNeighborhoods);
+      return;
+    }
+    let cancelled = false;
+    void fetchOfficialNeighborhoods(city)
+      .then((list) => {
+        if (!cancelled && list.length > 0) setCityOfficialList(list);
+      })
+      .catch(() => {
+        if (!cancelled) setCityOfficialList(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, city, cityNameOnly, stateCode, summary?.officialNeighborhoods]);
 
   const hasOfficialList = Boolean(officialNeighborhoods?.length) && scope === 'city';
   const isBusy = loading || geocoding || locationSaving || locationLoading;
@@ -155,8 +181,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           if (st && st.toUpperCase() !== stateCode.toUpperCase()) return false;
         }
         if (hasOfficialList) {
-          const official = matchCityOfficialNeighborhood(cityNameOnly, stateCode, c.neighborhood || '');
-          return official === nb || matchesNeighborhood(c.neighborhood || '', nb);
+          const resolved = resolveContactNeighborhoodForCity(
+            cityNameOnly,
+            stateCode,
+            c.neighborhood || '',
+            officialNeighborhoods
+          );
+          return resolved === nb || matchesNeighborhood(c.neighborhood || '', nb);
         }
         return matchesNeighborhood(c.neighborhood || '', nb);
       })
