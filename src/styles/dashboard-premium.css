@@ -3810,10 +3810,36 @@
   color: #059669 !important;
 }
 
-/* Bonequinhos no mapa */
+/* Pins de contato no mapa (ponta no lat/lng exato) */
+.zm-atlas-pin-wrap,
 .zm-atlas-person-wrap {
   background: transparent !important;
   border: none !important;
+}
+
+.zm-atlas-pin {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 0;
+  transition: transform 0.15s ease;
+}
+
+.zm-atlas-pin:hover {
+  transform: scale(1.06) translateY(-2px);
+}
+
+.zm-atlas-pin--on {
+  transform: scale(1.1) translateY(-3px);
+}
+
+.zm-atlas-pin__svg {
+  display: block;
+}
+
+.zm-atlas-precision-dot {
+  pointer-events: none;
 }
 
 .zm-atlas-person {

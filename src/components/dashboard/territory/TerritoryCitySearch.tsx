@@ -28,6 +28,7 @@ export const TerritoryCitySearch: React.FC<Props> = ({
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const skipBlurApply = useRef(false);
 
   useEffect(() => setDraft(value), [value]);
 
@@ -48,7 +49,7 @@ export const TerritoryCitySearch: React.FC<Props> = ({
     setSearching(true);
     try {
       const data = await apiFetchJson<{ ok: boolean; suggestions: CitySuggestion[] }>(
-        `/api/contacts/city-suggest?q=${encodeURIComponent(q.trim())}&limit=8`
+        `/api/contacts/city-suggest?q=${encodeURIComponent(q.trim())}&limit=12`
       );
       const list = data.ok && Array.isArray(data.suggestions) ? data.suggestions : [];
       setSuggestions(list);
@@ -61,12 +62,30 @@ export const TerritoryCitySearch: React.FC<Props> = ({
     }
   }, []);
 
-  const apply = useCallback(
-    (label: string) => {
-      const trimmed = label.trim();
-      if (trimmed.length < 3) return;
-      setOpen(false);
-      void onApply(trimmed);
+  const resolveAndApply = useCallback(
+    async (raw: string) => {
+      const trimmed = raw.trim();
+      if (trimmed.length < 2) return;
+
+      try {
+        const data = await apiFetchJson<{
+          ok: boolean;
+          resolved: { city: string; state: string; label: string } | null;
+        }>(`/api/contacts/city-resolve?q=${encodeURIComponent(trimmed)}`);
+        if (data.ok && data.resolved?.label) {
+          setDraft(data.resolved.label);
+          setOpen(false);
+          await onApply(data.resolved.label);
+          return;
+        }
+      } catch {
+        /* fallback abaixo */
+      }
+
+      if (trimmed.length >= 3) {
+        setOpen(false);
+        await onApply(trimmed);
+      }
     },
     [onApply]
   );
@@ -89,17 +108,21 @@ export const TerritoryCitySearch: React.FC<Props> = ({
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            apply(draft);
+            void resolveAndApply(draft);
           }
           if (e.key === 'Escape') setOpen(false);
         }}
         onBlur={() => {
-          if (draft.trim() !== value.trim() && draft.trim().length >= 3) {
-            apply(draft);
+          if (skipBlurApply.current) {
+            skipBlurApply.current = false;
+            return;
+          }
+          if (draft.trim() !== value.trim()) {
+            void resolveAndApply(draft);
           }
         }}
         className="zm-atlas-search__input"
-        placeholder="Buscar cidade · UF"
+        placeholder="Blumenau - SC"
         autoComplete="off"
         aria-label="Cidade do mapa territorial"
       />
@@ -110,7 +133,16 @@ export const TerritoryCitySearch: React.FC<Props> = ({
             const label = formatCityLabel(s.city, s.state);
             return (
               <li key={`${s.city}-${s.state}`}>
-                <button type="button" className="zm-atlas-search__option" onMouseDown={() => apply(label)}>
+                <button
+                  type="button"
+                  className="zm-atlas-search__option"
+                  onMouseDown={() => {
+                    skipBlurApply.current = true;
+                    setDraft(label);
+                    setOpen(false);
+                    void onApply(label);
+                  }}
+                >
                   <span>{s.city}</span>
                   <span className="zm-atlas-search__uf">{s.state}</span>
                 </button>

@@ -149,3 +149,115 @@ export function fuzzyResolveCityWithIbge(
 
   return best ? ibgeResult(best.m) : null;
 }
+
+/** Separa "Blumenau - SC", "Blumenau · sc", "Blumenau, SC" em cidade + UF. */
+export function parseCitySearchQuery(raw: string): { cityPart: string; stateHint?: string } {
+  const s = String(raw || '').trim();
+  if (!s) return { cityPart: '' };
+
+  const parts = s.split(/\s*[-–—·,/]\s*/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1]!.toUpperCase();
+    const uf = last.length === 2 ? last : last.match(/\b([A-Z]{2})\b/)?.[1];
+    if (uf && /^[A-Z]{2}$/.test(uf)) {
+      return {
+        cityPart: parts.slice(0, -1).join(' ').trim(),
+        stateHint: uf,
+      };
+    }
+  }
+
+  const trailUf = s.match(/\b([A-Za-z]{2})\s*$/);
+  if (trailUf && parts.length === 1) {
+    const uf = trailUf[1]!.toUpperCase();
+    if (/^[A-Z]{2}$/.test(uf)) {
+      return {
+        cityPart: s.slice(0, trailUf.index).trim().replace(/[-–—·,/]\s*$/, ''),
+        stateHint: uf,
+      };
+    }
+  }
+
+  return { cityPart: s };
+}
+
+export type IbgeCitySuggestion = {
+  city: string;
+  state: string;
+  ibgeId?: number;
+};
+
+/** Busca municípios no índice IBGE — prefixo, contém, sem acento, com UF opcional. */
+export function searchIbgeCities(
+  index: IbgeCityIndex | null | undefined,
+  query: string,
+  limit = 12
+): IbgeCitySuggestion[] {
+  if (!index || index.size === 0) return [];
+  const { cityPart, stateHint } = parseCitySearchQuery(query);
+  const q = normCityKey(cityPart);
+  if (!q || q.length < 2) return [];
+
+  const scored: Array<IbgeCitySuggestion & { score: number }> = [];
+
+  for (const [key, entries] of index) {
+    let score: number | null = null;
+    if (key === q) score = 0;
+    else if (key.startsWith(q)) score = 1 + (key.length - q.length) * 0.01;
+    else if (q.length >= 3 && key.includes(q)) score = 2 + key.indexOf(q) * 0.01;
+    else if (q.length >= 4 && key.startsWith(q.slice(0, Math.min(4, q.length)))) score = 2.5;
+
+    if (score === null) continue;
+    for (const e of entries) {
+      if (stateHint && e.uf !== stateHint) continue;
+      scored.push({
+        city: titleCaseIbgeName(e.nome),
+        state: e.uf,
+        ibgeId: e.id,
+        score,
+      });
+    }
+  }
+
+  scored.sort(
+    (a, b) => a.score - b.score || a.city.localeCompare(b.city, 'pt-BR') || a.state.localeCompare(b.state)
+  );
+
+  const seen = new Set<string>();
+  const out: IbgeCitySuggestion[] = [];
+  for (const item of scored) {
+    const k = `${normCityKey(item.city)}|${item.state}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ city: item.city, state: item.state, ibgeId: item.ibgeId });
+    if (out.length >= limit) break;
+  }
+
+  if (out.length < limit) {
+    const fuzzy = fuzzyResolveCityWithIbge(index, { city: cityPart, stateHint });
+    if (fuzzy) {
+      const k = `${normCityKey(fuzzy.city)}|${fuzzy.state}`;
+      if (!seen.has(k)) out.push(fuzzy);
+    }
+  }
+
+  return out.slice(0, limit);
+}
+
+/** Resolve texto digitado para cidade+UF canônicos (IBGE). */
+export function resolveCitySearchLabel(
+  index: IbgeCityIndex | null | undefined,
+  query: string
+): { city: string; state: string; label: string } | null {
+  const { cityPart, stateHint } = parseCitySearchQuery(query);
+  if (!cityPart || cityPart.length < 2) return null;
+
+  if (stateHint) {
+    const exact = resolveCityWithIbge(index, { city: cityPart, stateHint });
+    if (exact) return { ...exact, label: `${exact.city} · ${exact.state}` };
+  }
+
+  const hit = searchIbgeCities(index, query, 1)[0];
+  if (hit) return { city: hit.city, state: hit.state, label: `${hit.city} · ${hit.state}` };
+  return null;
+}

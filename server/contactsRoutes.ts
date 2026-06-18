@@ -30,7 +30,7 @@ import { normalizeTenantContactAddresses } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
 import { normalizeContactAddressFields } from '../src/utils/contactAddressNormalize.js';
 import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
-import { fuzzyResolveCityWithIbge, normCityKey, type IbgeCityIndex } from '../src/utils/ibgeCityLookup.js';
+import { resolveCitySearchLabel, searchIbgeCities } from '../src/utils/ibgeCityLookup.js';
 import { runAddressNormalizationBatch } from './addressNormalizationJob.js';
 
 /** Consulta ViaCEP e retorna endereço canônico completo (cidade, estado, rua, bairro). */
@@ -127,50 +127,6 @@ async function normalizeAddressBeforeSave(contact: Partial<Contact>): Promise<Pa
     neighborhood: mergedNeighborhood,
     addressNormalizedAt: new Date().toISOString()
   };
-}
-
-/** Pesquisa cidades no índice IBGE com prefixo/fuzzy, retorna até `limit` sugestões. */
-function searchCitySuggestionsFromIndex(
-  index: IbgeCityIndex,
-  query: string,
-  limit = 5
-): Array<{ city: string; state: string }> {
-  if (!query || query.length < 2) return [];
-  const q = normCityKey(query);
-  if (!q) return [];
-
-  const exact: Array<{ city: string; state: string; score: number }> = [];
-  const prefix: Array<{ city: string; state: string; score: number }> = [];
-
-  for (const [key, entries] of index) {
-    if (key === q) {
-      for (const e of entries) exact.push({ city: e.nome, state: e.uf, score: 0 });
-    } else if (key.startsWith(q)) {
-      for (const e of entries) prefix.push({ city: e.nome, state: e.uf, score: key.length - q.length });
-    }
-  }
-
-  prefix.sort((a, b) => a.score - b.score || a.city.localeCompare(b.city, 'pt-BR'));
-  const combined = [...exact, ...prefix];
-  const seen = new Set<string>();
-  const out: Array<{ city: string; state: string }> = [];
-  for (const item of combined) {
-    const k = `${normCityKey(item.city)}|${item.state}`;
-    if (!seen.has(k)) {
-      seen.add(k);
-      out.push({ city: item.city, state: item.state });
-    }
-    if (out.length >= limit) break;
-  }
-
-  if (out.length < limit) {
-    const fuzzy = fuzzyResolveCityWithIbge(index, { city: query });
-    if (fuzzy) {
-      const k = `${normCityKey(fuzzy.city)}|${fuzzy.state}`;
-      if (!seen.has(k)) out.push({ city: fuzzy.city, state: fuzzy.state });
-    }
-  }
-  return out.slice(0, limit);
 }
 
 export function registerContactsDataRoutes(app: Express): void {
@@ -343,16 +299,32 @@ export function registerContactsDataRoutes(app: Express): void {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
     const q = String(req.query.q || '').trim();
-    const limit = Math.min(Number(req.query.limit) || 5, 10);
+    const limit = Math.min(Number(req.query.limit) || 12, 20);
     if (!q || q.length < 2) return res.json({ ok: true, suggestions: [] });
     try {
       const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
       if (!ibgeIndex) return res.json({ ok: true, suggestions: [] });
-      const suggestions = searchCitySuggestionsFromIndex(ibgeIndex, q, limit);
+      const suggestions = searchIbgeCities(ibgeIndex, q, limit);
       return res.json({ ok: true, suggestions });
     } catch (e) {
       console.warn('[api/contacts/city-suggest]', e);
       return res.json({ ok: true, suggestions: [] });
+    }
+  });
+
+  app.get('/api/contacts/city-resolve', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const q = String(req.query.q || '').trim();
+    if (!q || q.length < 2) return res.json({ ok: true, resolved: null });
+    try {
+      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+      if (!ibgeIndex) return res.json({ ok: true, resolved: null });
+      const resolved = resolveCitySearchLabel(ibgeIndex, q);
+      return res.json({ ok: true, resolved });
+    } catch (e) {
+      console.warn('[api/contacts/city-resolve]', e);
+      return res.json({ ok: true, resolved: null });
     }
   });
 
