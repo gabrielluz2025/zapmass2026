@@ -3,6 +3,7 @@ import { ChangelogPanel } from './changelog/ChangelogPanel';
 import {
   AlertTriangle,
   Bell,
+  Bot,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -42,6 +43,7 @@ import { apiUrl } from '../utils/apiBase';
 import toast from 'react-hot-toast';
 import { Badge, Button, Card, Input, SectionHeader } from './ui';
 import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
+import { SupportBotSettingsPanel } from './settings/SupportBotSettingsPanel';
 import { AccountProfileEditor } from './settings/AccountProfileEditor';
 import { OperatingLocationEditor } from './settings/OperatingLocationEditor';
 import { useWorkspace } from '../context/WorkspaceContext';
@@ -73,7 +75,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   emailNotif: true
 };
 
-type Section = 'disparo' | 'aparencia' | 'notificacoes' | 'equipa' | 'conta' | 'legal';
+type Section = 'disparo' | 'aparencia' | 'notificacoes' | 'atendimento' | 'equipa' | 'conta' | 'legal';
 
 const SECTIONS: Array<{ id: Section; label: string; icon: React.ReactNode; description: string }> = [
   {
@@ -93,6 +95,12 @@ const SECTIONS: Array<{ id: Section; label: string; icon: React.ReactNode; descr
     label: 'Notificações',
     icon: <Bell className="w-4 h-4" />,
     description: 'E-mail de alerta e integrações via webhook.'
+  },
+  {
+    id: 'atendimento',
+    label: 'Atendimento',
+    icon: <Bot className="w-4 h-4" />,
+    description: 'Bot com menu no WhatsApp e passagem para atendente humano.'
   },
   {
     id: 'equipa',
@@ -684,6 +692,12 @@ export const SettingsTab: React.FC = () => {
       {section === 'equipa' && (
         <div className="space-y-4">
           <WorkspaceTeamSection />
+        </div>
+      )}
+
+      {section === 'atendimento' && (
+        <div className="space-y-4">
+          <SupportBotSettingsPanel />
         </div>
       )}
 

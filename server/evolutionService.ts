@@ -52,6 +52,7 @@ import {
     normalizeEvolutionWebhookMessages,
     resolvePhoneDigitsFromEvolutionMessage,
 } from './evolutionWebhookMessages.js';
+import { handleSupportBotIncoming } from './supportBot/supportBotEngine.js';
 import { dispatchEvolutionWebhook, initEvolutionWebhookQueue } from './evolutionWebhookQueue.js';
 import {
     extractEvolutionMessageUpdates,
@@ -4701,6 +4702,21 @@ export async function handleWebhook(event: any) {
                         nonTextReply,
                         incomingConvId,
                     });
+
+                    const ownerUidForBot = messageOwnerUid || resolveOwnerUid(instance);
+                    if (ownerUidForBot && incomingConvId) {
+                        void handleSupportBotIncoming({
+                            tenantId: ownerUidForBot,
+                            connectionId: instance,
+                            phoneDigits,
+                            bodyText,
+                            incomingConvId,
+                            hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
+                            sendText: async (convId, text) => {
+                                await sendMessage(convId, text);
+                            }
+                        });
+                    }
 
                     // Motor multi-etapas lazy: verifica se contato aguarda resposta
                     const ownerUidForReply = messageOwnerUid || resolveOwnerUid(instance);
