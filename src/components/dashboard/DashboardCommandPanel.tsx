@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   BookOpen,
   Flame,
-  Layers,
   MapPinned,
   Rocket,
   Send,
@@ -84,13 +83,6 @@ export const DashboardCommandPanel: React.FC<Props> = ({
     { label: 'Respostas', value: animReplied, pct: replyRate, color: '#f97316' },
   ];
 
-  const statTiles = [
-    { label: 'Enviados', value: animSent, accent: '#818cf8' },
-    { label: 'Entregues', value: animDelivered, accent: '#38bdf8', sub: `${deliveryRate}%` },
-    { label: 'Lidos', value: animRead, accent: '#c084fc', sub: `${readRate}%` },
-    { label: 'Respostas', value: animReplied, accent: '#fb923c', sub: `${replyRate}%` },
-  ];
-
   return (
     <section className="zm-command-v2 zm-dash-section">
       <div className="zm-command-v2__mesh" aria-hidden />
@@ -117,9 +109,8 @@ export const DashboardCommandPanel: React.FC<Props> = ({
             {onlineCount}/{connectionsTotal} canais
           </span>
         )}
-        <span className="ml-auto inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-[0.22em] text-indigo-300/70">
-          <Layers className="w-3.5 h-3.5" />
-          Intelligence Hub
+        <span className="ml-auto text-[11px] font-medium text-slate-500">
+          {contacts.length.toLocaleString('pt-BR')} contatos
         </span>
       </header>
 
@@ -140,7 +131,7 @@ export const DashboardCommandPanel: React.FC<Props> = ({
             )}
           </div>
 
-          <div className="flex justify-center xl:justify-start">
+          <div className="flex justify-center xl:justify-start py-1">
             <FunnelOrbitVisual
               rings={orbitRings}
               centerLabel="engajamento"
@@ -149,20 +140,9 @@ export const DashboardCommandPanel: React.FC<Props> = ({
               size={176}
             />
           </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {statTiles.map((t) => (
-              <div key={t.label} className="zm-command-v2__stat">
-                <p className="zm-command-v2__stat-label">{t.label}</p>
-                <p className="zm-command-v2__stat-value">{t.value.toLocaleString('pt-BR')}</p>
-                {t.sub && (
-                  <p className="text-[10px] font-bold mt-0.5" style={{ color: t.accent }}>
-                    {t.sub}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
+          <p className="text-[11px] text-slate-500 text-center xl:text-left -mt-2">
+            Toque no funil abaixo para ver envios, entregas e respostas.
+          </p>
 
           <div className="flex flex-wrap gap-2">
             <button
@@ -209,7 +189,7 @@ export const DashboardCommandPanel: React.FC<Props> = ({
                 Território de leads
               </p>
               <h2 className="zm-command-v2__map-title">
-                Inteligência geográfica por bairro
+                Onde estão seus leads quentes, mornos e frios
               </h2>
             </div>
             <button

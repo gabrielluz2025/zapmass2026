@@ -9,10 +9,10 @@ export const BLUMENAU_ZOOM = 12;
 
 /** Paleta premium — temperatura (fosco, sem neon). */
 export const TEMP_COLOR: Record<ContactTemperature, string> = {
-  hot: '#EF4444',
-  warm: '#F97316',
-  cold: '#64748B',
-  new: '#52525B',
+  hot: '#E85D4C',
+  warm: '#D4A017',
+  cold: '#5B8DEF',
+  new: '#71717A',
 };
 
 export const TEMP_ORDER: Record<ContactTemperature, number> = {
