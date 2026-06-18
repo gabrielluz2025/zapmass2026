@@ -47,20 +47,21 @@ async function loadPhonesFromContactList(tenantId: string, listId: string): Prom
   return out;
 }
 
-/** Planejados: snapshot agendado ou lista de contatos (disparo imediato sem snapshot). */
+/** Planejados: união snapshot + lista (snapshot parcial não pode esconder contatos da lista). */
 async function resolvePlannedPhonesForRedispatch(
   tenantId: string,
   campaign: Pick<Campaign, 'contactListId' | 'scheduleStartSnapshot' | 'totalContacts'>
 ): Promise<Set<string>> {
   const fromSnapshot = collectPlannedRecipientPhones(campaign, [], []);
-  if (fromSnapshot.size > 0) return fromSnapshot;
+  const merged = new Set(fromSnapshot);
 
   const listId = campaign.contactListId?.trim();
   if (listId) {
     const fromList = await loadPhonesFromContactList(tenantId, listId);
-    if (fromList.size > 0) return fromList;
+    for (const phone of fromList) merged.add(phone);
   }
-  return fromSnapshot;
+
+  return merged;
 }
 
 /** Contatos da etapa 0 que ainda não receberam "Mensagem enviada" (snapshot/lista + logs). */

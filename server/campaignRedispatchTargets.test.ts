@@ -80,7 +80,7 @@ describe('resolveUnsentStep0TargetsFromSnapshot', () => {
     expect(targets).toEqual([{ phone: '5521888888888', stepIndex: 0 }]);
   });
 
-  it('retorna vazio quando todos já foram enviados', async () => {
+  it('une snapshot parcial com contactListId (campanha concluída cedo demais)', async () => {
     vi.mocked(listCampaignLogs).mockResolvedValue([
       {
         id: '1',
@@ -88,21 +88,35 @@ describe('resolveUnsentStep0TargetsFromSnapshot', () => {
         campaign_id: 'c1',
         level: 'INFO',
         message: 'Mensagem enviada',
-        payload: { campaignId: 'c1', to: '5511999999999', phoneDigits: '5511999999999' },
-        created_at: new Date('2026-06-18T10:00:00Z'),
+        payload: { campaignId: 'c1', to: '5511999999999' },
+        created_at: new Date(),
       },
     ] as never);
+    vi.mocked(getContactListById).mockResolvedValue({
+      id: 'list1',
+      name: 'Lista',
+      contactIds: ['c1', 'c2', 'c3'],
+    } as never);
+    vi.mocked(getZapmassPool).mockReturnValue({
+      query: vi.fn().mockResolvedValue({
+        rows: [
+          { phone: '5511999999999' },
+          { phone: '5521888888888' },
+          { phone: '5531777777777' },
+        ],
+      }),
+    } as never);
 
     const targets = await resolveUnsentStep0TargetsFromSnapshot('tenant-1', 'c1', {
-      contactListId: '',
-      totalContacts: 2,
-      scheduleStartSnapshot: {
-        numbers: ['5511999999999', '5521888888888'],
-        message: 'oi',
-      },
+      contactListId: 'list1',
+      totalContacts: 1,
+      scheduleStartSnapshot: { numbers: ['5511999999999'], message: 'oi' },
     });
 
-    expect(targets).toEqual([{ phone: '5521888888888', stepIndex: 0 }]);
+    expect(targets).toEqual([
+      { phone: '5521888888888', stepIndex: 0 },
+      { phone: '5531777777777', stepIndex: 0 },
+    ]);
   });
 
   it('retorna vazio quando todos já foram enviados', async () => {

@@ -1431,9 +1431,11 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   }).length;
 
   const canResumeSameCampaign =
-    !isRunning &&
     !isScheduled &&
-    (isWaitingForReplies || metrics.pending > 0 || performance.counts.FAILED > 0);
+    (metrics.pending > 0 ||
+      performance.counts.PENDING > 0 ||
+      performance.counts.FAILED > 0 ||
+      (isWaitingForReplies && !isRunning));
 
   const statusLabel = isWaitingForReplies
     ? 'Aguardando respostas'
