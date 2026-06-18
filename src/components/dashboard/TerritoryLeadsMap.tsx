@@ -47,8 +47,10 @@ import {
 const BLUMENAU_CENTER: L.LatLngExpression = [-26.9194, -49.0661];
 const BLUMENAU_ZOOM = 12;
 
-const MAP_TILE_DARK =
-  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const MAP_TILE_DARK_BASE =
+  'https://{s}.basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}{r}.png';
+const MAP_TILE_DARK_LABELS =
+  'https://{s}.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}{r}.png';
 const MAP_TILE_LIGHT = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const HEAT_GRADIENT_PRO: Record<number, string> = {
@@ -107,6 +109,18 @@ function formatCompactCount(n: number): string {
   if (n >= 10_000) return `${Math.round(n / 1000)}k`;
   if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
   return n > 0 ? String(n) : '';
+}
+
+/** Escala visual √ para barras do ranking — evita um bairro dominar todo o painel. */
+function rankBarVisualPct(count: number, maxCount: number): number {
+  if (count <= 0 || maxCount <= 0) return 0;
+  return Math.round((Math.sqrt(count) / Math.sqrt(maxCount)) * 100);
+}
+
+function formatSharePct(count: number, total: number): string {
+  if (total <= 0 || count <= 0) return '0%';
+  const pct = (count / total) * 100;
+  return pct >= 10 ? `${Math.round(pct)}%` : pct >= 1 ? `${pct.toFixed(1)}%` : '<1%';
 }
 
 function territoryBubbleIcon(
@@ -440,11 +454,24 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       zoom: BLUMENAU_ZOOM,
       zoomControl: !compact,
     });
-    L.tileLayer(compact ? MAP_TILE_LIGHT : MAP_TILE_DARK, {
-      attribution: compact ? '© OpenStreetMap' : '© OpenStreetMap © CARTO',
-      subdomains: compact ? 'abc' : 'abcd',
-      maxZoom: 20,
-    }).addTo(map);
+    if (compact) {
+      L.tileLayer(MAP_TILE_LIGHT, {
+        attribution: '© OpenStreetMap',
+        maxZoom: 20,
+      }).addTo(map);
+    } else {
+      L.tileLayer(MAP_TILE_DARK_BASE, {
+        attribution: '© OpenStreetMap © CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20,
+      }).addTo(map);
+      L.tileLayer(MAP_TILE_DARK_LABELS, {
+        subdomains: 'abcd',
+        maxZoom: 20,
+        pane: 'overlayPane',
+        opacity: 0.72,
+      }).addTo(map);
+    }
     mapRef.current = map;
     return () => {
       map.remove();
@@ -678,11 +705,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [summary?.filters.cities, cityPresets]);
 
-  const viewModes: { id: ViewMode; label: string }[] = [
-    { id: 'temperature', label: 'Temperatura' },
-    { id: 'circles', label: 'Volume' },
-    { id: 'heatmap', label: 'Calor' }
+  const viewModes: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
+    { id: 'temperature', label: 'Temperatura', icon: <Thermometer className="w-3 h-3" /> },
+    { id: 'circles', label: 'Volume', icon: <Users className="w-3 h-3" /> },
+    { id: 'heatmap', label: 'Calor', icon: <Flame className="w-3 h-3" /> }
   ];
+
+  const rankMaxCount = topNeighborhoods[0]?.count ?? 1;
 
   const listPreview = neighborhoodContacts.slice(0, compact ? 40 : 80);
   const proUi = !compact;
@@ -699,9 +728,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       className={`zm-territory-map flex flex-col ${proUi ? 'zm-territory-map--pro' : ''} ${compact ? 'h-[320px]' : 'h-[min(58vh,560px)]'}`}
     >
       <div className={proUi ? 'zm-territory-map__toolbar' : 'flex flex-wrap items-center gap-2 mb-3'}>
-        <div className={`flex items-center gap-2 flex-1 min-w-[200px] ${proUi ? 'relative' : ''}`}>
+        <div className={`flex items-center gap-2 flex-1 min-w-[200px] ${proUi ? 'relative zm-territory-map__search' : ''}`}>
           <MapPin
-            className={`w-4 h-4 shrink-0 ${proUi ? 'absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400' : 'text-indigo-500'}`}
+            className={`w-4 h-4 shrink-0 ${proUi ? 'absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400/90' : 'text-indigo-500'}`}
           />
           <input
             list="zm-city-presets"
@@ -725,68 +754,132 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           </datalist>
         </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={locationLoading || gpsLoading}
-          onClick={() => {
-            setSelectedNb(null);
-            void useMyLocation();
-          }}
-          title="Usar GPS do dispositivo (permita se o navegador pedir)"
-          leftIcon={
-            gpsLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Crosshair className="w-3.5 h-3.5" />
-            )
-          }
-        >
-          GPS
-        </Button>
+        {proUi && apiSyncing && mapSummary && !summary && (
+          <span className="zm-territory-map__sync-inline" aria-live="polite">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Sincronizando
+          </span>
+        )}
 
-        <div className={proUi ? 'zm-territory-map__mode-toggle' : 'flex gap-1 p-0.5 rounded-xl bg-stone-100 border border-stone-200/80'}>
-          {viewModes.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setViewMode(m.id)}
-              className={
-                proUi
-                  ? `zm-territory-map__mode-btn${viewMode === m.id ? ' zm-territory-map__mode-btn--active' : ''}`
-                  : `px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+        <div className={proUi ? 'zm-territory-map__toolbar-actions' : 'contents'}>
+          {proUi ? (
+            <>
+              <button
+                type="button"
+                disabled={locationLoading || gpsLoading}
+                onClick={() => {
+                  setSelectedNb(null);
+                  void useMyLocation();
+                }}
+                title="Usar GPS do dispositivo"
+                className="zm-territory-map__action-btn"
+              >
+                {gpsLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Crosshair className="w-3.5 h-3.5" />
+                )}
+                GPS
+              </button>
+
+              <div className="zm-territory-map__mode-toggle">
+                {viewModes.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setViewMode(m.id)}
+                    className={`zm-territory-map__mode-btn${viewMode === m.id ? ' zm-territory-map__mode-btn--active' : ''}`}
+                  >
+                    {m.icon}
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                disabled={geocoding || loading}
+                onClick={() => void handleGeocode()}
+                className="zm-territory-map__action-btn zm-territory-map__action-btn--accent"
+              >
+                {geocoding ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                Mapear CEP
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="flex gap-1 p-0.5 rounded-xl bg-stone-100 border border-stone-200/80">
+                {viewModes.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setViewMode(m.id)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
                       viewMode === m.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-stone-500'
-                    }`
-              }
-            >
-              {m.label}
-            </button>
-          ))}
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          leftIcon={
-            geocoding ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="w-3.5 h-3.5" />
-            )
-          }
-          disabled={geocoding || loading}
-          onClick={() => void handleGeocode()}
-        >
-          Mapear CEP
-        </Button>
+        {!proUi && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={locationLoading || gpsLoading}
+              onClick={() => {
+                setSelectedNb(null);
+                void useMyLocation();
+              }}
+              title="Usar GPS do dispositivo (permita se o navegador pedir)"
+              leftIcon={
+                gpsLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Crosshair className="w-3.5 h-3.5" />
+                )
+              }
+            >
+              GPS
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={
+                geocoding ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )
+              }
+              disabled={geocoding || loading}
+              onClick={() => void handleGeocode()}
+            >
+              Mapear CEP
+            </Button>
+          </>
+        )}
 
         {selectedNb && (
           <button
             type="button"
             onClick={() => setSelectedNb(null)}
-            className="text-[11px] font-bold text-indigo-600 hover:underline"
+            className={
+              proUi
+                ? 'zm-territory-map__clear-filter'
+                : 'text-[11px] font-bold text-indigo-600 hover:underline'
+            }
           >
-            Limpar bairro: {selectedNb}
+            Limpar: {selectedNb}
           </button>
         )}
       </div>
@@ -807,8 +900,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               <Loader2 className={`w-8 h-8 animate-spin ${proUi ? 'text-indigo-400' : 'text-indigo-600'}`} />
             </div>
           )}
-          {apiSyncing && mapSummary && !summary && (
-            <div className={proUi ? 'zm-territory-map__sync-badge' : 'absolute top-3 right-3 z-[500] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600'}>
+          {apiSyncing && mapSummary && !summary && !proUi && (
+            <div className="absolute top-3 right-3 z-[500] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
               <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />
               Sincronizando mapa…
             </div>
@@ -837,10 +930,18 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                 </span>
               ))
             ) : viewMode === 'heatmap' ? (
-              <span className={proUi ? 'zm-territory-map__legend-chip' : 'inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600'}>
-                <span className="w-10 h-2 rounded-full bg-gradient-to-r from-indigo-900 via-violet-500 to-orange-500" />
-                Densidade territorial
-              </span>
+              proUi ? (
+                <div className="zm-territory-map__legend-scale">
+                  <span className="zm-territory-map__legend-scale-label">Baixa</span>
+                  <span className="zm-territory-map__legend-scale-bar" aria-hidden />
+                  <span className="zm-territory-map__legend-scale-label">Alta densidade</span>
+                </div>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600">
+                  <span className="w-10 h-2 rounded-full bg-gradient-to-r from-indigo-900 via-violet-500 to-orange-500" />
+                  Densidade territorial
+                </span>
+              )
             ) : (
               <span className={proUi ? 'zm-territory-map__legend-chip' : 'inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold bg-white/95 border border-stone-200 shadow-sm text-stone-600'}>
                 <span className="w-3 h-3 rounded-full bg-indigo-500/80 border border-indigo-300" />
@@ -854,28 +955,23 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           <aside className="zm-territory-map__rank hidden lg:flex">
             {selectedNb ? (
               <>
-                <div className="p-3 border-b border-stone-100 bg-indigo-50/60">
+                <div className="zm-territory-map__rank-detail">
                   <button
                     type="button"
                     onClick={() => setSelectedNb(null)}
-                    className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline mb-2"
+                    className="zm-territory-map__rank-back"
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
                     Voltar ao ranking
                   </button>
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-stone-400">
-                    Contatos · {selectedNb}
-                  </p>
-                  <p className="text-[18px] font-black text-stone-900 tabular-nums mt-0.5">
+                  <p className="zm-territory-map__rank-title">Contatos · {selectedNb}</p>
+                  <p className="zm-territory-map__rank-sub">
                     {neighborhoodContacts.length.toLocaleString('pt-BR')}
                   </p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {(['hot', 'warm', 'cold', 'new'] as ContactTemperature[]).map((t) =>
                       nbTempBreakdown[t] > 0 ? (
-                        <span
-                          key={t}
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-white border border-stone-200"
-                        >
+                        <span key={t} className="zm-territory-map__temp-chip">
                           <span className="w-1.5 h-1.5 rounded-full" style={{ background: TEMP_COLOR[t] }} />
                           {nbTempBreakdown[t]}
                         </span>
@@ -883,11 +979,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                     )}
                   </div>
                   <div className="flex gap-1.5 mt-3">
-                    <button
-                      type="button"
-                      onClick={handleExportCsv}
-                      className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold text-stone-700 bg-white border border-stone-200 hover:bg-stone-50"
-                    >
+                    <button type="button" onClick={handleExportCsv} className="zm-territory-map__export-btn">
                       <Download className="w-3 h-3" />
                       CSV
                     </button>
@@ -895,44 +987,41 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                       type="button"
                       onClick={handleExportXlsx}
                       disabled={!summary}
-                      className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50"
+                      className="zm-territory-map__export-btn zm-territory-map__export-btn--primary"
                     >
                       <Download className="w-3 h-3" />
                       Excel
                     </button>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                <div className="zm-territory-map__rank-list zm-territory-map__rank-list--contacts">
                   {neighborhoodContacts.length === 0 ? (
-                    <p className="text-[11px] text-stone-500 p-2 leading-relaxed">
+                    <p className="text-[11px] text-slate-500 p-2 leading-relaxed">
                       Nenhum contato com bairro &quot;{selectedNb}&quot; cadastrado. Confira CEP/endereço nos
                       contatos.
                     </p>
                   ) : (
                     <>
                       {listPreview.map((row) => (
-                        <div
-                          key={row.id}
-                          className="rounded-xl border border-stone-100 bg-stone-50/80 px-2.5 py-2 hover:border-indigo-200 transition-colors"
-                        >
+                        <div key={row.id} className="zm-territory-map__contact-row">
                           <div className="flex items-start justify-between gap-1">
-                            <p className="text-[11px] font-bold text-stone-800 truncate">{row.name}</p>
+                            <p className="text-[11px] font-bold text-slate-100 truncate">{row.name}</p>
                             <span
                               className="shrink-0 w-2 h-2 rounded-full mt-1"
                               style={{ background: TEMP_COLOR[row.temp] }}
                               title={CONTACT_TEMP_LABEL[row.temp]}
                             />
                           </div>
-                          <p className="text-[10px] text-stone-500 tabular-nums">{row.phone}</p>
+                          <p className="text-[10px] text-slate-400 tabular-nums">{row.phone}</p>
                           {(row.street || row.zipCode) && (
-                            <p className="text-[9px] text-stone-400 truncate mt-0.5">
+                            <p className="text-[9px] text-slate-500 truncate mt-0.5">
                               {[row.street, row.number, row.zipCode].filter(Boolean).join(' · ')}
                             </p>
                           )}
                         </div>
                       ))}
                       {neighborhoodContacts.length > listPreview.length && (
-                        <p className="text-[10px] text-center text-stone-400 py-2">
+                        <p className="text-[10px] text-center text-slate-500 py-2">
                           +{neighborhoodContacts.length - listPreview.length} contatos — exporte para ver todos
                         </p>
                       )}
@@ -948,9 +1037,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                   </p>
                   <p className="zm-territory-map__rank-sub">
                     {regionLeadCount.toLocaleString('pt-BR')}
-                    <span className="text-[13px] font-semibold text-slate-400 ml-1.5">leads mapeados</span>
+                    <span className="zm-territory-map__rank-sub-label">leads mapeados</span>
                   </p>
-                  <p className="text-[11px] text-slate-500 mt-1">{city}</p>
+                  <p className="zm-territory-map__rank-city">{city}</p>
                 </div>
                 <div className="zm-territory-map__rank-list">
                   {topNeighborhoods.length === 0 ? (
@@ -958,11 +1047,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                       Cadastre CEP e bairro nos contatos ou use &quot;Mapear CEP&quot;.
                     </p>
                   ) : (
-                    <ol className="space-y-1">
+                    <ol className="zm-territory-map__rank-ol">
                       {topNeighborhoods.slice(0, 14).map(({ label, count }, i) => {
                         const nbName = label.split('·')[0]?.trim() || label;
                         const active =
                           selectedNb && normBlumenauNbKey(selectedNb) === normBlumenauNbKey(nbName);
+                        const barPct = rankBarVisualPct(count, rankMaxCount);
                         return (
                           <li key={label}>
                             <button
@@ -972,21 +1062,22 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                             >
                               <div className="zm-territory-map__rank-row">
                                 <span className="zm-territory-map__rank-name">
-                                  <span className="text-slate-500 font-black mr-1.5 tabular-nums">{i + 1}</span>
+                                  <span className="zm-territory-map__rank-index">{i + 1}</span>
                                   {nbName}
                                 </span>
-                                <span className="zm-territory-map__rank-count">
-                                  {count.toLocaleString('pt-BR')}
+                                <span className="zm-territory-map__rank-meta">
+                                  <span className="zm-territory-map__rank-count">
+                                    {count.toLocaleString('pt-BR')}
+                                  </span>
+                                  <span className="zm-territory-map__rank-share">
+                                    {formatSharePct(count, regionLeadCount)}
+                                  </span>
                                 </span>
                               </div>
                               <div className="zm-territory-map__rank-bar">
                                 <div
                                   className="zm-territory-map__rank-bar-fill"
-                                  style={{
-                                    width: `${Math.round(
-                                      (count / Math.max(1, topNeighborhoods[0]?.count || 1)) * 100
-                                    )}%`
-                                  }}
+                                  style={{ width: `${barPct}%` }}
                                 />
                               </div>
                             </button>

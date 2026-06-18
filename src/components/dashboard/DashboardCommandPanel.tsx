@@ -202,20 +202,20 @@ export const DashboardCommandPanel: React.FC<Props> = ({
         </div>
 
         <div className="zm-command-v2__map-zone">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
+          <div className="zm-command-v2__map-header">
             <div>
-              <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-indigo-400/90 flex items-center gap-1.5">
+              <p className="zm-command-v2__map-eyebrow">
                 <MapPinned className="w-3.5 h-3.5" />
                 Território de leads
               </p>
-              <h2 className="text-[16px] font-black text-slate-100 mt-0.5">
-                Inteligência geográfica · bairros e densidade
+              <h2 className="zm-command-v2__map-title">
+                Inteligência geográfica por bairro
               </h2>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('contacts')}
-              className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-300 hover:text-indigo-200 shrink-0"
+              className="zm-command-v2__map-link"
             >
               Base de contatos
               <ArrowUpRight className="w-3.5 h-3.5" />
