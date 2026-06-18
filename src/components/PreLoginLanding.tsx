@@ -33,6 +33,7 @@ import { resolveLandingTrialCopy } from '../utils/landingTrialResolved';
 import { trackLandingEvent } from '../utils/marketingEvents';
 import { formatTrialHoursLabel } from '../utils/trialCopy';
 import { resolveEmailAuthStep } from '../utils/emailAuthFlow';
+import { vpsRequestPasswordReset, vpsResetPasswordWithToken } from '../services/vpsAuth';
 import { clearTrialSessionFlags, landingCtaStartsTrial, setTrialSessionForManager } from '../utils/trialSession';
 import {
   WHATSAPP_META_CLOUD_OVERVIEW,
@@ -75,12 +76,18 @@ const D = {
 /* ─────────────────────────────────────────────────────
    QUICK AUTH PANEL — step-based modal (social-first)
 ───────────────────────────────────────────────────── */
-type QAPStep = 'main' | 'pw-in' | 'pw-up' | 'staff';
+type QAPStep = 'main' | 'pw-in' | 'pw-up' | 'forgot' | 'reset-pw' | 'staff';
 
-const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startTrialAfterLogin: boolean }> = ({
+const QuickAuthPanel: React.FC<{
+  onClose: () => void;
+  trialLabel: string;
+  startTrialAfterLogin: boolean;
+  initialResetToken?: string | null;
+}> = ({
   onClose,
   trialLabel,
-  startTrialAfterLogin
+  startTrialAfterLogin,
+  initialResetToken = null
 }) => {
   const { signInWithEmailPassword, signUpWithEmailPassword, signInWithStaffCredentials } = useAuth();
 
@@ -93,11 +100,21 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
   const [manEmail, setManEmail]   = useState('');
   const [staffUser, setStaffUser] = useState('');
   const [staffPass, setStaffPass] = useState('');
+  const [resetToken, setResetToken] = useState(initialResetToken || '');
+  const [forgotSent, setForgotSent] = useState(false);
 
   const passRef    = useRef<HTMLInputElement>(null);
   const emailRef   = useRef<HTMLInputElement>(null);
 
-  const goBack = () => { setStep('main'); setPass(''); setConfirm(''); };
+  useEffect(() => {
+    if (initialResetToken) {
+      setResetToken(initialResetToken);
+      setStep('reset-pw');
+      setTimeout(() => passRef.current?.focus(), 80);
+    }
+  }, [initialResetToken]);
+
+  const goBack = () => { setStep('main'); setPass(''); setConfirm(''); setForgotSent(false); };
 
   const goToPasswordStep = (kind: 'sign-in' | 'sign-up') => {
     setStep(kind === 'sign-in' ? 'pw-in' : 'pw-up');
@@ -159,6 +176,62 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
       clearTrialSessionFlags();
       await signInWithStaffCredentials(me, slug, staffPass);
     } finally { setBusy(false); }
+  };
+
+  const handleForgotPassword = async () => {
+    const trimmed = email.trim();
+    if (!trimmed.includes('@')) {
+      toast.error('Informe um e-mail válido');
+      return;
+    }
+    setBusy(true);
+    try {
+      await vpsRequestPasswordReset(trimmed);
+      setForgotSent(true);
+      toast.success('Se o e-mail existir na plataforma, enviamos um link de redefinição.');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível enviar o e-mail.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetToken.trim()) {
+      toast.error('Link inválido. Peça um novo e-mail de redefinição.');
+      return;
+    }
+    if (!password || !confirm) {
+      toast.error('Preencha a senha e a confirmação');
+      return;
+    }
+    if (password !== confirm) {
+      toast.error('As senhas não coincidem');
+      return;
+    }
+    if (password.length < 8) {
+      toast.error('Senha deve ter ao menos 8 caracteres');
+      return;
+    }
+    setBusy(true);
+    try {
+      await vpsResetPasswordWithToken(resetToken.trim(), password);
+      toast.success('Senha redefinida! Entre com a nova senha.');
+      setPass('');
+      setConfirm('');
+      setResetToken('');
+      if (typeof window !== 'undefined' && window.location.search.includes('reset=')) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('reset');
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      }
+      setStep('pw-in');
+      setTimeout(() => passRef.current?.focus(), 80);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível redefinir a senha.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* ── shared styles ── */
@@ -234,6 +307,16 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
           {step === 'staff' && (
             <h2 style={{ fontSize: 20, fontWeight: 900, color: D.text1, letterSpacing: '-0.03em', margin: 0 }}>
               Entrar como funcionário
+            </h2>
+          )}
+          {step === 'forgot' && (
+            <h2 style={{ fontSize: 20, fontWeight: 900, color: D.text1, letterSpacing: '-0.03em', margin: 0 }}>
+              Esqueci minha senha
+            </h2>
+          )}
+          {step === 'reset-pw' && (
+            <h2 style={{ fontSize: 20, fontWeight: 900, color: D.text1, letterSpacing: '-0.03em', margin: 0 }}>
+              Nova senha
             </h2>
           )}
         </div>
@@ -329,9 +412,96 @@ const QuickAuthPanel: React.FC<{ onClose: () => void; trialLabel: string; startT
           <button type="button" disabled={busy} onClick={() => void handleSignIn()} style={primaryBtn}>
             {busy ? <Loader2 size={16} className="animate-spin" /> : <><Lock size={15} />Entrar</>}
           </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => { setForgotSent(false); setStep('forgot'); }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5,
+              color: D.greenLt, display: 'flex', alignItems: 'center', gap: 4,
+              padding: 0, margin: '0 auto', fontWeight: 600
+            }}
+          >
+            Esqueci minha senha
+          </button>
           <button type="button" onClick={goBack}
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}>
             <ArrowLeft size={13} /> Usar outro e-mail
+          </button>
+        </>
+      )}
+
+      {/* ── STEP: FORGOT PASSWORD ── */}
+      {step === 'forgot' && (
+        <>
+          {emailChip}
+          <p style={{ fontSize: 13, color: D.text2, margin: '0 0 4px' }}>
+            Enviaremos um link para redefinir a senha desta conta. O link expira em 1 hora.
+          </p>
+          {forgotSent ? (
+            <div style={{
+              padding: '10px 12px', borderRadius: 8,
+              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+              fontSize: 12.5, color: D.greenLt, lineHeight: 1.5
+            }}>
+              Se o e-mail estiver registado, verifique a caixa de entrada e o spam. Depois clique no link para escolher uma nova senha.
+            </div>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy || forgotSent}
+            onClick={() => void handleForgotPassword()}
+            style={primaryBtn}
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <><Mail size={15} />Enviar link de redefinição</>}
+          </button>
+          <button
+            type="button"
+            onClick={() => setStep('pw-in')}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.text3, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto' }}
+          >
+            <ArrowLeft size={13} /> Voltar ao login
+          </button>
+        </>
+      )}
+
+      {/* ── STEP: RESET PASSWORD (link do e-mail) ── */}
+      {step === 'reset-pw' && (
+        <>
+          <p style={{ fontSize: 13, color: D.text2, margin: '0 0 4px' }}>
+            Escolha uma nova senha para a sua conta ZapMass.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input
+              ref={passRef}
+              type="password"
+              autoComplete="new-password"
+              placeholder="Nova senha (mín. 8 caracteres)"
+              value={password}
+              onChange={e => setPass(e.target.value)}
+              disabled={busy}
+              style={inp}
+            />
+            <input
+              type="password"
+              autoComplete="new-password"
+              placeholder="Confirme a nova senha"
+              value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              disabled={busy}
+              style={inp}
+              onKeyDown={e => { if (e.key === 'Enter') void handleResetPassword(); }}
+            />
+          </div>
+          <button type="button" disabled={busy} onClick={() => void handleResetPassword()} style={primaryBtn}>
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <><Lock size={15} />Salvar nova senha</>}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setForgotSent(false); setStep('forgot'); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: D.greenLt, display: 'flex', alignItems: 'center', gap: 4, padding: 0, margin: '0 auto', fontWeight: 600 }}
+          >
+            Pedir novo link por e-mail
           </button>
         </>
       )}
@@ -617,11 +787,20 @@ export const PreLoginLanding: React.FC = () => {
 
   const [authOpen, setAuthOpen] = useState(false);
   const [authStartTrial, setAuthStartTrial] = useState(true);
+  const [authResetToken, setAuthResetToken] = useState<string | null>(null);
 
   const openAuth = useCallback((ctaId: string) => {
     trackLandingEvent('landing_cta_click', { cta_id: ctaId });
     setAuthStartTrial(landingCtaStartsTrial(ctaId));
     setAuthOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('reset')?.trim();
+    if (token) {
+      setAuthResetToken(token);
+      setAuthOpen(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -1219,6 +1398,7 @@ export const PreLoginLanding: React.FC = () => {
                 onClose={() => setAuthOpen(false)}
                 trialLabel={trialLabel}
                 startTrialAfterLogin={authStartTrial}
+                initialResetToken={authResetToken}
               />
           </div>
         </div>

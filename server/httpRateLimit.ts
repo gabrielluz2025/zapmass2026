@@ -53,6 +53,24 @@ export const authProfileLimiter = rateLimit({
   message: { ok: false, error: 'Muitas alterações de perfil. Aguarde alguns minutos.' }
 });
 
+/** Pedido de redefinição de senha (por IP). */
+export const authForgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Muitos pedidos de redefinição. Tente mais tarde.' }
+});
+
+/** Confirmação de nova senha com token (por IP). */
+export const authResetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Muitas tentativas. Aguarde alguns minutos.' }
+});
+
 /** Tentativas de login staff por IP (abuse-resistant para instalação multi-tenant). */
 export const staffSignInLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

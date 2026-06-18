@@ -17,11 +17,12 @@ import {
   refreshTokenTtlMs,
   signAccessToken
 } from './auth/jwt.js';
-import { authRegisterLimiter, authLoginLimiter, authEmailStepLimiter } from './httpRateLimit.js';
+import { authRegisterLimiter, authLoginLimiter, authEmailStepLimiter, authForgotPasswordLimiter, authResetPasswordLimiter } from './httpRateLimit.js';
 import { parseBearer, resolveAuthPrincipal } from './resolveAuth.js';
 import { buildVpsUserPayload } from './auth/profilePayload.js';
 import { resolvePhotoUrl } from './auth/resolvePhotoUrl.js';
 import { notifyAdminsNewAccountRegistered } from './adminNewSignupNotify.js';
+import { requestPasswordReset, resetPasswordWithToken } from './auth/passwordResetService.js';
 
 const REFRESH_COOKIE = 'zapmass_refresh';
 
@@ -288,6 +289,50 @@ export function registerVpsAuthRoutes(app: Express): void {
     if (plain) await revokeRefreshTokenHash(hashRefreshToken(plain));
     clearRefreshCookie(res);
     return res.json({ ok: true });
+  });
+
+  app.post('/api/auth/forgot-password', authForgotPasswordLimiter, async (req: Request, res: Response) => {
+    if (!getZapmassPool()) {
+      return res.status(503).json({ ok: false, error: 'Postgres ZapMass não disponível.' });
+    }
+    const body = req.body as { email?: unknown };
+    const email = typeof body.email === 'string' ? body.email.trim() : '';
+    if (!email.includes('@')) {
+      return res.status(400).json({ ok: false, error: 'Informe um e-mail válido.' });
+    }
+    try {
+      await requestPasswordReset(email);
+      return res.json({
+        ok: true,
+        message:
+          'Se existir uma conta com este e-mail, enviamos um link para redefinir a senha. Verifique também o spam.'
+      });
+    } catch (e) {
+      console.error('[auth/forgot-password]', e);
+      return res.status(500).json({ ok: false, error: 'Não foi possível processar o pedido. Tente mais tarde.' });
+    }
+  });
+
+  app.post('/api/auth/reset-password', authResetPasswordLimiter, async (req: Request, res: Response) => {
+    if (!getZapmassPool()) {
+      return res.status(503).json({ ok: false, error: 'Postgres ZapMass não disponível.' });
+    }
+    const body = req.body as { token?: unknown; password?: unknown };
+    const token = typeof body.token === 'string' ? body.token.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!token) {
+      return res.status(400).json({ ok: false, error: 'Link inválido. Peça um novo e-mail de redefinição.' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ ok: false, error: 'Senha deve ter ao menos 8 caracteres.' });
+    }
+    try {
+      await resetPasswordWithToken(token, password);
+      return res.json({ ok: true, message: 'Senha redefinida com sucesso. Já pode entrar com a nova senha.' });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Não foi possível redefinir a senha.';
+      return res.status(400).json({ ok: false, error: msg });
+    }
   });
 
   app.get('/api/auth/me', async (req: Request, res: Response) => {

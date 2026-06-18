@@ -209,6 +209,38 @@ export async function vpsLogout(): Promise<void> {
   clearVpsSession();
 }
 
+export async function vpsRequestPasswordReset(email: string): Promise<void> {
+  const r = await fetchWithTimeout(
+    apiUrl('/api/auth/forgot-password'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim() })
+    },
+    AUTH_FETCH_TIMEOUT_MS
+  );
+  const data = await parseJson<{ message?: string }>(r);
+  if (!r.ok || data.ok === false) {
+    throw new Error(data.error || 'Não foi possível enviar o e-mail de redefinição.');
+  }
+}
+
+export async function vpsResetPasswordWithToken(token: string, password: string): Promise<void> {
+  const r = await fetchWithTimeout(
+    apiUrl('/api/auth/reset-password'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password })
+    },
+    AUTH_FETCH_TIMEOUT_MS
+  );
+  const data = await parseJson(r);
+  if (!r.ok || data.ok === false) {
+    throw new Error(data.error || 'Não foi possível redefinir a senha.');
+  }
+}
+
 function accessTokenExpired(token: string, skewSec = 60): boolean {
   try {
     const part = token.split('.')[1];

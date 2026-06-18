@@ -675,3 +675,85 @@ export async function sendPaymentConfirmationEmail(params: PaymentConfirmationPa
     return false;
   }
 }
+
+export type PasswordResetEmailParams = {
+  to: string;
+  displayName?: string;
+  resetUrl: string;
+};
+
+function buildPasswordResetHtml(p: PasswordResetEmailParams): string {
+  const greeting = p.displayName ? `Olá, ${escapeHtml(p.displayName.split(' ')[0] || p.displayName)}!` : 'Olá!';
+  const resetUrl = escapeHtml(p.resetUrl);
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+  <head><meta charset="utf-8" /><title>Redefinir senha — ZapMass</title></head>
+  <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
+    <div style="max-width:560px;margin:0 auto;padding:32px 16px">
+      <div style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06)">
+        <div style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);padding:28px 24px;text-align:center">
+          <h1 style="margin:0;color:#fff;font-size:22px;font-weight:800">Redefinir senha</h1>
+          <p style="margin:8px 0 0;color:rgba(255,255,255,0.9);font-size:14px">ZapMass</p>
+        </div>
+        <div style="padding:28px 24px">
+          <p style="margin:0 0 16px;font-size:17px;font-weight:600">${greeting}</p>
+          <p style="margin:0 0 20px;color:#4b5563;line-height:1.55;font-size:15px">
+            Recebemos um pedido para redefinir a senha da sua conta ZapMass. Clique no botão abaixo para escolher uma nova senha.
+            O link expira em <strong>1 hora</strong>.
+          </p>
+          <p style="text-align:center;margin:0 0 24px">
+            <a href="${resetUrl}" style="display:inline-block;padding:14px 28px;border-radius:12px;background:#059669;color:#fff;font-weight:700;text-decoration:none;font-size:15px">
+              Redefinir minha senha
+            </a>
+          </p>
+          <p style="margin:0 0 12px;color:#6b7280;font-size:13px;line-height:1.5">
+            Se o botão não funcionar, copie e cole este link no navegador:<br/>
+            <a href="${resetUrl}" style="color:#059669;word-break:break-all">${resetUrl}</a>
+          </p>
+          <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.5">
+            Se você não pediu esta redefinição, ignore este e-mail — sua senha atual continua válida.
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
+/** E-mail de redefinição de senha (conta gestor / e-mail+senha). */
+export async function sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    console.log('[EmailService] reset senha: RESEND_API_KEY ausente — link gerado mas e-mail não enviado para', params.to);
+    console.log('[EmailService] reset senha link (dev):', params.resetUrl);
+    return false;
+  }
+
+  const from = (process.env.EMAIL_FROM || 'ZapMass <onboarding@resend.dev>').trim();
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from,
+        to: [params.to],
+        subject: 'Redefinir senha — ZapMass',
+        html: buildPasswordResetHtml(params)
+      })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error('[EmailService] reset senha Resend', res.status, text);
+      return false;
+    }
+    console.log('[EmailService] reset senha enviado para', params.to);
+    return true;
+  } catch (e) {
+    console.error('[EmailService] reset senha erro:', e);
+    return false;
+  }
+}
