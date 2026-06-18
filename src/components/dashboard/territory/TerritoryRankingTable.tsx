@@ -69,7 +69,9 @@ export const TerritoryRankingTable: React.FC<Props> = ({
               onClick={() => onSelectRow(active ? null : row)}
             >
               <span className="zm-atlas-table__name">{row.label}</span>
-              <span className="zm-atlas-table__count">{row.count.toLocaleString('pt-BR')}</span>
+              <span className={`zm-atlas-table__count${row.count === 0 ? ' zm-atlas-table__count--zero' : ''}`}>
+                {row.count.toLocaleString('pt-BR')}
+              </span>
               <StackBar row={row} />
             </button>
           );

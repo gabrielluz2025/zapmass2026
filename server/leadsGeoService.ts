@@ -1171,7 +1171,7 @@ async function buildLeadsGeoSummaryInner(
   const contacts = await loadTenantContacts(tenantId);
   const lightMode = query.light === true;
 
-  if (lightMode && layer === 'neighborhood' && isBlumenauCity(query.city || '')) {
+  if (lightMode && layer === 'neighborhood' && isBlumenauCity(query.city || '') && !query.neighborhood?.trim()) {
     return buildBlumenauLightNeighborhoodSummary(contacts, query);
   }
 

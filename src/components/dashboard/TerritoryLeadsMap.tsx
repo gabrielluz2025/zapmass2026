@@ -16,7 +16,6 @@ import { useOperatingLocation } from '../../hooks/useOperatingLocation';
 import { computeContactTemperatures } from '../../utils/contactTemperature';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import {
-  BLUMENAU_OFFICIAL_NEIGHBORHOODS,
   isBlumenauCity,
   matchOfficialNeighborhood,
 } from '../../../shared/blumenauNeighborhoods';
@@ -28,7 +27,7 @@ import {
   BLUMENAU_CENTER,
   BLUMENAU_ZOOM,
   MAP_TILE_LIGHT,
-  MAP_TILE_POSITRON,
+  MAP_TILE_VOYAGER,
   TEMP_ORDER,
 } from './territory/territoryConstants';
 import {
@@ -80,6 +79,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [tempFilter, setTempFilter] = useState<TempFilter>('all');
   const [selectedRow, setSelectedRow] = useState<NeighborhoodRow | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [nbGeo, setNbGeo] = useState<LeadsGeoSummary | null>(null);
+  const [nbGeoLoading, setNbGeoLoading] = useState(false);
   const [mapActive, setMapActive] = useState(!deferLoad);
 
   const blumenauFocus = isBlumenauCity(city) && scope === 'city';
@@ -109,9 +110,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     [contacts, city, scope, tempsByContact, clusters, blumenauFocus]
   );
 
+  const showAllNeighborhoods = blumenauFocus && scope === 'city';
+
   const visibleRows = useMemo(
-    () => allRows.filter((r) => rowMatchesTempFilter(r, tempFilter)),
-    [allRows, tempFilter]
+    () => allRows.filter((r) => rowMatchesTempFilter(r, tempFilter, showAllNeighborhoods)),
+    [allRows, tempFilter, showAllNeighborhoods]
   );
 
   const regionTemps = useMemo(() => sumRegionTemps(allRows), [allRows]);
@@ -155,11 +158,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       });
   }, [selectedRow, contacts, city, scope, stateCode, tempsByContact, blumenauFocus]);
 
-  const contactPins = useMemo((): MapContactPin[] => {
-    if (!selectedRow) return [];
-    const blumenauIdx = blumenauFocus
-      ? BLUMENAU_OFFICIAL_NEIGHBORHOODS.findIndex((n) => n === selectedRow.label)
-      : -1;
+  const contactPinsResult = useMemo(() => {
+    if (!selectedRow) return { pins: [], unmapped: 0 };
+    const cityName = city.split('·')[0]?.trim() || city;
     return buildContactPinsForNeighborhood({
       contacts: neighborhoodContacts.map((c) => ({
         id: c.id,
@@ -176,13 +177,15 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         longitude: c.longitude,
         geocodePrecision: c.geocodePrecision,
       })),
-      apiPins: summary?.contactPins || [],
-      centerLat: selectedRow.lat,
-      centerLng: selectedRow.lng,
+      apiPins: nbGeo?.contactPins || [],
       neighborhoodLabel: selectedRow.label,
-      blumenauIndex: blumenauIdx,
+      filterCity: cityName,
+      filterState: stateCode,
     });
-  }, [selectedRow, neighborhoodContacts, summary?.contactPins, blumenauFocus]);
+  }, [selectedRow, neighborhoodContacts, nbGeo?.contactPins, city, stateCode]);
+
+  const contactPins = contactPinsResult.pins;
+  const unmappedCount = contactPinsResult.unmapped;
 
   const selectedContact = useMemo(
     () => contactPins.find((p) => p.id === selectedContactId) ?? null,
@@ -238,7 +241,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       zoom: BLUMENAU_ZOOM,
       zoomControl: true,
     });
-    L.tileLayer(compact ? MAP_TILE_LIGHT : MAP_TILE_POSITRON, {
+    L.tileLayer(compact ? MAP_TILE_LIGHT : MAP_TILE_VOYAGER, {
       attribution: compact ? '© OSM' : '© OSM © CARTO',
       subdomains: 'abcd',
       maxZoom: 20,
@@ -293,21 +296,57 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     void loadSummary();
   }, [loadSummary, mapActive]);
 
+  useEffect(() => {
+    if (!mapActive || !selectedRow) {
+      setNbGeo(null);
+      return;
+    }
+    const cityName = city.split('·')[0]?.trim() || city;
+    const nbLabel = `${selectedRow.label} · ${cityName}`;
+    let cancelled = false;
+    setNbGeoLoading(true);
+    void fetchLeadsGeoSummary({
+      layer: 'neighborhood',
+      city,
+      neighborhood: nbLabel,
+      light: false,
+    })
+      .then((data) => {
+        if (!cancelled) setNbGeo(data);
+      })
+      .catch(() => {
+        if (!cancelled) setNbGeo(null);
+      })
+      .finally(() => {
+        if (!cancelled) setNbGeoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRow?.key, city, mapActive]);
+
   const paintMap = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
     clearDataLayers();
 
-    if (selectedRow && contactPins.length > 0) {
-      layersRef.current = paintContactPins(map, contactPins, selectedContactId, (pin) => {
-        setSelectedContactId(pin.id);
-        map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
-      });
+    if (selectedRow) {
+      if (contactPins.length > 0) {
+        layersRef.current = paintContactPins(map, contactPins, selectedContactId, (pin) => {
+          setSelectedContactId(pin.id);
+          map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
+        });
 
-      const vpKey = `nb|${selectedRow.key}|${contactPins.length}|${selectedContactId}`;
-      if (vpKey !== lastViewportKeyRef.current) {
-        lastViewportKeyRef.current = vpKey;
-        flyToContactPins(map, contactPins);
+        const vpKey = `nb|${selectedRow.key}|${contactPins.length}|${selectedContactId}`;
+        if (vpKey !== lastViewportKeyRef.current) {
+          lastViewportKeyRef.current = vpKey;
+          flyToContactPins(map, contactPins);
+        }
+      } else if (selectedRow.lat != null && selectedRow.lng != null) {
+        const { lat, lng } = fixBrazilCoord(selectedRow.lat, selectedRow.lng);
+        if (isMapCoordValid(lat, lng)) {
+          map.flyTo([lat, lng], 14, { duration: 0.45 });
+        }
       }
       return;
     }
@@ -355,8 +394,17 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const handleGeocode = async () => {
     setGeocoding(true);
     try {
-      const r = await apiGeocodeContacts({ max: 80, city, force: false });
+      const cityName = city.split('·')[0]?.trim() || city;
+      const r = await apiGeocodeContacts({
+        max: 200,
+        city,
+        neighborhood: selectedRow ? `${selectedRow.label} · ${cityName}` : undefined,
+        force: false,
+      });
       setSummary(r.summary);
+      if (selectedRow) {
+        setNbGeo(r.summary);
+      }
       lastViewportKeyRef.current = '';
       toast.success(`${r.geocoded} endereço(s) geolocalizado(s).`);
     } catch {
@@ -462,6 +510,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           {selectedRow ? (
             <div className="zm-atlas__map-badge zm-atlas__map-badge--focus">
               {selectedRow.label} · {contactPins.length} no mapa
+              {unmappedCount > 0 && ` · ${unmappedCount} sem coordenada`}
+              {nbGeoLoading && ' · carregando…'}
             </div>
           ) : (
             <div className="zm-atlas__map-badge">Clique num bairro para ver contatos</div>

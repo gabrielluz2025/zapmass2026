@@ -122,7 +122,12 @@ export function buildNeighborhoodRows(input: {
     });
   }
 
-  return rows.sort((a, b) => b.count - a.count);
+  return rows.sort((a, b) => {
+    if (a.count === 0 && b.count > 0) return 1;
+    if (b.count === 0 && a.count > 0) return -1;
+    if (b.count !== a.count) return b.count - a.count;
+    return a.label.localeCompare(b.label, 'pt-BR');
+  });
 }
 
 export function filterClustersForScope(
@@ -154,8 +159,12 @@ export function sumRegionTemps(rows: NeighborhoodRow[]): Record<ContactTemperatu
   return t;
 }
 
-export function rowMatchesTempFilter(row: NeighborhoodRow, filter: 'all' | ContactTemperature): boolean {
-  if (filter === 'all') return row.count > 0;
+export function rowMatchesTempFilter(
+  row: NeighborhoodRow,
+  filter: 'all' | ContactTemperature,
+  showEmptyNeighborhoods = false
+): boolean {
+  if (filter === 'all') return showEmptyNeighborhoods || row.count > 0;
   return row[filter] > 0;
 }
 

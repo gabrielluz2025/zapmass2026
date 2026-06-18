@@ -26,19 +26,19 @@ export function paintTerritoryHeat(
     const halo = L.circle([row.lat, row.lng], {
       radius: radiusM,
       fillColor: color,
-      fillOpacity: 0.32,
+      fillOpacity: 0.42,
       color: color,
-      weight: 1,
-      opacity: 0.45,
+      weight: 2,
+      opacity: 0.7,
       className: 'zm-atlas-halo',
     });
 
     const core = L.circleMarker([row.lat, row.lng], {
-      radius: Math.round(6 + Math.sqrt(t) * 8),
+      radius: Math.round(7 + Math.sqrt(t) * 10),
       fillColor: color,
-      fillOpacity: 0.95,
+      fillOpacity: 1,
       color: '#fff',
-      weight: 2,
+      weight: 2.5,
       opacity: 1,
       className: 'zm-atlas-core',
     });
@@ -81,9 +81,9 @@ export function paintContactPins(
     const marker = L.circleMarker([pin.lat, pin.lng], {
       radius,
       fillColor: color,
-      fillOpacity: selected ? 1 : 0.92,
-      color: selected ? '#1c1917' : '#fff',
-      weight: selected ? 3 : 2,
+      fillOpacity: 1,
+      color: pin.coordVerified ? '#fff' : '#fbbf24',
+      weight: pin.coordVerified ? 2.5 : 2,
       opacity: 1,
       className: selected ? 'zm-atlas-pin zm-atlas-pin--active' : 'zm-atlas-pin',
     });

@@ -36,8 +36,11 @@ export const TerritoryContactCard: React.FC<Props> = ({ contact, onClose }) => {
           {address && <p>{address}</p>}
           {place && <p>{place}</p>}
           {contact.zipCode && <p className="zm-atlas-contact-card__cep">CEP {contact.zipCode}</p>}
-          {contact.approximate && (
-            <p className="zm-atlas-contact-card__approx">Posição aproximada no bairro</p>
+          {contact.approximate && !contact.coordVerified && (
+            <p className="zm-atlas-contact-card__approx">Endereço sem geolocalização exata — use Atualizar CEP</p>
+          )}
+          {contact.approximate && contact.coordVerified && (
+            <p className="zm-atlas-contact-card__approx zm-atlas-contact-card__approx--ok">Coordenada validada por CEP/endereço</p>
           )}
         </div>
       )}

@@ -42,4 +42,5 @@ export type MapContactPin = NeighborhoodContactRow & {
   lat: number;
   lng: number;
   approximate: boolean;
+  coordVerified?: boolean;
 };

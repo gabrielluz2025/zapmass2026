@@ -5,16 +5,18 @@ export const MAP_TILE_DARK =
 export const MAP_TILE_LIGHT = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const MAP_TILE_POSITRON =
   'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+export const MAP_TILE_VOYAGER =
+  'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 
 export const BLUMENAU_CENTER: [number, number] = [-26.9194, -49.0661];
 export const BLUMENAU_ZOOM = 12;
 
-/** Paleta premium — temperatura (fosco, sem neon). */
+/** Paleta viva — temperatura no mapa. */
 export const TEMP_COLOR: Record<ContactTemperature, string> = {
-  hot: '#E85D4C',
-  warm: '#D4A017',
-  cold: '#5B8DEF',
-  new: '#71717A',
+  hot: '#FF3B30',
+  warm: '#FF9500',
+  cold: '#007AFF',
+  new: '#8E8E93',
 };
 
 export const TEMP_ORDER: Record<ContactTemperature, number> = {
