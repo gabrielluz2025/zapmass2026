@@ -3263,6 +3263,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ? options.messageStages.map((s) => String(s || '').trim()).filter((s) => s.length > 0)
         : [message.trim()].filter((s) => s.length > 0);
 
+    const cleanRecipients = options?.recipients
+      ? options.recipients
+          .map((r) => ({ phone: r.phone.replace(/\D/g, ''), vars: r.vars || {} }))
+          .filter((r) => r.phone.length >= 10)
+      : undefined;
+
     const campaignPayload = {
       ownerUid: uid,
       name: campaignName || `Disparo ${new Date().toLocaleString()}`,
@@ -3347,12 +3353,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         socket.on('campaign-error', onError);
 
         // Emite com callback opcional (quando disponível no backend), mas sem depender dele.
-        const cleanRecipients = options?.recipients
-          ? options.recipients
-              .map(r => ({ phone: r.phone.replace(/\D/g, ''), vars: r.vars || {} }))
-              .filter(r => r.phone.length >= 10)
-          : undefined;
-
         socket.emit(
           'start-campaign',
           {
