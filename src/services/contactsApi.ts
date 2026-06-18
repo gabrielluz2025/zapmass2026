@@ -1,6 +1,9 @@
 import type { Contact, ContactList } from '../types';
 import { apiFetchJson } from '../utils/apiFetchAuth';
 
+/** Bases grandes (40k+) podem levar >30s por página — evita falso "sem conexão". */
+const CONTACTS_API_TIMEOUT_MS = 120_000;
+
 export async function fetchContacts(opts?: {
   limit?: number;
   offset?: number;
@@ -16,7 +19,7 @@ export async function fetchContacts(opts?: {
     contacts?: Contact[];
     total?: number;
     hasMore?: boolean;
-  }>(path);
+  }>(path, { timeoutMs: CONTACTS_API_TIMEOUT_MS });
   return {
     contacts: Array.isArray(j.contacts) ? j.contacts : [],
     total: j.total != null ? Number(j.total) : undefined,
@@ -25,7 +28,9 @@ export async function fetchContacts(opts?: {
 }
 
 export async function fetchContactsCount(): Promise<number> {
-  const j = await apiFetchJson<{ total?: number }>('/api/contacts/count');
+  const j = await apiFetchJson<{ total?: number }>('/api/contacts/count', {
+    timeoutMs: CONTACTS_API_TIMEOUT_MS
+  });
   return Number(j.total) || 0;
 }
 

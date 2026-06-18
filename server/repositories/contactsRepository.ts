@@ -29,6 +29,27 @@ export async function countContacts(tenantId: string): Promise<number> {
   return Number(r.rows[0]?.n || 0);
 }
 
+const countCache = new Map<string, { n: number; at: number }>();
+const COUNT_CACHE_TTL_MS = 45_000;
+
+export function invalidateContactsCountCache(tenantId?: string): void {
+  if (!tenantId) {
+    countCache.clear();
+    return;
+  }
+  countCache.delete(pgTenantId(tenantId));
+}
+
+/** COUNT(*) em 40k+ linhas é pesado — cache curto por tenant. */
+export async function countContactsCached(tenantId: string): Promise<number> {
+  const tid = pgTenantId(tenantId);
+  const hit = countCache.get(tid);
+  if (hit && Date.now() - hit.at < COUNT_CACHE_TTL_MS) return hit.n;
+  const n = await countContacts(tenantId);
+  countCache.set(tid, { n, at: Date.now() });
+  return n;
+}
+
 export async function listContacts(
   tenantId: string,
   opts: { limit?: number; offset?: number } = {}

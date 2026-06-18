@@ -244,20 +244,13 @@ function connectionListHasStaleConnecting(list: WhatsAppConnection[]): boolean {
   );
 }
 
-const CONTACTS_PAGE_SIZE = 800;
+const CONTACTS_PAGE_SIZE = 300;
 
-/** Postgres já retorna ORDER BY sort_name — só anexa sem reordenar (evita O(n log n) a cada página). */
+/** Postgres retorna páginas ordenadas — anexar sem varrer ids duplicados (O(n) por página em bases 40k+). */
 function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
   if (batch.length === 0) return prev;
-  const seen = new Set(prev.map((c) => c.id));
-  const out = prev.slice();
-  for (const c of batch) {
-    if (!seen.has(c.id)) {
-      out.push(c);
-      seen.add(c.id);
-    }
-  }
-  return out;
+  if (prev.length === 0) return batch;
+  return prev.concat(batch);
 }
 
 const ZapMassUiSnapshotContext = createContext<ZapMassUiSnapshot | null>(null);
@@ -832,7 +825,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const { contacts: batch, hasMore: more, total } = await fetchContacts({
         limit: CONTACTS_PAGE_SIZE,
         offset,
-        skipCount: offset > 0
+        skipCount: true
       });
       if (currentUidRef.current !== requestUid) return;
       if (batch.length === 0) {
@@ -841,17 +834,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       const nextOffset = offset + batch.length;
       contactsVpsOffsetRef.current = nextOffset;
-      setContactsHasMore(more);
+      const morePages = more ?? batch.length >= CONTACTS_PAGE_SIZE;
+      setContactsHasMore(morePages);
       if (total != null) setContactsSavedTotal(total);
       if (offset === 0) {
-        startTransition(() => setContacts(batch));
+        setContacts(batch);
       } else {
-        startTransition(() => {
-          setContacts((prev) => appendContactsPage(prev, batch));
-        });
+        setContacts((prev) => appendContactsPage(prev, batch));
       }
     } catch (err) {
       warnProd('[VPS] sync contacts:', (err as Error)?.message || err);
+      toast.error(
+        err instanceof Error ? err.message : 'Falha ao carregar contatos.',
+        { id: 'contacts-sync-error', duration: 6000 }
+      );
     } finally {
       if (currentUidRef.current === requestUid) setContactsLoadingMore(false);
       loadAllContactsInFlightRef.current = false;

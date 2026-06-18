@@ -7,6 +7,7 @@ import {
   bulkCreateContacts,
   bulkUpdateContacts,
   countContacts,
+  countContactsCached,
   createContact,
   deleteAllContacts,
   deleteContact,
@@ -33,6 +34,7 @@ import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicip
 import { resolveCitySearchLabel } from '../src/utils/ibgeCityLookup.js';
 import { runAddressNormalizationBatch } from './addressNormalizationJob.js';
 import { invalidateCrmContactIndexCache } from './crmContactIndexCache.js';
+import { invalidateContactsCountCache } from './repositories/contactsRepository.js';
 
 /** Consulta ViaCEP e retorna endereço canônico completo (cidade, estado, rua, bairro). */
 async function lookupViaCep(
@@ -142,7 +144,7 @@ export function registerContactsDataRoutes(app: Express): void {
     const contacts = await listContacts(ctx.tenantId, { limit, offset });
     const total = skipCount
       ? offset + contacts.length + (contacts.length >= limit ? limit : 0)
-      : await countContacts(ctx.tenantId);
+      : await countContactsCached(ctx.tenantId);
     const hasMore = skipCount
       ? contacts.length >= limit
       : offset + contacts.length < total;
@@ -157,7 +159,7 @@ export function registerContactsDataRoutes(app: Express): void {
   app.get('/api/contacts/count', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const total = await countContacts(ctx.tenantId);
+    const total = await countContactsCached(ctx.tenantId);
     return res.json({ ok: true, total });
   });
 
@@ -177,6 +179,8 @@ export function registerContactsDataRoutes(app: Express): void {
         console.warn('[api/contacts POST geocode]', geoErr);
       }
       invalidateCrmContactIndexCache(ctx.tenantId);
+    invalidateContactsCountCache(ctx.tenantId);
+      invalidateContactsCountCache(ctx.tenantId);
       return res.json({ ok: true, contact: created, id: created.id });
     } catch (e) {
       console.error('[api/contacts POST]', e);
@@ -219,6 +223,8 @@ export function registerContactsDataRoutes(app: Express): void {
         console.warn('[api/contacts/bulk] background normalize error:', e);
       });
       invalidateCrmContactIndexCache(ctx.tenantId);
+    invalidateContactsCountCache(ctx.tenantId);
+      invalidateContactsCountCache(ctx.tenantId);
       return res.json({ ok: true, ids, count: ids.length });
     } catch (e) {
       console.error('[api/contacts/bulk]', e);
@@ -296,6 +302,7 @@ export function registerContactsDataRoutes(app: Express): void {
       console.warn('[api/contacts PATCH geocode]', geoErr);
     }
     invalidateCrmContactIndexCache(ctx.tenantId);
+    invalidateContactsCountCache(ctx.tenantId);
     return res.json({ ok: true, contact: updated });
   });
 
@@ -337,6 +344,7 @@ export function registerContactsDataRoutes(app: Express): void {
     }
     await bulkUpdateContacts(ctx.tenantId, items);
     invalidateCrmContactIndexCache(ctx.tenantId);
+    invalidateContactsCountCache(ctx.tenantId);
     return res.json({ ok: true, count: items.length });
   });
 
@@ -347,6 +355,7 @@ export function registerContactsDataRoutes(app: Express): void {
     const ok = await deleteContact(ctx.tenantId, id);
     if (!ok) return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
     invalidateCrmContactIndexCache(ctx.tenantId);
+    invalidateContactsCountCache(ctx.tenantId);
     return res.json({ ok: true });
   });
 
@@ -433,6 +442,7 @@ export function registerContactsDataRoutes(app: Express): void {
     const contacts = await deleteAllContacts(ctx.tenantId);
     const lists = await deleteAllContactLists(ctx.tenantId);
     invalidateCrmContactIndexCache(ctx.tenantId);
+    invalidateContactsCountCache(ctx.tenantId);
     return res.json({ ok: true, contacts, contactLists: lists });
   });
 }

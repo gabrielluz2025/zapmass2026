@@ -68,6 +68,9 @@ const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT
 
 const DEFAULT_CHURCH_ROLES = ['Membro', 'Visitante', 'Lider', 'Diacono', 'Pastor', 'Musico', 'Obreiro', 'Professor'];
 
+/** Limite de auto-carga em RAM — bases 40k+ continuam utilizáveis sem travar o browser. */
+const MAX_AUTO_LOAD_CONTACTS = 8000;
+
 // Colunas do modelo de importacao (tambem usadas em todos os exports)
 const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: string; width: number }> = [
   { key: 'name', label: 'Nome', width: 28 },
@@ -845,6 +848,7 @@ export const ContactsTab: React.FC = () => {
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [currentPage, setCurrentPage] = useState(1);
   const [autoLoadActive, setAutoLoadActive] = useState(true);
+  const [autoLoadBudget, setAutoLoadBudget] = useState(MAX_AUTO_LOAD_CONTACTS);
   const [pageHidden, setPageHidden] = useState(
     () => typeof document !== 'undefined' && document.hidden
   );
@@ -856,16 +860,48 @@ export const ContactsTab: React.FC = () => {
   }, []);
 
   const shouldAutoLoadContacts =
-    autoLoadActive && currentView === 'contacts' && !pageHidden;
+    autoLoadActive &&
+    currentView === 'contacts' &&
+    !pageHidden &&
+    !(
+      contactsSavedTotal != null &&
+      contacts.length >= autoLoadBudget &&
+      contacts.length < contactsSavedTotal
+    );
+
+  const autoLoadDelayMs = useMemo(() => {
+    const total = contactsSavedTotal ?? contacts.length;
+    if (total > 30_000) return 2500;
+    if (total > 15_000) return 1800;
+    if (total > 8000) return 1200;
+    if (total > 3000) return 800;
+    return 500;
+  }, [contactsSavedTotal, contacts.length]);
+
+  useEffect(() => {
+    if (
+      contactsSavedTotal != null &&
+      contacts.length >= autoLoadBudget &&
+      contacts.length < contactsSavedTotal
+    ) {
+      setAutoLoadActive(false);
+    }
+  }, [contacts.length, contactsSavedTotal, autoLoadBudget]);
 
   // Auto-loader: uma página por vez; pausa fora da aba Contatos ou com aba do browser oculta.
   useEffect(() => {
     if (!shouldAutoLoadContacts || !contactsHasMore || contactsLoadingMore) return;
     const timer = window.setTimeout(() => {
       void loadAllContacts?.();
-    }, 400);
+    }, autoLoadDelayMs);
     return () => window.clearTimeout(timer);
-  }, [shouldAutoLoadContacts, contactsHasMore, contactsLoadingMore, loadAllContacts]);
+  }, [
+    shouldAutoLoadContacts,
+    contactsHasMore,
+    contactsLoadingMore,
+    loadAllContacts,
+    autoLoadDelayMs
+  ]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');
@@ -1669,7 +1705,7 @@ export const ContactsTab: React.FC = () => {
   const computeTempsGenRef = useRef(0);
 
   useEffect(() => {
-    if (contactsHasMore || contactsLoadingMore) {
+    if (contactsLoadingMore || contacts.length === 0) {
       setContactTempsReady(false);
       return;
     }
@@ -1683,15 +1719,13 @@ export const ContactsTab: React.FC = () => {
       if (gen !== computeTempsGenRef.current) return;
       const next = computeContactTemperatures(c, conv);
       if (gen !== computeTempsGenRef.current) return;
-      // Não usar startTransition: com 42k contatos e lista virtual em re-render
-      // constante, updates marcados como "transition" ficam indefinidamente adiados.
       setContactTemps(next);
       setContactTempsReady(true);
     };
 
     let idleId: ReturnType<typeof requestIdleCallback> | ReturnType<typeof setTimeout>;
     if (typeof requestIdleCallback !== 'undefined') {
-      idleId = requestIdleCallback(run, { timeout: 1500 });
+      idleId = requestIdleCallback(run, { timeout: 2000 });
     } else {
       idleId = setTimeout(run, 0);
     }
@@ -1703,7 +1737,7 @@ export const ContactsTab: React.FC = () => {
         clearTimeout(idleId as ReturnType<typeof setTimeout>);
       }
     };
-  }, [contacts, deferredConversations, contactsHasMore, contactsLoadingMore]);
+  }, [contacts, deferredConversations, contactsLoadingMore]);
 
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
@@ -3856,23 +3890,43 @@ export const ContactsTab: React.FC = () => {
           <>
           {contactsSavedTotal != null &&
             contacts.length < contactsSavedTotal &&
-            (contactsHasMore || contactsLoadingMore) && (
+            (contactsHasMore || contactsLoadingMore || contacts.length >= autoLoadBudget) && (
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/50 dark:border-amber-900/30">
                 <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
                   <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-[11px] text-amber-800 dark:text-amber-200/90 font-bold leading-tight">
                     {contactsLoadingMore
                       ? `Carregando contatos… ${contacts.length.toLocaleString('pt-BR')} de ${contactsSavedTotal.toLocaleString('pt-BR')}`
-                      : `Faltam ${(contactsSavedTotal - contacts.length).toLocaleString('pt-BR')} contatos para concluir o carregamento.`}
+                      : contacts.length >= autoLoadBudget
+                        ? `${contacts.length.toLocaleString('pt-BR')} de ${contactsSavedTotal.toLocaleString('pt-BR')} carregados — pausa automática para manter a interface fluida.`
+                        : `Faltam ${(contactsSavedTotal - contacts.length).toLocaleString('pt-BR')} contatos para concluir o carregamento.`}
                   </p>
                   <p className="text-[10px] text-amber-700/70 dark:text-amber-400/60 mt-0.5">
                     {contactsLoadingMore
                       ? 'Buscando o restante em segundo plano — a interface continua utilizável.'
-                      : 'O carregamento automático retomará em instantes.'}
+                      : contacts.length >= autoLoadBudget
+                        ? 'Campanhas e listas usam os contatos já carregados. Carregue mais sob demanda se precisar.'
+                        : 'O carregamento automático retomará em instantes.'}
                   </p>
                 </div>
+                {!contactsLoadingMore &&
+                  contacts.length >= autoLoadBudget &&
+                  contactsHasMore && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="shrink-0"
+                      onClick={() => {
+                        setAutoLoadBudget((b) => b + MAX_AUTO_LOAD_CONTACTS);
+                        setAutoLoadActive(true);
+                      }}
+                    >
+                      Carregar mais
+                    </Button>
+                  )}
               </div>
             )}
           {activeFilter === 'no_list' && (
