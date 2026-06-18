@@ -43,12 +43,12 @@ import {
   sumRegionTemps,
 } from './territory/buildNeighborhoodRows';
 import { matchesStateContact } from './territory/territoryMapUtils';
-import { buildContactPinsForNeighborhood } from './territory/buildContactPins';
+import { buildContactPinsForNeighborhood, buildContactPinsForScope, capMapContactPins } from './territory/buildContactPins';
 import {
   flyToContactPins,
   flyToNeighborhoodRows,
   paintContactPins,
-  paintTerritoryHeat,
+  paintNeighborhoodOverviewPins,
 } from './territory/territoryMapLayers';
 import type { MapContactPin, NeighborhoodContactRow, NeighborhoodRow, RegionScope, TempFilter } from './territory/types';
 
@@ -85,6 +85,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [selectedRow, setSelectedRow] = useState<NeighborhoodRow | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [nbGeo, setNbGeo] = useState<LeadsGeoSummary | null>(null);
+  const [scopeGeo, setScopeGeo] = useState<LeadsGeoSummary | null>(null);
   const [nbGeoLoading, setNbGeoLoading] = useState(false);
   const [mapActive, setMapActive] = useState(!deferLoad);
   const [cityOfficialList, setCityOfficialList] = useState<string[] | null>(null);
@@ -264,9 +265,48 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const contactPins = contactPinsResult.pins;
   const unmappedCount = contactPinsResult.unmapped;
 
+  const scopeContactRows = useMemo((): NeighborhoodContactRow[] => {
+    return scopeContacts.map((c) => ({
+      id: c.id,
+      name: c.name || 'Sem nome',
+      phone: c.phone || '',
+      neighborhood: c.neighborhood || '',
+      zipCode: c.zipCode || '',
+      street: c.street || '',
+      number: c.number || '',
+      city: c.city || '',
+      state: c.state || '',
+      temp: tempsByContact[c.id]?.temp || 'new',
+      latitude: c.latitude,
+      longitude: c.longitude,
+      geocodePrecision: c.geocodePrecision,
+    }));
+  }, [scopeContacts, tempsByContact]);
+
+  const allScopePinsResult = useMemo(() => {
+    if (!mapActive) return { pins: [], unmapped: 0 };
+    const cityName = cityNameOnly || city;
+    const built = buildContactPinsForScope({
+      contacts: scopeContactRows,
+      apiPins: scopeGeo?.contactPins || [],
+      filterCity: cityName,
+      filterState: stateCode,
+      tempFilter,
+    });
+    return {
+      pins: capMapContactPins(built.pins),
+      unmapped: built.unmapped,
+    };
+  }, [mapActive, scopeContactRows, scopeGeo?.contactPins, city, cityNameOnly, stateCode, tempFilter]);
+
+  const allScopePins = allScopePinsResult.pins;
+  const allScopeUnmapped = allScopePinsResult.unmapped;
+
+  const activePins = selectedRow ? contactPins : allScopePins;
+
   const selectedContact = useMemo(
-    () => contactPins.find((p) => p.id === selectedContactId) ?? null,
-    [contactPins, selectedContactId]
+    () => activePins.find((p) => p.id === selectedContactId) ?? null,
+    [activePins, selectedContactId]
   );
 
   const clearDataLayers = useCallback(() => {
@@ -320,11 +360,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const handleSelectContact = useCallback((contactId: string) => {
     setSelectedContactId(contactId);
     const map = mapRef.current;
-    const pin = contactPins.find((p) => p.id === contactId);
+    const pin = activePins.find((p) => p.id === contactId);
     if (map && pin) {
       map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
     }
-  }, [contactPins]);
+  }, [activePins]);
 
   useEffect(() => {
     if (!mapActive || !containerRef.current || mapRef.current) return;
@@ -416,7 +456,33 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedRow?.key, city, mapActive]);
+  }, [selectedRow?.key, city, mapActive, scope, stateCode, cityNameOnly]);
+
+  useEffect(() => {
+    if (!mapActive || selectedRow) {
+      setScopeGeo(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetchLeadsGeoSummary({
+        layer: 'neighborhood',
+        city: scope === 'city' ? city : undefined,
+        state: scope === 'state' && stateCode ? stateCode : undefined,
+        light: false,
+      })
+        .then((data) => {
+          if (!cancelled) setScopeGeo(data);
+        })
+        .catch(() => {
+          if (!cancelled) setScopeGeo(null);
+        });
+    }, 1200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [mapActive, selectedRow, city, scope, stateCode, tempFilter]);
 
   const paintMap = useCallback(() => {
     const map = mapRef.current;
@@ -454,13 +520,33 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       })
       .filter(Boolean) as NeighborhoodRow[];
 
-    layersRef.current = paintTerritoryHeat(map, normalized, (row) => handleSelectRow(row));
+    if (allScopePins.length > 0) {
+      layersRef.current = paintContactPins(map, allScopePins, selectedContactId, (pin) => {
+        setSelectedContactId(pin.id);
+        map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
+      });
 
-    const vpKey = `${city}|${scope}|${tempFilter}|${normalized.length}`;
+      const vpKey = `all|${city}|${scope}|${tempFilter}|${allScopePins.length}|${selectedContactId}`;
+      if (vpKey !== lastViewportKeyRef.current) {
+        lastViewportKeyRef.current = vpKey;
+        flyToContactPins(map, allScopePins);
+      }
+      return;
+    }
+
+    const rowsWithLeads = normalized.filter((r) => r.count > 0);
+    layersRef.current = paintNeighborhoodOverviewPins(
+      map,
+      rowsWithLeads,
+      null,
+      (row) => handleSelectRow(row)
+    );
+
+    const vpKey = `nbpins|${city}|${scope}|${tempFilter}|${rowsWithLeads.length}`;
     if (vpKey !== lastViewportKeyRef.current) {
       lastViewportKeyRef.current = vpKey;
-      if (normalized.length > 0) {
-        flyToNeighborhoodRows(map, normalized);
+      if (rowsWithLeads.length > 0) {
+        flyToNeighborhoodRows(map, rowsWithLeads);
       } else if (summary?.mapViewport) {
         map.setView([summary.mapViewport.lat, summary.mapViewport.lng], summary.mapViewport.zoom, {
           animate: true,
@@ -473,12 +559,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     visibleRows,
     selectedRow,
     contactPins,
+    allScopePins,
     selectedContactId,
     city,
     scope,
     tempFilter,
     summary,
     blumenauFocus,
+    showAllNeighborhoods,
     clearDataLayers,
   ]);
 
@@ -618,7 +706,13 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               {nbGeoLoading && ' · carregando…'}
             </div>
           ) : (
-            <div className="zm-atlas__map-badge">Clique num bairro para ver contatos</div>
+            <div className="zm-atlas__map-badge">
+              {allScopePins.length > 0
+                ? `${allScopePins.length.toLocaleString('pt-BR')} contatos no mapa${
+                    allScopeUnmapped > 0 ? ` · ${allScopeUnmapped} sem coordenada` : ''
+                  }`
+                : 'Bonequinhos por bairro — clique para ver contatos'}
+            </div>
           )}
           {selectedContact && (
             <TerritoryContactCard contact={selectedContact} onClose={() => setSelectedContactId(null)} />

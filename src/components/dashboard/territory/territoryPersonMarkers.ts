@@ -1,7 +1,7 @@
 import L from 'leaflet';
 import { CONTACT_TEMP_LABEL } from '../../../utils/contactTemperature';
 import { TEMP_COLOR } from './territoryConstants';
-import type { MapContactPin } from './types';
+import type { MapContactPin, NeighborhoodRow } from './types';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -225,6 +225,62 @@ export function paintContactPins(
     });
 
     marker.on('click', () => onSelect(pin));
+    marker.addTo(map);
+    layers.push(marker);
+  }
+
+  return layers;
+}
+
+/** Visão geral — um bonequinho por bairro (cor = temperatura dominante). */
+export function paintNeighborhoodOverviewPins(
+  map: L.Map,
+  rows: NeighborhoodRow[],
+  selectedKey: string | null,
+  onSelect: (row: NeighborhoodRow) => void
+): L.Layer[] {
+  const layers: L.Layer[] = [];
+
+  for (const row of rows) {
+    if (row.lat == null || row.lng == null || row.count < 1) continue;
+
+    const pin: MapContactPin = {
+      id: row.key,
+      name: row.label,
+      phone: '',
+      neighborhood: row.label,
+      street: '',
+      number: '',
+      zipCode: '',
+      city: '',
+      state: '',
+      temp: row.dominant,
+      lat: row.lat,
+      lng: row.lng,
+      approximate: true,
+      coordVerified: false,
+    };
+
+    const selected = selectedKey === row.key;
+    const marker = L.marker([row.lat, row.lng], {
+      icon: personPinIcon(pin, selected),
+      zIndexOffset: selected ? 500 : 100,
+    });
+
+    const tip = `<div class="zm-atlas-tip zm-atlas-tip--pin">
+      <strong>${escapeHtml(row.label)}</strong>
+      <span>${row.count.toLocaleString('pt-BR')} contatos — ${escapeHtml(CONTACT_TEMP_LABEL[row.dominant])}</span>
+      <span>Clique para ver cada contato</span>
+    </div>`;
+
+    marker.bindTooltip(tip, {
+      className: 'zm-atlas-tip-pane',
+      direction: 'top',
+      offset: [0, -PIN_H + 6],
+      opacity: 1,
+    });
+
+    marker.on('click', () => onSelect(row));
     marker.addTo(map);
     layers.push(marker);
   }
