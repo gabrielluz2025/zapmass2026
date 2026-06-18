@@ -211,6 +211,7 @@ async function processOneCampaign(
           recipients?: Array<{ phone: string; vars: Record<string, string> }>;
           replyFlow?: { enabled?: boolean; steps?: unknown[] };
           channelWeights?: Record<string, number>;
+          skipFrequencyCap?: boolean;
         }
       | undefined;
 
@@ -283,7 +284,9 @@ async function processOneCampaign(
         scheduledWeights,
         undefined,
         undefined,
-        Number.isFinite(delaySeconds) && delaySeconds > 0 ? delaySeconds : undefined
+        Number.isFinite(delaySeconds) && delaySeconds > 0 ? delaySeconds : undefined,
+        undefined,
+        snap?.skipFrequencyCap === true
       );
       if (!started) {
         console.warn('[ScheduledCampaign] startCampaign não iniciou (canais indisponíveis ou fila vazia). Reagendando.');

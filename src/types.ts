@@ -95,6 +95,8 @@ export interface CampaignScheduleStartSnapshot {
   delaySeconds?: number;
   recipients?: Array<{ phone: string; vars: Record<string, string> }>;
   replyFlow?: CampaignReplyFlow;
+  /** Usuário confirmou envio mesmo com contatos no limite de 24 h. */
+  skipFrequencyCap?: boolean;
 }
 
 export interface CampaignLog {
@@ -675,6 +677,8 @@ export interface ZapMassContextType {
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      /** Ignora limite de 24 h — só após confirmação explícita na triagem. */
+      skipFrequencyCap?: boolean;
     }
   ) => Promise<string>;
   /** Grava campanha como agendada (sem socket); o servidor dispara no horário. */
@@ -698,6 +702,7 @@ export interface ZapMassContextType {
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      skipFrequencyCap?: boolean;
     }
   ) => Promise<string>;
   funnelStats: FunnelStats;

@@ -2066,29 +2066,71 @@ function freqCapRedisKey(ownerUid: string, phoneKey: string): string {
     return `zapmass:freqcap:${ownerUid}:${phoneKey}`;
 }
 
-async function checkFrequencyCap(ownerUid: string | undefined, phone: string): Promise<boolean> {
-    if (!ownerUid) return false; // sem owner = sem limitação
+async function getFrequencyCapInfo(
+    ownerUid: string | undefined,
+    phone: string
+): Promise<{ capped: boolean; lastSentAt?: number }> {
+    if (!ownerUid) return { capped: false };
     const key = phone.replace(/\D/g, '').slice(-11);
+    if (key.length < 8) return { capped: false };
 
-    // 1. Cache em memória (rápido).
     const cap = getFrequencyCap(ownerUid);
-    const last = cap.get(key);
-    if (last && (Date.now() - last) < FREQUENCY_CAP_MS) return true;
+    const lastMem = cap.get(key);
+    if (lastMem && Date.now() - lastMem < FREQUENCY_CAP_MS) {
+        return { capped: true, lastSentAt: lastMem };
+    }
 
-    // 2. Redis (persistente entre restarts).
     try {
         const redis = getRedisConnection();
         if (redis && redis.status === 'ready') {
-            const exists = await redis.exists(freqCapRedisKey(ownerUid, key));
-            if (exists) {
-                cap.set(key, Date.now()); // reidrata o cache
-                return true;
+            const raw = await redis.get(freqCapRedisKey(ownerUid, key));
+            if (raw) {
+                const ts = Number(raw);
+                if (Number.isFinite(ts) && Date.now() - ts < FREQUENCY_CAP_MS) {
+                    cap.set(key, ts);
+                    return { capped: true, lastSentAt: ts };
+                }
             }
         }
     } catch {
         // Redis indisponível — usa só o resultado em memória (já avaliado acima).
     }
-    return false;
+    return { capped: false };
+}
+
+async function checkFrequencyCap(ownerUid: string | undefined, phone: string): Promise<boolean> {
+    const info = await getFrequencyCapInfo(ownerUid, phone);
+    return info.capped;
+}
+
+export type FrequencyCapContactResult = {
+    phone: string;
+    phoneKey: string;
+    capped: boolean;
+    lastSentAt?: string;
+};
+
+/** Pré-voo: quais contatos já receberam mensagem nas últimas 24 h. */
+export async function checkFrequencyCapForPhones(
+    ownerUid: string | undefined,
+    phones: string[]
+): Promise<FrequencyCapContactResult[]> {
+    const seen = new Set<string>();
+    const results: FrequencyCapContactResult[] = [];
+    for (const phone of phones) {
+        const digits = String(phone || '').replace(/\D/g, '');
+        const phoneKey = digits.slice(-11);
+        if (phoneKey.length < 8 || seen.has(phoneKey)) continue;
+        seen.add(phoneKey);
+        const info = await getFrequencyCapInfo(ownerUid, digits);
+        results.push({
+            phone: digits,
+            phoneKey,
+            capped: info.capped,
+            ...(info.lastSentAt ? { lastSentAt: new Date(info.lastSentAt).toISOString() } : {}),
+        });
+    }
+    return results;
 }
 
 async function recordFrequencyCap(ownerUid: string | undefined, phone: string): Promise<void> {
@@ -3547,7 +3589,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
             campaignState?.ownerUid
         );
         bumpQueueSize(item.connectionId, -1);
-        await accountCampaignJobOnce(job, item, true); // conta como "ok" (não como falha)
+        await accountCampaignJobOnce(job, item, false);
         return;
     }
     // ──────────────────────────────────────────────────────────────────────────
@@ -4182,7 +4224,8 @@ export async function startCampaign(
     media?: CampaignMediaPayload,
     followUpMedia?: CampaignMediaPayload,
     delaySeconds?: number,
-    stageConfigs?: CampaignStageConfig[]
+    stageConfigs?: CampaignStageConfig[],
+    skipFrequencyCap?: boolean
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
@@ -4314,6 +4357,7 @@ export async function startCampaign(
                         stageIndex: 0,
                         sendAsMedia: hasMedia,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
+                        skipFrequencyCap: skipFrequencyCap === true,
                     },
                     staggerDelay
                 );
@@ -4327,6 +4371,7 @@ export async function startCampaign(
                         campaignId: cid,
                         ownerUid,
                         sendAsMedia: hasMedia,
+                        skipFrequencyCap: skipFrequencyCap === true,
                         replyFlowOpen: {
                             campaignId: cid,
                             phoneDigits: cleanPhone,
@@ -4351,6 +4396,7 @@ export async function startCampaign(
                             ownerUid,
                             stageIndex,
                             sendAsMedia: hasMedia && stageIndex === 0,
+                            skipFrequencyCap: skipFrequencyCap === true,
                         },
                         stageDelay
                     );

@@ -312,6 +312,29 @@ export async function apiPreflightCheck(connectionIds: string[]): Promise<Prefli
   return j;
 }
 
+export type FrequencyCapContactResult = {
+  phone: string;
+  phoneKey: string;
+  capped: boolean;
+  lastSentAt?: string;
+};
+
+export type FrequencyCapCheckResult = {
+  ok: boolean;
+  total: number;
+  cappedCount: number;
+  readyCount: number;
+  contacts: FrequencyCapContactResult[];
+};
+
+/** Verifica quais contatos já receberam mensagem nas últimas 24 h. */
+export async function apiFrequencyCapCheck(phones: string[]): Promise<FrequencyCapCheckResult> {
+  return apiFetchJson<FrequencyCapCheckResult>('/api/campaigns/frequency-cap-check', {
+    method: 'POST',
+    body: JSON.stringify({ phones })
+  });
+}
+
 export type TestSendResult = {
   ok: boolean;
   messageId?: string;

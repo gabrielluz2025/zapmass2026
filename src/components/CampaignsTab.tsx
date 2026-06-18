@@ -94,6 +94,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     stageConfigs?: CampaignStageConfig[];
     mediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
     followUpMediaAttachment?: { dataBase64: string; mimeType: string; fileName: string; sendMediaAsDocument?: boolean };
+    skipFrequencyCap?: boolean;
   }>(null);
   const [previewConfirmLoading, setPreviewConfirmLoading] = useState(false);
 
@@ -251,6 +252,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
       fileName: string;
       sendMediaAsDocument?: boolean;
     };
+    skipFrequencyCap?: boolean;
   }) => {
     if (payload.connectedIds.length === 0) {
       toast.error('Selecione pelo menos um chip conectado para disparar.');
@@ -277,7 +279,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 recipients: payload.recipients,
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,
-                channelWeights: payload.channelWeights
+                channelWeights: payload.channelWeights,
+                skipFrequencyCap: payload.skipFrequencyCap
               }
             )
           : await startCampaign(
@@ -295,7 +298,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                 channelWeights: payload.channelWeights,
                 stageConfigs: payload.stageConfigs,
                 mediaAttachment: payload.mediaAttachment,
-                followUpMediaAttachment: payload.followUpMediaAttachment
+                followUpMediaAttachment: payload.followUpMediaAttachment,
+                skipFrequencyCap: payload.skipFrequencyCap
               }
             );
       appendAudit({
@@ -333,11 +337,14 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     setPreviewPayload(payload);
   };
 
-  const handlePreviewConfirm = async () => {
+  const handlePreviewConfirm = async (opts?: { skipFrequencyCap?: boolean }) => {
     if (!previewPayload) return;
     setPreviewConfirmLoading(true);
     try {
-      await executeSubmitCampaign(previewPayload);
+      await executeSubmitCampaign({
+        ...previewPayload,
+        skipFrequencyCap: opts?.skipFrequencyCap === true
+      });
       setPreviewPayload(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
@@ -498,7 +505,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
         <CampaignPreviewModal
           isOpen={true}
           onClose={() => setPreviewPayload(null)}
-          onConfirm={() => void handlePreviewConfirm()}
+          onConfirm={(opts) => void handlePreviewConfirm(opts)}
           campaignName={previewPayload.name}
           message={previewPayload.message}
           messageStages={previewPayload.messageStages}
@@ -506,7 +513,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
           contactCount={previewPayload.numbers.length}
           delaySeconds={previewPayload.delaySeconds}
           launchMode={previewPayload.launchMode ?? 'now'}
-          sampleRecipients={previewPayload.recipients.slice(0, 3).map((r) => ({
+          allRecipients={previewPayload.recipients.map((r) => ({
             phone: r.phone,
             vars: r.vars,
             name: r.vars['nome_completo'] || r.vars['nome'] || r.phone,

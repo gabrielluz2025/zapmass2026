@@ -1409,7 +1409,8 @@ const registerSocketHandlers = () => {
           channelWeights,
           mediaAttachment,
           followUpMediaAttachment,
-          stageConfigs
+          stageConfigs,
+          skipFrequencyCap
         }: {
           numbers?: string[];
           message?: string;
@@ -1449,6 +1450,7 @@ const registerSocketHandlers = () => {
             next_step_on_match?: number;
             next_step_on_no_match?: number;
           }>;
+          skipFrequencyCap?: boolean;
         },
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
@@ -1579,7 +1581,8 @@ const registerSocketHandlers = () => {
                 : undefined,
               Array.isArray(stageConfigs) && stageConfigs.length > 0
                 ? (stageConfigs as import('../src/types.js').CampaignStageConfig[])
-                : undefined
+                : undefined,
+              skipFrequencyCap === true
             );
             if (!ok) {
               const errMsg =

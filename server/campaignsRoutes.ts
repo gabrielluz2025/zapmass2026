@@ -392,6 +392,37 @@ export function registerCampaignsDataRoutes(app: Express): void {
   });
 
   /**
+   * POST /api/campaigns/frequency-cap-check
+   * Verifica quais contatos já receberam mensagem nas últimas 24 h (pré-disparo).
+   */
+  app.post('/api/campaigns/frequency-cap-check', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = req.body as { phones?: string[] };
+    const phones: string[] = Array.isArray(body.phones) ? body.phones.map((p) => String(p || '')) : [];
+    if (phones.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Informe ao menos um telefone.' });
+    }
+    if (phones.length > 50_000) {
+      return res.status(400).json({ ok: false, error: 'Limite de 50.000 contatos por verificação.' });
+    }
+    try {
+      const contacts = await evolutionService.checkFrequencyCapForPhones(ctx.tenantId, phones);
+      const cappedCount = contacts.filter((c) => c.capped).length;
+      return res.json({
+        ok: true,
+        total: contacts.length,
+        cappedCount,
+        readyCount: contacts.length - cappedCount,
+        contacts,
+      });
+    } catch (e) {
+      console.error('[api/campaigns/frequency-cap-check]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao verificar limite de frequência.' });
+    }
+  });
+
+  /**
    * POST /api/campaigns/test-send
    * Envia uma mensagem-teste para um único número sem criar campanha.
    * Útil para validar que o chip está conectado e enviando antes do disparo em massa.

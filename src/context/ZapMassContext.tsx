@@ -3210,6 +3210,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         fileName: string;
         sendMediaAsDocument?: boolean;
       };
+      skipFrequencyCap?: boolean;
     }
   ) => {
     const uid = currentUidRef.current;
@@ -3298,7 +3299,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }
-          : {})
+          : {}),
+        ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
       }
     };
 
@@ -3367,7 +3369,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             channelWeights: options?.channelWeights,
             stageConfigs: options?.stageConfigs,
             mediaAttachment: options?.mediaAttachment,
-            followUpMediaAttachment: options?.followUpMediaAttachment
+            followUpMediaAttachment: options?.followUpMediaAttachment,
+            skipFrequencyCap: options?.skipFrequencyCap === true
           },
           (result?: { ok?: boolean; error?: string }) => {
             if (result?.ok === true) {
@@ -3449,6 +3452,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
       channelWeights?: Record<string, number>;
+      skipFrequencyCap?: boolean;
     }
   ) => {
     const uid = currentUidRef.current;
@@ -3541,7 +3545,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
         ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
           ? { channelWeights: options.channelWeights }
-          : {})
+          : {}),
+        ...(options?.skipFrequencyCap ? { skipFrequencyCap: true } : {})
       }
     };
     const campaignId = await apiCreateCampaign(schedulePayload);

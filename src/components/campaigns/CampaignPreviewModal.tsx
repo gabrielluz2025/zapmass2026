@@ -26,7 +26,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { campaignClockVars } from '../../utils/campaignClockVars';
-import { apiPreflightCheck, fetchRedisHealth } from '../../services/campaignsApi';
+import { apiPreflightCheck, apiFrequencyCapCheck, fetchRedisHealth } from '../../services/campaignsApi';
 import { DispatchFixPanel } from './DispatchFixPanel';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -66,6 +66,16 @@ function estimateDuration(contacts: number, delay: number, stages: number): stri
   return `~${(totalSeconds / 3600).toFixed(1)}h`;
 }
 
+function formatRelativeHours(iso?: string): string {
+  if (!iso) return '';
+  const diffMs = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(diffMs) || diffMs < 0) return '';
+  const hours = Math.floor(diffMs / 3_600_000);
+  if (hours < 1) return 'há menos de 1 h';
+  if (hours < 24) return `há ${hours} h`;
+  return `há ${Math.floor(hours / 24)} dia(s)`;
+}
+
 // ── tipos ────────────────────────────────────────────────────────────────────
 
 interface SampleRecipient {
@@ -77,7 +87,7 @@ interface SampleRecipient {
 interface CampaignPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: (opts?: { skipFrequencyCap?: boolean }) => void;
   campaignName: string;
   message: string;
   messageStages?: string[];
@@ -85,7 +95,7 @@ interface CampaignPreviewModalProps {
   contactCount: number;
   delaySeconds: number;
   launchMode?: 'now' | 'schedule';
-  sampleRecipients: SampleRecipient[];
+  allRecipients: SampleRecipient[];
   isLoading?: boolean;
   selectedConnectionIds?: string[];
 }
@@ -97,6 +107,14 @@ interface ChipResult {
   status: string;
   isReady: boolean;
   error: string | null;
+}
+
+interface TriagedContact {
+  phone: string;
+  name: string;
+  vars: Record<string, string>;
+  capped: boolean;
+  lastSentAt?: string;
 }
 
 // ── componente ───────────────────────────────────────────────────────────────
@@ -112,7 +130,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   contactCount,
   delaySeconds,
   launchMode = 'now',
-  sampleRecipients,
+  allRecipients,
   isLoading = false,
   selectedConnectionIds = [],
 }) => {
@@ -121,21 +139,64 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const [chipResults, setChipResults] = useState<ChipResult[]>([]);
   const [showChipDetails, setShowChipDetails] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [freqCapStatus, setFreqCapStatus] = useState<HealthStatus>('idle');
+  const [triagedContacts, setTriagedContacts] = useState<TriagedContact[]>([]);
+  const [cappedCount, setCappedCount] = useState(0);
+  const [confirmRepeatSend, setConfirmRepeatSend] = useState(false);
+  const [showAllContacts, setShowAllContacts] = useState(false);
 
   const allMessages = useMemo(() => {
     return [message, ...messageStages].filter(Boolean);
   }, [message, messageStages]);
 
-  const samples = useMemo(() => {
-    return sampleRecipients.slice(0, 3).map((r) => ({
+  const previewSamples = useMemo(() => {
+    return allRecipients.slice(0, 3).map((r) => ({
       ...r,
       preview: allMessages.map((tmpl) => renderMessage(tmpl, r.vars)),
     }));
-  }, [sampleRecipients, allMessages]);
+  }, [allRecipients, allMessages]);
 
-  const hasUnresolved = samples.some((s) =>
+  const hasUnresolved = previewSamples.some((s) =>
     s.preview.some((p) => p.includes('{{') && p.includes('}}'))
   );
+
+  const runFrequencyCapCheck = useCallback(async () => {
+    setFreqCapStatus('checking');
+    setConfirmRepeatSend(false);
+    try {
+      const phones = allRecipients.map((r) => r.phone.replace(/\D/g, '')).filter((p) => p.length >= 10);
+      const res = await apiFrequencyCapCheck(phones);
+      const cappedByPhone = new Map(
+        res.contacts.map((c) => [c.phoneKey, { capped: c.capped, lastSentAt: c.lastSentAt }])
+      );
+      const triaged: TriagedContact[] = allRecipients.map((r) => {
+        const digits = r.phone.replace(/\D/g, '');
+        const key = digits.slice(-11);
+        const cap = cappedByPhone.get(key);
+        return {
+          phone: digits,
+          name: r.name || r.phone,
+          vars: r.vars,
+          capped: cap?.capped ?? false,
+          lastSentAt: cap?.lastSentAt,
+        };
+      });
+      setTriagedContacts(triaged);
+      setCappedCount(res.cappedCount);
+      setFreqCapStatus('ok');
+    } catch {
+      setTriagedContacts(
+        allRecipients.map((r) => ({
+          phone: r.phone.replace(/\D/g, ''),
+          name: r.name || r.phone,
+          vars: r.vars,
+          capped: false,
+        }))
+      );
+      setCappedCount(0);
+      setFreqCapStatus('error');
+    }
+  }, [allRecipients]);
 
   const runHealthCheck = useCallback(async () => {
     // 1. Verificar Redis
@@ -181,13 +242,23 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       runHealthCheck();
+      void runFrequencyCapCheck();
     } else {
       setRedisStatus('idle');
       setChipStatus('idle');
       setChipResults([]);
       setShowChipDetails(false);
+      setFreqCapStatus('idle');
+      setTriagedContacts([]);
+      setCappedCount(0);
+      setConfirmRepeatSend(false);
+      setShowAllContacts(false);
     }
-  }, [isOpen, runHealthCheck]);
+  }, [isOpen, runHealthCheck, runFrequencyCapCheck]);
+
+  const triageComplete = freqCapStatus === 'ok' || freqCapStatus === 'error';
+  const needsRepeatConfirm = cappedCount > 0 && freqCapStatus === 'ok';
+  const repeatConfirmed = !needsRepeatConfirm || confirmRepeatSend;
 
   // Redis error é bloqueador imediato — não espera chips terminarem de verificar.
   const overallHealth: HealthStatus =
@@ -195,13 +266,15 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       ? 'error'
       : chipStatus === 'error'
       ? 'error'
-      : redisStatus === 'checking' || chipStatus === 'checking'
+      : freqCapStatus === 'error'
+      ? 'warn'
+      : redisStatus === 'checking' || chipStatus === 'checking' || freqCapStatus === 'checking'
       ? 'checking'
-      : redisStatus === 'ok' && chipStatus === 'ok'
+      : redisStatus === 'ok' && chipStatus === 'ok' && triageComplete
       ? 'ok'
       : 'idle';
 
-  const canDispatch = overallHealth === 'ok';
+  const canDispatch = overallHealth === 'ok' && repeatConfirmed;
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
@@ -290,7 +363,10 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
               </span>
             </div>
             <button
-              onClick={runHealthCheck}
+              onClick={() => {
+                runHealthCheck();
+                void runFrequencyCapCheck();
+              }}
               className="flex items-center gap-1.5 text-[11px] rounded-lg px-2 py-1"
               style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
               disabled={overallHealth === 'checking'}
@@ -379,14 +455,121 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
           )}
         </div>
 
+        {/* ── TRIAGEM DE CONTATOS (limite 24 h) ─────────────────────────── */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ border: '1px solid var(--border-subtle)' }}
+        >
+          <div
+            className="px-4 py-3 flex items-center justify-between gap-2"
+            style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {freqCapStatus === 'checking' && <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: 'var(--text-3)' }} />}
+              {freqCapStatus === 'ok' && cappedCount === 0 && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />}
+              {freqCapStatus === 'ok' && cappedCount > 0 && <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />}
+              {freqCapStatus === 'error' && <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />}
+              <span className="text-[12px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
+                {freqCapStatus === 'checking'
+                  ? 'Verificando contatos (limite 24 h)…'
+                  : freqCapStatus === 'error'
+                  ? 'Não foi possível verificar o limite de 24 h'
+                  : cappedCount > 0
+                  ? `${cappedCount} contato${cappedCount !== 1 ? 's' : ''} já recebeu mensagem hoje`
+                  : `Todos os ${contactCount} contatos liberados`}
+              </span>
+            </div>
+            {triagedContacts.length > 6 && (
+              <button
+                type="button"
+                onClick={() => setShowAllContacts((v) => !v)}
+                className="text-[10px] font-bold shrink-0 rounded-lg px-2 py-1"
+                style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
+              >
+                {showAllContacts ? 'Recolher' : `Ver todos (${triagedContacts.length})`}
+              </button>
+            )}
+          </div>
+
+          <div className="px-4 py-3 space-y-1.5 max-h-56 overflow-y-auto">
+            {freqCapStatus === 'checking' && triagedContacts.length === 0 && (
+              <div className="text-[11px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
+                Carregando lista de contatos…
+              </div>
+            )}
+            {(showAllContacts ? triagedContacts : triagedContacts.slice(0, 6)).map((c, idx) => (
+              <div
+                key={`${c.phone}-${idx}`}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                style={{
+                  background: c.capped ? '#f59e0b08' : '#10b98108',
+                  border: `1px solid ${c.capped ? '#f59e0b25' : '#10b98120'}`,
+                }}
+              >
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shrink-0"
+                  style={{ background: `hsl(${(idx * 137) % 360},60%,50%)` }}
+                >
+                  {c.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                    {c.name}
+                  </div>
+                  <div className="text-[10px] font-mono truncate" style={{ color: 'var(--text-3)' }}>
+                    {c.phone}
+                    {c.capped && c.lastSentAt ? ` · ${formatRelativeHours(c.lastSentAt)}` : ''}
+                  </div>
+                </div>
+                <span
+                  className="text-[9px] font-bold rounded-full px-2 py-0.5 shrink-0"
+                  style={{
+                    background: c.capped ? '#f59e0b' : '#10b981',
+                    color: '#fff',
+                  }}
+                >
+                  {c.capped ? '24 h' : 'OK'}
+                </span>
+              </div>
+            ))}
+            {!showAllContacts && triagedContacts.length > 6 && (
+              <p className="text-[10px] text-center pt-1" style={{ color: 'var(--text-3)' }}>
+                + {triagedContacts.length - 6} contato(s) oculto(s)
+              </p>
+            )}
+          </div>
+
+          {needsRepeatConfirm && (
+            <div
+              className="mx-4 mb-3 rounded-xl px-3 py-2.5 flex items-start gap-2"
+              style={{ background: '#f59e0b12', border: '1px solid #f59e0b35' }}
+            >
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={confirmRepeatSend}
+                  onChange={(e) => setConfirmRepeatSend(e.target.checked)}
+                />
+                <span className="text-[12px] leading-snug" style={{ color: 'var(--text-2)' }}>
+                  Confirmo que desejo enviar mesmo assim para{' '}
+                  <strong>{cappedCount} contato{cappedCount !== 1 ? 's' : ''}</strong> que já
+                  recebeu mensagem nas últimas 24 horas.
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
+
         {/* ── PREVIEW DAS MENSAGENS ─────────────────────────────────────── */}
-        {samples.length > 0 && (
+        {previewSamples.length > 0 && (
           <div>
             <p className="text-[11px] font-bold mb-2 uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-              Amostra — {samples.length} contato{samples.length !== 1 ? 's' : ''}
+              Amostra — {previewSamples.length} contato{previewSamples.length !== 1 ? 's' : ''}
             </p>
             <div className="space-y-2">
-              {samples.map((s, idx) => {
+              {previewSamples.map((s, idx) => {
                 const isExpanded = expanded === idx;
                 return (
                   <div
@@ -494,10 +677,20 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                 Corrija os problemas acima
               </span>
             )}
+            {overallHealth === 'ok' && needsRepeatConfirm && !confirmRepeatSend && (
+              <span className="text-[11px] text-amber-500 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Marque a confirmação acima
+              </span>
+            )}
             <Button
               variant="primary"
               size="sm"
-              onClick={onConfirm}
+              onClick={() =>
+                onConfirm({
+                  skipFrequencyCap: needsRepeatConfirm && confirmRepeatSend,
+                })
+              }
               loading={isLoading}
               leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
               disabled={!canDispatch}
