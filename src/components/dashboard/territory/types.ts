@@ -27,5 +27,19 @@ export type NeighborhoodContactRow = {
   zipCode: string;
   street: string;
   number: string;
+  city?: string;
+  state?: string;
   temp: ContactTemperature;
+  latitude?: number;
+  longitude?: number;
+  geocodePrecision?: 'street' | 'cep' | 'neighborhood' | 'city';
+  lat?: number;
+  lng?: number;
+  approximate?: boolean;
+};
+
+export type MapContactPin = NeighborhoodContactRow & {
+  lat: number;
+  lng: number;
+  approximate: boolean;
 };

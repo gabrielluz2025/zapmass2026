@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { CONTACT_TEMP_LABEL } from '../../../utils/contactTemperature';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
 import { TEMP_COLOR } from './territoryConstants';
@@ -8,8 +8,10 @@ import type { NeighborhoodContactRow, NeighborhoodRow } from './types';
 type Props = {
   rows: NeighborhoodRow[];
   selectedKey: string | null;
-  detailContacts: NeighborhoodContactRow[];
-  onSelect: (row: NeighborhoodRow | null) => void;
+  selectedContactId: string | null;
+  contacts: NeighborhoodContactRow[];
+  onSelectRow: (row: NeighborhoodRow | null) => void;
+  onSelectContact: (contactId: string) => void;
   onExportCsv?: () => void;
 };
 
@@ -23,7 +25,6 @@ function StackBar({ row }: { row: NeighborhoodRow }) {
         <span
           key={t}
           style={{ width: `${(row[t] / total) * 100}%`, background: TEMP_COLOR[t] }}
-          title={`${CONTACT_TEMP_LABEL[t]}: ${row[t]}`}
         />
       ))}
     </div>
@@ -33,87 +34,79 @@ function StackBar({ row }: { row: NeighborhoodRow }) {
 export const TerritoryRankingTable: React.FC<Props> = ({
   rows,
   selectedKey,
-  detailContacts,
-  onSelect,
+  selectedContactId,
+  contacts,
+  onSelectRow,
+  onSelectContact,
   onExportCsv,
 }) => {
-  const maxCount = Math.max(1, ...rows.map((r) => r.count));
-
   if (rows.length === 0) {
     return (
       <div className="zm-atlas-table zm-atlas-table--empty">
-        <p>Nenhum bairro com contatos nesta região.</p>
-        <p className="zm-atlas-table__hint">Cadastre endereços nos contatos ou use &quot;Atualizar CEP&quot;.</p>
+        <p>Nenhum bairro nesta região.</p>
       </div>
     );
   }
 
+  const selectedRow = rows.find((r) => r.key === selectedKey);
+
   return (
-    <div className="zm-atlas-table">
+    <div className="zm-atlas-table zm-atlas-table--split">
       <div className="zm-atlas-table__head">
-        <span>#</span>
         <span>Bairro</span>
-        <span>Contatos</span>
-        <span>Temperatura</span>
-        <span aria-hidden />
+        <span>Nº</span>
+        <span>Mix</span>
       </div>
 
-      <div className="zm-atlas-table__body">
-        {rows.map((row, idx) => {
-          const open = selectedKey === row.key;
-          const share = Math.round((row.count / maxCount) * 100);
-
+      <div className="zm-atlas-table__body zm-atlas-table__body--scroll">
+        {rows.map((row) => {
+          const active = selectedKey === row.key;
           return (
-            <div key={row.key} className={`zm-atlas-table__block${open ? ' zm-atlas-table__block--open' : ''}`}>
-              <button
-                type="button"
-                className="zm-atlas-table__row"
-                onClick={() => onSelect(open ? null : row)}
-              >
-                <span className="zm-atlas-table__rank">{idx + 1}</span>
-                <span className="zm-atlas-table__name">{row.label}</span>
-                <span className="zm-atlas-table__count">{row.count.toLocaleString('pt-BR')}</span>
-                <span className="zm-atlas-table__stack-wrap">
-                  <StackBar row={row} />
-                  <span className="zm-atlas-table__share">{share}% do topo</span>
-                </span>
-                <ChevronDown className={`zm-atlas-table__chev${open ? ' zm-atlas-table__chev--open' : ''}`} />
-              </button>
-
-              {open && (
-                <div className="zm-atlas-table__detail">
-                  <div className="zm-atlas-table__detail-meta">
-                    <span>
-                      {row.hot} quente · {row.warm} morno · {row.cold} frio
-                      {row.new > 0 ? ` · ${row.new} sem hist.` : ''}
-                    </span>
-                    {onExportCsv && detailContacts.length > 0 && (
-                      <button type="button" className="zm-atlas-table__export" onClick={onExportCsv}>
-                        <Download className="w-3.5 h-3.5" />
-                        Exportar
-                      </button>
-                    )}
-                  </div>
-                  {detailContacts.length === 0 ? (
-                    <p className="zm-atlas-table__detail-empty">Sem contatos listados.</p>
-                  ) : (
-                    <ul className="zm-atlas-table__contacts">
-                      {detailContacts.slice(0, 40).map((c) => (
-                        <li key={c.id}>
-                          <span className="zm-atlas-table__dot" style={{ background: TEMP_COLOR[c.temp] }} />
-                          <span className="zm-atlas-table__contact-name">{c.name}</span>
-                          <span className="zm-atlas-table__contact-phone">{c.phone}</span>
-                          <span className="zm-atlas-table__contact-temp">{CONTACT_TEMP_LABEL[c.temp]}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
+            <button
+              key={row.key}
+              type="button"
+              className={`zm-atlas-table__row zm-atlas-table__row--compact${active ? ' zm-atlas-table__row--active' : ''}`}
+              onClick={() => onSelectRow(active ? null : row)}
+            >
+              <span className="zm-atlas-table__name">{row.label}</span>
+              <span className="zm-atlas-table__count">{row.count.toLocaleString('pt-BR')}</span>
+              <StackBar row={row} />
+            </button>
           );
         })}
       </div>
+
+      {selectedRow && (
+        <div className="zm-atlas-table__contacts-panel">
+          <div className="zm-atlas-table__contacts-head">
+            <span>{selectedRow.label}</span>
+            {onExportCsv && contacts.length > 0 && (
+              <button type="button" className="zm-atlas-table__export" onClick={onExportCsv}>
+                <Download className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <ul className="zm-atlas-table__contacts zm-atlas-table__contacts--scroll">
+            {contacts.length === 0 ? (
+              <li className="zm-atlas-table__detail-empty">Sem contatos.</li>
+            ) : (
+              contacts.slice(0, 80).map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className={`zm-atlas-table__contact-btn${selectedContactId === c.id ? ' zm-atlas-table__contact-btn--on' : ''}`}
+                    onClick={() => onSelectContact(c.id)}
+                  >
+                    <span className="zm-atlas-table__dot" style={{ background: TEMP_COLOR[c.temp] }} />
+                    <span className="zm-atlas-table__contact-name">{c.name}</span>
+                    <span className="zm-atlas-table__contact-temp">{CONTACT_TEMP_LABEL[c.temp]}</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

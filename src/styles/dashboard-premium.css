@@ -3549,3 +3549,268 @@
     height: 240px;
   }
 }
+
+/* Atlas v2 — compacto, colorido, split mapa + lista */
+.zm-atlas--v2 {
+  padding: 14px 16px 16px;
+  gap: 12px;
+  background: linear-gradient(145deg, #fff7ed 0%, #fdf4ff 42%, #eff6ff 100%);
+  border: 1px solid #e9d5ff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.zm-atlas__header--compact {
+  margin-bottom: 0;
+}
+
+.zm-atlas__header--compact .zm-atlas__title {
+  font-size: 16px;
+}
+
+.zm-atlas__header--compact .zm-atlas__subtitle {
+  font-size: 12px;
+}
+
+.zm-atlas__split {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, 34%);
+  gap: 12px;
+  min-height: 0;
+}
+
+.zm-atlas__map-wrap--compact {
+  height: 300px;
+  min-height: 260px;
+  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.12);
+  border-color: #ddd6fe;
+}
+
+.zm-atlas__map-badge {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 4;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #57534e;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e7e5e4;
+}
+
+.zm-atlas__map-badge--focus {
+  color: #7c3aed;
+  border-color: #c4b5fd;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.zm-atlas-contact-card {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  width: min(280px, calc(100% - 20px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e7e5e4;
+  box-shadow: 0 12px 32px rgba(28, 25, 23, 0.14);
+}
+
+.zm-atlas-contact-card__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px;
+  border: none;
+  background: #f5f5f4;
+  border-radius: 6px;
+  color: #78716c;
+  cursor: pointer;
+}
+
+.zm-atlas-contact-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-right: 24px;
+}
+
+.zm-atlas-contact-card__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.zm-atlas-contact-card__name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1c1917;
+}
+
+.zm-atlas-contact-card__phone {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #78716c;
+}
+
+.zm-atlas-contact-card__badge {
+  margin-left: auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+.zm-atlas-contact-card__body {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f5f5f4;
+  font-size: 12px;
+  color: #57534e;
+  line-height: 1.45;
+}
+
+.zm-atlas-contact-card__body p {
+  margin: 0 0 4px;
+}
+
+.zm-atlas-contact-card__cep {
+  color: #a8a29e;
+}
+
+.zm-atlas-contact-card__approx {
+  margin-top: 6px !important;
+  font-size: 10px;
+  font-weight: 600;
+  color: #d97706;
+}
+
+.zm-atlas-table--split {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 300px;
+  border-color: #ddd6fe;
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.08);
+}
+
+.zm-atlas-table--split .zm-atlas-table__head {
+  grid-template-columns: 1fr 52px 72px;
+  background: linear-gradient(180deg, #faf5ff, #f5f5f4);
+}
+
+.zm-atlas-table__row--compact {
+  display: grid;
+  grid-template-columns: 1fr 52px 72px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid #f5f5f4;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.zm-atlas-table__row--compact:hover {
+  background: #faf5ff;
+}
+
+.zm-atlas-table__row--active {
+  background: #f3e8ff !important;
+  box-shadow: inset 3px 0 0 #8b5cf6;
+}
+
+.zm-atlas-table__body--scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.zm-atlas-table__contacts-panel {
+  border-top: 2px solid #e9d5ff;
+  background: #faf5ff;
+  flex-shrink: 0;
+  max-height: 130px;
+  display: flex;
+  flex-direction: column;
+}
+
+.zm-atlas-table__contacts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6d28d9;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.zm-atlas-table__contacts--scroll {
+  overflow-y: auto;
+  flex: 1;
+  margin: 0;
+  padding: 0 6px 6px;
+  list-style: none;
+}
+
+.zm-atlas-table__contact-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.zm-atlas-table__contact-btn:hover {
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.zm-atlas-table__contact-btn--on {
+  background: #fff;
+  box-shadow: 0 0 0 1px #c4b5fd;
+}
+
+.zm-atlas-pin {
+  transition: transform 0.15s;
+}
+
+.zm-atlas-pin--active {
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.35));
+}
+
+.zm-atlas-tip--pin strong {
+  color: #fafaf9;
+}
+
+@media (max-width: 900px) {
+  .zm-atlas__split {
+    grid-template-columns: 1fr;
+  }
+
+  .zm-atlas-table--split {
+    max-height: 220px;
+  }
+
+  .zm-atlas__map-wrap--compact {
+    height: 240px;
+  }
+}

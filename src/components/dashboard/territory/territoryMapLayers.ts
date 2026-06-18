@@ -1,16 +1,16 @@
 import L from 'leaflet';
+import { CONTACT_TEMP_LABEL } from '../../../utils/contactTemperature';
 import { TEMP_COLOR } from './territoryConstants';
-import type { NeighborhoodRow } from './types';
+import type { MapContactPin, NeighborhoodRow } from './types';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Halos suaves no mapa — sem labels, sem pills. */
+/** Visão geral — halos por bairro. */
 export function paintTerritoryHeat(
   map: L.Map,
   rows: NeighborhoodRow[],
-  selectedKey: string | null,
   onSelect: (row: NeighborhoodRow) => void
 ): L.Layer[] {
   const layers: L.Layer[] = [];
@@ -20,33 +20,31 @@ export function paintTerritoryHeat(
     if (row.lat == null || row.lng == null || row.count < 1) continue;
 
     const t = row.count / maxCount;
-    const radiusM = Math.round(280 + Math.sqrt(t) * 920);
-    const selected = selectedKey === row.key;
+    const radiusM = Math.round(200 + Math.sqrt(t) * 700);
     const color = TEMP_COLOR[row.dominant];
 
     const halo = L.circle([row.lat, row.lng], {
       radius: radiusM,
       fillColor: color,
-      fillOpacity: selected ? 0.38 : 0.22,
-      color: selected ? color : 'transparent',
-      weight: selected ? 2 : 0,
-      opacity: selected ? 0.85 : 0,
-      className: selected ? 'zm-atlas-halo zm-atlas-halo--active' : 'zm-atlas-halo',
+      fillOpacity: 0.32,
+      color: color,
+      weight: 1,
+      opacity: 0.45,
+      className: 'zm-atlas-halo',
     });
 
     const core = L.circleMarker([row.lat, row.lng], {
-      radius: Math.round(5 + Math.sqrt(t) * 9),
+      radius: Math.round(6 + Math.sqrt(t) * 8),
       fillColor: color,
-      fillOpacity: selected ? 1 : 0.88,
+      fillOpacity: 0.95,
       color: '#fff',
-      weight: selected ? 3 : 2,
+      weight: 2,
       opacity: 1,
-      className: selected ? 'zm-atlas-core zm-atlas-core--active' : 'zm-atlas-core',
+      className: 'zm-atlas-core',
     });
 
     const tip = `<strong>${escapeHtml(row.label)}</strong>
-      <span>${row.count.toLocaleString('pt-BR')} contatos</span>
-      <span>${row.hot} quente · ${row.warm} morno · ${row.cold} frio</span>`;
+      <span>${row.count.toLocaleString('pt-BR')} contatos — clique para ver no mapa</span>`;
 
     core.bindTooltip(`<div class="zm-atlas-tip">${tip}</div>`, {
       className: 'zm-atlas-tip-pane',
@@ -66,6 +64,48 @@ export function paintTerritoryHeat(
   return layers;
 }
 
+/** Modo bairro — só contatos individuais. */
+export function paintContactPins(
+  map: L.Map,
+  pins: MapContactPin[],
+  selectedId: string | null,
+  onSelect: (pin: MapContactPin) => void
+): L.Layer[] {
+  const layers: L.Layer[] = [];
+
+  for (const pin of pins) {
+    const color = TEMP_COLOR[pin.temp];
+    const selected = selectedId === pin.id;
+    const radius = selected ? 11 : 7;
+
+    const marker = L.circleMarker([pin.lat, pin.lng], {
+      radius,
+      fillColor: color,
+      fillOpacity: selected ? 1 : 0.92,
+      color: selected ? '#1c1917' : '#fff',
+      weight: selected ? 3 : 2,
+      opacity: 1,
+      className: selected ? 'zm-atlas-pin zm-atlas-pin--active' : 'zm-atlas-pin',
+    });
+
+    const addr = [pin.street, pin.number].filter(Boolean).join(', ');
+    marker.bindTooltip(
+      `<div class="zm-atlas-tip zm-atlas-tip--pin">
+        <strong>${escapeHtml(pin.name)}</strong>
+        <span>${escapeHtml(CONTACT_TEMP_LABEL[pin.temp])}</span>
+        ${addr ? `<span>${escapeHtml(addr)}</span>` : ''}
+      </div>`,
+      { className: 'zm-atlas-tip-pane', direction: 'top', offset: [0, -6], opacity: 1 }
+    );
+
+    marker.on('click', () => onSelect(pin));
+    marker.addTo(map);
+    layers.push(marker);
+  }
+
+  return layers;
+}
+
 export function flyToNeighborhoodRows(map: L.Map, rows: NeighborhoodRow[]): void {
   const bounds = L.latLngBounds([]);
   for (const row of rows) {
@@ -75,5 +115,15 @@ export function flyToNeighborhoodRows(map: L.Map, rows: NeighborhoodRow[]): void
   }
   if (bounds.isValid()) {
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: true });
+  }
+}
+
+export function flyToContactPins(map: L.Map, pins: MapContactPin[]): void {
+  const bounds = L.latLngBounds([]);
+  for (const p of pins) {
+    bounds.extend([p.lat, p.lng]);
+  }
+  if (bounds.isValid()) {
+    map.fitBounds(bounds, { padding: [32, 32], maxZoom: 16, animate: true });
   }
 }
