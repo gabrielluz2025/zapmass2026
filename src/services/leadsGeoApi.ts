@@ -68,6 +68,8 @@ export type LeadsGeoSummary = {
     pinsPending: number;
   };
   mapViewport?: { lat: number; lng: number; zoom: number } | null;
+  /** Bairros oficiais do município (lista completa, inclusive vazios). */
+  officialNeighborhoods?: string[];
   /** true quando o dado veio do cache expirado enquanto o recálculo ocorre em background */
   stale?: boolean;
 };

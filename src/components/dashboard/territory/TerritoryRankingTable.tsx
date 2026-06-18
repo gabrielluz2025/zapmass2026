@@ -53,8 +53,9 @@ export const TerritoryRankingTable: React.FC<Props> = ({
   return (
     <div className="zm-atlas-table zm-atlas-table--split">
       <div className="zm-atlas-table__head">
+        <span>#</span>
         <span>Bairro</span>
-        <span>Nº</span>
+        <span>Leads</span>
         <span>Mix</span>
       </div>
 
@@ -68,6 +69,7 @@ export const TerritoryRankingTable: React.FC<Props> = ({
               className={`zm-atlas-table__row zm-atlas-table__row--compact${active ? ' zm-atlas-table__row--active' : ''}`}
               onClick={() => onSelectRow(active ? null : row)}
             >
+              <span className="zm-atlas-table__num">{row.index ?? '—'}</span>
               <span className="zm-atlas-table__name">{row.label}</span>
               <span className={`zm-atlas-table__count${row.count === 0 ? ' zm-atlas-table__count--zero' : ''}`}>
                 {row.count.toLocaleString('pt-BR')}

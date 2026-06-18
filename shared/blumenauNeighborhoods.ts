@@ -2,6 +2,8 @@
  * 35 bairros oficiais de Blumenau (SC) — Prefeitura / divisão administrativa.
  * Usado para agregar o mapa territorial sem milhares de pins individuais.
  */
+import { matchCityOfficialNeighborhood } from './officialNeighborhoods.js';
+
 export const BLUMENAU_OFFICIAL_NEIGHBORHOODS = [
   'Vorstadt',
   'Centro',
@@ -52,7 +54,7 @@ export function normBlumenauNbKey(s: string): string {
 }
 
 /** Variantes comuns no cadastro → nome oficial. */
-const NB_ALIASES: Record<string, BlumenauOfficialNeighborhood> = {
+export const BLUMENAU_NB_ALIASES: Record<string, BlumenauOfficialNeighborhood> = {
   aguaverde: 'Água Verde',
   badenfurt: 'Badenfurt',
   boavista: 'Boa Vista',
@@ -98,7 +100,7 @@ const MATCH_BY_KEY_LENGTH: Array<{ key: string; official: BlumenauOfficialNeighb
     key: normBlumenauNbKey(official),
     official
   })),
-  ...Object.entries(NB_ALIASES).map(([key, official]) => ({ key, official }))
+  ...Object.entries(BLUMENAU_NB_ALIASES).map(([key, official]) => ({ key, official }))
 ].sort((a, b) => b.key.length - a.key.length);
 
 export function isBlumenauCity(city: string): boolean {
@@ -108,18 +110,8 @@ export function isBlumenauCity(city: string): boolean {
 
 /** Mapeia texto de bairro (cadastro) para um dos 35 oficiais, ou null. */
 export function matchOfficialNeighborhood(raw: string): BlumenauOfficialNeighborhood | null {
-  const key = normBlumenauNbKey(raw);
-  if (!key) return null;
-  const direct = NB_ALIASES[key];
-  if (direct) return direct;
-  for (const { key: mk, official } of MATCH_BY_KEY_LENGTH) {
-    if (!mk || mk.length < 3) continue;
-    if (key === mk) return official;
-    if (key.length >= 5 && mk.length >= 5 && (key.includes(mk) || mk.includes(key))) {
-      return official;
-    }
-  }
-  return null;
+  const hit = matchCityOfficialNeighborhood('Blumenau', 'SC', raw);
+  return hit as BlumenauOfficialNeighborhood | null;
 }
 
 /** Posição estável no mapa (anel ao redor do centro) quando não há geocode. */

@@ -17,9 +17,9 @@ import { computeContactTemperatures } from '../../utils/contactTemperature';
 import { parseGeoFilterCity } from '../../utils/contactAddressNormalize';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import {
-  isBlumenauCity,
-  matchOfficialNeighborhood,
-} from '../../../shared/blumenauNeighborhoods';
+  getStaticOfficialNeighborhoods,
+  matchCityOfficialNeighborhood,
+} from '../../../shared/officialNeighborhoods';
 import { TerritoryCitySearch } from './territory/TerritoryCitySearch';
 import { TerritoryTempRiver } from './territory/TerritoryTempRiver';
 import { TerritoryRankingTable } from './territory/TerritoryRankingTable';
@@ -91,6 +91,16 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const parsedCity = useMemo(() => parseGeoFilterCity(city), [city]);
   const stateCode = parsedCity.state;
   const cityNameOnly = parsedCity.city;
+
+  const officialNeighborhoods = useMemo(() => {
+    if (scope !== 'city') return null;
+    if (summary?.officialNeighborhoods && summary.officialNeighborhoods.length > 0) {
+      return summary.officialNeighborhoods;
+    }
+    return getStaticOfficialNeighborhoods(cityNameOnly, stateCode);
+  }, [summary?.officialNeighborhoods, scope, cityNameOnly, stateCode]);
+
+  const hasOfficialList = Boolean(officialNeighborhoods?.length) && scope === 'city';
   const isBusy = loading || geocoding || locationSaving || locationLoading;
 
   const cityContacts = useMemo(() => {
@@ -105,8 +115,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const clusters = useMemo(() => {
     if (!summary) return [];
-    return filterClustersForScope(summary.clusters, city, scope, blumenauFocus);
-  }, [summary, city, scope, blumenauFocus]);
+    return filterClustersForScope(summary.clusters, city, scope, hasOfficialList);
+  }, [summary, city, scope, hasOfficialList]);
 
   const allRows = useMemo(
     () =>
@@ -116,12 +126,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         scope,
         tempsByContact,
         clusters,
-        blumenauFocus,
+        officialNeighborhoods,
       }),
-    [cityContacts, city, scope, tempsByContact, clusters, blumenauFocus]
+    [cityContacts, city, scope, tempsByContact, clusters, officialNeighborhoods]
   );
 
-  const showAllNeighborhoods = blumenauFocus && scope === 'city';
+  const showAllNeighborhoods = hasOfficialList;
 
   const visibleRows = useMemo(
     () => allRows.filter((r) => rowMatchesTempFilter(r, tempFilter, showAllNeighborhoods)),
@@ -131,6 +141,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const regionTemps = useMemo(() => sumRegionTemps(allRows), [allRows]);
   const regionTotal = regionTemps.hot + regionTemps.warm + regionTemps.cold + regionTemps.new;
   const nbWithData = allRows.filter((r) => r.count > 0).length;
+  const nbTotalListed = allRows.length;
 
   const neighborhoodContacts = useMemo((): NeighborhoodContactRow[] => {
     if (!selectedRow) return [];
@@ -142,8 +153,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           const st = (c.state || '').trim();
           if (st && st.toUpperCase() !== stateCode.toUpperCase()) return false;
         }
-        if (blumenauFocus) {
-          const official = matchOfficialNeighborhood(c.neighborhood || '');
+        if (hasOfficialList) {
+          const official = matchCityOfficialNeighborhood(cityNameOnly, stateCode, c.neighborhood || '');
           return official === nb || matchesNeighborhood(c.neighborhood || '', nb);
         }
         return matchesNeighborhood(c.neighborhood || '', nb);
@@ -167,7 +178,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         const td = TEMP_ORDER[a.temp] - TEMP_ORDER[b.temp];
         return td !== 0 ? td : a.name.localeCompare(b.name, 'pt-BR');
       });
-  }, [selectedRow, cityContacts, deferredContacts, scope, stateCode, tempsByContact, blumenauFocus]);
+  }, [selectedRow, cityContacts, deferredContacts, scope, stateCode, tempsByContact, hasOfficialList, cityNameOnly]);
 
   const contactPinsResult = useMemo(() => {
     if (!selectedRow) return { pins: [], unmapped: 0 };
@@ -362,7 +373,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       return;
     }
 
-    const rowsForMap = visibleRows.filter((r) => r.count > 0 && r.lat != null && r.lng != null);
+    const rowsForMap = visibleRows.filter(
+      (r) => r.lat != null && r.lng != null && (r.count > 0 || showAllNeighborhoods)
+    );
     const normalized = rowsForMap
       .map((r) => {
         const { lat, lng } = fixBrazilCoord(r.lat!, r.lng!);
@@ -460,7 +473,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         <div className="zm-atlas__header-text">
           <h2 className="zm-atlas__title">Atlas territorial</h2>
           <p className="zm-atlas__subtitle">
-            {scope === 'city' ? city : `Estado ${stateCode}`} · {nbWithData} bairros ·{' '}
+            {scope === 'city' ? city : `Estado ${stateCode}`} · {nbTotalListed} bairros
+            {nbWithData < nbTotalListed ? ` (${nbWithData} com leads)` : ''} ·{' '}
             {regionTotal.toLocaleString('pt-BR')} leads
           </p>
         </div>

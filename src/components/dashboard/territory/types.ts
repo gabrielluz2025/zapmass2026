@@ -15,6 +15,10 @@ export type NeighborhoodRow = {
   lat: number | null;
   lng: number | null;
   dominant: ContactTemperature;
+  /** Posição na lista oficial (0-based). */
+  order?: number;
+  /** Número exibido na tabela (1-based). */
+  index?: number;
 };
 
 export type RegionTempTotals = Record<ContactTemperature, number>;

@@ -11,6 +11,7 @@ import {
 } from './tenantOperatingLocation.js';
 import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { resolveCitySearchLabel, searchIbgeCities } from '../src/utils/ibgeCityLookup.js';
+import { parseGeoFilterCity } from '../src/utils/contactAddressNormalize.js';
 
 function registerCityLookupHandlers(app: Express): void {
   const citySuggest = async (req: Request, res: Response) => {
@@ -54,6 +55,25 @@ function registerCityLookupHandlers(app: Express): void {
 
 export function registerOperatingLocationRoutes(app: Express): void {
   registerCityLookupHandlers(app);
+  app.get('/api/geo/official-neighborhoods', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const city = String(req.query.city || '').trim();
+    if (!city || city.length < 2) {
+      return res.status(400).json({ ok: false, error: 'Informe cidade · UF.' });
+    }
+    const fc = parseGeoFilterCity(city);
+    try {
+      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+      const { resolveOfficialNeighborhoods } = await import('./municipalityNeighborhoods.js');
+      const neighborhoods = await resolveOfficialNeighborhoods(fc.city, fc.state, ibgeIndex);
+      return res.json({ ok: true, city: fc.city, state: fc.state, neighborhoods });
+    } catch (e) {
+      console.warn('[api/geo/official-neighborhoods]', e);
+      return res.json({ ok: true, city: fc.city, state: fc.state, neighborhoods: [] });
+    }
+  });
+
   app.get('/api/operating-location', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;

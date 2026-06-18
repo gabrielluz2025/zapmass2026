@@ -3703,13 +3703,13 @@
 }
 
 .zm-atlas-table--split .zm-atlas-table__head {
-  grid-template-columns: 1fr 52px 72px;
+  grid-template-columns: 28px 1fr 48px 72px;
   background: linear-gradient(180deg, #faf5ff, #f5f5f4);
 }
 
 .zm-atlas-table__row--compact {
   display: grid;
-  grid-template-columns: 1fr 52px 72px;
+  grid-template-columns: 28px 1fr 48px 72px;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -3729,6 +3729,14 @@
 .zm-atlas-table__row--active {
   background: #f3e8ff !important;
   box-shadow: inset 3px 0 0 #8b5cf6;
+}
+
+.zm-atlas-table__num {
+  font-size: 11px;
+  font-weight: 700;
+  color: #a8a29e;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .zm-atlas-table__body--scroll {

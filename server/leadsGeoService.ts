@@ -22,6 +22,11 @@ import {
   isInsideBrazilBounds
 } from './geoCoordValidate.js';
 import { getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
+import { resolveOfficialNeighborhoods } from './municipalityNeighborhoods.js';
+import {
+  matchCityOfficialNeighborhood,
+  normNbKey,
+} from '../shared/officialNeighborhoods.js';
 import {
   BLUMENAU_OFFICIAL_NEIGHBORHOODS,
   blumenauSpreadCoord,
@@ -122,6 +127,7 @@ export type LeadsGeoSummary = {
   contactPins: GeoContactPin[];
   pinStats: GeoContactPinStats;
   mapViewport: { lat: number; lng: number; zoom: number } | null;
+  officialNeighborhoods?: string[];
   /** true quando o dado veio do cache expirado enquanto o recálculo ocorre em background */
   stale?: boolean;
 };
@@ -1155,7 +1161,8 @@ function buildBlumenauLightNeighborhoodSummary(
     topConcentration,
     contactPins: [],
     pinStats: { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
-    mapViewport: { lat: -26.9194, lng: -49.0661, zoom: 12 }
+    mapViewport: { lat: -26.9194, lng: -49.0661, zoom: 12 },
+    officialNeighborhoods: [...BLUMENAU_OFFICIAL_NEIGHBORHOODS],
   };
 }
 
@@ -1188,7 +1195,11 @@ function contactMatchesCityQuery(c: Contact, cityQuery: string): boolean {
 }
 
 /** Resposta rápida para mapa territorial de qualquer cidade (sem geocode pesado). */
-function buildCityLightNeighborhoodSummary(contacts: Contact[], query: LeadsGeoQuery): LeadsGeoSummary {
+async function buildCityLightNeighborhoodSummary(
+  contacts: Contact[],
+  query: LeadsGeoQuery,
+  ibgeIndex: ReturnType<typeof getIbgeMunicipiosIndex>
+): Promise<LeadsGeoSummary> {
   const fc = parseGeoFilterCity(query.city || '');
   const cityName = titleCasePlaceName(fc.city);
   const stateCode = fc.state || knownUfForCity(cityName) || '';
@@ -1197,11 +1208,34 @@ function buildCityLightNeighborhoodSummary(contacts: Contact[], query: LeadsGeoQ
   const selectedNb = query.neighborhood?.split('·')[0]?.trim() || '';
   const selectedNbKey = selectedNb ? normNeighborhoodKey(selectedNb) : '';
 
+  const officialList = await resolveOfficialNeighborhoods(cityName, stateCode, ibgeIndex);
+
   const byKey = new Map<string, GeoCluster>();
   const byNeighborhood: Record<string, number> = {};
   let filteredTotal = 0;
   let withNeighborhood = 0;
   let withPhone = 0;
+
+  for (const [idx, name] of officialList.entries()) {
+    const nbKey = normNeighborhoodKey(name);
+    const spread = nbSpreadAroundCity(cityName, stateCode, idx);
+    const cacheKey = clusterKey('neighborhood', { city: cityName, neighborhood: name });
+    const cached = cache[cacheKey];
+    byKey.set(nbKey, {
+      key: cacheKey,
+      label: `${name} · ${cityName}`,
+      city: cityName,
+      state: stateCode || '—',
+      neighborhood: name,
+      ddd: '—',
+      count: 0,
+      lat: cached?.lat ?? spread.lat,
+      lng: cached?.lng ?? spread.lng,
+      precision: 'neighborhood',
+      mapped: Boolean(cached?.lat != null),
+      sampleNames: [],
+    });
+  }
 
   for (const raw of contacts) {
     const c = hydrateContactForGeo(raw);
@@ -1212,6 +1246,8 @@ function buildCityLightNeighborhoodSummary(contacts: Contact[], query: LeadsGeoQ
 
     let nb = normNeighborhood(c.neighborhood || '', cityName);
     if (!nb) nb = 'Sem bairro';
+    const official = matchCityOfficialNeighborhood(cityName, stateCode, nb);
+    if (official) nb = official;
     if (selectedNbKey && normNeighborhoodKey(nb) !== selectedNbKey) continue;
 
     withNeighborhood++;
@@ -1246,7 +1282,13 @@ function buildCityLightNeighborhoodSummary(contacts: Contact[], query: LeadsGeoQ
     }
   }
 
-  const clusters = [...byKey.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'pt-BR'));
+  const clusters = [...byKey.values()].sort((a, b) => {
+    const ai = officialList.findIndex((n) => normNbKey(n) === normNbKey(a.neighborhood));
+    const bi = officialList.findIndex((n) => normNbKey(n) === normNbKey(b.neighborhood));
+    if (ai >= 0 && bi >= 0 && ai !== bi) return ai - bi;
+    if (b.count !== a.count) return b.count - a.count;
+    return a.label.localeCompare(b.label, 'pt-BR');
+  });
   const top = clusters.find((c) => c.count > 0) || clusters[0];
   const topConcentration = top
     ? {
@@ -1262,7 +1304,10 @@ function buildCityLightNeighborhoodSummary(contacts: Contact[], query: LeadsGeoQ
     ? { lat: cityCoord.lat, lng: cityCoord.lng, zoom: clusters.length > 0 ? 12 : 11 }
     : null;
 
-  const nbLabels = clusters.map((c) => c.neighborhood).filter(Boolean);
+  const nbLabels =
+    officialList.length > 0
+      ? officialList
+      : clusters.map((c) => c.neighborhood).filter(Boolean);
 
   return {
     stats: {
@@ -1292,6 +1337,7 @@ function buildCityLightNeighborhoodSummary(contacts: Contact[], query: LeadsGeoQ
     contactPins: [],
     pinStats: { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
     mapViewport,
+    officialNeighborhoods: officialList.length > 0 ? officialList : undefined,
   };
 }
 
@@ -1308,10 +1354,11 @@ async function buildLeadsGeoSummaryInner(
   const lightMode = query.light === true;
 
   if (lightMode && layer === 'neighborhood' && query.city?.trim() && !query.neighborhood?.trim()) {
+    const ibgeIndex = getIbgeMunicipiosIndex();
     if (isBlumenauCity(query.city || '')) {
       return buildBlumenauLightNeighborhoodSummary(contacts, query);
     }
-    return buildCityLightNeighborhoodSummary(contacts, query);
+    return buildCityLightNeighborhoodSummary(contacts, query, ibgeIndex);
   }
 
   const ibgeIndex = getIbgeMunicipiosIndex();
