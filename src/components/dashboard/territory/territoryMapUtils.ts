@@ -1,6 +1,7 @@
 import type { GeoCluster } from '../../../services/leadsGeoApi';
 import type { Contact } from '../../../types';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
+import { citiesMatch, normPlaceKey, parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
 import {
   BLUMENAU_OFFICIAL_NEIGHBORHOODS,
   matchOfficialNeighborhood,
@@ -24,28 +25,24 @@ export function matchesNeighborhood(contactNb: string, selected: string): boolea
   return a === b || a.includes(b) || b.includes(a);
 }
 
-export function matchesCity(contactCity: string, filterCity: string): boolean {
-  const base = normalizeKey(filterCity.split('·')[0] || filterCity);
-  const c = normalizeKey(contactCity);
-  if (!base) return true;
-  if (!c) return false;
-  const baseToken = base.split(' ')[0] || base;
-  return c.includes(baseToken) || base.includes(c.split(' ')[0] || c);
+export function matchesCity(contactCity: string, filterCity: string, contactState?: string): boolean {
+  return citiesMatch(contactCity, filterCity, contactState);
 }
 
 /** Filtra clusters da API — evita bairros de outra cidade no mapa. */
 export function clusterMatchesFilterCity(cluster: GeoCluster, filterCity: string): boolean {
   if (!filterCity.trim()) return true;
-  const parts = filterCity.split('·').map((p) => p.trim());
-  const filterCityName = parts[0] || filterCity;
-  const filterState = parts[1] || '';
+  const fc = parseGeoFilterCity(filterCity);
+  if (!fc.city.trim()) return true;
 
   const clusterCity = String(cluster.city || '').trim();
   const clusterState = String(cluster.state || '').trim();
 
-  if (clusterCity && !matchesCity(clusterCity, filterCityName)) return false;
-  if (filterState && clusterState) {
-    if (normalizeKey(clusterState) !== normalizeKey(filterState)) return false;
+  if (clusterCity && clusterCity !== '—') {
+    if (normPlaceKey(clusterCity) !== normPlaceKey(fc.city)) return false;
+  }
+  if (fc.state && clusterState && clusterState !== '—') {
+    if (normPlaceKey(clusterState) !== normPlaceKey(fc.state)) return false;
   }
   return true;
 }

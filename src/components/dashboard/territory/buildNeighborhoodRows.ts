@@ -32,7 +32,7 @@ function statsFromContacts(
 
   for (const c of contacts) {
     if (scope === 'city') {
-      if (!matchesCity(c.city || '', city)) continue;
+      if (!matchesCity(c.city || '', city, c.state || '')) continue;
     } else if (stateCode) {
       const st = normalizeKey(c.state || '');
       if (st && st !== normalizeKey(stateCode)) continue;
@@ -57,6 +57,35 @@ function statsFromContacts(
   }
 
   return map;
+}
+
+/** Inclui bairros vindos dos clusters da API (mesmo quando o filtro local falhava). */
+function mergeClusterNeighborhoods(
+  map: Map<string, NbTempStats>,
+  clusters: GeoCluster[],
+  blumenauFocus: boolean
+): void {
+  for (const cl of clusters) {
+    const rawLabel = (cl.label.split('·')[0]?.trim() || cl.neighborhood || '').trim();
+    if (!rawLabel || rawLabel === '—') continue;
+
+    let label = rawLabel;
+    if (blumenauFocus) {
+      const official = matchOfficialNeighborhood(rawLabel);
+      if (!official) continue;
+      label = official;
+    }
+
+    const key = normBlumenauNbKey(label) || normalizeKey(label).replace(/\s+/g, '') || 'sem';
+    const slot = map.get(key) || emptyStats(label);
+    if (!map.has(key)) map.set(key, slot);
+
+    if (cl.count > slot.total) {
+      const delta = cl.count - slot.total;
+      slot.new += delta;
+      slot.total += delta;
+    }
+  }
 }
 
 function coordForNeighborhood(
@@ -99,6 +128,10 @@ export function buildNeighborhoodRows(input: {
     input.tempsByContact,
     input.blumenauFocus && input.scope === 'city'
   );
+
+  if (input.scope === 'city') {
+    mergeClusterNeighborhoods(statsMap, input.clusters, input.blumenauFocus && input.scope === 'city');
+  }
 
   const rows: NeighborhoodRow[] = [];
   for (const stats of statsMap.values()) {

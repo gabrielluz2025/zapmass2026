@@ -175,6 +175,25 @@ export function parseGeoFilterCity(raw: string): { city: string; state: string }
   return parseEmbeddedCityState(cleanWhitespace(raw));
 }
 
+/** Compara cidade do contato com filtro — igualdade exata (sem acento), com UF opcional. */
+export function citiesMatch(
+  contactCity: string,
+  filterCityLabel: string,
+  contactState?: string
+): boolean {
+  const fc = parseGeoFilterCity(filterCityLabel);
+  const fKey = normPlaceKey(fc.city);
+  if (!fKey) return true;
+  const cKey = normPlaceKey(contactCity);
+  if (!cKey) return false;
+  if (cKey !== fKey) return false;
+  if (fc.state && contactState) {
+    const st = normalizeContactState(contactState);
+    if (st && normPlaceKey(st) !== normPlaceKey(fc.state)) return false;
+  }
+  return true;
+}
+
 export function knownUfForCity(city: string): string {
   return KNOWN_CITY_UF[normKeyPart(city)] || '';
 }

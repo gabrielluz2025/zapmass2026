@@ -9,6 +9,8 @@ import {
   saveOperatingLocation,
   type OperatingLocationSource
 } from './tenantOperatingLocation.js';
+import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
+import { resolveCitySearchLabel } from '../src/utils/ibgeCityLookup.js';
 
 export function registerOperatingLocationRoutes(app: Express): void {
   app.get('/api/operating-location', async (req: Request, res: Response) => {
@@ -37,6 +39,16 @@ export function registerOperatingLocationRoutes(app: Express): void {
     if (cityLabel !== undefined && cityLabel.length < 3) {
       return res.status(400).json({ ok: false, error: 'Informe cidade e UF (ex.: Blumenau · SC).' });
     }
+    let resolvedCityLabel = cityLabel;
+    if (typeof body.cityLabel === 'string' && body.cityLabel.trim().length >= 2) {
+      try {
+        const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+        const resolved = resolveCitySearchLabel(ibgeIndex, body.cityLabel);
+        if (resolved?.label) resolvedCityLabel = resolved.label;
+      } catch {
+        /* mantém normalizeCityLabel */
+      }
+    }
     const source: OperatingLocationSource | undefined =
       body.source === 'gps' || body.source === 'manual' || body.source === 'ip'
         ? body.source
@@ -46,7 +58,7 @@ export function registerOperatingLocationRoutes(app: Express): void {
 
     try {
       const location = await saveOperatingLocation(ctx.tenantId, {
-        ...(cityLabel ? { cityLabel } : {}),
+        ...(resolvedCityLabel ? { cityLabel: resolvedCityLabel } : {}),
         source,
         ...(Number.isFinite(lat) ? { latitude: lat } : {}),
         ...(Number.isFinite(lng) ? { longitude: lng } : {})

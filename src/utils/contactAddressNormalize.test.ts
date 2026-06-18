@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  citiesMatch,
   buildNeighborhoodToCityMap,
   normalizeContactAddressFields,
   normNeighborhoodKey,
@@ -114,5 +115,11 @@ describe('contactAddressNormalize', () => {
     const r = resolveGeoPlaceForContact({ city: 'Água Verde', state: 'SC' }, index, map);
     expect(r.city).toBe('Blumenau');
     expect(r.neighborhood).toBe('Água Verde');
+  });
+
+  it('citiesMatch não confunde Indaial com Indaiabira', () => {
+    expect(citiesMatch('Indaial', 'Indaial · SC', 'SC')).toBe(true);
+    expect(citiesMatch('Indaiabira', 'Indaial · SC', 'MG')).toBe(false);
+    expect(citiesMatch('Indaiabira', 'Indaiabira · MG', 'MG')).toBe(true);
   });
 });

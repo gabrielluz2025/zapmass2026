@@ -14,6 +14,7 @@ import {
 } from '../../services/leadsGeoApi';
 import { useOperatingLocation } from '../../hooks/useOperatingLocation';
 import { computeContactTemperatures } from '../../utils/contactTemperature';
+import { parseGeoFilterCity } from '../../utils/contactAddressNormalize';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import {
   isBlumenauCity,
@@ -84,7 +85,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [mapActive, setMapActive] = useState(!deferLoad);
 
   const blumenauFocus = isBlumenauCity(city) && scope === 'city';
-  const stateCode = city.split('·')[1]?.trim() || '';
+  const parsedCity = useMemo(() => parseGeoFilterCity(city), [city]);
+  const stateCode = parsedCity.state;
+  const cityNameOnly = parsedCity.city;
   const isBusy = loading || geocoding || locationSaving || locationLoading;
 
   const tempsByContact = useMemo(
@@ -126,7 +129,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     const nb = selectedRow.label;
     return contacts
       .filter((c) => {
-        if (scope === 'city' && !matchesCity(c.city || '', city)) return false;
+        if (scope === 'city' && !matchesCity(c.city || '', city, c.state || '')) return false;
         if (scope === 'state' && stateCode) {
           const st = (c.state || '').trim();
           if (st && st.toUpperCase() !== stateCode.toUpperCase()) return false;
@@ -160,7 +163,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const contactPinsResult = useMemo(() => {
     if (!selectedRow) return { pins: [], unmapped: 0 };
-    const cityName = city.split('·')[0]?.trim() || city;
+    const cityName = cityNameOnly || city;
     return buildContactPinsForNeighborhood({
       contacts: neighborhoodContacts.map((c) => ({
         id: c.id,
@@ -301,7 +304,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       setNbGeo(null);
       return;
     }
-    const cityName = city.split('·')[0]?.trim() || city;
+    const cityName = cityNameOnly || city;
     const nbLabel = `${selectedRow.label} · ${cityName}`;
     let cancelled = false;
     setNbGeoLoading(true);
@@ -394,7 +397,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const handleGeocode = async () => {
     setGeocoding(true);
     try {
-      const cityName = city.split('·')[0]?.trim() || city;
+      const cityName = cityNameOnly || city;
       const r = await apiGeocodeContacts({
         max: 200,
         city,
