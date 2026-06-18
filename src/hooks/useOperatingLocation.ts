@@ -50,6 +50,23 @@ export function useOperatingLocation(fallbackCity = 'Blumenau · SC') {
     };
   }, [fallbackCity]);
 
+  const applyCityLabel = useCallback(async (label: string) => {
+    const trimmed = label.trim();
+    if (trimmed.length < 3) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaving(true);
+    try {
+      const loc = await saveOperatingLocationManual(trimmed);
+      skipNextSave.current = true;
+      setCityLabelState(loc.cityLabel);
+      setSource(loc.source || 'manual');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível salvar a cidade.');
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
   const persistManual = useCallback(async (label: string) => {
     const trimmed = label.trim();
     if (trimmed.length < 3) return;
@@ -120,7 +137,7 @@ export function useOperatingLocation(fallbackCity = 'Blumenau · SC') {
           skipNextSave.current = true;
           setCityLabelState(loc.cityLabel);
           setSource('gps');
-          toast.success(`Localização: ${loc.cityLabel}`);
+          toast.success(`GPS: ${loc.cityLabel} — confira e ajuste se estiver errado.`);
           return;
         } catch {
           /* GPS negado/indisponível — tenta pela rede */
@@ -151,6 +168,7 @@ export function useOperatingLocation(fallbackCity = 'Blumenau · SC') {
   return {
     cityLabel,
     setCityLabel,
+    applyCityLabel,
     source,
     loading,
     gpsLoading,

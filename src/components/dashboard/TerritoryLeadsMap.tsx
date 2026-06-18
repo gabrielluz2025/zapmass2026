@@ -8,11 +8,9 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.heat';
 import {
   ChevronLeft,
-  Crosshair,
   Download,
   Flame,
   Loader2,
-  MapPin,
   RefreshCw,
   Snowflake,
   Sun,
@@ -35,6 +33,7 @@ import {
 } from '../../utils/contactTemperature';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import { exportLeadsGeoXlsx } from '../../utils/exportLeadsGeoXlsx';
+import { TerritoryCityPicker } from './TerritoryCityPicker';
 import { Button } from '../ui/Button';
 import {
   BLUMENAU_OFFICIAL_NEIGHBORHOODS,
@@ -47,19 +46,18 @@ import {
 const BLUMENAU_CENTER: L.LatLngExpression = [-26.9194, -49.0661];
 const BLUMENAU_ZOOM = 12;
 
-const MAP_TILE_DARK_BASE =
-  'https://{s}.basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}{r}.png';
-const MAP_TILE_DARK_LABELS =
-  'https://{s}.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}{r}.png';
+const MAP_TILE_DARK =
+  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 const MAP_TILE_LIGHT = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const HEAT_GRADIENT_PRO: Record<number, string> = {
-  0.0: '#1e1b4b',
-  0.25: '#4338ca',
-  0.45: '#6366f1',
-  0.6: '#a855f7',
-  0.75: '#f97316',
-  1.0: '#ef4444'
+  0.0: '#0f172a',
+  0.2: '#1e3a5f',
+  0.4: '#0e7490',
+  0.55: '#0891b2',
+  0.7: '#d97706',
+  0.85: '#ea580c',
+  1.0: '#dc2626'
 };
 
 const TEMP_COLOR: Record<ContactTemperature, string> = {
@@ -130,12 +128,12 @@ function territoryBubbleIcon(
   selected: boolean
 ): L.DivIcon {
   const t = count / Math.max(1, maxCount);
-  const size = Math.round(34 + Math.sqrt(t) * 30);
+  const size = Math.round(28 + Math.sqrt(t) * 22);
   const label = formatCompactCount(count);
   const selectedCls = selected ? ' zm-territory-bubble--selected' : '';
   return L.divIcon({
     className: 'zm-territory-bubble-wrap',
-    html: `<div class="zm-territory-bubble${selectedCls}" style="--bubble-size:${size}px;--bubble-color:${color}"><span class="zm-territory-bubble__count">${label}</span></div>`,
+    html: `<div class="zm-territory-bubble${selectedCls}" style="--bubble-size:${size}px;--bubble-color:${color}"><span class="zm-territory-bubble__ring"></span><span class="zm-territory-bubble__count">${label}</span></div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2]
   });
@@ -334,9 +332,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 }) => {
   const {
     cityLabel: city,
-    setCityLabel: setCity,
+    applyCityLabel,
+    source,
     gpsLoading,
     loading: locationLoading,
+    saving: locationSaving,
     useMyLocation,
     cityPresets
   } = useOperatingLocation(defaultCity);
@@ -460,16 +460,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         maxZoom: 20,
       }).addTo(map);
     } else {
-      L.tileLayer(MAP_TILE_DARK_BASE, {
+      L.tileLayer(MAP_TILE_DARK, {
         attribution: '© OpenStreetMap © CARTO',
         subdomains: 'abcd',
         maxZoom: 20,
-      }).addTo(map);
-      L.tileLayer(MAP_TILE_DARK_LABELS, {
-        subdomains: 'abcd',
-        maxZoom: 20,
-        pane: 'overlayPane',
-        opacity: 0.72,
       }).addTo(map);
     }
     mapRef.current = map;
@@ -581,10 +575,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       }
       if (points.length === 0) return;
       const hl = heatLayer(points, {
-        radius: compact ? 32 : 42,
-        blur: compact ? 22 : 28,
+        radius: compact ? 28 : 36,
+        blur: compact ? 18 : 24,
         maxZoom: 14,
-        minOpacity: compact ? 0.35 : 0.45,
+        minOpacity: compact ? 0.28 : 0.38,
         gradient: HEAT_GRADIENT_PRO
       });
       hl.addTo(map);
@@ -725,164 +719,138 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   return (
     <div
       ref={rootRef}
-      className={`zm-territory-map flex flex-col ${proUi ? 'zm-territory-map--pro' : ''} ${compact ? 'h-[320px]' : 'h-[min(58vh,560px)]'}`}
+      className={`zm-territory-map flex flex-col ${proUi ? 'zm-territory-map--pro zm-territory-map--v2' : ''} ${compact ? 'h-[320px]' : 'h-[min(58vh,560px)]'}`}
     >
-      <div className={proUi ? 'zm-territory-map__toolbar' : 'flex flex-wrap items-center gap-2 mb-3'}>
-        <div className={`flex items-center gap-2 flex-1 min-w-[200px] ${proUi ? 'relative zm-territory-map__search' : ''}`}>
-          <MapPin
-            className={`w-4 h-4 shrink-0 ${proUi ? 'absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400/90' : 'text-indigo-500'}`}
-          />
-          <input
-            list="zm-city-presets"
+      {proUi ? (
+        <div className="zm-territory-map__shell">
+          <TerritoryCityPicker
             value={city}
+            source={source}
+            loading={locationLoading}
+            saving={locationSaving}
+            gpsLoading={gpsLoading}
+            presets={cityOptions}
             disabled={locationLoading}
-            onChange={(e) => {
+            onApply={async (label) => {
               setSelectedNb(null);
-              setCity(e.target.value);
+              await applyCityLabel(label);
             }}
-            className={
-              proUi
-                ? 'zm-territory-map__city-input w-full pl-9'
-                : 'flex-1 min-w-0 rounded-xl border border-stone-200/80 bg-white/90 px-3 py-2 text-[13px] font-semibold text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/50 disabled:opacity-60'
-            }
-            placeholder="Cidade · UF (ex: Blumenau · SC)"
+            onGps={() => {
+              setSelectedNb(null);
+              void useMyLocation();
+            }}
           />
-          <datalist id="zm-city-presets">
-            {cityOptions.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        </div>
 
-        {proUi && apiSyncing && mapSummary && !summary && (
-          <span className="zm-territory-map__sync-inline" aria-live="polite">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Sincronizando
-          </span>
-        )}
+          <div className="zm-territory-map__controls">
+            {apiSyncing && mapSummary && !summary && (
+              <span className="zm-territory-map__sync-inline" aria-live="polite">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Sincronizando
+              </span>
+            )}
 
-        <div className={proUi ? 'zm-territory-map__toolbar-actions' : 'contents'}>
-          {proUi ? (
-            <>
+            <div className="zm-territory-map__mode-toggle">
+              {viewModes.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setViewMode(m.id)}
+                  className={`zm-territory-map__mode-btn${viewMode === m.id ? ' zm-territory-map__mode-btn--active' : ''}`}
+                >
+                  {m.icon}
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              disabled={geocoding || loading}
+              onClick={() => void handleGeocode()}
+              className="zm-territory-map__action-btn zm-territory-map__action-btn--accent"
+            >
+              {geocoding ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              Mapear CEP
+            </button>
+
+            {selectedNb && (
               <button
                 type="button"
-                disabled={locationLoading || gpsLoading}
-                onClick={() => {
-                  setSelectedNb(null);
-                  void useMyLocation();
-                }}
-                title="Usar GPS do dispositivo"
-                className="zm-territory-map__action-btn"
+                onClick={() => setSelectedNb(null)}
+                className="zm-territory-map__clear-filter"
               >
-                {gpsLoading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Crosshair className="w-3.5 h-3.5" />
-                )}
-                GPS
+                Limpar: {selectedNb}
               </button>
-
-              <div className="zm-territory-map__mode-toggle">
-                {viewModes.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setViewMode(m.id)}
-                    className={`zm-territory-map__mode-btn${viewMode === m.id ? ' zm-territory-map__mode-btn--active' : ''}`}
-                  >
-                    {m.icon}
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                disabled={geocoding || loading}
-                onClick={() => void handleGeocode()}
-                className="zm-territory-map__action-btn zm-territory-map__action-btn--accent"
-              >
-                {geocoding ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-3.5 h-3.5" />
-                )}
-                Mapear CEP
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="flex gap-1 p-0.5 rounded-xl bg-stone-100 border border-stone-200/80">
-                {viewModes.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setViewMode(m.id)}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                      viewMode === m.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-stone-500'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
-
-        {!proUi && (
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={locationLoading || gpsLoading}
-              onClick={() => {
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="flex-1 min-w-[240px]">
+            <TerritoryCityPicker
+              value={city}
+              source={source}
+              loading={locationLoading}
+              saving={locationSaving}
+              gpsLoading={gpsLoading}
+              presets={cityPresets}
+              onApply={async (label) => {
+                setSelectedNb(null);
+                await applyCityLabel(label);
+              }}
+              onGps={() => {
                 setSelectedNb(null);
                 void useMyLocation();
               }}
-              title="Usar GPS do dispositivo (permita se o navegador pedir)"
-              leftIcon={
-                gpsLoading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Crosshair className="w-3.5 h-3.5" />
-                )
-              }
-            >
-              GPS
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              leftIcon={
-                geocoding ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-3.5 h-3.5" />
-                )
-              }
-              disabled={geocoding || loading}
-              onClick={() => void handleGeocode()}
-            >
-              Mapear CEP
-            </Button>
-          </>
-        )}
+            />
+          </div>
 
-        {selectedNb && (
-          <button
-            type="button"
-            onClick={() => setSelectedNb(null)}
-            className={
-              proUi
-                ? 'zm-territory-map__clear-filter'
-                : 'text-[11px] font-bold text-indigo-600 hover:underline'
+          <div className="flex gap-1 p-0.5 rounded-xl bg-stone-100 border border-stone-200/80">
+            {viewModes.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setViewMode(m.id)}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                  viewMode === m.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-stone-500'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={
+              geocoding ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )
             }
+            disabled={geocoding || loading}
+            onClick={() => void handleGeocode()}
           >
-            Limpar: {selectedNb}
-          </button>
-        )}
-      </div>
+            Mapear CEP
+          </Button>
+
+          {selectedNb && (
+            <button
+              type="button"
+              onClick={() => setSelectedNb(null)}
+              className="text-[11px] font-bold text-indigo-600 hover:underline"
+            >
+              Limpar: {selectedNb}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-1 min-h-0 gap-3">
         <div
@@ -1062,7 +1030,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                             >
                               <div className="zm-territory-map__rank-row">
                                 <span className="zm-territory-map__rank-name">
-                                  <span className="zm-territory-map__rank-index">{i + 1}</span>
+                                  <span
+                                    className={`zm-territory-map__rank-index${i < 3 ? ' zm-territory-map__rank-index--top' : ''}`}
+                                  >
+                                    {i + 1}
+                                  </span>
                                   {nbName}
                                 </span>
                                 <span className="zm-territory-map__rank-meta">
