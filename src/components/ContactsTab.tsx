@@ -766,7 +766,7 @@ export const ContactsTab: React.FC = () => {
     deleteContactList,
     updateContactList,
   } = useZapMassCore();
-  const { setCurrentView } = useAppView();
+  const { currentView, setCurrentView } = useAppView();
   const { segment } = useAppProfile();
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
   const deferredConversations = useDeferredValue(conversations);
@@ -845,15 +845,27 @@ export const ContactsTab: React.FC = () => {
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [currentPage, setCurrentPage] = useState(1);
   const [autoLoadActive, setAutoLoadActive] = useState(true);
+  const [pageHidden, setPageHidden] = useState(
+    () => typeof document !== 'undefined' && document.hidden
+  );
 
-  // Auto-loader: uma página por vez para não bloquear a UI (base grande).
   useEffect(() => {
-    if (!autoLoadActive || !contactsHasMore || contactsLoadingMore) return;
+    const onVisibility = () => setPageHidden(document.hidden);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  const shouldAutoLoadContacts =
+    autoLoadActive && currentView === 'contacts' && !pageHidden;
+
+  // Auto-loader: uma página por vez; pausa fora da aba Contatos ou com aba do browser oculta.
+  useEffect(() => {
+    if (!shouldAutoLoadContacts || !contactsHasMore || contactsLoadingMore) return;
     const timer = window.setTimeout(() => {
       void loadAllContacts?.();
-    }, 250);
+    }, 400);
     return () => window.clearTimeout(timer);
-  }, [autoLoadActive, contactsHasMore, contactsLoadingMore, loadAllContacts]);
+  }, [shouldAutoLoadContacts, contactsHasMore, contactsLoadingMore, loadAllContacts]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'VALID' | 'INVALID'>('ALL');

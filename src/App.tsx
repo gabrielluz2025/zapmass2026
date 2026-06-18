@@ -106,6 +106,36 @@ const PastoralVisitsTab = lazyWithRetry(
   'pastoral'
 );
 
+/** Mantém até N abas montadas para evitar remount + recarga de chunks a cada clique. */
+const MAX_CACHED_VIEWS = 5;
+
+const TabPanel: React.FC<{ active: boolean; children: React.ReactNode }> = ({ active, children }) => (
+  <div
+    className={active ? 'flex min-h-0 w-full flex-1 flex-col' : 'hidden'}
+    aria-hidden={!active}
+    hidden={!active}
+  >
+    {children}
+  </div>
+);
+
+const GlobalSearchOverlay: React.FC<{
+  onClose: () => void;
+  onNavigate: (view: string) => void;
+}> = ({ onClose, onNavigate }) => {
+  const { campaigns, contacts } = useZapMassCore();
+  const connections = useZapMassConnectionsSlice();
+  return (
+    <GlobalSearch
+      campaigns={campaigns}
+      contacts={contacts}
+      connections={connections}
+      onNavigate={onNavigate}
+      onClose={onClose}
+    />
+  );
+};
+
 /** Placeholder quando um chunk de vista ainda está a carregar (skeleton + indicador). */
 const LazyViewSpinner: React.FC = () => (
   <div
@@ -159,10 +189,10 @@ function formatAccessEndPtBR(v: unknown): string | null {
 
 const MainLayout: React.FC = () => {
   const connections = useZapMassConnectionsSlice();
-  const { campaigns, contacts } = useZapMassCore();
   const { user } = useAuth();
   const { readOnlyMode, readOnlyMessage, subscription, enforce, hasFullAccess } = useSubscription();
   const { currentView, setCurrentView } = useAppView();
+  const [cachedViews, setCachedViews] = useState<string[]>([currentView]);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [trialEndedOpen, setTrialEndedOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -286,8 +316,17 @@ const MainLayout: React.FC = () => {
     return () => window.removeEventListener(EVENT_OPEN_CHANNEL_EXTRAS, go);
   }, [setCurrentView]);
 
-  const renderContentInner = (): React.ReactNode => {
-    switch (currentView) {
+  useEffect(() => {
+    setCachedViews((prev) => {
+      const without = prev.filter((v) => v !== currentView);
+      const next = [...without, currentView];
+      if (next.length <= MAX_CACHED_VIEWS) return next;
+      return next.slice(-MAX_CACHED_VIEWS);
+    });
+  }, [currentView]);
+
+  const renderContentInner = (view: string): React.ReactNode => {
+    switch (view) {
       case 'dashboard':
         return <DashboardTab />;
       case 'chat':
@@ -334,9 +373,20 @@ const MainLayout: React.FC = () => {
   };
 
   const renderContent = () => (
-    <TabLoadErrorBoundary label={currentView}>
-      <Suspense fallback={<LazyViewSpinner />}>{renderContentInner()}</Suspense>
-    </TabLoadErrorBoundary>
+    <>
+      {cachedViews.map((view) => {
+        const active = view === currentView;
+        return (
+          <TabPanel key={view} active={active}>
+            <TabLoadErrorBoundary label={view}>
+              <Suspense fallback={active ? <LazyViewSpinner /> : null}>
+                {renderContentInner(view)}
+              </Suspense>
+            </TabLoadErrorBoundary>
+          </TabPanel>
+        );
+      })}
+    </>
   );
 
   return (
@@ -377,13 +427,7 @@ const MainLayout: React.FC = () => {
       <UpgradeProModal isOpen={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
       <TrialEndedModal isOpen={trialEndedOpen} onClose={() => setTrialEndedOpen(false)} />
       {searchOpen && (
-        <GlobalSearch
-          campaigns={campaigns}
-          contacts={contacts}
-          connections={connections}
-          onNavigate={setCurrentView}
-          onClose={() => setSearchOpen(false)}
-        />
+        <GlobalSearchOverlay onNavigate={setCurrentView} onClose={() => setSearchOpen(false)} />
       )}
     </>
   );

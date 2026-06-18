@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import React, {
+  createContext,
+  startTransition,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode
+} from 'react';
 
 type AppViewContextValue = {
   currentView: string;
@@ -39,8 +47,13 @@ function readInitialView(): string {
 }
 
 export const AppViewProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [currentView, setCurrentView] = useState<string>(readInitialView);
-  const value = useMemo(() => ({ currentView, setCurrentView }), [currentView]);
+  const [currentView, setCurrentViewState] = useState<string>(readInitialView);
+  const setCurrentView = useCallback((view: string) => {
+    startTransition(() => {
+      setCurrentViewState(view);
+    });
+  }, []);
+  const value = useMemo(() => ({ currentView, setCurrentView }), [currentView, setCurrentView]);
   return <AppViewContext.Provider value={value}>{children}</AppViewContext.Provider>;
 };
 

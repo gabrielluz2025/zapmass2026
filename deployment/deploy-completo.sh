@@ -86,8 +86,10 @@ fi
 
 chmod +x deployment/vps-deploy.sh
 
-export GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-workflow_dispatch}"
 export VITE_GIT_REF="${COMMIT}"
+# Não simular GitHub Actions — evita pausa de 90s antes do healthcheck em deploy manual.
+unset GITHUB_EVENT_NAME
+unset GITHUB_ACTIONS
 
 bash deployment/vps-deploy.sh
 _DEPLOY_RC=$?
