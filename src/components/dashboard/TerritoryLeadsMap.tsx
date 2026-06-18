@@ -18,6 +18,7 @@ import { parseGeoFilterCity } from '../../utils/contactAddressNormalize';
 import { fixBrazilCoord, isMapCoordValid } from '../../utils/brazilMapCoords';
 import {
   getStaticOfficialNeighborhoods,
+  isBlumenauCity,
   matchCityOfficialNeighborhood,
 } from '../../../shared/officialNeighborhoods';
 import { TerritoryCitySearch } from './territory/TerritoryCitySearch';
