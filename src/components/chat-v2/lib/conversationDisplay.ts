@@ -2,7 +2,10 @@ import type { Contact, Conversation, WhatsAppConnection } from '../../../types';
 import { normPhoneKey } from '../../../utils/brPhoneNormalize';
 import {
   buildPhoneDigitLookupKeys,
-  normalizePhoneDigits
+  looksLikeDigitsOnlyPhoneLabel,
+  looksLikeLongLidDigits,
+  normalizePhoneDigits,
+  phoneCandidatesFromConversation,
 } from '../../../utils/contactPhoneLookup';
 import { formatChatListTime } from '../../../utils/formatChatListTime';
 
@@ -92,13 +95,7 @@ function resolveSystemName(
   conv: Conversation,
   systemContactNameByDigits: Map<string, string>
 ): string | undefined {
-  const candidates = [
-    phoneRawForContactLookup(conv),
-    conv.contactPhone || '',
-    digitsForContactMatch(conv),
-    extractWaUserDigitsFromConvId(conv.id)
-  ];
-  for (const raw of candidates) {
+  for (const raw of phoneCandidatesFromConversation(conv)) {
     const trimmed = (raw || '').trim();
     if (!trimmed) continue;
     const nkHit = normPhoneKey(trimmed);
@@ -107,15 +104,8 @@ function resolveSystemName(
       if (a) return a;
     }
     const digits = normalizeDigits(raw);
-    if (!digits) continue;
+    if (!digits || looksLikeLongLidDigits(digits)) continue;
     for (const key of buildPhoneDigitLookupKeys(digits)) {
-      const hit = systemContactNameByDigits.get(key);
-      if (hit) return hit;
-    }
-  }
-  const waDigits = normalizeDigits((conv.contactName || '').trim());
-  if (waDigits.length >= 10) {
-    for (const key of buildPhoneDigitLookupKeys(waDigits)) {
       const hit = systemContactNameByDigits.get(key);
       if (hit) return hit;
     }
@@ -152,10 +142,16 @@ export function buildDisplayIndex(
     const lidPhoneDigits = (() => {
       if (!convIsLid) return '';
       const d = normalizeDigits(conv.contactPhone || '');
-      return d.length >= 10 && d.length <= 13 ? d : '';
+      return d.length >= 10 && d.length <= 13 && !looksLikeLongLidDigits(d) ? d : '';
     })();
-    const digits = convIsLid ? lidPhoneDigits : rawDigits;
-    const phoneLabel = digits ? formatPhoneDisplay(digits) : '';
+    const digits =
+      convIsLid && lidPhoneDigits
+        ? lidPhoneDigits
+        : looksLikeLongLidDigits(rawDigits)
+          ? normalizeDigits(conv.waJidAlt?.split('@')[0] || '')
+          : rawDigits;
+    const phoneLabel =
+      digits && !looksLikeLongLidDigits(digits) ? formatPhoneDisplay(digits) : '';
     const rawNumberOnly = !systemName && !friendlyStored && looksLikeDigitsOnlyContactLabel(waName);
     const lastResort = waNameIsLidDigits ? '' : waNameRaw;
     const crmPrimary = (systemName || (conv.waContactName ? (conv.contactName || '').trim() : '')).trim();
@@ -214,7 +210,9 @@ export function avatarUrl(name: string, pic?: string): string {
 /** Na lista/cabeçalho: evita vários "Contato" iguais — mostra telefone ou sufixo do JID. */
 export function inboxListTitle(disp: ConversationDisplay | undefined, conv: Conversation): string {
   const p = (disp?.primary || conv.contactName || '').trim();
-  if (p && p.toLowerCase() !== 'contato') return p;
+  if (p && p.toLowerCase() !== 'contato' && !looksLikeLongLidDigits(p)) {
+    if (!looksLikeDigitsOnlyPhoneLabel(p) || normalizeDigits(p).length <= 13) return p;
+  }
   if (disp?.phoneSecondary) return disp.phoneSecondary;
   if (disp?.whatsappSubtitle) return disp.whatsappSubtitle;
   const lookupDigits = normalizeDigits(phoneRawForContactLookup(conv));

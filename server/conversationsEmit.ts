@@ -90,9 +90,9 @@ export async function socketConversationDeltaPayload(
 ): Promise<Conversation | null> {
   const scoped = conversationsPayloadForViewer(tenantUid, authUid, [conv], resolveConnectionOwner);
   if (scoped.length === 0) return null;
-  const withNames = await enrichConversationsWithCrmNames(tenantUid, scoped);
-  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, withNames);
-  return prepareSingleConversationForSocketEmit(withPhones[0]!);
+  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, scoped);
+  const withNames = await enrichConversationsWithCrmNames(tenantUid, withPhones);
+  return prepareSingleConversationForSocketEmit(withNames[0]!);
 }
 
 /** Escopo tenant/staff + nomes CRM + payload enxuto para socket. */
@@ -108,9 +108,9 @@ export async function socketConversationsPayload(
     allConversations,
     resolveConnectionOwner
   );
-  const withNames = await enrichConversationsWithCrmNames(tenantUid, scoped);
-  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, withNames);
-  return prepareConversationsForSocketEmit(withPhones);
+  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, scoped);
+  const withNames = await enrichConversationsWithCrmNames(tenantUid, withPhones);
+  return prepareConversationsForSocketEmit(withNames);
 }
 
 /** Página da inbox (RAM) com escopo + CRM + payload enxuto. */
@@ -142,11 +142,11 @@ export async function socketInboxPagePayload(
   }
   const sorted = sortConversationsByActivity(scoped);
   const page = sliceInboxPage(sorted, { cursor: opts?.cursor, limit: opts?.limit ?? INBOX_PAGE_SIZE_DEFAULT });
-  const withNames = await enrichConversationsWithCrmNames(tenantUid, page.conversations);
-  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, withNames);
+  const withPhones = await enrichConversationsWithCrmPhones(tenantUid, page.conversations);
+  const withNames = await enrichConversationsWithCrmNames(tenantUid, withPhones);
   return {
     ...page,
-    conversations: prepareConversationsForSocketEmit(withPhones),
+    conversations: prepareConversationsForSocketEmit(withNames),
     reset: opts?.reset,
   };
 }

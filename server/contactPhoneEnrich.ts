@@ -37,7 +37,7 @@ async function crmPhoneIndexesForTenant(tenantUid: string) {
   if (hit && Date.now() - hit.at < CRM_PHONE_CACHE_MS) return hit;
   const byName = new Map<string, string>();
   const byDigits = new Map<string, string>();
-  const contacts = vpsDataEnabled() ? await listContacts(tenantUid, { limit: 8000 }) : [];
+  const contacts = vpsDataEnabled() ? await listContacts(pgTenant, { limit: 10_000 }) : [];
   for (const ct of contacts) {
     const digits = normalizePhoneDigits(String(ct.phone || ''));
     if (!plausiblePhoneDigits(digits) || looksLikeLongLidDigits(digits)) continue;

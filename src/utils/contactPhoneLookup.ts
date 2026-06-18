@@ -105,6 +105,51 @@ export function looksLikeLongLidDigits(name: string): boolean {
   return d.length >= 14 && /^\d+$/.test(d);
 }
 
+export function looksLikeDigitsOnlyPhoneLabel(raw: string): boolean {
+  const t = String(raw || '').trim().replace(/\u00a0/g, ' ');
+  if (!t) return true;
+  return /^[+()\d\s.\-]+$/.test(t) && /\d{7,}/.test(t.replace(/\D/g, ''));
+}
+
+/** Telefones candidatos para cruzar conversa WhatsApp ↔ CRM. */
+export function phoneCandidatesFromConversation(conv: {
+  id?: string;
+  contactPhone?: string | null;
+  contactName?: string | null;
+  waContactName?: string | null;
+  waJidAlt?: string | null;
+}): string[] {
+  const out: string[] = [];
+  const push = (s: string) => {
+    const t = s.trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+
+  push(conv.contactPhone || '');
+
+  const altRaw = String(conv.waJidAlt || '').trim();
+  if (altRaw) {
+    const altUser = altRaw.split('@')[0] || '';
+    if (altUser && !altRaw.toLowerCase().endsWith('@lid')) push(altUser);
+  }
+
+  const idPart = conv.id?.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : conv.id || '';
+  const fromJid = idPart.split('@')[0] || '';
+  if (fromJid && !idPart.toLowerCase().endsWith('@lid')) push(fromJid);
+
+  const stored = String(conv.waContactName || conv.contactName || '').trim();
+  const storedDigits = normalizePhoneDigits(stored);
+  if (
+    storedDigits.length >= 10 &&
+    storedDigits.length <= 13 &&
+    !looksLikeLongLidDigits(stored)
+  ) {
+    push(`+${storedDigits}`);
+  }
+
+  return out;
+}
+
 /** Prioridade: CRM > nome WA legível > anterior > fallback. */
 export function pickContactDisplayName(opts: {
   crmName?: string;

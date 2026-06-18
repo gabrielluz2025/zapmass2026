@@ -50,7 +50,10 @@ export const WaWebChatApp: React.FC<{
     loadChatHistory,
     fetchConversationPicture,
     socket,
-    isBackendConnected
+    isBackendConnected,
+    loadAllContacts,
+    contactsHasMore,
+    contactsLoadingMore,
   } = useZapMassCore();
 
   const connectedChannels = useMemo(
@@ -90,6 +93,12 @@ export const WaWebChatApp: React.FC<{
     runResync({ full: true });
     requestSync({ full: true });
   }, [isBackendConnected, socket, connectedChannels.length, runResync, requestSync]);
+
+  /** Carrega agenda completa para cruzar telefone → nome no inbox (evita só 1ª página de contatos). */
+  useEffect(() => {
+    if (!contactsHasMore || contactsLoadingMore) return;
+    void loadAllContacts?.();
+  }, [contactsHasMore, contactsLoadingMore, loadAllContacts]);
 
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));

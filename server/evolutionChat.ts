@@ -143,8 +143,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             void (async () => {
                 collapseStoredConversations();
                 let payload = prepareConversationsForSocketEmit(conversations);
-                payload = await enrichConversationsWithCrmNames(ownerUidForScope!, payload);
                 payload = await enrichConversationsWithCrmPhones(ownerUidForScope!, payload);
+                payload = await enrichConversationsWithCrmNames(ownerUidForScope!, payload);
                 io!.to(`user:${ownerUidForScope}`).emit('conversations-update', payload);
             })();
         }, 80);
@@ -1098,11 +1098,6 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
             applyPhonebookNamesToConnection(connectionId, phonebook);
 
-            if (ownerUidForScope) {
-                const enriched = await enrichConversationsWithCrmNames(ownerUidForScope, conversations);
-                conversations.splice(0, conversations.length, ...enriched);
-            }
-
             const pruned = pruneGarbageConversations(connectionId);
             if (pruned > 0) {
                 console.info(`[EvolutionChat] syncChats ${connectionId}: ${pruned} conversa(s) lixo removida(s)`);
@@ -1141,8 +1136,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                     .filter((i) => i >= 0);
                 const scoped = scopedIdx.map((i) => conversations[i]);
                 const withCrmPhones = await enrichConversationsWithCrmPhones(ownerUidForScope, scoped);
+                const withCrmNames = await enrichConversationsWithCrmNames(ownerUidForScope, withCrmPhones);
                 scopedIdx.forEach((idx, j) => {
-                    conversations[idx] = withCrmPhones[j] ?? conversations[idx];
+                    conversations[idx] = withCrmNames[j] ?? conversations[idx];
                 });
             }
 

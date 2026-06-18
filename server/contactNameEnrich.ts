@@ -4,7 +4,10 @@ import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import type { Conversation } from './types.js';
 import {
   buildCrmNameIndex,
+  looksLikeDigitsOnlyPhoneLabel,
+  looksLikeLongLidDigits,
   normalizePhoneDigits,
+  phoneCandidatesFromConversation,
   resolveCrmNameFromIndex
 } from '../src/utils/contactPhoneLookup.js';
 
@@ -15,34 +18,23 @@ async function crmIndexForTenant(tenantUid: string) {
   const pgTenant = resolvePostgresTenantId(tenantUid);
   const hit = crmIndexCache.get(pgTenant);
   if (hit && Date.now() - hit.at < CRM_CACHE_MS) return hit.index;
-  const contacts = vpsDataEnabled() ? await listContacts(pgTenant, { limit: 8000 }) : [];
+  const contacts = vpsDataEnabled() ? await listContacts(pgTenant, { limit: 10_000 }) : [];
   const index = buildCrmNameIndex(contacts);
   crmIndexCache.set(pgTenant, { at: Date.now(), index });
   return index;
 }
 
-function phoneCandidatesFromConversation(conv: Conversation): string[] {
-  const out: string[] = [];
-  const push = (s: string) => {
-    const t = s.trim();
-    if (t && !out.includes(t)) out.push(t);
-  };
-  push(conv.contactPhone || '');
-  if (conv.waJidAlt) {
-    const altDigits = conv.waJidAlt.split('@')[0] || '';
-    if (altDigits && !altDigits.endsWith('@lid')) push(altDigits);
-  }
-  const stored = (conv.waContactName || conv.contactName || '').trim();
-  const storedDigits = normalizePhoneDigits(stored);
-  if (storedDigits.length >= 10 && storedDigits.length <= 13) push(`+${storedDigits}`);
-  const idPart = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : '';
-  const fromJid = idPart.split('@')[0] || '';
-  if (fromJid && !idPart.endsWith('@lid')) push(fromJid);
-  return out;
-}
-
 function sameLabel(a: string, b: string): boolean {
   return a.toLowerCase().replace(/\s+/g, ' ') === b.toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isInvalidChatLabel(raw: string): boolean {
+  const t = raw.trim();
+  if (!t) return true;
+  if (looksLikeLongLidDigits(t)) return true;
+  if (looksLikeDigitsOnlyPhoneLabel(t) && normalizePhoneDigits(t).length >= 14) return true;
+  const lower = t.toLowerCase();
+  return lower === 'contato' || lower === 'contact' || lower === 'unknown' || lower === 'desconhecido';
 }
 
 export async function enrichConversationsWithCrmNames(
@@ -55,15 +47,26 @@ export async function enrichConversationsWithCrmNames(
 
   return list.map((conv) => {
     const crm = resolveCrmNameFromIndex(index, ...phoneCandidatesFromConversation(conv));
-    if (!crm) return conv;
     const waLabel = (conv.waContactName || conv.contactName || '').trim();
-    if (!waLabel || sameLabel(crm, waLabel)) {
+    const waOk = waLabel && !isInvalidChatLabel(waLabel) ? waLabel : '';
+
+    if (!crm) {
+      if (isInvalidChatLabel(conv.contactName || '') && waOk) {
+        return { ...conv, contactName: waOk };
+      }
+      if (isInvalidChatLabel(conv.contactName || '')) {
+        return { ...conv, contactName: 'Contato' };
+      }
+      return conv;
+    }
+
+    if (!waOk || sameLabel(crm, waOk)) {
       return { ...conv, contactName: crm };
     }
     return {
       ...conv,
       contactName: crm,
-      waContactName: waLabel
+      waContactName: waOk
     };
   });
 }
