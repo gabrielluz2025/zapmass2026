@@ -3801,6 +3801,15 @@
   filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.45));
 }
 
+.zm-atlas-table__count--zero {
+  color: #a8a29e;
+  font-weight: 600;
+}
+
+.zm-atlas-contact-card__approx--ok {
+  color: #059669 !important;
+}
+
 .zm-atlas-tip--pin strong {
   color: #fafaf9;
 }
