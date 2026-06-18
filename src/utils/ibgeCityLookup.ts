@@ -204,8 +204,6 @@ export function searchIbgeCities(
     let score: number | null = null;
     if (key === q) score = 0;
     else if (key.startsWith(q)) score = 1 + (key.length - q.length) * 0.01;
-    else if (q.length >= 3 && key.includes(q)) score = 2 + key.indexOf(q) * 0.01;
-    else if (q.length >= 4 && key.startsWith(q.slice(0, Math.min(4, q.length)))) score = 2.5;
 
     if (score === null) continue;
     for (const e of entries) {

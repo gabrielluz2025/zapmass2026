@@ -1,7 +1,7 @@
 /**
  * Atlas territorial — compacto, colorido, pins por bairro + ficha do contato.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Loader2, RefreshCw } from 'lucide-react';
@@ -84,16 +84,24 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [nbGeoLoading, setNbGeoLoading] = useState(false);
   const [mapActive, setMapActive] = useState(!deferLoad);
 
+  const deferredContacts = useDeferredValue(contacts);
+  const deferredConversations = useDeferredValue(conversations);
+
   const blumenauFocus = isBlumenauCity(city) && scope === 'city';
   const parsedCity = useMemo(() => parseGeoFilterCity(city), [city]);
   const stateCode = parsedCity.state;
   const cityNameOnly = parsedCity.city;
   const isBusy = loading || geocoding || locationSaving || locationLoading;
 
-  const tempsByContact = useMemo(
-    () => computeContactTemperatures(contacts, conversations),
-    [contacts, conversations]
-  );
+  const cityContacts = useMemo(() => {
+    if (!mapActive) return [];
+    return deferredContacts.filter((c) => matchesCity(c.city || '', city, c.state || ''));
+  }, [deferredContacts, city, mapActive]);
+
+  const tempsByContact = useMemo(() => {
+    if (!mapActive) return {};
+    return computeContactTemperatures(cityContacts, deferredConversations);
+  }, [cityContacts, deferredConversations, mapActive]);
 
   const clusters = useMemo(() => {
     if (!summary) return [];
@@ -103,14 +111,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const allRows = useMemo(
     () =>
       buildNeighborhoodRows({
-        contacts,
+        contacts: cityContacts,
         city,
         scope,
         tempsByContact,
         clusters,
         blumenauFocus,
       }),
-    [contacts, city, scope, tempsByContact, clusters, blumenauFocus]
+    [cityContacts, city, scope, tempsByContact, clusters, blumenauFocus]
   );
 
   const showAllNeighborhoods = blumenauFocus && scope === 'city';
@@ -127,9 +135,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const neighborhoodContacts = useMemo((): NeighborhoodContactRow[] => {
     if (!selectedRow) return [];
     const nb = selectedRow.label;
-    return contacts
+    const pool = scope === 'state' ? deferredContacts : cityContacts;
+    return pool
       .filter((c) => {
-        if (scope === 'city' && !matchesCity(c.city || '', city, c.state || '')) return false;
         if (scope === 'state' && stateCode) {
           const st = (c.state || '').trim();
           if (st && st.toUpperCase() !== stateCode.toUpperCase()) return false;
@@ -159,7 +167,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         const td = TEMP_ORDER[a.temp] - TEMP_ORDER[b.temp];
         return td !== 0 ? td : a.name.localeCompare(b.name, 'pt-BR');
       });
-  }, [selectedRow, contacts, city, scope, stateCode, tempsByContact, blumenauFocus]);
+  }, [selectedRow, cityContacts, deferredContacts, scope, stateCode, tempsByContact, blumenauFocus]);
 
   const contactPinsResult = useMemo(() => {
     if (!selectedRow) return { pins: [], unmapped: 0 };

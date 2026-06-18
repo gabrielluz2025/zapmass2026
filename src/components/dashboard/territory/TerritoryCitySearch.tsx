@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { apiFetchJson } from '../../../utils/apiFetchAuth';
+import { resolveCityLabelOffline } from '../../../utils/clientCityResolve';
 
 type CitySuggestion = { city: string; state: string };
 
@@ -26,6 +28,7 @@ export const TerritoryCitySearch: React.FC<Props> = ({
   const [suggestions, setSuggestions] = useState<CitySuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [applying, setApplying] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const skipBlurApply = useRef(false);
@@ -49,17 +52,40 @@ export const TerritoryCitySearch: React.FC<Props> = ({
     setSearching(true);
     try {
       const data = await apiFetchJson<{ ok: boolean; suggestions: CitySuggestion[] }>(
-        `/api/contacts/city-suggest?q=${encodeURIComponent(q.trim())}&limit=12`
+        `/api/geo/city-suggest?q=${encodeURIComponent(q.trim())}&limit=12`
       );
       const list = data.ok && Array.isArray(data.suggestions) ? data.suggestions : [];
       setSuggestions(list);
       setOpen(list.length > 0);
     } catch {
-      setSuggestions([]);
-      setOpen(false);
+      const offline = resolveCityLabelOffline(q);
+      if (offline) {
+        const parts = offline.split('·').map((p) => p.trim());
+        setSuggestions([{ city: parts[0] || offline, state: parts[1] || '' }]);
+        setOpen(true);
+      } else {
+        setSuggestions([]);
+        setOpen(false);
+      }
     } finally {
       setSearching(false);
     }
+  }, []);
+
+  const resolveLabel = useCallback(async (raw: string): Promise<string | null> => {
+    const trimmed = raw.trim();
+    if (trimmed.length < 2) return null;
+
+    try {
+      const data = await apiFetchJson<{
+        ok: boolean;
+        resolved: { city: string; state: string; label: string } | null;
+      }>(`/api/geo/city-resolve?q=${encodeURIComponent(trimmed)}`);
+      if (data.ok && data.resolved?.label) return data.resolved.label;
+    } catch {
+      /* offline abaixo */
+    }
+    return resolveCityLabelOffline(trimmed);
   }, []);
 
   const resolveAndApply = useCallback(
@@ -67,34 +93,32 @@ export const TerritoryCitySearch: React.FC<Props> = ({
       const trimmed = raw.trim();
       if (trimmed.length < 2) return;
 
+      setApplying(true);
       try {
-        const data = await apiFetchJson<{
-          ok: boolean;
-          resolved: { city: string; state: string; label: string } | null;
-        }>(`/api/contacts/city-resolve?q=${encodeURIComponent(trimmed)}`);
-        if (data.ok && data.resolved?.label) {
-          setDraft(data.resolved.label);
-          setOpen(false);
-          await onApply(data.resolved.label);
+        const label = await resolveLabel(trimmed);
+        if (!label) {
+          toast.error('Cidade não encontrada. Use o formato: Indaial - SC');
           return;
         }
-      } catch {
-        /* fallback abaixo */
-      }
-
-      if (trimmed.length >= 3) {
+        if (label === value.trim()) return;
+        setDraft(label);
         setOpen(false);
-        await onApply(trimmed);
+        await onApply(label);
+        toast.success(`Cidade: ${label}`);
+      } finally {
+        setApplying(false);
       }
     },
-    [onApply]
+    [onApply, resolveLabel, value]
   );
 
   const onDraftChange = (next: string) => {
     setDraft(next);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => void fetchSuggestions(next), 280);
+    debounceRef.current = setTimeout(() => void fetchSuggestions(next), 400);
   };
+
+  const busy = searching || saving || applying;
 
   return (
     <div ref={rootRef} className="zm-atlas-search">
@@ -102,7 +126,7 @@ export const TerritoryCitySearch: React.FC<Props> = ({
       <input
         type="search"
         value={draft}
-        disabled={disabled || saving}
+        disabled={disabled || busy}
         onChange={(e) => onDraftChange(e.target.value)}
         onFocus={() => suggestions.length > 0 && setOpen(true)}
         onKeyDown={(e) => {
@@ -122,11 +146,11 @@ export const TerritoryCitySearch: React.FC<Props> = ({
           }
         }}
         className="zm-atlas-search__input"
-        placeholder="Blumenau - SC"
+        placeholder="Indaial - SC"
         autoComplete="off"
         aria-label="Cidade do mapa territorial"
       />
-      {(searching || saving) && <Loader2 className="zm-atlas-search__spinner animate-spin" aria-hidden />}
+      {busy && <Loader2 className="zm-atlas-search__spinner animate-spin" aria-hidden />}
       {open && suggestions.length > 0 && (
         <ul className="zm-atlas-search__dropdown" role="listbox">
           {suggestions.map((s) => {
@@ -140,7 +164,15 @@ export const TerritoryCitySearch: React.FC<Props> = ({
                     skipBlurApply.current = true;
                     setDraft(label);
                     setOpen(false);
-                    void onApply(label);
+                    void (async () => {
+                      setApplying(true);
+                      try {
+                        await onApply(label);
+                        toast.success(`Cidade: ${label}`);
+                      } finally {
+                        setApplying(false);
+                      }
+                    })();
                   }}
                 >
                   <span>{s.city}</span>

@@ -30,7 +30,7 @@ import { normalizeTenantContactAddresses } from './contactsNormalizeService.js';
 import { geocodeSingleContactIfNeeded } from './leadsGeoService.js';
 import { normalizeContactAddressFields } from '../src/utils/contactAddressNormalize.js';
 import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
-import { resolveCitySearchLabel, searchIbgeCities } from '../src/utils/ibgeCityLookup.js';
+import { resolveCitySearchLabel } from '../src/utils/ibgeCityLookup.js';
 import { runAddressNormalizationBatch } from './addressNormalizationJob.js';
 
 /** Consulta ViaCEP e retorna endereço canônico completo (cidade, estado, rua, bairro). */
@@ -293,39 +293,6 @@ export function registerContactsDataRoutes(app: Express): void {
       console.warn('[api/contacts PATCH geocode]', geoErr);
     }
     return res.json({ ok: true, contact: updated });
-  });
-
-  app.get('/api/contacts/city-suggest', async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
-    if (!ctx) return;
-    const q = String(req.query.q || '').trim();
-    const limit = Math.min(Number(req.query.limit) || 12, 20);
-    if (!q || q.length < 2) return res.json({ ok: true, suggestions: [] });
-    try {
-      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
-      if (!ibgeIndex) return res.json({ ok: true, suggestions: [] });
-      const suggestions = searchIbgeCities(ibgeIndex, q, limit);
-      return res.json({ ok: true, suggestions });
-    } catch (e) {
-      console.warn('[api/contacts/city-suggest]', e);
-      return res.json({ ok: true, suggestions: [] });
-    }
-  });
-
-  app.get('/api/contacts/city-resolve', async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
-    if (!ctx) return;
-    const q = String(req.query.q || '').trim();
-    if (!q || q.length < 2) return res.json({ ok: true, resolved: null });
-    try {
-      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
-      if (!ibgeIndex) return res.json({ ok: true, resolved: null });
-      const resolved = resolveCitySearchLabel(ibgeIndex, q);
-      return res.json({ ok: true, resolved });
-    } catch (e) {
-      console.warn('[api/contacts/city-resolve]', e);
-      return res.json({ ok: true, resolved: null });
-    }
   });
 
   app.post('/api/contacts/normalize-batch', async (req: Request, res: Response) => {

@@ -10,9 +10,50 @@ import {
   type OperatingLocationSource
 } from './tenantOperatingLocation.js';
 import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
-import { resolveCitySearchLabel } from '../src/utils/ibgeCityLookup.js';
+import { resolveCitySearchLabel, searchIbgeCities } from '../src/utils/ibgeCityLookup.js';
+
+function registerCityLookupHandlers(app: Express): void {
+  const citySuggest = async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const q = String(req.query.q || '').trim();
+    const limit = Math.min(Number(req.query.limit) || 12, 20);
+    if (!q || q.length < 2) return res.json({ ok: true, suggestions: [] });
+    try {
+      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+      if (!ibgeIndex) return res.json({ ok: true, suggestions: [] });
+      return res.json({ ok: true, suggestions: searchIbgeCities(ibgeIndex, q, limit) });
+    } catch (e) {
+      console.warn('[api/geo/city-suggest]', e);
+      return res.json({ ok: true, suggestions: [] });
+    }
+  };
+
+  const cityResolve = async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const q = String(req.query.q || '').trim();
+    if (!q || q.length < 2) return res.json({ ok: true, resolved: null });
+    try {
+      const ibgeIndex = await ensureIbgeMunicipiosIndex().catch(() => getIbgeMunicipiosIndex());
+      if (!ibgeIndex) return res.json({ ok: true, resolved: null });
+      const resolved = resolveCitySearchLabel(ibgeIndex, q);
+      return res.json({ ok: true, resolved });
+    } catch (e) {
+      console.warn('[api/geo/city-resolve]', e);
+      return res.json({ ok: true, resolved: null });
+    }
+  };
+
+  app.get('/api/geo/city-suggest', citySuggest);
+  app.get('/api/geo/city-resolve', cityResolve);
+  // Compat — rotas antigas em contacts (quando VPS ativo)
+  app.get('/api/contacts/city-suggest', citySuggest);
+  app.get('/api/contacts/city-resolve', cityResolve);
+}
 
 export function registerOperatingLocationRoutes(app: Express): void {
+  registerCityLookupHandlers(app);
   app.get('/api/operating-location', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
