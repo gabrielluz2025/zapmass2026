@@ -888,7 +888,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const bindUser = (uid: string) => {
       setCircuitBreakerOpenIds(new Set());
       contactsVpsOffsetRef.current = 0;
-      setContactsHasMore(false);
+        setContactsHasMore(false);
       void reloadVpsContactsRef.current();
       void reloadVpsContactListsRef.current();
       void reloadVpsCampaignsRef.current();
@@ -905,10 +905,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setInboxHasMore(false);
       setInboxLoadingMore(false);
       setInboxTotal(0);
-      setContacts([]);
-      setContactLists([]);
-      setCampaigns([]);
-      setConnections([]);
+        setContacts([]);
+        setContactLists([]);
+        setCampaigns([]);
+        setConnections([]);
       setConversations([]);
       setBirthdays([]);
       setSystemLogs([]);
@@ -921,8 +921,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setWarmupChipStats({});
       setCircuitBreakerOpenIds(new Set());
       setCampaignStatus({ isRunning: false, total: 0, processed: 0, success: 0, failed: 0 });
-      setContactsSavedTotal(null);
-      campaignFirestoreHealRef.current.clear();
+        setContactsSavedTotal(null);
+        campaignFirestoreHealRef.current.clear();
       conversationsSocketPendingRef.current = null;
     };
 
@@ -942,19 +942,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           if (sock.connected) sock.disconnect();
           return;
         }
-        try {
-          const t = await user.getIdToken();
-          sock.auth = { token: t };
-        } catch {
-          (sock as Socket & { auth: { token?: string } }).auth = {};
-        }
+          try {
+            const t = await user.getIdToken();
+            sock.auth = { token: t };
+          } catch {
+            (sock as Socket & { auth: { token?: string } }).auth = {};
+          }
         // Só reconecta ao trocar de conta — atualizar perfil/nome não deve derrubar o socket.
         if (uidChanged) {
           if (sock.connected) sock.disconnect();
           sock.connect();
         } else if (!sock.connected) {
-          sock.connect();
-        }
+        sock.connect();
+      }
       }
 
       if (!user?.uid) {
@@ -967,7 +967,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       currentUidRef.current = dataUid;
       if (prevBoundDataUidRef.current !== dataUid) {
         prevBoundDataUidRef.current = dataUid;
-        bindUser(dataUid);
+      bindUser(dataUid);
       }
     };
 
@@ -1119,10 +1119,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         socket.auth = { token };
         if (!socket.connected) socket.connect();
       }
-    }).catch(() => {
+      }).catch(() => {
       setBackendLinkState('offline');
-      setIsBackendConnected(false);
-    });
+        setIsBackendConnected(false);
+      });
 
     const syncConnectionsFromApi = async () => {
       const ownerUid = getOwnerUidForConnectionScope();
@@ -1234,13 +1234,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         msg === 'unauthorized' || msg.includes('jwt') || msg.includes('token') || msg.includes('expired');
       if (authRelated) {
         void getSessionIdToken(true)
-          .then((token) => {
+            .then((token) => {
             socket.auth = token ? { token } : {};
-            if (!socket.connected) socket.connect();
-          })
-          .catch(() => {
-            /* sem token valido, mantem desconectado */
-          });
+              if (!socket.connected) socket.connect();
+            })
+            .catch(() => {
+              /* sem token valido, mantem desconectado */
+            });
       }
     });
 
@@ -1541,11 +1541,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // Contactos vêm do Firestore (`onSnapshot`); não substituir por [] se algum payload legado vier vazio.
       if (Array.isArray(data?.contacts) && data.contacts.length > 0) {
         startTransition(() => {
-          setContacts((prev) => {
-            const byId = new Map(prev.map((c) => [c.id, c]));
-            for (const c of data.contacts!) {
-              if (c?.id) byId.set(c.id, { ...(byId.get(c.id) || ({} as Contact)), ...c });
-            }
+        setContacts((prev) => {
+          const byId = new Map(prev.map((c) => [c.id, c]));
+          for (const c of data.contacts!) {
+            if (c?.id) byId.set(c.id, { ...(byId.get(c.id) || ({} as Contact)), ...c });
+          }
             // Postgres já entrega ordenado — evita localeCompare em 10k no main thread.
             return Array.from(byId.values());
           });
@@ -1726,10 +1726,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
         if (uid) {
           patchCampaignPersist(uid, campaignId, {
-            status: CampaignStatus.RUNNING,
-            processedCount: 0,
-            successCount: 0,
-            failedCount: 0
+          status: CampaignStatus.RUNNING,
+          processedCount: 0,
+          successCount: 0,
+          failedCount: 0
           });
         }
       }
@@ -2116,11 +2116,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             )
           );
         }
-        const now = Date.now();
-        const minGapMs = 8000;
-        if (now - sendMessageErrorToastAtRef.current < minGapMs) return;
-        sendMessageErrorToastAtRef.current = now;
-        toast.error(error || 'Falha ao enviar mensagem.', { id: 'send-message-error', duration: 6000 });
+      const now = Date.now();
+      const minGapMs = 8000;
+      if (now - sendMessageErrorToastAtRef.current < minGapMs) return;
+      sendMessageErrorToastAtRef.current = now;
+      toast.error(error || 'Falha ao enviar mensagem.', { id: 'send-message-error', duration: 6000 });
       }
     );
 
@@ -2201,9 +2201,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           const toRaw = payload.to;
           if (typeof toRaw === 'string' && toRaw.trim()) {
             const pkey = normPhoneKey(toRaw);
-            const campaignDoc = campaignsRef.current.find((x) => x.id === payload.campaignId);
-            const totalStages = getCampaignStageTotal(campaignDoc);
-            const cname = String(campaignDoc?.name || 'Campanha').slice(0, 120);
+              const campaignDoc = campaignsRef.current.find((x) => x.id === payload.campaignId);
+              const totalStages = getCampaignStageTotal(campaignDoc);
+              const cname = String(campaignDoc?.name || 'Campanha').slice(0, 120);
             // Em vez de copiar 10k contatos e re-renderizar a cada mensagem, acumula
             // e dá flush agrupado (ver flushCampaignPreviewBuffer).
             queueCampaignPreview(pkey, payload.campaignId, cname, totalStages);
@@ -2324,13 +2324,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (now - lastReconnectNudgeMs < 1200) return;
         lastReconnectNudgeMs = now;
         void getSessionIdToken(false)
-          .then((token) => {
+            .then((token) => {
             (socket as Socket & { auth: { token?: string } }).auth = token ? { token } : {};
-            if (!socket.connected) socket.connect();
-          })
-          .catch(() => {
-            if (!socket.connected) socket.connect();
-          });
+              if (!socket.connected) socket.connect();
+            })
+            .catch(() => {
+              if (!socket.connected) socket.connect();
+            });
         return;
       }
       if (now - lastConvResyncMs < 4500) return;
@@ -2440,10 +2440,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const refreshSocketAuthToken = async (forceRefresh = false) => {
     const sock = socketRef.current;
     if (!sock) return;
-    try {
+      try {
       const token = await getSessionIdToken(forceRefresh);
       (sock as Socket & { auth: { token?: string } }).auth = token ? { token } : {};
-    } catch {
+      } catch {
       (sock as Socket & { auth: { token?: string } }).auth = {};
     }
   };
@@ -2707,14 +2707,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const cleared = await apiClearTenantContactsData();
       summary.contacts = cleared.contacts;
       summary.contactLists = cleared.contactLists;
-      hadAnySuccess = true;
+        hadAnySuccess = true;
     } catch (err: unknown) {
       errors.push(`vps/contacts-data: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
       summary.campaigns = await apiDeleteAllCampaigns();
-      hadAnySuccess = true;
+        hadAnySuccess = true;
     } catch (err: unknown) {
       errors.push(`vps/campaigns: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -3281,7 +3281,19 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
         ? { channelWeights: options.channelWeights }
         : {}),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      scheduleStartSnapshot: {
+        numbers: cleanNumbers,
+        message: stagesForDoc[0] || message,
+        messageStages: stagesForDoc,
+        connectionIds: targetConnections,
+        delaySeconds: options?.delaySeconds,
+        ...(cleanRecipients && cleanRecipients.length > 0 ? { recipients: cleanRecipients } : {}),
+        ...(options?.replyFlow?.enabled ? { replyFlow: options.replyFlow } : {}),
+        ...(options?.channelWeights && Object.keys(options.channelWeights).length > 0
+          ? { channelWeights: options.channelWeights }
+          : {})
+      }
     };
 
     const campaignIdCreated = await Promise.race([
@@ -3709,13 +3721,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   return (
     <ZapMassSocketContext.Provider value={socketForShell}>
-      <ZapMassConnectionsSliceContext.Provider value={connectionsSlice}>
-        <ZapMassUiSnapshotContext.Provider value={zapMassUiSnapshot}>
-          <ZapMassConversationsContext.Provider value={zapMassConversationsSlice}>
-            <ZapMassCoreContext.Provider value={zapMassCoreValue}>{children}</ZapMassCoreContext.Provider>
-          </ZapMassConversationsContext.Provider>
-        </ZapMassUiSnapshotContext.Provider>
-      </ZapMassConnectionsSliceContext.Provider>
+    <ZapMassConnectionsSliceContext.Provider value={connectionsSlice}>
+      <ZapMassUiSnapshotContext.Provider value={zapMassUiSnapshot}>
+        <ZapMassConversationsContext.Provider value={zapMassConversationsSlice}>
+          <ZapMassCoreContext.Provider value={zapMassCoreValue}>{children}</ZapMassCoreContext.Provider>
+        </ZapMassConversationsContext.Provider>
+      </ZapMassUiSnapshotContext.Provider>
+    </ZapMassConnectionsSliceContext.Provider>
     </ZapMassSocketContext.Provider>
   );
 };
