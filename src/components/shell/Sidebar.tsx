@@ -31,6 +31,7 @@ import { getSavedMode, toggleMode } from '../../theme';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 import { canAccessCreatorStudio } from '../../utils/creatorStudioAccess';
 import { useAppProfile } from '../../context/AppProfileContext';
+import { prefetchAppView } from '../../utils/prefetchAppViews';
 
 interface SidebarProps {
   currentView: string;
@@ -268,6 +269,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => onChangeView(item.id)}
+                    onMouseEnter={() => prefetchAppView(item.id)}
+                    onFocus={() => prefetchAppView(item.id)}
                     aria-current={isActive ? 'page' : undefined}
                     title={collapsed ? item.label : undefined}
                     className={`zm-nav-item-aurora w-full flex items-center gap-3 ${

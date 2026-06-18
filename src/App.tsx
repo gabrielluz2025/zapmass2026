@@ -1,8 +1,14 @@
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Crown, Loader2, Search, Zap } from 'lucide-react';
 import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
+import { ReportsTab } from './components/ReportsTab';
+import { SettingsTab } from './components/SettingsTab';
+import { WarmupTab } from './components/WarmupTab';
+import { MySubscriptionTab } from './components/billing/MySubscriptionTab';
+import { TutorialPage } from './components/help/TutorialPage';
+import { WorkspaceTeamPage } from './pages/WorkspaceTeamPage';
 import { PreLoginLanding } from './components/PreLoginLanding';
 import { HardGateScreen } from './components/billing/HardGateScreen';
 import { TrialAutoStart } from './components/billing/TrialAutoStart';
@@ -30,6 +36,7 @@ import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
 import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
 import { lazyWithRetry } from './utils/lazyWithRetry';
+import { prefetchDefaultAppViews } from './utils/prefetchAppViews';
 
 /** Rota pública `/avaliacao` — não entra no bundle principal. */
 const ClientSatisfactionSurveyPage = lazyWithRetry(
@@ -40,7 +47,7 @@ const ClientSatisfactionSurveyPage = lazyWithRetry(
   'survey'
 );
 
-/** Painéis autenticados — primeiro paint mais rápido; carrega sob demanda. */
+/** Painéis pesados — lazy + Suspense. Abas leves importadas acima abrem na hora. */
 const DashboardTab = lazyWithRetry(
   () => import('./components/DashboardTab').then((m) => ({ default: m.DashboardTab })),
   'dashboard'
@@ -57,22 +64,6 @@ const ContactsTab = lazyWithRetry(
   () => import('./components/ContactsTab').then((m) => ({ default: m.ContactsTab })),
   'contacts'
 );
-const ReportsTab = lazyWithRetry(
-  () => import('./components/ReportsTab').then((m) => ({ default: m.ReportsTab })),
-  'reports'
-);
-const SettingsTab = lazyWithRetry(
-  () => import('./components/SettingsTab').then((m) => ({ default: m.SettingsTab })),
-  'settings'
-);
-const MySubscriptionTab = lazyWithRetry(
-  () => import('./components/billing/MySubscriptionTab').then((m) => ({ default: m.MySubscriptionTab })),
-  'subscription'
-);
-const WarmupTab = lazyWithRetry(
-  () => import('./components/WarmupTab').then((m) => ({ default: m.WarmupTab })),
-  'warmup'
-);
 const AdminPanel = lazyWithRetry(
   () => import('./components/admin/AdminPanel').then((m) => ({ default: m.AdminPanel })),
   'admin'
@@ -84,14 +75,6 @@ const AdminServerTab = lazyWithRetry(
 const CreatorStudio = lazyWithRetry(
   () => import('./components/creator/CreatorStudio').then((m) => ({ default: m.CreatorStudio })),
   'creator'
-);
-const TutorialPage = lazyWithRetry(
-  () => import('./components/help/TutorialPage').then((m) => ({ default: m.TutorialPage })),
-  'tutorial'
-);
-const WorkspaceTeamPage = lazyWithRetry(
-  () => import('./pages/WorkspaceTeamPage').then((m) => ({ default: m.WorkspaceTeamPage })),
-  'team'
 );
 const ReligiousNewMemberTab = lazyWithRetry(
   () =>
@@ -106,8 +89,20 @@ const PastoralVisitsTab = lazyWithRetry(
   'pastoral'
 );
 
-/** Mantém até N abas montadas para evitar remount + recarga de chunks a cada clique. */
-const MAX_CACHED_VIEWS = 5;
+/** Abas pesadas desmontam ao sair — evita re-render contínuo com sync de contatos/campanhas. */
+const HEAVY_VIEWS = new Set([
+  'dashboard',
+  'chat',
+  'campaigns',
+  'contacts',
+  'admin',
+  'admin-ops',
+  'creator-studio',
+  'religious-members',
+  'pastoral-visits'
+]);
+
+const LIGHT_CACHE_MAX = 4;
 
 const TabPanel: React.FC<{ active: boolean; children: React.ReactNode }> = ({ active, children }) => (
   <div
@@ -192,7 +187,7 @@ const MainLayout: React.FC = () => {
   const { user } = useAuth();
   const { readOnlyMode, readOnlyMessage, subscription, enforce, hasFullAccess } = useSubscription();
   const { currentView, setCurrentView } = useAppView();
-  const [cachedViews, setCachedViews] = useState<string[]>([currentView]);
+  const [lightCachedViews, setLightCachedViews] = useState<string[]>([currentView]);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [trialEndedOpen, setTrialEndedOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -317,13 +312,22 @@ const MainLayout: React.FC = () => {
   }, [setCurrentView]);
 
   useEffect(() => {
-    setCachedViews((prev) => {
+    if (HEAVY_VIEWS.has(currentView)) return;
+    setLightCachedViews((prev) => {
       const without = prev.filter((v) => v !== currentView);
       const next = [...without, currentView];
-      if (next.length <= MAX_CACHED_VIEWS) return next;
-      return next.slice(-MAX_CACHED_VIEWS);
+      if (next.length <= LIGHT_CACHE_MAX) return next;
+      return next.slice(-LIGHT_CACHE_MAX);
     });
   }, [currentView]);
+
+  const mountedViews = useMemo(() => {
+    const views = new Set<string>([currentView]);
+    for (const v of lightCachedViews) {
+      if (!HEAVY_VIEWS.has(v)) views.add(v);
+    }
+    return [...views];
+  }, [currentView, lightCachedViews]);
 
   const renderContentInner = (view: string): React.ReactNode => {
     switch (view) {
@@ -374,14 +378,18 @@ const MainLayout: React.FC = () => {
 
   const renderContent = () => (
     <>
-      {cachedViews.map((view) => {
+      {mountedViews.map((view) => {
         const active = view === currentView;
+        const heavy = HEAVY_VIEWS.has(view);
+        const panel = renderContentInner(view);
         return (
           <TabPanel key={view} active={active}>
             <TabLoadErrorBoundary label={view}>
-              <Suspense fallback={active ? <LazyViewSpinner /> : null}>
-                {renderContentInner(view)}
-              </Suspense>
+              {heavy ? (
+                <Suspense fallback={active ? <LazyViewSpinner /> : null}>{panel}</Suspense>
+              ) : (
+                panel
+              )}
             </TabLoadErrorBoundary>
           </TabPanel>
         );
@@ -494,11 +502,18 @@ const GateOrApp: React.FC = () => {
     <AppViewProvider>
       <ZapMassProvider>
         <NotificationProvider>
-          <MainLayout />
+          <MainLayoutWithPrefetch />
         </NotificationProvider>
       </ZapMassProvider>
     </AppViewProvider>
   );
+};
+
+const MainLayoutWithPrefetch: React.FC = () => {
+  useEffect(() => {
+    prefetchDefaultAppViews();
+  }, []);
+  return <MainLayout />;
 };
 
 const AuthGate: React.FC = () => {
