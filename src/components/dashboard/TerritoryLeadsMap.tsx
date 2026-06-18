@@ -239,6 +239,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const contactPinsResult = useMemo(() => {
     if (!selectedRow) return { pins: [], unmapped: 0 };
     const cityName = cityNameOnly || city;
+    let fallbackCenter: { lat: number; lng: number } | null = null;
+    if (selectedRow.lat != null && selectedRow.lng != null) {
+      const fixed = fixBrazilCoord(selectedRow.lat, selectedRow.lng);
+      if (isMapCoordValid(fixed.lat, fixed.lng)) fallbackCenter = fixed;
+    }
     return buildContactPinsForNeighborhood({
       contacts: neighborhoodContacts.map((c) => ({
         id: c.id,
@@ -259,8 +264,9 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       neighborhoodLabel: selectedRow.label,
       filterCity: cityName,
       filterState: stateCode,
+      fallbackCenter,
     });
-  }, [selectedRow, neighborhoodContacts, nbGeo?.contactPins, city, stateCode]);
+  }, [selectedRow, neighborhoodContacts, nbGeo?.contactPins, city, cityNameOnly, stateCode]);
 
   const contactPins = contactPinsResult.pins;
   const unmappedCount = contactPinsResult.unmapped;
@@ -702,6 +708,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           {selectedRow ? (
             <div className="zm-atlas__map-badge zm-atlas__map-badge--focus">
               {selectedRow.label} · {contactPins.length} no mapa
+              {contactPins.some((p) => p.approximate) ? ' · posição aproximada' : ''}
               {unmappedCount > 0 && ` · ${unmappedCount} sem coordenada`}
               {nbGeoLoading && ' · carregando…'}
             </div>

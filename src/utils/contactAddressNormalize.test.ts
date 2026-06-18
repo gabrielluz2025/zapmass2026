@@ -21,6 +21,13 @@ describe('contactAddressNormalize', () => {
     expect(r.state).toBe('SC');
   });
 
+  it('bairro Vorstadt no campo cidade vira Blumenau + bairro', () => {
+    const r = normalizeContactAddressFields({ city: 'Vorstadt', phone: '47999999999' });
+    expect(r.city).toBe('Blumenau');
+    expect(r.state).toBe('SC');
+    expect(r.neighborhood).toBe('Vorstadt');
+  });
+
   it('corrige Blumenau - BA quando DDD é de SC', () => {
     const r = resolveContactCityState({ city: 'Blumenau - BA', phone: '47999999999' });
     expect(r.city).toBe('Blumenau');

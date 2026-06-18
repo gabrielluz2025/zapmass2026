@@ -147,13 +147,13 @@ export function resolveTrustedContactCoord(
   }
 
   if (c.geocodePrecision === 'neighborhood') {
-    if (isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state, 18)) {
+    if (isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state, 22)) {
       return { ...fixed, verified: false };
     }
     return null;
   }
 
-  if (isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state, 12)) {
+  if (isCoordPlausibleForCity(fixed.lat, fixed.lng, city, state, 18)) {
     return { ...fixed, verified: false };
   }
 

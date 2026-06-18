@@ -1,5 +1,6 @@
 import { phoneDigitsToUf } from './brazilPhoneGeo';
 import { fuzzyResolveCityWithIbge, type IbgeCityIndex } from './ibgeCityLookup';
+import { matchCityOfficialNeighborhood } from '../../shared/officialNeighborhoods';
 
 const BRAZIL_UFS = new Set([
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT',
@@ -702,37 +703,96 @@ export type NormalizedContactAddress = {
   number?: string;
 };
 
-export function normalizeContactAddressFields(
-  input: ContactAddressInput,
-  ibgeIndex?: IbgeCityIndex | null
-): NormalizedContactAddress {
-  const out: NormalizedContactAddress = {};
+const STREET_PREFIX_RE =
+  /^(rua|r\.|avenida|av\.|av |travessa|trav\.|estrada|rodovia|praça|pça\.|alameda|al\.)\s/i;
 
-  const cityInput = repairUtf8Mojibake(input.city || '');
-  const hasCity = cleanWhitespace(cityInput).length > 0;
-  const hasState = cleanWhitespace(input.state || '').length > 0;
-  const hasPhone = String(input.phone || '').replace(/\D/g, '').length >= 10;
+/** Corrige CEP, rua ou bairro digitados no campo errado. */
+export function repairMisplacedAddressFields(input: ContactAddressInput): ContactAddressInput {
+  let city = repairUtf8Mojibake(input.city || '');
+  let neighborhood = repairUtf8Mojibake(input.neighborhood || '');
+  let street = cleanWhitespace(input.street || '');
+  let zipCode = input.zipCode || '';
+  let number = cleanWhitespace(input.number || '');
+  const state = input.state || '';
 
-  if (hasCity || hasState || hasPhone) {
-    const { city, state } = resolveAddressCityState(
-      { city: cityInput, state: input.state },
-      ibgeIndex
-    );
-    if (city) out.city = city;
-    if (state) out.state = state;
+  const pullCep = (raw: string): { text: string; cep: string } => {
+    const m = raw.match(/\b(\d{5})-?(\d{3})\b/);
+    if (!m) return { text: raw, cep: '' };
+    const cep = `${m[1]}-${m[2]}`;
+    const text = cleanWhitespace(raw.replace(m[0], ''));
+    return { text, cep };
+  };
+
+  if (!zipCode.replace(/\D/g, '')) {
+    const fromCity = pullCep(city);
+    if (fromCity.cep) {
+      zipCode = fromCity.cep;
+      city = fromCity.text;
+    }
+    const fromNb = pullCep(neighborhood);
+    if (!zipCode.replace(/\D/g, '') && fromNb.cep) {
+      zipCode = fromNb.cep;
+      neighborhood = fromNb.text;
+    }
   }
 
-  const cityHint = out.city || cleanWhitespace(input.city || '').split('·')[0].trim();
-  const nb = normalizeContactNeighborhood(input.neighborhood || '', cityHint);
+  if (STREET_PREFIX_RE.test(city) && !street) {
+    street = city;
+    city = neighborhood;
+    neighborhood = '';
+  } else if (STREET_PREFIX_RE.test(neighborhood) && !street) {
+    street = neighborhood;
+    neighborhood = '';
+  }
+
+  if (/^\d+[a-zA-Z]?$/.test(neighborhood) && street && !number) {
+    number = neighborhood;
+    neighborhood = '';
+  }
+
+  return { ...input, city, state, neighborhood, street, zipCode, number };
+}
+
+function expandStreetAbbreviation(raw: string): string {
+  const t = cleanWhitespace(raw);
+  if (!t) return '';
+  return t
+    .replace(/^\bR\.\s+/i, 'Rua ')
+    .replace(/^\bAv\.\s+/i, 'Avenida ')
+    .replace(/^\bAv\s+/i, 'Avenida ')
+    .replace(/^\bTrav\.\s+/i, 'Travessa ')
+    .replace(/^\bEstr\.\s+/i, 'Estrada ')
+    .replace(/^\bRod\.\s+/i, 'Rodovia ')
+    .replace(/^\bPç\.\s+/i, 'Praça ')
+    .replace(/^\bPça\.\s+/i, 'Praça ');
+}
+
+export function normalizeContactAddressFields(
+  input: ContactAddressInput,
+  ibgeIndex?: IbgeCityIndex | null,
+  nbToCityMap?: ReadonlyMap<string, { city: string; state: string }>
+): NormalizedContactAddress {
+  const repaired = repairMisplacedAddressFields(input);
+  const place = resolveGeoPlaceForContact(repaired, ibgeIndex, nbToCityMap);
+  const out: NormalizedContactAddress = {};
+
+  if (place.city) out.city = place.city;
+  if (place.state) out.state = place.state;
+
+  let nb = place.neighborhood || '';
+  if (nb && out.city && out.state) {
+    const official = matchCityOfficialNeighborhood(out.city, out.state, nb);
+    if (official) nb = official;
+  }
   if (nb) out.neighborhood = nb;
 
-  const street = cleanWhitespace(input.street || '');
+  const street = expandStreetAbbreviation(repaired.street || '');
   if (street) out.street = titleCasePlaceName(street);
 
-  const zip = normalizeContactZipCode(input.zipCode || '');
+  const zip = normalizeContactZipCode(repaired.zipCode || '');
   if (zip) out.zipCode = zip;
 
-  const number = cleanWhitespace(input.number || '');
+  const number = cleanWhitespace(repaired.number || '');
   if (number) out.number = number;
 
   return out;

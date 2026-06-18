@@ -2027,7 +2027,13 @@ export async function geocodeLeadsGeoClusters(
 }
 
 function contactNeedsGeocode(c: Contact): boolean {
-  if (!hasFullStreetAddress(c) && !normCity(c.city || '') && !normNeighborhood(c.neighborhood || '')) {
+  const hasZip = (c.zipCode || '').replace(/\D/g, '').length === 8;
+  if (
+    !hasFullStreetAddress(c) &&
+    !normCity(c.city || '') &&
+    !normNeighborhood(c.neighborhood || '') &&
+    !hasZip
+  ) {
     return false;
   }
   const stored = storedContactCoords(c);
@@ -2035,7 +2041,8 @@ function contactNeedsGeocode(c: Contact): boolean {
     return (
       hasFullStreetAddress(c) ||
       Boolean(normNeighborhood(c.neighborhood || '')) ||
-      Boolean(normCity(c.city || ''))
+      Boolean(normCity(c.city || '')) ||
+      hasZip
     );
   }
   if (!hasFullStreetAddress(c)) return false;
@@ -2054,7 +2061,7 @@ export async function geocodeContactsWithAddress(
   tenantId: string,
   opts?: { max?: number; city?: string; neighborhood?: string; name?: string; force?: boolean }
 ): Promise<{ geocoded: number; failed: number; summary: LeadsGeoSummary }> {
-  const max = Math.min(Math.max(opts?.max ?? 60, 1), 120);
+  const max = Math.min(Math.max(opts?.max ?? 60, 1), 250);
 
   const contacts = await loadTenantContacts(tenantId);
   const pending = contacts

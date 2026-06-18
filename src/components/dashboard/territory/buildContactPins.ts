@@ -28,6 +28,8 @@ export function buildContactPinsForNeighborhood(input: {
   neighborhoodLabel: string;
   filterCity: string;
   filterState: string;
+  /** Centro do bairro quando o contato ainda não tem lat/lng (pins aproximados). */
+  fallbackCenter?: { lat: number; lng: number } | null;
 }): { pins: MapContactPin[]; unmapped: number } {
   const byId = new Map<string, MapContactPin>();
   const nb = input.neighborhoodLabel;
@@ -113,6 +115,37 @@ export function buildContactPinsForNeighborhood(input: {
       approximate: !trusted.verified,
       coordVerified: trusted.verified,
     });
+  }
+
+  if (input.fallbackCenter && unmapped > 0) {
+    const remaining = input.contacts.filter((c) => !byId.has(c.id));
+    const centerLat = input.fallbackCenter.lat;
+    const centerLng = input.fallbackCenter.lng;
+    const cosLat = Math.cos((centerLat * Math.PI) / 180);
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    remaining.forEach((c, i) => {
+      const angle = i * golden;
+      const r = 0.00004 + Math.sqrt(i + 1) * 0.000028;
+      const lat = centerLat + r * Math.cos(angle);
+      const lng = centerLng + (r * Math.sin(angle)) / (cosLat || 1);
+      byId.set(c.id, {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        neighborhood: c.neighborhood || nb,
+        street: c.street || '',
+        number: c.number || '',
+        zipCode: c.zipCode || '',
+        city: c.city || input.filterCity,
+        state: c.state || input.filterState,
+        temp: c.temp,
+        lat,
+        lng,
+        approximate: true,
+        coordVerified: false,
+      });
+    });
+    unmapped = 0;
   }
 
   return { pins: [...byId.values()], unmapped };
