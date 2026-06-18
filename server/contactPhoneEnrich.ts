@@ -1,7 +1,6 @@
-import { listContacts } from './repositories/contactsRepository.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
-import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
 import type { Conversation } from './types.js';
+import { getCrmContactIndexes } from './crmContactIndexCache.js';
 import {
   buildPhoneDigitLookupKeys,
   looksLikeLongLidDigits,
@@ -16,45 +15,6 @@ import {
   peerFromStoredMessages,
   type LidPeerFields
 } from './evolutionLidResolve.js';
-
-const crmPhoneCache = new Map<
-  string,
-  { at: number; byName: Map<string, string>; byDigits: Map<string, string> }
->();
-const CRM_PHONE_CACHE_MS = 45_000;
-
-function normalizeNameKey(name: string): string {
-  return String(name || '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '');
-}
-
-async function crmPhoneIndexesForTenant(tenantUid: string) {
-  const pgTenant = resolvePostgresTenantId(tenantUid);
-  const hit = crmPhoneCache.get(pgTenant);
-  if (hit && Date.now() - hit.at < CRM_PHONE_CACHE_MS) return hit;
-  const byName = new Map<string, string>();
-  const byDigits = new Map<string, string>();
-  const contacts = vpsDataEnabled() ? await listContacts(pgTenant, { limit: 10_000 }) : [];
-  for (const ct of contacts) {
-    const digits = normalizePhoneDigits(String(ct.phone || ''));
-    if (!plausiblePhoneDigits(digits) || looksLikeLongLidDigits(digits)) continue;
-    const e164 = normalizeOutboundDigits(digits);
-    if (!e164) continue;
-    for (const key of buildPhoneDigitLookupKeys(digits)) {
-      if (!byDigits.has(key)) byDigits.set(key, e164);
-    }
-    const nameKey = normalizeNameKey(ct.name || '');
-    if (nameKey && nameKey !== 'contato' && !byName.has(nameKey)) {
-      byName.set(nameKey, e164);
-    }
-  }
-  const entry = { at: Date.now(), byName, byDigits };
-  crmPhoneCache.set(pgTenant, entry);
-  return entry;
-}
 
 function peerFromE164Digits(digits: string): LidPeerFields | null {
   const e164 = normalizeOutboundDigits(digits);
@@ -101,6 +61,14 @@ function resolveCrmPhoneByNameIndex(
   return null;
 }
 
+function normalizeNameKey(name: string): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+}
+
 /**
  * Cruza conversa @lid (ou telefone inválido) com a base de contatos ZapMass.
  */
@@ -109,7 +77,7 @@ export async function resolveCrmPhonePeerForConversation(
   conv: Pick<Conversation, 'contactName' | 'contactPhone' | 'waJidAlt' | 'id'>
 ): Promise<LidPeerFields | null> {
   if (!tenantUid || tenantUid === 'anonymous' || !vpsDataEnabled()) return null;
-  const { byName, byDigits } = await crmPhoneIndexesForTenant(tenantUid);
+  const { byName, byDigits } = await getCrmContactIndexes(tenantUid);
   if (byName.size === 0 && byDigits.size === 0) return null;
 
   const idPart = conv.id.includes(':') ? conv.id.slice(conv.id.indexOf(':') + 1) : '';
@@ -131,7 +99,7 @@ export async function enrichConversationsWithCrmPhones(
   list: Conversation[]
 ): Promise<Conversation[]> {
   if (!tenantUid || tenantUid === 'anonymous' || !vpsDataEnabled()) return list;
-  const { byName, byDigits } = await crmPhoneIndexesForTenant(tenantUid);
+  const { byName, byDigits } = await getCrmContactIndexes(tenantUid);
   if (byName.size === 0 && byDigits.size === 0) return list;
 
   return list.map((conv) => {

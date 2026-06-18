@@ -845,10 +845,13 @@ export const ContactsTab: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [autoLoadActive, setAutoLoadActive] = useState(true);
 
-  // Auto-loader: busca o restante da base em poucas requisições grandes (10k) sem travar a UI
+  // Auto-loader: uma página por vez para não bloquear a UI (base grande).
   useEffect(() => {
     if (!autoLoadActive || !contactsHasMore || contactsLoadingMore) return;
-    void loadAllContacts?.();
+    const timer = window.setTimeout(() => {
+      void loadAllContacts?.();
+    }, 250);
+    return () => window.clearTimeout(timer);
   }, [autoLoadActive, contactsHasMore, contactsLoadingMore, loadAllContacts]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);

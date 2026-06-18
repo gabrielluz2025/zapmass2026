@@ -32,6 +32,7 @@ import { normalizeContactAddressFields } from '../src/utils/contactAddressNormal
 import { ensureIbgeMunicipiosIndex, getIbgeMunicipiosIndex } from './ibgeMunicipios.js';
 import { resolveCitySearchLabel } from '../src/utils/ibgeCityLookup.js';
 import { runAddressNormalizationBatch } from './addressNormalizationJob.js';
+import { invalidateCrmContactIndexCache } from './crmContactIndexCache.js';
 
 /** Consulta ViaCEP e retorna endereço canônico completo (cidade, estado, rua, bairro). */
 async function lookupViaCep(
@@ -175,6 +176,7 @@ export function registerContactsDataRoutes(app: Express): void {
       } catch (geoErr) {
         console.warn('[api/contacts POST geocode]', geoErr);
       }
+      invalidateCrmContactIndexCache(ctx.tenantId);
       return res.json({ ok: true, contact: created, id: created.id });
     } catch (e) {
       console.error('[api/contacts POST]', e);
@@ -216,6 +218,7 @@ export function registerContactsDataRoutes(app: Express): void {
       runAddressNormalizationBatch(ctx.tenantId, 100).catch((e) => {
         console.warn('[api/contacts/bulk] background normalize error:', e);
       });
+      invalidateCrmContactIndexCache(ctx.tenantId);
       return res.json({ ok: true, ids, count: ids.length });
     } catch (e) {
       console.error('[api/contacts/bulk]', e);
@@ -292,6 +295,7 @@ export function registerContactsDataRoutes(app: Express): void {
     } catch (geoErr) {
       console.warn('[api/contacts PATCH geocode]', geoErr);
     }
+    invalidateCrmContactIndexCache(ctx.tenantId);
     return res.json({ ok: true, contact: updated });
   });
 
@@ -332,6 +336,7 @@ export function registerContactsDataRoutes(app: Express): void {
       return res.status(400).json({ ok: false, error: 'Máximo 500 atualizações por lote.' });
     }
     await bulkUpdateContacts(ctx.tenantId, items);
+    invalidateCrmContactIndexCache(ctx.tenantId);
     return res.json({ ok: true, count: items.length });
   });
 
@@ -341,6 +346,7 @@ export function registerContactsDataRoutes(app: Express): void {
     const id = String(req.params.id || '').trim();
     const ok = await deleteContact(ctx.tenantId, id);
     if (!ok) return res.status(404).json({ ok: false, error: 'Contato não encontrado.' });
+    invalidateCrmContactIndexCache(ctx.tenantId);
     return res.json({ ok: true });
   });
 
@@ -426,6 +432,7 @@ export function registerContactsDataRoutes(app: Express): void {
     }
     const contacts = await deleteAllContacts(ctx.tenantId);
     const lists = await deleteAllContactLists(ctx.tenantId);
+    invalidateCrmContactIndexCache(ctx.tenantId);
     return res.json({ ok: true, contacts, contactLists: lists });
   });
 }

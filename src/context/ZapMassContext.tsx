@@ -813,7 +813,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, []);
 
-  const syncContactPages = async (
+  const syncContactPage = async (
     requestUid: string,
     startOffset: number,
     opts: { reset?: boolean } = {}
@@ -824,35 +824,31 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsVpsOffsetRef.current = 0;
       setContacts([]);
       setContactsHasMore(false);
+      void refreshContactsSavedTotalRef.current();
     }
     setContactsLoadingMore(true);
     try {
-      let offset = startOffset;
-      let hasMore = true;
-      let firstBatch = offset === 0;
-      while (hasMore && currentUidRef.current === requestUid) {
-        const { contacts: batch, hasMore: more, total } = await fetchContacts({
-          limit: CONTACTS_PAGE_SIZE,
-          offset,
-          skipCount: offset > 0
+      const offset = opts.reset ? 0 : startOffset;
+      const { contacts: batch, hasMore: more, total } = await fetchContacts({
+        limit: CONTACTS_PAGE_SIZE,
+        offset,
+        skipCount: offset > 0
+      });
+      if (currentUidRef.current !== requestUid) return;
+      if (batch.length === 0) {
+        setContactsHasMore(false);
+        return;
+      }
+      const nextOffset = offset + batch.length;
+      contactsVpsOffsetRef.current = nextOffset;
+      setContactsHasMore(more);
+      if (total != null) setContactsSavedTotal(total);
+      if (offset === 0) {
+        startTransition(() => setContacts(batch));
+      } else {
+        startTransition(() => {
+          setContacts((prev) => appendContactsPage(prev, batch));
         });
-        if (currentUidRef.current !== requestUid) return;
-        offset += batch.length;
-        contactsVpsOffsetRef.current = offset;
-        hasMore = more;
-        setContactsHasMore(more);
-        if (total != null) setContactsSavedTotal(total);
-        if (batch.length === 0) break;
-        if (firstBatch) {
-          startTransition(() => setContacts(batch));
-          firstBatch = false;
-        } else {
-          startTransition(() => {
-            setContacts((prev) => appendContactsPage(prev, batch));
-          });
-        }
-        if (!more) break;
-        await new Promise((r) => setTimeout(r, 16));
       }
     } catch (err) {
       warnProd('[VPS] sync contacts:', (err as Error)?.message || err);
@@ -865,7 +861,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   reloadVpsContactsRef.current = async () => {
     const uid = currentUidRef.current;
     if (!uid) return;
-    await syncContactPages(uid, 0, { reset: true });
+    await syncContactPage(uid, 0, { reset: true });
   };
 
   reloadVpsContactListsRef.current = async () => {
@@ -979,7 +975,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const loadAllContacts = useCallback(async (): Promise<void> => {
     const uid = currentUidRef.current;
     if (!uid || loadAllContactsInFlightRef.current || !contactsHasMore) return;
-    await syncContactPages(uid, contactsVpsOffsetRef.current);
+    await syncContactPage(uid, contactsVpsOffsetRef.current);
   }, [contactsHasMore]);
 
   const loadMoreContacts = useCallback(async (): Promise<void> => {

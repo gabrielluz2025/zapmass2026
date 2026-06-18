@@ -49,6 +49,26 @@ export async function listContacts(
   return r.rows.map(rowToContact);
 }
 
+/** Só nome+telefone — índice CRM no chat (evita parse de doc JSON em massa). */
+export async function listContactNamePhones(
+  tenantId: string,
+  opts: { limit?: number } = {}
+): Promise<Array<{ name: string; phone: string }>> {
+  const pool = getZapmassPool();
+  if (!pool) return [];
+  const tid = pgTenantId(tenantId);
+  const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), 10_000);
+  const r = await pool.query<{ name: string; phone: string }>(
+    `SELECT name, phone
+     FROM zapmass.contacts
+     WHERE tenant_id = $1::uuid
+     ORDER BY sort_name ASC, id ASC
+     LIMIT $2`,
+    [tid, limit]
+  );
+  return r.rows;
+}
+
 export async function getContactById(tenantId: string, id: string): Promise<Contact | null> {
   const pool = getZapmassPool();
   if (!pool) return null;
