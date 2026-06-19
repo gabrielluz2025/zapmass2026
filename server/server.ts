@@ -679,7 +679,7 @@ const emitSystemAndPromMetrics = () => {
   void getEvolutionWebhookQueueMetrics();
 };
 emitSystemAndPromMetrics();
-setInterval(emitSystemAndPromMetrics, 10000);
+setInterval(emitSystemAndPromMetrics, 60_000);
 
 /** Stats de concorrência/workers para a UI mostrar "X workers · Y/Z ocupados · N na fila". */
 const emitSessionLiveStats = () => {
@@ -687,11 +687,11 @@ const emitSessionLiveStats = () => {
   try {
     io.emit('session-live-stats', getSessionLiveStats());
   } catch {
-    /* broadcast falhou; voltamos a tentar daqui a 10s */
+    /* broadcast falhou; voltamos a tentar daqui a 60s */
   }
 };
 emitSessionLiveStats();
-setInterval(emitSessionLiveStats, 10000);
+setInterval(emitSessionLiveStats, 60_000);
 
 /** Ping Firebase Auth para gauges / alertas Prometheus (~60s; evita martelar a API Google). */
 void refreshFirebaseProbeForMetrics();
@@ -947,24 +947,6 @@ const registerSocketHandlers = () => {
     socket.emit('metrics-update', getLiveMetrics());
     void (async () => {
       if (uid && uid !== 'anonymous') {
-        if (useEvolutionEngine()) {
-          try {
-            const r = await evolutionService.syncConnectionsForOwner(uid);
-            if (r.connections.length > 0 || r.claimed.length > 0) {
-              userLog('socket:sync-connections', {
-                channels: r.connections.length,
-                claimed: r.claimed,
-                syncedChats: r.syncedChats
-              });
-            }
-          } catch (e) {
-            structuredLog('warn', 'socket.sync_connections_failed', {
-              tenantUid: uid,
-              message: e instanceof Error ? e.message : String(e)
-            });
-          }
-        }
-        emitScopedConnections();
         await ensureAssignmentsLoaded(uid).catch(() => undefined);
         try {
           const tenantSettings = await loadTenantSettings(uid);
@@ -972,13 +954,10 @@ const registerSocketHandlers = () => {
         } catch {
           /* defaults no cliente */
         }
-      } else {
-        emitScopedConnections();
       }
-      const { isInboxPaginationEnabled } = await import('./inboxPagination.js');
-      if (useEvolutionChat() && isInboxPaginationEnabled() && uid && uid !== 'anonymous') {
-        const page = await evolutionService.getInboxPageForOwner(uid, authOp, { reset: true });
-        socket.emit('inbox-page', page);
+      emitScopedConnections();
+      if (useEvolutionChat() && uid && uid !== 'anonymous') {
+        await evolutionService.reemitConversationsForOwner(uid).catch(() => undefined);
       } else {
         socket.emit(
           'conversations-update',
@@ -1083,7 +1062,7 @@ const registerSocketHandlers = () => {
           }
           if (useEvolutionChat()) {
             if (fullSync && uid && uid !== 'anonymous') {
-              await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
+              await evolutionService.syncConnectionsForOwner(uid, { force: true }).catch(() => undefined);
               return;
             }
             if (fullSync) {

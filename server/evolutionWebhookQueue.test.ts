@@ -11,7 +11,8 @@ describe('buildEvolutionWebhookJobId', () => {
     const a = buildEvolutionWebhookJobId(event);
     const b = buildEvolutionWebhookJobId(event);
     expect(a).toBe(b);
-    expect(a).toContain('MU:conn_abc:MSG1');
+    expect(a).toContain('MU__conn_abc__MSG1');
+    expect(a).not.toContain(':');
   });
 
   it('dedupe messages.update por id e status', () => {
@@ -21,7 +22,8 @@ describe('buildEvolutionWebhookJobId', () => {
       data: { key: { id: 'MSG2' }, update: { status: 3 } },
     };
     const id = buildEvolutionWebhookJobId(event);
-    expect(id).toContain('MUPD:conn_abc:MSG2:3');
+    expect(id).toContain('MUPD__conn_abc__MSG2__3');
+    expect(id).not.toContain(':');
   });
 
   it('connection.update estável para mesmo payload', () => {

@@ -650,21 +650,41 @@ function ensureCachedConnectionsInRamForOwner(ownerUid: string): string[] {
 }
 
 /** Evolution → memória → dono → chats (painel + pipeline). */
-export async function syncConnectionsForOwner(ownerUid: string): Promise<{
+export async function syncConnectionsForOwner(
+    ownerUid: string,
+    opts?: { force?: boolean }
+): Promise<{
     connections: WhatsAppConnection[];
     claimed: string[];
     syncedChats: string[];
+    skippedCooldown?: boolean;
 }> {
     const uid = String(ownerUid || '').trim();
     if (!uid || uid === 'anonymous') {
         return { connections: [], claimed: [], syncedChats: [] };
     }
 
+    const lastSync = lastFullSyncByOwner.get(uid) ?? 0;
+    const withinCooldown = !opts?.force && Date.now() - lastSync < FULL_SYNC_COOLDOWN_MS;
+
     await hydrateInstancesFromEvolution();
     const restored = ensureCachedConnectionsInRamForOwner(uid);
     if (restored.length > 0) {
         log('info', `syncConnectionsForOwner: canais restaurados do cache=${restored.join(',')}`);
     }
+
+    if (withinCooldown) {
+        log('info', 'syncConnectionsForOwner: cooldown ativo — só reemit RAM', {
+            ownerUid: uid,
+            cooldownSec: Math.ceil((FULL_SYNC_COOLDOWN_MS - (Date.now() - lastSync)) / 1000),
+        });
+        await reemitConversationsForOwner(uid);
+        const scoped = filterByConnectionScope(uid, getConnections());
+        publishOwnerEvent(uid, 'connections-update', scoped);
+        return { connections: scoped, claimed: [], syncedChats: [], skippedCooldown: true };
+    }
+
+    lastFullSyncByOwner.set(uid, Date.now());
 
     const claimed: string[] = [];
 
@@ -887,6 +907,9 @@ const autoReconnectState = new Map<
     { attempts: number; timer?: ReturnType<typeof setTimeout>; inFlight?: boolean }
 >();
 let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
+/** Evita findChats repetido no mesmo tenant (socket, auto-sync, rajadas manuais). */
+const FULL_SYNC_COOLDOWN_MS = 5 * 60_000;
+const lastFullSyncByOwner = new Map<string, number>();
 
 function clearAutoReconnect(connectionId: string) {
     const st = autoReconnectState.get(connectionId);
@@ -4442,6 +4465,9 @@ export async function startCampaign(
  * Inicialização do serviço
  */
 async function reconcileConnectionHealth() {
+    const onlineChips = [...connections.values()].filter((c) => c.status === 'open').length;
+    if (onlineChips === 0) return;
+
     const entries = [...connections.entries()].filter(
         ([id]) => !connectionWatchTimers.has(id) && !qrWatchTimers.has(id)
     );
@@ -4522,7 +4548,7 @@ export function init(socketIO: SocketIOServer) {
     if (!connectionHealthTimer) {
         connectionHealthTimer = setInterval(() => {
             void reconcileConnectionHealth();
-        }, 30_000);
+        }, 120_000);
     }
     testConnection();
 

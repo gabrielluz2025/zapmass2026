@@ -60,6 +60,13 @@ function getWebhookQueue(): Queue<EvolutionWebhookJobPayload> | null {
   return webhookQueue;
 }
 
+/** BullMQ rejeita job IDs com `:` — delimitador seguro em todos os segmentos. */
+const JOB_ID_SEP = '__';
+
+function sanitizeBullJobId(raw: string): string {
+  return raw.replace(/:/g, JOB_ID_SEP).slice(0, 220);
+}
+
 /** Idempotência / dedupe de rajadas (mesma mensagem ou mesmo update). */
 export function buildEvolutionWebhookJobId(event: unknown): string {
   const ev = (event && typeof event === 'object' ? event : {}) as Record<string, unknown>;
@@ -73,7 +80,7 @@ export function buildEvolutionWebhookJobId(event: unknown): string {
       .map((m) => m?.key?.id)
       .filter((id): id is string => Boolean(id))
       .join('_');
-    if (ids) return `MU:${instance}:${ids}`.slice(0, 220);
+    if (ids) return sanitizeBullJobId(`${'MU'}${JOB_ID_SEP}${instance}${JOB_ID_SEP}${ids}`);
   }
 
   if (eventName === 'MESSAGES_UPDATE') {
@@ -83,10 +90,14 @@ export function buildEvolutionWebhookJobId(event: unknown): string {
         const key = (u?.key as Record<string, unknown>) || {};
         const messageId = key.id ?? u.keyId;
         const status = (u?.update as Record<string, unknown>)?.status ?? u.status;
-        return messageId != null && status != null ? `${messageId}:${status}` : '';
+        return messageId != null && status != null
+          ? `${messageId}${JOB_ID_SEP}${status}`
+          : '';
       })
       .filter(Boolean);
-    if (parts.length) return `MUPD:${instance}:${parts.join('_')}`.slice(0, 220);
+    if (parts.length) {
+      return sanitizeBullJobId(`${'MUPD'}${JOB_ID_SEP}${instance}${JOB_ID_SEP}${parts.join('_')}`);
+    }
   }
 
   if (eventName === 'CONNECTION_UPDATE') {
@@ -94,15 +105,17 @@ export function buildEvolutionWebhookJobId(event: unknown): string {
       .update(`${instance}:${JSON.stringify(data)}`)
       .digest('hex')
       .slice(0, 14);
-    return `CONN:${instance}:${h}`;
+    return sanitizeBullJobId(`${'CONN'}${JOB_ID_SEP}${instance}${JOB_ID_SEP}${h}`);
   }
 
   if (eventName === 'QRCODE_UPDATED') {
-    return `QR:${instance}:${createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 12)}`;
+    return sanitizeBullJobId(
+      `${'QR'}${JOB_ID_SEP}${instance}${JOB_ID_SEP}${createHash('sha256').update(JSON.stringify(data)).digest('hex').slice(0, 12)}`
+    );
   }
 
   const h = createHash('sha256').update(JSON.stringify(ev)).digest('hex').slice(0, 16);
-  return `EV:${eventName}:${instance}:${h}`;
+  return sanitizeBullJobId(`${'EV'}${JOB_ID_SEP}${eventName}${JOB_ID_SEP}${instance}${JOB_ID_SEP}${h}`);
 }
 
 function isDuplicateJobError(err: unknown): boolean {

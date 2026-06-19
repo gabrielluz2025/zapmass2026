@@ -5,8 +5,6 @@ export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
 /** Reemit inbox do servidor (leve) enquanto a aba está visível. */
 const AUTO_LIGHT_SYNC_MS = 45_000;
-/** findChats completo em background (complementa webhooks / tempo real). */
-const AUTO_FULL_SYNC_MS = 5 * 60_000;
 /** Acima disso (RTT), considera servidor lento — sync pesado pode atrasar pong sem estar offline. */
 const SLOW_RTT_MS = 45_000;
 /** Pings consecutivos lentos antes de exibir aviso (evita falso positivo). */
@@ -27,9 +25,8 @@ function parsePingTimestamp(ts: unknown): number {
 export function useWaRealtime(
   socket: Socket | null,
   onResync: (opts?: { full?: boolean }) => void,
-  opts?: { chipsConnected?: number }
+  _opts?: { chipsConnected?: number }
 ) {
-  const chipsConnected = opts?.chipsConnected ?? 0;
   const [socketStatus, setSocketStatus] = useState<WaSocketStatus>('offline');
   const [syncing, setSyncing] = useState(false);
   const pingSentAtRef = useRef(0);
@@ -131,14 +128,6 @@ export function useWaRealtime(
       runResync({ full: false });
     }, AUTO_LIGHT_SYNC_MS);
 
-    const fullSyncTimer =
-      chipsConnected > 0
-        ? setInterval(() => {
-            if (document.visibilityState !== 'visible' || !socket.connected) return;
-            runResync({ full: true });
-          }, AUTO_FULL_SYNC_MS)
-        : null;
-
     const onConv = () => {
       markRealtimeActivity();
       if (syncingTimerRef.current) {
@@ -160,11 +149,10 @@ export function useWaRealtime(
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(pingTimer);
       clearInterval(lightSyncTimer);
-      if (fullSyncTimer) clearInterval(fullSyncTimer);
       if (syncingTimerRef.current) clearTimeout(syncingTimerRef.current);
       clearOfflineGrace();
     };
-  }, [socket, runResync, chipsConnected]);
+  }, [socket, runResync]);
 
   return { socketStatus, syncing, runResync };
 }

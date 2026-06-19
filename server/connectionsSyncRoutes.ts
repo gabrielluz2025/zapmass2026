@@ -25,7 +25,7 @@ export function registerConnectionsSyncRoutes(app: Express): void {
       }
       const tenantUid = principal.tenantUid;
 
-      const result = await evolutionService.syncConnectionsForOwner(tenantUid);
+      const result = await evolutionService.syncConnectionsForOwner(tenantUid, { force: true });
       const connections = filterByConnectionScope(tenantUid, result.connections);
       const conversations = conversationsPayloadForViewer(
         tenantUid,
