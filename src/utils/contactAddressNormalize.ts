@@ -448,12 +448,18 @@ function knownNeighborhoodMunicipality(
   const candidates = NEIGHBORHOOD_GAZETTEER[nbKey];
   if (!candidates || candidates.length === 0) return null;
 
-  for (const uf of inferUfSignals(stateHint, phone, zipCode)) {
+  const ufSignals = inferUfSignals(stateHint, phone, zipCode);
+  for (const uf of ufSignals) {
     const match = candidates.find((c) => c.uf === uf);
     if (match) return { city: match.city, state: match.uf };
   }
 
-  // Sem UF: só decide quando o bairro pertence a um único município conhecido.
+  // Há sinais de UF (estado/DDD/CEP) mas NENHUM bate com os candidatos do bairro:
+  // não inventa cidade — evita Blumenau/SC + DDD 47 virar Curitiba/PR só porque
+  // o bairro ("Boa Vista", "Bom Retiro") é homônimo de um bairro de Curitiba.
+  if (ufSignals.length > 0) return null;
+
+  // Sem nenhum sinal de UF: só decide quando o bairro pertence a um único município.
   if (candidates.length === 1) {
     return { city: candidates[0].city, state: candidates[0].uf };
   }

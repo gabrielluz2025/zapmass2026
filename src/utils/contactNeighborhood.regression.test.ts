@@ -43,4 +43,35 @@ describe('regressão bairro Blumenau (não corromper)', () => {
     expect(r.city).toBe('Blumenau');
     expect(r.neighborhood).toBe('Fortaleza');
   });
+
+  it('Blumenau/SC + DDD 47 + bairro homônimo (Boa Vista) NÃO vira Curitiba/PR', () => {
+    const r = normalizeContactAddressFields({
+      city: 'Blumenau',
+      state: 'SC',
+      neighborhood: 'Boa Vista',
+      phone: '5547999990000'
+    });
+    expect(r.city).toBe('Blumenau');
+    expect(r.state).toBe('SC');
+  });
+
+  it('Blumenau/SC + DDD 47 + Bom Retiro NÃO vira Curitiba/PR', () => {
+    const r = normalizeContactAddressFields({
+      city: 'Blumenau',
+      state: 'SC',
+      neighborhood: 'Bom Retiro',
+      phone: '5547999990000'
+    });
+    expect(r.city).toBe('Blumenau');
+    expect(r.state).toBe('SC');
+  });
+
+  it('bairro só de Curitiba + DDD 41 ainda resolve Curitiba/PR', () => {
+    const r = normalizeContactAddressFields({
+      city: 'Batel',
+      phone: '5541999990000'
+    });
+    expect(r.city).toBe('Curitiba');
+    expect(r.state).toBe('PR');
+  });
 });
