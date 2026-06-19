@@ -181,7 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setMode(getSavedMode());
   }, []);
 
-  const widthClass = collapsed ? 'w-[72px]' : 'w-[260px]';
+  const widthClass = collapsed ? 'w-[68px]' : 'w-[256px]';
 
   return (
     <aside

@@ -61,7 +61,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     }
   }, [collapsed]);
 
-  const sidebarOffset = collapsed ? 'lg:ml-[72px]' : 'lg:ml-[260px]';
+  const sidebarOffset = collapsed ? 'lg:ml-[68px]' : 'lg:ml-[256px]';
   /** Em modo leitura a area principal fica inativa, exceto assinatura (upgrade) e tutorial de ajuda. */
   const readOnlyBlockMain = readOnly && currentView !== 'subscription' && currentView !== 'help';
 
