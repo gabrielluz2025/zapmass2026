@@ -109,10 +109,17 @@ function matchFromEntry(entry: CityOfficialEntry, raw: string): string | null {
   const key = normNbKey(raw);
   if (!key) return null;
   if (entry.aliases?.[key]) return entry.aliases[key];
+  // O próprio nome da cidade não é um bairro — evita "Blumenau" casar por substring
+  // com "Jardim Blumenau" (que corromperia o bairro real do contato).
+  if (key === normNbKey(entry.city)) return null;
   for (const name of entry.neighborhoods) {
     const nk = normNbKey(name);
     if (key === nk) return name;
-    if (key.length >= 4 && nk.length >= 4 && (key.includes(nk) || nk.includes(key))) return name;
+    // Substring só quando os tamanhos são próximos (evita "blumenau" ⊂ "jardimblumenau").
+    if (key.length >= 4 && nk.length >= 4 && (key.includes(nk) || nk.includes(key))) {
+      const ratio = Math.min(key.length, nk.length) / Math.max(key.length, nk.length);
+      if (ratio >= 0.6) return name;
+    }
   }
   return null;
 }

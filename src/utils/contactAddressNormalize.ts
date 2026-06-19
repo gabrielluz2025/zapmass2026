@@ -519,10 +519,20 @@ export function resolveGeoPlaceForContact(
     input.zipCode
   );
   if (gazHit && (cityForResolve || nbRaw)) {
+    // O bairro reconhecido (nbKey) pode ter vindo do campo cidade (ex.: city="Fortaleza")
+    // OU do campo bairro (ex.: city="Blumenau", bairro="Fortaleza"). Use como texto do
+    // bairro o campo que realmente bateu com o gazetteer — senão o nome da CIDADE acabava
+    // virando bairro (e depois "Blumenau" casava por substring com "Jardim Blumenau").
+    const nbFieldKey = nbRaw ? (gazetteerKeyFromCityField(nbRaw) || normNeighborhoodKey(nbRaw)) : '';
+    const cityFieldKey =
+      gazetteerKeyFromCityField(cityForResolve) ||
+      normNeighborhoodKey(parseEmbeddedCityState(cityForResolve).city || cityForResolve);
     const nbSource =
-      gazetteerKeyFromCityField(cityForResolve) || normNeighborhoodKey(cityForResolve)
-        ? cityForResolve
-        : nbRaw || cityForResolve;
+      nbRaw && nbFieldKey === nbKey
+        ? nbRaw
+        : cityFieldKey === nbKey
+          ? cityForResolve
+          : nbRaw || cityForResolve;
     const nb = normalizeContactNeighborhood(nbSource, gazHit.city);
     return { city: gazHit.city, state: gazHit.state, neighborhood: nb };
   }
