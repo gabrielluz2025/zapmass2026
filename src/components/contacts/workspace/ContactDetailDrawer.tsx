@@ -286,13 +286,13 @@ export const ContactDetailDrawer: React.FC<Props> = ({
     <>
       {/* backdrop — clique fecha */}
       <div
-        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
+        className="fixed inset-0 zm-layer-drawer bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
         onClick={onClose}
         aria-hidden
       />
       {/* drawer */}
       <aside
-        className="fixed top-0 right-0 z-50 h-screen w-full sm:w-[440px] bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col animate-in slide-in-from-right duration-200"
+        className="fixed top-0 right-0 zm-layer-drawer-panel h-screen w-full sm:w-[440px] bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col animate-in slide-in-from-right duration-200"
         role="dialog"
         aria-label="Detalhes do contato"
       >

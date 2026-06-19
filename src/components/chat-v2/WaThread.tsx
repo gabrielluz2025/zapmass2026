@@ -108,6 +108,10 @@ export const WaThread: React.FC<Props> = ({
   const headerSub = useMemo(() => {
     if (!conversation) return '';
     if (!chipConnected) return 'Chip WhatsApp desconectado — conecte em Conexões';
+    if (showConnectionLabel && connectionName) {
+      return `Via ${connectionName}${presenceLine ? ` · ${presenceLine}` : ''}`;
+    }
+    if (!connectionName && showConnectionLabel) return 'Conexão não identificada';
     if (syncing) return 'Sincronizando conversas…';
     if (socketStatus === 'offline') return 'Servidor desconectado';
     if (socketStatus === 'slow') return 'Conexão instável — mensagens em tempo real ativas';
@@ -116,6 +120,8 @@ export const WaThread: React.FC<Props> = ({
   }, [
     conversation,
     chipConnected,
+    showConnectionLabel,
+    connectionName,
     syncing,
     socketStatus,
     presenceLine,

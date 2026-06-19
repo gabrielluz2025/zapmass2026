@@ -250,7 +250,7 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-start justify-center pt-[10vh]"
+      className="fixed inset-0 zm-layer-search flex items-start justify-center pt-[10vh]"
       style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}
     >

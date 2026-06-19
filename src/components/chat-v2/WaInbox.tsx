@@ -6,7 +6,6 @@ import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
   connectionBadgeHue,
   connectionDisplayLabel,
-  countDistinctConnectionIds,
   formatListTime,
   inboxListTitle,
   unreadCount
@@ -81,7 +80,6 @@ export const WaInbox: React.FC<Props> = ({
   }, [inboxHasMore, inboxLoadingMore, onLoadMore]);
 
   const showMultiChannelUi = connections.length > 1;
-  const showChannelDots = showMultiChannelUi && countDistinctConnectionIds(conversations) > 1;
 
   const virtualizer = useVirtualizer({
     count: conversations.length,
@@ -126,7 +124,7 @@ export const WaInbox: React.FC<Props> = ({
           connected: conn.status === 'CONNECTED',
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x != null && x.count > 0);
+      .filter((x): x is NonNullable<typeof x> => x != null);
   }, [showMultiChannelUi, connections, channelCounts]);
 
   const statusText = useMemo(() => {
@@ -194,6 +192,35 @@ export const WaInbox: React.FC<Props> = ({
         </label>
       </div>
 
+      {connections.length > 0 && (
+        <div className="wa-connection-bar flex-shrink-0">
+          <label htmlFor="wa-connection-filter" className="wa-connection-bar-label">
+            Conexão WhatsApp
+          </label>
+          <select
+            id="wa-connection-filter"
+            className="wa-connection-select"
+            value={connectionFilterId}
+            onChange={(e) => onConnectionFilterChange(e.target.value)}
+            aria-label="Filtrar conversas por conexão WhatsApp"
+          >
+            <option value="ALL">
+              Todas as conexões ({allConversations.length})
+            </option>
+            {connections.map((conn) => {
+              const label = connectionDisplayLabel(connections, conn.id) || 'Canal';
+              const count = channelCounts.get(conn.id) ?? 0;
+              const offline = conn.status !== 'CONNECTED' ? ' · offline' : '';
+              return (
+                <option key={conn.id} value={conn.id}>
+                  {label} ({count}){offline}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
+
       <div className="wa-filter-row flex-shrink-0">
         <button
           type="button"
@@ -256,10 +283,7 @@ export const WaInbox: React.FC<Props> = ({
               const unread = unreadCount(conv);
               const selected = conv.id === selectedId;
               const online = isContactPresenceOnline(conv);
-              const channelHue = connectionBadgeHue(conv.connectionId);
-              const channelLabel = showChannelDots
-                ? connectionDisplayLabel(connections, conv.connectionId)
-                : null;
+              const channelLabel = connectionDisplayLabel(connections, conv.connectionId);
 
               return (
                 <button
@@ -286,12 +310,12 @@ export const WaInbox: React.FC<Props> = ({
                         el.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(title)}&background=00a884&color=fff&size=200&bold=true`;
                       }}
                     />
-                    {showChannelDots && conv.connectionId && (
+                    {conv.connectionId && (
                       <span
                         className="wa-channel-dot"
                         aria-hidden
-                        title={channelLabel ? `Canal: ${channelLabel}` : undefined}
-                        style={{ background: `hsl(${channelHue}, 52%, 42%)` }}
+                        title={channelLabel ? `Conexão: ${channelLabel}` : 'Conexão WhatsApp'}
+                        style={{ background: `hsl(${connectionBadgeHue(conv.connectionId)}, 52%, 42%)` }}
                       />
                     )}
                     {online && <span className="wa-presence-dot" aria-hidden title="Online" />}
@@ -330,6 +354,11 @@ export const WaInbox: React.FC<Props> = ({
                         <span className="wa-unread-badge flex-shrink-0">{unread > 99 ? '99+' : unread}</span>
                       )}
                     </div>
+                    {channelLabel && (
+                      <span className="wa-conv-channel-tag truncate" title={`Conexão: ${channelLabel}`}>
+                        {channelLabel}
+                      </span>
+                    )}
                   </div>
                 </button>
               );

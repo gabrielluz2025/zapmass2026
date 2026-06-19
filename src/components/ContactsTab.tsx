@@ -4315,7 +4315,7 @@ export const ContactsTab: React.FC = () => {
       
       {/* ... Modal Code (unchanged logic, just inside this updated component) ... */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
+        <div className="fixed inset-0 zm-layer-modal flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
            <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full animate-in fade-in zoom-in duration-200 flex flex-col my-auto border border-slate-200 dark:border-slate-800 ${segment === 'religious' ? 'max-w-3xl' : 'max-w-xl'}`}>
               
               {/* Modal Header */}
@@ -4771,7 +4771,7 @@ export const ContactsTab: React.FC = () => {
       {/* Revisao de importacao por arquivo (XLSX/CSV ou vCard): filtros, problemas, duplicados */}
       {fileImportOpen && !fileImportDocked && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 py-8 sm:py-6 animate-fadeIn"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm zm-layer-modal-elevated flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 py-8 sm:py-6 animate-fadeIn"
           onClick={() => {
             if (autoFixProgress) return;
             setFileImportOpen(false);
@@ -5135,7 +5135,7 @@ export const ContactsTab: React.FC = () => {
 
       {fileImportDocked && fileImportJob && (
         <div
-          className="fixed bottom-4 left-3 right-3 sm:left-auto sm:right-4 sm:w-[min(440px,calc(100vw-1.5rem))] z-[10000] rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-4 space-y-3 animate-fadeIn"
+          className="fixed bottom-4 left-3 right-3 sm:left-auto sm:right-4 sm:w-[min(440px,calc(100vw-1.5rem))] zm-layer-toast rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-4 space-y-3 animate-fadeIn"
           role="status"
           aria-live="polite"
         >
@@ -5187,7 +5187,7 @@ export const ContactsTab: React.FC = () => {
       {/* SMART IMPORT MODAL: cola do Excel/Word, parser inteligente, preview editavel */}
       {smartImportOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 py-8 sm:py-6 animate-fadeIn"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm zm-layer-modal-elevated flex items-start sm:items-center justify-center overflow-y-auto p-3 sm:p-6 py-8 sm:py-6 animate-fadeIn"
           onClick={() => {
             setSmartImportOpen(false);
             setSmartImportPreviewFilter('all');

@@ -503,7 +503,7 @@ export const WaWebChatApp: React.FC<{
             ? connectionDisplayLabel(connections, selected.connectionId)
             : null
         }
-        showConnectionLabel={connections.length > 1}
+        showConnectionLabel={connections.length > 0}
         showBack={mobileShowThread}
         onBack={() => setMobileShowThread(false)}
         onLoadOlder={loadOlder}

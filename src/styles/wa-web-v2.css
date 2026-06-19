@@ -135,6 +135,51 @@
   z-index: 1;
 }
 
+.wa-chat-pro .wa-connection-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 10px;
+  background: var(--wa-panel);
+  border-bottom: 1px solid var(--wa-divider);
+}
+
+.wa-chat-pro .wa-connection-bar-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wa-text-3);
+}
+
+.wa-chat-pro .wa-connection-select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--wa-divider);
+  background: var(--wa-panel-2);
+  color: var(--wa-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+}
+
+.wa-chat-pro .wa-connection-select:focus {
+  border-color: var(--wa-green);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--wa-green) 25%, transparent);
+}
+
+.wa-chat-pro .wa-conv-channel-tag {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--wa-green-strong);
+  opacity: 0.92;
+}
+
 .wa-chat-pro .wa-empty-pro {
   flex: 1;
   display: flex;

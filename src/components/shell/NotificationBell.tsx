@@ -173,12 +173,12 @@ export const NotificationBell: React.FC = () => {
       {open && (
         <>
           <div
-            className="fixed inset-0 z-[70] bg-black/40 sm:bg-transparent sm:pointer-events-none"
+            className="fixed inset-0 zm-layer-dropdown bg-black/40 sm:bg-transparent sm:pointer-events-none"
             onClick={() => setOpen(false)}
             aria-hidden
           />
           <div
-            className="fixed sm:absolute z-[71] inset-x-2 top-16 sm:inset-auto sm:right-0 sm:top-[calc(100%+8px)] w-auto sm:w-[min(100vw-2rem,400px)] max-h-[min(80vh,520px)] rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+            className="fixed sm:absolute zm-layer-dropdown inset-x-2 top-16 sm:inset-auto sm:right-0 sm:top-[calc(100%+8px)] w-auto sm:w-[min(100vw-2rem,400px)] max-h-[min(80vh,520px)] rounded-2xl overflow-hidden shadow-2xl flex flex-col"
             style={{
               background: 'var(--surface-0)',
               border: '1px solid var(--border)',

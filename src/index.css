@@ -12,8 +12,19 @@
 @tailwind utilities;
 
 /* Montagem: #root > #app-mount + #portal-root (ver index.html). Mantém altura em tela cheia. */
+#portal-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  pointer-events: none;
+  isolation: isolate;
+}
+
+#portal-root > * {
+  pointer-events: auto;
+}
+
 #root {
-  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -120,6 +131,15 @@
   --sidebar-w-collapsed: 68px;
   --topbar-h: 48px;
 
+  /* Camadas de overlay — usar classes .zm-layer-* em modais/drawers */
+  --z-sidebar: 100;
+  --z-dropdown: 200;
+  --z-drawer: 300;
+  --z-modal: 400;
+  --z-modal-elevated: 410;
+  --z-toast: 500;
+  --z-search: 550;
+
   /**
    * Superfície de seleção / destaque com cor da marca.
    * Em modo escuro, --brand-50 (mint claro) conflita com --text-1 claro: usamos mistura com surface escura.
@@ -201,6 +221,16 @@ html[data-mode='dark'] {
 
 /* ─── Components ───────────────────────────── */
 @layer components {
+
+  /* ── Camadas de overlay (z-index centralizado) ── */
+  .zm-layer-sidebar { z-index: var(--z-sidebar); }
+  .zm-layer-dropdown { z-index: var(--z-dropdown); }
+  .zm-layer-drawer { z-index: var(--z-drawer); }
+  .zm-layer-drawer-panel { z-index: calc(var(--z-drawer) + 10); }
+  .zm-layer-modal { z-index: var(--z-modal); }
+  .zm-layer-modal-elevated { z-index: var(--z-modal-elevated); }
+  .zm-layer-toast { z-index: var(--z-toast); }
+  .zm-layer-search { z-index: var(--z-search); }
 
   /* ── Surfaces ── */
   .ui-surface {
