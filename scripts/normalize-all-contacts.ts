@@ -23,7 +23,7 @@ import { prepareContactForPersistence } from '../server/repositories/contactMapp
 
 dotenv.config();
 
-const PAGE_SIZE = 5000;
+const PAGE_SIZE = 2000;
 const UPDATE_CHUNK = 200;
 const ADDRESS_FIELDS = ['city', 'state', 'neighborhood', 'street', 'zipCode', 'number'] as const;
 const TRACKED_FIELDS = ['name', 'phone', ...ADDRESS_FIELDS] as const;
@@ -123,62 +123,78 @@ async function main() {
     console.log('DRY-RUN: nada será gravado. Rode com --apply para corrigir de verdade.\n');
   }
 
-  const fieldTotals: Record<TrackedField, number> = {
+  const grandTotals: Record<TrackedField, number> = {
     name: 0, phone: 0, city: 0, state: 0, neighborhood: 0, street: 0, zipCode: 0, number: 0
   };
-  const samples: string[] = [];
   let grandScanned = 0;
   let grandChanged = 0;
+  let failedTenants = 0;
 
   for (const t of tenants) {
+    // Por tenant: imprime o detalhe logo após processar, para não perder nada
+    // se uma base grande for interrompida (OOM) no meio da execução.
+    const fieldTotals: Record<TrackedField, number> = {
+      name: 0, phone: 0, city: 0, state: 0, neighborhood: 0, street: 0, zipCode: 0, number: 0
+    };
+    const samples: string[] = [];
     let scanned = 0;
     let changed = 0;
     let offset = 0;
 
-    for (;;) {
-      const page = await listContacts(t.id, { limit: PAGE_SIZE, offset });
-      if (page.length === 0) break;
-      offset += page.length;
-      scanned += page.length;
+    try {
+      for (;;) {
+        const page = await listContacts(t.id, { limit: PAGE_SIZE, offset });
+        if (page.length === 0) break;
+        offset += page.length;
+        scanned += page.length;
 
-      const items: Array<{ id: string; updates: Partial<Contact> }> = [];
-      for (const c of page) {
-        const { updates, changes } = diffContact(c);
-        if (changes.length === 0) continue;
-        changed++;
-        for (const ch of changes) {
-          fieldTotals[ch.field]++;
-          if (samples.length < 20) {
-            samples.push(`  [${ch.field}] "${ch.before}" → "${ch.after}"`);
+        const items: Array<{ id: string; updates: Partial<Contact> }> = [];
+        for (const c of page) {
+          const { updates, changes } = diffContact(c);
+          if (changes.length === 0) continue;
+          changed++;
+          for (const ch of changes) {
+            fieldTotals[ch.field]++;
+            if (samples.length < 8) {
+              samples.push(`    [${ch.field}] "${ch.before}" → "${ch.after}"`);
+            }
+          }
+          if (apply) items.push({ id: c.id, updates });
+        }
+
+        if (apply && items.length > 0) {
+          for (let i = 0; i < items.length; i += UPDATE_CHUNK) {
+            await bulkUpdateContacts(t.id, items.slice(i, i + UPDATE_CHUNK));
           }
         }
-        items.push({ id: c.id, updates });
-      }
 
-      if (apply && items.length > 0) {
-        for (let i = 0; i < items.length; i += UPDATE_CHUNK) {
-          await bulkUpdateContacts(t.id, items.slice(i, i + UPDATE_CHUNK));
-        }
+        if (page.length < PAGE_SIZE) break;
       }
-
-      if (page.length < PAGE_SIZE) break;
+    } catch (err) {
+      failedTenants++;
+      console.log(`tenant ${t.email}: ERRO após ${scanned} lidos — ${err instanceof Error ? err.message : err}`);
+      continue;
     }
 
     grandScanned += scanned;
     grandChanged += changed;
-    console.log(`tenant ${t.email} (${t.id}): ${scanned} lidos, ${changed} ${apply ? 'corrigidos' : 'corrigiriam'}`);
+    for (const f of TRACKED_FIELDS) grandTotals[f] += fieldTotals[f];
+
+    console.log(`\ntenant ${t.email} (${t.id})`);
+    console.log(`  ${scanned} lidos, ${changed} ${apply ? 'corrigidos' : 'corrigiriam'}`);
+    const fieldLines = TRACKED_FIELDS.filter((f) => fieldTotals[f] > 0)
+      .map((f) => `${f}=${fieldTotals[f]}`);
+    if (fieldLines.length > 0) console.log(`  por campo: ${fieldLines.join('  ')}`);
+    if (samples.length > 0) console.log(`  amostras:\n${samples.join('\n')}`);
   }
 
-  console.log(`\n--- Resumo ---`);
+  console.log(`\n=== Resumo geral ===`);
+  console.log(`Tenants:         ${tenants.length} (${failedTenants} com erro)`);
   console.log(`Total lidos:     ${grandScanned}`);
   console.log(`Total alterados: ${grandChanged}`);
   console.log(`Por campo:`);
   for (const f of TRACKED_FIELDS) {
-    if (fieldTotals[f] > 0) console.log(`  ${f.padEnd(13)} ${fieldTotals[f]}`);
-  }
-  if (samples.length > 0) {
-    console.log(`\nAmostras (antes → depois):`);
-    console.log(samples.join('\n'));
+    if (grandTotals[f] > 0) console.log(`  ${f.padEnd(13)} ${grandTotals[f]}`);
   }
   if (!apply) {
     console.log(`\nDRY-RUN concluído. Para aplicar: npm run normalize:all-contacts -- --apply`);
