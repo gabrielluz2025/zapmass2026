@@ -76,7 +76,7 @@ export const DashboardOrbitPanel: React.FC<Props> = ({
   onScrollFunnel,
 }) => {
   const orbitRings = [
-    { label: 'Enviadas', value: animSent, pct: 100, color: '#6366f1' },
+    { label: 'Enviadas', value: animSent, pct: 100, color: '#06B6D4' },
     { label: 'Entregues', value: animDelivered, pct: deliveryRate, color: '#0ea5e9' },
     { label: 'Lidas', value: animRead, pct: readRate, color: '#a855f7' },
     { label: 'Respostas', value: animReplied, pct: replyRate, color: '#f97316' },
@@ -107,7 +107,7 @@ export const DashboardOrbitPanel: React.FC<Props> = ({
             {onlineCount}/{connectionsTotal} canais
           </span>
         )}
-        <span className="ml-auto text-[10px] font-extrabold uppercase tracking-[0.28em] text-indigo-300/80">
+        <span className="ml-auto text-[10px] font-extrabold uppercase tracking-[0.28em] text-cyan-300/80">
           Painel Orbit
         </span>
       </header>

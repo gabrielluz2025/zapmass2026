@@ -141,9 +141,9 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
         <div className="flex items-start gap-3">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: 'linear-gradient(135deg,#8b5cf620,#ec489920)' }}
+            style={{ background: 'linear-gradient(135deg,#06B6D420,#ec489920)' }}
           >
-            <Sparkles className="w-4.5 h-4.5" style={{ color: '#8b5cf6' }} />
+            <Sparkles className="w-4.5 h-4.5" style={{ color: '#06B6D4' }} />
           </div>
           <div className="flex-1">
             <h3 className="font-bold text-[15px]" style={{ color: 'var(--text-1)' }}>
@@ -163,14 +163,14 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
           className="rounded-xl p-4 mb-5 flex gap-3"
           style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
         >
-          <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#6366f1' }} />
+          <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#06B6D4' }} />
           <div className="space-y-1.5">
             <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
               O que esta correção faz:
             </p>
             <ul className="text-[11px] space-y-1" style={{ color: 'var(--text-2)' }}>
               <li>
-                <span className="font-semibold" style={{ color: '#8b5cf6' }}>CEP → endereço oficial</span>
+                <span className="font-semibold" style={{ color: '#06B6D4' }}>CEP → endereço oficial</span>
                 {' '}— busca cidade, estado, rua e bairro canônicos nos Correios (ViaCEP) para contatos com CEP
               </li>
               <li>
@@ -196,7 +196,7 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
             style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
           >
             <div className="flex items-center gap-2 mb-1">
-              <MapPin className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
+              <MapPin className="w-3.5 h-3.5" style={{ color: '#06B6D4' }} />
               <span className="text-[11px] font-semibold" style={{ color: 'var(--text-3)' }}>
                 Com endereço
               </span>
@@ -245,7 +245,7 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#8b5cf6' }} />
+                <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#06B6D4' }} />
                 <span className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
                   Corrigindo endereços…
                 </span>
@@ -259,7 +259,7 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
                 className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${progressPct}%`,
-                  background: 'linear-gradient(90deg,#8b5cf6,#ec4899)',
+                  background: 'linear-gradient(90deg,#06B6D4,#ec4899)',
                 }}
               />
             </div>
@@ -273,13 +273,13 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
           <div
             className="rounded-xl p-4 flex items-start gap-3"
             style={{
-              background: lastStats && lastStats.updated > 0 ? '#10b98110' : '#6366f110',
-              border: `1px solid ${lastStats && lastStats.updated > 0 ? '#10b98130' : '#6366f130'}`,
+              background: lastStats && lastStats.updated > 0 ? '#10b98110' : '#06B6D410',
+              border: `1px solid ${lastStats && lastStats.updated > 0 ? '#10b98130' : '#06B6D430'}`,
             }}
           >
             <CheckCircle2
               className="w-5 h-5 shrink-0 mt-0.5"
-              style={{ color: lastStats && lastStats.updated > 0 ? '#10b981' : '#6366f1' }}
+              style={{ color: lastStats && lastStats.updated > 0 ? '#10b981' : '#06B6D4' }}
             />
             <div>
               <p className="text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
@@ -295,7 +295,7 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
               <button
                 onClick={handleFix}
                 className="mt-2 text-[11px] font-semibold underline"
-                style={{ color: '#6366f1' }}
+                style={{ color: '#06B6D4' }}
               >
                 Rodar novamente
               </button>
@@ -328,7 +328,7 @@ export const AddressIntelligencePanel: React.FC<Props> = ({
                     <div className="shrink-0 mt-0.5">
                       <div
                         className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase"
-                        style={{ background: '#6366f120', color: '#6366f1' }}
+                        style={{ background: '#06B6D420', color: '#06B6D4' }}
                       >
                         {FIELD_LABEL[d.field] || d.field}
                       </div>

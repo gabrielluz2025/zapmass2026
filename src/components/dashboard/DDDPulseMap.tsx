@@ -136,7 +136,7 @@ const REGION_ORDER: Region[] = ['Sudeste', 'Nordeste', 'Centro-Oeste', 'Sul', 'N
 const REGION_COLORS: Record<Region, { bg: string; ring: string; glow: string; text: string }> = {
   Sudeste:       { bg: '#3b82f6', ring: '#2563eb', glow: '#3b82f640', text: '#eff6ff' },
   Nordeste:      { bg: '#f59e0b', ring: '#d97706', glow: '#f59e0b40', text: '#fffbeb' },
-  'Centro-Oeste':{ bg: '#8b5cf6', ring: '#7c3aed', glow: '#8b5cf640', text: '#f5f3ff' },
+  'Centro-Oeste':{ bg: '#06B6D4', ring: '#7c3aed', glow: '#06B6D440', text: '#f5f3ff' },
   Sul:           { bg: '#10b981', ring: '#059669', glow: '#10b98140', text: '#ecfdf5' },
   Norte:         { bg: '#06b6d4', ring: '#0891b2', glow: '#06b6d440', text: '#ecfeff' },
 };
@@ -256,7 +256,7 @@ export const DDDPulseMap: React.FC<DDDPulseMapProps> = ({
             <div className="flex items-center gap-3">
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center text-[18px]"
-                style={{ background: 'linear-gradient(135deg,#3b82f620,#8b5cf620)' }}
+                style={{ background: 'linear-gradient(135deg,#3b82f620,#06B6D420)' }}
               >
                 🌎
               </div>

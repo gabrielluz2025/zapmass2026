@@ -243,7 +243,7 @@ const HeroKPI: React.FC<HeroKPIProps> = ({ label, value, hint, accent, icon }) =
     amber:   { bg: 'from-amber-500/15 to-amber-500/5',     fg: 'text-amber-600 dark:text-amber-400',     border: 'border-amber-200/60 dark:border-amber-900/40',     chip: 'bg-amber-500/10' },
     rose:    { bg: 'from-rose-500/15 to-rose-500/5',       fg: 'text-rose-600 dark:text-rose-400',       border: 'border-rose-200/60 dark:border-rose-900/40',       chip: 'bg-rose-500/10' },
     sky:     { bg: 'from-sky-500/15 to-sky-500/5',         fg: 'text-sky-600 dark:text-sky-400',         border: 'border-sky-200/60 dark:border-sky-900/40',         chip: 'bg-sky-500/10' },
-    violet:  { bg: 'from-violet-500/15 to-violet-500/5',   fg: 'text-violet-600 dark:text-violet-400',   border: 'border-violet-200/60 dark:border-violet-900/40',   chip: 'bg-violet-500/10' }
+    violet:  { bg: 'from-violet-500/15 to-violet-500/5',   fg: 'text-violet-600 dark:text-cyan-400',   border: 'border-violet-200/60 dark:border-violet-900/40',   chip: 'bg-cyan-500/10' }
   };
   const a = accentMap[accent];
   return (
@@ -278,13 +278,13 @@ const HeroCoach: React.FC<{ stats: ContactsHeroStats }> = ({ stats }) => {
     tip = {
       icon: <Users className="w-3.5 h-3.5" />,
       text: `Existem ${stats.duplicates} contatos duplicados. Use o segmento "Duplicados" para limpar sua base.`,
-      tone: 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30'
+      tone: 'bg-cyan-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30'
     };
   } else if (stats.dormant > 10) {
     tip = {
       icon: <Clock className="w-3.5 h-3.5" />,
       text: `${stats.dormant} contatos estão dormentes (sem resposta há mais de 30 dias). Dispare uma campanha de reativação.`,
-      tone: 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30'
+      tone: 'bg-cyan-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30'
     };
   } else if (stats.invalid > 0 && stats.total > 0 && stats.invalid / stats.total > 0.1) {
     tip = {

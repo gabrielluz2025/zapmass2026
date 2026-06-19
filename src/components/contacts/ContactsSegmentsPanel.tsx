@@ -25,7 +25,7 @@ const colorMap: Record<SmartSegmentDef['color'], { bg: string; fg: string; borde
   amber:   { bg: 'from-amber-500/15 to-amber-500/5',     fg: 'text-amber-600 dark:text-amber-400',     border: 'border-amber-200/60 dark:border-amber-900/40',     chip: 'bg-amber-500/10',      accent: 'bg-amber-500' },
   sky:     { bg: 'from-sky-500/15 to-sky-500/5',         fg: 'text-sky-600 dark:text-sky-400',         border: 'border-sky-200/60 dark:border-sky-900/40',         chip: 'bg-sky-500/10',        accent: 'bg-sky-500' },
   emerald: { bg: 'from-emerald-500/15 to-emerald-500/5', fg: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-200/60 dark:border-emerald-900/40', chip: 'bg-emerald-500/10',    accent: 'bg-emerald-500' },
-  violet:  { bg: 'from-violet-500/15 to-violet-500/5',   fg: 'text-violet-600 dark:text-violet-400',   border: 'border-violet-200/60 dark:border-violet-900/40',   chip: 'bg-violet-500/10',     accent: 'bg-violet-500' },
+  violet:  { bg: 'from-violet-500/15 to-violet-500/5',   fg: 'text-violet-600 dark:text-cyan-400',   border: 'border-violet-200/60 dark:border-violet-900/40',   chip: 'bg-cyan-500/10',     accent: 'bg-cyan-500' },
   slate:   { bg: 'from-slate-500/15 to-slate-500/5',     fg: 'text-slate-600 dark:text-slate-300',     border: 'border-slate-200/60 dark:border-slate-700/60',     chip: 'bg-slate-500/10',      accent: 'bg-slate-500' }
 };
 
@@ -46,7 +46,7 @@ const ContactsSegmentsPanelBase: React.FC<Props> = ({
       <div className="ui-card p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-500/5 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-500/5 text-violet-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
@@ -181,7 +181,7 @@ const ContactsSegmentsPanelBase: React.FC<Props> = ({
       {/* Dica */}
       <div className="ui-card p-4 border-l-4 border-violet-500 bg-gradient-to-r from-violet-50/40 to-transparent dark:from-violet-950/20">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-cyan-500/10 text-violet-600 dark:text-cyan-400 flex items-center justify-center shrink-0">
             <Info className="w-4 h-4" />
           </div>
           <div>

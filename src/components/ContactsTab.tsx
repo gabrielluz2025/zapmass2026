@@ -3723,7 +3723,7 @@ export const ContactsTab: React.FC = () => {
           <div className="relative z-10 px-5 py-5 sm:px-7 sm:py-6">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-                style={{ background:'linear-gradient(135deg,#3b82f6,#6366f1)', boxShadow:'0 6px 18px -6px rgba(59,130,246,0.7)' }}>
+                style={{ background:'linear-gradient(135deg,#06B6D4,#10B981)', boxShadow:'0 6px 18px -6px rgba(59,130,246,0.7)' }}>
                 <Users className="w-4 h-4 text-white" />
               </div>
               <span className="text-[13px] font-bold" style={{ color:'rgba(255,255,255,0.85)' }}>People HQ</span>
@@ -3782,7 +3782,7 @@ export const ContactsTab: React.FC = () => {
                     )}
                     {smartStats.cold > 0 && (
                       <div className="h-full rounded-full transition-all duration-1000"
-                        style={{ minWidth:6, width:`${Math.max((smartStats.cold/smartStats.total)*100, 0.5)}%`, background:'linear-gradient(90deg,#6366f1,#8b5cf6)' }} />
+                        style={{ minWidth:6, width:`${Math.max((smartStats.cold/smartStats.total)*100, 0.5)}%`, background:'linear-gradient(90deg,#06B6D4,#22d3ee)' }} />
                     )}
                   </div>
                 ) : (
@@ -4781,10 +4781,10 @@ export const ContactsTab: React.FC = () => {
             className="bg-white dark:bg-slate-900 w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden max-h-[95vh] flex flex-col min-h-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-violet-50 to-emerald-50 dark:from-violet-950/20 dark:to-emerald-950/20">
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-cyan-50 to-emerald-50 dark:from-cyan-950/20 dark:to-emerald-950/20">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-white shadow flex items-center justify-center shrink-0">
-                  <FileSpreadsheet className="w-5 h-5 text-violet-600" />
+                  <FileSpreadsheet className="w-5 h-5 text-cyan-600" />
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-[15px] font-bold text-slate-900 dark:text-white truncate">Revisar importação</h3>
@@ -4864,8 +4864,8 @@ export const ContactsTab: React.FC = () => {
                     <p className="text-[10px] text-slate-500">2ª cópia em diante</p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[10px] font-bold uppercase text-violet-700">Só no arquivo</p>
-                    <p className="text-lg font-bold tabular-nums text-violet-700 dark:text-violet-300">{fileImportTriageSummary.repeatedOnlyInFile}</p>
+                    <p className="text-[10px] font-bold uppercase text-cyan-700">Só no arquivo</p>
+                    <p className="text-lg font-bold tabular-nums text-cyan-700 dark:text-cyan-300">{fileImportTriageSummary.repeatedOnlyInFile}</p>
                     <p className="text-[10px] text-slate-500">repetido no arquivo (não no CRM)</p>
                   </div>
                   <div className="min-w-0 col-span-2 sm:col-span-1">
@@ -5140,8 +5140,8 @@ export const ContactsTab: React.FC = () => {
           aria-live="polite"
         >
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 rounded-lg bg-violet-100 dark:bg-violet-950/50 p-2 shrink-0">
-              <Minimize2 className="w-4 h-4 text-violet-600 dark:text-violet-300" aria-hidden />
+            <div className="mt-0.5 rounded-lg bg-cyan-100 dark:bg-cyan-950/50 p-2 shrink-0">
+              <Minimize2 className="w-4 h-4 text-cyan-600 dark:text-cyan-300" aria-hidden />
             </div>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm font-bold text-slate-900 dark:text-white truncate">

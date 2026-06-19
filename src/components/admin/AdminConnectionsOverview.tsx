@@ -247,7 +247,7 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
               className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
               style={{ background: 'var(--semantic-info-tint)' }}
             >
-              <Users className="w-[18px] h-[18px] text-indigo-500" aria-hidden />
+              <Users className="w-[18px] h-[18px] text-cyan-500" aria-hidden />
             </div>
           }
           title="Conexões — visão global"
@@ -374,7 +374,7 @@ export const AdminConnectionsOverview: React.FC<{ user: SessionUser | null }> = 
                       style={{ color: 'var(--text-1)' }}
                       title={gRows[0].ownerEmail}
                     >
-                      <Mail className="w-3.5 h-3.5 shrink-0 text-indigo-400" aria-hidden />
+                      <Mail className="w-3.5 h-3.5 shrink-0 text-cyan-400" aria-hidden />
                       {gRows[0].ownerEmail}
                     </span>
                   ) : null}

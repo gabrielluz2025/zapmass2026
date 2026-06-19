@@ -67,9 +67,9 @@ const D = {
   green:    '#10b981',
   greenLt:  '#34d399',
   greenGlow:'rgba(16,185,129,0.35)',
-  indigo:   '#6366f1',
-  indigoLt: '#818cf8',
-  indigoGlow:'rgba(99,102,241,0.3)',
+  indigo:   '#06B6D4',
+  indigoLt: '#22d3ee',
+  indigoGlow:'rgba(6,182,212,0.3)',
   amber:    '#f59e0b',
 } as const;
 
@@ -1540,7 +1540,7 @@ const LandingPlanCards: React.FC<{ onPickPlan: (ctaId: string) => void }> = ({ o
                       position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
                       fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
                       padding: '3px 10px', borderRadius: 20, color: '#fff', whiteSpace: 'nowrap',
-                      background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                      background: 'linear-gradient(135deg, #06B6D4, #0891B2)',
                       boxShadow: '0 4px 14px rgba(99,102,241,0.4)'
                     }}>Indicado</span>
                   )}

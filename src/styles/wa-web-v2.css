@@ -280,24 +280,28 @@
   letter-spacing: 0.04em;
 }
 
-/* Mantém visual WA Web claro mesmo com tema global escuro */
+/* Dark mode WA nativo — paleta escura do WhatsApp Web */
 html[data-mode='dark'] .wa-chat-pro {
-  color-scheme: light;
-}
-
-html[data-mode='dark'] .wa-chat-pro .wa-side,
-html[data-mode='dark'] .wa-chat-pro .wa-chat-header,
-html[data-mode='dark'] .wa-chat-pro .wa-composer,
-html[data-mode='dark'] .wa-chat-pro .wa-search-wrap,
-html[data-mode='dark'] .wa-chat-pro .wa-status-strip,
-html[data-mode='dark'] .wa-chat-pro .wa-filter-unread {
-  background: var(--wa-panel);
-  color: var(--wa-text);
+  --wa-bg: #0B141A;
+  --wa-panel: #111B21;
+  --wa-panel-2: #182229;
+  --wa-header: #202C33;
+  --wa-search: #182229;
+  --wa-divider: #2A3942;
+  --wa-bubble-in: #202C33;
+  --wa-bubble-out: #054740;
+  --wa-text: #E9EDEF;
+  --wa-text-2: #8696A0;
+  --wa-text-3: #667781;
+  --wa-icon: #8696A0;
+  --wa-hover: #182229;
+  --wa-active: #2A3942;
+  color-scheme: dark;
 }
 
 html[data-mode='dark'] .wa-chat-pro .wa-chat-wallpaper {
   background-color: var(--wa-bg);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='560' height='560' viewBox='0 0 560 560'><g fill='none' stroke='%23c9c2b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.45'><path d='M40 90c12-20 28-26 44-14s12 36-6 42-30-6-38-28'/><circle cx='200' cy='160' r='10'/><circle cx='340' cy='220' r='12'/></g></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='560' height='560' viewBox='0 0 560 560'><g fill='none' stroke='%232A3942' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.5'><path d='M40 90c12-20 28-26 44-14s12 36-6 42-30-6-38-28'/><circle cx='200' cy='160' r='10'/><circle cx='340' cy='220' r='12'/></g></svg>");
 }
 
 html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-side='in'] {
@@ -307,14 +311,15 @@ html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-side='in'] {
 
 html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-side='out'] {
   background: var(--wa-bubble-out);
+  color: var(--wa-text);
 }
 
 html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-tail='true'][data-side='in']::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23ffffff' d='M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23202C33' d='M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'/></svg>");
 }
 
 html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-tail='true'][data-side='out']::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23d9fdd3' d='M2.812 1H8v11.193L1.533 3.568C.474 2.156 1.042 1 2.812 1z'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23054740' d='M2.812 1H8v11.193L1.533 3.568C.474 2.156 1.042 1 2.812 1z'/></svg>");
 }
 
 @media (max-width: 768px) {

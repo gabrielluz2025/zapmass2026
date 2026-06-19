@@ -18,7 +18,7 @@ const newColumnId = () => `col_${Date.now().toString(36)}_${Math.random().toStri
 /** Faixa de cor no topo de cada coluna (ciclo). */
 const COLUMN_ACCENTS = [
   'linear-gradient(90deg, #f59e0b, #ea580c)',
-  'linear-gradient(90deg, #8b5cf6, #6366f1)',
+  'linear-gradient(90deg, #8b5cf6, #06B6D4)',
   'linear-gradient(90deg, #0ea5e9, #06b6d4)',
   'linear-gradient(90deg, #10b981, #059669)',
   'linear-gradient(90deg, #ec4899, #f43f5e)',

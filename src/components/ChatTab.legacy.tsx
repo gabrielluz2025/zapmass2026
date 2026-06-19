@@ -2486,9 +2486,9 @@ export const ChatTab: React.FC<{
                                   disabled={inboxActionBusy}
                                   className="text-[11px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1 transition-opacity disabled:opacity-50"
                                   style={{
-                                    background: 'color-mix(in srgb, #6366f1 14%, transparent)',
+                                    background: 'color-mix(in srgb, #06B6D4 14%, transparent)',
                                     color: '#4f46e5',
-                                    border: '1px solid color-mix(in srgb, #6366f1 38%, transparent)'
+                                    border: '1px solid color-mix(in srgb, #06B6D4 38%, transparent)'
                                   }}
                                   title="Envia esta conversa para outro utilizador ligado ao mesmo workspace."
                                   onClick={() => {

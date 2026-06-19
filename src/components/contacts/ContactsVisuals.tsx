@@ -253,7 +253,7 @@ export const KpiPill: React.FC<{
     amber:   { bg: 'from-amber-500/15 to-amber-500/5',     fg: 'text-amber-600 dark:text-amber-400',     ring: 'ring-amber-200/60 dark:ring-amber-900/40',     spark: '#f59e0b', sparkFill: 'rgba(245,158,11,0.18)' },
     rose:    { bg: 'from-rose-500/15 to-rose-500/5',       fg: 'text-rose-600 dark:text-rose-400',       ring: 'ring-rose-200/60 dark:ring-rose-900/40',       spark: '#f43f5e', sparkFill: 'rgba(244,63,94,0.18)' },
     sky:     { bg: 'from-sky-500/15 to-sky-500/5',         fg: 'text-sky-600 dark:text-sky-400',         ring: 'ring-sky-200/60 dark:ring-sky-900/40',         spark: '#0ea5e9', sparkFill: 'rgba(14,165,233,0.18)' },
-    violet:  { bg: 'from-violet-500/15 to-violet-500/5',   fg: 'text-violet-600 dark:text-violet-400',   ring: 'ring-violet-200/60 dark:ring-violet-900/40',   spark: '#8b5cf6', sparkFill: 'rgba(139,92,246,0.18)' },
+    violet:  { bg: 'from-violet-500/15 to-violet-500/5',   fg: 'text-violet-600 dark:text-cyan-400',   ring: 'ring-violet-200/60 dark:ring-violet-900/40',   spark: '#06B6D4', sparkFill: 'rgba(139,92,246,0.18)' },
     slate:   { bg: 'from-slate-500/15 to-slate-500/5',     fg: 'text-slate-600 dark:text-slate-300',     ring: 'ring-slate-200/60 dark:ring-slate-700/60',     spark: '#64748b', sparkFill: 'rgba(100,116,139,0.18)' }
   };
   const a = accentMap[accent];

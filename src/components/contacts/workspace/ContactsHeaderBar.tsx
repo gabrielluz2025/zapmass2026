@@ -140,7 +140,7 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
                 onClick={() => { setImportOpen(false); onImportVcf(); }}
               />
               <MenuItem
-                icon={<Wand2 className="w-5 h-5 text-violet-500" />}
+                icon={<Wand2 className="w-5 h-5 text-cyan-500" />}
                 title="Importação inteligente"
                 subtitle="Cole texto livre — a IA extrai os dados"
                 onClick={() => { setImportOpen(false); onSmartImport(); }}
@@ -173,7 +173,7 @@ export const ContactsHeaderBar: React.FC<Props> = React.memo(({
             className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-[var(--brand-500)]/50 hover:bg-slate-50 dark:hover:bg-slate-700 transition shadow-sm"
             title="Remover prefixos, padronizar maiúsculas e opcionalmente reduzir a primeiro e último nome"
           >
-            <SpellCheck2 className="w-4 h-4 text-violet-500" />
+            <SpellCheck2 className="w-4 h-4 text-cyan-500" />
             <span className="hidden sm:inline">Limpar nomes</span>
           </button>
         )}

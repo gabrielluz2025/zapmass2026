@@ -285,7 +285,7 @@ const toneColors: Record<FilterItem['tone'], string> = {
   rose: '#f43f5e',
   amber: '#f59e0b',
   sky: '#0ea5e9',
-  violet: '#8b5cf6',
+  violet: '#06B6D4',
   emerald: '#10b981',
   orange: '#f97316'
 };

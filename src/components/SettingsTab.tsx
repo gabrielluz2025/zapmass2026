@@ -333,12 +333,12 @@ export const SettingsTab: React.FC = () => {
       <div className="relative rounded-2xl overflow-hidden mb-2"
         style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)' }}>
         <div className="absolute inset-0 opacity-20"
-          style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, #6366f1 0%, transparent 50%), radial-gradient(circle at 80% 50%, #8b5cf6 0%, transparent 50%)' }} />
+          style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, #06B6D4 0%, transparent 50%), radial-gradient(circle at 80% 50%, #06B6D4 0%, transparent 50%)' }} />
         <div className="relative px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-center gap-4 flex-1 min-w-0">
             <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
               style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.3)' }}>
-              <Sliders className="w-6 h-6 text-indigo-400" />
+              <Sliders className="w-6 h-6 text-cyan-400" />
             </div>
             <div className="min-w-0">
               <h1 className="text-white font-bold text-xl leading-tight">Configurações</h1>
@@ -358,7 +358,7 @@ export const SettingsTab: React.FC = () => {
                 onClick={() => setSection(item.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${
                   section === item.id
-                    ? 'bg-indigo-500/30 border border-indigo-400/40 text-indigo-200'
+                    ? 'bg-cyan-500/20 border border-cyan-400/40 text-cyan-200'
                     : 'bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10'
                 }`}
               >

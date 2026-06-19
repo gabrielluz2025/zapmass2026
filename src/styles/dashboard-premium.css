@@ -295,7 +295,7 @@
 .zm-ops-accent {
   height: 3px;
   width: 100%;
-  background: linear-gradient(90deg, #4338ca, #6366f1, #818cf8);
+  background: linear-gradient(90deg, #4338ca, #06B6D4, #818cf8);
   opacity: 0.9;
 }
 
@@ -430,13 +430,13 @@
 }
 
 .zm-orbit {
-  --zm-stat-accent: #6366f1;
+  --zm-stat-accent: #06B6D4;
 }
 
 /* Centro de comando — hero com mapa OSM */
 .zm-command {
   position: relative;
-  --zm-stat-accent: #6366f1;
+  --zm-stat-accent: #06B6D4;
 }
 
 .zm-command-mesh {
@@ -444,7 +444,7 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 60% 50% at 12% 8%, rgba(99, 102, 241, 0.14), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 12% 8%, rgba(6, 182, 212, 0.14), transparent 55%),
     radial-gradient(ellipse 45% 40% at 88% 22%, rgba(236, 72, 153, 0.1), transparent 50%),
     radial-gradient(ellipse 50% 45% at 70% 95%, rgba(14, 165, 233, 0.08), transparent 55%);
   animation: zmHeroMesh 14s ease-in-out infinite;
@@ -586,12 +586,12 @@
 
 .zm-territory-map__action-btn--accent {
   color: #c7d2fe;
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(6, 182, 212, 0.35);
+  background: rgba(6, 182, 212, 0.12);
 }
 
 .zm-territory-map__action-btn--accent:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(6, 182, 212, 0.2);
   color: #e0e7ff;
 }
 
@@ -601,12 +601,12 @@
   color: #a5b4fc;
   padding: 4px 8px;
   border-radius: 8px;
-  background: rgba(99, 102, 241, 0.1);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.2);
 }
 
 .zm-territory-map__clear-filter:hover {
-  background: rgba(99, 102, 241, 0.16);
+  background: rgba(6, 182, 212, 0.16);
 }
 
 .zm-territory-map__city-input {
@@ -624,8 +624,8 @@
 }
 
 .zm-territory-map__city-input:focus {
-  border-color: rgba(99, 102, 241, 0.45);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  border-color: rgba(6, 182, 212, 0.45);
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.12);
 }
 
 .zm-territory-map__city-input:disabled {
@@ -659,7 +659,7 @@
 }
 
 .zm-territory-map__mode-btn--active {
-  background: rgba(99, 102, 241, 0.22);
+  background: rgba(6, 182, 212, 0.22);
   color: #e0e7ff;
   box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.35);
 }
@@ -793,7 +793,7 @@
 
 .zm-territory-map__rank-item:hover,
 .zm-territory-map__rank-item--active {
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(6, 182, 212, 0.1);
 }
 
 .zm-territory-map__rank-row {
@@ -833,7 +833,7 @@
 
 .zm-territory-map__rank-item--active .zm-territory-map__rank-index {
   color: #c7d2fe;
-  background: rgba(99, 102, 241, 0.25);
+  background: rgba(6, 182, 212, 0.25);
 }
 
 .zm-territory-map__rank-meta {
@@ -869,7 +869,7 @@
   height: 100%;
   min-width: 2px;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(99, 102, 241, 0.85), rgba(168, 85, 247, 0.75));
+  background: linear-gradient(90deg, rgba(6, 182, 212, 0.85), rgba(168, 85, 247, 0.75));
   transition: width 0.35s ease;
 }
 
@@ -880,7 +880,7 @@
 .zm-territory-map__rank-detail {
   padding: 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(99, 102, 241, 0.06);
+  background: rgba(6, 182, 212, 0.06);
 }
 
 .zm-territory-map__rank-back {
@@ -931,12 +931,12 @@
 
 .zm-territory-map__export-btn--primary {
   color: #fff;
-  background: rgba(99, 102, 241, 0.85);
+  background: rgba(6, 182, 212, 0.85);
   border-color: transparent;
 }
 
 .zm-territory-map__export-btn--primary:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.95);
+  background: rgba(6, 182, 212, 0.95);
 }
 
 .zm-territory-map__contact-row {
@@ -948,8 +948,8 @@
 }
 
 .zm-territory-map__contact-row:hover {
-  border-color: rgba(99, 102, 241, 0.25);
-  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(6, 182, 212, 0.25);
+  background: rgba(6, 182, 212, 0.06);
 }
 
 .zm-territory-map__rank-list--contacts {
@@ -1095,7 +1095,7 @@
 }
 
 .zm-territory-map--v2 .zm-territory-map__rank-bar-fill {
-  background: linear-gradient(90deg, #0891b2, #6366f1);
+  background: linear-gradient(90deg, #0891b2, #06B6D4);
 }
 
 .zm-territory-map--v2 .zm-territory-map__mode-btn--active {
@@ -1105,7 +1105,7 @@
 }
 
 .zm-territory-map__rank-index--top {
-  background: linear-gradient(135deg, rgba(8, 145, 178, 0.35), rgba(99, 102, 241, 0.35));
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.35), rgba(6, 182, 212, 0.35));
   color: #ecfeff;
   border: 1px solid rgba(34, 211, 238, 0.25);
 }
@@ -1352,7 +1352,7 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 55% 45% at 8% 0%, rgba(99, 102, 241, 0.18), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 8% 0%, rgba(6, 182, 212, 0.18), transparent 55%),
     radial-gradient(ellipse 40% 35% at 92% 15%, rgba(236, 72, 153, 0.12), transparent 50%),
     radial-gradient(ellipse 50% 40% at 50% 100%, rgba(14, 165, 233, 0.08), transparent 55%);
 }
@@ -1416,7 +1416,7 @@
 
 .zm-command-v2__map-link:hover {
   color: #c7d2fe;
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(6, 182, 212, 0.1);
 }
 
 .zm-command-v2__stat {
@@ -1489,7 +1489,7 @@
 }
 
 .bn-canvas--sidebar .bn-canvas__stage {
-  background: radial-gradient(ellipse 90% 80% at 50% 45%, rgba(99, 102, 241, 0.08), transparent 70%);
+  background: radial-gradient(ellipse 90% 80% at 50% 45%, rgba(6, 182, 212, 0.08), transparent 70%);
 }
 
 .bn-canvas--sidebar .bn-canvas__scan {
@@ -2344,8 +2344,8 @@
 }
 
 .zm-geo-search__input:focus {
-  border-color: rgba(99, 102, 241, 0.45);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  border-color: rgba(6, 182, 212, 0.45);
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.12);
 }
 
 .zm-geo-search__spinner {

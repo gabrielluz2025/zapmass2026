@@ -184,7 +184,7 @@ export const AdminServerTab: React.FC = () => {
               style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
             >
               <div className="flex items-center gap-2" style={{ color: 'var(--text-2)' }}>
-                <Gauge className="h-4 w-4 shrink-0 text-indigo-500/90" aria-hidden />
+                <Gauge className="h-4 w-4 shrink-0 text-cyan-500/90" aria-hidden />
                 <span className="text-[11px] font-semibold">Referência: RAM e sessões</span>
               </div>
               <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
@@ -237,7 +237,7 @@ export const AdminServerTab: React.FC = () => {
                   className="cursor-pointer list-none font-medium text-[10.5px] py-0.5 marker:content-[''] [&::-webkit-details-marker]:hidden flex items-center gap-1"
                   style={{ color: 'var(--text-2)' }}
                 >
-                  <span className="text-indigo-500/80 group-open:rotate-90 transition-transform inline-block">▸</span>
+                  <span className="text-cyan-500/80 group-open:rotate-90 transition-transform inline-block">▸</span>
                   O que isto mede (operador)
                 </summary>
                 <p className="mt-1.5 pl-3 border-l-2" style={{ borderColor: 'var(--border-subtle)' }}>

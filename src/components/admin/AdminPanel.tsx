@@ -822,7 +822,7 @@ export const AdminPanel: React.FC = () => {
                 onClick={() => setTab('announcements')}
                 className={`px-4 py-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-2 transition-all ${
                   tab === 'announcements'
-                    ? 'bg-white dark:bg-slate-900 text-violet-700 dark:text-violet-300 shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-600'
+                    ? 'bg-[rgba(16,185,129,0.10)] text-[var(--accent)] shadow-sm ring-1 ring-[var(--accent)]/20'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
@@ -904,7 +904,7 @@ export const AdminPanel: React.FC = () => {
                 <StatCard
                   label="Canais conectados"
                   value={platformStats.connections.connected}
-                  icon={<Smartphone className="w-4 h-4 text-violet-600" />}
+                  icon={<Smartphone className="w-4 h-4 text-cyan-600" />}
                   helper={`${platformStats.connections.tenantsWithConnection} contas com WhatsApp · ${platformStats.connections.total} total`}
                   accent="warning"
                 />
@@ -1585,7 +1585,7 @@ export const AdminPanel: React.FC = () => {
               <div className="rounded-xl border p-4 sm:p-5 space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-0)' }}>
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-[15px] font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-                    <History className="w-4 h-4 text-violet-500" />
+                    <History className="w-4 h-4 text-cyan-500" />
                     Trilha de auditoria
                   </h3>
                   <Button variant="secondary" size="sm" onClick={() => void loadAudit()}>
@@ -1596,7 +1596,7 @@ export const AdminPanel: React.FC = () => {
                   Registro de bloqueios, liberações e ajustes feitos por administradores.
                 </p>
                 <div className="relative pl-2 space-y-0 max-h-[280px] overflow-y-auto pr-1">
-                  <div className="absolute left-2 top-2 bottom-2 w-px bg-gradient-to-b from-violet-400/50 via-slate-300/40 to-transparent dark:from-violet-500/40" />
+                  <div className="absolute left-2 top-2 bottom-2 w-px bg-gradient-to-b from-cyan-400/50 via-slate-300/40 to-transparent dark:from-cyan-500/40" />
                   {auditLoading ? (
                     <p className="text-[12px] pl-4" style={{ color: 'var(--text-3)' }}>Carregando…</p>
                   ) : auditRows.length === 0 ? (
@@ -1604,9 +1604,9 @@ export const AdminPanel: React.FC = () => {
                   ) : (
                     auditRows.map((r) => (
                       <div key={r.id} className="relative pl-6 pb-3 last:pb-0">
-                        <div className="absolute left-0 top-1.5 w-2 h-2 rounded-full bg-violet-500 ring-2 ring-white dark:ring-slate-900" />
+                        <div className="absolute left-0 top-1.5 w-2 h-2 rounded-full bg-cyan-500 ring-2 ring-white dark:ring-slate-900" />
                         <p className="text-[12px] font-medium" style={{ color: 'var(--text-1)' }}>
-                          <span className="text-violet-600 dark:text-violet-400">{r.action}</span>
+                          <span className="text-cyan-600 dark:text-violet-400">{r.action}</span>
                           {' · '}
                           <span>{r.targetEmail || r.targetUid}</span>
                         </p>

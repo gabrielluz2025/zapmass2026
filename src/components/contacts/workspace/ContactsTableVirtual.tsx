@@ -269,7 +269,7 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
           ? 'bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]'
           : selected
             ? 'bg-[color-mix(in_srgb,var(--brand-500)_4%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]'
-            : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+            : 'hover:bg-[rgba(16,185,129,0.07)] dark:hover:bg-[rgba(16,185,129,0.07)]'
       }`}
       style={{
         position: 'absolute',

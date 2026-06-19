@@ -175,7 +175,7 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
               className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
               style={{ background: 'var(--semantic-info-tint)' }}
             >
-              <Server className="w-[18px] h-[18px] text-indigo-500" aria-hidden />
+              <Server className="w-[18px] h-[18px] text-cyan-500" aria-hidden />
             </div>
           }
           title="Operações & integrações"
@@ -315,7 +315,7 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  <Cpu className="w-4 h-4 text-indigo-400 shrink-0" aria-hidden />
+                  <Cpu className="w-4 h-4 text-cyan-400 shrink-0" aria-hidden />
                   Host
                 </div>
               </div>

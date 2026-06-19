@@ -297,7 +297,7 @@ const ContactsOverviewBase: React.FC<ContactsOverviewProps> = ({
           <div className="flex items-start justify-between mb-4">
             <div>
               <h3 className="font-black text-slate-900 dark:text-white flex items-center gap-2 text-sm">
-                <Church className="w-4 h-4 text-violet-500" /> Top igrejas
+                <Church className="w-4 h-4 text-cyan-500" /> Top igrejas
               </h3>
               <p className="text-[11px] text-slate-500 mt-0.5">Distribuição por congregação</p>
             </div>

@@ -295,7 +295,7 @@ export const CommercialIntelligenceMap: React.FC<{ embedded?: boolean }> = ({ em
     if (!nat) return [];
     return [
       { label: 'Leads com geo', value: nat.geoLeads.toLocaleString('pt-BR'), icon: <Users className="w-4 h-4" />, color: '#3b82f6' },
-      { label: 'Cobertura', value: pct(nat.coveragePct), icon: <Target className="w-4 h-4" />, color: '#8b5cf6', sub: `${nat.contactedLeads.toLocaleString('pt-BR')} contactados` },
+      { label: 'Cobertura', value: pct(nat.coveragePct), icon: <Target className="w-4 h-4" />, color: '#06B6D4', sub: `${nat.contactedLeads.toLocaleString('pt-BR')} contactados` },
       { label: 'Taxa de resposta', value: pct(nat.replyRate), icon: <TrendingUp className="w-4 h-4" />, color: '#16a34a', sub: `${nat.replied.toLocaleString('pt-BR')} respostas` },
       { label: 'Estados ativos', value: `${nat.statesCovered}/27`, icon: <MapPin className="w-4 h-4" />, color: '#f59e0b', sub: `${nat.campaignsConsidered} campanha(s)` },
     ];

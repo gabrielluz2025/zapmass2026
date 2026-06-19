@@ -79,7 +79,7 @@ function makeClusterIcon(color: string, count: number): L.DivIcon {
 }
 
 const PIN_COLOR = '#3b82f6';
-const CLUSTER_COLOR = '#6366f1';
+const CLUSTER_COLOR = '#06B6D4';
 const APPROX_COLOR = '#f59e0b';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ export const ContactAddressMap: React.FC<{ embedded?: boolean }> = ({ embedded =
           <div style="font-weight:800;font-size:14px">${cluster.label}</div>
           <div style="font-size:12px;color:#555;margin-bottom:4px">${cluster.count} contatos</div>
           ${names ? `<div style="font-size:11px;color:#888">${names}${cluster.count > 3 ? '…' : ''}</div>` : ''}
-          <div style="margin-top:6px;font-size:10px;color:#6366f1;font-weight:700;text-transform:uppercase">📍 Nível cidade</div>
+          <div style="margin-top:6px;font-size:10px;color:#06B6D4;font-weight:700;text-transform:uppercase">📍 Nível cidade</div>
         </div>
       `));
 
@@ -356,7 +356,7 @@ export const ContactAddressMap: React.FC<{ embedded?: boolean }> = ({ embedded =
           <div className="flex items-center gap-3">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center text-[18px] shrink-0"
-              style={{ background: 'linear-gradient(135deg,#3b82f620,#6366f120)' }}
+              style={{ background: 'linear-gradient(135deg,#3b82f620,#06B6D420)' }}
             >
               📍
             </div>
