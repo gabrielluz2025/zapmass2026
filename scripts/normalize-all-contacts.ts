@@ -136,7 +136,9 @@ async function main() {
     const fieldTotals: Record<TrackedField, number> = {
       name: 0, phone: 0, city: 0, state: 0, neighborhood: 0, street: 0, zipCode: 0, number: 0
     };
-    const samples: string[] = [];
+    const samplesByField: Record<TrackedField, string[]> = {
+      name: [], phone: [], city: [], state: [], neighborhood: [], street: [], zipCode: [], number: []
+    };
     let scanned = 0;
     let changed = 0;
     let offset = 0;
@@ -155,8 +157,14 @@ async function main() {
           changed++;
           for (const ch of changes) {
             fieldTotals[ch.field]++;
-            if (samples.length < 8) {
-              samples.push(`    [${ch.field}] "${ch.before}" → "${ch.after}"`);
+            const bucket = samplesByField[ch.field];
+            if (bucket.length < 4) {
+              let ctx = '';
+              if (ch.field === 'city' || ch.field === 'state') {
+                const ddd = String(c.phone || '').replace(/\D/g, '').replace(/^55/, '').slice(0, 2);
+                ctx = `  (DDD=${ddd || '?'}, bairro="${clean(c.neighborhood) || '-'}", cidade="${clean(c.city) || '-'}")`;
+              }
+              bucket.push(`    [${ch.field}] "${ch.before}" → "${ch.after}"${ctx}`);
             }
           }
           if (apply) items.push({ id: c.id, updates });
@@ -185,7 +193,8 @@ async function main() {
     const fieldLines = TRACKED_FIELDS.filter((f) => fieldTotals[f] > 0)
       .map((f) => `${f}=${fieldTotals[f]}`);
     if (fieldLines.length > 0) console.log(`  por campo: ${fieldLines.join('  ')}`);
-    if (samples.length > 0) console.log(`  amostras:\n${samples.join('\n')}`);
+    const allSamples = TRACKED_FIELDS.flatMap((f) => samplesByField[f]);
+    if (allSamples.length > 0) console.log(`  amostras (até 4 por campo):\n${allSamples.join('\n')}`);
   }
 
   console.log(`\n=== Resumo geral ===`);
