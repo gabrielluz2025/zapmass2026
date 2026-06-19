@@ -1,5 +1,7 @@
 import type { Contact, ContactList } from '../../src/types.js';
 import { applyAddressNormalizationToContact } from '../../src/utils/contactAddressNormalize.js';
+import { normalizeContactName } from '../../src/utils/contactNameNormalize.js';
+import { normalizeBRPhone } from '../../src/utils/brPhoneNormalize.js';
 import { getIbgeMunicipiosIndex } from '../ibgeMunicipios.js';
 
 export type ContactRow = {
@@ -28,9 +30,24 @@ export function sortNameForContact(name: string): string {
   return (name || 'Sem Nome').trim().toLowerCase();
 }
 
-/** Normaliza endereço/cidade antes de gravar no Postgres. */
+/**
+ * Normaliza nome, telefone e endereço antes de gravar no Postgres.
+ * É o funil único por onde passam criar/atualizar/importar/corrigir em lote,
+ * garantindo que nenhum dado quebrado entre na base por qualquer caminho.
+ * Operações puras (sem rede): seguras para rodar em todo save.
+ */
 export function prepareContactForPersistence(contact: Partial<Contact>): Partial<Contact> {
-  return applyAddressNormalizationToContact(contact, getIbgeMunicipiosIndex());
+  const withFields: Partial<Contact> = { ...contact };
+
+  if (contact.name !== undefined) {
+    withFields.name = normalizeContactName(contact.name) || 'Sem Nome';
+  }
+  if (contact.phone !== undefined) {
+    const normalizedPhone = normalizeBRPhone(contact.phone);
+    if (normalizedPhone) withFields.phone = normalizedPhone;
+  }
+
+  return applyAddressNormalizationToContact(withFields, getIbgeMunicipiosIndex());
 }
 
 /** Payload Firestore-compatível (sem id). */

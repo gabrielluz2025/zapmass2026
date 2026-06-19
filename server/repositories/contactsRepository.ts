@@ -107,9 +107,14 @@ export async function createContact(tenantId: string, contact: Partial<Contact>)
   if (!pool) throw new Error('POSTGRES_UNAVAILABLE');
   const tid = pgTenantId(tenantId);
   const id = contact.id && /^[0-9a-f-]{36}$/i.test(contact.id) ? contact.id : randomUUID();
-  const name = String(contact.name || 'Sem Nome').slice(0, 500);
-  const phone = String(contact.phone || '').slice(0, 64);
-  const doc = contactToDocPayload(prepareContactForPersistence({ ...contact, name, phone }));
+  const prepared = prepareContactForPersistence({
+    ...contact,
+    name: String(contact.name || 'Sem Nome'),
+    phone: String(contact.phone || '')
+  });
+  const name = String(prepared.name || 'Sem Nome').slice(0, 500);
+  const phone = String(prepared.phone || '').slice(0, 64);
+  const doc = contactToDocPayload(prepared);
   const r = await pool.query<ContactRow>(
     `INSERT INTO zapmass.contacts (id, tenant_id, name, phone, sort_name, doc)
      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb)
@@ -140,9 +145,14 @@ export async function bulkCreateContacts(
       for (const contact of chunk) {
         const id = randomUUID();
         ids.push(id);
-        const name = String(contact.name || 'Sem Nome').slice(0, 500);
-        const phone = String(contact.phone || '').slice(0, 64);
-        const doc = contactToDocPayload(prepareContactForPersistence({ ...contact, name, phone }));
+        const prepared = prepareContactForPersistence({
+          ...contact,
+          name: String(contact.name || 'Sem Nome'),
+          phone: String(contact.phone || '')
+        });
+        const name = String(prepared.name || 'Sem Nome').slice(0, 500);
+        const phone = String(prepared.phone || '').slice(0, 64);
+        const doc = contactToDocPayload(prepared);
         values.push(
           `($${paramIdx}::uuid, $1::uuid, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::jsonb)`
         );

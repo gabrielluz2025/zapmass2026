@@ -1,5 +1,7 @@
 /** Normalização de nomes de pessoa para CRM / variáveis de campanha (pt-BR). */
 
+import { repairUtf8Mojibake } from './contactAddressNormalize';
+
 export type ContactNameNormalizeOpts = {
   /** Prefixos extras (uma por linha ou separados por vírgula/ponto-e-vírgula). */
   extraPrefixes?: string[];
@@ -190,4 +192,41 @@ export function campaignRecipientNameVars(rawFullName: string): { nome: string; 
     nome: parts[0] || nomeCompleto,
     nome_completo: nomeCompleto
   };
+}
+
+const MAX_STORED_NAME_LEN = 120;
+
+/**
+ * Normalização conservadora para PERSISTÊNCIA do nome (todo save/import/correção):
+ *  - Conserta mojibake (UTF-8 lido como Latin-1) e remove caracteres invisíveis
+ *  - Colapsa espaços e apara as bordas
+ *  - Aplica Title Case APENAS quando está todo em MAIÚSCULAS ou todo minúsculo
+ *    (preserva grafias mistas intencionais: "iPhone da Maria", "McDonald")
+ *  - Mantém acentos e emojis (válidos em nomes de WhatsApp)
+ * Pura e idempotente: segura para rodar em toda gravação.
+ */
+export function normalizeContactName(raw: string): string {
+  const s = repairUtf8Mojibake(String(raw ?? '')).replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+
+  const letters = s.replace(/[^\p{L}]/gu, '');
+  if (letters.length >= 2) {
+    const upper = s.toLocaleUpperCase('pt-BR');
+    const lower = s.toLocaleLowerCase('pt-BR');
+    if (s === upper || s === lower) {
+      return titleCasePortuguesePersonName(s).slice(0, MAX_STORED_NAME_LEN);
+    }
+  }
+
+  return s.slice(0, MAX_STORED_NAME_LEN);
+}
+
+/** Sinaliza nomes claramente quebrados/placeholder para relatórios de qualidade. */
+export function isSuspiciousContactName(name: string): boolean {
+  const s = String(name ?? '').trim();
+  if (!s) return true;
+  if (/^sem nome$/i.test(s)) return true;
+  if (!/\p{L}/u.test(s)) return true; // nenhuma letra
+  if (/\uFFFD/.test(s)) return true; // marcador de encoding quebrado
+  return false;
 }

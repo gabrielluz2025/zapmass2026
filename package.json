@@ -31,6 +31,7 @@
     "reset:vps-password": "tsx scripts/reset-vps-user-password.ts",
     "repair:connection-owners": "tsx scripts/repair-connection-owners.ts",
     "isolate:tenant-channels": "tsx scripts/isolate-tenant-channels.ts",
+    "normalize:all-contacts": "tsx scripts/normalize-all-contacts.ts",
     "deploy:firestore-rules": "firebase deploy --only firestore:rules",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
     "deploy:hosting:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-hosting.ps1",
