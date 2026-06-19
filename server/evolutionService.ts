@@ -667,12 +667,6 @@ export async function syncConnectionsForOwner(
     const lastSync = lastFullSyncByOwner.get(uid) ?? 0;
     const withinCooldown = !opts?.force && Date.now() - lastSync < FULL_SYNC_COOLDOWN_MS;
 
-    await hydrateInstancesFromEvolution();
-    const restored = ensureCachedConnectionsInRamForOwner(uid);
-    if (restored.length > 0) {
-        log('info', `syncConnectionsForOwner: canais restaurados do cache=${restored.join(',')}`);
-    }
-
     if (withinCooldown) {
         log('info', 'syncConnectionsForOwner: cooldown ativo — só reemit RAM', {
             ownerUid: uid,
@@ -682,6 +676,23 @@ export async function syncConnectionsForOwner(
         const scoped = filterByConnectionScope(uid, getConnections());
         publishOwnerEvent(uid, 'connections-update', scoped);
         return { connections: scoped, claimed: [], syncedChats: [], skippedCooldown: true };
+    }
+
+    const inflight = syncInFlightByOwner.get(uid);
+    if (inflight && !opts?.force) {
+        return inflight;
+    }
+
+    const runSync = async (): Promise<{
+        connections: WhatsAppConnection[];
+        claimed: string[];
+        syncedChats: string[];
+        skippedCooldown?: boolean;
+    }> => {
+    await hydrateInstancesFromEvolution();
+    const restored = ensureCachedConnectionsInRamForOwner(uid);
+    if (restored.length > 0) {
+        log('info', `syncConnectionsForOwner: canais restaurados do cache=${restored.join(',')}`);
     }
 
     lastFullSyncByOwner.set(uid, Date.now());
@@ -738,6 +749,17 @@ export async function syncConnectionsForOwner(
     log('info', `syncConnectionsForOwner: ${scoped.length} canal(is), claimed=${claimed.join(',') || '-'}`);
 
     return { connections: scoped, claimed, syncedChats };
+    };
+
+    const task = runSync();
+    syncInFlightByOwner.set(uid, task);
+    try {
+        return await task;
+    } finally {
+        if (syncInFlightByOwner.get(uid) === task) {
+            syncInFlightByOwner.delete(uid);
+        }
+    }
 }
 
 /** Página da inbox (cursor = lastMessageTimestamp da última linha). */
@@ -910,6 +932,15 @@ let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
 /** Evita findChats repetido no mesmo tenant (socket, auto-sync, rajadas manuais). */
 const FULL_SYNC_COOLDOWN_MS = 5 * 60_000;
 const lastFullSyncByOwner = new Map<string, number>();
+const syncInFlightByOwner = new Map<
+    string,
+    Promise<{
+        connections: WhatsAppConnection[];
+        claimed: string[];
+        syncedChats: string[];
+        skippedCooldown?: boolean;
+    }>
+>();
 
 function clearAutoReconnect(connectionId: string) {
     const st = autoReconnectState.get(connectionId);

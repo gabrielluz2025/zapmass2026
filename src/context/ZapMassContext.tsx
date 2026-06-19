@@ -573,7 +573,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const qrCodeByConnectionId = useRef<Record<string, string>>({});
   const pendingConnectionToastIdRef = useRef<string | null>(null);
   const connectionsRef = useRef<WhatsAppConnection[]>([]);
-  const syncConnectionsFromApiRef = useRef<() => Promise<void>>(async () => {});
+  const syncConnectionsFromApiRef = useRef<(opts?: { force?: boolean }) => Promise<void>>(async () => {});
+  const apiSyncInFlightRef = useRef(false);
+  const apiSyncLastAtRef = useRef(0);
+  /** Evita rajada de POST /api/connections/sync ao abrir abas / reconectar socket. */
+  const AUTO_CONNECTIONS_SYNC_MIN_MS = 90_000;
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Atraso antes de marcar UI como offline — evita OFFLINE a piscar em quedas < ~3s (sleep da CPU / troca de aba). */
   const offlineBadgeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1116,17 +1120,29 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setIsBackendConnected(false);
       });
 
-    const syncConnectionsFromApi = async () => {
+    const syncConnectionsFromApi = async (opts?: { force?: boolean }) => {
       const ownerUid = getOwnerUidForConnectionScope();
       if (!ownerUid || ownerUid === 'anonymous') return;
+      const force = opts?.force === true;
+      const now = Date.now();
+      if (!force) {
+        if (apiSyncInFlightRef.current) return;
+        if (now - apiSyncLastAtRef.current < AUTO_CONNECTIONS_SYNC_MIN_MS) return;
+      }
+      apiSyncInFlightRef.current = true;
       try {
         const token = await getSessionIdToken();
         if (!token) return;
         const res = await fetch(apiUrl('/api/connections/sync'), {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` }
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ force })
         });
         if (!res.ok) return;
+        apiSyncLastAtRef.current = Date.now();
         const data = (await res.json()) as {
           connections?: WhatsAppConnection[];
           conversations?: Conversation[];
@@ -1163,6 +1179,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       } catch (e) {
         console.warn('[sync] /api/connections/sync falhou:', e);
+      } finally {
+        apiSyncInFlightRef.current = false;
       }
     };
     syncConnectionsFromApiRef.current = syncConnectionsFromApi;
@@ -1187,7 +1205,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // Sem toast em reconexao: troca de aba / retorno do fundo gera muito ruido; o painel
       // usa isBackendConnected; toast so na primeira carga (acima) e se ficar 6s+ off (disconnect).
       devLog('🔌 Conectado ao servidor Socket.io');
-      void syncConnectionsFromApi();
       scheduleBootstrapConnectionSync();
     });
 
@@ -1240,7 +1257,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     // na ordem esperada apos retoken / reload).
     const onManagerReconnect = () => {
       syncBackendConnected();
-      void syncConnectionsFromApi();
     };
     socket.io.on('reconnect', onManagerReconnect);
     // Estado inicial: se o socket ja estiver conectado (ou reconectar muito rapido), reflete no badge.
@@ -1586,7 +1602,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     socket.on('connection-ready', ({ connectionId }: { connectionId: string }) => {
       const conn = connectionsRef.current.find(c => c.id === connectionId);
       toast.success(`Conexão "${conn?.name || connectionId}" estabelecida! ✅`);
-      void syncConnectionsFromApi().then(() => {
+      void syncConnectionsFromApi({ force: true }).then(() => {
         if (socket.connected) socket.emit('request-conversations-sync');
       });
     });
@@ -2383,9 +2399,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     currentUidRef.current = dataUid;
 
     const runSync = () => void syncConnectionsFromApiRef.current();
-    runSync();
-    const t1 = window.setTimeout(runSync, 1500);
-    const t2 = window.setTimeout(runSync, 5000);
+    const t0 = window.setTimeout(runSync, 3_000);
 
     const sock = socketRef.current;
     if (sock && !sock.connected) {
@@ -2397,8 +2411,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
 
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
+      clearTimeout(t0);
     };
   }, [effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 

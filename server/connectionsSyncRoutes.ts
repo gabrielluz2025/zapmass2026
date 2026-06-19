@@ -24,8 +24,10 @@ export function registerConnectionsSyncRoutes(app: Express): void {
         return res.status(401).json({ ok: false, error: 'Token inválido.' });
       }
       const tenantUid = principal.tenantUid;
+      const body = (req.body && typeof req.body === 'object' ? req.body : {}) as { force?: boolean };
+      const force = body.force === true;
 
-      const result = await evolutionService.syncConnectionsForOwner(tenantUid, { force: true });
+      const result = await evolutionService.syncConnectionsForOwner(tenantUid, { force });
       const connections = filterByConnectionScope(tenantUid, result.connections);
       const conversations = conversationsPayloadForViewer(
         tenantUid,
