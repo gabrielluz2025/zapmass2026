@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
-import { vpsDataEnabled } from '../auth/dataMode.js';
-import { getZapmassPool } from '../db/postgres.js';
-import { requireTenant } from '../httpTenant.js';
+import { vpsDataEnabled } from './auth/dataMode.js';
+import { getZapmassPool } from './db/postgres.js';
+import { requireTenant } from './httpTenant.js';
 import { invalidateSupportBotConfigCache } from './supportBot/supportBotEngine.js';
 import {
   loadSupportBotConfigPg,

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Contact } from '../src/types.js';
+import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
 import {
   knownUfForCity,
   normalizeContactNeighborhood,
