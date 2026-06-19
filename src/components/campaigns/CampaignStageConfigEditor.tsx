@@ -64,7 +64,7 @@ export function CampaignStageConfigEditor({ stageIndex, config, totalStages, onC
               onClick={() => update({ trigger_type: opt.value })}
               className={`flex flex-col gap-1 rounded-lg border p-2.5 text-left text-xs transition-all ${
                 config.trigger_type === opt.value
-                  ? 'border-violet-500 bg-violet-500/20 text-white'
+                  ? 'border-cyan-500 bg-cyan-500/20 text-white'
                   : 'border-white/10 bg-white/5 text-white/60 hover:border-white/20 hover:text-white/80'
               }`}
             >
@@ -94,7 +94,7 @@ export function CampaignStageConfigEditor({ stageIndex, config, totalStages, onC
               onChange={(e) =>
                 update({ timeout_hours: e.target.value ? parseInt(e.target.value, 10) : undefined })
               }
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 focus:border-violet-500 focus:outline-none"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 focus:border-cyan-500 focus:outline-none"
             />
           </div>
           <div>
@@ -102,7 +102,7 @@ export function CampaignStageConfigEditor({ stageIndex, config, totalStages, onC
             <select
               value={config.timeout_action ?? 'skip'}
               onChange={(e) => update({ timeout_action: e.target.value })}
-              className="w-full rounded-lg border border-white/10 bg-[#1a1a2e] px-3 py-2 text-xs text-white focus:border-violet-500 focus:outline-none"
+              className="w-full rounded-lg border border-white/10 bg-[#1a1a2e] px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
             >
               <option value="skip">Pular contato</option>
               <option value="complete">Marcar como concluído</option>
@@ -137,7 +137,7 @@ export function CampaignStageConfigEditor({ stageIndex, config, totalStages, onC
                     : undefined,
                 })
               }
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 focus:border-violet-500 focus:outline-none"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 focus:border-cyan-500 focus:outline-none"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -152,7 +152,7 @@ export function CampaignStageConfigEditor({ stageIndex, config, totalStages, onC
                     next_step_on_match: e.target.value !== '' ? parseInt(e.target.value, 10) : undefined,
                   })
                 }
-                className="w-full rounded-lg border border-white/10 bg-[#1a1a2e] px-3 py-2 text-xs text-white focus:border-violet-500 focus:outline-none"
+                className="w-full rounded-lg border border-white/10 bg-[#1a1a2e] px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
               >
                 <option value="">Próxima sequencial</option>
                 {stepOptions.map((i) => (
@@ -173,7 +173,7 @@ export function CampaignStageConfigEditor({ stageIndex, config, totalStages, onC
                     next_step_on_no_match: e.target.value !== '' ? parseInt(e.target.value, 10) : undefined,
                   })
                 }
-                className="w-full rounded-lg border border-white/10 bg-[#1a1a2e] px-3 py-2 text-xs text-white focus:border-violet-500 focus:outline-none"
+                className="w-full rounded-lg border border-white/10 bg-[#1a1a2e] px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
               >
                 <option value="">Próxima sequencial</option>
                 {stepOptions.map((i) => (

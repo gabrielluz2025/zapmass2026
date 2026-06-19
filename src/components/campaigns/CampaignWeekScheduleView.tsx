@@ -120,7 +120,7 @@ export const CampaignWeekScheduleView: React.FC<CampaignWeekScheduleViewProps> =
           className="w-9 h-9 rounded-xl flex items-center justify-center"
           style={{ background: 'rgba(99,102,241,0.15)' }}
         >
-          <CalendarClock className="w-4 h-4 text-indigo-500" />
+          <CalendarClock className="w-4 h-4 text-cyan-500" />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="ui-title text-[15px]">Programação da semana</h3>

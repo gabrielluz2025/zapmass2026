@@ -601,7 +601,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                     style={{ background: 'rgba(99,102,241,0.12)' }}
                   >
-                    <Smartphone className="w-4 h-4 text-indigo-400" />
+                    <Smartphone className="w-4 h-4 text-cyan-400" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="ui-title text-[14.5px]">Teste de disparo</h3>

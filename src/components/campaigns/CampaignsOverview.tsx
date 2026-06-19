@@ -177,13 +177,13 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
               />
               <defs>
                 <linearGradient id="radarGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#6366f1" />
+                  <stop offset="0%" stopColor="#06B6D4" />
                   <stop offset="100%" stopColor="#22d3ee" />
                 </linearGradient>
               </defs>
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-              <Sparkles className="w-5 h-5 text-indigo-400 mb-1" />
+              <Sparkles className="w-5 h-5 text-cyan-400 mb-1" />
               <span className="text-[28px] font-black tabular-nums" style={{ color: 'var(--text-1)' }}>
                 {data.running.length}
               </span>
@@ -194,7 +194,7 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
           </div>
 
           <div className="flex-1 min-w-0 w-full">
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-indigo-400 mb-1">Command radar</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-cyan-400 mb-1">Command radar</p>
             <h2 className="text-[20px] sm:text-[22px] font-black mb-3" style={{ color: 'var(--text-1)' }}>
               Pulso das suas operações
             </h2>
@@ -255,7 +255,7 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
             </div>
             <Badge variant="neutral">{fmtInt(data.hourBuckets.reduce((a, v) => a + v, 0))} total</Badge>
           </div>
-          <PulseChart values={data.hourBuckets} height={130} color="#6366f1" labels={['-24h', '-18h', '-12h', '-6h', 'agora']} />
+          <PulseChart values={data.hourBuckets} height={130} color="#06B6D4" labels={['-24h', '-18h', '-12h', '-6h', 'agora']} />
         </div>
 
         {/* Pódio */}
@@ -340,7 +340,7 @@ export const CampaignsOverview: React.FC<CampaignsOverviewProps> = ({
                     className="h-full rounded-full"
                     style={{
                       width: `${m.progressPct}%`,
-                      background: isRunning ? 'linear-gradient(90deg,#6366f1,#22d3ee)' : '#94a3b8',
+                      background: isRunning ? 'linear-gradient(90deg,#06B6D4,#22d3ee)' : '#94a3b8',
                     }}
                   />
                 </div>

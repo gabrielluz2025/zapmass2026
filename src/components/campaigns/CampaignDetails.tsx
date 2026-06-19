@@ -675,7 +675,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     : isPaused
     ? '#f59e0b'
     : isScheduled
-    ? '#6366f1'
+    ? '#06B6D4'
     : isDone
     ? '#3b82f6'
     : isWaitingForReplies
@@ -686,7 +686,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
     : isPaused
     ? '#f59e0b'
     : isScheduled
-    ? '#6366f1'
+    ? '#06B6D4'
     : isDone
     ? '#3b82f6'
     : isWaitingForReplies
@@ -2243,7 +2243,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
                                 className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-2)]"
                                 title="Reenviar mensagem"
                               >
-                                <RefreshCw className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
+                                <RefreshCw className="w-3.5 h-3.5" style={{ color: '#06B6D4' }} />
                               </button>
                             )}
                             <button

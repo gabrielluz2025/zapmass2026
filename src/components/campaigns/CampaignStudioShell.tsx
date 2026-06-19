@@ -100,7 +100,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
         >
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+            style={{ background: 'linear-gradient(135deg, #06B6D4, #06B6D4)' }}
           >
             <Zap className="w-4 h-4 text-white" />
           </div>
@@ -163,7 +163,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
           onClick={onCreate}
           className="hidden lg:flex items-center justify-center gap-2 mt-3 px-3 py-2.5 rounded-xl text-[12px] font-bold text-white transition-transform hover:scale-[1.02]"
           style={{
-            background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+            background: 'linear-gradient(135deg, #06B6D4, #06B6D4)',
             boxShadow: '0 8px 24px -8px rgba(99,102,241,0.55)',
           }}
         >
@@ -247,7 +247,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
                 background:
                   healthUi === 'reconnecting'
                     ? 'linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b)'
-                    : 'linear-gradient(90deg, #6366f1, #22d3ee, #6366f1)',
+                    : 'linear-gradient(90deg, #06B6D4, #22d3ee, #06B6D4)',
               }}
             />
           )}
@@ -257,7 +257,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           {[
             { label: 'Em execução', val: stats.running.length, icon: <Activity className="w-4 h-4" />, tone: '#22c55e' },
-            { label: 'Agendadas', val: stats.scheduled.length, icon: <Radio className="w-4 h-4" />, tone: '#6366f1' },
+            { label: 'Agendadas', val: stats.scheduled.length, icon: <Radio className="w-4 h-4" />, tone: '#06B6D4' },
             { label: 'Enviadas (total)', val: stats.sentToday, icon: <Send className="w-4 h-4" />, tone: '#f97316' },
             { label: 'Canais online', val: stats.onlineChips.length, icon: <Zap className="w-4 h-4" />, tone: '#06b6d4' },
           ].map((k) => (
@@ -301,7 +301,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
                   <div className="w-24 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-0)' }}>
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${m.progressPct}%`, background: 'linear-gradient(90deg, #6366f1, #22d3ee)' }}
+                      style={{ width: `${m.progressPct}%`, background: 'linear-gradient(90deg, #06B6D4, #22d3ee)' }}
                     />
                   </div>
                   <span className="text-[11px] font-bold tabular-nums shrink-0" style={{ color: '#818cf8' }}>

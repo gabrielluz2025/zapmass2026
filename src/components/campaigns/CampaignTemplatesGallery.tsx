@@ -205,7 +205,7 @@ export const CampaignTemplatesGallery: React.FC<CampaignTemplatesGalleryProps> =
               border: '1px solid rgba(139,92,246,0.3)'
             }}
           >
-            <Sparkles className="w-4 h-4 text-violet-500" />
+            <Sparkles className="w-4 h-4 text-cyan-500" />
           </div>
           <div className="min-w-0">
             <h3 className="ui-title text-[14.5px] truncate">Templates prontos</h3>

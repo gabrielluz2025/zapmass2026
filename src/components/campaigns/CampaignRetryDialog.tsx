@@ -112,7 +112,7 @@ export const CampaignRetryDialog: React.FC<Props> = ({
             className="rounded-xl px-3 py-2.5 flex items-start gap-2 text-[12px]"
             style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.22)' }}
           >
-            <Paperclip className="w-4 h-4 shrink-0 mt-0.5 text-indigo-500" />
+            <Paperclip className="w-4 h-4 shrink-0 mt-0.5 text-cyan-500" />
             <span style={{ color: 'var(--text-2)' }}>
               Anexo original incluído no reenvio: <strong>{mediaLabels.join(', ')}</strong>
             </span>

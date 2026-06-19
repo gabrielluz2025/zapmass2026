@@ -761,7 +761,7 @@ const CampaignCardExtended: React.FC<CampaignCardExtendedProps> = memo(function 
     : isPaused
     ? '#f59e0b'
     : isScheduled
-    ? '#6366f1'
+    ? '#06B6D4'
     : isDone
     ? '#3b82f6'
     : isWaitingForReplies
@@ -1042,7 +1042,7 @@ const CampaignCompactRow: React.FC<CampaignCompactRowProps> = memo(function Camp
     : isPaused
     ? '#f59e0b'
     : isScheduled
-    ? '#6366f1'
+    ? '#06B6D4'
     : isDone
     ? '#3b82f6'
     : '#94a3b8';

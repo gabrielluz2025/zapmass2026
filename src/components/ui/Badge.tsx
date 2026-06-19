@@ -19,8 +19,8 @@ const variantClass: Record<BadgeVariant, string> = {
 const dotColor: Record<BadgeVariant, string> = {
   success: 'bg-emerald-500',
   warning: 'bg-amber-500',
-  danger: 'bg-red-500',
-  info: 'bg-blue-500',
+  danger: 'bg-red-400',
+  info: 'bg-cyan-500',
   neutral: 'bg-slate-400'
 };
 

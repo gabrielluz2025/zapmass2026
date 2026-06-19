@@ -20,7 +20,7 @@ export const CampaignStudioSection: React.FC<{
         <div className="flex items-center gap-2">
           <span
             className="w-1 h-4 rounded-full shrink-0"
-            style={{ background: 'linear-gradient(180deg, #6366f1, #22d3ee)' }}
+            style={{ background: 'linear-gradient(180deg, #06B6D4, #22d3ee)' }}
           />
           <h2 className="text-[14px] font-black truncate" style={{ color: 'var(--text-1)' }}>
             {title}

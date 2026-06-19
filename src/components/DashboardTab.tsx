@@ -806,8 +806,8 @@ export const DashboardTab: React.FC = () => {
         label: 'Lidas',
         value: metrics.totalRead,
         pctOfSent: readRate,
-        color: '#8b5cf6',
-        colorSoft: 'rgba(139, 92, 246, 0.14)'
+        color: '#06B6D4',
+        colorSoft: 'rgba(6, 182, 212, 0.14)'
       },
       {
         label: 'Respostas',
@@ -1647,7 +1647,7 @@ export const DashboardTab: React.FC = () => {
                   {
                     label: 'Campanhas ativas',
                     value: String(accountSummary.runningCampaigns + accountSummary.scheduledCampaigns),
-                    icon: <Rocket className="w-3.5 h-3.5" style={{ color: '#8b5cf6' }} />
+                    icon: <Rocket className="w-3.5 h-3.5" style={{ color: '#06B6D4' }} />
                   },
                   {
                     label: 'Lembretes hoje',
@@ -1745,7 +1745,7 @@ export const DashboardTab: React.FC = () => {
                     className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
                     style={{ background: 'var(--semantic-info-tint)' }}
                   >
-                    <Server className="w-[18px] h-[18px] text-indigo-500" aria-hidden />
+                    <Server className="w-[18px] h-[18px] text-cyan-500" aria-hidden />
                   </div>
                 }
                 title="Operações de servidor"
@@ -1815,7 +1815,7 @@ export const DashboardTab: React.FC = () => {
                       background:
                         adminOps.ramPct >= 85
                           ? 'linear-gradient(90deg, #f59e0b, #f43f5e)'
-                          : 'linear-gradient(90deg, #6366f1, #818cf8)'
+                          : 'linear-gradient(90deg, #06B6D4, #22d3ee)'
                     }}
                   />
                 </div>

@@ -1380,7 +1380,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           background: 'var(--surface-1)',
           border: '1px solid var(--border-subtle)',
           boxShadow: '0 1px 6px rgba(0,0,0,0.06)',
-          borderLeft: '3px solid #6366f1',
+          borderLeft: '3px solid #06B6D4',
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -1428,7 +1428,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
             left: '12.5%',
             width: `${((step - 1) / 3) * 75}%`,
             height: 2,
-            background: 'linear-gradient(90deg, #6366f1, #22d3ee)',
+            background: 'linear-gradient(90deg, #06B6D4, #22d3ee)',
             zIndex: 0,
             transition: 'width 0.4s cubic-bezier(0.4,0,0.2,1)'
           }}
@@ -1531,9 +1531,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     icon: Filter,
                     desc: 'Segmente por cidade, DDD, cargo ou outro critério',
                     badge: 'Avançado',
-                    badgeColor: '#6366f1',
+                    badgeColor: '#06B6D4',
                     badgeBg: 'rgba(99,102,241,0.12)',
-                    iconBg: '#6366f1',
+                    iconBg: '#06B6D4',
                     accent: 'rgba(99,102,241,0.28)'
                   },
                   {
@@ -2399,7 +2399,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all inline-flex items-center gap-1.5"
                     style={
                       launchMode === 'schedule'
-                        ? { background: '#6366f1', color: '#fff' }
+                        ? { background: '#06B6D4', color: '#fff' }
                         : {
                             background: 'var(--surface-0)',
                             color: abLabEnabled ? 'var(--text-3)' : 'var(--text-2)',

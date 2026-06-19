@@ -119,7 +119,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
     return () => clearInterval(interval);
   }, [connection.qrCode]);
 
-  const statusColor = isConnected ? '#10b981' : isConnecting ? '#f59e0b' : '#ef4444';
+  const statusColor = isConnected ? '#10B981' : isConnecting ? '#F59E0B' : '#F87171';
   const statusLabel = isConnected ? 'Online' : isConnecting ? 'Conectando' : 'Offline';
   const healthScore = connection.healthScore ?? 100;
   const dispatchInsights = useMemo(
@@ -144,7 +144,8 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
     <div className="relative group rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-2xl"
       style={{
         background: 'var(--surface)',
-        border: `2px solid ${isConnected ? 'rgba(16,185,129,0.25)' : isConnecting ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.15)'}`,
+        border: `1px solid ${isConnected ? 'var(--accent)' : isConnecting ? 'rgba(245,158,11,0.30)' : 'rgba(248,113,113,0.20)'}`,
+        boxShadow: isConnected ? 'var(--shadow-glow)' : undefined,
       }}
     >
       {/* Animated top bar */}
@@ -230,7 +231,12 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
                     </button>
                   )}
                   <span className="text-[9px] font-black px-2.5 py-0.5 rounded-full flex-shrink-0"
-                    style={{ background: `${statusColor}18`, color: statusColor }}>
+                    style={isConnected
+                      ? { background: 'rgba(34,197,94,0.12)', color: 'var(--success)' }
+                      : isConnecting
+                      ? { background: 'rgba(245,158,11,0.12)', color: 'var(--warning)' }
+                      : { background: 'var(--surface-2)', color: 'var(--text-3)' }
+                    }>
                     {statusLabel}
                   </span>
                 </>
