@@ -581,6 +581,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const syncConnectionsFromApiRef = useRef<(opts?: { force?: boolean }) => Promise<void>>(async () => {});
   const apiSyncInFlightRef = useRef(false);
   const apiSyncLastAtRef = useRef(0);
+  /** Uma sync leve por sessão de socket (ignora cooldown de 24h do POST /api/connections/sync). */
+  const bootConnectionsSyncDoneRef = useRef(false);
   /** Evita rajada de POST /api/connections/sync ao abrir abas / reconectar socket. */
   const AUTO_CONNECTIONS_SYNC_MIN_MS = 24 * 60 * 60 * 1000;
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1164,12 +1166,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setIsBackendConnected(false);
       });
 
-    const syncConnectionsFromApi = async (opts?: { force?: boolean }) => {
+    const syncConnectionsFromApi = async (opts?: { force?: boolean; boot?: boolean }) => {
       const ownerUid = getOwnerUidForConnectionScope();
       if (!ownerUid || ownerUid === 'anonymous') return;
       const force = opts?.force === true;
+      const boot = opts?.boot === true;
       const now = Date.now();
-      if (!force) {
+      if (!force && !boot) {
         if (apiSyncInFlightRef.current) return;
         if (now - apiSyncLastAtRef.current < AUTO_CONNECTIONS_SYNC_MIN_MS) return;
       }
@@ -1249,6 +1252,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // Sem toast em reconexao: troca de aba / retorno do fundo gera muito ruido; o painel
       // usa isBackendConnected; toast so na primeira carga (acima) e se ficar 6s+ off (disconnect).
       devLog('🔌 Conectado ao servidor Socket.io');
+      if (!bootConnectionsSyncDoneRef.current) {
+        bootConnectionsSyncDoneRef.current = true;
+        void syncConnectionsFromApi({ boot: true });
+      }
       scheduleBootstrapConnectionSync();
     });
 
@@ -1265,6 +1272,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         scheduleBackendOffline({ immediate: true });
         return; // logout / socket.disconnect() intencional — sem aviso de falha
       }
+      bootConnectionsSyncDoneRef.current = false;
       scheduleBackendOffline();
       // Evita falso positivo em quedas rapidas: so avisa erro apos 6s offline continuo
       // (reconexao comum nao dispara: connect() limpa este timer).
@@ -1316,9 +1324,13 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setConnections((prev) => {
         const scopedPrev = scopeConnections(prev);
         if (mine.length === 0) {
-          if (scopedPrev.length === 0) return prev;
-          connectionsRef.current = [];
-          return [];
+          if (scopedPrev.length === 0) {
+            void syncConnectionsFromApi({ boot: true });
+            return prev;
+          }
+          /** RAM vazia no servidor (boot/restart) — não apagar canais até confirmar via HTTP. */
+          void syncConnectionsFromApi({ boot: true });
+          return scopedPrev;
         }
         const result = mergeWhatsAppConnectionLists(mine, scopedPrev, qrCodeByConnectionId.current);
         for (const conn of result) {
@@ -1700,8 +1712,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         bootstrapSyncTimers.push(
           setTimeout(() => {
             if (!socket.connected) return;
-            if (connectionListHasStaleConnecting(connectionsRef.current)) {
-              void syncConnectionsFromApi();
+            const list = connectionsRef.current;
+            if (list.length === 0 || connectionListHasStaleConnecting(list)) {
+              void syncConnectionsFromApi({ boot: true });
             }
           }, delayMs)
         );

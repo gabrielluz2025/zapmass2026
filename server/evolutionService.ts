@@ -655,6 +655,15 @@ function ensureCachedConnectionsInRamForOwner(ownerUid: string): string[] {
     return restored;
 }
 
+/** Evolution + cache em disco → RAM antes de emitir connections-update (socket boot / cooldown). */
+export async function ensureConnectionsHydratedForOwner(ownerUid: string): Promise<WhatsAppConnection[]> {
+    const uid = String(ownerUid || '').trim();
+    if (!uid || uid === 'anonymous') return [];
+    await hydrateInstancesFromEvolution();
+    ensureCachedConnectionsInRamForOwner(uid);
+    return filterByConnectionScope(uid, getConnections());
+}
+
 /** Evolution → memória → dono → chats (painel + pipeline). */
 export async function syncConnectionsForOwner(
     ownerUid: string,
@@ -674,12 +683,12 @@ export async function syncConnectionsForOwner(
 
     if (withinCooldown) {
         const lastSync = await getOwnerLastFullSyncMs(uid);
-        log('info', 'syncConnectionsForOwner: cooldown ativo — só reemit RAM', {
+        log('info', 'syncConnectionsForOwner: cooldown ativo — hidrata RAM e reemite', {
             ownerUid: uid,
             cooldownSec: Math.ceil((fullSyncIntervalMs() - (Date.now() - lastSync)) / 1000),
         });
+        const scoped = await ensureConnectionsHydratedForOwner(uid);
         await reemitConversationsForOwner(uid);
-        const scoped = filterByConnectionScope(uid, getConnections());
         publishOwnerEvent(uid, 'connections-update', scoped);
         return { connections: scoped, claimed: [], syncedChats: [], skippedCooldown: true };
     }
@@ -5532,6 +5541,7 @@ export default {
     syncAllOpenChats,
     syncOpenChatsForOwner,
     syncConnectionsForOwner,
+    ensureConnectionsHydratedForOwner,
     reemitConversationsForOwner,
     getInboxPageForOwner,
     assignConnectionOwner,

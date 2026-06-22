@@ -948,6 +948,7 @@ const registerSocketHandlers = () => {
     void (async () => {
       if (uid && uid !== 'anonymous') {
         await ensureAssignmentsLoaded(uid).catch(() => undefined);
+        await evolutionService.ensureConnectionsHydratedForOwner(uid).catch(() => undefined);
         try {
           const tenantSettings = await loadTenantSettings(uid);
           socket.emit('tenant-settings', settingsToClientPayload(tenantSettings));
