@@ -70,7 +70,7 @@ const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT
 const DEFAULT_CHURCH_ROLES = ['Membro', 'Visitante', 'Lider', 'Diacono', 'Pastor', 'Musico', 'Obreiro', 'Professor'];
 
 /** Limite de auto-carga em RAM — bases 40k+ continuam utilizáveis sem travar o browser. */
-const MAX_AUTO_LOAD_CONTACTS = 8000;
+const MAX_AUTO_LOAD_CONTACTS = 15_000;
 
 // Colunas do modelo de importacao (tambem usadas em todos os exports)
 const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: string; width: number }> = [
@@ -870,14 +870,27 @@ export const ContactsTab: React.FC = () => {
       contacts.length < contactsSavedTotal
     );
 
+  /** Base ainda sendo hidratada — adia cálculos pesados (temperatura, stats). */
+  const isHydratingContacts =
+    contactsLoadingMore ||
+    (contactsHasMore &&
+      contactsSavedTotal != null &&
+      contacts.length < contactsSavedTotal &&
+      contacts.length < autoLoadBudget);
+
   const autoLoadDelayMs = useMemo(() => {
     const total = contactsSavedTotal ?? contacts.length;
-    if (total > 30_000) return 2500;
-    if (total > 15_000) return 1800;
-    if (total > 8000) return 1200;
-    if (total > 3000) return 800;
-    return 500;
+    if (total > 30_000) return 400;
+    if (total > 15_000) return 300;
+    if (total > 8000) return 200;
+    return 100;
   }, [contactsSavedTotal, contacts.length]);
+
+  useEffect(() => {
+    if (contactsHasMore && contactsSavedTotal != null && contacts.length < contactsSavedTotal) {
+      setAutoLoadActive(true);
+    }
+  }, [contactsHasMore, contacts.length, contactsSavedTotal]);
 
   useEffect(() => {
     if (
@@ -1706,7 +1719,7 @@ export const ContactsTab: React.FC = () => {
   const computeTempsGenRef = useRef(0);
 
   useEffect(() => {
-    if (contactsLoadingMore || contacts.length === 0) {
+    if (contactsLoadingMore || contacts.length === 0 || isHydratingContacts) {
       setContactTempsReady(false);
       return;
     }
@@ -1738,7 +1751,7 @@ export const ContactsTab: React.FC = () => {
         clearTimeout(idleId as ReturnType<typeof setTimeout>);
       }
     };
-  }, [contacts, deferredConversations, contactsLoadingMore]);
+  }, [contacts, deferredConversations, contactsLoadingMore, isHydratingContacts]);
 
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
@@ -1865,7 +1878,10 @@ export const ContactsTab: React.FC = () => {
       contacts.length === 0 ? 0 : Math.round((addressComplete / contacts.length) * 100);
 
     return {
-      total: contacts.length,
+      total:
+        contactsSavedTotal != null && contactsSavedTotal > contacts.length
+          ? contactsSavedTotal
+          : contacts.length,
       hot,
       warm,
       cold: coldCount,
@@ -1888,7 +1904,7 @@ export const ContactsTab: React.FC = () => {
       retorno_hoje,
       retorno_semana
     };
-  }, [contacts, contactTemps, duplicateContactsCount]);
+  }, [contacts, contactTemps, duplicateContactsCount, contactsSavedTotal]);
 
   // ============================================================
   //  SEGMENTOS INTELIGENTES — chips que aplicam filtros prontos
@@ -2290,16 +2306,8 @@ export const ContactsTab: React.FC = () => {
     return filteredContacts;
   }, [filteredContacts, activeFilter]);
 
-  // Pagination Logic
-  const totalAvailable = useMemo(() => {
-    // Se o filtro for "Todos" e sem busca ativa, usamos o total real da base —
-    // mas só quando já há contatos carregados (evita totalPages=423 com contacts=[])
-    if (activeFilter === 'all' && !searchTerm.trim() && contactsSavedTotal != null && contacts.length > 0) {
-      return contactsSavedTotal;
-    }
-    // Caso contrário, usamos o que temos carregado (já que filtros locais só funcionam no que está em memória)
-    return listFilteredContacts.length;
-  }, [activeFilter, searchTerm, contactsSavedTotal, listFilteredContacts.length]);
+  // Pagination Logic — usa apenas contatos já em memória (evita páginas vazias com spinner).
+  const totalAvailable = listFilteredContacts.length;
 
   const totalPages = Math.max(1, Math.ceil(totalAvailable / ITEMS_PER_PAGE));
   const paginatedContacts = useMemo(
@@ -3818,22 +3826,23 @@ export const ContactsTab: React.FC = () => {
                         : 'O carregamento automático retomará em instantes.'}
                   </p>
                 </div>
-                {!contactsLoadingMore &&
-                  contacts.length >= autoLoadBudget &&
-                  contactsHasMore && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      className="shrink-0"
-                      onClick={() => {
+                {!contactsLoadingMore && contactsHasMore && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="shrink-0"
+                    onClick={() => {
+                      if (contacts.length >= autoLoadBudget) {
                         setAutoLoadBudget((b) => b + MAX_AUTO_LOAD_CONTACTS);
-                        setAutoLoadActive(true);
-                      }}
-                    >
-                      Carregar mais
-                    </Button>
-                  )}
+                      }
+                      setAutoLoadActive(true);
+                      void loadAllContacts?.();
+                    }}
+                  >
+                    {contacts.length >= autoLoadBudget ? 'Carregar mais' : 'Continuar carregamento'}
+                  </Button>
+                )}
               </div>
             )}
           {activeFilter === 'no_list' && (
@@ -3893,22 +3902,7 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
-          {paginatedContacts.length === 0 && currentPage < totalPages ? (
-            <div className="h-[calc(100vh-320px)] flex flex-col items-center justify-center p-12 text-center bg-slate-50/30 dark:bg-slate-900/10 border-none">
-              <div className="relative mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex items-center justify-center text-[var(--brand-500)] relative z-10 border border-slate-100 dark:border-slate-700">
-                  <Loader2 className="w-8 h-8 animate-spin" />
-                </div>
-              </div>
-              <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight mb-2">
-                Carregando página {currentPage}...
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
-                Buscando os contatos na base de dados para preencher esta visualização.
-              </p>
-            </div>
-          ) : (
-            <ContactsTableVirtual
+          <ContactsTableVirtual
               rows={tableContacts}
               contactTemps={contactTemps}
               selectedIds={selectedIds}
@@ -3940,13 +3934,17 @@ export const ContactsTab: React.FC = () => {
                           : 'Ajuste o filtro na lateral ou tente outra busca.'
               }
             />
-          )}
 
           {/* Pagination Footer */}
           {totalPages > 1 && (
             <div className="px-4 py-3 flex items-center justify-between border-t border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/10">
               <div className="text-xs text-slate-500 font-medium">
-                Mostrando <span className="text-slate-900 dark:text-white font-bold">{paginatedContacts.length}</span> de <span className="text-slate-900 dark:text-white font-bold">{totalAvailable.toLocaleString('pt-BR')}</span> contatos
+                Mostrando <span className="text-slate-900 dark:text-white font-bold">{paginatedContacts.length}</span> de{' '}
+                <span className="text-slate-900 dark:text-white font-bold">{totalAvailable.toLocaleString('pt-BR')}</span>{' '}
+                contatos carregados
+                {contactsSavedTotal != null && contactsSavedTotal > totalAvailable && activeFilter === 'all' && !searchTerm.trim() && (
+                  <span className="text-slate-400"> ({contactsSavedTotal.toLocaleString('pt-BR')} na base)</span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button

@@ -74,6 +74,7 @@ import {
   clearTenantDailyCache,
   flushTenantDailyCacheWrite,
   isTenantDailyCacheBootstrapValid,
+  healTenantDailyContactsCache,
   readTenantDailyCache,
   scheduleTenantDailyCacheWrite,
 } from '../utils/tenantDailyCache';
@@ -251,7 +252,10 @@ function connectionListHasStaleConnecting(list: WhatsAppConnection[]): boolean {
   );
 }
 
-const CONTACTS_PAGE_SIZE = 300;
+/** Páginas maiores = menos round-trips em bases 30k+ (API aceita até 10k). */
+const CONTACTS_PAGE_SIZE = 1000;
+/** Quantas páginas buscar por burst antes de liberar a UI. */
+const CONTACTS_BURST_PAGES = 3;
 
 /** Postgres retorna páginas ordenadas — anexar sem varrer ids duplicados (O(n) por página em bases 40k+). */
 function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
@@ -399,6 +403,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contactsSavedTotalLoading, setContactsSavedTotalLoading] = useState(false);
   const contactsVpsOffsetRef = useRef(0);
   const loadAllContactsInFlightRef = useRef(false);
+  const contactsLastCachedLenRef = useRef(0);
   const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
@@ -834,26 +839,30 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
     setContactsLoadingMore(true);
     try {
-      const offset = opts.reset ? 0 : startOffset;
-      const { contacts: batch, hasMore: more, total } = await fetchContacts({
-        limit: CONTACTS_PAGE_SIZE,
-        offset,
-        skipCount: true
-      });
-      if (currentUidRef.current !== requestUid) return;
-      if (batch.length === 0) {
-        setContactsHasMore(false);
-        return;
-      }
-      const nextOffset = offset + batch.length;
-      contactsVpsOffsetRef.current = nextOffset;
-      const morePages = more ?? batch.length >= CONTACTS_PAGE_SIZE;
-      setContactsHasMore(morePages);
-      if (total != null) setContactsSavedTotal(total);
-      if (offset === 0) {
-        setContacts(batch);
-      } else {
-        setContacts((prev) => appendContactsPage(prev, batch));
+      let offset = opts.reset ? 0 : startOffset;
+
+      for (let burst = 0; burst < CONTACTS_BURST_PAGES; burst++) {
+        const { contacts: batch, hasMore: more, total } = await fetchContacts({
+          limit: CONTACTS_PAGE_SIZE,
+          offset,
+          skipCount: true
+        });
+        if (currentUidRef.current !== requestUid) return;
+        if (batch.length === 0) {
+          setContactsHasMore(false);
+          break;
+        }
+        offset += batch.length;
+        contactsVpsOffsetRef.current = offset;
+        const morePages = more ?? batch.length >= CONTACTS_PAGE_SIZE;
+        setContactsHasMore(morePages);
+        if (total != null) setContactsSavedTotal(total);
+        if (opts.reset && offset === batch.length) {
+          setContacts(batch);
+        } else {
+          setContacts((prev) => appendContactsPage(prev, batch));
+        }
+        if (!morePages) break;
       }
     } catch (err) {
       warnProd('[VPS] sync contacts:', (err as Error)?.message || err);
@@ -893,7 +902,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const bindUser = (uid: string, opts?: { force?: boolean }) => {
       setCircuitBreakerOpenIds(new Set());
       if (!opts?.force) {
-        const cached = readTenantDailyCache(uid);
+        const cachedRaw = readTenantDailyCache(uid);
+        const cached = cachedRaw ? healTenantDailyContactsCache(cachedRaw) : null;
         if (cached && isTenantDailyCacheBootstrapValid(cached)) {
           contactsVpsOffsetRef.current = cached.contactsOffset;
           setContacts(cached.contacts);
@@ -1037,17 +1047,28 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid || workspaceLoading) return;
     if (contacts.length === 0 && campaigns.length === 0 && contactLists.length === 0) return;
-    scheduleTenantDailyCacheWrite(uid, {
-      contacts,
+
+    const patch: Parameters<typeof scheduleTenantDailyCacheWrite>[1] = {
       contactsOffset: contactsVpsOffsetRef.current,
       contactsHasMore,
       contactsSavedTotal,
       campaigns,
       contactLists,
-    });
+    };
+
+    const loadComplete = !contactsHasMore;
+    const loadPaused = !contactsLoadingMore;
+    const grewSinceLastCache = contacts.length - contactsLastCachedLenRef.current >= 2500;
+    if (loadComplete || (loadPaused && (grewSinceLastCache || contacts.length === 0))) {
+      patch.contacts = contacts;
+      contactsLastCachedLenRef.current = contacts.length;
+    }
+
+    scheduleTenantDailyCacheWrite(uid, patch);
   }, [
     contacts,
     contactsHasMore,
+    contactsLoadingMore,
     contactsSavedTotal,
     campaigns,
     contactLists,

@@ -46,6 +46,21 @@ export function isTenantDailyCacheBootstrapValid(cached: TenantDailyBootstrapCac
   );
 }
 
+/** Corrige cache salvo com hasMore=false enquanto ainda faltam contatos na base. */
+export function healTenantDailyContactsCache(
+  cached: TenantDailyBootstrapCache
+): TenantDailyBootstrapCache {
+  const saved = cached.contactsSavedTotal ?? 0;
+  if (saved > cached.contacts.length && !cached.contactsHasMore) {
+    return {
+      ...cached,
+      contactsHasMore: true,
+      contactsOffset: Math.max(cached.contactsOffset, cached.contacts.length),
+    };
+  }
+  return cached;
+}
+
 export function writeTenantDailyCache(uid: string, patch: Partial<TenantDailyBootstrapCache>): void {
   if (typeof localStorage === 'undefined' || !uid) return;
   try {

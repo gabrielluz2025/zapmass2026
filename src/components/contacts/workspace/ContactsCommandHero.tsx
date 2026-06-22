@@ -20,9 +20,9 @@ interface Props {
   stats: ContactsCommandHeroStats;
   contactTempsReady: boolean;
   hideWedding?: boolean;
-  /** Total salvo no banco â€” exibido enquanto os contatos ainda estÃ£o carregando. */
+  /** Total salvo no banco — exibido enquanto os contatos ainda estão carregando. */
   savedTotal?: number | null;
-  // AÃ§Ãµes do header
+  // Ações do header
   onNewContact: () => void;
   onImportXLSX: () => void;
   onImportVcf: () => void;
@@ -59,11 +59,11 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
     return () => window.removeEventListener('mousedown', close);
   }, [importOpen]);
 
-  const total = Math.max(stats.total, 1);
+  const displayTotal = Math.max(stats.total, savedTotal ?? 0, 1);
 
   const kpis = [
     { label: 'Total', value: fmt(stats.total), accent: '#6366f1', icon: <Users className="w-3.5 h-3.5" /> },
-    { label: 'Quentes', value: contactTempsReady ? fmt(stats.hot) : 'â€¦', accent: '#ef4444', icon: <Flame className="w-3.5 h-3.5" />, pulse: !contactTempsReady },
+    { label: 'Quentes', value: contactTempsReady ? fmt(stats.hot) : '…', accent: '#ef4444', icon: <Flame className="w-3.5 h-3.5" />, pulse: !contactTempsReady },
     { label: 'Novos (7d)', value: fmt(stats.last7), accent: '#10b981', icon: <TrendingUp className="w-3.5 h-3.5" /> },
     { label: 'Retorno hoje', value: fmt(stats.retorno_hoje), accent: '#f59e0b', icon: <Clock className="w-3.5 h-3.5" /> },
     { label: 'Aniv. hoje', value: fmt(stats.bdayToday), accent: '#a855f7', icon: <Cake className="w-3.5 h-3.5" /> },
@@ -72,9 +72,8 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
 
   return (
     <div className="crm-fade-up flex flex-col gap-3">
-      {/* â”€â”€ Linha 1: tÃ­tulo + aÃ§Ãµes â”€â”€ */}
+      {/* Linha 1: título + ações */}
       <div className="crm-topbar flex flex-col lg:flex-row lg:items-center gap-4">
-        {/* Esquerda */}
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shrink-0"
@@ -94,12 +93,11 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
                 ? `${savedTotal.toLocaleString('pt-BR')} contatos na base`
                 : stats.total > 0
                   ? `${stats.total.toLocaleString('pt-BR')} contatos na base`
-                  : 'Importe contatos para comeÃ§ar'}
+                  : 'Importe contatos para começar'}
             </p>
           </div>
         </div>
 
-        {/* Direita: aÃ§Ãµes */}
         <div className="flex items-center gap-2 flex-wrap lg:ml-auto">
           <button type="button" onClick={onOpenInsights} className="crm-btn">
             <BarChart3 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
@@ -118,12 +116,12 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
               >
                 <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider" style={{ background: 'var(--surface-0)', color: 'var(--text-3, #94a3b8)', borderBottom: '1px solid var(--border)' }}>
-                  OpÃ§Ãµes de importaÃ§Ã£o
+                  Opções de importação
                 </div>
                 {[
                   { icon: <FileSpreadsheet className="w-5 h-5 text-emerald-500" />, title: 'Importar XLSX / CSV', sub: 'Planilha com colunas do template', fn: () => { setImportOpen(false); onImportXLSX(); } },
                   { icon: <Smartphone className="w-5 h-5 text-teal-500" />, title: 'Importar vCard (.vcf)', sub: 'Exportado do celular (Contatos)', fn: () => { setImportOpen(false); onImportVcf(); } },
-                  { icon: <Wand2 className="w-5 h-5 text-violet-500" />, title: 'ImportaÃ§Ã£o inteligente', sub: 'Cole texto livre â€” IA extrai os dados', fn: () => { setImportOpen(false); onSmartImport(); } },
+                  { icon: <Wand2 className="w-5 h-5 text-violet-500" />, title: 'Importação inteligente', sub: 'Cole texto livre — IA extrai os dados', fn: () => { setImportOpen(false); onSmartImport(); } },
                 ].map((item) => (
                   <button key={item.title} type="button" onClick={item.fn} className="w-full flex items-start gap-3 px-4 py-3 text-left transition" style={{ borderBottom: '1px solid var(--border)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-0)')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                     {item.icon}
@@ -157,7 +155,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           {onOpenNormalizeAddresses && (
             <button type="button" onClick={onOpenNormalizeAddresses} disabled={addressNormalizeBusy} className="crm-btn disabled:opacity-50">
               <MapPin className={`w-4 h-4 text-rose-500 ${addressNormalizeBusy ? 'animate-pulse' : ''}`} />
-              <span className="hidden sm:inline">{addressNormalizeBusy ? 'Padronizandoâ€¦' : 'Cidades'}</span>
+              <span className="hidden sm:inline">{addressNormalizeBusy ? 'Padronizando…' : 'Cidades'}</span>
             </button>
           )}
 
@@ -168,7 +166,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
         </div>
       </div>
 
-      {/* â”€â”€ Linha 2: KPI tiles â”€â”€ */}
+      {/* Linha 2: KPI tiles */}
       {stats.total > 0 && (
         <div className="crm-kpi-row crm-fade-up">
           {kpis.map((k) => (
@@ -183,7 +181,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
         </div>
       )}
 
-      {/* â”€â”€ Linha 3: barra de temperatura â”€â”€ */}
+      {/* Linha 3: barra de temperatura */}
       {stats.total > 0 && (
         <div className="crm-temp-row crm-fade-up">
           <span className="text-[10px] font-bold uppercase tracking-widest shrink-0" style={{ color: 'var(--text-3, #94a3b8)' }}>
@@ -192,9 +190,9 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           <div className="crm-temp-bar">
             {contactTempsReady ? (
               <>
-                {stats.hot > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.hot / total) * 100}%`, background: '#ef4444' }} />}
-                {stats.warm > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.warm / total) * 100}%`, background: '#f59e0b' }} />}
-                {stats.cold > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.cold / total) * 100}%`, background: '#06b6d4' }} />}
+                {stats.hot > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.hot / displayTotal) * 100}%`, background: '#ef4444' }} />}
+                {stats.warm > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.warm / displayTotal) * 100}%`, background: '#f59e0b' }} />}
+                {stats.cold > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.cold / displayTotal) * 100}%`, background: '#06b6d4' }} />}
               </>
             ) : (
               <div className="crm-temp-seg animate-pulse" style={{ width: '100%', background: 'var(--border)' }} />
@@ -202,8 +200,8 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           </div>
           <span className="text-[11px] font-semibold shrink-0" style={{ color: 'var(--text-2, #64748b)' }}>
             {contactTempsReady
-              ? `ðŸ”¥ ${stats.hot} Â· ðŸŒ¡ï¸ ${stats.warm} Â· â„ï¸ ${stats.cold}`
-              : 'calculandoâ€¦'}
+              ? `🔥 ${stats.hot} · 🌡️ ${stats.warm} · ❄️ ${stats.cold}`
+              : 'calculando…'}
           </span>
         </div>
       )}
@@ -212,4 +210,3 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
 });
 
 ContactsCommandHero.displayName = 'ContactsCommandHero';
-
