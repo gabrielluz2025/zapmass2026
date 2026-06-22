@@ -38,6 +38,7 @@ interface Props {
   selectedContactId?: string | null;
   heightClass?: string;
   emptyHint?: React.ReactNode;
+  loading?: boolean;
 }
 
 const tempMeta: Record<Temperature, { icon: React.ReactNode; color: string; label: string }> = {
@@ -112,6 +113,7 @@ export const ContactsTableVirtual: React.FC<Props> = ({
   onOpenChat,
   onCreateCampaign,
   onCopyPhone,
+  loading = false,
   onAddToList,
   selectedContactId,
   heightClass = 'h-[calc(100vh-230px)]',
@@ -150,13 +152,31 @@ export const ContactsTableVirtual: React.FC<Props> = ({
         <span className="text-right">Ações</span>
       </div>
 
-      {rows.length === 0 ? (
+      {loading && rows.length === 0 ? (
+        /* Skeleton de carregamento — muito melhor que tela em branco */
+        <div>
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="crm-skeleton-row" style={{ animationDelay: `${i * 0.07}s` }}>
+              <div className="crm-skeleton-avatar" style={{ animationDelay: `${i * 0.07}s` }} />
+              <div className="flex flex-col gap-1.5">
+                <div className="crm-skeleton-cell" style={{ width: `${55 + (i % 4) * 10}%`, animationDelay: `${i * 0.07}s` }} />
+                <div className="crm-skeleton-cell" style={{ width: '35%', height: 9, animationDelay: `${i * 0.07 + 0.1}s` }} />
+              </div>
+              <div className="crm-skeleton-cell" style={{ width: '70%', animationDelay: `${i * 0.07 + 0.05}s` }} />
+              <div className="crm-skeleton-cell hidden md:block" style={{ width: '60%', animationDelay: `${i * 0.07 + 0.1}s` }} />
+              <div className="crm-skeleton-cell hidden lg:block" style={{ width: '50%', animationDelay: `${i * 0.07}s` }} />
+              <div className="crm-skeleton-cell hidden md:block" style={{ width: '40%', animationDelay: `${i * 0.07 + 0.05}s` }} />
+              <div className="crm-skeleton-cell" style={{ width: '60px', marginLeft: 'auto', animationDelay: `${i * 0.07}s` }} />
+            </div>
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
         <div className="crm-table-empty">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--crm-bg)', border: '1px solid var(--crm-border)', color: 'var(--crm-dim)' }}>
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--surface-0)', border: '1px solid var(--border)', color: 'var(--text-3, #94a3b8)' }}>
             <Users className="w-8 h-8" />
           </div>
-          <p className="text-base font-bold mb-1" style={{ color: 'var(--crm-text)' }}>Nenhum contato encontrado</p>
-          <p className="text-sm max-w-xs mx-auto" style={{ color: 'var(--crm-muted)' }}>
+          <p className="text-base font-bold mb-1" style={{ color: 'var(--text-1)' }}>Nenhum contato encontrado</p>
+          <p className="text-sm max-w-xs mx-auto" style={{ color: 'var(--text-2, #64748b)' }}>
             {emptyHint || 'Tente ajustar o filtro ou a busca.'}
           </p>
         </div>
