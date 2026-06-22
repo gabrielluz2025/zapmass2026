@@ -1,4 +1,4 @@
-/* Painel — motion, glow e cartões interativos (prefers-reduced-motion respeitado) */
+﻿/* Painel â€” motion, glow e cartÃµes interativos (prefers-reduced-motion respeitado) */
 
 @keyframes zmDashReveal {
   from {
@@ -105,7 +105,7 @@
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
-  filter: blur(48px);
+  opacity: 0.6; /* blur removido para perf */
   animation: zmHeroMesh 14s ease-in-out infinite;
 }
 
@@ -433,7 +433,7 @@
   --zm-stat-accent: #06B6D4;
 }
 
-/* Centro de comando — hero com mapa OSM */
+/* Centro de comando â€” hero com mapa OSM */
 .zm-command {
   position: relative;
   --zm-stat-accent: #06B6D4;
@@ -459,7 +459,7 @@
   box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--zm-stat-accent) 35%, transparent);
 }
 
-/* —— Mapa territorial PRO (dark command center) —— */
+/* â€”â€” Mapa territorial PRO (dark command center) â€”â€” */
 .zm-territory-map--pro .leaflet-container {
   font-family: inherit;
   background: #141b2d;
@@ -531,7 +531,7 @@
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(10px);
+  /* backdrop-filter removed for perf */
 }
 
 .zm-territory-map__search {
@@ -686,7 +686,7 @@
   color: #cbd5e1;
   background: rgba(15, 23, 42, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(8px);
+  /* backdrop-filter removed for perf */
 }
 
 .zm-territory-map__legend-scale {
@@ -697,7 +697,7 @@
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(8px);
+  /* backdrop-filter removed for perf */
 }
 
 .zm-territory-map__legend-scale-label {
@@ -725,7 +725,7 @@
   overflow: hidden;
   background: rgba(15, 23, 42, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(10px);
+  /* backdrop-filter removed for perf */
 }
 
 .zm-territory-map__rank-head {
@@ -976,7 +976,7 @@
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(6px);
+  /* backdrop-filter removed for perf */
   cursor: pointer;
   transition: transform 0.15s ease, border-color 0.15s ease;
 }
@@ -1041,7 +1041,7 @@
   font-size: 13px;
 }
 
-/* —— Mapa territorial v2 (layout + seletor de cidade) —— */
+/* â€”â€” Mapa territorial v2 (layout + seletor de cidade) â€”â€” */
 .zm-territory-map--v2 .leaflet-container {
   background: #0c1220;
 }
@@ -1519,7 +1519,7 @@
   }
 }
 
-/* ═══ Território de Leads — Analytics Premium (Linear/Stripe) ═══ */
+/* â•â•â• TerritÃ³rio de Leads â€” Analytics Premium (Linear/Stripe) â•â•â• */
 .zm-ta {
   --ta-bg: #0b0f19;
   --ta-surface: #121214;
@@ -1773,7 +1773,7 @@
   justify-content: center;
   gap: 8px;
   background: rgba(11, 15, 25, 0.72);
-  backdrop-filter: blur(6px);
+  /* backdrop-filter removed for perf */
   font-size: 12px;
   color: var(--ta-muted);
 }
@@ -1956,7 +1956,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(18, 18, 20, 0.65);
-  backdrop-filter: blur(4px);
+  /* backdrop-filter removed for perf */
 }
 
 .zm-ta-rank__head {
@@ -2245,7 +2245,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Território geográfico (zm-geo) — mapa limpo + temperatura + bairros ── */
+/* â”€â”€ TerritÃ³rio geogrÃ¡fico (zm-geo) â€” mapa limpo + temperatura + bairros â”€â”€ */
 
 .zm-geo {
   --geo-bg: rgba(15, 23, 42, 0.55);
@@ -2523,7 +2523,7 @@
   color: var(--geo-text);
   font-size: 11px;
   font-weight: 600;
-  backdrop-filter: blur(8px);
+  /* backdrop-filter removed for perf */
 }
 
 .zm-geo-map__badge span {
@@ -2794,7 +2794,7 @@
   filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
 }
 
-/* ── Command panel v3 — layout coluna única ── */
+/* â”€â”€ Command panel v3 â€” layout coluna Ãºnica â”€â”€ */
 
 .zm-command-v3 {
   border-radius: 20px;
@@ -2976,7 +2976,7 @@
   color: #fdba74 !important;
 }
 
-/* ── Atlas territorial (painel claro, layout vertical) ── */
+/* â”€â”€ Atlas territorial (painel claro, layout vertical) â”€â”€ */
 
 .zm-atlas {
   margin: 0 16px 16px;
@@ -3550,7 +3550,7 @@
   }
 }
 
-/* Atlas v2 — compacto, colorido, split mapa + lista */
+/* Atlas v2 â€” compacto, colorido, split mapa + lista */
 .zm-atlas--v2 {
   padding: 14px 16px 16px;
   gap: 12px;

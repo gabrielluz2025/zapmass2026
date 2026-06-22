@@ -1569,12 +1569,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       );
     });
 
-    // Real latency via ping/pong (a cada 5s)
+    // Ping/pong de latência — intervalo de 20s (era 5s) para reduzir re-renders do TopBar/Dashboard.
     const pingInterval = setInterval(() => {
       if (!socket.connected) return;
       const t0 = Date.now();
       socket.emit('ping-latency', t0);
-    }, 5000);
+    }, 20000);
     socket.on('pong-latency', (t0: unknown) => {
       const sent =
         typeof t0 === 'number' && Number.isFinite(t0)
@@ -1586,14 +1586,21 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const lat = Math.max(0, Date.now() - sent);
       setSystemMetrics((prev) => {
         const prevLat = Number(prev.latency) || 0;
-        if (prevLat > 0 && Math.abs(prevLat - lat) < 25) return prev;
+        // Só atualiza se variação > 80ms — evita re-render a cada flutuação de rede.
+        if (prevLat > 0 && Math.abs(prevLat - lat) < 80) return prev;
         return { ...prev, latency: lat };
       });
     });
 
+    // Warmup-update: usa RAF para não interromper renders em curso (ex.: scroll na tabela de contatos).
+    let warmupRafId: ReturnType<typeof requestAnimationFrame> | null = null;
     socket.on('warmup-update', (data: { pending: WarmupItem[]; warmedCount: number }) => {
-      setWarmupQueue(Array.isArray(data?.pending) ? data.pending : []);
-      setWarmedCount(Number.isFinite(data?.warmedCount) ? data.warmedCount : 0);
+      if (warmupRafId != null) cancelAnimationFrame(warmupRafId);
+      warmupRafId = requestAnimationFrame(() => {
+        warmupRafId = null;
+        setWarmupQueue(Array.isArray(data?.pending) ? data.pending : []);
+        setWarmedCount(Number.isFinite(data?.warmedCount) ? data.warmedCount : 0);
+      });
     });
 
     socket.on('auto-warmup-state', (data: { active: boolean; connectionIds?: string[]; intervalMinutes?: number }) => {

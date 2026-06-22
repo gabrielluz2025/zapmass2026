@@ -774,6 +774,8 @@ export const ContactsTab: React.FC = () => {
   const { segment } = useAppProfile();
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
   const deferredConversations = useDeferredValue(conversations);
+  /** Adia recálculos pesados (smartStats, growth30d) para não bloquear interações durante carga em lote. */
+  const deferredContacts = useDeferredValue(contacts);
 
   /** Telefones que aparecem mais de uma vez — O(n), usado em filtros e segmentos (antes era O(n²) no segmento duplicados). */
   const phoneDupMeta = useMemo(() => {
@@ -1743,13 +1745,13 @@ export const ContactsTab: React.FC = () => {
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
   // ============================================================
-  // Série de 30 dias — crescimento (contatos criados por dia, IDs contêm timestamp).
+  // Série de 30 dias — usa deferredContacts para não bloquear a UI durante carga em lote.
   const contactsGrowth30d = useMemo(() => {
     const days = 30;
     const buckets = new Array(days).fill(0);
     const now = Date.now();
     const DAY = 86400000;
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       const m = (c.id || '').match(/_(\d{13})_/);
       const ts = m ? parseInt(m[1], 10) : null;
       if (!ts || !Number.isFinite(ts)) continue;
@@ -1758,7 +1760,7 @@ export const ContactsTab: React.FC = () => {
       buckets[days - 1 - age]++;
     }
     return buckets;
-  }, [contacts]);
+  }, [deferredContacts]);
 
   /** Uma passagem sobre `contacts`: stats do hero/sidebar que antes faziam ~15 filtros/reduces completos. */
   const smartStats = useMemo(() => {
@@ -1798,7 +1800,7 @@ export const ContactsTab: React.FC = () => {
     let retorno_hoje = 0;
     let retorno_semana = 0;
 
-    for (const c of contacts) {
+    for (const c of deferredContacts) {
       const b = parseBirthday(c.birthday || '');
       if (b) {
         const mm = String(b.m).padStart(2, '0');
@@ -1862,10 +1864,10 @@ export const ContactsTab: React.FC = () => {
     }
 
     const addressPct =
-      contacts.length === 0 ? 0 : Math.round((addressComplete / contacts.length) * 100);
+      deferredContacts.length === 0 ? 0 : Math.round((addressComplete / deferredContacts.length) * 100);
 
     return {
-      total: contacts.length,
+      total: deferredContacts.length,
       hot,
       warm,
       cold: coldCount,
@@ -1888,7 +1890,7 @@ export const ContactsTab: React.FC = () => {
       retorno_hoje,
       retorno_semana
     };
-  }, [contacts, contactTemps, duplicateContactsCount]);
+  }, [deferredContacts, contactTemps, duplicateContactsCount]);
 
   // ============================================================
   //  SEGMENTOS INTELIGENTES — chips que aplicam filtros prontos
