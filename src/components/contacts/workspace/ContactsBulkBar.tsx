@@ -22,17 +22,15 @@ export const ContactsBulkBar: React.FC<Props> = React.memo(({
 
   return (
     <div className="sticky bottom-4 z-20 flex justify-center pointer-events-none px-4 pt-2">
-      <div
-        className="pointer-events-auto flex items-center gap-1 px-3 py-2 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md animate-in slide-in-from-bottom-4 duration-200"
-      >
-        <div className="flex items-center gap-2 pr-3 pl-1 border-r border-slate-200 dark:border-slate-700">
+      <div className="zm-contacts-bulk animate-in slide-in-from-bottom-4 duration-200">
+        <div className="flex items-center gap-2 pr-3 pl-1 border-r" style={{ borderColor: 'var(--zm-c-border)' }}>
           <span
             className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-xs font-bold"
-            style={{ background: 'var(--brand-600)' }}
+            style={{ background: 'linear-gradient(135deg, #06b6d4, #10b981)' }}
           >
             {count > 99 ? '99+' : count}
           </span>
-          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+          <span className="text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--zm-c-text)' }}>
             {count === 1 ? 'selecionado' : 'selecionados'}
           </span>
         </div>
@@ -43,10 +41,11 @@ export const ContactsBulkBar: React.FC<Props> = React.memo(({
         <BulkBtn icon={<Download className="w-3.5 h-3.5" />} label="Exportar" onClick={onExport} />
         <BulkBtn icon={<Trash2 className="w-3.5 h-3.5" />} label="Remover" onClick={onDelete} danger />
 
-        <div className="border-l border-slate-200 dark:border-slate-700 pl-1 ml-1">
+        <div className="border-l pl-1 ml-1" style={{ borderColor: 'var(--zm-c-border)' }}>
           <button
             onClick={onClear}
-            className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            className="p-1.5 rounded-md transition hover:bg-white/5"
+            style={{ color: 'var(--zm-c-muted)' }}
             title="Limpar seleção"
           >
             <X className="w-3.5 h-3.5" />
@@ -65,17 +64,20 @@ const BulkBtn: React.FC<{
   primary?: boolean;
   danger?: boolean;
 }> = ({ icon, label, onClick, primary, danger }) => {
-  const base = 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap';
-  const style = primary
-    ? 'text-white shadow hover:brightness-110'
-    : danger
-      ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-500/10'
-      : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800';
+  if (primary) {
+    return (
+      <button onClick={onClick} className="zm-contacts-btn zm-contacts-btn-primary text-xs py-1.5 px-2.5 whitespace-nowrap">
+        {icon}
+        <span>{label}</span>
+      </button>
+    );
+  }
+
   return (
     <button
       onClick={onClick}
-      className={`${base} ${style}`}
-      style={primary ? { background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))' } : undefined}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap hover:bg-white/5"
+      style={{ color: danger ? '#fb7185' : 'var(--zm-c-text)' }}
     >
       {icon}
       <span>{label}</span>

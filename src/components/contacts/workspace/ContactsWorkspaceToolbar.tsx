@@ -57,20 +57,14 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
       : FILTER_LABELS[activeFilter] || 'Base de contatos';
 
   return (
-    <div
-      className="rounded-2xl overflow-hidden"
-      style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-    >
-      <div
-        className="h-1 w-full"
-        style={{ background: 'linear-gradient(90deg, var(--brand-500), var(--brand-700))' }}
-      />
+    <div className="zm-contacts-workspace-bar">
+      <div className="zm-contacts-workspace-bar-accent" aria-hidden />
       <div className="px-4 py-3.5 flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-4">
         <div className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-black tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
+          <h2 className="text-[15px] font-black tracking-tight truncate" style={{ color: 'var(--zm-c-text)' }}>
             {title}
           </h2>
-          <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+          <p className="text-[11px] mt-0.5" style={{ color: 'var(--zm-c-dim)' }}>
             {searchTerm.trim()
               ? `Busca: “${searchTerm.trim()}”`
               : listManageMode
@@ -87,8 +81,7 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
             type="button"
             onClick={onRefreshTotals}
             disabled={contactsSavedTotalLoading}
-            className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[11px] font-bold transition disabled:opacity-50"
-            style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}
+            className="zm-contacts-btn text-[11px] py-2 disabled:opacity-50"
             title="Sincronizar total com o Firestore"
           >
             <RotateCw className={`w-3.5 h-3.5 ${contactsSavedTotalLoading ? 'animate-spin' : ''}`} />
@@ -120,16 +113,16 @@ const MiniStat: React.FC<{
   <div
     className="inline-flex items-center gap-2 px-2.5 py-2 rounded-lg tabular-nums"
     style={{
-      background: accent ? 'rgba(59,130,246,0.08)' : 'var(--surface-1)',
-      border: `1px solid ${accent ? 'rgba(59,130,246,0.2)' : 'var(--border-subtle)'}`
+      background: accent ? 'rgba(59,130,246,0.08)' : 'rgba(15, 23, 42, 0.45)',
+      border: `1px solid ${accent ? 'rgba(59,130,246,0.2)' : 'var(--zm-c-border)'}`
     }}
   >
-    <span style={{ color: accent ? '#3b82f6' : 'var(--text-3)' }}>{icon}</span>
+    <span style={{ color: accent ? '#3b82f6' : 'var(--zm-c-dim)' }}>{icon}</span>
     <div className="text-left leading-tight">
-      <div className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+      <div className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--zm-c-dim)' }}>
         {label}
       </div>
-      <div className="text-[13px] font-black" style={{ color: 'var(--text-1)' }}>
+      <div className="text-[13px] font-black" style={{ color: 'var(--zm-c-text)' }}>
         {value}
       </div>
     </div>

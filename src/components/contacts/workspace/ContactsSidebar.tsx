@@ -147,32 +147,24 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
   ];
 
   return (
-    <aside
-      className="rounded-2xl flex flex-col gap-3 h-full min-h-[min(70vh,640px)] lg:min-h-[calc(100vh-220px)] overflow-hidden"
-      style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-    >
-      <div className="p-3 pb-0">
+    <aside className="zm-contacts-sidebar lg:sticky lg:top-4 lg:self-start p-3">
+      <div className="pb-0">
         <div className="relative group">
           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-            <Search className="w-4 h-4" style={{ color: 'var(--text-3)' }} />
+            <Search className="w-4 h-4" style={{ color: 'var(--zm-c-dim)' }} />
           </div>
           <input
             type="text"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             placeholder="Buscar nome, número..."
-            className="w-full pl-10 pr-10 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-500)]/25 transition"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-1)'
-            }}
+            className="zm-contacts-search"
           />
           {query && (
             <button
               onClick={() => onQueryChange('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg"
-              style={{ color: 'var(--text-3)' }}
+              style={{ color: 'var(--zm-c-dim)' }}
               title="Limpar"
             >
               <X className="w-4 h-4" />
@@ -181,10 +173,10 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
         </div>
       </div>
 
-      <div className="px-3">
+      <div>
         <div
           className="grid grid-cols-3 gap-1 p-1 rounded-xl"
-          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+          style={{ background: 'rgba(15, 23, 42, 0.45)', border: '1px solid var(--zm-c-border)' }}
         >
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -194,19 +186,14 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
                 key={tab.id}
                 type="button"
                 onClick={() => setPanelTab(tab.id)}
-                className="relative flex flex-col items-center gap-0.5 py-2 rounded-lg text-[10px] font-bold transition"
-                style={
-                  isOn
-                    ? { background: 'var(--brand-600)', color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }
-                    : { color: 'var(--text-3)' }
-                }
+                className={`zm-contacts-tab-btn relative${isOn ? ' is-active' : ''}`}
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
                 {tab.badge != null && tab.badge > 0 && (
                   <span
                     className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-black flex items-center justify-center"
-                    style={{ background: isOn ? '#fff' : 'var(--brand-500)', color: isOn ? 'var(--brand-700)' : '#fff' }}
+                    style={{ background: isOn ? '#fff' : '#3b82f6', color: isOn ? '#1d4ed8' : '#fff' }}
                   >
                     {tab.badge}
                   </span>
@@ -217,7 +204,7 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-3 custom-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto pb-1 custom-scrollbar">
         {panelTab === 'explore' && (
           <div className="grid grid-cols-2 gap-2">
             {groupSmart.map((item) => {
@@ -273,7 +260,7 @@ ContactsSidebar.displayName = 'ContactsSidebar';
 
 const Group: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div>
-    <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5 px-1" style={{ color: 'var(--text-3)' }}>
+    <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5 px-1" style={{ color: 'var(--zm-c-dim)' }}>
       {title}
     </p>
     <div className="space-y-0.5">{children}</div>
@@ -303,21 +290,16 @@ const FilterCard: React.FC<{ item: FilterItem; active: boolean; onClick: () => v
       type="button"
       onClick={onClick}
       title={item.hint}
-      className="flex flex-col items-start gap-2 p-3 rounded-xl text-left transition hover:scale-[1.02] active:scale-[0.98]"
-      style={
-        active
-          ? { background: `${color}18`, border: `2px solid ${color}`, boxShadow: `0 4px 14px ${color}22` }
-          : { background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }
-      }
+      className={`zm-contacts-filter-card${active ? ' is-active' : ''}`}
     >
       <Icon className="w-4 h-4" style={{ color }} />
-      <span className="text-[11px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
+      <span className="text-[11px] font-bold leading-tight" style={{ color: 'var(--zm-c-text)' }}>
         {item.label}
       </span>
       {loading ? (
-        <span className="text-[10px] font-black tabular-nums animate-pulse" style={{ color: 'var(--text-3)' }}>…</span>
+        <span className="text-[10px] font-black tabular-nums animate-pulse" style={{ color: 'var(--zm-c-dim)' }}>…</span>
       ) : item.count > 0 ? (
-        <span className="text-[10px] font-black tabular-nums" style={{ color: 'var(--text-3)' }}>
+        <span className="text-[10px] font-black tabular-nums" style={{ color: 'var(--zm-c-dim)' }}>
           {item.count.toLocaleString('pt-BR')}
         </span>
       ) : null}
@@ -337,17 +319,12 @@ const FilterRow: React.FC<{ item: FilterItem; active: boolean; onClick: () => vo
       type="button"
       onClick={onClick}
       title={item.hint}
-      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold transition"
-      style={
-        active
-          ? { background: `${color}15`, color: 'var(--text-1)' }
-          : { color: 'var(--text-2)' }
-      }
+      className={`zm-contacts-filter-card flex-row items-center gap-2 py-2${active ? ' is-active' : ''}`}
     >
       <Icon className="w-3.5 h-3.5 shrink-0" style={{ color }} />
-      <span className="flex-1 text-left truncate">{item.label}</span>
+      <span className="flex-1 text-left truncate text-xs font-semibold" style={{ color: 'var(--zm-c-text)' }}>{item.label}</span>
       {item.count > 0 && (
-        <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--text-3)' }}>
+        <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--zm-c-dim)' }}>
           {item.count.toLocaleString('pt-BR')}
         </span>
       )}

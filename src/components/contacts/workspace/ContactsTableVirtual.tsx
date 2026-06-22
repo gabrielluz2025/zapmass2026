@@ -132,12 +132,13 @@ export const ContactsTableVirtual: React.FC<Props> = ({
   const allVisible = rows.length > 0 && selectedSet.size === rows.length;
 
   return (
-    <div className="ui-card flex flex-col overflow-hidden">
+    <div className="zm-contacts-table-shell">
       {/* Cabeçalho da tabela */}
-      <div className="grid grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] items-center gap-3 px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 shrink-0">
+      <div className="zm-contacts-table-head grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] shrink-0">
         <button
           onClick={onToggleSelectAll}
-          className="flex items-center justify-center text-slate-500 hover:text-[var(--brand-600)] transition"
+          className="flex items-center justify-center transition hover:text-sky-400"
+          style={{ color: 'var(--zm-c-dim)' }}
           title={allVisible ? 'Desmarcar todos' : 'Selecionar todos'}
         >
           {allVisible ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
@@ -152,23 +153,26 @@ export const ContactsTableVirtual: React.FC<Props> = ({
 
       {/* Corpo virtualizado */}
       {rows.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-slate-50/30 dark:bg-slate-900/10">
+        <div className="zm-contacts-table-empty">
           <div className="relative mb-6">
-            <div className="w-20 h-20 rounded-3xl bg-white dark:bg-slate-800 shadow-xl flex items-center justify-center text-slate-300 dark:text-slate-600 relative z-10 border border-slate-100 dark:border-slate-700">
+            <div
+              className="w-20 h-20 rounded-3xl shadow-xl flex items-center justify-center relative z-10"
+              style={{ background: 'rgba(15, 23, 42, 0.65)', border: '1px solid var(--zm-c-border)', color: 'var(--zm-c-dim)' }}
+            >
               <Users className="w-10 h-10" />
             </div>
-            <div className="absolute -inset-4 bg-[var(--brand-500)]/10 rounded-full blur-2xl animate-pulse" />
+            <div className="absolute -inset-4 bg-sky-500/10 rounded-full blur-2xl animate-pulse" />
           </div>
-          <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight mb-2">
+          <h3 className="text-lg font-black tracking-tight mb-2" style={{ color: 'var(--zm-c-text)' }}>
             Nenhum contato encontrado
           </h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
+          <p className="text-sm max-w-sm mx-auto leading-relaxed" style={{ color: 'var(--zm-c-muted)' }}>
             {emptyHint || 'Não encontramos resultados para os filtros ou busca aplicados. Tente ajustar os parâmetros na lateral.'}
           </p>
           <div className="mt-8 flex items-center gap-3">
-            <div className="h-px w-8 bg-slate-200 dark:bg-slate-800" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">ZapMass CRM</span>
-            <div className="h-px w-8 bg-slate-200 dark:bg-slate-800" />
+            <div className="h-px w-8" style={{ background: 'var(--zm-c-border)' }} />
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--zm-c-dim)' }}>ZapMass CRM</span>
+            <div className="h-px w-8" style={{ background: 'var(--zm-c-border)' }} />
           </div>
         </div>
       ) : (
@@ -264,12 +268,8 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
         onOpenChat(contact);
       }}
       title="Duplo clique abre a conversa no Atendimento"
-      className={`grid grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] items-center gap-3 px-4 border-b border-slate-100 dark:border-slate-800/70 cursor-pointer transition group ${
-        highlighted
-          ? 'bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]'
-          : selected
-            ? 'bg-[color-mix(in_srgb,var(--brand-500)_4%,transparent)] hover:bg-[color-mix(in_srgb,var(--brand-500)_8%,transparent)]'
-            : 'hover:bg-[rgba(16,185,129,0.07)] dark:hover:bg-[rgba(16,185,129,0.07)]'
+      className={`zm-contacts-table-row grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] group${
+        highlighted ? ' is-highlighted' : selected ? ' is-selected' : ''
       }`}
       style={{
         position: 'absolute',
