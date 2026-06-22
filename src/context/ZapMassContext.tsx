@@ -72,8 +72,10 @@ import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
 import {
   clearTenantDailyCache,
+  flushTenantDailyCacheWrite,
+  isTenantDailyCacheBootstrapValid,
   readTenantDailyCache,
-  writeTenantDailyCache,
+  scheduleTenantDailyCacheWrite,
 } from '../utils/tenantDailyCache';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import {
@@ -892,7 +894,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setCircuitBreakerOpenIds(new Set());
       if (!opts?.force) {
         const cached = readTenantDailyCache(uid);
-        if (cached) {
+        if (cached && isTenantDailyCacheBootstrapValid(cached)) {
           contactsVpsOffsetRef.current = cached.contactsOffset;
           setContacts(cached.contacts);
           setContactsHasMore(cached.contactsHasMore);
@@ -904,6 +906,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             campaigns: cached.campaigns.length,
           });
           return;
+        }
+        if (cached && !isTenantDailyCacheBootstrapValid(cached)) {
+          clearTenantDailyCache(uid);
         }
       }
       contactsVpsOffsetRef.current = 0;
@@ -1027,12 +1032,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     currentUidRef.current = dataUid;
   }, [effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 
-  /** Persiste snapshot leve no navegador — reentrada no mesmo dia sem refetch pesado. */
+  /** Persiste snapshot no navegador (debounced/idle) — reentrada no mesmo dia sem refetch pesado. */
   useEffect(() => {
     const uid = currentUidRef.current;
     if (!uid || workspaceLoading) return;
     if (contacts.length === 0 && campaigns.length === 0 && contactLists.length === 0) return;
-    writeTenantDailyCache(uid, {
+    scheduleTenantDailyCacheWrite(uid, {
       contacts,
       contactsOffset: contactsVpsOffsetRef.current,
       contactsHasMore,
@@ -1048,6 +1053,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     contactLists,
     workspaceLoading,
   ]);
+
+  useEffect(() => () => flushTenantDailyCacheWrite(), []);
 
   useEffect(() => {
     connectionsRef.current = connections;

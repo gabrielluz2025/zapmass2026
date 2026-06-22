@@ -3922,7 +3922,7 @@ export const ContactsTab: React.FC = () => {
               onCopyPhone={handleCopyPhone}
               onAddToList={handleAddSingleToList}
               selectedContactId={selectedContact?.id || null}
-              loading={contacts.length === 0 && (contactsLoadingMore || (contactsSavedTotal != null && contactsSavedTotal > 0))}
+              loading={contacts.length === 0 && (contactsLoadingMore || contactsSavedTotalLoading)}
               heightClass="h-[calc(100vh-320px)]"
               emptyHint={
                 searchTerm
