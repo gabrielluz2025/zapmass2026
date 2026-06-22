@@ -277,20 +277,21 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
       <div className="flex items-center gap-2.5 min-w-0">
         <ContactAvatar name={contact.name || '?'} profilePicUrl={contact.profilePicUrl} size="sm" />
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+          <div className="text-[13.5px] font-semibold truncate flex items-center gap-1.5" style={{ color: 'var(--crm-text)' }}>
             {contact.name || 'Sem nome'}
             {contact.status === 'INVALID' && (
               <span title="Telefone inválido" className="text-rose-500"><AlertCircle className="w-3.5 h-3.5" /></span>
             )}
           </div>
           {Array.isArray(contact.tags) && contact.tags.length > 0 && (
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+            <div className="text-[10.5px] truncate mt-0.5" style={{ color: 'var(--crm-dim)' }}>
               {contact.tags.slice(0, 2).join(' · ')}{contact.tags.length > 2 ? ` +${contact.tags.length - 2}` : ''}
             </div>
           )}
           {followMs != null && (
             <div
-              className={`text-[10px] truncate flex items-center gap-1 mt-0.5 ${followOverdue ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`}
+              className={`text-[10px] truncate flex items-center gap-1 mt-0.5 ${followOverdue ? 'font-semibold text-rose-500' : ''}`}
+              style={{ color: followOverdue ? undefined : 'var(--crm-dim)' }}
               title={(contact.followUpNote || '').trim() || undefined}
             >
               <Clock className="w-3 h-3 shrink-0 opacity-70" />
@@ -301,14 +302,14 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
       </div>
 
       {/* telefone */}
-      <div className="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-300 min-w-0">
-        <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+      <div className="flex items-center gap-1.5 text-[13px] min-w-0" style={{ color: 'var(--crm-muted)' }}>
+        <Phone className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--crm-dim)' }} />
         <span className="truncate">{formatPhone(contact.phone || '')}</span>
       </div>
 
       {/* cidade */}
-      <div className="hidden md:flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400 min-w-0">
-        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+      <div className="hidden md:flex items-center gap-1.5 text-[13px] min-w-0" style={{ color: 'var(--crm-muted)' }}>
+        <MapPin className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--crm-dim)' }} />
         <span className="truncate">{cityState}</span>
       </div>
 

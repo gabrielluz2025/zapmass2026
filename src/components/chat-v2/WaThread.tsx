@@ -145,13 +145,24 @@ export const WaThread: React.FC<Props> = ({
   if (!conversation) {
     return (
       <section className="wa-empty-pro flex-1 min-w-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
-        <Lock className="w-14 h-14 mb-5 opacity-30" style={{ color: 'var(--wa-green-strong)' }} />
-        <h2>ZapMass · Atendimento</h2>
-        <p>
-          Envie e receba mensagens com a mesma experiência do WhatsApp Web: histórico completo,
-          sincronização em tempo real e nomes da sua agenda ou CRM.
+        <div
+          className="w-20 h-20 rounded-3xl flex items-center justify-center mb-5"
+          style={{
+            background: 'linear-gradient(135deg, rgba(37,211,102,0.15), rgba(18,140,126,0.1))',
+            border: '1.5px solid rgba(37,211,102,0.25)',
+          }}
+        >
+          <Lock className="w-9 h-9 opacity-60" style={{ color: 'var(--wa-green-strong)' }} />
+        </div>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.01em' }}>
+          ZapMass Atendimento
+        </h2>
+        <p style={{ maxWidth: 320, lineHeight: 1.65 }}>
+          Selecione uma conversa ao lado para começar. Histórico completo, tempo real e nomes da sua agenda CRM.
         </p>
-        <span className="wa-empty-zap-badge mt-6">Criptografia de ponta a ponta</span>
+        <div className="flex items-center gap-3 mt-6">
+          <span className="wa-empty-zap-badge">Criptografia de ponta a ponta</span>
+        </div>
       </section>
     );
   }

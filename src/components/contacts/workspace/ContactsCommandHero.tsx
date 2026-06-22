@@ -20,6 +20,8 @@ interface Props {
   stats: ContactsCommandHeroStats;
   contactTempsReady: boolean;
   hideWedding?: boolean;
+  /** Total salvo no banco — exibido enquanto os contatos ainda estão carregando. */
+  savedTotal?: number | null;
   // Ações do header
   onNewContact: () => void;
   onImportXLSX: () => void;
@@ -40,6 +42,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   stats,
   contactTempsReady,
   hideWedding = false,
+  savedTotal,
   onNewContact, onImportXLSX, onImportVcf, onSmartImport,
   onDownloadTemplate, onExport, onOpenInsights,
   onOpenNormalizeNames, onOpenNormalizeAddresses, addressNormalizeBusy = false
@@ -86,7 +89,11 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
               Central de Contatos
             </h1>
             <p className="text-xs mt-0.5" style={{ color: 'var(--crm-dim)' }}>
-              {stats.total > 0 ? `${stats.total.toLocaleString('pt-BR')} contatos na base` : 'Nenhum contato ainda'}
+              {savedTotal != null && savedTotal > 0
+                ? `${savedTotal.toLocaleString('pt-BR')} contatos na base`
+                : stats.total > 0
+                  ? `${stats.total.toLocaleString('pt-BR')} contatos na base`
+                  : 'Importe contatos para começar'}
             </p>
           </div>
         </div>

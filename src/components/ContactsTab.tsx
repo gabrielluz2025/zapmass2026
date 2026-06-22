@@ -3707,6 +3707,7 @@ export const ContactsTab: React.FC = () => {
         stats={smartStats}
         contactTempsReady={contactTempsReady}
         hideWedding={segment !== 'religious'}
+        savedTotal={contactsSavedTotal}
         onNewContact={openNewContactModal}
         onImportXLSX={openImportXLSX}
         onImportVcf={openImportVcf}
