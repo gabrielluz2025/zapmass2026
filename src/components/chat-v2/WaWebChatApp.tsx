@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -64,6 +64,9 @@ export const WaWebChatApp: React.FC<{
     [connections]
   );
 
+  /** Adia rebuilds de índice de contatos enquanto carregam em lote — evita recalcular displayById/avatarById a cada chunk */
+  const deferredContacts = useDeferredValue(contacts);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftConversations, setDraftConversations] = useState<Conversation[]>([]);
   const [search, setSearch] = useState('');
@@ -110,23 +113,24 @@ export const WaWebChatApp: React.FC<{
     );
   }, [conversations, draftConversations]);
 
+  // mergedConversations já foi collapsed/deduped — ordenar direto sem segundo collapse.
   const sortedConversations = useMemo(() => {
-    const list = collapseConversationsByPhone(dedupeConversationsById(mergedConversations));
-    return [...list].sort((a, b) => {
+    return [...mergedConversations].sort((a, b) => {
       const ta = a.lastMessageTimestamp ?? 0;
       const tb = b.lastMessageTimestamp ?? 0;
       return tb - ta;
     });
   }, [mergedConversations]);
 
+  // Usa deferredContacts — não precisa recalcular nomes ao carregar cada batch de contatos.
   const displayById = useMemo(
-    () => buildDisplayIndex(sortedConversations, contacts),
-    [sortedConversations, contacts]
+    () => buildDisplayIndex(sortedConversations, deferredContacts),
+    [sortedConversations, deferredContacts]
   );
 
   const profilePicByPhoneKey = useMemo(() => {
     const map = new Map<string, string>();
-    for (const ct of contacts) {
+    for (const ct of deferredContacts) {
       const pic = ct.profilePicUrl;
       if (!pic) continue;
       const digits = normalizePhoneDigits(ct.phone || '');
@@ -137,7 +141,7 @@ export const WaWebChatApp: React.FC<{
       }
     }
     return map;
-  }, [contacts]);
+  }, [deferredContacts]);
 
   const avatarById = useMemo(() => {
     const map = new Map<string, string>();

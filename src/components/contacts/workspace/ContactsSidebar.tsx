@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import {
   Users, Flame, Sparkles, Snowflake, Clock, Cake, Moon, AlertCircle,
   MapPinOff, Copy, List as ListIcon, LucideIcon, Search, X, CalendarClock, Heart,
@@ -65,7 +65,7 @@ interface Props {
   /** Abre aba Listas (vindo do rail superior). */
   listsUiFocus?: 'none' | 'tab' | 'create';
   onListsUiFocusHandled?: () => void;
-  /** false enquanto o cálculo de temperatura ainda não terminou */
+  /** false enquanto o cÃ¡lculo de temperatura ainda nÃ£o terminou */
   contactTempsReady?: boolean;
 }
 
@@ -114,8 +114,8 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
     { id: 'all', label: 'Todos', icon: Users, tone: 'slate', count: counts.all },
     { id: 'hot', label: 'Quentes', icon: Flame, tone: 'rose', count: counts.hot, hint: 'Respondeu ou leu recentemente' },
     { id: 'warm', label: 'Mornos', icon: Sparkles, tone: 'amber', count: counts.warm, hint: 'Entregues mas sem resposta' },
-    { id: 'cold', label: 'Frios', icon: Snowflake, tone: 'sky', count: counts.cold, hint: 'Sem interação recente' },
-    { id: 'new', label: 'Sem histórico', icon: Clock, tone: 'slate', count: counts.new, hint: 'Nunca enviou nada' }
+    { id: 'cold', label: 'Frios', icon: Snowflake, tone: 'sky', count: counts.cold, hint: 'Sem interaÃ§Ã£o recente' },
+    { id: 'new', label: 'Sem histÃ³rico', icon: Clock, tone: 'slate', count: counts.new, hint: 'Nunca enviou nada' }
   ];
 
   const groupAttentionAll: FilterItem[] = [
@@ -124,8 +124,8 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
     { id: 'wedding_today', label: 'Bodas hoje', icon: Heart, tone: 'rose', count: counts.wedding_today },
     { id: 'wedding_week', label: 'Bodas 7 dias', icon: Heart, tone: 'violet', count: counts.wedding_week },
     { id: 'dormant', label: 'Dormentes', icon: Moon, tone: 'slate', count: counts.dormant },
-    { id: 'invalid', label: 'Inválidos', icon: AlertCircle, tone: 'rose', count: counts.invalid },
-    { id: 'no_address', label: 'Sem endereço', icon: MapPinOff, tone: 'orange', count: counts.no_address },
+    { id: 'invalid', label: 'InvÃ¡lidos', icon: AlertCircle, tone: 'rose', count: counts.invalid },
+    { id: 'no_address', label: 'Sem endereÃ§o', icon: MapPinOff, tone: 'orange', count: counts.no_address },
     { id: 'duplicates', label: 'Duplicados', icon: Copy, tone: 'rose', count: counts.duplicates }
   ];
 
@@ -137,7 +137,7 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
     { id: 'retorno_todos', label: 'Todos com retorno', icon: CalendarClock, tone: 'emerald', count: counts.retorno_todos },
     { id: 'retorno_atrasados', label: 'Atrasados', icon: AlertCircle, tone: 'rose', count: counts.retorno_atrasados },
     { id: 'retorno_hoje', label: 'Hoje', icon: Clock, tone: 'amber', count: counts.retorno_hoje },
-    { id: 'retorno_semana', label: 'Próximos 7 dias', icon: CalendarClock, tone: 'violet', count: counts.retorno_semana }
+    { id: 'retorno_semana', label: 'PrÃ³ximos 7 dias', icon: CalendarClock, tone: 'violet', count: counts.retorno_semana }
   ];
 
   const tabs: Array<{ id: SidebarPanelTab; label: string; icon: LucideIcon; badge?: number }> = [
@@ -147,24 +147,24 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
   ];
 
   return (
-    <aside className="zm-contacts-sidebar lg:sticky lg:top-4 lg:self-start p-3">
+    <aside className="crm-filter-panel lg:sticky lg:top-4 lg:self-start p-3">
       <div className="pb-0">
         <div className="relative group">
           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-            <Search className="w-4 h-4" style={{ color: 'var(--zm-c-dim)' }} />
+            <Search className="w-4 h-4" style={{ color: 'var(--crm-dim)' }} />
           </div>
           <input
             type="text"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Buscar nome, número..."
-            className="zm-contacts-search"
+            placeholder="Buscar nome, nÃºmero..."
+            className="crm-search pl-10 pr-10 py-2.5 w-full"
           />
           {query && (
             <button
               onClick={() => onQueryChange('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg"
-              style={{ color: 'var(--zm-c-dim)' }}
+              style={{ color: 'var(--crm-dim)' }}
               title="Limpar"
             >
               <X className="w-4 h-4" />
@@ -176,7 +176,7 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
       <div>
         <div
           className="grid grid-cols-3 gap-1 p-1 rounded-xl"
-          style={{ background: 'rgba(15, 23, 42, 0.45)', border: '1px solid var(--zm-c-border)' }}
+          style={{ background: 'rgba(15, 23, 42, 0.45)', border: '1px solid var(--crm-border)' }}
         >
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -186,7 +186,7 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
                 key={tab.id}
                 type="button"
                 onClick={() => setPanelTab(tab.id)}
-                className={`zm-contacts-tab-btn relative${isOn ? ' is-active' : ''}`}
+                className={`crm-filter-card-btn text-center relative${isOn ? ' is-active' : ''}`}
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
@@ -240,7 +240,7 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
 
         {panelTab === 'advanced' && (
           <div className="space-y-4">
-            <Group title="Status & saúde">
+            <Group title="Status & saÃºde">
               {groupAttention.map((item) => (
                 <FilterRow key={item.id} item={item} active={active === item.id} onClick={() => onChange(item.id)} />
               ))}
@@ -260,7 +260,7 @@ ContactsSidebar.displayName = 'ContactsSidebar';
 
 const Group: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div>
-    <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5 px-1" style={{ color: 'var(--zm-c-dim)' }}>
+    <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5 px-1" style={{ color: 'var(--crm-dim)' }}>
       {title}
     </p>
     <div className="space-y-0.5">{children}</div>
@@ -290,16 +290,16 @@ const FilterCard: React.FC<{ item: FilterItem; active: boolean; onClick: () => v
       type="button"
       onClick={onClick}
       title={item.hint}
-      className={`zm-contacts-filter-card${active ? ' is-active' : ''}`}
+      className={`crm-filter-card-btn${active ? ' is-active' : ''}`}
     >
       <Icon className="w-4 h-4" style={{ color }} />
-      <span className="text-[11px] font-bold leading-tight" style={{ color: 'var(--zm-c-text)' }}>
+      <span className="text-[11px] font-bold leading-tight" style={{ color: 'var(--crm-text)' }}>
         {item.label}
       </span>
       {loading ? (
-        <span className="text-[10px] font-black tabular-nums animate-pulse" style={{ color: 'var(--zm-c-dim)' }}>…</span>
+        <span className="text-[10px] font-black tabular-nums animate-pulse" style={{ color: 'var(--crm-dim)' }}>â€¦</span>
       ) : item.count > 0 ? (
-        <span className="text-[10px] font-black tabular-nums" style={{ color: 'var(--zm-c-dim)' }}>
+        <span className="text-[10px] font-black tabular-nums" style={{ color: 'var(--crm-dim)' }}>
           {item.count.toLocaleString('pt-BR')}
         </span>
       ) : null}
@@ -319,15 +319,16 @@ const FilterRow: React.FC<{ item: FilterItem; active: boolean; onClick: () => vo
       type="button"
       onClick={onClick}
       title={item.hint}
-      className={`zm-contacts-filter-card flex-row items-center gap-2 py-2${active ? ' is-active' : ''}`}
+      className={`crm-filter-card-btn flex-row items-center gap-2 py-2${active ? ' is-active' : ''}`}
     >
       <Icon className="w-3.5 h-3.5 shrink-0" style={{ color }} />
-      <span className="flex-1 text-left truncate text-xs font-semibold" style={{ color: 'var(--zm-c-text)' }}>{item.label}</span>
+      <span className="flex-1 text-left truncate text-xs font-semibold" style={{ color: 'var(--crm-text)' }}>{item.label}</span>
       {item.count > 0 && (
-        <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--zm-c-dim)' }}>
+        <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--crm-dim)' }}>
           {item.count.toLocaleString('pt-BR')}
         </span>
       )}
     </button>
   );
 };
+

@@ -22,15 +22,12 @@ export const ContactsBulkBar: React.FC<Props> = React.memo(({
 
   return (
     <div className="sticky bottom-4 z-20 flex justify-center pointer-events-none px-4 pt-2">
-      <div className="zm-contacts-bulk animate-in slide-in-from-bottom-4 duration-200">
-        <div className="flex items-center gap-2 pr-3 pl-1 border-r" style={{ borderColor: 'var(--zm-c-border)' }}>
-          <span
-            className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-xs font-bold"
-            style={{ background: 'linear-gradient(135deg, #06b6d4, #10b981)' }}
-          >
+      <div className="crm-bulk-bar">
+        <div className="flex items-center gap-2 pr-3 pl-1 border-r border-white/20">
+          <span className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold" style={{ background: 'rgba(255,255,255,0.2)' }}>
             {count > 99 ? '99+' : count}
           </span>
-          <span className="text-xs font-semibold whitespace-nowrap" style={{ color: 'var(--zm-c-text)' }}>
+          <span className="text-xs font-semibold whitespace-nowrap">
             {count === 1 ? 'selecionado' : 'selecionados'}
           </span>
         </div>
@@ -41,7 +38,7 @@ export const ContactsBulkBar: React.FC<Props> = React.memo(({
         <BulkBtn icon={<Download className="w-3.5 h-3.5" />} label="Exportar" onClick={onExport} />
         <BulkBtn icon={<Trash2 className="w-3.5 h-3.5" />} label="Remover" onClick={onDelete} danger />
 
-        <div className="border-l pl-1 ml-1" style={{ borderColor: 'var(--zm-c-border)' }}>
+        <div className="border-l border-white/20 pl-1 ml-1">
           <button
             onClick={onClear}
             className="p-1.5 rounded-md transition hover:bg-white/5"

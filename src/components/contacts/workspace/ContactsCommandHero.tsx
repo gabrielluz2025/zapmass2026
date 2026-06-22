@@ -1,5 +1,9 @@
 import React from 'react';
-import { Users, Flame, TrendingUp, Clock, Cake, Heart, Database, Sparkles } from 'lucide-react';
+import {
+  Users, Flame, TrendingUp, Clock, Cake, Heart,
+  UserPlus, Upload, Download, Wand2, FileSpreadsheet, Smartphone,
+  ChevronDown, SpellCheck2, MapPin, BarChart3
+} from 'lucide-react';
 
 export interface ContactsCommandHeroStats {
   total: number;
@@ -16,98 +20,186 @@ interface Props {
   stats: ContactsCommandHeroStats;
   contactTempsReady: boolean;
   hideWedding?: boolean;
+  // Ações do header
+  onNewContact: () => void;
+  onImportXLSX: () => void;
+  onImportVcf: () => void;
+  onSmartImport: () => void;
+  onDownloadTemplate: () => void;
+  onExport: () => void;
+  onOpenInsights: () => void;
+  onOpenNormalizeNames?: () => void;
+  onOpenNormalizeAddresses?: () => void;
+  addressNormalizeBusy?: boolean;
 }
 
-interface KpiDef {
-  label: string;
-  getVal: (s: ContactsCommandHeroStats) => string;
-  color: string;
-  icon: React.ReactNode;
-  tempDependent?: boolean;
-}
+const fmt = (n: number) =>
+  n >= 10000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : n.toLocaleString('pt-BR');
 
-const KPIS: KpiDef[] = [
-  { label: 'Total', getVal: (s) => s.total.toLocaleString('pt-BR'), color: '#60a5fa', icon: <Users className="w-3.5 h-3.5" /> },
-  { label: 'Quentes', getVal: (s) => s.hot.toLocaleString('pt-BR'), color: '#f87171', icon: <Flame className="w-3.5 h-3.5" />, tempDependent: true },
-  { label: 'Novos (7d)', getVal: (s) => s.last7.toLocaleString('pt-BR'), color: '#34d399', icon: <TrendingUp className="w-3.5 h-3.5" /> },
-  { label: 'Retorno hoje', getVal: (s) => s.retorno_hoje.toLocaleString('pt-BR'), color: '#fbbf24', icon: <Clock className="w-3.5 h-3.5" /> },
-  { label: 'Aniv. hoje', getVal: (s) => s.bdayToday.toLocaleString('pt-BR'), color: '#e879f9', icon: <Cake className="w-3.5 h-3.5" /> },
-  { label: 'Casamentos 7d', getVal: (s) => s.weddingWeek.toLocaleString('pt-BR'), color: '#f9a8d4', icon: <Heart className="w-3.5 h-3.5" /> }
-];
+export const ContactsCommandHero: React.FC<Props> = React.memo(({
+  stats,
+  contactTempsReady,
+  hideWedding = false,
+  onNewContact, onImportXLSX, onImportVcf, onSmartImport,
+  onDownloadTemplate, onExport, onOpenInsights,
+  onOpenNormalizeNames, onOpenNormalizeAddresses, addressNormalizeBusy = false
+}) => {
+  const [importOpen, setImportOpen] = React.useState(false);
+  const importRef = React.useRef<HTMLDivElement>(null);
 
-export const ContactsCommandHero: React.FC<Props> = React.memo(({ stats, contactTempsReady, hideWedding = false }) => {
-  if (stats.total <= 0) return null;
+  React.useEffect(() => {
+    if (!importOpen) return;
+    const close = (e: MouseEvent) => {
+      if (importRef.current && !importRef.current.contains(e.target as Node)) setImportOpen(false);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [importOpen]);
 
-  const kpis = hideWedding ? KPIS.filter((k) => k.label !== 'Casamentos 7d') : KPIS;
   const total = Math.max(stats.total, 1);
 
+  const kpis = [
+    { label: 'Total', value: fmt(stats.total), accent: '#6366f1', icon: <Users className="w-3.5 h-3.5" /> },
+    { label: 'Quentes', value: contactTempsReady ? fmt(stats.hot) : '…', accent: '#ef4444', icon: <Flame className="w-3.5 h-3.5" />, pulse: !contactTempsReady },
+    { label: 'Novos (7d)', value: fmt(stats.last7), accent: '#10b981', icon: <TrendingUp className="w-3.5 h-3.5" /> },
+    { label: 'Retorno hoje', value: fmt(stats.retorno_hoje), accent: '#f59e0b', icon: <Clock className="w-3.5 h-3.5" /> },
+    { label: 'Aniv. hoje', value: fmt(stats.bdayToday), accent: '#a855f7', icon: <Cake className="w-3.5 h-3.5" /> },
+    ...(!hideWedding ? [{ label: 'Casamentos 7d', value: fmt(stats.weddingWeek), accent: '#ec4899', icon: <Heart className="w-3.5 h-3.5" /> }] : []),
+  ];
+
   return (
-    <section className="zm-contacts-hero zm-contacts-section" aria-label="Painel de audiência">
-      <div className="zm-contacts-hero-accent" aria-hidden />
-      <div className="zm-contacts-hero-body">
-        <div className="flex flex-wrap items-center gap-3 mb-4">
+    <div className="crm-fade-up flex flex-col gap-3">
+      {/* ── Linha 1: título + ações ── */}
+      <div
+        className="crm-topbar flex flex-col lg:flex-row lg:items-center gap-4"
+      >
+        {/* Esquerda */}
+        <div className="flex items-center gap-3 min-w-0">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: 'linear-gradient(135deg,#06B6D4,#10B981)', boxShadow: '0 8px 22px -8px rgba(16,185,129,0.65)' }}
+            className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shrink-0"
+            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 8px 20px -8px rgba(99,102,241,0.55)' }}
           >
-            <Sparkles className="w-4 h-4 text-white" />
+            <Users className="w-5 h-5" />
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-400/80">Audience Command</p>
-            <h2 className="text-lg sm:text-xl font-black text-white tracking-tight leading-tight">Sua base em tempo real</h2>
+          <div className="min-w-0">
+            <h1 className="text-lg font-black tracking-tight truncate" style={{ color: 'var(--crm-text)' }}>
+              Central de Contatos
+            </h1>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--crm-dim)' }}>
+              {stats.total > 0 ? `${stats.total.toLocaleString('pt-BR')} contatos na base` : 'Nenhum contato ainda'}
+            </p>
           </div>
-          <span
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold shrink-0"
-            style={{ background: 'rgba(59,130,246,0.15)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.3)' }}
-          >
-            <Database className="w-3 h-3" />
-            {stats.total.toLocaleString('pt-BR')} contatos
-          </span>
         </div>
 
-        <div className={`grid gap-2 ${kpis.length >= 6 ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'}`}>
+        {/* Direita: ações */}
+        <div className="flex items-center gap-2 flex-wrap lg:ml-auto">
+          <button type="button" onClick={onOpenInsights} className="crm-btn">
+            <BarChart3 className="w-4 h-4 text-indigo-500" />
+            <span className="hidden sm:inline">Insights</span>
+          </button>
+
+          <div className="relative" ref={importRef}>
+            <button type="button" onClick={() => setImportOpen(v => !v)} className="crm-btn">
+              <Upload className="w-4 h-4 text-emerald-500" />
+              <span className="hidden sm:inline">Importar</span>
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </button>
+            {importOpen && (
+              <div
+                className="absolute right-0 top-full mt-2 w-72 rounded-2xl z-[100] overflow-hidden shadow-xl"
+                style={{ background: 'var(--crm-card)', border: '1px solid var(--crm-border)' }}
+              >
+                <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider" style={{ background: 'var(--crm-bg)', color: 'var(--crm-dim)', borderBottom: '1px solid var(--crm-border)' }}>
+                  Opções de importação
+                </div>
+                {[
+                  { icon: <FileSpreadsheet className="w-5 h-5 text-emerald-500" />, title: 'Importar XLSX / CSV', sub: 'Planilha com colunas do template', fn: () => { setImportOpen(false); onImportXLSX(); } },
+                  { icon: <Smartphone className="w-5 h-5 text-teal-500" />, title: 'Importar vCard (.vcf)', sub: 'Exportado do celular (Contatos)', fn: () => { setImportOpen(false); onImportVcf(); } },
+                  { icon: <Wand2 className="w-5 h-5 text-violet-500" />, title: 'Importação inteligente', sub: 'Cole texto livre — IA extrai os dados', fn: () => { setImportOpen(false); onSmartImport(); } },
+                ].map((item) => (
+                  <button key={item.title} type="button" onClick={item.fn} className="w-full flex items-start gap-3 px-4 py-3 text-left transition" style={{ borderBottom: '1px solid var(--crm-border)' }} onMouseEnter={e => (e.currentTarget.style.background = 'var(--crm-bg)')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    {item.icon}
+                    <div>
+                      <div className="text-sm font-semibold" style={{ color: 'var(--crm-text)' }}>{item.title}</div>
+                      <div className="text-[11px]" style={{ color: 'var(--crm-dim)' }}>{item.sub}</div>
+                    </div>
+                  </button>
+                ))}
+                <div className="p-2" style={{ background: 'var(--crm-bg)' }}>
+                  <button type="button" onClick={() => { setImportOpen(false); onDownloadTemplate(); }} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed text-xs font-bold transition" style={{ borderColor: 'var(--crm-border-strong)', color: 'var(--crm-muted)' }}>
+                    <Download className="w-3.5 h-3.5" /> Baixar template XLSX
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button type="button" onClick={onExport} className="crm-btn">
+            <Download className="w-4 h-4 text-sky-500" />
+            <span className="hidden sm:inline">Exportar</span>
+          </button>
+
+          {onOpenNormalizeNames && (
+            <button type="button" onClick={onOpenNormalizeNames} className="crm-btn" title="Padronizar nomes">
+              <SpellCheck2 className="w-4 h-4 text-cyan-500" />
+              <span className="hidden sm:inline">Limpar nomes</span>
+            </button>
+          )}
+
+          {onOpenNormalizeAddresses && (
+            <button type="button" onClick={onOpenNormalizeAddresses} disabled={addressNormalizeBusy} className="crm-btn disabled:opacity-50">
+              <MapPin className={`w-4 h-4 text-rose-500 ${addressNormalizeBusy ? 'animate-pulse' : ''}`} />
+              <span className="hidden sm:inline">{addressNormalizeBusy ? 'Padronizando…' : 'Cidades'}</span>
+            </button>
+          )}
+
+          <button type="button" onClick={onNewContact} className="crm-btn crm-btn-primary">
+            <UserPlus className="w-4 h-4" />
+            Novo contato
+          </button>
+        </div>
+      </div>
+
+      {/* ── Linha 2: KPI tiles ── */}
+      {stats.total > 0 && (
+        <div className="crm-kpi-row crm-fade-up">
           {kpis.map((k) => (
-            <div key={k.label} className="zm-contacts-kpi" style={{ background: `${k.color}12`, borderColor: `${k.color}30` }}>
-              <div className="zm-contacts-kpi-label">
-                <span style={{ color: k.color }}>{k.icon}</span>
+            <div key={k.label} className="crm-kpi-tile" style={{ borderTopColor: k.accent, borderTopWidth: 3 }}>
+              <div className="crm-kpi-tile__eyebrow">
+                <span style={{ color: k.accent }}>{k.icon}</span>
                 {k.label}
               </div>
-              {k.tempDependent && !contactTempsReady ? (
-                <span className="text-sm font-semibold animate-pulse" style={{ color: 'rgba(255,255,255,0.35)' }}>…</span>
-              ) : (
-                <span className="zm-contacts-kpi-value">{k.getVal(stats)}</span>
-              )}
+              <div className={`crm-kpi-tile__value ${k.pulse ? 'animate-pulse opacity-50' : ''}`} style={{ color: k.accent }}>{k.value}</div>
             </div>
           ))}
         </div>
+      )}
 
-        <div className="mt-4 pt-1">
-          <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
-            <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.35)' }}>
-              Temperatura da base
-            </span>
-            <span className="text-[10px] font-semibold" style={{ color: 'rgba(255,255,255,0.35)' }}>
-              {contactTempsReady ? <>🔥 {stats.hot} · 🌡️ {stats.warm} · ❄️ {stats.cold}</> : 'calculando…'}
-            </span>
+      {/* ── Linha 3: barra de temperatura ── */}
+      {stats.total > 0 && (
+        <div className="crm-temp-row crm-fade-up">
+          <span className="text-[10px] font-bold uppercase tracking-widest shrink-0" style={{ color: 'var(--crm-dim)' }}>
+            Temperatura
+          </span>
+          <div className="crm-temp-bar">
+            {contactTempsReady ? (
+              <>
+                {stats.hot > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.hot / total) * 100}%`, background: '#ef4444' }} />}
+                {stats.warm > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.warm / total) * 100}%`, background: '#f59e0b' }} />}
+                {stats.cold > 0 && <div className="crm-temp-seg" style={{ width: `${(stats.cold / total) * 100}%`, background: '#06b6d4' }} />}
+              </>
+            ) : (
+              <div className="crm-temp-seg animate-pulse" style={{ width: '100%', background: 'var(--crm-border)' }} />
+            )}
           </div>
-          {contactTempsReady ? (
-            <div className="zm-contacts-temp-bar">
-              {stats.hot > 0 && (
-                <div className="zm-contacts-temp-seg" style={{ width: `${Math.max((stats.hot / total) * 100, 0.5)}%`, background: 'linear-gradient(90deg,#ef4444,#f97316)' }} />
-              )}
-              {stats.warm > 0 && (
-                <div className="zm-contacts-temp-seg" style={{ width: `${Math.max((stats.warm / total) * 100, 0.5)}%`, background: 'linear-gradient(90deg,#f59e0b,#fbbf24)' }} />
-              )}
-              {stats.cold > 0 && (
-                <div className="zm-contacts-temp-seg" style={{ width: `${Math.max((stats.cold / total) * 100, 0.5)}%`, background: 'linear-gradient(90deg,#06B6D4,#22d3ee)' }} />
-              )}
-            </div>
-          ) : (
-            <div className="zm-contacts-temp-bar animate-pulse" style={{ background: 'rgba(255,255,255,0.08)' }} />
-          )}
+          <span className="text-[11px] font-semibold shrink-0" style={{ color: 'var(--crm-muted)' }}>
+            {contactTempsReady
+              ? `🔥 ${stats.hot} · 🌡️ ${stats.warm} · ❄️ ${stats.cold}`
+              : 'calculando…'}
+          </span>
         </div>
-      </div>
-    </section>
+      )}
+    </div>
   );
 });
 

@@ -132,13 +132,12 @@ export const ContactsTableVirtual: React.FC<Props> = ({
   const allVisible = rows.length > 0 && selectedSet.size === rows.length;
 
   return (
-    <div className="zm-contacts-table-shell">
-      {/* Cabeçalho da tabela */}
-      <div className="zm-contacts-table-head grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] shrink-0">
+    <div className="crm-table-shell flex flex-col overflow-hidden">
+      <div className="crm-table-head grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] shrink-0">
         <button
           onClick={onToggleSelectAll}
-          className="flex items-center justify-center transition hover:text-sky-400"
-          style={{ color: 'var(--zm-c-dim)' }}
+          className="flex items-center justify-center transition"
+          style={{ color: 'var(--crm-dim)' }}
           title={allVisible ? 'Desmarcar todos' : 'Selecionar todos'}
         >
           {allVisible ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
@@ -151,29 +150,15 @@ export const ContactsTableVirtual: React.FC<Props> = ({
         <span className="text-right">Ações</span>
       </div>
 
-      {/* Corpo virtualizado */}
       {rows.length === 0 ? (
-        <div className="zm-contacts-table-empty">
-          <div className="relative mb-6">
-            <div
-              className="w-20 h-20 rounded-3xl shadow-xl flex items-center justify-center relative z-10"
-              style={{ background: 'rgba(15, 23, 42, 0.65)', border: '1px solid var(--zm-c-border)', color: 'var(--zm-c-dim)' }}
-            >
-              <Users className="w-10 h-10" />
-            </div>
-            <div className="absolute -inset-4 bg-sky-500/10 rounded-full blur-2xl animate-pulse" />
+        <div className="crm-table-empty">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--crm-bg)', border: '1px solid var(--crm-border)', color: 'var(--crm-dim)' }}>
+            <Users className="w-8 h-8" />
           </div>
-          <h3 className="text-lg font-black tracking-tight mb-2" style={{ color: 'var(--zm-c-text)' }}>
-            Nenhum contato encontrado
-          </h3>
-          <p className="text-sm max-w-sm mx-auto leading-relaxed" style={{ color: 'var(--zm-c-muted)' }}>
-            {emptyHint || 'Não encontramos resultados para os filtros ou busca aplicados. Tente ajustar os parâmetros na lateral.'}
+          <p className="text-base font-bold mb-1" style={{ color: 'var(--crm-text)' }}>Nenhum contato encontrado</p>
+          <p className="text-sm max-w-xs mx-auto" style={{ color: 'var(--crm-muted)' }}>
+            {emptyHint || 'Tente ajustar o filtro ou a busca.'}
           </p>
-          <div className="mt-8 flex items-center gap-3">
-            <div className="h-px w-8" style={{ background: 'var(--zm-c-border)' }} />
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--zm-c-dim)' }}>ZapMass CRM</span>
-            <div className="h-px w-8" style={{ background: 'var(--zm-c-border)' }} />
-          </div>
         </div>
       ) : (
         <div
@@ -268,7 +253,7 @@ const VirtualContactRow: React.FC<RowProps> = React.memo(({
         onOpenChat(contact);
       }}
       title="Duplo clique abre a conversa no Atendimento"
-      className={`zm-contacts-table-row grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] group${
+      className={`crm-table-row grid-cols-[36px_minmax(0,1.65fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,128px)_minmax(0,88px)_72px] group${
         highlighted ? ' is-highlighted' : selected ? ' is-selected' : ''
       }`}
       style={{

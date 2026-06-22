@@ -57,74 +57,46 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
       : FILTER_LABELS[activeFilter] || 'Base de contatos';
 
   return (
-    <div className="zm-contacts-workspace-bar">
-      <div className="zm-contacts-workspace-bar-accent" aria-hidden />
-      <div className="px-4 py-3.5 flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-black tracking-tight truncate" style={{ color: 'var(--zm-c-text)' }}>
-            {title}
-          </h2>
-          <p className="text-[11px] mt-0.5" style={{ color: 'var(--zm-c-dim)' }}>
-            {searchTerm.trim()
-              ? `Busca: “${searchTerm.trim()}”`
-              : listManageMode
-                ? 'Adicione ou remova contatos desta lista. Troque para Todos para ver a base completa.'
-                : 'Segmente, selecione e dispare campanhas com precisão.'}
-          </p>
-        </div>
+    <div className="crm-workspace-bar">
+      <div className="min-w-0 flex-1">
+        <span className="text-[13px] font-bold truncate" style={{ color: 'var(--crm-text)' }}>
+          {title}
+        </span>
+        {searchTerm.trim() && (
+          <span className="ml-2 text-[11px]" style={{ color: 'var(--crm-dim)' }}>
+            — busca: "{searchTerm.trim()}"
+          </span>
+        )}
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <MiniStat icon={<Database className="w-3.5 h-3.5" />} label="Base" value={contactsSavedTotalLoading ? '…' : String(contactsSavedTotal ?? 0)} />
-          <MiniStat icon={<Layers className="w-3.5 h-3.5" />} label="Carregados" value={String(contactsLoaded)} />
-          <MiniStat icon={<Filter className="w-3.5 h-3.5" />} label="No filtro" value={String(filteredCount)} accent />
-          <button
-            type="button"
-            onClick={onRefreshTotals}
-            disabled={contactsSavedTotalLoading}
-            className="zm-contacts-btn text-[11px] py-2 disabled:opacity-50"
-            title="Sincronizar total com o Firestore"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${contactsSavedTotalLoading ? 'animate-spin' : ''}`} />
-            Atualizar
-          </button>
-          {(contactsHasMore || contactsLoadingMore) && (
-            <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-bold"
-              style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.25)' }}
-            >
-              <Loader2 className="w-3 h-3 animate-spin" />
-              {contactsSavedTotal != null && contactsSavedTotal > contactsLoaded
-                ? `Carregando… ${contactsLoaded.toLocaleString('pt-BR')} / ${contactsSavedTotal.toLocaleString('pt-BR')}`
-                : 'Carregando contatos…'}
-            </span>
-          )}
-        </div>
+      <div className="flex flex-wrap items-center gap-1.5 ml-auto">
+        <span className="crm-mini-stat">
+          <Database className="w-3 h-3" style={{ color: 'var(--crm-dim)' }} />
+          {contactsSavedTotalLoading ? '…' : (contactsSavedTotal ?? 0).toLocaleString('pt-BR')}
+        </span>
+        <span className="crm-mini-stat" style={{ borderColor: 'rgba(99,102,241,0.3)', color: 'var(--crm-brand)' }}>
+          <Filter className="w-3 h-3" />
+          {filteredCount.toLocaleString('pt-BR')}
+        </span>
+        <button
+          type="button"
+          onClick={onRefreshTotals}
+          disabled={contactsSavedTotalLoading}
+          className="crm-mini-stat"
+          style={{ cursor: 'pointer' }}
+          title="Sincronizar total"
+        >
+          <RotateCw className={`w-3 h-3 ${contactsSavedTotalLoading ? 'animate-spin' : ''}`} />
+        </button>
+        {(contactsHasMore || contactsLoadingMore) && (
+          <span className="crm-mini-stat" style={{ color: '#10b981', borderColor: 'rgba(16,185,129,0.3)' }}>
+            <Loader2 className="w-3 h-3 animate-spin" />
+            {contactsSavedTotal != null && contactsSavedTotal > contactsLoaded
+              ? `${contactsLoaded.toLocaleString('pt-BR')} / ${contactsSavedTotal.toLocaleString('pt-BR')}`
+              : 'Carregando…'}
+          </span>
+        )}
       </div>
     </div>
   );
 };
-
-const MiniStat: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  accent?: boolean;
-}> = ({ icon, label, value, accent }) => (
-  <div
-    className="inline-flex items-center gap-2 px-2.5 py-2 rounded-lg tabular-nums"
-    style={{
-      background: accent ? 'rgba(59,130,246,0.08)' : 'rgba(15, 23, 42, 0.45)',
-      border: `1px solid ${accent ? 'rgba(59,130,246,0.2)' : 'var(--zm-c-border)'}`
-    }}
-  >
-    <span style={{ color: accent ? '#3b82f6' : 'var(--zm-c-dim)' }}>{icon}</span>
-    <div className="text-left leading-tight">
-      <div className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--zm-c-dim)' }}>
-        {label}
-      </div>
-      <div className="text-[13px] font-black" style={{ color: 'var(--zm-c-text)' }}>
-        {value}
-      </div>
-    </div>
-  </div>
-);

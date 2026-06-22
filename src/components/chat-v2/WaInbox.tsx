@@ -90,7 +90,7 @@ export const WaInbox: React.FC<Props> = ({
       const disp = displayById.get(conv.id);
       return disp?.fromDatabase && disp?.whatsappSubtitle ? 88 : 72;
     },
-    overscan: 10,
+    overscan: 4,
     getItemKey: (i) => conversations[i]?.id ?? i,
     measureElement: (el) => el.getBoundingClientRect().height
   });

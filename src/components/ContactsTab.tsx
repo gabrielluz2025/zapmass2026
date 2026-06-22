@@ -3685,7 +3685,7 @@ export const ContactsTab: React.FC = () => {
   ]);
 
   return (
-    <div className="zm-contacts space-y-5 pb-10 relative">
+    <div className="zm-contacts-v3 space-y-4 pb-10 relative">
       {/* input file escondido, usado pelos botões do hero/tabela */}
             <input
               ref={fileInputRef}
@@ -3702,16 +3702,11 @@ export const ContactsTab: React.FC = () => {
               onChange={handleImportVcf}
             />
 
+      {/* ── CRM Header unificado: título + KPI tiles + temperatura + ações ── */}
       <ContactsCommandHero
         stats={smartStats}
         contactTempsReady={contactTempsReady}
         hideWedding={segment !== 'religious'}
-      />
-
-      <ContactsHeaderBar
-        stats={headerStats}
-        contactTempsReady={contactTempsReady}
-        hideWeddingWeekPill={segment !== 'religious'}
         onNewContact={openNewContactModal}
         onImportXLSX={openImportXLSX}
         onImportVcf={openImportVcf}

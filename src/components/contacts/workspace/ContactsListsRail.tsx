@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { List as ListIcon, Plus, ChevronRight } from 'lucide-react';
 import type { ContactList } from '../../../types';
 import type { SmartFilterId } from './ContactsSidebar';
@@ -22,11 +22,11 @@ export const ContactsListsRail: React.FC<Props> = ({
 }) => {
   if (lists.length === 0) {
     return (
-      <div className="zm-contacts-rail zm-contacts-section flex flex-wrap items-center justify-between gap-3">
+      <div className="crm-filter-panel p-3 zm-contacts-section flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <ListIcon className="w-4 h-4 shrink-0 text-sky-400" />
-          <p className="text-[12px] font-medium" style={{ color: 'var(--zm-c-muted)' }}>
-            Organize contatos em <strong style={{ color: 'var(--zm-c-text)' }}>listas</strong> para campanhas segmentadas.
+          <p className="text-[12px] font-medium" style={{ color: 'var(--crm-muted)' }}>
+            Organize contatos em <strong style={{ color: 'var(--crm-text)' }}>listas</strong> para campanhas segmentadas.
           </p>
         </div>
         <button
@@ -42,10 +42,10 @@ export const ContactsListsRail: React.FC<Props> = ({
   }
 
   return (
-    <div className="zm-contacts-rail zm-contacts-section">
+    <div className="crm-filter-panel p-3 zm-contacts-section">
       <div className="flex items-center gap-2 mb-2 px-1">
-        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--zm-c-dim)' }}>
-          Listas rápidas
+        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--crm-dim)' }}>
+          Listas rÃ¡pidas
         </span>
         <button
           type="button"
@@ -84,7 +84,7 @@ export const ContactsListsRail: React.FC<Props> = ({
         <button
           type="button"
           onClick={onCreateList}
-          className="zm-contacts-rail-chip border-dashed hover:border-sky-400/50"
+          className="crm-filter-panel p-3-chip border-dashed hover:border-sky-400/50"
           style={{ color: '#38bdf8' }}
         >
           <Plus className="w-3.5 h-3.5" />
@@ -104,7 +104,7 @@ const RailChip: React.FC<{
   <button
     type="button"
     onClick={onClick}
-    className={`zm-contacts-rail-chip${active ? ' is-active' : ''}`}
+    className={`crm-filter-panel p-3-chip${active ? ' is-active' : ''}`}
   >
     <ListIcon className="w-3 h-3 opacity-80" />
     <span className="max-w-[140px] truncate">{label}</span>
@@ -118,3 +118,4 @@ const RailChip: React.FC<{
     )}
   </button>
 );
+

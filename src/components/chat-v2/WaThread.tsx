@@ -83,7 +83,7 @@ export const WaThread: React.FC<Props> = ({
     count: virtualRows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => (virtualRows[i]?.kind === 'date' ? 36 : 52),
-    overscan: 14,
+    overscan: 6,
     getItemKey: (i) => virtualRows[i]?.id ?? i,
     measureElement: (el) => el.getBoundingClientRect().height
   });
