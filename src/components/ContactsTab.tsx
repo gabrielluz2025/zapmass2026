@@ -2292,8 +2292,9 @@ export const ContactsTab: React.FC = () => {
 
   // Pagination Logic
   const totalAvailable = useMemo(() => {
-    // Se o filtro for "Todos" e sem busca ativa, usamos o total real da base (Firestore)
-    if (activeFilter === 'all' && !searchTerm.trim() && contactsSavedTotal != null) {
+    // Se o filtro for "Todos" e sem busca ativa, usamos o total real da base —
+    // mas só quando já há contatos carregados (evita totalPages=423 com contacts=[])
+    if (activeFilter === 'all' && !searchTerm.trim() && contactsSavedTotal != null && contacts.length > 0) {
       return contactsSavedTotal;
     }
     // Caso contrário, usamos o que temos carregado (já que filtros locais só funcionam no que está em memória)
