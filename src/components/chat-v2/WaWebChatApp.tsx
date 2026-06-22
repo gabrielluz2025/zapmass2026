@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import {
   useZapMassCore,
   useZapMassConversations,
@@ -31,13 +32,18 @@ import {
   unreadCount
 } from './lib/conversationDisplay';
 import { getConversationPipelineAgg } from './lib/chatPreview';
-import '../../styles/wa-web-v2.css';
+import {
+  isInboxFullSyncDoneToday,
+  markInboxFullSyncDoneForToday,
+} from '../../utils/tenantDailyCache';
 
 export const WaWebChatApp: React.FC<{
   autoSelectedConversationId?: string | null;
   onClearAutoSelected?: () => void;
 }> = ({ autoSelectedConversationId, onClearAutoSelected }) => {
   const { user } = useAuth();
+  const { effectiveWorkspaceUid } = useWorkspace();
+  const tenantUid = effectiveWorkspaceUid ?? user?.uid ?? '';
   const crm = useClientCrm(user?.uid);
   const conversations = useZapMassConversations();
   const { inboxHasMore, inboxLoadingMore, loadMoreInbox } = useZapMassInboxPagination();
@@ -81,15 +87,20 @@ export const WaWebChatApp: React.FC<{
     chipsConnected: connectedChannels.length
   });
 
-  /** Ao abrir Atendimento: sync completo uma vez (chips online) + botão manual continua disponível. */
+  /** Atendimento: sync completo no máximo 1× por dia; resto via webhook/socket. */
   const initialFullSyncDoneRef = useRef(false);
   useEffect(() => {
-    if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
+    if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0 || !tenantUid) return;
     if (initialFullSyncDoneRef.current) return;
     initialFullSyncDoneRef.current = true;
+    if (isInboxFullSyncDoneToday(tenantUid)) {
+      requestSync({ full: false });
+      return;
+    }
+    markInboxFullSyncDoneForToday(tenantUid);
     runResync({ full: true });
     requestSync({ full: true });
-  }, [isBackendConnected, socket, connectedChannels.length, runResync, requestSync]);
+  }, [isBackendConnected, socket, connectedChannels.length, tenantUid, runResync, requestSync]);
 
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));

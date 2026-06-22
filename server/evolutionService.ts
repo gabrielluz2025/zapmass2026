@@ -28,6 +28,12 @@ import {
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
+import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
+import {
+    getOwnerLastFullSyncMs,
+    markOwnerFullSyncDone,
+    ownerFullSyncIsDue,
+} from './ownerFullSyncStore.js';
 import {
     getTenantDispatchSettings,
     resolveCampaignDispatchSettings,
@@ -664,13 +670,13 @@ export async function syncConnectionsForOwner(
         return { connections: [], claimed: [], syncedChats: [] };
     }
 
-    const lastSync = lastFullSyncByOwner.get(uid) ?? 0;
-    const withinCooldown = !opts?.force && Date.now() - lastSync < FULL_SYNC_COOLDOWN_MS;
+    const withinCooldown = !(await ownerFullSyncIsDue(uid, opts?.force));
 
     if (withinCooldown) {
+        const lastSync = await getOwnerLastFullSyncMs(uid);
         log('info', 'syncConnectionsForOwner: cooldown ativo — só reemit RAM', {
             ownerUid: uid,
-            cooldownSec: Math.ceil((FULL_SYNC_COOLDOWN_MS - (Date.now() - lastSync)) / 1000),
+            cooldownSec: Math.ceil((fullSyncIntervalMs() - (Date.now() - lastSync)) / 1000),
         });
         await reemitConversationsForOwner(uid);
         const scoped = filterByConnectionScope(uid, getConnections());
@@ -695,7 +701,7 @@ export async function syncConnectionsForOwner(
         log('info', `syncConnectionsForOwner: canais restaurados do cache=${restored.join(',')}`);
     }
 
-    lastFullSyncByOwner.set(uid, Date.now());
+    await markOwnerFullSyncDone(uid);
 
     const claimed: string[] = [];
 
@@ -929,9 +935,7 @@ const autoReconnectState = new Map<
     { attempts: number; timer?: ReturnType<typeof setTimeout>; inFlight?: boolean }
 >();
 let connectionHealthTimer: ReturnType<typeof setInterval> | null = null;
-/** Evita findChats repetido no mesmo tenant (socket, auto-sync, rajadas manuais). */
-const FULL_SYNC_COOLDOWN_MS = 5 * 60_000;
-const lastFullSyncByOwner = new Map<string, number>();
+/** Dedupe de sync pesado concorrente por tenant. */
 const syncInFlightByOwner = new Map<
     string,
     Promise<{

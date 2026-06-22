@@ -70,6 +70,11 @@ import {
 } from '../utils/connectionStateMerge';
 import { apiUrl, getSocketIoOrigin, isLikelySplitStaticFrontend } from '../utils/apiBase';
 import { MAX_CHANNELS_TOTAL } from '../utils/connectionLimitPolicy';
+import {
+  clearTenantDailyCache,
+  readTenantDailyCache,
+  writeTenantDailyCache,
+} from '../utils/tenantDailyCache';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import {
   getCampaignPlannedSendTotal,
@@ -577,7 +582,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const apiSyncInFlightRef = useRef(false);
   const apiSyncLastAtRef = useRef(0);
   /** Evita rajada de POST /api/connections/sync ao abrir abas / reconectar socket. */
-  const AUTO_CONNECTIONS_SYNC_MIN_MS = 90_000;
+  const AUTO_CONNECTIONS_SYNC_MIN_MS = 24 * 60 * 60 * 1000;
   const disconnectToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Atraso antes de marcar UI como offline — evita OFFLINE a piscar em quedas < ~3s (sleep da CPU / troca de aba). */
   const offlineBadgeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -881,10 +886,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // --- Dados do tenant (API Postgres) ---
   useEffect(() => {
-    const bindUser = (uid: string) => {
+    const bindUser = (uid: string, opts?: { force?: boolean }) => {
       setCircuitBreakerOpenIds(new Set());
+      if (!opts?.force) {
+        const cached = readTenantDailyCache(uid);
+        if (cached) {
+          contactsVpsOffsetRef.current = cached.contactsOffset;
+          setContacts(cached.contacts);
+          setContactsHasMore(cached.contactsHasMore);
+          setContactsSavedTotal(cached.contactsSavedTotal);
+          setCampaigns(healStuckRunningCampaignsList(cached.campaigns));
+          setContactLists(cached.contactLists);
+          devLog('[bootstrap] cache diário restaurado', {
+            contacts: cached.contacts.length,
+            campaigns: cached.campaigns.length,
+          });
+          return;
+        }
+      }
       contactsVpsOffsetRef.current = 0;
-        setContactsHasMore(false);
+      setContactsHasMore(false);
       void reloadVpsContactsRef.current();
       void reloadVpsContactListsRef.current();
       void reloadVpsCampaignsRef.current();
@@ -926,6 +947,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const newAuthUid = user?.uid ?? null;
       const uidChanged = prevAuthUserRef.current !== newAuthUid;
       if (uidChanged) {
+        const previousAuthUid = prevAuthUserRef.current;
+        if (previousAuthUid) clearTenantDailyCache(previousAuthUid);
         prevAuthUserRef.current = newAuthUid;
         prevBoundDataUidRef.current = null;
         resetSessionState();
@@ -1000,8 +1023,29 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       campaignFirestoreHealRef.current.clear();
     }
     currentUidRef.current = dataUid;
-    bindUserRef.current(dataUid);
-  }, [effectiveWorkspaceUid, workspaceLoading]);
+  }, [effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
+
+  /** Persiste snapshot leve no navegador — reentrada no mesmo dia sem refetch pesado. */
+  useEffect(() => {
+    const uid = currentUidRef.current;
+    if (!uid || workspaceLoading) return;
+    if (contacts.length === 0 && campaigns.length === 0 && contactLists.length === 0) return;
+    writeTenantDailyCache(uid, {
+      contacts,
+      contactsOffset: contactsVpsOffsetRef.current,
+      contactsHasMore,
+      contactsSavedTotal,
+      campaigns,
+      contactLists,
+    });
+  }, [
+    contacts,
+    contactsHasMore,
+    contactsSavedTotal,
+    campaigns,
+    contactLists,
+    workspaceLoading,
+  ]);
 
   useEffect(() => {
     connectionsRef.current = connections;
@@ -2392,14 +2436,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
   }, [syncStuckCampaignsToFirestore, effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 
-  /** Hidrata canais após auth + workspace — não depender só do primeiro socket.connect. */
+  /** Socket connect é suficiente; sync HTTP pesado só 1×/dia (cache + cooldown servidor). */
   useEffect(() => {
     if (!sessionUser?.uid || workspaceLoading) return;
     const dataUid = effectiveWorkspaceUid ?? sessionUser.uid;
     currentUidRef.current = dataUid;
-
-    const runSync = () => void syncConnectionsFromApiRef.current();
-    const t0 = window.setTimeout(runSync, 3_000);
 
     const sock = socketRef.current;
     if (sock && !sock.connected) {
@@ -2409,10 +2450,6 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (!sock.connected) sock.connect();
       });
     }
-
-    return () => {
-      clearTimeout(t0);
-    };
   }, [effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
 
   // --- ACTIONS ---
