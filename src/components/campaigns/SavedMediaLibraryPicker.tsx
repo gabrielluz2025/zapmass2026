@@ -35,7 +35,7 @@ export const SavedMediaLibraryPicker: React.FC<Props> = ({ onPick, currentFile, 
     setSaving(true);
     try {
       const res = await saveCampaignMediaToLibrary(currentFile);
-      if (!res.ok) {
+      if (res.ok === false) {
         toast.error(res.error);
         return;
       }
