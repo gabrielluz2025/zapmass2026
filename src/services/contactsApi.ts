@@ -131,7 +131,9 @@ export async function apiDeleteContact(id: string): Promise<void> {
 }
 
 export async function fetchContactLists(): Promise<ContactList[]> {
-  const j = await apiFetchJson<{ lists?: ContactList[] }>('/api/contact-lists');
+  const j = await apiFetchJson<{ lists?: ContactList[] }>('/api/contact-lists', {
+    timeoutMs: CONTACTS_API_TIMEOUT_MS,
+  });
   return Array.isArray(j.lists) ? j.lists : [];
 }
 
