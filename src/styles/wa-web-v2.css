@@ -29,8 +29,9 @@
 }
 
 .wa-chat-pro.wa-pipeline-root {
-  height: calc(100vh - 5.5rem);
-  min-height: 520px;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: clamp(480px, calc(100dvh - 10.5rem), 1200px);
   border-radius: 12px;
   border: 1px solid var(--wa-divider);
   box-shadow: var(--wa-shadow-md);
@@ -276,6 +277,19 @@
 
 .wa-chat-pro .wa-chat-pane {
   position: relative;
+}
+
+.wa-chat-pro .wa-composer {
+  display: flex;
+  flex-direction: column;
+  background: var(--wa-header);
+  border-top: 1px solid var(--wa-divider);
+}
+
+.wa-chat-pro .wa-bubble img,
+.wa-chat-pro .wa-bubble video {
+  display: block;
+  border-radius: 6px;
 }
 
 .wa-chat-pro .wa-composer-attach {

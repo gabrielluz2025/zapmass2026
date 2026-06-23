@@ -55,6 +55,8 @@ export const WaWebChatApp: React.FC<{
     markAsRead,
     loadChatHistory,
     fetchConversationPicture,
+    hydrateFirestoreChatArchive,
+    loadMessageMedia,
     socket,
     isBackendConnected,
   } = useZapMassCore();
@@ -69,6 +71,7 @@ export const WaWebChatApp: React.FC<{
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftConversations, setDraftConversations] = useState<Conversation[]>([]);
+  const [draftChannelById, setDraftChannelById] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [connectionFilterId, setConnectionFilterId] = useState<string | 'ALL'>('ALL');
@@ -229,16 +232,19 @@ export const WaWebChatApp: React.FC<{
       let phoneRaw = raw;
       let contactName = '';
       let profilePicUrl = '';
+      let preferredConnectionId = '';
       if (raw.trim().startsWith('{')) {
         try {
           const parsed = JSON.parse(raw) as {
             phone?: string;
             name?: string;
             profilePicUrl?: string;
+            connectionId?: string;
           };
           phoneRaw = parsed.phone || '';
           contactName = (parsed.name || '').trim();
           profilePicUrl = parsed.profilePicUrl || '';
+          preferredConnectionId = (parsed.connectionId || '').trim();
         } catch {
           /* string pura */
         }
@@ -258,15 +264,23 @@ export const WaWebChatApp: React.FC<{
         matchesDigits((c.contactPhone || '').replace(/\D/g, ''))
       );
       if (candidates.length > 0) {
-        const best = candidates.sort(
-          (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
-        )[0];
+        const preferred = preferredConnectionId
+          ? candidates.find((c) => c.connectionId === preferredConnectionId)
+          : undefined;
+        const best =
+          preferred ||
+          candidates.sort(
+            (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+          )[0];
         selectChat(best.id);
         return;
       }
 
       const connectedList = connections.filter((c) => c.status === 'CONNECTED');
-      const chosen = connectedList[0] || connections[0];
+      const preferredConn = preferredConnectionId
+        ? connections.find((c) => c.id === preferredConnectionId)
+        : undefined;
+      const chosen = preferredConn || connectedList[0] || connections[0];
       const draftId = chosen ? `${chosen.id}:${digits}@c.us` : `draft:${digits}`;
       const agendaHit = contacts.find((ct) => {
         const cd = (ct.phone || '').replace(/\D/g, '');
@@ -288,6 +302,9 @@ export const WaWebChatApp: React.FC<{
         tags: []
       };
       setDraftConversations((prev) => (prev.some((d) => d.id === draftId) ? prev : [...prev, draft]));
+      if (chosen?.id) {
+        setDraftChannelById((prev) => ({ ...prev, [draftId]: chosen.id }));
+      }
       selectChat(draftId);
       if (!chosen) {
         toast('Conversa aberta sem chip. Conecte um chip em Conexões para enviar.', {
@@ -422,9 +439,56 @@ export const WaWebChatApp: React.FC<{
     if (msgCount < 30) void loadMoreHistory(selected.id, true);
   }, [selected?.id, selected?.messages?.length, socket?.connected, loadMoreHistory]);
 
-  const loadOlder = useCallback(() => {
-    if (selected?.id) void loadMoreHistory(selected.id);
-  }, [selected?.id, loadMoreHistory]);
+  const isSelectedDraft = useMemo(() => {
+    if (!selected?.id) return false;
+    return draftConversations.some((d) => d.id === selected.id);
+  }, [selected?.id, draftConversations]);
+
+  const selectedDraftChannelId = useMemo(() => {
+    if (!selected?.id || !isSelectedDraft) return selected?.connectionId || '';
+    return draftChannelById[selected.id] || selected.connectionId || '';
+  }, [selected?.id, selected?.connectionId, isSelectedDraft, draftChannelById]);
+
+  useEffect(() => {
+    if (!selected?.id || isSelectedDraft) return;
+    const t = window.setTimeout(() => {
+      void hydrateFirestoreChatArchive(selected.id, 500);
+    }, 70);
+    return () => window.clearTimeout(t);
+  }, [selected?.id, isSelectedDraft, hydrateFirestoreChatArchive]);
+
+  const handleLoadMedia = useCallback(
+    async (messageId: string) => {
+      if (!selected?.id) return;
+      const res = await loadMessageMedia(selected.id, messageId);
+      if (!res.ok && res.error) toast.error(res.error);
+    },
+    [selected?.id, loadMessageMedia]
+  );
+
+  const handleDraftChannelChange = useCallback(
+    (connectionId: string) => {
+      if (!selected?.id || !isSelectedDraft) return;
+      const digits = (selected.contactPhone || '').replace(/\D/g, '');
+      if (!digits) return;
+      const newId = `${connectionId}:${digits}@c.us`;
+      setDraftChannelById((prev) => {
+        const next = { ...prev };
+        delete next[selected.id];
+        next[newId] = connectionId;
+        return next;
+      });
+      setDraftConversations((prev) =>
+        prev.map((d) =>
+          d.id === selected.id
+            ? { ...d, id: newId, connectionId }
+            : d
+        )
+      );
+      setSelectedId(newId);
+    },
+    [selected?.id, selected?.contactPhone, isSelectedDraft]
+  );
 
   const handleSend = useCallback(
     (text: string) => {
@@ -433,9 +497,45 @@ export const WaWebChatApp: React.FC<{
         toast.error('Nenhum chip WhatsApp conectado.');
         return;
       }
+      if (isSelectedDraft) {
+        const digits = (selected.contactPhone || '').replace(/\D/g, '');
+        const chosenConnectionId = selectedDraftChannelId;
+        if (!chosenConnectionId) {
+          toast.error('Escolha um canal para enviar a primeira mensagem.');
+          return;
+        }
+        if (!digits) {
+          toast.error('Telefone inválido para iniciar conversa.');
+          return;
+        }
+        const realConversationId = `${chosenConnectionId}:${digits}@c.us`;
+        if (realConversationId !== selected.id) {
+          setDraftConversations((prev) =>
+            prev.map((d) =>
+              d.id === selected.id ? { ...d, id: realConversationId, connectionId: chosenConnectionId } : d
+            )
+          );
+          setDraftChannelById((prev) => {
+            const next = { ...prev };
+            delete next[selected.id];
+            next[realConversationId] = chosenConnectionId;
+            return next;
+          });
+          setSelectedId(realConversationId);
+        }
+        sendMessage(realConversationId, text);
+        return;
+      }
       sendMessage(selected.id, text);
     },
-    [selected?.id, connectedChannels.length, sendMessage]
+    [
+      selected?.id,
+      selected?.contactPhone,
+      connectedChannels.length,
+      isSelectedDraft,
+      selectedDraftChannelId,
+      sendMessage
+    ]
   );
 
   const handleRefresh = useCallback(() => {
@@ -450,11 +550,16 @@ export const WaWebChatApp: React.FC<{
   );
 
   const selectedChipConnected = useMemo(() => {
-    if (!selected?.connectionId) return connectedChannels.length > 0;
-    return connectedChannels.some((c) => c.id === selected.connectionId);
-  }, [selected?.connectionId, connectedChannels]);
+    const cid = isSelectedDraft ? selectedDraftChannelId : selected?.connectionId;
+    if (!cid) return connectedChannels.length > 0;
+    return connectedChannels.some((c) => c.id === cid);
+  }, [isSelectedDraft, selectedDraftChannelId, selected?.connectionId, connectedChannels]);
 
   const pipelineAgg = useMemo(() => getConversationPipelineAgg(selected ?? undefined), [selected]);
+
+  const loadOlder = useCallback(() => {
+    if (selected?.id) void loadMoreHistory(selected.id);
+  }, [selected?.id, loadMoreHistory]);
 
   const handleSendMedia = useCallback(
     (file: File, caption?: string) => {
@@ -463,9 +568,40 @@ export const WaWebChatApp: React.FC<{
         toast.error('Nenhum chip WhatsApp conectado.');
         return;
       }
-      void sendChatFile(selected.id, file, caption);
+      let conversationId = selected.id;
+      if (isSelectedDraft) {
+        const digits = (selected.contactPhone || '').replace(/\D/g, '');
+        const chosenConnectionId = selectedDraftChannelId;
+        if (!chosenConnectionId) {
+          toast.error('Escolha um canal para enviar a primeira mensagem.');
+          return;
+        }
+        conversationId = `${chosenConnectionId}:${digits}@c.us`;
+        if (conversationId !== selected.id) {
+          setDraftConversations((prev) =>
+            prev.map((d) =>
+              d.id === selected.id ? { ...d, id: conversationId, connectionId: chosenConnectionId } : d
+            )
+          );
+          setDraftChannelById((prev) => {
+            const next = { ...prev };
+            delete next[selected.id];
+            next[conversationId] = chosenConnectionId;
+            return next;
+          });
+          setSelectedId(conversationId);
+        }
+      }
+      void sendChatFile(conversationId, file, caption);
     },
-    [selected?.id, connectedChannels.length, sendChatFile]
+    [
+      selected?.id,
+      selected?.contactPhone,
+      connectedChannels.length,
+      isSelectedDraft,
+      selectedDraftChannelId,
+      sendChatFile
+    ]
   );
 
   useEffect(() => {
@@ -478,7 +614,8 @@ export const WaWebChatApp: React.FC<{
     : '';
 
   return (
-    <div className="wa-chat-pro wa-pipeline-root flex min-h-0">
+    <div className="flex flex-1 min-h-0 flex-col">
+      <div className="wa-chat-pro wa-pipeline-root flex min-h-0 flex-1">
       <WaInbox
         conversations={filtered}
         allConversations={sortedConversations}
@@ -527,6 +664,11 @@ export const WaWebChatApp: React.FC<{
         sendingMedia={sendingMedia}
         onOpenContactInfo={selected ? () => setShowContactInfo(true) : undefined}
         hideOnMobile={!mobileShowThread}
+        onLoadMedia={handleLoadMedia}
+        isDraft={isSelectedDraft}
+        draftChannels={connections}
+        draftChannelId={selectedDraftChannelId}
+        onDraftChannelChange={handleDraftChannelChange}
       />
 
       {selected && (
@@ -550,6 +692,7 @@ export const WaWebChatApp: React.FC<{
           />
         </WaContactDrawer>
       )}
+      </div>
     </div>
   );
 };

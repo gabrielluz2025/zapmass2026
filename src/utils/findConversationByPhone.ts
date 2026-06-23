@@ -12,18 +12,33 @@ export function phonesMatchDigits(a: string, b: string): boolean {
   );
 }
 
+/** Todas as conversas com o mesmo telefone. */
+export function findConversationsForPhone(
+  conversations: Conversation[],
+  phoneDigits: string
+): Conversation[] {
+  const digits = (phoneDigits || '').replace(/\D/g, '');
+  if (!digits) return [];
+  return conversations
+    .filter((c) => phonesMatchDigits((c.contactPhone || '').replace(/\D/g, ''), digits))
+    .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
+}
+
 /** Conversa mais recente com o mesmo telefone (útil ao abrir chat a partir da agenda). */
 export function findBestConversationForPhone(
   conversations: Conversation[],
   phoneDigits: string
 ): Conversation | undefined {
-  const digits = (phoneDigits || '').replace(/\D/g, '');
-  if (!digits) return undefined;
-  const candidates = conversations.filter((c) =>
-    phonesMatchDigits((c.contactPhone || '').replace(/\D/g, ''), digits)
-  );
-  if (candidates.length === 0) return undefined;
-  return candidates.sort(
-    (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
-  )[0];
+  return findConversationsForPhone(conversations, phoneDigits)[0];
+}
+
+/** Conversa de um telefone em um canal específico. */
+export function findConversationForPhoneOnChannel(
+  conversations: Conversation[],
+  phoneDigits: string,
+  connectionId: string
+): Conversation | undefined {
+  const cid = (connectionId || '').trim();
+  if (!cid) return undefined;
+  return findConversationsForPhone(conversations, phoneDigits).find((c) => c.connectionId === cid);
 }

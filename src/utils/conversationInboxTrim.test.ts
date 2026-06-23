@@ -81,6 +81,40 @@ describe('mergeConversationsFromSocketUpdate (escopo conn_*)', () => {
     expect(out[0].messages).toHaveLength(1);
     expect(out[0].messages[0].text).toBe('antiga');
   });
+
+  it('preserva historico profundo apos sync enxuto do socket', () => {
+    const id = `${legacyChip}:5511999999999@s.whatsapp.net`;
+    const deepMsgs = Array.from({ length: 500 }, (_, i) => ({
+      id: `m${i}`,
+      text: `msg ${i}`,
+      timestamp: '10:00',
+      timestampMs: 1_700_000_000_000 + i,
+      sender: 'them' as const,
+      status: 'delivered' as const,
+      type: 'text' as const
+    }));
+    const prev: Conversation[] = [
+      {
+        ...conv(legacyChip, tenantUid),
+        id,
+        messages: deepMsgs,
+        lastMessage: 'msg 499',
+        lastMessageTimestamp: deepMsgs[deepMsgs.length - 1].timestampMs
+      }
+    ];
+    const incoming: Conversation[] = [
+      {
+        ...conv(legacyChip, tenantUid),
+        id,
+        messages: deepMsgs.slice(-25),
+        lastMessage: 'msg 499',
+        lastMessageTimestamp: deepMsgs[deepMsgs.length - 1].timestampMs
+      }
+    ];
+    const owns = (cid: string, ou?: string) => ownsConnectionForUid(tenantUid, cid, ou);
+    const out = mergeConversationsFromSocketUpdate(prev, incoming, owns);
+    expect(out[0].messages.length).toBe(500);
+  });
 });
 
 describe('mergeConversationDelta (bolha pending)', () => {

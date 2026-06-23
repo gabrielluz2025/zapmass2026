@@ -17,10 +17,16 @@ function newestActivityMs(conv: Conversation): number {
   return Math.max(conv.lastMessageTimestamp ?? 0, fromMsgN);
 }
 
-export function trimConversationMessagesTail(conv: Conversation, maxTail: number = SYNC_MSG_TAIL): Conversation {
+export function trimConversationMessagesTail(
+  conv: Conversation,
+  maxTail: number = SYNC_MSG_TAIL,
+  preserveMinCount?: number
+): Conversation {
   const msgs = Array.isArray(conv.messages) ? conv.messages : [];
-  if (msgs.length <= maxTail) return conv;
-  return { ...conv, messages: msgs.slice(-maxTail) };
+  const limit =
+    typeof preserveMinCount === 'number' && preserveMinCount > maxTail ? preserveMinCount : maxTail;
+  if (msgs.length <= limit) return conv;
+  return { ...conv, messages: msgs.slice(-limit) };
 }
 
 /** Remove ids duplicados (virtualizer quebra com key repetida). */
@@ -126,7 +132,11 @@ export function mergeConversationsFromSocketUpdate(
       const mergedMsgs = Array.from(byId.values()).sort(
         (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
       );
-      return trimConversationMessagesTail({ ...mergedMeta, messages: mergedMsgs }, maxTail);
+      return trimConversationMessagesTail(
+        { ...mergedMeta, messages: mergedMsgs },
+        maxTail,
+        prevMsgs.length
+      );
     })
     .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
   if (h === lastIncomingHash && lastResult && lastResult.length === out.length && prev === lastResult) {
@@ -203,7 +213,11 @@ function mergeOneConversation(
   const mergedMsgs = Array.from(byId.values()).sort(
     (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
   );
-  return trimConversationMessagesTail({ ...mergedMeta, messages: mergedMsgs }, maxTail);
+  return trimConversationMessagesTail(
+    { ...mergedMeta, messages: mergedMsgs },
+    maxTail,
+    prevMsgs.length
+  );
 }
 
 /** Atualização incremental (`conversation-delta`) — uma conversa por evento. */
