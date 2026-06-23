@@ -58,20 +58,18 @@ export const TerritoryMapChrome: React.FC<Props> = ({
   showMunicipioBorders = false,
   statsLine,
 }) => {
-  const vizModes = (
-    showMunicipioBorders
-      ? [
-          ['borders', 'Contornos'],
-          ['heat', 'Calor'],
-          ['bubbles', 'Bolhas'],
-          ['labels', 'Rótulos'],
-        ]
-      : [
-          ['heat', 'Calor'],
-          ['bubbles', 'Bolhas'],
-          ['labels', 'Rótulos'],
-        ]
-  ) as const;
+  const vizModes: Array<[NeighborhoodViz, string]> = showMunicipioBorders
+    ? [
+        ['borders', 'Contornos'],
+        ['heat', 'Calor'],
+        ['bubbles', 'Bolhas'],
+        ['labels', 'Rótulos'],
+      ]
+    : [
+        ['heat', 'Calor'],
+        ['bubbles', 'Bolhas'],
+        ['labels', 'Rótulos'],
+      ];
 
   return (
     <div className="zm-atlas-map-chrome">
@@ -106,7 +104,7 @@ export const TerritoryMapChrome: React.FC<Props> = ({
                 key={id}
                 type="button"
                 className={`zm-atlas-map-chrome__chip${neighborhoodViz === id ? ' zm-atlas-map-chrome__chip--on' : ''}`}
-                onClick={() => onNeighborhoodVizChange(id as NeighborhoodViz)}
+                onClick={() => onNeighborhoodVizChange(id)}
               >
                 {label}
               </button>
