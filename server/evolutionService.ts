@@ -85,6 +85,7 @@ import {
     onStepCompleted,
     updateContactStateOnFailure,
 } from './campaignMultiStepEngine.js';
+import { isCampaignFlowContinuation } from './campaignFlowContinuation.js';
 import { usePostgresCampaigns } from './campaignStore.js';
 import { countWaitingReplyForCampaign, getContactStateSummary } from './repositories/campaignContactStateRepository.js';
 
@@ -3664,7 +3665,12 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     const normalizedDest = normalizeOutboundNumber(item.to);
 
     // ── Limite de frequência: não reenviar para o mesmo contato em 24 h ───────
-    if (item.campaignId && !item.skipFrequencyCap && (await checkFrequencyCap(campaignState?.ownerUid, item.to))) {
+    if (
+        item.campaignId &&
+        !item.skipFrequencyCap &&
+        !isCampaignFlowContinuation(item) &&
+        (await checkFrequencyCap(campaignState?.ownerUid, item.to))
+    ) {
         log('info', `[freq-cap] Contato ${normalizedDest} já recebeu mensagem nas últimas 24 h — pulando`, {
             campaignId: item.campaignId, to: normalizedDest,
         });
@@ -3870,7 +3876,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         const { contactId, stepIndex } = item.multiStepContact;
         const stageConfigs = campaignStageConfigsById.get(item.campaignId);
         if (stageConfigs && stageConfigs.length > 0) {
-            void onStepCompleted({
+            await onStepCompleted({
                 campaignId: item.campaignId,
                 tenantId: campaignState?.ownerUid || item.ownerUid || '',
                 contactId,
