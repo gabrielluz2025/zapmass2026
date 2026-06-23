@@ -866,6 +866,25 @@ export const ContactsTab: React.FC = () => {
     contacts.length < contactsSavedTotal &&
     !contactsLoadingMore;
 
+  /** Contagem da base chegou mas nenhuma linha carregou — falha de rede/timeout. */
+  const contactsBootstrapStale = useMemo(
+    () =>
+      !contactsLoadingMore &&
+      !contactsSavedTotalLoading &&
+      contacts.length === 0 &&
+      (contactsSavedTotal ?? 0) > 0 &&
+      activeFilter === 'all' &&
+      !searchTerm.trim(),
+    [
+      contacts.length,
+      contactsSavedTotal,
+      contactsLoadingMore,
+      contactsSavedTotalLoading,
+      activeFilter,
+      searchTerm,
+    ]
+  );
+
   const shouldAutoLoadContacts =
     autoLoadActive &&
     currentView === 'contacts' &&
@@ -3806,6 +3825,30 @@ export const ContactsTab: React.FC = () => {
             />
           ) : (
           <>
+          {contactsBootstrapStale && (
+            <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/40">
+              <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-bold text-rose-900 dark:text-rose-100">
+                  Não foi possível carregar os contatos ({contactsSavedTotal?.toLocaleString('pt-BR')} na base)
+                </p>
+                <p className="text-[11px] text-rose-800/80 dark:text-rose-200/80 mt-0.5">
+                  A conexão com o servidor pode ter expirado. O sistema tentará de novo automaticamente — ou clique em Recarregar.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                loading={contactsLoadingMore}
+                onClick={() => void refreshContacts()}
+              >
+                Recarregar contatos
+              </Button>
+            </div>
+          )}
           {contactsSavedTotal != null &&
             contacts.length < contactsSavedTotal &&
             (contactsHasMore || contactsLoadingMore || contacts.length >= autoLoadBudget) && (
@@ -3919,13 +3962,17 @@ export const ContactsTab: React.FC = () => {
               onCopyPhone={handleCopyPhone}
               onAddToList={handleAddSingleToList}
               selectedContactId={selectedContact?.id || null}
-              loading={contacts.length === 0 && (contactsLoadingMore || contactsSavedTotalLoading)}
+              loading={contacts.length === 0 && (contactsLoadingMore || contactsSavedTotalLoading) && !contactsBootstrapStale}
               heightClass="h-[calc(100vh-320px)]"
               emptyHint={
-                searchTerm
+                contactsBootstrapStale
+                  ? 'Falha ao carregar a lista. Use «Recarregar contatos» acima ou aguarde a nova tentativa automática.'
+                  : searchTerm
                   ? <>Nenhum contato casa com "<b>{searchTerm}</b>".</>
                   : activeFilter === 'all'
-                    ? 'Sua base está vazia. Importe ou crie um contato.'
+                    ? contactsSavedTotal != null && contactsSavedTotal > 0
+                      ? 'Carregando contatos da base…'
+                      : 'Sua base está vazia. Importe ou crie um contato.'
                     : activeFilter === 'no_list'
                       ? 'Todos os contatos carregados já estão em alguma lista.'
                       : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'

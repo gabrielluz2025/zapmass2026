@@ -2,8 +2,12 @@ import type { Campaign } from '../types';
 import { apiUrl } from '../utils/apiBase';
 import { apiFetchJson } from '../utils/apiFetchAuth';
 
+const CAMPAIGNS_API_TIMEOUT_MS = 90_000;
+
 export async function fetchCampaigns(): Promise<Campaign[]> {
-  const j = await apiFetchJson<{ campaigns?: Campaign[] }>('/api/campaigns');
+  const j = await apiFetchJson<{ campaigns?: Campaign[] }>('/api/campaigns', {
+    timeoutMs: CAMPAIGNS_API_TIMEOUT_MS,
+  });
   return Array.isArray(j.campaigns) ? j.campaigns : [];
 }
 

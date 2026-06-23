@@ -252,10 +252,12 @@ function connectionListHasStaleConnecting(list: WhatsAppConnection[]): boolean {
   );
 }
 
-/** Páginas maiores = menos round-trips em bases 30k+ (API aceita até 10k). */
+/** Páginas menores na 1ª carga = resposta mais rápida em bases 40k+; burst seguinte usa 1000. */
 const CONTACTS_PAGE_SIZE = 1000;
+const CONTACTS_FIRST_PAGE_SIZE = 500;
 /** Quantas páginas buscar por burst antes de liberar a UI. */
 const CONTACTS_BURST_PAGES = 3;
+const CONTACTS_BOOTSTRAP_MAX_RETRIES = 6;
 
 /** Postgres retorna páginas ordenadas — anexar sem varrer ids duplicados (O(n) por página em bases 40k+). */
 function appendContactsPage(prev: Contact[], batch: Contact[]): Contact[] {
@@ -401,6 +403,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [contactsLoadingMore, setContactsLoadingMore] = useState(false);
   const [contactsSavedTotal, setContactsSavedTotal] = useState<number | null>(null);
   const [contactsSavedTotalLoading, setContactsSavedTotalLoading] = useState(false);
+  const contactsSavedTotalRef = useRef<number | null>(null);
+  const contactsBootstrapRetryRef = useRef(0);
+  const contactsBootstrapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contactsVpsOffsetRef = useRef(0);
   const loadAllContactsInFlightRef = useRef(false);
   const contactsLastCachedLenRef = useRef(0);
@@ -807,6 +812,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const uid = currentUidRef.current;
     if (!uid) {
       setContactsSavedTotal(null);
+      contactsSavedTotalRef.current = null;
       setContactsSavedTotalLoading(false);
       return;
     }
@@ -816,12 +822,33 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       const total = await fetchContactsCount();
       if (currentUidRef.current !== requestUid) return;
       setContactsSavedTotal(total);
+      contactsSavedTotalRef.current = total;
     } catch (err) {
       warnProd('[VPS] contagem contacts:', (err as Error)?.message || err);
-      if (currentUidRef.current === requestUid) setContactsSavedTotal(null);
+      if (currentUidRef.current === requestUid) {
+        setContactsSavedTotal(null);
+        contactsSavedTotalRef.current = null;
+      }
     } finally {
       if (currentUidRef.current === requestUid) setContactsSavedTotalLoading(false);
     }
+  }, []);
+
+  const scheduleContactsBootstrapRetry = useCallback((requestUid: string) => {
+    const saved = contactsSavedTotalRef.current ?? 0;
+    if (saved <= 0) return;
+    if (contactsBootstrapRetryRef.current >= CONTACTS_BOOTSTRAP_MAX_RETRIES) return;
+    if (contactsBootstrapRetryTimerRef.current) return;
+
+    const attempt = contactsBootstrapRetryRef.current;
+    const delayMs = Math.min(45_000, 2_500 * Math.pow(2, attempt));
+    contactsBootstrapRetryTimerRef.current = setTimeout(() => {
+      contactsBootstrapRetryTimerRef.current = null;
+      if (currentUidRef.current !== requestUid) return;
+      contactsBootstrapRetryRef.current = attempt + 1;
+      devLog('[contacts] retry bootstrap', { attempt: attempt + 1, delayMs, saved });
+      void reloadVpsContactsRef.current();
+    }, delayMs);
   }, []);
 
   const syncContactPage = async (
@@ -833,30 +860,42 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     loadAllContactsInFlightRef.current = true;
     if (opts.reset) {
       contactsVpsOffsetRef.current = 0;
+      contactsBootstrapRetryRef.current = 0;
+      if (contactsBootstrapRetryTimerRef.current) {
+        clearTimeout(contactsBootstrapRetryTimerRef.current);
+        contactsBootstrapRetryTimerRef.current = null;
+      }
       setContacts([]);
-      setContactsHasMore(false);
+      setContactsHasMore(true);
       void refreshContactsSavedTotalRef.current();
     }
     setContactsLoadingMore(true);
     try {
       let offset = opts.reset ? 0 : startOffset;
+      const burstLimit = opts.reset ? 1 : CONTACTS_BURST_PAGES;
 
-      for (let burst = 0; burst < CONTACTS_BURST_PAGES; burst++) {
+      for (let burst = 0; burst < burstLimit; burst++) {
+        const pageSize = offset === 0 && opts.reset ? CONTACTS_FIRST_PAGE_SIZE : CONTACTS_PAGE_SIZE;
         const { contacts: batch, hasMore: more, total } = await fetchContacts({
-          limit: CONTACTS_PAGE_SIZE,
+          limit: pageSize,
           offset,
           skipCount: true
         });
         if (currentUidRef.current !== requestUid) return;
         if (batch.length === 0) {
-          setContactsHasMore(false);
+          const expected = contactsSavedTotalRef.current ?? 0;
+          setContactsHasMore(expected > 0 && offset < expected);
           break;
         }
         offset += batch.length;
         contactsVpsOffsetRef.current = offset;
-        const morePages = more ?? batch.length >= CONTACTS_PAGE_SIZE;
+        const morePages = more ?? batch.length >= pageSize;
         setContactsHasMore(morePages);
-        if (total != null) setContactsSavedTotal(total);
+        if (total != null) {
+          setContactsSavedTotal(total);
+          contactsSavedTotalRef.current = total;
+        }
+        contactsBootstrapRetryRef.current = 0;
         if (opts.reset && offset === batch.length) {
           setContacts(batch);
         } else {
@@ -866,6 +905,11 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     } catch (err) {
       warnProd('[VPS] sync contacts:', (err as Error)?.message || err);
+      const expected = contactsSavedTotalRef.current ?? 0;
+      if (expected > 0) {
+        setContactsHasMore(true);
+        scheduleContactsBootstrapRetry(requestUid);
+      }
       toast.error(
         err instanceof Error ? err.message : 'Falha ao carregar contatos.',
         { id: 'contacts-sync-error', duration: 6000 }
@@ -909,6 +953,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           setContacts(cached.contacts);
           setContactsHasMore(cached.contactsHasMore);
           setContactsSavedTotal(cached.contactsSavedTotal);
+          contactsSavedTotalRef.current = cached.contactsSavedTotal;
           setCampaigns(healStuckRunningCampaignsList(cached.campaigns));
           setContactLists(cached.contactLists);
           devLog('[bootstrap] cache diário restaurado', {
@@ -956,6 +1001,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setCircuitBreakerOpenIds(new Set());
       setCampaignStatus({ isRunning: false, total: 0, processed: 0, success: 0, failed: 0 });
         setContactsSavedTotal(null);
+        contactsSavedTotalRef.current = null;
         campaignFirestoreHealRef.current.clear();
       conversationsSocketPendingRef.current = null;
     };
@@ -1059,7 +1105,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     const loadComplete = !contactsHasMore;
     const loadPaused = !contactsLoadingMore;
     const grewSinceLastCache = contacts.length - contactsLastCachedLenRef.current >= 2500;
-    if (loadComplete || (loadPaused && (grewSinceLastCache || contacts.length === 0))) {
+    const staleEmptyWithTotal =
+      contacts.length === 0 && (contactsSavedTotal ?? 0) > 0 && contactsHasMore;
+    if (
+      !staleEmptyWithTotal &&
+      (loadComplete || (loadPaused && (grewSinceLastCache || contacts.length === 0)))
+    ) {
       patch.contacts = contacts;
       contactsLastCachedLenRef.current = contacts.length;
     }
@@ -1075,7 +1126,52 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     workspaceLoading,
   ]);
 
-  useEffect(() => () => flushTenantDailyCacheWrite(), []);
+  useEffect(() => () => {
+    flushTenantDailyCacheWrite();
+    if (contactsBootstrapRetryTimerRef.current) {
+      clearTimeout(contactsBootstrapRetryTimerRef.current);
+      contactsBootstrapRetryTimerRef.current = null;
+    }
+  }, []);
+
+  /** Se a contagem veio mas a lista ficou vazia, tenta de novo (ex.: timeout de 30s em outro request). */
+  useEffect(() => {
+    const uid = currentUidRef.current;
+    if (!uid || workspaceLoading) return;
+    if (contactsLoadingMore || contactsSavedTotalLoading) return;
+    if (contacts.length > 0) return;
+    const saved = contactsSavedTotal ?? 0;
+    if (saved <= 0) return;
+    if (contactsBootstrapRetryRef.current >= CONTACTS_BOOTSTRAP_MAX_RETRIES) return;
+    if (contactsBootstrapRetryTimerRef.current) return;
+
+    const delayMs = 1_500;
+    contactsBootstrapRetryTimerRef.current = setTimeout(() => {
+      contactsBootstrapRetryTimerRef.current = null;
+      if (currentUidRef.current !== uid) return;
+      if (contacts.length > 0 || contactsLoadingMore) return;
+      contactsBootstrapRetryRef.current += 1;
+      devLog('[contacts] auto-retry após total sem linhas', {
+        attempt: contactsBootstrapRetryRef.current,
+        saved,
+      });
+      setContactsHasMore(true);
+      void reloadVpsContactsRef.current();
+    }, delayMs);
+
+    return () => {
+      if (contactsBootstrapRetryTimerRef.current) {
+        clearTimeout(contactsBootstrapRetryTimerRef.current);
+        contactsBootstrapRetryTimerRef.current = null;
+      }
+    };
+  }, [
+    contacts.length,
+    contactsSavedTotal,
+    contactsLoadingMore,
+    contactsSavedTotalLoading,
+    workspaceLoading,
+  ]);
 
   useEffect(() => {
     connectionsRef.current = connections;
