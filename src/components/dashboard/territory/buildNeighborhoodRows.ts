@@ -2,13 +2,9 @@ import type { Contact } from '../../../types';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
 import type { GeoCluster } from '../../../services/leadsGeoApi';
 import { parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
-import {
-  matchCityOfficialNeighborhood,
-  normNbKey,
-  officialSpreadCoord,
-  resolveContactNeighborhoodForCity,
-} from '../../../../shared/officialNeighborhoods';
-import { clusterMatchesFilterCity, dominantNeighborhoodTemp, matchesCity, matchesNeighborhood, matchesStateContact, normalizeKey, type NbTempStats } from './territoryMapUtils';
+import { normNbKey, officialSpreadCoord, resolveContactNeighborhoodForCity } from '../../../../shared/officialNeighborhoods';
+import { isCoordPlausibleForCity } from '../../../utils/contactGeoValidate';
+import { clusterMatchesFilterCity, clusterMatchesFilterState, dominantNeighborhoodTemp, matchesCity, matchesNeighborhood, matchesStateContact, normalizeKey, type NbTempStats } from './territoryMapUtils';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import type { NeighborhoodRow } from './types';
 
@@ -66,6 +62,10 @@ function statsFromContacts(
   return map;
 }
 
+function clusterNeighborhoodLabel(cluster: GeoCluster): string {
+  return (cluster.label.split('·')[0]?.trim() || cluster.neighborhood || cluster.label).trim();
+}
+
 function mergeClusterNeighborhoods(
   map: Map<string, NbTempStats>,
   clusters: GeoCluster[],
@@ -73,8 +73,10 @@ function mergeClusterNeighborhoods(
   stateCode: string,
   officialList: string[] | null
 ): void {
+  const cityFilter = stateCode ? `${cityName} · ${stateCode}` : cityName;
   for (const cl of clusters) {
-    const rawLabel = (cl.label.split('·')[0]?.trim() || cl.neighborhood || '').trim();
+    if (!clusterMatchesFilterCity(cl, cityFilter)) continue;
+    const rawLabel = clusterNeighborhoodLabel(cl);
     if (!rawLabel || rawLabel === '—') continue;
 
     let label = rawLabel;
@@ -99,12 +101,16 @@ function coordForNeighborhood(
   officialList: string[] | null
 ): { lat: number | null; lng: number | null } {
   const key = normNbKey(label);
+  const cityFilter = stateCode ? `${cityName} · ${stateCode}` : cityName;
   const cluster = clusters.find((c) => {
-    const cl = c.label.split('·')[0]?.trim() || c.label;
+    if (!clusterMatchesFilterCity(c, cityFilter)) return false;
+    const cl = clusterNeighborhoodLabel(c);
     return normNbKey(cl) === key || normalizeKey(cl) === normalizeKey(label);
   });
   if (cluster?.lat != null && cluster?.lng != null) {
-    return { lat: cluster.lat, lng: cluster.lng };
+    if (isCoordPlausibleForCity(cluster.lat, cluster.lng, cityName, stateCode, 55)) {
+      return { lat: cluster.lat, lng: cluster.lng };
+    }
   }
   if (officialList && officialList.length > 0) {
     const idx = officialList.findIndex((n) => normNbKey(n) === key);
@@ -216,7 +222,10 @@ export function filterClustersForScope(
     '';
   if (!uf) return clusters.filter((c) => c.lat != null && c.lng != null);
   return clusters.filter(
-    (c) => c.lat != null && c.lng != null && normalizeKey(c.state || '') === normalizeKey(uf)
+    (c) =>
+      c.lat != null &&
+      c.lng != null &&
+      clusterMatchesFilterState(c, uf)
   );
 }
 

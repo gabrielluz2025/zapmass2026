@@ -216,14 +216,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const clusters = useMemo(() => {
     if (!summary) return [];
-    return filterClustersForScope(
-      summary.clusters,
-      scope === 'state' ? regionSearchValue : city,
-      scope,
-      stateCode,
-      hasOfficialList
-    );
-  }, [summary, city, regionSearchValue, scope, stateCode, hasOfficialList]);
+    if (scope === 'state' && stateDrillCity) {
+      return filterClustersForScope(summary.clusters, stateDrillCity, 'city', stateCode, hasOfficialList);
+    }
+    if (scope === 'state') {
+      return filterClustersForScope(summary.clusters, regionSearchValue, 'state', stateCode, hasOfficialList);
+    }
+    return filterClustersForScope(summary.clusters, city, 'city', stateCode, hasOfficialList);
+  }, [summary, city, regionSearchValue, scope, stateCode, stateDrillCity, hasOfficialList]);
 
   const allRows = useMemo(() => {
     if (isStateCityList) {
