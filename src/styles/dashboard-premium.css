@@ -3274,6 +3274,192 @@
   color: #6d28d9;
 }
 
+/* Chrome profissional do mapa territorial */
+.zm-atlas__map-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.zm-atlas-map-chrome {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(30, 27, 75, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+}
+
+.zm-atlas-map-chrome__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.zm-atlas-map-chrome__row--primary {
+  justify-content: space-between;
+}
+
+.zm-atlas-map-chrome__row--meta {
+  justify-content: space-between;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.zm-atlas-map-chrome__modes {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.zm-atlas-map-chrome__mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.zm-atlas-map-chrome__mode:hover {
+  color: #e2e8f0;
+}
+
+.zm-atlas-map-chrome__mode--on {
+  background: rgba(124, 58, 237, 0.35);
+  color: #f8fafc;
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.35);
+}
+
+.zm-atlas-map-chrome__sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.zm-atlas-map-chrome__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.zm-atlas-map-chrome__chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.zm-atlas-map-chrome__chip--on {
+  background: rgba(124, 58, 237, 0.28);
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #f5f3ff;
+}
+
+.zm-atlas-map-chrome__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.zm-atlas-map-chrome__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.zm-atlas-map-chrome__icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.zm-atlas-map-chrome__tile {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.zm-atlas-map-chrome__stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.zm-atlas-map-chrome__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zm-atlas-map-chrome__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.zm-atlas-map-chrome__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.zm-atlas__map-sync-badge {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 /* Rio de temperatura */
 .zm-atlas-river__head {
   display: flex;
@@ -3713,10 +3899,10 @@
 }
 
 .zm-atlas__map-wrap--compact {
-  height: min(52vh, 460px);
-  min-height: 380px;
-  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.12);
-  border-color: #ddd6fe;
+  height: min(58vh, 520px);
+  min-height: 420px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .zm-atlas__map-badge {
@@ -4207,8 +4393,12 @@
   }
 
   .zm-atlas__map-wrap--compact {
-    height: min(45vh, 360px);
-    min-height: 300px;
+    height: min(48vh, 400px);
+    min-height: 320px;
+  }
+
+  .zm-atlas-map-chrome__legend {
+    display: none;
   }
 
   .zm-atlas-table--split {
