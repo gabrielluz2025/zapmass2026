@@ -3,6 +3,7 @@ import { Crown } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { ReconnectingBanner } from './ReconnectingBanner';
+import { ContactsGlobalPreloadBar } from './ContactsGlobalPreloadBar';
 import { SystemAnnouncementBanner } from './SystemAnnouncementBanner';
 import { useZapMassSocket } from '../../context/ZapMassContext';
 import { useSessionUsageHeartbeat } from '../../hooks/useSessionUsageHeartbeat';
@@ -102,6 +103,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           centerSlot={headerCenter}
           nearLatencySlot={headerUpgradeNearLatency}
         />
+        <ContactsGlobalPreloadBar />
         <ReconnectingBanner />
         <SystemAnnouncementBanner />
         {readOnly && readOnlyBanner && (

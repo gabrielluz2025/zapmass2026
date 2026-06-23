@@ -201,6 +201,15 @@ export type BackendLinkState = 'online' | 'reconnecting' | 'offline';
 /** Tempo sem socket antes de mostrar “Offline” na UI (quedas < isto ficam em “Reconectando”). */
 const BACKEND_OFFLINE_UI_GRACE_MS = 12_000;
 
+/** Progresso do carregamento global da base de contatos (todas as abas). */
+export type ContactsPreloadSnapshot = {
+  active: boolean;
+  loading: boolean;
+  percent: number;
+  loaded: number;
+  total: number;
+};
+
 /** Snapshot enxuto para shell (TopBar, Sidebar, banners): não herda atualizações de `conversations`. */
 export type ZapMassUiSnapshot = {
   isBackendConnected: boolean;
@@ -214,6 +223,7 @@ export type ZapMassUiSnapshot = {
     pendingAssignments: number;
     busRemote: boolean;
   } | null;
+  contactsPreload: ContactsPreloadSnapshot;
 };
 
 function sessionLiveStatsEqual(
@@ -409,6 +419,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const contactsVpsOffsetRef = useRef(0);
   const loadAllContactsInFlightRef = useRef(false);
   const contactsLastCachedLenRef = useRef(0);
+  const contactsPreloadStartedRef = useRef(false);
+  const contactsPreloadToastDoneRef = useRef(false);
+  const contactsPreloadToastAtRef = useRef(0);
+  const [contactsPageVisible, setContactsPageVisible] = useState(
+    () => typeof document === 'undefined' || !document.hidden
+  );
   const reloadVpsContactsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsContactListsRef = useRef<() => Promise<void>>(async () => {});
   const reloadVpsCampaignsRef = useRef<() => Promise<void>>(async () => {});
@@ -1069,6 +1085,68 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [loadAllContacts]);
 
   useEffect(() => {
+    const onVisibility = () => setContactsPageVisible(!document.hidden);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  /** Carrega toda a base em segundo plano — em qualquer aba, sem pausa artificial. */
+  useEffect(() => {
+    if (workspaceLoading || !currentUidRef.current) return;
+    if (!contactsHasMore || contactsLoadingMore || !contactsPageVisible) return;
+    const total = contactsSavedTotal ?? 0;
+    if (total > 0 && contacts.length >= total) return;
+
+    const delayMs =
+      total > 30_000 ? 400 : total > 20_000 ? 300 : total > 8000 ? 200 : 80;
+    const timer = window.setTimeout(() => {
+      void loadAllContacts();
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [
+    workspaceLoading,
+    contactsHasMore,
+    contactsLoadingMore,
+    contacts.length,
+    contactsSavedTotal,
+    contactsPageVisible,
+    loadAllContacts,
+  ]);
+
+  /** Toast de progresso e conclusão do carregamento global (uma vez por sessão de fetch). */
+  useEffect(() => {
+    const total = contactsSavedTotal;
+    if (total == null || total <= 0) return;
+
+    const loaded = contacts.length;
+    const stillLoading = contactsHasMore || contactsLoadingMore;
+    const complete = !stillLoading && loaded >= total;
+
+    if (stillLoading && loaded < total) {
+      contactsPreloadStartedRef.current = true;
+      const now = Date.now();
+      if (now - contactsPreloadToastAtRef.current > 2_500 || loaded < 600) {
+        contactsPreloadToastAtRef.current = now;
+        const pct = Math.min(99, Math.round((loaded / total) * 100));
+        toast.loading(
+          `Carregando base de contatos… ${loaded.toLocaleString('pt-BR')} / ${total.toLocaleString('pt-BR')} (${pct}%)`,
+          { id: 'contacts-global-preload', duration: Infinity }
+        );
+      }
+      return;
+    }
+
+    if (complete && contactsPreloadStartedRef.current && !contactsPreloadToastDoneRef.current) {
+      contactsPreloadToastDoneRef.current = true;
+      toast.dismiss('contacts-global-preload');
+      toast.success(
+        `Base de contatos carregada com sucesso — ${loaded.toLocaleString('pt-BR')} contatos prontos.`,
+        { id: 'contacts-global-preload-success', duration: 5500 }
+      );
+    }
+  }, [contacts.length, contactsSavedTotal, contactsHasMore, contactsLoadingMore]);
+
+  useEffect(() => {
     const u = sessionUser;
     if (!u?.uid || workspaceLoading) return;
     const dataUid = effectiveWorkspaceUid ?? u.uid;
@@ -1084,6 +1162,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setConversations([]);
       setContactsSavedTotal(null);
       campaignFirestoreHealRef.current.clear();
+      contactsPreloadStartedRef.current = false;
+      contactsPreloadToastDoneRef.current = false;
+      contactsPreloadToastAtRef.current = 0;
+      toast.dismiss('contacts-global-preload');
     }
     currentUidRef.current = dataUid;
   }, [effectiveWorkspaceUid, workspaceLoading, sessionUser?.uid]);
@@ -3782,14 +3864,31 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableStartAutoWarmup = useStableCallback(startAutoWarmup);
   const stableStopAutoWarmup = useStableCallback(stopAutoWarmup);
 
+  const contactsPreload = useMemo<ContactsPreloadSnapshot>(() => {
+    const total = contactsSavedTotal ?? 0;
+    const loaded = contacts.length;
+    const incomplete = total > 0 && loaded < total;
+    const active = incomplete && (contactsHasMore || contactsLoadingMore);
+    const percent =
+      total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : loaded > 0 ? 100 : 0;
+    return {
+      active,
+      loading: contactsLoadingMore,
+      percent,
+      loaded,
+      total: total > 0 ? total : loaded
+    };
+  }, [contacts.length, contactsSavedTotal, contactsHasMore, contactsLoadingMore]);
+
   const zapMassUiSnapshot = useMemo<ZapMassUiSnapshot>(
     () => ({
       isBackendConnected,
       backendLinkState,
       systemMetrics,
-      sessionLiveStats
+      sessionLiveStats,
+      contactsPreload
     }),
-    [isBackendConnected, backendLinkState, systemMetrics, sessionLiveStats]
+    [isBackendConnected, backendLinkState, systemMetrics, sessionLiveStats, contactsPreload]
   );
 
   const connectionsSlice = useMemo(() => {
@@ -3934,7 +4033,14 @@ export function useZapMassUiSnapshot(): ZapMassUiSnapshot {
     isBackendConnected: false,
     backendLinkState: 'offline',
     systemMetrics: INITIAL_SYS_METRICS,
-    sessionLiveStats: null
+    sessionLiveStats: null,
+    contactsPreload: {
+      active: false,
+      loading: false,
+      percent: 0,
+      loaded: 0,
+      total: 0
+    }
   };
 }
 
