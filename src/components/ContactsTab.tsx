@@ -48,7 +48,8 @@ import {
 } from '../utils/weddingAnniversary';
 import { storedDateToBrDisplay } from '../utils/brDateMask';
 import {
-  computeContactTemperatures,
+  buildPhoneMessageStatsIndex,
+  mapContactsToTempStats,
   CONTACT_TEMP_DEFAULT,
   CONTACT_TEMP_LABEL,
   type ContactTemperature,
@@ -1732,47 +1733,79 @@ export const ContactsTab: React.FC = () => {
   }, [contacts]);
 
   /**
-   * Temperatura por contato — cálculo pesado: roda após o 1º paint (idle) para não travar ao abrir a aba.
-   * Enquanto vazio, contagens quente/morno/frio e filtros por temp assumem “ainda não calculado” (sem tratar todos como “novo”).
+   * Temperatura por contato — índice de conversas (1×) + mapeamento incremental em lotes.
+   * Não espera hidratar os 42k: mostra contagens parciais enquanto a base carrega.
    */
+  const phoneMessageIndex = useMemo(
+    () => buildPhoneMessageStatsIndex(deferredConversations),
+    [deferredConversations]
+  );
+
   const [contactTemps, setContactTemps] = useState<Record<string, TempStats>>({});
   const [contactTempsReady, setContactTempsReady] = useState(false);
   const computeTempsGenRef = useRef(0);
+  const tempsProcessedCountRef = useRef(0);
+  const tempsIndexRef = useRef(phoneMessageIndex);
+  const contactTempsAccRef = useRef<Record<string, TempStats>>({});
 
   useEffect(() => {
-    if (contactsLoadingMore || contacts.length === 0 || isHydratingContacts) {
+    if (contacts.length === 0) {
+      tempsProcessedCountRef.current = 0;
+      contactTempsAccRef.current = {};
+      setContactTemps({});
       setContactTempsReady(false);
       return;
     }
 
-    setContactTempsReady(false);
-    const gen = ++computeTempsGenRef.current;
-    const c = contacts;
-    const conv = deferredConversations;
-
-    const run = () => {
-      if (gen !== computeTempsGenRef.current) return;
-      const next = computeContactTemperatures(c, conv);
-      if (gen !== computeTempsGenRef.current) return;
-      setContactTemps(next);
-      setContactTempsReady(true);
-    };
-
-    let idleId: ReturnType<typeof requestIdleCallback> | ReturnType<typeof setTimeout>;
-    if (typeof requestIdleCallback !== 'undefined') {
-      idleId = requestIdleCallback(run, { timeout: 2000 });
-    } else {
-      idleId = setTimeout(run, 0);
+    const indexChanged = tempsIndexRef.current !== phoneMessageIndex;
+    if (indexChanged) {
+      tempsIndexRef.current = phoneMessageIndex;
+      tempsProcessedCountRef.current = 0;
+      contactTempsAccRef.current = {};
+      setContactTemps({});
+      setContactTempsReady(false);
     }
 
-    return () => {
-      if (typeof cancelIdleCallback !== 'undefined' && typeof requestIdleCallback !== 'undefined') {
-        cancelIdleCallback(idleId as number);
+    const startFrom = tempsProcessedCountRef.current;
+    if (startFrom >= contacts.length) {
+      setContactTempsReady(true);
+      return;
+    }
+
+    const gen = ++computeTempsGenRef.current;
+    const c = contacts;
+    const index = phoneMessageIndex;
+    const CHUNK = c.length > 25_000 ? 4000 : c.length > 10_000 ? 3000 : 2000;
+    let cursor = startFrom;
+
+    const processChunk = () => {
+      if (gen !== computeTempsGenRef.current) return;
+      const end = Math.min(cursor + CHUNK, c.length);
+      const patch = mapContactsToTempStats(c, index, cursor, end);
+      const merged = { ...contactTempsAccRef.current, ...patch };
+      contactTempsAccRef.current = merged;
+      cursor = end;
+      const done = cursor >= c.length;
+      setContactTemps(merged);
+      if (Object.keys(merged).length > 0) setContactTempsReady(true);
+      if (done) {
+        tempsProcessedCountRef.current = c.length;
+      } else if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(processChunk);
       } else {
-        clearTimeout(idleId as ReturnType<typeof setTimeout>);
+        setTimeout(processChunk, 0);
       }
     };
-  }, [contacts, deferredConversations, contactsLoadingMore, isHydratingContacts]);
+
+    if (typeof requestIdleCallback !== 'undefined') {
+      const idleId = requestIdleCallback(processChunk, { timeout: 800 });
+      return () => {
+        cancelIdleCallback(idleId as number);
+      };
+    }
+    const t = setTimeout(processChunk, 0);
+    return () => clearTimeout(t);
+  }, [contacts, phoneMessageIndex]);
 
   // ============================================================
   //  SMART STATS — métricas acionáveis para aparecer no hero
