@@ -1246,11 +1246,17 @@ function buildStateLightCitySummary(
     filteredTotal++;
     if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
 
-    const { city: cityName } = resolveContactCityState(c);
+    const { city: cityName, state: resolvedState } = resolveContactCityState(c);
     const cityTrim = String(cityName || '').trim();
     if (!cityTrim || cityTrim === '—') continue;
 
-    const cityKey = `${cityTrim} · ${stateCode}`;
+    const resolvedUf = String(resolvedState || '')
+      .trim()
+      .toUpperCase()
+      .slice(0, 2);
+    if (resolvedUf !== stateCode) continue;
+
+    const cityKey = `${cityTrim} · ${resolvedUf}`;
     byCity[cityKey] = (byCity[cityKey] || 0) + 1;
 
     const mapKey = normKeyPart(cityKey);

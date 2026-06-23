@@ -1,12 +1,11 @@
 import type { Contact } from '../../../types';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
 import type { GeoCluster } from '../../../services/leadsGeoApi';
-import { parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
+import { parseGeoFilterCity, resolveContactCityState } from '../../../utils/contactAddressNormalize';
 import { approxCityCoord, isCoordPlausibleForCity } from '../../../utils/contactGeoValidate';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import {
   dominantNeighborhoodTemp,
-  matchesStateContact,
   normalizeKey,
   type NbTempStats,
 } from './territoryMapUtils';
@@ -16,9 +15,14 @@ function emptyStats(label: string): NbTempStats {
   return { label, hot: 0, warm: 0, cold: 0, new: 0, total: 0, clusterCount: 0 };
 }
 
-function cityLabelFromContact(c: Contact, stateCode: string): string {
-  const city = (c.city || '').trim();
-  const st = (c.state || stateCode || '').trim().toUpperCase().slice(0, 2);
+function cityLabelFromContact(c: Contact): string {
+  const resolved = resolveContactCityState({
+    city: c.city,
+    state: c.state,
+    phone: c.phone,
+  });
+  const city = resolved.city.trim();
+  const st = resolved.state.trim().toUpperCase().slice(0, 2);
   if (!city) return '';
   return st ? `${city} · ${st}` : city;
 }
@@ -80,8 +84,17 @@ export function buildCityRows(input: {
   const statsMap = new Map<string, NbTempStats>();
 
   for (const c of input.contacts) {
-    if (!matchesStateContact(c, uf)) continue;
-    const label = cityLabelFromContact(c, uf);
+    const resolved = resolveContactCityState({
+      city: c.city,
+      state: c.state,
+      phone: c.phone,
+    });
+    const contactUf =
+      resolveBrazilStateCode(resolved.state) ||
+      resolved.state.trim().toUpperCase().slice(0, 2);
+    if (contactUf !== uf) continue;
+
+    const label = cityLabelFromContact(c);
     if (!label) continue;
     const key = cityKey(label);
     const slot = statsMap.get(key) || emptyStats(label);

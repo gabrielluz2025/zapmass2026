@@ -1,7 +1,7 @@
 import type { GeoCluster } from '../../../services/leadsGeoApi';
 import type { Contact } from '../../../types';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
-import { citiesMatch, normPlaceKey, parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
+import { citiesMatch, normPlaceKey, parseGeoFilterCity, resolveContactCityState } from '../../../utils/contactAddressNormalize';
 import { isCoordPlausibleForState } from '../../../utils/contactGeoValidate';
 import { phoneDigitsToUf } from '../../../utils/brazilPhoneGeo';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
@@ -32,15 +32,22 @@ export function matchesCity(contactCity: string, filterCity: string, contactStat
   return citiesMatch(contactCity, filterCity, contactState);
 }
 
-/** Contato pertence à UF (campo state ou DDD do telefone). */
+/** Contato pertence à UF — prioriza cidade/UF resolvida (IBGE/nome) sobre DDD isolado. */
 export function matchesStateContact(contact: Contact, stateCode: string): boolean {
-  const uf = String(stateCode || '').trim().toUpperCase().slice(0, 2);
+  const uf =
+    resolveBrazilStateCode(stateCode) || String(stateCode || '').trim().toUpperCase().slice(0, 2);
   if (!uf) return true;
-  const st = String(contact.state || '').trim().toUpperCase().slice(0, 2);
-  if (st && st === uf) return true;
+
+  const resolved = resolveContactCityState({
+    city: contact.city,
+    state: contact.state,
+    phone: contact.phone,
+  });
+  const effective = (resolved.state || '').trim().toUpperCase().slice(0, 2);
+  if (effective) return effective === uf;
+
   const fromPhone = phoneDigitsToUf(contact.phone || '');
-  if (fromPhone === uf) return true;
-  return false;
+  return fromPhone === uf;
 }
 
 export function contactStateCode(contact: Contact): string {
