@@ -23,22 +23,51 @@ export const WIZARD_CAMPAIGN_VARS_FICHA: string[] = [
   '{anos_casamento}'
 ];
 
-/** Pré-visualização local no assistente (contato fictício + relógio de Brasília agora para data/hora/saudação). */
-export function applyCampaignMessagePreviewVars(text: string): string {
+/** Pré-visualização local no assistente (contato fictício ou amostra do público). */
+export type CampaignPreviewSample = {
+  nome?: string;
+  nome_completo?: string;
+  telefone?: string;
+  email?: string;
+  cidade?: string;
+  igreja?: string;
+  cargo?: string;
+  profissao?: string;
+  aniversario?: string;
+  conjuge?: string;
+  data_bodas?: string;
+  anos_casamento?: string;
+};
+
+export function applyCampaignMessagePreviewVars(text: string, sample?: CampaignPreviewSample): string {
   const { data, horario, hora, saudacao } = campaignClockVars();
+  const s = {
+    nome_completo: sample?.nome_completo ?? 'Maria Silva Santos',
+    nome: sample?.nome ?? 'Maria',
+    telefone: sample?.telefone ?? '(11) 98888-7777',
+    email: sample?.email ?? 'maria.exemplo@email.com',
+    cidade: sample?.cidade ?? 'Sao Paulo',
+    igreja: sample?.igreja ?? 'Igreja Exemplo',
+    cargo: sample?.cargo ?? 'Lider de Celula',
+    profissao: sample?.profissao ?? 'Engenheira',
+    aniversario: sample?.aniversario ?? '15/03/1990',
+    conjuge: sample?.conjuge ?? 'Joao Silva',
+    data_bodas: sample?.data_bodas ?? '12/06/2018',
+    anos_casamento: sample?.anos_casamento ?? '8',
+  };
   const withVars = text
-    .replace(/\{nome_completo\}/g, 'Maria Silva Santos')
-    .replace(/\{nome\}/g, 'Maria')
-    .replace(/\{telefone\}/g, '(11) 98888-7777')
-    .replace(/\{email\}/g, 'maria.exemplo@email.com')
-    .replace(/\{cidade\}/g, 'Sao Paulo')
-    .replace(/\{igreja\}/g, 'Igreja Exemplo')
-    .replace(/\{cargo\}/g, 'Lider de Celula')
-    .replace(/\{profissao\}/g, 'Engenheira')
-    .replace(/\{aniversario\}/g, '15/03/1990')
-    .replace(/\{conjuge\}/g, 'Joao Silva')
-    .replace(/\{data_bodas\}/g, '12/06/2018')
-    .replace(/\{anos_casamento\}/g, '8')
+    .replace(/\{nome_completo\}/g, s.nome_completo)
+    .replace(/\{nome\}/g, s.nome)
+    .replace(/\{telefone\}/g, s.telefone)
+    .replace(/\{email\}/g, s.email)
+    .replace(/\{cidade\}/g, s.cidade)
+    .replace(/\{igreja\}/g, s.igreja)
+    .replace(/\{cargo\}/g, s.cargo)
+    .replace(/\{profissao\}/g, s.profissao)
+    .replace(/\{aniversario\}/g, s.aniversario)
+    .replace(/\{conjuge\}/g, s.conjuge)
+    .replace(/\{data_bodas\}/g, s.data_bodas)
+    .replace(/\{anos_casamento\}/g, s.anos_casamento)
     .replace(/\{data\}/g, data)
     .replace(/\{horario\}/g, horario)
     .replace(/\{saudacao\}/g, saudacao)

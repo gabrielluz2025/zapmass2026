@@ -59,7 +59,7 @@ import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowMod
 import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
 import { CampaignSequentialEditor } from './CampaignSequentialEditor';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
-import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
+import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea, type CampaignPreviewSample } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
   explainWhatsAppMediaFallback,
@@ -945,6 +945,42 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       : filteredNumbers;
   const connectedIds = getConnectedSelectedIds();
 
+  const previewSample = useMemo((): CampaignPreviewSample => {
+    const pick = (c: Contact) => {
+      const wedding = (c.religiousMemberProfile?.weddingDate || '').trim();
+      const conjuge = (c.religiousMemberProfile?.spouseName || '').trim();
+      const mdWed = parseWeddingDayMonth(wedding);
+      const anosCasamento =
+        mdWed?.fullYear != null ? yearsCelebratingAtNextAnniversary(mdWed) : null;
+      const nv = campaignRecipientNameVars(c.name || '');
+      return {
+        nome: nv.nome,
+        nome_completo: nv.nome_completo,
+        telefone: c.phone || '',
+        email: c.email || '',
+        cidade: c.city || '',
+        igreja: c.church || '',
+        cargo: c.role || '',
+        profissao: c.profession || '',
+        aniversario: c.birthday || '',
+        conjuge,
+        data_bodas: wedding,
+        anos_casamento: anosCasamento != null ? String(anosCasamento) : '',
+      };
+    };
+    if (sendMode === 'list' && selectedListContactsForSend[0]) return pick(selectedListContactsForSend[0]);
+    if (sendMode === 'filter' && filteredContacts[0]) return pick(filteredContacts[0]);
+    return {};
+  }, [sendMode, selectedListContactsForSend, filteredContacts]);
+
+  const previewDisplayName = previewSample.nome || 'Maria';
+  const messageStepHint =
+    campaignFlowMode === 'single'
+      ? 'Escreva o texto que cada contato receberá no WhatsApp — use modelos ou variáveis como {nome}.'
+      : campaignFlowMode === 'sequential'
+      ? 'Monte as etapas da sequência. Elas saem em fila, sem precisar de resposta.'
+      : 'Configure a mensagem de abertura e o que acontece quando o contato responder.';
+
   const canGoFromAudience =
     sendMode === 'list'
       ? selectedListNumbers.length > 0
@@ -1357,7 +1393,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   };
 
   const stagePreviewBodies = messageStages
-    .map((s) => applyCampaignMessagePreviewVars(s.body))
+    .map((s) => applyCampaignMessagePreviewVars(s.body, previewSample))
     .filter((b) => b.trim().length > 0);
 
   const estimateMinutes =
@@ -1950,9 +1986,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 </div>
                 <div>
                   <h3 className="ui-title text-[15px] mb-0.5">Qual a mensagem?</h3>
-                  <p className="ui-subtitle text-[12px]">
-                    Mensagem de abertura, regra de resposta e próxima mensagem automática. Use saudações e variáveis.
-                  </p>
+                  <p className="ui-subtitle text-[12px]">{messageStepHint}</p>
                 </div>
               </div>
 
@@ -1963,6 +1997,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
+                <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+                  Só para você organizar — seus contatos não veem este nome.
+                </p>
               </div>
 
               <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
@@ -2031,6 +2068,18 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 />
               )}
 
+              {/* Prévia no celular (telas menores) */}
+              <div className="cw-preview-mobile">
+                <WizardLivePreview
+                    displayName={previewDisplayName}
+                    bodies={stagePreviewBodies}
+                    numbersCount={numbers.length}
+                    chipsCount={connectedIds.length}
+                    delaySeconds={delaySeconds}
+                    estimateLabel={estimateLabel}
+                  />
+              </div>
+
               <div className="cw-msg-footer">
                 <Button
                   type="button"
@@ -2062,6 +2111,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   Salvar como modelo
                 </Button>
 
+                {activeMessageBody.trim() ? (
                 <div className="cw-risk-panel" data-level={messageRisk.level}>
                   <div className="flex items-center gap-2 flex-wrap mb-1.5">
                     <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -2093,6 +2143,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     </p>
                   )}
                 </div>
+              ) : (
+                <div className="cw-risk-tip flex items-start gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                  <span>
+                    Dica: mensagens curtas e personalizadas com <code className="font-mono text-[10px]">{'{nome}'}</code>{' '}
+                    costumam ter melhor resposta. A prévia mostra como o contato vai ver.
+                  </span>
+                </div>
+              )}
               </div>
             </Card>
           )}
@@ -2842,101 +2901,123 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
         {/* ── Painel de prévia ao vivo ── */}
         <div className="hidden lg:block">
-          <div className="sticky top-4 space-y-3">
-            {/* Header do painel */}
-            <div
-              className="rounded-xl px-4 py-3 flex items-center gap-2"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div
-                className="w-2 h-2 rounded-full animate-pulse"
-                style={{ background: '#10b981', boxShadow: '0 0 6px #10b981' }}
-              />
-              <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>
-                Prévia ao vivo
+          <div className="sticky top-4">
+            <WizardLivePreview
+              displayName={previewDisplayName}
+              bodies={stagePreviewBodies}
+              numbersCount={numbers.length}
+              chipsCount={connectedIds.length}
+              delaySeconds={delaySeconds}
+              estimateLabel={estimateLabel}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const WizardLivePreview: React.FC<{
+  displayName: string;
+  bodies: string[];
+  numbersCount: number;
+  chipsCount: number;
+  delaySeconds: number;
+  estimateLabel: string;
+}> = ({ displayName, bodies, numbersCount, chipsCount, delaySeconds, estimateLabel }) => {
+  const initial = (displayName || 'C').charAt(0).toUpperCase();
+  return (
+    <div className="space-y-3">
+      <div
+        className="rounded-xl px-4 py-3 flex items-center gap-2"
+        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+      >
+        <div
+          className="w-2 h-2 rounded-full animate-pulse"
+          style={{ background: '#10b981', boxShadow: '0 0 6px #10b981' }}
+        />
+        <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>
+          Prévia ao vivo
+        </p>
+      </div>
+
+      <div className="rounded-2xl overflow-hidden" style={{ background: '#0b141a', border: '1px solid rgba(255,255,255,0.06)' }}>
+        <div
+          className="px-4 py-3 flex items-center gap-3"
+          style={{ background: '#1a2228', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
+          >
+            {initial}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[12px] font-semibold truncate" style={{ color: '#e9edef' }}>
+              {displayName}
+            </p>
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#10b981' }} />
+              <p className="text-[10px]" style={{ color: '#8696a0' }}>
+                como seu contato verá
               </p>
-            </div>
-
-            {/* Simulador WhatsApp */}
-            <div className="rounded-2xl overflow-hidden" style={{ background: '#0b141a', border: '1px solid rgba(255,255,255,0.06)' }}>
-              {/* Header contato */}
-              <div
-                className="px-4 py-3 flex items-center gap-3"
-                style={{ background: '#1a2228', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-              >
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-                  style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
-                >
-                  Z
-                </div>
-                <div>
-                  <p className="text-[12px] font-semibold" style={{ color: '#e9edef' }}>Contato</p>
-                  <div className="flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#10b981' }} />
-                    <p className="text-[10px]" style={{ color: '#8696a0' }}>prévia</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mensagens */}
-              <div className="p-4 min-h-[180px] flex flex-col justify-end gap-2.5">
-                {stagePreviewBodies.length > 0 ? (
-                  stagePreviewBodies.map((body, idx) => (
-                    <div key={`pv-${idx}`} className="self-end max-w-[92%]">
-                      <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
-                        Etapa {idx + 1}
-                      </p>
-                      <div
-                        className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
-                        style={{
-                          background: 'linear-gradient(135deg,#005c4b,#006b58)',
-                          color: '#e9edef',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-                        }}
-                      >
-                        {body}
-                      </div>
-                      <div className="flex items-center justify-end gap-1 mt-1">
-                        <span className="text-[9px]" style={{ color: '#8696a0' }}>
-                          {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                        <span className="text-[10px]" style={{ color: '#53bdeb' }}>✓✓</span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-8 gap-2 opacity-50">
-                    <Smartphone className="w-8 h-8" style={{ color: '#667781' }} />
-                    <p className="text-center text-[11px]" style={{ color: '#667781' }}>
-                      As mensagens aparecem aqui
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Resumo de configuração */}
-            <div
-              className="rounded-xl p-4 space-y-2.5"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <p className="text-[10.5px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
-                Resumo
-              </p>
-              <SummaryRow label="Números" value={numbers.length.toLocaleString()} accent="var(--text-1)" />
-              <SummaryRow
-                label="Chips"
-                value={String(connectedIds.length)}
-                accent={connectedIds.length > 0 ? 'var(--brand-600)' : 'var(--text-3)'}
-              />
-              <SummaryRow label="Delay" value={`${delaySeconds}s`} accent="#f59e0b" />
-              {numbers.length > 0 && (
-                <SummaryRow label="Estimativa" value={estimateLabel} accent="#3b82f6" />
-              )}
             </div>
           </div>
         </div>
+
+        <div className="p-4 min-h-[180px] flex flex-col justify-end gap-2.5">
+          {bodies.length > 0 ? (
+            bodies.map((body, idx) => (
+              <div key={`pv-${idx}`} className="self-end max-w-[92%]">
+                {bodies.length > 1 && (
+                  <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
+                    Etapa {idx + 1}
+                  </p>
+                )}
+                <div
+                  className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
+                  style={{
+                    background: 'linear-gradient(135deg,#005c4b,#006b58)',
+                    color: '#e9edef',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                  }}
+                >
+                  {body}
+                </div>
+                <div className="flex items-center justify-end gap-1 mt-1">
+                  <span className="text-[9px]" style={{ color: '#8696a0' }}>
+                    {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <span className="text-[10px]" style={{ color: '#53bdeb' }}>✓✓</span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 gap-2 opacity-50">
+              <Smartphone className="w-8 h-8" style={{ color: '#667781' }} />
+              <p className="text-center text-[11px] px-4" style={{ color: '#667781' }}>
+                Digite a mensagem — a prévia aparece aqui em tempo real
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div
+        className="rounded-xl p-4 space-y-2.5"
+        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+      >
+        <p className="text-[10.5px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
+          Resumo
+        </p>
+        <SummaryRow label="Contatos" value={numbersCount.toLocaleString('pt-BR')} accent="var(--text-1)" />
+        <SummaryRow
+          label="Chips"
+          value={String(chipsCount)}
+          accent={chipsCount > 0 ? 'var(--brand-600)' : 'var(--text-3)'}
+        />
+        <SummaryRow label="Intervalo" value={`${delaySeconds}s`} accent="#f59e0b" />
+        {numbersCount > 0 && <SummaryRow label="Estimativa" value={estimateLabel} accent="#3b82f6" />}
       </div>
     </div>
   );
