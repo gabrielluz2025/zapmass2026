@@ -182,7 +182,7 @@ function personTooltip(pin: MapContactPin, groupSize: number): string {
 
 /** Modo bairro — pin por contato (ponta no lat/lng) + hub quando vários no mesmo endereço. */
 export function paintContactPins(
-  map: L.Map,
+  target: L.Map | L.LayerGroup,
   pins: MapContactPin[],
   selectedId: string | null,
   onSelect: (pin: MapContactPin) => void
@@ -195,7 +195,7 @@ export function paintContactPins(
     if (pin.groupSize > 1 && !hubsDone.has(pin.groupId)) {
       hubsDone.add(pin.groupId);
       const dot = precisionDot(pin.lat, pin.lng);
-      dot.addTo(map);
+      dot.addTo(target);
       layers.push(dot);
 
       const hub = L.marker([pin.lat, pin.lng], {
@@ -203,7 +203,7 @@ export function paintContactPins(
         zIndexOffset: 100,
       });
       bindGroupPopup(hub, pin.groupPins, onSelect);
-      hub.addTo(map);
+      hub.addTo(target);
       layers.push(hub);
     }
 
@@ -225,7 +225,7 @@ export function paintContactPins(
     });
 
     marker.on('click', () => onSelect(pin));
-    marker.addTo(map);
+    marker.addTo(target);
     layers.push(marker);
   }
 
@@ -281,7 +281,7 @@ export function paintNeighborhoodOverviewPins(
     });
 
     marker.on('click', () => onSelect(row));
-    marker.addTo(map);
+    marker.addTo(target);
     layers.push(marker);
   }
 

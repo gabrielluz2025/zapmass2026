@@ -29,12 +29,16 @@ import { TerritoryCitySearch } from './territory/TerritoryCitySearch';
 import { TerritoryTempRiver } from './territory/TerritoryTempRiver';
 import { TerritoryRankingTable } from './territory/TerritoryRankingTable';
 import { TerritoryContactCard } from './territory/TerritoryContactCard';
+import { TerritoryMapChrome } from './territory/TerritoryMapChrome';
 import {
   BLUMENAU_CENTER,
   BLUMENAU_ZOOM,
+  MAP_TILE_DARK,
   MAP_TILE_LIGHT,
+  MAP_TILE_POSITRON,
   MAP_TILE_VOYAGER,
   TEMP_ORDER,
+  type TerritoryViewMode,
 } from './territory/territoryConstants';
 import {
   buildNeighborhoodRows,
@@ -49,14 +53,19 @@ import {
   buildContactPinsForNeighborhood,
   buildContactPinsForScope,
   capMapContactPins,
-  MAP_CONTACT_PIN_CAP,
 } from './territory/buildContactPins';
 import {
   flyToContactPins,
   flyToNeighborhoodRows,
-  paintContactPins,
-  paintNeighborhoodOverviewPins,
 } from './territory/territoryMapLayers';
+import {
+  paintContactPins,
+  paintContactsHeat,
+  paintNeighborhoodLayer,
+  type ContactViz,
+  type MapTileId,
+  type NeighborhoodViz,
+} from './territory/territoryMapPro';
 import type { MapContactPin, NeighborhoodContactRow, NeighborhoodRow, RegionScope, TempFilter } from './territory/types';
 
 type MapViewMode = 'neighborhoods' | 'contacts';
@@ -90,6 +99,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const dataLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const layersRef = useRef<L.Layer[]>([]);
   const lastViewportKeyRef = useRef('');
   const lastGeoErrorToastRef = useRef(0);
@@ -108,6 +119,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [cityOfficialList, setCityOfficialList] = useState<string[] | null>(null);
   const [stateRegionLabel, setStateRegionLabel] = useState<string | null>(null);
   const [mapViewMode, setMapViewMode] = useState<MapViewMode>('neighborhoods');
+  const [neighborhoodViz, setNeighborhoodViz] = useState<NeighborhoodViz>('heat');
+  const [contactViz, setContactViz] = useState<ContactViz>('heat');
+  const [territoryViewMode, setTerritoryViewMode] = useState<TerritoryViewMode>('temperature');
+  const [mapTile, setMapTile] = useState<MapTileId>('dark');
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
@@ -371,9 +386,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   );
 
   const clearDataLayers = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    for (const layer of layersRef.current) map.removeLayer(layer);
+    dataLayerGroupRef.current?.clearLayers();
     layersRef.current = [];
   }, []);
 
@@ -412,11 +425,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
   };
 
-  const handleSelectRow = (row: NeighborhoodRow | null) => {
+  const handleSelectRow = useCallback((row: NeighborhoodRow | null) => {
     setSelectedRow(row);
     setSelectedContactId(null);
     lastViewportKeyRef.current = '';
-  };
+  }, []);
 
   const handleSelectContact = useCallback((contactId: string) => {
     setSelectedContactId(contactId);
@@ -434,17 +447,39 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       zoom: BLUMENAU_ZOOM,
       zoomControl: true,
     });
-    L.tileLayer(compact ? MAP_TILE_LIGHT : MAP_TILE_VOYAGER, {
-      attribution: compact ? '© OSM' : '© OSM © CARTO',
-      subdomains: 'abcd',
-      maxZoom: 20,
-    }).addTo(map);
+    dataLayerGroupRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     return () => {
       map.remove();
       mapRef.current = null;
+      dataLayerGroupRef.current = null;
+      tileLayerRef.current = null;
     };
-  }, [compact, mapActive]);
+  }, [mapActive]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapActive) return;
+
+    const tileUrls: Record<MapTileId, string> = {
+      voyager: MAP_TILE_VOYAGER,
+      light: compact ? MAP_TILE_LIGHT : MAP_TILE_POSITRON,
+      dark: MAP_TILE_DARK,
+    };
+    const url = compact ? MAP_TILE_LIGHT : tileUrls[mapTile];
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+
+    const tile = L.tileLayer(url, {
+      attribution: compact ? '© OSM' : '© OSM © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 20,
+    });
+    tile.addTo(map);
+    tileLayerRef.current = tile;
+  }, [compact, mapActive, mapTile]);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
@@ -547,15 +582,18 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const paintMap = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    const target = dataLayerGroupRef.current;
+    if (!map || !target) return;
     clearDataLayers();
+
+    const onSelectPin = (pin: MapContactPin) => {
+      setSelectedContactId(pin.id);
+      map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
+    };
 
     if (selectedRow) {
       if (contactPins.length > 0) {
-        layersRef.current = paintContactPins(map, contactPins, selectedContactId, (pin) => {
-          setSelectedContactId(pin.id);
-          map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
-        });
+        layersRef.current = paintContactPins(target, contactPins, selectedContactId, onSelectPin);
 
         const vpKey = `nb|${selectedRow.key}|${contactPins.length}|${selectedContactId}`;
         if (vpKey !== lastViewportKeyRef.current) {
@@ -581,15 +619,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       })
       .filter(Boolean) as NeighborhoodRow[];
 
-    const showContactPins = mapViewMode === 'contacts' && allScopePins.length > 0;
+    if (mapViewMode === 'contacts' && allScopePins.length > 0) {
+      if (contactViz === 'heat') {
+        layersRef.current = paintContactsHeat(target, allScopePins);
+      } else {
+        layersRef.current = paintContactPins(target, allScopePins, selectedContactId, onSelectPin);
+      }
 
-    if (showContactPins) {
-      layersRef.current = paintContactPins(map, allScopePins, selectedContactId, (pin) => {
-        setSelectedContactId(pin.id);
-        map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
-      });
-
-      const vpKey = `all|${city}|${scope}|${tempFilter}|${mapViewMode}|${allScopePins.length}|${selectedContactId}`;
+      const vpKey = `all|${city}|${scope}|${tempFilter}|${mapViewMode}|${contactViz}|${allScopePins.length}|${selectedContactId}`;
       if (vpKey !== lastViewportKeyRef.current) {
         lastViewportKeyRef.current = vpKey;
         flyToContactPins(map, allScopePins);
@@ -598,14 +635,16 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
 
     const rowsWithLeads = normalized.filter((r) => r.count > 0);
-    layersRef.current = paintNeighborhoodOverviewPins(
-      map,
+    layersRef.current = paintNeighborhoodLayer(
+      target,
+      neighborhoodViz,
       rowsWithLeads,
       null,
-      (row) => handleSelectRow(row)
+      territoryViewMode,
+      handleSelectRow
     );
 
-    const vpKey = `nbpins|${city}|${scope}|${tempFilter}|${mapViewMode}|${rowsWithLeads.length}`;
+    const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${neighborhoodViz}|${territoryViewMode}|${rowsWithLeads.length}`;
     if (vpKey !== lastViewportKeyRef.current) {
       lastViewportKeyRef.current = vpKey;
       if (rowsWithLeads.length > 0) {
@@ -631,7 +670,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     blumenauFocus,
     showAllNeighborhoods,
     mapViewMode,
+    neighborhoodViz,
+    contactViz,
+    territoryViewMode,
     clearDataLayers,
+    handleSelectRow,
   ]);
 
   useEffect(() => {
@@ -687,6 +730,89 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     },
     [buildAtlasLaunch, onNavigate]
   );
+
+  const fitMapToContent = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    lastViewportKeyRef.current = '';
+    if (selectedRow && contactPins.length > 0) {
+      flyToContactPins(map, contactPins);
+      return;
+    }
+    if (mapViewMode === 'contacts' && allScopePins.length > 0) {
+      flyToContactPins(map, allScopePins);
+      return;
+    }
+    const rows = visibleRows.filter((r) => r.lat != null && r.lng != null && r.count > 0);
+    if (rows.length > 0) {
+      flyToNeighborhoodRows(map, rows);
+    } else if (summary?.mapViewport) {
+      map.setView([summary.mapViewport.lat, summary.mapViewport.lng], summary.mapViewport.zoom, {
+        animate: true,
+      });
+    } else if (blumenauFocus) {
+      map.setView(BLUMENAU_CENTER, BLUMENAU_ZOOM, { animate: true });
+    }
+  }, [
+    selectedRow,
+    contactPins,
+    allScopePins,
+    mapViewMode,
+    visibleRows,
+    summary,
+    blumenauFocus,
+  ]);
+
+  const recenterMap = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    lastViewportKeyRef.current = '';
+    if (summary?.mapViewport) {
+      map.flyTo([summary.mapViewport.lat, summary.mapViewport.lng], summary.mapViewport.zoom, {
+        duration: 0.45,
+      });
+    } else if (blumenauFocus) {
+      map.flyTo(BLUMENAU_CENTER, BLUMENAU_ZOOM, { duration: 0.45 });
+    } else {
+      fitMapToContent();
+    }
+  }, [summary, blumenauFocus, fitMapToContent]);
+
+  const mapStatsLine = useMemo(() => {
+    if (selectedRow) {
+      return `${selectedRow.label} · ${contactPins.length.toLocaleString('pt-BR')} no mapa${
+        unmappedCount > 0 ? ` · ${unmappedCount} sem coordenada` : ''
+      }`;
+    }
+    if (mapViewMode === 'contacts') {
+      if (allScopePins.length === 0) {
+        return 'Sem coordenadas — use Geocodificar ou volte para Bairros';
+      }
+      const mode = contactViz === 'heat' ? 'mapa de densidade' : 'pins individuais';
+      return `${allScopePins.length.toLocaleString('pt-BR')} contatos · ${mode}${
+        allScopePinsCapped
+          ? ` · amostra de ${allScopePinsTotal.toLocaleString('pt-BR')}`
+          : ''
+      }`;
+    }
+    const vizLabel =
+      neighborhoodViz === 'heat' ? 'calor territorial' : neighborhoodViz === 'bubbles' ? 'bolhas' : 'rótulos';
+    return `${nbWithData} bairros · ${vizLabel} · colorido por ${
+      territoryViewMode === 'temperature' ? 'temperatura' : 'volume'
+    }`;
+  }, [
+    selectedRow,
+    contactPins.length,
+    unmappedCount,
+    mapViewMode,
+    allScopePins.length,
+    contactViz,
+    allScopePinsCapped,
+    allScopePinsTotal,
+    nbWithData,
+    neighborhoodViz,
+    territoryViewMode,
+  ]);
 
   const handleExportCsv = () => {
     if (!selectedRow || neighborhoodContacts.length === 0) return;
@@ -799,67 +925,55 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       />
 
       <div className="zm-atlas__split">
-        <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact">
-          {!selectedRow && (
-            <div className="zm-atlas-map-toggle" role="tablist" aria-label="Modo do mapa">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mapViewMode === 'neighborhoods'}
-                className={`zm-atlas-map-toggle__btn${mapViewMode === 'neighborhoods' ? ' zm-atlas-map-toggle__btn--on' : ''}`}
-                onClick={() => {
-                  setMapViewMode('neighborhoods');
-                  lastViewportKeyRef.current = '';
-                }}
-              >
-                Bairros
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mapViewMode === 'contacts'}
-                className={`zm-atlas-map-toggle__btn${mapViewMode === 'contacts' ? ' zm-atlas-map-toggle__btn--on' : ''}`}
-                onClick={() => {
-                  setMapViewMode('contacts');
-                  lastViewportKeyRef.current = '';
-                }}
-              >
-                Contatos
-              </button>
-            </div>
-          )}
-          <div ref={containerRef} className="zm-atlas__map" />
-          {(isBusy || !summary) && mapActive && (
-            <div className="zm-atlas__map-loading">
-              <Loader2 className="w-5 h-5 animate-spin" />
-            </div>
-          )}
-          {!mapActive && deferLoad && (
-            <div className="zm-atlas__map-loading">Role para carregar</div>
-          )}
-          {selectedRow ? (
-            <div className="zm-atlas__map-badge zm-atlas__map-badge--focus">
-              {selectedRow.label} · {contactPins.length} no mapa
-              {contactPins.some((p) => p.approximate) ? ' · posição aproximada' : ''}
-              {unmappedCount > 0 && ` · ${unmappedCount} sem coordenada`}
-              {nbGeoLoading && ' · carregando…'}
-            </div>
-          ) : (
-            <div className="zm-atlas__map-badge">
-              {mapViewMode === 'contacts' && allScopePins.length > 0
-                ? `${allScopePins.length.toLocaleString('pt-BR')} contatos no mapa${
-                    allScopePinsCapped
-                      ? ` (amostra de ${allScopePinsTotal.toLocaleString('pt-BR')}, limite ${MAP_CONTACT_PIN_CAP.toLocaleString('pt-BR')})`
-                      : ''
-                  }${allScopeUnmapped > 0 ? ` · ${allScopeUnmapped} sem coordenada` : ''}`
-                : mapViewMode === 'contacts'
-                ? 'Nenhum contato com coordenada — use Geocodificar ou alterne para Bairros'
-                : `${nbWithData} bairros com contatos — clique para detalhar`}
-            </div>
-          )}
-          {selectedContact && (
-            <TerritoryContactCard contact={selectedContact} onClose={() => setSelectedContactId(null)} />
-          )}
+        <div className="zm-atlas__map-col">
+          <TerritoryMapChrome
+            mapViewMode={mapViewMode}
+            onMapViewModeChange={(mode) => {
+              setMapViewMode(mode);
+              lastViewportKeyRef.current = '';
+            }}
+            neighborhoodViz={neighborhoodViz}
+            onNeighborhoodVizChange={(viz) => {
+              setNeighborhoodViz(viz);
+              lastViewportKeyRef.current = '';
+            }}
+            contactViz={contactViz}
+            onContactVizChange={(viz) => {
+              setContactViz(viz);
+              lastViewportKeyRef.current = '';
+            }}
+            territoryViewMode={territoryViewMode}
+            onTerritoryViewModeChange={(mode) => {
+              setTerritoryViewMode(mode);
+              lastViewportKeyRef.current = '';
+            }}
+            mapTile={mapTile}
+            onMapTileChange={setMapTile}
+            onFitBounds={fitMapToContent}
+            onRecenter={recenterMap}
+            focusMode={Boolean(selectedRow)}
+            statsLine={mapStatsLine}
+          />
+          <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact zm-territory-map--pro zm-territory-map__frame">
+            <div ref={containerRef} className="zm-atlas__map" />
+            {(isBusy || !summary) && mapActive && (
+              <div className="zm-atlas__map-loading">
+                <Loader2 className="w-5 h-5 animate-spin" />
+              </div>
+            )}
+            {!mapActive && deferLoad && (
+              <div className="zm-atlas__map-loading">Role para carregar</div>
+            )}
+            {nbGeoLoading && selectedRow && (
+              <div className="zm-atlas__map-sync-badge">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Sincronizando pins…
+              </div>
+            )}
+            {selectedContact && (
+              <TerritoryContactCard contact={selectedContact} onClose={() => setSelectedContactId(null)} />
+            )}
+          </div>
         </div>
 
         <TerritoryRankingTable
