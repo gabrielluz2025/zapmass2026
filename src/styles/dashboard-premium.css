@@ -958,6 +958,18 @@
   gap: 4px;
 }
 
+.zm-atlas-muni-border {
+  transition: stroke-width 0.12s ease, stroke-opacity 0.12s ease, fill-opacity 0.12s ease;
+}
+
+.zm-atlas-muni-pin {
+  pointer-events: auto;
+}
+
+.zm-territory-map--pro .leaflet-interactive.zm-atlas-muni-border:hover {
+  cursor: pointer;
+}
+
 .zm-territory-bubble-wrap {
   background: transparent !important;
   border: none !important;

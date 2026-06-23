@@ -303,6 +303,21 @@ export async function fetchBrazilStatesGeoJson(): Promise<{
   return apiFetchJson('/api/leads-geo/br-states-geojson');
 }
 
+export type MunicipiosGeoJson = {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    properties: Record<string, unknown>;
+    geometry: unknown;
+  }>;
+};
+
+/** GeoJSON dos municípios de uma UF (IBGE) para contornos no atlas. */
+export async function fetchMunicipiosGeoJson(state: string): Promise<MunicipiosGeoJson> {
+  const uf = String(state || '').trim().toUpperCase().slice(0, 2);
+  return apiFetchJson(`/api/leads-geo/municipios-geojson?state=${encodeURIComponent(uf)}`);
+}
+
 /** Dispara normalização básica (IBGE + regras) em segundo plano via contacts API. */
 export async function apiNormalizeBatch(opts: { batchSize?: number } = {}): Promise<{ ok: boolean; message: string }> {
   return apiFetchJson('/api/contacts/normalize-batch', {

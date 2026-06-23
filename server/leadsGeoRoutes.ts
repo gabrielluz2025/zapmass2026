@@ -17,6 +17,7 @@ import {
 import { normalizeContactAddresses } from './addressNormalizer.js';
 import { buildCommercialIntelligence } from './leadsIntelligenceService.js';
 import { getBrazilStatesGeoJson } from './brazilStatesGeoJson.js';
+import { getMunicipiosGeoJsonByUf } from './brazilMunicipiosGeoJson.js';
 
 // Limpa o cache em memória ao iniciar o servidor (garante que alterações de lógica geo
 // nunca sirvam dados obsoletos do ciclo anterior de requests).
@@ -154,6 +155,27 @@ export function registerLeadsGeoRoutes(app: Express): void {
     } catch (e) {
       console.error('[api/leads-geo/br-states-geojson]', e);
       return res.status(502).json({ ok: false, error: 'Não foi possível carregar os polígonos dos estados.' });
+    }
+  });
+
+  /**
+   * GET /api/leads-geo/municipios-geojson?state=SC
+   * Polígonos oficiais dos municípios (IBGE) para contornos no atlas.
+   */
+  app.get('/api/leads-geo/municipios-geojson', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const state = String(req.query.state || '').trim().toUpperCase().slice(0, 2);
+    if (!state) {
+      return res.status(400).json({ ok: false, error: 'Informe state=UF (ex.: SC).' });
+    }
+    try {
+      const geo = await getMunicipiosGeoJsonByUf(state);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.json(geo);
+    } catch (e) {
+      console.error('[api/leads-geo/municipios-geojson]', e);
+      return res.status(502).json({ ok: false, error: 'Não foi possível carregar os contornos dos municípios.' });
     }
   });
 

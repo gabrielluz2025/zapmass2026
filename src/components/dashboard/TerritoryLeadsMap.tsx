@@ -9,8 +9,10 @@ import toast from 'react-hot-toast';
 import type { Contact, Conversation } from '../../types';
 import {
   fetchLeadsGeoSummary,
+  fetchMunicipiosGeoJson,
   fetchOfficialNeighborhoods,
   type LeadsGeoSummary,
+  type MunicipiosGeoJson,
 } from '../../services/leadsGeoApi';
 import { useOperatingLocation } from '../../hooks/useOperatingLocation';
 import { computeContactTemperatures } from '../../utils/contactTemperature';
@@ -126,6 +128,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [territoryViewMode, setTerritoryViewMode] = useState<TerritoryViewMode>('temperature');
   const [mapTile, setMapTile] = useState<MapTileId>('voyager');
   const [municipioCoords, setMunicipioCoords] = useState<MunicipioCoordsIndex | null>(null);
+  const [municipiosGeo, setMunicipiosGeo] = useState<MunicipiosGeoJson | null>(null);
+  const [municipiosGeoLoading, setMunicipiosGeoLoading] = useState(false);
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
@@ -206,6 +210,35 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   );
   const activeCityName = activeCityParsed.city || cityNameOnly;
 
+  useEffect(() => {
+    if (!mapActive || !isStateCityList || !stateCode) {
+      setMunicipiosGeo(null);
+      setMunicipiosGeoLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setMunicipiosGeoLoading(true);
+    void fetchMunicipiosGeoJson(stateCode)
+      .then((geo) => {
+        if (!cancelled) setMunicipiosGeo(geo);
+      })
+      .catch(() => {
+        if (!cancelled) setMunicipiosGeo(null);
+      })
+      .finally(() => {
+        if (!cancelled) setMunicipiosGeoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mapActive, isStateCityList, stateCode]);
+
+  useEffect(() => {
+    if (isStateCityList) {
+      setNeighborhoodViz((prev) => (prev === 'heat' || prev === 'bubbles' ? 'borders' : prev));
+    }
+  }, [isStateCityList, stateCode]);
+
   const scopeContacts = useMemo(() => {
     if (!mapActive) return [];
     if (scope === 'state' && stateCode) {
@@ -271,6 +304,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     city,
     officialNeighborhoods,
     municipioCoords,
+    municipiosGeo,
   ]);
 
   const showAllNeighborhoods = hasOfficialList;
@@ -742,13 +776,19 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       null,
       territoryViewMode,
       handleSelectRow,
-      isStateCityList ? 'city' : 'neighborhood'
+      isStateCityList ? 'city' : 'neighborhood',
+      { municipiosGeo: isStateCityList ? municipiosGeo : null }
     );
 
-    const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${neighborhoodViz}|${territoryViewMode}|${mapRows.length}`;
+    const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${neighborhoodViz}|${territoryViewMode}|${mapRows.length}|${municipiosGeo?.features?.length ?? 0}`;
     if (vpKey !== lastViewportKeyRef.current) {
       lastViewportKeyRef.current = vpKey;
-      if (mapRows.length > 0) {
+      if (neighborhoodViz === 'borders' && municipiosGeo?.features?.length) {
+        const borderLayer = layersRef.current.find((l) => l instanceof L.GeoJSON) as L.GeoJSON | undefined;
+        if (borderLayer) {
+          map.fitBounds(borderLayer.getBounds(), { padding: [24, 24], maxZoom: 9 });
+        }
+      } else if (mapRows.length > 0) {
         flyToNeighborhoodRows(map, mapRows);
       } else if (summary?.mapViewport) {
         map.setView([summary.mapViewport.lat, summary.mapViewport.lng], summary.mapViewport.zoom, {
@@ -777,6 +817,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     clearDataLayers,
     handleSelectRow,
     isStateCityList,
+    municipiosGeo,
   ]);
 
   useEffect(() => {
@@ -875,12 +916,22 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
     const entity = isStateCityList ? 'cidades' : 'bairros';
     const vizLabel =
-      neighborhoodViz === 'heat' ? 'calor territorial' : neighborhoodViz === 'bubbles' ? 'bolhas' : 'rótulos';
+      neighborhoodViz === 'borders'
+        ? 'contornos IBGE'
+        : neighborhoodViz === 'heat'
+          ? 'calor territorial'
+          : neighborhoodViz === 'bubbles'
+            ? 'bolhas'
+            : 'rótulos';
     const capped =
       isStateCityList && neighborhoodViz === 'bubbles' && nbWithData > 80
         ? ` · top 80 de ${nbWithData}`
         : '';
-    return `${nbWithData} ${entity} · ${vizLabel}${capped} · colorido por ${
+    const geoHint =
+      isStateCityList && neighborhoodViz === 'borders' && municipiosGeoLoading
+        ? ' · carregando malha…'
+        : '';
+    return `${nbWithData} ${entity} · ${vizLabel}${capped}${geoHint} · colorido por ${
       territoryViewMode === 'temperature' ? 'temperatura' : 'volume'
     }`;
   }, [
@@ -896,6 +947,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     neighborhoodViz,
     territoryViewMode,
     isStateCityList,
+    municipiosGeoLoading,
   ]);
 
   const handleExportCsv = () => {
@@ -1038,6 +1090,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             onRecenter={recenterMap}
             focusMode={Boolean(selectedRow)}
             neighborhoodsModeLabel={isStateCityList ? 'Cidades' : 'Bairros'}
+            showMunicipioBorders={isStateCityList}
             statsLine={mapStatsLine}
           />
           <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact zm-territory-map--pro zm-territory-map__frame">
