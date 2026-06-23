@@ -106,9 +106,26 @@ export function isRunningStatusButWorkComplete(c: Campaign): boolean {
 /**
  * Ajusta em memória status → `COMPLETED` quando a fila já foi toda contabilizada.
  */
+export function healCampaignCounters(c: Campaign): Campaign {
+  const m = getCampaignProgressMetrics(c);
+  if (
+    m.ok === (c.successCount ?? 0) &&
+    m.fail === (c.failedCount ?? 0) &&
+    m.effectiveProcessed === (c.processedCount ?? 0)
+  ) {
+    return c;
+  }
+  return {
+    ...c,
+    successCount: m.ok,
+    failedCount: m.fail,
+    processedCount: m.effectiveProcessed
+  };
+}
+
 export function healStuckCampaignStatus(c: Campaign): Campaign {
-  if (!isCampaignQueueWorkComplete(c)) return c;
-  if (c.status === CampaignStatus.COMPLETED) return c;
+  if (!isCampaignQueueWorkComplete(c)) return healCampaignCounters(c);
+  if (c.status === CampaignStatus.COMPLETED) return healCampaignCounters(c);
   const m = getCampaignProgressMetrics(c);
   return {
     ...c,
@@ -119,13 +136,18 @@ export function healStuckCampaignStatus(c: Campaign): Campaign {
   };
 }
 
+/** Aplica cura de status preso e normalização de contadores (ok/fail/processed). */
+export function healCampaignDocument(c: Campaign): Campaign {
+  return healCampaignCounters(healStuckCampaignStatus(c));
+}
+
 /** @deprecated Use healStuckCampaignStatus */
 export function healStuckRunningCampaign(c: Campaign): Campaign {
   return healStuckCampaignStatus(c);
 }
 
 export function healStuckRunningCampaignsList(list: Campaign[]): Campaign[] {
-  return list.map(healStuckCampaignStatus);
+  return list.map(healCampaignDocument);
 }
 
 /** Campanha já saiu do rascunho ou já registrou envios — útil após timeout de ACK do socket. */

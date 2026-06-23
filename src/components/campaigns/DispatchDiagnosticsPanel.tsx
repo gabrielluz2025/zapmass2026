@@ -295,6 +295,9 @@ export const DispatchDiagnosticsPanel: React.FC<Props> = ({
           ) : failedJobs.length === 0 ? (
             <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
               Nenhum job falho encontrado na fila para esta campanha.
+              {failedCount > 0
+                ? ' O contador de falhas do documento pode estar desatualizado — o relatório acima já reflete o status real dos contatos.'
+                : ''}
             </p>
           ) : (
             <>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CampaignStatus, type Campaign } from '../types';
-import { getCampaignPlannedSendTotal, getCampaignProgressMetrics, healStuckCampaignStatus, isCampaignLikelyStartedOnServer, isCampaignQueueWorkComplete, isRunningStatusButWorkComplete } from './campaignMetrics';
+import { getCampaignPlannedSendTotal, getCampaignProgressMetrics, healCampaignCounters, healStuckCampaignStatus, isCampaignLikelyStartedOnServer, isCampaignQueueWorkComplete, isRunningStatusButWorkComplete } from './campaignMetrics';
 
 const baseCampaign = (patch: Partial<Campaign> = {}): Campaign => ({
   id: 'c1',
@@ -42,6 +42,21 @@ describe('campaignMetrics — fluxo conversacional', () => {
       processedCount: 1
     });
     expect(isRunningStatusButWorkComplete(c)).toBe(false);
+  });
+
+  it('zera failedCount inflado com 1 contato aguardando resposta', () => {
+    const c = baseCampaign({
+      status: CampaignStatus.WAITING_REPLY,
+      replyFlow: {
+        enabled: true,
+        steps: [{ body: 'Etapa 1' }, { body: 'Etapa 2' }]
+      },
+      successCount: 1,
+      failedCount: 1,
+      processedCount: 1,
+      totalContacts: 1
+    });
+    expect(healCampaignCounters(c).failedCount).toBe(0);
   });
 
   it('limita contadores inflados enquanto aguarda resposta (retry duplicado no servidor)', () => {
