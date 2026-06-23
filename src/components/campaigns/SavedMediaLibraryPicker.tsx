@@ -85,7 +85,8 @@ export const SavedMediaLibraryPicker: React.FC<Props> = ({ onPick, currentFile, 
                 className="w-full h-full block"
                 title={item.name}
                 onClick={() => {
-                  onPick(savedMediaToFile(item));
+                  const file = savedMediaToFile(item);
+                  onPick(file);
                   toast.success('Imagem da biblioteca selecionada.');
                 }}
               >

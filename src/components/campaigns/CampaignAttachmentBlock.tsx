@@ -1,11 +1,15 @@
 import React from 'react';
-import { FileSpreadsheet, Sparkles } from 'lucide-react';
+import { FileSpreadsheet, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '../ui';
+import type { CampaignMediaPayload } from '../../utils/campaignMediaLibrary';
 
 export type CampaignAttachmentState = {
   file: File;
   previewUrl: string | null;
   sendAsDocument?: boolean;
+  /** Payload pronto para envio — evita reler o File depois (referência pode expirar). */
+  mediaPayload?: CampaignMediaPayload;
+  preparing?: boolean;
 };
 
 type Props = {
@@ -49,7 +53,11 @@ export const CampaignAttachmentBlock: React.FC<Props> = ({
               type="file"
               className="hidden"
               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,application/*"
-              onChange={(e) => onPick(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                onPick(file);
+                e.target.value = '';
+              }}
             />
             <Button type="button" size="sm" variant="secondary" onClick={() => inputRef.current?.click()}>
               Anexar
@@ -87,11 +95,18 @@ export const CampaignAttachmentBlock: React.FC<Props> = ({
             <p className="text-[10.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
               {(attachment.file.size / (1024 * 1024)).toFixed(2)} MB
               {attachment.file.type ? ` · ${attachment.file.type}` : ''}
+              {attachment.preparing ? ' · preparando…' : attachment.mediaPayload ? ' · pronto' : ''}
             </p>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
-              <Button type="button" size="xs" variant="ghost" onClick={onRemove}>
+              <Button type="button" size="xs" variant="ghost" onClick={onRemove} disabled={attachment.preparing}>
                 Remover
               </Button>
+              {attachment.preparing && (
+                <span className="text-[10px] font-semibold inline-flex items-center gap-1" style={{ color: '#0ea5e9' }}>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Preparando anexo…
+                </span>
+              )}
               {launchMode === 'schedule' && (
                 <span className="text-[10px] font-semibold" style={{ color: '#f59e0b' }}>
                   Anexos só em disparo imediato

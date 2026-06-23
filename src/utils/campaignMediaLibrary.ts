@@ -8,6 +8,13 @@ export type SavedCampaignMedia = {
   createdAt: string;
 };
 
+export type CampaignMediaPayload = {
+  dataBase64: string;
+  mimeType: string;
+  fileName: string;
+  sendMediaAsDocument?: boolean;
+};
+
 const STORAGE_KEY = 'zapmass_saved_campaign_media_v1';
 const MAX_ITEMS = 24;
 /** Limite aproximado por item após base64 (~350 KB binário). */
@@ -41,7 +48,18 @@ function fileToBase64(file: File): Promise<string> {
       const comma = result.indexOf(',');
       resolve(comma >= 0 ? result.slice(comma + 1) : result);
     };
-    reader.onerror = () => reject(reader.error);
+    reader.onerror = () => {
+      const raw = reader.error?.message || '';
+      if (/could not be read/i.test(raw)) {
+        reject(
+          new Error(
+            'Não foi possível ler o arquivo. Selecione-o novamente ou escolha uma imagem da biblioteca.'
+          )
+        );
+        return;
+      }
+      reject(reader.error || new Error('Falha ao ler arquivo anexado.'));
+    };
     reader.readAsDataURL(file);
   });
 }
@@ -97,12 +115,8 @@ export async function saveCampaignMediaToLibrary(
   return { ok: true, item };
 }
 
-export async function fileToMediaPayload(file: File): Promise<{
-  dataBase64: string;
-  mimeType: string;
-  fileName: string;
-  sendMediaAsDocument?: boolean;
-}> {
+/** Comprime (se imagem) e converte para payload de envio — chamar logo ao selecionar o arquivo. */
+export async function prepareCampaignAttachmentPayload(file: File): Promise<CampaignMediaPayload> {
   const { prepareCampaignAttachmentForSend } = await import('./campaignMediaCompress');
   const prep = await prepareCampaignAttachmentForSend(file);
   const dataBase64 = await fileToBase64(prep.file);
@@ -112,4 +126,8 @@ export async function fileToMediaPayload(file: File): Promise<{
     fileName: prep.file.name,
     ...(prep.sendMediaAsDocument ? { sendMediaAsDocument: true } : {})
   };
+}
+
+export async function fileToMediaPayload(file: File): Promise<CampaignMediaPayload> {
+  return prepareCampaignAttachmentPayload(file);
 }

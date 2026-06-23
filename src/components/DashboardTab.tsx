@@ -63,7 +63,7 @@ import { Card, CardHeader, Button, Badge, Modal, Textarea, Select } from './ui';
 import { CampaignAttachmentBlock, type CampaignAttachmentState } from './campaigns/CampaignAttachmentBlock';
 import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
 import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
-import { fileToMediaPayload } from '../utils/campaignMediaLibrary';
+import { prepareCampaignAttachmentPayload } from '../utils/campaignMediaLibrary';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
 import { Sparkline } from './Sparkline';
@@ -567,8 +567,34 @@ export const DashboardTab: React.FC = () => {
         file.type.startsWith('image/') || file.type.startsWith('video/')
           ? URL.createObjectURL(file)
           : null;
-      return { file, previewUrl };
+      return { file, previewUrl, preparing: true };
     });
+
+    if (!file) return;
+
+    const pickKey = `${file.name}:${file.size}:${file.lastModified}`;
+    void (async () => {
+      try {
+        const mediaPayload = await prepareCampaignAttachmentPayload(file);
+        setter((prev) => {
+          if (!prev) return prev;
+          const key = `${prev.file.name}:${prev.file.size}:${prev.file.lastModified}`;
+          if (key !== pickKey) return prev;
+          return {
+            ...prev,
+            mediaPayload,
+            preparing: false,
+            sendAsDocument: mediaPayload.sendMediaAsDocument
+          };
+        });
+      } catch (err) {
+        setter((prev) => {
+          if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+          return null;
+        });
+        toast.error(err instanceof Error ? err.message : 'Não foi possível preparar o anexo.');
+      }
+    })();
   };
 
   const openBulkBirthday = () => {
@@ -605,7 +631,7 @@ export const DashboardTab: React.FC = () => {
     [bulkCandidates, bulkSelectedIds]
   );
 
-  const goToPreview = () => {
+  const goToPreview = async () => {
     if (!bulkConnectionId) {
       toast.error('Selecione um canal online para disparar.');
       return;
@@ -617,6 +643,19 @@ export const DashboardTab: React.FC = () => {
     if (!bulkTemplate.trim()) {
       toast.error('Escreva a mensagem que sera enviada.');
       return;
+    }
+    if (bulkAttachment?.preparing) {
+      toast.error('Aguarde o anexo terminar de carregar.');
+      return;
+    }
+    if (bulkAttachment?.file && !bulkAttachment.mediaPayload) {
+      try {
+        const mediaPayload = await prepareCampaignAttachmentPayload(bulkAttachment.file);
+        setBulkAttachment((prev) => (prev ? { ...prev, mediaPayload, preparing: false } : prev));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Não foi possível ler o anexo. Selecione-o novamente.');
+        return;
+      }
     }
     setBulkPreviewIndex(0);
     setBulkStep('preview');
@@ -642,9 +681,9 @@ export const DashboardTab: React.FC = () => {
     const numbers = recipients.map((r) => r.phone);
     setBulkSubmitting(true);
     try {
-      let mediaAttachment: Awaited<ReturnType<typeof fileToMediaPayload>> | undefined;
-      if (bulkAttachment?.file) {
-        mediaAttachment = await fileToMediaPayload(bulkAttachment.file);
+      let mediaAttachment = bulkAttachment?.mediaPayload;
+      if (!mediaAttachment && bulkAttachment?.file) {
+        mediaAttachment = await prepareCampaignAttachmentPayload(bulkAttachment.file);
       }
       await startCampaign(
         bulkConnectionId,
@@ -681,6 +720,10 @@ export const DashboardTab: React.FC = () => {
 
   const handleSendMessage = async () => {
     if (!selectedContact || !sendingConnectionId || (!messageText.trim() && !birthdayAttachment)) return;
+    if (birthdayAttachment?.preparing) {
+      toast.error('Aguarde o anexo terminar de carregar.');
+      return;
+    }
     const phone = selectedContact.phone?.replace(/\D/g, '');
     if (!phone) {
       toast.error('Contato sem numero de telefone.');
@@ -690,7 +733,9 @@ export const DashboardTab: React.FC = () => {
     setBirthdaySending(true);
     try {
       if (birthdayAttachment?.file) {
-        const media = await fileToMediaPayload(birthdayAttachment.file);
+        const media =
+          birthdayAttachment.mediaPayload ??
+          (await prepareCampaignAttachmentPayload(birthdayAttachment.file));
         const res = await sendMedia(conversationId, {
           dataBase64: media.dataBase64,
           mimeType: media.mimeType,
@@ -1927,7 +1972,7 @@ export const DashboardTab: React.FC = () => {
             <Button
               variant="primary"
               leftIcon={<Send className="w-4 h-4" />}
-              disabled={!sendingConnectionId || (!messageText.trim() && !birthdayAttachment) || birthdaySending}
+              disabled={!sendingConnectionId || (!messageText.trim() && !birthdayAttachment) || birthdaySending || birthdayAttachment?.preparing}
               onClick={() => void handleSendMessage()}
             >
               {birthdaySending ? 'Enviando…' : 'Enviar'}
@@ -2190,8 +2235,13 @@ export const DashboardTab: React.FC = () => {
               <Button
                 variant="primary"
                 leftIcon={<Sparkles className="w-4 h-4" />}
-                disabled={bulkSelectedIds.size === 0 || !bulkConnectionId || !bulkTemplate.trim()}
-                onClick={goToPreview}
+                disabled={
+                  bulkSelectedIds.size === 0 ||
+                  !bulkConnectionId ||
+                  !bulkTemplate.trim() ||
+                  bulkAttachment?.preparing
+                }
+                onClick={() => void goToPreview()}
               >
                 Pre-visualizar ({bulkSelectedIds.size})
               </Button>
@@ -2204,7 +2254,7 @@ export const DashboardTab: React.FC = () => {
               <Button
                 variant="primary"
                 leftIcon={<Send className="w-4 h-4" />}
-                disabled={bulkSubmitting}
+                disabled={bulkSubmitting || bulkAttachment?.preparing}
                 onClick={handleBulkBirthdaySubmit}
               >
                 {bulkSubmitting ? 'Disparando...' : `Confirmar e disparar para ${bulkSelectedList.length}`}
