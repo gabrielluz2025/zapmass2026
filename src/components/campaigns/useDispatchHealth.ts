@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchDispatchHealth, type DispatchHealth } from '../../services/campaignsApi';
+import { fetchDispatchHealth, reconnectDispatchHealth, type DispatchHealth } from '../../services/campaignsApi';
 
 export type DispatchHealthUi = 'checking' | 'ok' | 'reconnecting' | 'error';
 
@@ -43,7 +43,14 @@ export function useDispatchHealth() {
     if (manual) setUi('checking');
 
     try {
-      const h = await fetchDispatchHealth({ retries: manual ? 1 : 2 });
+      let h = await fetchDispatchHealth({ retries: manual ? 1 : 2 });
+      if (!h.ok && h.reachable && (h.kind === 'redis_down' || h.kind === 'misconfig')) {
+        h = await reconnectDispatchHealth();
+      }
+      if (!h.ok && !manual && (h.kind === 'network' || !h.reachable)) {
+        await new Promise((r) => setTimeout(r, 800));
+        h = await fetchDispatchHealth({ retries: 1 });
+      }
       setHealth(h);
 
       if (h.ok) {

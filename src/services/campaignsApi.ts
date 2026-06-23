@@ -229,6 +229,62 @@ export type DispatchHealth = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** POST /api/health/dispatch/reconnect — recria conexão e re-testa (sem cache). */
+export async function reconnectDispatchHealth(): Promise<DispatchHealth> {
+  try {
+    const r = await fetch(apiUrl('/api/health/dispatch/reconnect'), {
+      method: 'POST',
+      signal: AbortSignal.timeout(20_000),
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+    const j = (await r.json().catch(() => ({}))) as Partial<DispatchHealth>;
+    const redis = j.redis ?? { ok: false, error: 'Resposta inválida do servidor' };
+    const ok = Boolean(j.ok);
+    return {
+      ok,
+      ready: Boolean(j.ready),
+      kind: ok ? 'ok' : redis.misconfigHint ? 'misconfig' : 'redis_down',
+      reachable: true,
+      redis,
+      fixCommand: j.fixCommand,
+      checkedAt: j.checkedAt ?? new Date().toISOString(),
+    };
+  } catch {
+    return {
+      ok: false,
+      ready: false,
+      kind: 'network',
+      reachable: false,
+      redis: { ok: false, error: 'Servidor inacessível ou timeout' },
+    };
+  }
+}
+
+/**
+ * Garante motor de disparo pronto antes de iniciar campanha.
+ * Retenta com backoff e tenta reconectar automaticamente antes de falhar.
+ */
+export async function ensureDispatchReady(options?: {
+  maxAttempts?: number;
+  tryReconnect?: boolean;
+}): Promise<DispatchHealth> {
+  const maxAttempts = Math.max(1, options?.maxAttempts ?? 4);
+  let last = await fetchDispatchHealth({ retries: 1 });
+  if (last.ok) return last;
+
+  for (let attempt = 1; attempt < maxAttempts; attempt++) {
+    await sleep(600 * attempt);
+    if (options?.tryReconnect !== false && attempt >= 2) {
+      last = await reconnectDispatchHealth();
+      if (last.ok) return last;
+    }
+    last = await fetchDispatchHealth({ retries: 1 });
+    if (last.ok) return last;
+  }
+  return last;
+}
+
 /** Ping unificado Redis + metadados (endpoint público, sem auth). */
 export async function fetchDispatchHealth(options?: { retries?: number }): Promise<DispatchHealth> {
   const retries = Math.max(0, options?.retries ?? 2);
@@ -277,17 +333,12 @@ export async function fetchDispatchHealth(options?: { retries?: number }): Promi
 
 /** GET /api/health/redis sem cache (evita 503 antigo preso no browser). */
 export async function fetchRedisHealth(): Promise<{ ok: boolean; pingMs?: number; error?: string | null }> {
-  try {
-    const r = await fetch(apiUrl(`/api/health/redis?_=${Date.now()}`), {
-      signal: AbortSignal.timeout(12_000),
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' },
-    });
-    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; pingMs?: number; error?: string | null };
-    return { ok: Boolean(j.ok), pingMs: j.pingMs, error: j.error ?? null };
-  } catch {
-    return { ok: false, error: 'Servidor inacessível ou timeout' };
-  }
+  const h = await ensureDispatchReady({ maxAttempts: 3, tryReconnect: true });
+  return {
+    ok: h.ok,
+    pingMs: h.redis.pingMs,
+    error: h.ok ? null : h.redis.error ?? null,
+  };
 }
 
 // ─── Pré-voo e diagnóstico de disparo ────────────────────────────────────────

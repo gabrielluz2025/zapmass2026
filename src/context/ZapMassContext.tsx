@@ -59,7 +59,7 @@ import {
   apiDeleteCampaign,
   apiUpdateCampaign,
   fetchCampaigns,
-  fetchRedisHealth
+  ensureDispatchReady
 } from '../services/campaignsApi';
 import { getSessionIdToken } from '../utils/sessionAuth';
 import { useWorkspace } from './WorkspaceContext';
@@ -3418,19 +3418,17 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       throw new Error(msg);
     }
 
-    // Verificar Redis antes de iniciar: evita "Tempo esgotado ao enfileirar" surpresa.
+    // Garante motor de disparo antes de iniciar (retenta + reconecta automaticamente).
     try {
-      const r = await fetchRedisHealth();
-      if (!r.ok) {
+      const h = await ensureDispatchReady({ maxAttempts: 4, tryReconnect: true });
+      if (!h.ok) {
         throw new Error(
-          r.error ||
-          'Redis indisponível na VPS. O disparo não pode ser iniciado. Verifique o container Redis.'
+          'O motor de envio está temporariamente indisponível. Aguarde alguns segundos e tente novamente.'
         );
       }
     } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes('Redis')) throw e;
-      // Timeout ou falha de rede — não bloqueia (servidor pode estar iniciando)
-      console.warn('[startMassCampaign] Redis health-check falhou (continuando):', e);
+      if (e instanceof Error && e.message.includes('motor de envio')) throw e;
+      console.warn('[startMassCampaign] dispatch health-check falhou (continuando):', e);
     }
 
     const cleanNumbers = Array.from(

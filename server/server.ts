@@ -99,8 +99,8 @@ import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
-import { redisPing } from './redisPing.js';
-import { getRedisUrlMisconfigHint, parseRedisHost } from './redisConfig.js';
+import { redisPing, redisPingWithFallback } from './redisPing.js';
+import { getRedisUrlCandidates, getRedisUrlMisconfigHint, parseRedisHost } from './redisConfig.js';
 import { configureTrustProxy } from './trustProxySetup.js';
 import { evolutionWebhookLimiter } from './httpRateLimit.js';
 import { securityHeadersMiddleware } from './securityHeaders.js';
@@ -385,21 +385,30 @@ app.get('/api/health/redis', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   const redisUrl = process.env.REDIS_URL?.trim();
-  if (!redisUrl) {
+  if (!redisUrl && getRedisUrlCandidates().length === 0) {
     return res.status(503).json({ ok: false, configured: false, error: 'REDIS_URL não configurado.' });
   }
-  let ping = await redisPing(redisUrl, { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 });
+  let ping = await redisPingWithFallback(redisUrl, {
+    connectTimeout: 5000,
+    commandTimeout: 5000,
+    maxRetriesPerRequest: 1,
+  });
   if (!ping.ok && ping.error?.includes('Connection is closed')) {
     evolutionService.resetCampaignRedisConnection();
-    ping = await redisPing(redisUrl, { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 });
+    ping = await redisPingWithFallback(redisUrl, {
+      connectTimeout: 5000,
+      commandTimeout: 5000,
+      maxRetriesPerRequest: 1,
+    });
   }
-  const misconfigHint = getRedisUrlMisconfigHint(redisUrl);
+  const effectiveUrl = ping.usedUrl || redisUrl || '';
+  const misconfigHint = effectiveUrl ? getRedisUrlMisconfigHint(effectiveUrl) : null;
   const status = ping.ok ? 200 : 503;
   return res.status(status).json({
     ok: ping.ok,
     pingMs: ping.pingMs,
     error: ping.error ?? misconfigHint ?? null,
-    host: parseRedisHost(redisUrl),
+    host: effectiveUrl ? parseRedisHost(effectiveUrl) : null,
     misconfigHint,
   });
 });
@@ -408,58 +417,87 @@ app.get('/api/health/redis', async (_req, res) => {
  * Saúde unificada do motor de disparo (Redis + fila).
  * Público — usado pelo Centro de Comando e preview de campanha.
  */
-const DISPATCH_HEALTH_CACHE_MS = 5_000;
+const DISPATCH_HEALTH_CACHE_MS = 8_000;
 let dispatchHealthCache: { at: number; status: number; body: Record<string, unknown> } | null = null;
+
+async function buildDispatchHealthBody(): Promise<{ status: number; body: Record<string, unknown> }> {
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (!redisUrl && getRedisUrlCandidates().length === 0) {
+    return {
+      status: 503,
+      body: {
+        ok: false,
+        ready: false,
+        redis: { ok: false, configured: false, error: 'REDIS_URL não configurado.' },
+        fixCommand: 'cd /opt/zapmass && docker compose up -d redis zapmass',
+      },
+    };
+  }
+  const pingOpts = { connectTimeout: 5000, commandTimeout: 5000, maxRetriesPerRequest: 1 };
+  let ping = await redisPingWithFallback(redisUrl, pingOpts);
+  if (!ping.ok && ping.error?.includes('Connection is closed')) {
+    evolutionService.resetCampaignRedisConnection();
+    ping = await redisPingWithFallback(redisUrl, pingOpts);
+  }
+  const effectiveUrl = ping.usedUrl || redisUrl || '';
+  const misconfigHint = effectiveUrl ? getRedisUrlMisconfigHint(effectiveUrl) : null;
+  const ok = ping.ok;
+  const fixEnvCommand =
+    misconfigHint != null
+      ? "sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://redis:6379|' /opt/zapmass/.env && cd /opt/zapmass && docker compose up -d zapmass"
+      : 'cd /opt/zapmass && docker compose restart redis && sleep 3 && docker compose restart zapmass';
+  return {
+    status: ok ? 200 : 503,
+    body: {
+      ok,
+      ready: ok,
+      redis: {
+        ok: ping.ok,
+        configured: true,
+        pingMs: ping.pingMs,
+        error: ping.error ?? misconfigHint ?? null,
+        host: effectiveUrl ? parseRedisHost(effectiveUrl) : null,
+        misconfigHint,
+      },
+      fixCommand: fixEnvCommand,
+      checkedAt: new Date().toISOString(),
+    },
+  };
+}
 
 app.get('/api/health/dispatch', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
 
   const now = Date.now();
-  if (dispatchHealthCache && now - dispatchHealthCache.at < DISPATCH_HEALTH_CACHE_MS) {
+  if (
+    dispatchHealthCache &&
+    dispatchHealthCache.status === 200 &&
+    now - dispatchHealthCache.at < DISPATCH_HEALTH_CACHE_MS
+  ) {
     return res.status(dispatchHealthCache.status).json(dispatchHealthCache.body);
   }
 
-  const redisUrl = process.env.REDIS_URL?.trim();
-  if (!redisUrl) {
-    const body = {
-      ok: false,
-      ready: false,
-      redis: { ok: false, configured: false, error: 'REDIS_URL não configurado.' },
-      fixCommand: 'cd /opt/zapmass && docker compose up -d redis zapmass',
-    };
-    dispatchHealthCache = { at: now, status: 503, body };
-    return res.status(503).json(body);
+  const { status, body } = await buildDispatchHealthBody();
+  if (status === 200) {
+    dispatchHealthCache = { at: now, status, body };
+  } else {
+    dispatchHealthCache = null;
   }
-  const misconfigHint = getRedisUrlMisconfigHint(redisUrl);
-  const pingOpts = { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 };
-  let ping = await redisPing(redisUrl, pingOpts);
-  if (!ping.ok && ping.error?.includes('Connection is closed')) {
-    evolutionService.resetCampaignRedisConnection();
-    ping = await redisPing(redisUrl, pingOpts);
-  }
-  const ok = ping.ok;
-  const fixEnvCommand =
-    misconfigHint != null
-      ? "sed -i 's|^REDIS_URL=.*|REDIS_URL=redis://redis:6379|' /opt/zapmass/.env && cd /opt/zapmass && docker compose up -d zapmass"
-      : 'cd /opt/zapmass && docker compose restart redis && sleep 3 && docker compose restart zapmass';
-  const body = {
-    ok,
-    ready: ok,
-    redis: {
-      ok: ping.ok,
-      configured: true,
-      pingMs: ping.pingMs,
-      error: ping.error ?? misconfigHint ?? null,
-      host: parseRedisHost(redisUrl),
-      misconfigHint,
-    },
-    fixCommand: fixEnvCommand,
-    checkedAt: new Date().toISOString(),
-  };
-  const status = ok ? 200 : 503;
-  dispatchHealthCache = { at: now, status, body };
   return res.status(status).json(body);
+});
+
+/** Recria conexão BullMQ e re-testa Redis (chamado pelo front antes de exibir erro ao usuário). */
+app.post('/api/health/dispatch/reconnect', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  dispatchHealthCache = null;
+  evolutionService.resetCampaignRedisConnection();
+  await new Promise((r) => setTimeout(r, 400));
+  const { status, body } = await buildDispatchHealthBody();
+  if (status === 200) {
+    dispatchHealthCache = { at: Date.now(), status, body };
+  }
+  return res.status(status).json({ ...body, reconnected: true });
 });
 
 /** Redis + router de sessão (útil com API + wa-worker). Em produção: redes não privadas ou METRICS_TOKEN. */
@@ -2062,6 +2100,20 @@ const startServer = async (port: number): Promise<boolean> => {
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`🚀 Servidor rodando na porta ${port}`);
     console.log(`📦 Versão ativa: ${getAppVersion()}`);
+    void (async () => {
+      const ping = await redisPingWithFallback(process.env.REDIS_URL, {
+        connectTimeout: 5000,
+        commandTimeout: 5000,
+        maxRetriesPerRequest: 1,
+      });
+      if (ping.ok) {
+        console.log(`[Redis] fila de disparo OK (${ping.pingMs ?? '?'}ms via ${parseRedisHost(ping.usedUrl || '')})`);
+      } else {
+        console.error('[Redis] fila de disparo indisponível:', ping.error);
+      }
+    })().catch((e) => {
+      console.error('[Redis] falha no probe de startup:', e);
+    });
     void ensureIbgeMunicipiosIndex().catch((e) => {
       console.warn('[ibge] Falha ao carregar municípios:', e instanceof Error ? e.message : e);
     });

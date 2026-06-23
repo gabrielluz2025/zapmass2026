@@ -26,8 +26,10 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { campaignClockVars } from '../../utils/campaignClockVars';
-import { apiPreflightCheck, apiFrequencyCapCheck, fetchRedisHealth } from '../../services/campaignsApi';
+import { apiPreflightCheck, apiFrequencyCapCheck, ensureDispatchReady } from '../../services/campaignsApi';
 import { DispatchFixPanel } from './DispatchFixPanel';
+import { useAuth } from '../../context/AuthContext';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -100,7 +102,7 @@ interface CampaignPreviewModalProps {
   selectedConnectionIds?: string[];
 }
 
-type HealthStatus = 'idle' | 'checking' | 'ok' | 'warn' | 'error';
+type HealthStatus = 'idle' | 'checking' | 'ok' | 'warn' | 'error' | 'reconnecting';
 
 interface ChipResult {
   connectionId: string;
@@ -134,7 +136,10 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   isLoading = false,
   selectedConnectionIds = [],
 }) => {
-  const [redisStatus, setRedisStatus] = useState<HealthStatus>('idle');
+  const { user } = useAuth();
+  const isAdmin = isPlatformAdminUser(user);
+
+  const [motorStatus, setMotorStatus] = useState<HealthStatus>('idle');
   const [chipStatus, setChipStatus] = useState<HealthStatus>('idle');
   const [chipResults, setChipResults] = useState<ChipResult[]>([]);
   const [showChipDetails, setShowChipDetails] = useState(false);
@@ -199,32 +204,27 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   }, [allRecipients]);
 
   const runHealthCheck = useCallback(async () => {
-    // 1. Verificar Redis
-    setRedisStatus('checking');
+    setMotorStatus('checking');
     setChipStatus('checking');
-    let redisOk = false;
+    let motorOk = false;
     try {
-      const r = await fetchRedisHealth();
-      redisOk = r.ok;
-      setRedisStatus(r.ok ? 'ok' : 'error');
+      const h = await ensureDispatchReady({ maxAttempts: 4, tryReconnect: true });
+      motorOk = h.ok;
+      setMotorStatus(h.ok ? 'ok' : h.reachable === false ? 'reconnecting' : 'error');
     } catch {
-      setRedisStatus('error');
+      setMotorStatus('reconnecting');
     }
 
-    // 2. Verificar chips
     if (selectedConnectionIds.length === 0) {
       setChipStatus('warn');
       return;
     }
-    // Se o Redis está fora, a Evolution API também fica lenta/sem resposta.
-    // Não trava em "Verificando..." — marca chips como não verificados (Redis é o bloqueador).
-    if (!redisOk) {
+    if (!motorOk) {
       setChipStatus('warn');
       setChipResults([]);
       return;
     }
     try {
-      // Timeout de segurança: nunca deixa o check preso em "Verificando…".
       const res = await Promise.race([
         apiPreflightCheck(selectedConnectionIds),
         new Promise<never>((_, reject) =>
@@ -244,7 +244,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       runHealthCheck();
       void runFrequencyCapCheck();
     } else {
-      setRedisStatus('idle');
+      setMotorStatus('idle');
       setChipStatus('idle');
       setChipResults([]);
       setShowChipDetails(false);
@@ -260,26 +260,28 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const needsRepeatConfirm = cappedCount > 0 && freqCapStatus === 'ok';
   const repeatConfirmed = !needsRepeatConfirm || confirmRepeatSend;
 
-  // Redis error é bloqueador imediato — não espera chips terminarem de verificar.
   const overallHealth: HealthStatus =
-    redisStatus === 'error'
+    motorStatus === 'error'
       ? 'error'
       : chipStatus === 'error'
       ? 'error'
       : freqCapStatus === 'error'
       ? 'warn'
-      : redisStatus === 'checking' || chipStatus === 'checking' || freqCapStatus === 'checking'
+      : motorStatus === 'checking' || chipStatus === 'checking' || freqCapStatus === 'checking'
       ? 'checking'
-      : redisStatus === 'ok' && chipStatus === 'ok' && triageComplete
+      : motorStatus === 'reconnecting'
+      ? 'reconnecting'
+      : motorStatus === 'ok' && chipStatus === 'ok' && triageComplete
       ? 'ok'
       : 'idle';
 
-  const canDispatch = overallHealth === 'ok' && repeatConfirmed;
+  const canDispatch = (overallHealth === 'ok' || overallHealth === 'reconnecting') && repeatConfirmed && motorStatus !== 'error' && chipStatus !== 'error';
 
   const palette = {
     ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
     error: { bg: '#ef444415', border: '#ef444435', text: '#ef4444', icon: <WifiOff className="w-4 h-4" /> },
     checking: { bg: 'var(--surface-1)', border: 'var(--border-subtle)', text: 'var(--text-3)', icon: <Loader2 className="w-4 h-4 animate-spin" /> },
+    reconnecting: { bg: '#f59e0b15', border: '#f59e0b35', text: '#f59e0b', icon: <Loader2 className="w-4 h-4 animate-spin" /> },
     warn: { bg: '#f59e0b15', border: '#f59e0b35', text: '#f59e0b', icon: <AlertTriangle className="w-4 h-4" /> },
     idle: { bg: 'var(--surface-1)', border: 'var(--border-subtle)', text: 'var(--text-3)', icon: <Wifi className="w-4 h-4" /> },
   };
@@ -356,9 +358,10 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
               {overallHealth === 'error' && <AlertTriangle className="w-4 h-4 text-red-500" />}
               {overallHealth === 'idle' && <Wifi className="w-4 h-4" style={{ color: 'var(--text-3)' }} />}
               <span className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
-                {overallHealth === 'checking' ? 'Verificando infraestrutura…' :
+                {overallHealth === 'checking' ? 'Preparando envio…' :
+                 overallHealth === 'reconnecting' ? 'Sincronizando com o servidor…' :
                  overallHealth === 'ok' ? 'Tudo pronto para disparar!' :
-                 overallHealth === 'error' ? 'Problema detectado — veja abaixo' :
+                 overallHealth === 'error' ? (isAdmin ? 'Problema detectado — veja abaixo' : 'Aguarde um instante e tente novamente') :
                  'Verificação de pré-disparo'}
               </span>
             </div>
@@ -377,19 +380,20 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
           </div>
 
           <div className="px-4 py-3 grid grid-cols-2 gap-2">
-            {/* Redis */}
-            {(['idle', 'checking', 'ok', 'error', 'warn'] as HealthStatus[]).includes(redisStatus) && (
+            {/* Motor de envio */}
+            {(['idle', 'checking', 'ok', 'error', 'warn', 'reconnecting'] as HealthStatus[]).includes(motorStatus) && (
               <div
                 className="rounded-xl px-3 py-2.5 flex items-center gap-2"
-                style={{ background: palette[redisStatus].bg, border: `1px solid ${palette[redisStatus].border}` }}
+                style={{ background: palette[motorStatus].bg, border: `1px solid ${palette[motorStatus].border}` }}
               >
-                <span style={{ color: palette[redisStatus].text }}>{palette[redisStatus].icon}</span>
+                <span style={{ color: palette[motorStatus].text }}>{palette[motorStatus].icon}</span>
                 <div>
-                  <div className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>Fila Redis</div>
-                  <div className="text-[10px]" style={{ color: palette[redisStatus].text }}>
-                    {redisStatus === 'ok' ? 'Online e respondendo' :
-                     redisStatus === 'error' ? 'Fora do ar — reinicie o Redis' :
-                     redisStatus === 'checking' ? 'Verificando…' : 'Não verificado'}
+                  <div className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>Motor de envio</div>
+                  <div className="text-[10px]" style={{ color: palette[motorStatus].text }}>
+                    {motorStatus === 'ok' ? 'Pronto' :
+                     motorStatus === 'error' ? (isAdmin ? 'Indisponível — ver correção' : 'Reconectando…') :
+                     motorStatus === 'reconnecting' ? 'Sincronizando…' :
+                     motorStatus === 'checking' ? 'Verificando…' : 'Não verificado'}
                   </div>
                 </div>
               </div>
@@ -409,7 +413,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                    chipStatus === 'error' ? `${chipResults.filter(r => !r.isReady).length} chip(s) offline` :
                    chipStatus === 'checking' ? 'Verificando…' :
                    chipStatus === 'warn'
-                     ? (selectedConnectionIds.length === 0 ? 'Nenhum chip selecionado' : 'Resolva o Redis primeiro')
+                     ? (selectedConnectionIds.length === 0 ? 'Nenhum chip selecionado' : 'Aguardando motor de envio')
                      : 'Não verificado'}
                 </div>
               </div>
@@ -447,10 +451,24 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             </div>
           )}
 
-          {/* Correção Redis — passos copiáveis */}
-          {redisStatus === 'error' && (
+          {/* Correção técnica — só para administradores da plataforma */}
+          {motorStatus === 'error' && isAdmin && (
             <div className="px-4 pb-3">
               <DispatchFixPanel compact />
+            </div>
+          )}
+          {motorStatus === 'error' && !isAdmin && (
+            <div className="px-4 pb-3">
+              <div
+                className="rounded-xl px-3.5 py-3 flex items-start gap-2.5"
+                style={{ background: '#f59e0b12', border: '1px solid #f59e0b35' }}
+              >
+                <Loader2 className="w-4 h-4 shrink-0 mt-0.5 text-amber-500 animate-spin" />
+                <p className="text-[11.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
+                  O servidor está se preparando para o envio. Aguarde alguns segundos e clique em{' '}
+                  <strong>Reverificar</strong>. Se persistir, recarregue a página.
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -674,7 +692,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             {overallHealth === 'error' && (
               <span className="text-[11px] text-red-400 flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                Corrija os problemas acima
+                {isAdmin ? 'Corrija os problemas acima' : 'Aguarde a sincronização ou clique em Reverificar'}
               </span>
             )}
             {overallHealth === 'ok' && needsRepeatConfirm && !confirmRepeatSend && (
