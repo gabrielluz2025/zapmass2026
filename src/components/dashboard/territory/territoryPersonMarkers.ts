@@ -234,7 +234,7 @@ export function paintContactPins(
 
 /** Visão geral — um bonequinho por bairro (cor = temperatura dominante). */
 export function paintNeighborhoodOverviewPins(
-  map: L.Map,
+  target: L.Map | L.LayerGroup,
   rows: NeighborhoodRow[],
   selectedKey: string | null,
   onSelect: (row: NeighborhoodRow) => void
