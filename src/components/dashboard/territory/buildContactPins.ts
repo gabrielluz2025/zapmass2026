@@ -251,10 +251,20 @@ export function buildContactPinsForScope(input: {
 }
 
 /** Limita pins no mapa sem travar o navegador em bases grandes. */
-export function capMapContactPins(pins: MapContactPin[], max = 1200): MapContactPin[] {
-  if (pins.length <= max) return pins;
-  const step = Math.ceil(pins.length / max);
-  return pins.filter((_, i) => i % step === 0);
+export const MAP_CONTACT_PIN_CAP = 1200;
+
+export function capMapContactPins(
+  pins: MapContactPin[],
+  max = MAP_CONTACT_PIN_CAP
+): { pins: MapContactPin[]; totalBeforeCap: number; capped: boolean } {
+  const totalBeforeCap = pins.length;
+  if (totalBeforeCap <= max) return { pins, totalBeforeCap, capped: false };
+  const step = Math.ceil(totalBeforeCap / max);
+  return {
+    pins: pins.filter((_, i) => i % step === 0),
+    totalBeforeCap,
+    capped: true
+  };
 }
 
 /** Valida pin vindo da API antes de plotar. */

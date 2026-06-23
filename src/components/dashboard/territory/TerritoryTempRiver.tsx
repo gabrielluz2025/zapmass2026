@@ -8,12 +8,23 @@ type Props = {
   totals: Record<ContactTemperature, number>;
   activeFilter: TempFilter;
   onFilterChange: (f: TempFilter) => void;
+  /** Total autoritativo da região (servidor), quando diferente da soma de temperaturas. */
+  regionTotalLabel?: number | null;
+  contactsHydrating?: boolean;
 };
 
 const SEGMENTS: ContactTemperature[] = ['hot', 'warm', 'cold', 'new'];
 
-export const TerritoryTempRiver: React.FC<Props> = ({ totals, activeFilter, onFilterChange }) => {
-  const total = totals.hot + totals.warm + totals.cold + totals.new;
+export const TerritoryTempRiver: React.FC<Props> = ({
+  totals,
+  activeFilter,
+  onFilterChange,
+  regionTotalLabel,
+  contactsHydrating,
+}) => {
+  const tempSum = totals.hot + totals.warm + totals.cold + totals.new;
+  const displayTotal = regionTotalLabel ?? tempSum;
+  const newDominant = tempSum > 0 && totals.new / tempSum > 0.85;
 
   return (
     <div className="zm-atlas-river">
@@ -24,20 +35,27 @@ export const TerritoryTempRiver: React.FC<Props> = ({ totals, activeFilter, onFi
           className={`zm-atlas-river__all${activeFilter === 'all' ? ' zm-atlas-river__all--on' : ''}`}
           onClick={() => onFilterChange('all')}
         >
-          {total.toLocaleString('pt-BR')} contatos
+          {displayTotal.toLocaleString('pt-BR')} contatos
         </button>
       </div>
 
-      <div
-        className="zm-atlas-river__bar"
-        role="group"
-        aria-label="Filtrar por temperatura"
-      >
-        {total === 0 ? (
+      {contactsHydrating && (
+        <p className="zm-atlas-river__hint">Atualizando temperaturas conforme a base carrega…</p>
+      )}
+
+      {newDominant && !contactsHydrating && (
+        <p className="zm-atlas-river__hint zm-atlas-river__hint--info">
+          A maioria está sem histórico de conversa — dispare campanhas ou aguarde respostas para classificar
+          quente/morno/frio.
+        </p>
+      )}
+
+      <div className="zm-atlas-river__bar" role="group" aria-label="Filtrar por temperatura">
+        {tempSum === 0 ? (
           <div className="zm-atlas-river__empty" />
         ) : (
-          SEGMENTS.filter((t) => totals[t] > 0).map((temp) => {
-            const pct = (totals[temp] / total) * 100;
+          SEGMENTS.map((temp) => {
+            const pct = Math.max((totals[temp] / tempSum) * 100, totals[temp] > 0 ? 2 : 0);
             const active = activeFilter === temp;
             return (
               <button

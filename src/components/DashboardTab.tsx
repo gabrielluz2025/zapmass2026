@@ -293,6 +293,9 @@ export const DashboardTab: React.FC = () => {
     sendMessage,
     campaigns,
     contacts,
+    contactsHasMore,
+    contactsLoadingMore,
+    contactsSavedTotal,
     socket,
     startCampaign,
     funnelStats,
@@ -874,6 +877,9 @@ export const DashboardTab: React.FC = () => {
         campaigns={campaigns}
         contacts={contacts}
         conversations={deferredConversations}
+        contactsSavedTotal={contactsSavedTotal}
+        contactsHasMore={contactsHasMore}
+        contactsLoadingMore={contactsLoadingMore}
         bestWindow={bestWindow}
         onNavigate={setCurrentView}
         onScrollFunnel={scrollToFunnel}

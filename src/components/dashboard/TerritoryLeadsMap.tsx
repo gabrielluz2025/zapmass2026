@@ -23,6 +23,8 @@ import {
   isBlumenauCity,
   resolveContactNeighborhoodForCity,
 } from '../../../shared/officialNeighborhoods';
+import { launchAtlasCampaign, saveAtlasContactsHint, type AtlasRegionLaunch } from '../../utils/atlasRegionLaunch';
+import { TerritoryAtlasMeta } from './territory/TerritoryAtlasMeta';
 import { TerritoryCitySearch } from './territory/TerritoryCitySearch';
 import { TerritoryTempRiver } from './territory/TerritoryTempRiver';
 import { TerritoryRankingTable } from './territory/TerritoryRankingTable';
@@ -43,7 +45,12 @@ import {
   sumRegionTemps,
 } from './territory/buildNeighborhoodRows';
 import { matchesStateContact } from './territory/territoryMapUtils';
-import { buildContactPinsForNeighborhood, buildContactPinsForScope, capMapContactPins } from './territory/buildContactPins';
+import {
+  buildContactPinsForNeighborhood,
+  buildContactPinsForScope,
+  capMapContactPins,
+  MAP_CONTACT_PIN_CAP,
+} from './territory/buildContactPins';
 import {
   flyToContactPins,
   flyToNeighborhoodRows,
@@ -52,12 +59,18 @@ import {
 } from './territory/territoryMapLayers';
 import type { MapContactPin, NeighborhoodContactRow, NeighborhoodRow, RegionScope, TempFilter } from './territory/types';
 
+type MapViewMode = 'neighborhoods' | 'contacts';
+
 type Props = {
   contacts: Contact[];
   conversations: Conversation[];
   defaultCity?: string;
   compact?: boolean;
   deferLoad?: boolean;
+  contactsSavedTotal?: number | null;
+  contactsHasMore?: boolean;
+  contactsLoadingMore?: boolean;
+  onNavigate?: (view: 'campaigns' | 'contacts') => void;
 };
 
 export const TerritoryLeadsMap: React.FC<Props> = ({
@@ -66,6 +79,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   defaultCity = 'Blumenau · SC',
   compact = false,
   deferLoad = false,
+  contactsSavedTotal = null,
+  contactsHasMore = false,
+  contactsLoadingMore = false,
+  onNavigate,
 }) => {
   const { cityLabel: city, applyCityLabel, loading: locationLoading, saving: locationSaving } =
     useOperatingLocation(defaultCity);
@@ -90,6 +107,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [mapActive, setMapActive] = useState(!deferLoad);
   const [cityOfficialList, setCityOfficialList] = useState<string[] | null>(null);
   const [stateRegionLabel, setStateRegionLabel] = useState<string | null>(null);
+  const [mapViewMode, setMapViewMode] = useState<MapViewMode>('neighborhoods');
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
@@ -194,8 +212,40 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const regionTemps = useMemo(() => sumRegionTemps(allRows), [allRows]);
   const regionTotal = regionTemps.hot + regionTemps.warm + regionTemps.cold + regionTemps.new;
+  const serverRegionTotal = summary?.stats?.filteredTotal ?? null;
+  const displayRegionTotal = serverRegionTotal ?? regionTotal;
+  const contactsHydrating = contactsHasMore || contactsLoadingMore;
   const nbWithData = allRows.filter((r) => r.count > 0).length;
   const nbTotalListed = allRows.length;
+
+  const cadastroHealth = useMemo(() => {
+    const n = scopeContacts.length;
+    if (n === 0) return { withNeighborhoodPct: 0, withCoordsPct: 0 };
+    let withNb = 0;
+    let withCoords = 0;
+    for (const c of scopeContacts) {
+      if ((c.neighborhood || '').trim()) withNb++;
+      if (c.latitude != null && c.longitude != null) withCoords++;
+    }
+    return {
+      withNeighborhoodPct: Math.round((100 * withNb) / n),
+      withCoordsPct: Math.round((100 * withCoords) / n),
+    };
+  }, [scopeContacts]);
+
+  const regionLabel =
+    scope === 'city' ? city : stateRegionLabel || (stateCode ? `Estado ${stateCode}` : city);
+
+  const buildAtlasLaunch = useCallback(
+    (neighborhood?: string): AtlasRegionLaunch => ({
+      city: cityNameOnly || city,
+      state: stateCode || undefined,
+      neighborhood,
+      tempFilter,
+      scope,
+    }),
+    [city, cityNameOnly, stateCode, tempFilter, scope]
+  );
 
   const neighborhoodContacts = useMemo((): NeighborhoodContactRow[] => {
     if (!selectedRow) return [];
@@ -299,14 +349,19 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       filterState: stateCode,
       tempFilter,
     });
+  const capped = capMapContactPins(built.pins);
     return {
-      pins: capMapContactPins(built.pins),
+      pins: capped.pins,
       unmapped: built.unmapped,
+      totalBeforeCap: capped.totalBeforeCap,
+      capped: capped.capped,
     };
   }, [mapActive, scopeContactRows, scopeGeo?.contactPins, city, cityNameOnly, stateCode, tempFilter]);
 
   const allScopePins = allScopePinsResult.pins;
   const allScopeUnmapped = allScopePinsResult.unmapped;
+  const allScopePinsCapped = allScopePinsResult.capped;
+  const allScopePinsTotal = allScopePinsResult.totalBeforeCap;
 
   const activePins = selectedRow ? contactPins : allScopePins;
 
@@ -488,7 +543,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [mapActive, selectedRow, city, scope, stateCode, tempFilter]);
+  }, [mapActive, selectedRow, city, scope, stateCode]);
 
   const paintMap = useCallback(() => {
     const map = mapRef.current;
@@ -526,13 +581,15 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       })
       .filter(Boolean) as NeighborhoodRow[];
 
-    if (allScopePins.length > 0) {
+    const showContactPins = mapViewMode === 'contacts' && allScopePins.length > 0;
+
+    if (showContactPins) {
       layersRef.current = paintContactPins(map, allScopePins, selectedContactId, (pin) => {
         setSelectedContactId(pin.id);
         map.flyTo([pin.lat, pin.lng], Math.max(map.getZoom(), 15), { duration: 0.35 });
       });
 
-      const vpKey = `all|${city}|${scope}|${tempFilter}|${allScopePins.length}|${selectedContactId}`;
+      const vpKey = `all|${city}|${scope}|${tempFilter}|${mapViewMode}|${allScopePins.length}|${selectedContactId}`;
       if (vpKey !== lastViewportKeyRef.current) {
         lastViewportKeyRef.current = vpKey;
         flyToContactPins(map, allScopePins);
@@ -548,7 +605,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       (row) => handleSelectRow(row)
     );
 
-    const vpKey = `nbpins|${city}|${scope}|${tempFilter}|${rowsWithLeads.length}`;
+    const vpKey = `nbpins|${city}|${scope}|${tempFilter}|${mapViewMode}|${rowsWithLeads.length}`;
     if (vpKey !== lastViewportKeyRef.current) {
       lastViewportKeyRef.current = vpKey;
       if (rowsWithLeads.length > 0) {
@@ -573,6 +630,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     summary,
     blumenauFocus,
     showAllNeighborhoods,
+    mapViewMode,
     clearDataLayers,
   ]);
 
@@ -598,11 +656,37 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       lastViewportKeyRef.current = '';
       toast.success(`${r.geocoded} endereço(s) geolocalizado(s).`);
     } catch {
-      toast.error('Falha ao mapear CEP.');
+      toast.error('Falha ao geocodificar endereços.');
     } finally {
       setGeocoding(false);
     }
   };
+
+  const handleLaunchCampaign = useCallback(() => {
+    launchAtlasCampaign(buildAtlasLaunch());
+    onNavigate?.('campaigns');
+  }, [buildAtlasLaunch, onNavigate]);
+
+  const handleOpenContacts = useCallback(() => {
+    saveAtlasContactsHint(buildAtlasLaunch());
+    onNavigate?.('contacts');
+  }, [buildAtlasLaunch, onNavigate]);
+
+  const handleLaunchCampaignForNeighborhood = useCallback(
+    (row: NeighborhoodRow) => {
+      launchAtlasCampaign(buildAtlasLaunch(row.label));
+      onNavigate?.('campaigns');
+    },
+    [buildAtlasLaunch, onNavigate]
+  );
+
+  const handleOpenContactsForNeighborhood = useCallback(
+    (row: NeighborhoodRow) => {
+      saveAtlasContactsHint(buildAtlasLaunch(row.label));
+      onNavigate?.('contacts');
+    },
+    [buildAtlasLaunch, onNavigate]
+  );
 
   const handleExportCsv = () => {
     if (!selectedRow || neighborhoodContacts.length === 0) return;
@@ -644,10 +728,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         <div className="zm-atlas__header-text">
           <h2 className="zm-atlas__title">Atlas territorial</h2>
           <p className="zm-atlas__subtitle">
-            {scope === 'city' ? city : stateRegionLabel || `Estado ${stateCode}`} · {nbTotalListed}{' '}
+            {regionLabel} · {nbTotalListed}{' '}
             {scope === 'state' ? 'bairros no estado' : 'bairros'}
-            {nbWithData < nbTotalListed ? ` (${nbWithData} com leads)` : ''} ·{' '}
-            {regionTotal.toLocaleString('pt-BR')} leads
+            {nbWithData < nbTotalListed ? ` (${nbWithData} com contatos)` : ''} ·{' '}
+            {displayRegionTotal.toLocaleString('pt-BR')} contatos na região
           </p>
         </div>
         <div className="zm-atlas__tools">
@@ -687,15 +771,63 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             onClick={() => void handleGeocode()}
           >
             {geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            CEP
+            Geocodificar
           </button>
         </div>
       </header>
 
-      <TerritoryTempRiver totals={regionTemps} activeFilter={tempFilter} onFilterChange={setTempFilter} />
+      <TerritoryAtlasMeta
+        regionLabel={regionLabel}
+        regionTotal={regionTotal}
+        serverRegionTotal={serverRegionTotal}
+        globalContactsLoaded={contacts.length}
+        globalContactsTotal={contactsSavedTotal}
+        contactsHydrating={contactsHydrating}
+        scopeContactCount={scopeContacts.length}
+        withNeighborhoodPct={cadastroHealth.withNeighborhoodPct}
+        withCoordsPct={cadastroHealth.withCoordsPct}
+        onLaunchCampaign={handleLaunchCampaign}
+        onOpenContacts={handleOpenContacts}
+      />
+
+      <TerritoryTempRiver
+        totals={regionTemps}
+        activeFilter={tempFilter}
+        onFilterChange={setTempFilter}
+        regionTotalLabel={displayRegionTotal}
+        contactsHydrating={contactsHydrating}
+      />
 
       <div className="zm-atlas__split">
         <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact">
+          {!selectedRow && (
+            <div className="zm-atlas-map-toggle" role="tablist" aria-label="Modo do mapa">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mapViewMode === 'neighborhoods'}
+                className={`zm-atlas-map-toggle__btn${mapViewMode === 'neighborhoods' ? ' zm-atlas-map-toggle__btn--on' : ''}`}
+                onClick={() => {
+                  setMapViewMode('neighborhoods');
+                  lastViewportKeyRef.current = '';
+                }}
+              >
+                Bairros
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mapViewMode === 'contacts'}
+                className={`zm-atlas-map-toggle__btn${mapViewMode === 'contacts' ? ' zm-atlas-map-toggle__btn--on' : ''}`}
+                onClick={() => {
+                  setMapViewMode('contacts');
+                  lastViewportKeyRef.current = '';
+                }}
+              >
+                Contatos
+              </button>
+            </div>
+          )}
           <div ref={containerRef} className="zm-atlas__map" />
           {(isBusy || !summary) && mapActive && (
             <div className="zm-atlas__map-loading">
@@ -714,11 +846,15 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             </div>
           ) : (
             <div className="zm-atlas__map-badge">
-              {allScopePins.length > 0
+              {mapViewMode === 'contacts' && allScopePins.length > 0
                 ? `${allScopePins.length.toLocaleString('pt-BR')} contatos no mapa${
-                    allScopeUnmapped > 0 ? ` · ${allScopeUnmapped} sem coordenada` : ''
-                  }`
-                : 'Bonequinhos por bairro — clique para ver contatos'}
+                    allScopePinsCapped
+                      ? ` (amostra de ${allScopePinsTotal.toLocaleString('pt-BR')}, limite ${MAP_CONTACT_PIN_CAP.toLocaleString('pt-BR')})`
+                      : ''
+                  }${allScopeUnmapped > 0 ? ` · ${allScopeUnmapped} sem coordenada` : ''}`
+                : mapViewMode === 'contacts'
+                ? 'Nenhum contato com coordenada — use Geocodificar ou alterne para Bairros'
+                : `${nbWithData} bairros com contatos — clique para detalhar`}
             </div>
           )}
           {selectedContact && (
@@ -734,6 +870,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           onSelectRow={handleSelectRow}
           onSelectContact={handleSelectContact}
           onExportCsv={handleExportCsv}
+          onLaunchCampaignForNeighborhood={handleLaunchCampaignForNeighborhood}
+          onOpenContactsForNeighborhood={handleOpenContactsForNeighborhood}
         />
       </div>
     </div>
