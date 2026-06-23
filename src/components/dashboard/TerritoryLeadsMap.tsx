@@ -374,7 +374,6 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [mapActive, scopeContactRows, scopeGeo?.contactPins, city, cityNameOnly, stateCode, tempFilter]);
 
   const allScopePins = allScopePinsResult.pins;
-  const allScopeUnmapped = allScopePinsResult.unmapped;
   const allScopePinsCapped = allScopePinsResult.capped;
   const allScopePinsTotal = allScopePinsResult.totalBeforeCap;
 
