@@ -39,6 +39,9 @@ type Props = {
   campaigns: Campaign[];
   contacts: Contact[];
   conversations: Conversation[];
+  contactsSavedTotal?: number | null;
+  contactsHasMore?: boolean;
+  contactsLoadingMore?: boolean;
   bestWindow?: { label: string } | null;
   onNavigate: (view: NavView) => void;
   onScrollFunnel: () => void;
@@ -63,6 +66,9 @@ export const DashboardCommandPanel: React.FC<Props> = ({
   campaigns,
   contacts,
   conversations,
+  contactsSavedTotal,
+  contactsHasMore,
+  contactsLoadingMore,
   bestWindow,
   onNavigate,
   onScrollFunnel,
@@ -128,7 +134,16 @@ export const DashboardCommandPanel: React.FC<Props> = ({
         </div>
       </div>
 
-      <TerritoryLeadsMap contacts={contacts} conversations={conversations} defaultCity="Blumenau · SC" deferLoad />
+      <TerritoryLeadsMap
+        contacts={contacts}
+        conversations={conversations}
+        defaultCity="Blumenau · SC"
+        deferLoad
+        contactsSavedTotal={contactsSavedTotal}
+        contactsHasMore={contactsHasMore}
+        contactsLoadingMore={contactsLoadingMore}
+        onNavigate={onNavigate}
+      />
 
       <footer className="zm-command-v3__dock">
         {dockItems.map((item) => (

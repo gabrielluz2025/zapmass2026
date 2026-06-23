@@ -96,6 +96,7 @@ export function registerLeadsGeoRoutes(app: Express): void {
     const body = (req.body || {}) as {
       max?: number;
       city?: string;
+      state?: string;
       neighborhood?: string;
       name?: string;
       force?: boolean;
@@ -105,6 +106,7 @@ export function registerLeadsGeoRoutes(app: Express): void {
       const result = await geocodeContactsWithAddress(ctx.tenantId, {
         max,
         city: body.city,
+        state: body.state,
         neighborhood: body.neighborhood,
         name: body.name?.trim() || undefined,
         force: body.force === true

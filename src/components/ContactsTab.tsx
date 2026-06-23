@@ -61,6 +61,7 @@ import { openChatByConversationIdNavigate } from '../utils/openChatByConversatio
 import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
 import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
+import { consumeAtlasContactsHint } from '../utils/atlasRegionLaunch';
 import { validateImportRow } from '../utils/contactImportSchema';
 import { apiNormalizeContactAddresses } from '../services/contactsApi';
 import { apiGeocodeContacts, apiNormalizeAddresses } from '../services/leadsGeoApi';
@@ -838,6 +839,27 @@ export const ContactsTab: React.FC = () => {
   useEffect(() => {
     try { localStorage.setItem('zapmass.contactsFilter', String(activeFilter)); } catch { /* ignore */ }
   }, [activeFilter]);
+
+  useEffect(() => {
+    const hint = consumeAtlasContactsHint();
+    if (!hint) return;
+    if (hint.neighborhood) {
+      setSearchTerm(hint.neighborhood);
+    } else if (hint.scope === 'city' && hint.city) {
+      setSearchTerm(hint.city.split('·')[0]?.trim() || hint.city);
+    }
+    if (hint.tempFilter && hint.tempFilter !== 'all') {
+      const tempMap: Partial<Record<ContactTemperature, SmartFilterId>> = {
+        hot: 'hot',
+        warm: 'warm',
+        cold: 'cold',
+        new: 'new',
+      };
+      const next = tempMap[hint.tempFilter];
+      if (next) setActiveFilter(next);
+    }
+    setCurrentPage(1);
+  }, []);
   const [listsUiFocus, setListsUiFocus] = useState<'none' | 'tab' | 'create'>('none');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   /** Fotos buscadas em background (já persistidas no servidor). */

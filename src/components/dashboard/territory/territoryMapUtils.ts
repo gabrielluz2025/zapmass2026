@@ -91,6 +91,8 @@ export type NbTempStats = {
   cold: number;
   new: number;
   total: number;
+  /** Contagem agregada no servidor (clusters) — pode ser maior que contatos já hidratados no client. */
+  clusterCount?: number;
 };
 
 export function dominantNeighborhoodTemp(stats: NbTempStats): ContactTemperature {

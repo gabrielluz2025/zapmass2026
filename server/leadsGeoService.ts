@@ -2060,7 +2060,7 @@ export function isContactGeocodeAvailable(): boolean {
 
 export async function geocodeContactsWithAddress(
   tenantId: string,
-  opts?: { max?: number; city?: string; neighborhood?: string; name?: string; force?: boolean }
+  opts?: { max?: number; city?: string; state?: string; neighborhood?: string; name?: string; force?: boolean }
 ): Promise<{ geocoded: number; failed: number; summary: LeadsGeoSummary }> {
   const max = Math.min(Math.max(opts?.max ?? 60, 1), 250);
 
@@ -2070,6 +2070,7 @@ export async function geocodeContactsWithAddress(
       if (
         !contactMatchesFilters(c, {
           city: opts?.city,
+          state: opts?.state,
           neighborhood: opts?.neighborhood,
           name: opts?.name
         })
@@ -2126,6 +2127,7 @@ export async function geocodeContactsWithAddress(
   const summary = await buildLeadsGeoSummary(tenantId, {
     layer: opts?.neighborhood || opts?.city ? 'neighborhood' : 'city',
     city: opts?.city,
+    state: opts?.state,
     neighborhood: opts?.neighborhood,
     name: opts?.name
   });

@@ -12,7 +12,7 @@ import { clusterMatchesFilterCity, dominantNeighborhoodTemp, matchesCity, matche
 import type { NeighborhoodRow } from './types';
 
 function emptyStats(label: string): NbTempStats {
-  return { label, hot: 0, warm: 0, cold: 0, new: 0, total: 0 };
+  return { label, hot: 0, warm: 0, cold: 0, new: 0, total: 0, clusterCount: 0 };
 }
 
 function statsFromContacts(
@@ -86,11 +86,7 @@ function mergeClusterNeighborhoods(
     const slot = map.get(key);
     if (!slot) continue;
 
-    if (cl.count > slot.total) {
-      const delta = cl.count - slot.total;
-      slot.new += delta;
-      slot.total += delta;
-    }
+    slot.clusterCount = Math.max(slot.clusterCount || 0, cl.count);
   }
 }
 
@@ -171,7 +167,7 @@ export function buildNeighborhoodRows(input: {
     rows.push({
       key: normNbKey(stats.label) || normalizeKey(stats.label),
       label: stats.label,
-      count: stats.total,
+      count: Math.max(stats.total, stats.clusterCount || 0),
       hot: stats.hot,
       warm: stats.warm,
       cold: stats.cold,
@@ -204,11 +200,11 @@ export function filterClustersForScope(
   clusters: GeoCluster[],
   city: string,
   scope: 'city' | 'state',
-  hasOfficialList: boolean
+  _hasOfficialList?: boolean
 ): GeoCluster[] {
   if (scope === 'city') {
     return clusters.filter(
-      (c) => c.lat != null && c.lng != null && (hasOfficialList || clusterMatchesFilterCity(c, city))
+      (c) => c.lat != null && c.lng != null && clusterMatchesFilterCity(c, city)
     );
   }
   const stateCode = city.split('·')[1]?.trim();
