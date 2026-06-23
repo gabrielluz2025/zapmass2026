@@ -1,4 +1,6 @@
-/** Posição aproximada de município dentro da UF (espiral — evita grade retangular no mapa). */
+import { lookupMunicipioCoord, type MunicipioCoordsIndex } from './municipioCoords';
+
+/** Posição aproximada de município dentro da UF (IBGE real ou espiral de fallback). */
 
 const UF_CENTER: Record<string, { lat: number; lng: number }> = {
   AC: { lat: -9.974, lng: -67.81 },
@@ -60,14 +62,21 @@ function normKey(s: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-/** Coordenada aproximada por cidade+UF (tabela conhecida ou espiral dentro da UF). */
-export function spreadCityInUf(city: string, state: string): { lat: number; lng: number } | null {
+/** Coordenada aproximada por cidade+UF (IBGE, tabela conhecida ou espiral dentro da UF). */
+export function spreadCityInUf(
+  city: string,
+  state: string,
+  coordsIndex?: MunicipioCoordsIndex | null
+): { lat: number; lng: number } | null {
   const st = String(state || '')
     .trim()
     .toUpperCase()
     .slice(0, 2);
   const cityNorm = normKey(city.split('·')[0] || city);
   if (!cityNorm) return null;
+
+  const ibge = lookupMunicipioCoord(city, st, coordsIndex);
+  if (ibge) return ibge;
 
   const known = CITY_COORDS[`${st.toLowerCase()}${cityNorm}`];
   if (known) return known;
