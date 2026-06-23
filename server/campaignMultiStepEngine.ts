@@ -23,6 +23,7 @@ import {
 } from './repositories/campaignContactStateRepository.js';
 import { usePostgresCampaigns } from './campaignStore.js';
 import { resolvePostgresTenantId } from './auth/firebaseUidMap.js';
+import { phoneContactIdVariants } from './campaignFlowContinuation.js';
 
 // ─── Tipos exportados ────────────────────────────────────────────────────────
 
@@ -82,7 +83,8 @@ export async function initMultiStepContactStates(
   contactIds: string[]
 ): Promise<void> {
   if (!usePostgresCampaigns()) return;
-  await bulkInitContactStates(tenantId, campaignId, contactIds);
+  const pgTenantId = resolvePostgresTenantId(tenantId);
+  await bulkInitContactStates(pgTenantId, campaignId, contactIds);
 }
 
 // ─── Conclusão de uma etapa ──────────────────────────────────────────────────
@@ -215,13 +217,18 @@ export async function onContactReply(params: {
     params;
 
   const pgTenantId = resolvePostgresTenantId(tenantId);
-  const state = await findWaitingReplyStateForContact(pgTenantId, contactId);
+  let state: Awaited<ReturnType<typeof findWaitingReplyStateForContact>> = null;
+  for (const variant of phoneContactIdVariants(contactId)) {
+    state = await findWaitingReplyStateForContact(pgTenantId, variant);
+    if (state) break;
+  }
   if (!state) return false;
 
-  const { campaign_id: campaignId, current_step_index: currentStepIndex } = state;
+  const { campaign_id: campaignId, current_step_index: currentStepIndex, contact_id: resolvedContactId } =
+    state;
 
   // Grava a resposta
-  const updated = await recordContactReply(campaignId, contactId, replyText);
+  const updated = await recordContactReply(campaignId, resolvedContactId, replyText);
   if (!updated) return false;
 
   const stageConfigs = stageConfigsResolver(campaignId);
@@ -234,7 +241,7 @@ export async function onContactReply(params: {
 
   callbacks.onLog('Resposta do contato recebida no motor multi-etapas', {
     campaignId,
-    contactId,
+    contactId: resolvedContactId,
     currentStep: currentStepIndex + 1,
     replyPreview: replyText.slice(0, 80),
     triggerType,
@@ -255,7 +262,7 @@ export async function onContactReply(params: {
     }
     callbacks.onLog('Avaliação condicional da resposta', {
       campaignId,
-      contactId,
+      contactId: resolvedContactId,
       conditionMatches,
       nextStep: nextIndex + 1,
     });
@@ -263,23 +270,23 @@ export async function onContactReply(params: {
 
   // Fora de bounds → completar
   if (nextIndex >= stageConfigs.length) {
-    await markContactCompleted(campaignId, contactId);
+    await markContactCompleted(campaignId, resolvedContactId);
     callbacks.onLog('Contato concluiu fluxo após resposta', {
       campaignId,
-      contactId,
+      contactId: resolvedContactId,
       totalSteps: stageConfigs.length,
     });
     return true;
   }
 
   const nextStage = stageConfigs[nextIndex];
-  const vars = callbacks.resolveVars(contactId);
-  const message = callbacks.applyVars(nextStage.body, contactId, vars);
+  const vars = callbacks.resolveVars(resolvedContactId);
+  const message = callbacks.applyVars(nextStage.body, resolvedContactId, vars);
 
-  await advanceContactToStep(campaignId, contactId, nextIndex, 'waiting_delay', new Date());
+  await advanceContactToStep(campaignId, resolvedContactId, nextIndex, 'waiting_delay', new Date());
 
   await callbacks.enqueue({
-    contactId,
+    contactId: resolvedContactId,
     stepIndex: nextIndex,
     message,
     connectionId,
@@ -291,14 +298,14 @@ export async function onContactReply(params: {
 
   callbacks.onLog('Próxima etapa enfileirada após resposta do contato', {
     campaignId,
-    contactId,
+    contactId: resolvedContactId,
     fromStep: currentStepIndex + 1,
     toStep: nextIndex + 1,
   });
 
   callbacks.publishEvent(ownerUid, 'campaign:contact-advanced', {
     campaignId,
-    contactId,
+    contactId: resolvedContactId,
     fromStep: currentStepIndex,
     toStep: nextIndex,
   });
