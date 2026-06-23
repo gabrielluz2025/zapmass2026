@@ -49,3 +49,23 @@ describe('clusterMatchesFilterState', () => {
     expect(clusterMatchesFilterState(c, 'SC')).toBe(false);
   });
 });
+
+describe('matchesStateContact', () => {
+  it('não inclui cidade de PR só porque o DDD é de SC', async () => {
+    const { matchesStateContact } = await import('./territoryMapUtils');
+    const hit = matchesStateContact(
+      {
+        id: '1',
+        name: 'Teste',
+        phone: '47999999999',
+        city: 'Bom Jesus do Sul',
+        state: 'PR',
+        lastMsg: '',
+        status: 'VALID',
+        tags: [],
+      },
+      'SC'
+    );
+    expect(hit).toBe(false);
+  });
+});

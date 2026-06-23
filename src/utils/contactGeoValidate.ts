@@ -2,6 +2,7 @@
  * Validação de coordenadas de contato no cliente (espelha regras do servidor).
  */
 import { fixBrazilCoord, isInsideBrazilBounds, isMapCoordValid } from './brazilMapCoords';
+import { spreadCityInUf } from './ufCitySpread';
 import type { Contact } from '../types';
 import { isBlumenauCity } from '../../shared/blumenauNeighborhoods';
 
@@ -40,26 +41,11 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 function cityToApproxCoord(city: string, state: string): { lat: number; lng: number } | null {
-  const st = String(state || '')
-    .trim()
-    .toUpperCase()
-    .slice(0, 2);
-  const cityNorm = normKey(city.split('·')[0] || city);
-  if (!cityNorm) return null;
-  const known = CITY_COORDS[`${st.toLowerCase()}${cityNorm}`];
-  if (known) return known;
-  const base = UF_CENTER[st];
-  if (!base) return null;
-  let hash = 0;
-  for (const ch of cityNorm) hash = (hash * 31 + ch.charCodeAt(0)) % 100_000;
-  return {
-    lat: base.lat + ((hash % 17) - 8) * 0.14,
-    lng: base.lng + ((hash % 19) - 9) * 0.14,
-  };
+  return spreadCityInUf(city, state);
 }
 
 export function approxCityCoord(city: string, state: string): { lat: number; lng: number } | null {
-  return cityToApproxCoord(city, state);
+  return spreadCityInUf(city, state);
 }
 
 export function isCoordPlausibleForCity(

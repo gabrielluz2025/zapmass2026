@@ -707,21 +707,25 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
 
     const rowsWithLeads = normalized.filter((r) => r.count > 0);
+    const mapRows =
+      isStateCityList && rowsWithLeads.length > 120
+        ? rowsWithLeads.slice(0, 120)
+        : rowsWithLeads;
     layersRef.current = paintNeighborhoodLayer(
       target,
       neighborhoodViz,
-      rowsWithLeads,
+      mapRows,
       null,
       territoryViewMode,
       handleSelectRow,
       isStateCityList ? 'city' : 'neighborhood'
     );
 
-    const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${neighborhoodViz}|${territoryViewMode}|${rowsWithLeads.length}`;
+    const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${neighborhoodViz}|${territoryViewMode}|${mapRows.length}`;
     if (vpKey !== lastViewportKeyRef.current) {
       lastViewportKeyRef.current = vpKey;
-      if (rowsWithLeads.length > 0) {
-        flyToNeighborhoodRows(map, rowsWithLeads);
+      if (mapRows.length > 0) {
+        flyToNeighborhoodRows(map, mapRows);
       } else if (summary?.mapViewport) {
         map.setView([summary.mapViewport.lat, summary.mapViewport.lng], summary.mapViewport.zoom, {
           animate: true,

@@ -1,4 +1,5 @@
 import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
+import { spreadCityInUf } from '../src/utils/ufCitySpread.js';
 
 /** Centróides aproximados por UF (mapa imediato sem Google — DDD / estado). */
 export const UF_CENTER: Record<string, { lat: number; lng: number }> = {
@@ -81,26 +82,9 @@ const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   sprj: { lat: -22.9068, lng: -43.1729 }
 };
 
-/** Posição aproximada por cidade (tabela conhecida ou hash dentro da UF). */
+/** Posição aproximada por cidade (tabela conhecida ou espiral dentro da UF). */
 export function cityToApproxCoord(city: string, state: string): { lat: number; lng: number } | null {
-  const st = String(state || '')
-    .trim()
-    .toUpperCase()
-    .slice(0, 2);
-  const cityNorm = normKeyPart(city);
-  if (!cityNorm) return null;
-
-  const known = CITY_COORDS[`${st.toLowerCase()}${cityNorm}`];
-  if (known) return known;
-
-  const base = ufToCoord(st);
-  if (!base) return null;
-
-  let hash = 0;
-  for (const ch of cityNorm) hash = (hash * 31 + ch.charCodeAt(0)) % 100_000;
-  const latOff = ((hash % 17) - 8) * 0.14;
-  const lngOff = ((hash % 19) - 9) * 0.14;
-  return { lat: base.lat + latOff, lng: base.lng + lngOff };
+  return spreadCityInUf(city, state);
 }
 
 export const UF_NAMES: Record<string, string> = {
