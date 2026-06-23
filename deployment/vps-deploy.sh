@@ -9,7 +9,7 @@ cd /opt/zapmass
 _deploy_lock="/var/lock/zapmass-deploy.lock"
 mkdir -p /var/lock 2>/dev/null || true
 exec 9>"${_deploy_lock}"
-_flock_wait="${DEPLOY_FLOCK_WAIT_SEC:-600}"
+_flock_wait="${DEPLOY_FLOCK_WAIT_SEC:-900}"
 _flock_i=0
 while ! flock -n 9; do
   _flock_i=$((_flock_i + 1))

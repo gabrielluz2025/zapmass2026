@@ -1,9 +1,12 @@
 # Cole ESTE BLOCO INTEIRO no terminal SSH da VPS (Hostinger → Terminal)
 
-cd /opt/zapmass && bash deployment/deploy-completo.sh
+cd /opt/zapmass && git fetch origin && git reset --hard origin/main && bash deployment/deploy-completo.sh
 
-# Se lock preso / deploy anterior travou:
-# DEPLOY_FORCE=1 cd /opt/zapmass && bash deployment/deploy-completo.sh
+# Se aparecer "outro deploy em execução" ou lock preso (CI/cron em paralelo):
+cd /opt/zapmass && git fetch origin && git reset --hard origin/main && DEPLOY_FORCE=1 bash deployment/deploy-completo.sh
+
+# Só verificar versão sem deploy:
+curl -s http://127.0.0.1:3001/api/health
 
 # Primeira vez (ainda sem o script no servidor):
 # curl -fsSL https://raw.githubusercontent.com/gabrielluz2025/zapmass2026/main/deployment/deploy-completo.sh | bash -s

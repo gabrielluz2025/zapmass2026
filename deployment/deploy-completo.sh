@@ -36,12 +36,6 @@ fi
 
 cd "$ROOT"
 
-# --- Lock preso (outro deploy morreu a meio) ---
-if [ "${DEPLOY_FORCE:-0}" = "1" ] && [ -f deployment/clear-stale-deploy-lock.sh ]; then
-  log "DEPLOY_FORCE=1 — a limpar lock antigo (se existir)"
-  bash deployment/clear-stale-deploy-lock.sh || true
-fi
-
 # --- Git: código = origin/main ---
 log "1/4 — Atualizar código (origin/main)"
 if [ -f deployment/ensure-git-main.sh ]; then
@@ -70,6 +64,37 @@ fi
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 log "Código em main @ ${COMMIT}"
 
+# --- Já em produção? (evita deploy duplicado quando CI/cron acabou de aplicar) ---
+HP="$(grep -E '^HOST_PORT=' .env 2>/dev/null | tail -1 | sed 's/^HOST_PORT=//' | tr -d $'\r"\'')" || true
+HP="${HP:-3001}"
+LIVE_VER="$(curl -sf "http://127.0.0.1:${HP}/api/health" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || echo '')"
+if [ -n "${LIVE_VER}" ] && [ "${LIVE_VER}" = "${COMMIT}" ]; then
+  log "4/4 — Já em produção @ ${COMMIT} (nada a fazer)"
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════╗"
+  echo "║  Servidor já está na versão ${COMMIT}                          "
+  echo "║  API: http://127.0.0.1:${HP}/api/health                          "
+  echo "╚══════════════════════════════════════════════════════════════╝"
+  echo ""
+  exit 0
+fi
+
+# --- Lock: outro deploy (CI/cron) em paralelo ---
+if [ "${DEPLOY_FORCE:-0}" = "1" ]; then
+  log "DEPLOY_FORCE=1 — aguardar deploy em andamento ou limpar lock"
+  bash deployment/wait-for-deploy-lock.sh || bash deployment/clear-stale-deploy-lock.sh || true
+  LIVE_VER="$(curl -sf "http://127.0.0.1:${HP}/api/health" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || echo '')"
+  if [ -n "${LIVE_VER}" ] && [ "${LIVE_VER}" = "${COMMIT}" ]; then
+    log "4/4 — Outro deploy aplicou ${COMMIT} enquanto aguardávamos"
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  Servidor já está na versão ${COMMIT}                          "
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    exit 0
+  fi
+fi
+
 # --- .env mínimo ---
 if [ ! -f .env ] && [ -f .env.example ]; then
   log "A criar .env a partir de .env.example"
@@ -87,6 +112,7 @@ fi
 chmod +x deployment/vps-deploy.sh
 
 export VITE_GIT_REF="${COMMIT}"
+export DEPLOY_FLOCK_WAIT_SEC="${DEPLOY_FLOCK_WAIT_SEC:-900}"
 # Não simular GitHub Actions — evita pausa de 90s antes do healthcheck em deploy manual.
 unset GITHUB_EVENT_NAME
 unset GITHUB_ACTIONS
