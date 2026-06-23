@@ -30,6 +30,7 @@ type Props = {
   onRecenter: () => void;
   focusMode: boolean;
   neighborhoodsModeLabel?: string;
+  showMunicipioBorders?: boolean;
   statsLine: string;
 };
 
@@ -54,8 +55,24 @@ export const TerritoryMapChrome: React.FC<Props> = ({
   onRecenter,
   focusMode,
   neighborhoodsModeLabel = 'Bairros',
+  showMunicipioBorders = false,
   statsLine,
 }) => {
+  const vizModes = (
+    showMunicipioBorders
+      ? [
+          ['borders', 'Contornos'],
+          ['heat', 'Calor'],
+          ['bubbles', 'Bolhas'],
+          ['labels', 'Rótulos'],
+        ]
+      : [
+          ['heat', 'Calor'],
+          ['bubbles', 'Bolhas'],
+          ['labels', 'Rótulos'],
+        ]
+  ) as const;
+
   return (
     <div className="zm-atlas-map-chrome">
       <div className="zm-atlas-map-chrome__row zm-atlas-map-chrome__row--primary">
@@ -84,18 +101,12 @@ export const TerritoryMapChrome: React.FC<Props> = ({
 
         {!focusMode && mapViewMode === 'neighborhoods' && (
           <div className="zm-atlas-map-chrome__sub" role="group" aria-label="Visualização de bairros">
-            {(
-              [
-                ['heat', 'Calor'],
-                ['bubbles', 'Bolhas'],
-                ['labels', 'Rótulos'],
-              ] as const
-            ).map(([id, label]) => (
+            {vizModes.map(([id, label]) => (
               <button
                 key={id}
                 type="button"
                 className={`zm-atlas-map-chrome__chip${neighborhoodViz === id ? ' zm-atlas-map-chrome__chip--on' : ''}`}
-                onClick={() => onNeighborhoodVizChange(id)}
+                onClick={() => onNeighborhoodVizChange(id as NeighborhoodViz)}
               >
                 {label}
               </button>

@@ -2,6 +2,8 @@ import L from 'leaflet';
 import 'leaflet.heat';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
 import { CONTACT_TEMP_LABEL } from '../../../utils/contactTemperature';
+import { normCityKey } from '../../../utils/ibgeCityLookup';
+import type { MunicipiosGeoJson } from '../../../services/leadsGeoApi';
 import { TEMP_COLOR, type TerritoryViewMode } from './territoryConstants';
 import { formatCompactCount } from './territoryMapUtils';
 import { territoryMicroPillIcon, territoryTooltipHtml } from './territoryMapMarkers';
@@ -365,7 +367,120 @@ export function paintContactsHeat(
   return [layer];
 }
 
-export type NeighborhoodViz = 'heat' | 'bubbles' | 'labels';
+function municipalityKeyFromLabel(label: string): string {
+  const city = String(label || '').split('·')[0]?.trim() || label;
+  return normCityKey(city);
+}
+
+function buildRowByMunicipalityKey(rows: NeighborhoodRow[]): Map<string, NeighborhoodRow> {
+  const map = new Map<string, NeighborhoodRow>();
+  for (const row of rows) {
+    const key = municipalityKeyFromLabel(row.label);
+    if (!key) continue;
+    const prev = map.get(key);
+    if (!prev || row.count > prev.count) map.set(key, row);
+  }
+  return map;
+}
+
+/** Contornos oficiais dos municípios — borda colorida por temperatura/volume. */
+export function paintMunicipalityBorders(
+  target: L.Map | L.LayerGroup,
+  geo: MunicipiosGeoJson | null,
+  rows: NeighborhoodRow[],
+  viewMode: TerritoryViewMode,
+  onSelect: (row: NeighborhoodRow) => void
+): L.Layer[] {
+  if (!geo?.features?.length) return [];
+
+  const rowByKey = buildRowByMunicipalityKey(rows);
+  const maxCount = Math.max(1, ...rows.map((r) => r.count));
+  const layers: L.Layer[] = [];
+
+  const gj = L.geoJSON(geo as GeoJSON.FeatureCollection, {
+    style: (feature) => {
+      const nameKey = String((feature?.properties as Record<string, unknown>)?.nameKey || '');
+      const row = nameKey ? rowByKey.get(nameKey) : undefined;
+      const hasData = Boolean(row && row.count > 0);
+      const color = row ? rowColor(row, maxCount, viewMode) : '#94a3b8';
+
+      return {
+        fillColor: color,
+        fillOpacity: hasData ? 0.06 : 0,
+        color,
+        weight: hasData ? (row!.index <= 5 ? 3 : 2.2) : 0.85,
+        opacity: hasData ? 0.95 : 0.28,
+        className: 'zm-atlas-muni-border',
+      };
+    },
+    onEachFeature: (feature, layer) => {
+      const props = (feature.properties || {}) as Record<string, unknown>;
+      const nameKey = String(props.nameKey || '');
+      const nome = String(props.nome || 'Município');
+      const row = nameKey ? rowByKey.get(nameKey) : undefined;
+
+      if (row) {
+        const tip = territoryTooltipHtml(row.label, row.count, row.dominant, tempMixLine(row));
+        layer.bindTooltip(tip, {
+          className: 'zm-territory-tip-pane',
+          sticky: false,
+          direction: 'top',
+          opacity: 1,
+        });
+        bindNeighborhoodPopup(layer, row, 'city');
+        layer.on('click', () => onSelect(row));
+      } else {
+        layer.bindTooltip(
+          `<div class="zm-atlas-tip"><strong>${escapeHtml(nome)}</strong><span>Sem contatos nesta visão</span></div>`,
+          { className: 'zm-territory-tip-pane', sticky: false, direction: 'top', opacity: 1 }
+        );
+      }
+
+      layer.on('mouseover', function highlight() {
+        const lyr = layer as L.Path;
+        lyr.setStyle({ weight: 3.5, opacity: 1, fillOpacity: row && row.count > 0 ? 0.14 : 0.04 });
+        lyr.bringToFront();
+      });
+      layer.on('mouseout', function reset() {
+        gj.resetStyle(layer);
+      });
+    },
+  });
+
+  gj.addTo(target);
+  layers.push(gj);
+
+  const top = [...rows]
+    .filter((r) => r.count > 0 && r.lat != null && r.lng != null)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+
+  for (const row of top) {
+    const color = rowColor(row, maxCount, viewMode);
+    const marker = L.circleMarker([row.lat!, row.lng!], {
+      radius: row.index === 1 ? 6 : 4,
+      fillColor: color,
+      fillOpacity: 1,
+      color: '#fff',
+      weight: 2,
+      opacity: 1,
+      className: 'zm-atlas-muni-pin',
+    });
+    marker.bindTooltip(territoryTooltipHtml(row.label, row.count, row.dominant, tempMixLine(row)), {
+      className: 'zm-territory-tip-pane',
+      direction: 'top',
+      opacity: 1,
+      sticky: false,
+    });
+    marker.on('click', () => onSelect(row));
+    marker.addTo(target);
+    layers.push(marker);
+  }
+
+  return layers;
+}
+
+export type NeighborhoodViz = 'borders' | 'heat' | 'bubbles' | 'labels';
 export type ContactViz = 'heat' | 'pins';
 export type MapTileId = 'voyager' | 'light' | 'dark';
 
@@ -376,8 +491,12 @@ export function paintNeighborhoodLayer(
   selectedKey: string | null,
   viewMode: TerritoryViewMode,
   onSelect: (row: NeighborhoodRow) => void,
-  listEntity: 'city' | 'neighborhood' = 'neighborhood'
+  listEntity: 'city' | 'neighborhood' = 'neighborhood',
+  opts?: { municipiosGeo?: MunicipiosGeoJson | null }
 ): L.Layer[] {
+  if (mode === 'borders') {
+    return paintMunicipalityBorders(target, opts?.municipiosGeo ?? null, rows, viewMode, onSelect);
+  }
   if (mode === 'heat') return paintNeighborhoodHeat(target, rows, viewMode, onSelect, listEntity);
   if (mode === 'bubbles') return paintNeighborhoodBubbles(target, rows, selectedKey, viewMode, onSelect, listEntity);
   return paintNeighborhoodLabels(target, rows, selectedKey, viewMode, onSelect);
