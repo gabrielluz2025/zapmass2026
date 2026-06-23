@@ -10,6 +10,7 @@ import {
   BarChart3,
   CheckCircle2,
   LayoutGrid,
+  Loader2,
   Plus,
   Radio,
   RefreshCw,
@@ -21,6 +22,8 @@ import { Campaign, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '
 import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useDispatchHealth } from './useDispatchHealth';
+import { useAuth } from '../../context/AuthContext';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 export type CampaignStudioTab = 'overview' | 'mission' | 'campaigns' | 'create';
 
@@ -52,6 +55,8 @@ export const CampaignStudioShell: React.FC<Props> = ({
   children,
 }) => {
   const { health, ui: healthUi, check } = useDispatchHealth();
+  const { user } = useAuth();
+  const isAdmin = isPlatformAdminUser(user);
 
   const stats = useMemo(() => {
     const running = campaigns.filter((c) => c.status === CampaignStatus.RUNNING);
@@ -71,12 +76,14 @@ export const CampaignStudioShell: React.FC<Props> = ({
       : ready
       ? 'Pronto para disparar'
       : healthUi === 'error'
-      ? health?.reachable === false
-        ? 'Conexão instável'
-        : 'Fila indisponível'
+      ? isAdmin
+        ? health?.reachable === false
+          ? 'Conexão instável'
+          : 'Fila indisponível'
+        : 'Preparando envio…'
       : 'Conecte um chip WhatsApp';
 
-  const showErrorPanel = healthUi === 'error';
+  const showErrorPanel = healthUi === 'error' && isAdmin;
   const errorPanelMode =
     health?.reachable === false || health?.kind === 'network' ? ('network' as const) : ('redis' as const);
 

@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { evolutionConfig } from './evolutionConfig.js';
+import { getEffectiveRedisUrl } from './redisConfig.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
     ReplyFlowEngine,
@@ -1637,16 +1638,24 @@ interface WarmupItem {
 // ================== ESTADO GLOBAL ==================
 
 function getRedisUrl(): string | null {
-    const url = process.env.REDIS_URL?.trim();
-    return url || null;
+    return getEffectiveRedisUrl();
 }
 
 let redisConnection: IORedis | null = null;
+let redisConnectionUrl: string | null = null;
 let campaignQueue: Queue<MessageQueueItem> | null = null;
 
 function getRedisConnection(): IORedis | null {
     const url = getRedisUrl();
     if (!url) return null;
+
+    if (redisConnection && redisConnectionUrl && redisConnectionUrl !== url) {
+        console.warn('[campaign-queue] REDIS_URL alterada — recriando conexão…', {
+            from: redisConnectionUrl,
+            to: url,
+        });
+        resetCampaignRedisConnection();
+    }
 
     // Se a conexão anterior morreu permanentemente, recria tudo do zero.
     // IORedis status 'end'/'close' — conexão fechada (ex.: após restart do Redis na VPS).
@@ -1667,6 +1676,7 @@ function getRedisConnection(): IORedis | null {
     }
 
     if (!redisConnection) {
+        redisConnectionUrl = url;
         redisConnection = new IORedis(url, {
             maxRetriesPerRequest: null,
             enableOfflineQueue: false,
@@ -1699,6 +1709,7 @@ export function resetCampaignRedisConnection(): void {
         }
     }
     redisConnection = null;
+    redisConnectionUrl = null;
     campaignQueue = null;
     if (campaignWorker) {
         campaignWorker.close().catch(() => {});
@@ -1710,10 +1721,8 @@ export function resetCampaignRedisConnection(): void {
 /** Verifica se o Redis está acessível abrindo uma conexão independente (não interfere no BullMQ). */
 async function pingRedisHealthy(): Promise<boolean> {
     const url = getRedisUrl();
-    if (!url) return false;
-    // Cria conexão isolada para o ping (não usa a conexão BullMQ que tem enableOfflineQueue:false).
-    const { redisPing } = await import('./redisPing.js');
-    const result = await redisPing(url);
+    const { redisPingWithFallback } = await import('./redisPing.js');
+    const result = await redisPingWithFallback(url);
     return result.ok;
 }
 
