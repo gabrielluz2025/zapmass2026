@@ -53,7 +53,7 @@ import {
 import { useWorkspace } from '../../context/WorkspaceContext';
 import {
   getCampaignProgressMetrics,
-  healStuckCampaignStatus,
+  healCampaignDocument,
   isCampaignEffectivelyDone,
   isCampaignPauseAction,
   isCampaignPauseControlVisible,
@@ -619,7 +619,7 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
   const [retryDialog, setRetryDialog] = useState<CampaignRetryDialogState | null>(null);
   const [showRetryBanner, setShowRetryBanner] = useState(false);
 
-  const campaignLive = useMemo(() => healStuckCampaignStatus(campaign), [campaign]);
+  const campaignLive = useMemo(() => healCampaignDocument(campaign), [campaign]);
 
   const isRunning = campaignLive.status === CampaignStatus.RUNNING;
   const isPaused = campaignLive.status === CampaignStatus.PAUSED;
@@ -1858,16 +1858,23 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
 
         {/* Painel de diagnóstico: exibido quando há falhas significativas (>10% dos envios) */}
         {(() => {
-          const totalSent = campaign.processedCount || 0;
-          const failedJobs = campaign.failedCount || 0;
-          const failPct = totalSent > 0 ? failedJobs / totalSent : 0;
-          const showDiag = failedJobs >= 3 || (totalSent === 0 && campaign.status === 'RUNNING') || failPct > 0.1;
+          const totalSent = Math.max(
+            campaign.processedCount || 0,
+            metrics.effectiveProcessed,
+            performance.total
+          );
+          const reconciledFailed = Math.max(metrics.fail, performance.counts.FAILED);
+          const failPct = totalSent > 0 ? reconciledFailed / totalSent : 0;
+          const showDiag =
+            reconciledFailed >= 3 ||
+            (totalSent === 0 && campaign.status === 'RUNNING') ||
+            failPct > 0.1;
           if (!showDiag) return null;
           return (
             <DispatchDiagnosticsPanel
               campaign={campaign}
               connections={connections}
-              failedCount={failedJobs}
+              failedCount={reconciledFailed}
               onRefresh={() => {
                 void refreshCampaignData();
               }}

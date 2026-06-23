@@ -8,7 +8,26 @@ import {
   rowToCampaign,
   type CampaignRow
 } from './campaignMapper.js';
-import { healStuckCampaignStatus } from '../../src/utils/campaignMetrics.js';
+import { healCampaignDocument } from '../../src/utils/campaignMetrics.js';
+
+function campaignCountersChanged(before: Campaign, after: Campaign): boolean {
+  return (
+    before.status !== after.status ||
+    (before.processedCount ?? 0) !== (after.processedCount ?? 0) ||
+    (before.successCount ?? 0) !== (after.successCount ?? 0) ||
+    (before.failedCount ?? 0) !== (after.failedCount ?? 0)
+  );
+}
+
+function persistHealedCampaignCounters(tenantId: string, before: Campaign, after: Campaign): void {
+  if (!campaignCountersChanged(before, after)) return;
+  void mergeUpdateCampaign(tenantId, before.id, {
+    status: after.status,
+    processedCount: after.processedCount,
+    successCount: after.successCount,
+    failedCount: after.failedCount
+  }).catch(() => {});
+}
 
 export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
   const pool = getZapmassPool();
@@ -21,16 +40,9 @@ export async function listCampaigns(tenantId: string): Promise<Campaign[]> {
   const out: Campaign[] = [];
   for (const row of r.rows) {
     const raw = rowToCampaign(row);
-    const healed = healStuckCampaignStatus(raw);
+    const healed = healCampaignDocument(raw);
     out.push(healed);
-    if (healed.status !== raw.status) {
-      void mergeUpdateCampaign(tenantId, raw.id, {
-        status: healed.status,
-        processedCount: healed.processedCount,
-        successCount: healed.successCount,
-        failedCount: healed.failedCount
-      }).catch(() => {});
-    }
+    persistHealedCampaignCounters(tenantId, raw, healed);
   }
   return out;
 }
@@ -43,7 +55,11 @@ export async function getCampaign(tenantId: string, campaignId: string): Promise
      FROM zapmass.campaigns WHERE tenant_id = $1::uuid AND id = $2::uuid`,
     [tenantId, campaignId]
   );
-  return r.rows[0] ? rowToCampaign(r.rows[0]) : null;
+  if (!r.rows[0]) return null;
+  const raw = rowToCampaign(r.rows[0]);
+  const healed = healCampaignDocument(raw);
+  persistHealedCampaignCounters(tenantId, raw, healed);
+  return healed;
 }
 
 export async function getCampaignDoc(
