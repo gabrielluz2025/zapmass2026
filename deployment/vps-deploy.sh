@@ -518,6 +518,10 @@ if [ "${ZAPMASS_DEPLOY_SKIP_HEALTHCHECK:-0}" = "1" ]; then
     wait_swarm_service_replicas zapmass_api 1 "${_api_wait}" || recover_swarm_api_service || true
   fi
   echo "==> deploy concluido (sem health inline). Commit: ${VITE_GIT_REF:-?}"
+  if [ -f deployment/install-deploy-watch-cron.sh ]; then
+    chmod +x deployment/install-deploy-watch-cron.sh deployment/vps-watch-deploy.sh 2>/dev/null || true
+    bash deployment/install-deploy-watch-cron.sh 2>/dev/null || true
+  fi
   exit 0
 fi
 

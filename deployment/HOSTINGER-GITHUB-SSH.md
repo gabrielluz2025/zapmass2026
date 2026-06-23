@@ -32,8 +32,20 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3001/api/health
 ## Deploy manual (enquanto o Actions não liga)
 
 ```bash
-cd /opt/zapmass && bash deployment/manual-pull-deploy.sh
+cd /opt/zapmass && git pull origin main && bash deployment/manual-pull-deploy.sh
 ```
+
+## Deploy automático sem SSH do GitHub (recomendado na Hostinger)
+
+Com firewall bloqueando porta 22 para runners do GitHub, instale o cron que puxa `origin/main` a cada 3 minutos:
+
+```bash
+cd /opt/zapmass && git pull origin main && sudo bash deployment/install-deploy-watch-cron.sh
+```
+
+Log: `/var/log/zapmass-watch-deploy.log`
+
+Depois disso, pushes em `main` atualizam a VPS mesmo quando o workflow SSH falhar (o CI aguarda a versão em produção via HTTPS).
 
 ## Evolution: tag `v2.4.0` não existe no Docker Hub
 

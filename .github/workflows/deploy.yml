@@ -152,7 +152,9 @@ jobs:
 
       - name: VPS — deploy (build + health na mesma sessao SSH)
         id: deploy_vps
-        if: github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true'
+        if: >-
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.ssh_precheck.outputs.reachable == 'true'
         continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -198,39 +200,74 @@ jobs:
             echo "==> build/stack OK — healthcheck longo"
             bash deployment/gha-healthcheck.sh
 
+      - name: SSH indisponível — aguardar deploy na VPS (cron/manual)
+        if: >-
+          always() &&
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.ssh_precheck.outputs.reachable != 'true'
+        run: |
+          {
+            echo "## SSH bloqueado — deploy via cron na VPS"
+            echo ""
+            echo "O runner do GitHub **não alcança a porta SSH** (firewall Hostinger)."
+            echo "Se o cron \`zapmass-watch-deploy\` estiver instalado, a VPS puxa o código em até **3 minutos**."
+            echo ""
+            echo "**Uma vez na VPS** (terminal do painel Hostinger):"
+            echo '```bash'
+            echo "cd /opt/zapmass && git pull origin main && sudo bash deployment/install-deploy-watch-cron.sh && bash deployment/manual-pull-deploy.sh"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Verificar versao em producao (evita retry desnecessario)
         id: verify_prod
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_vps.outcome == 'failure'
+          (steps.deploy_vps.outcome == 'failure' || steps.deploy_vps.outcome == 'skipped')
         run: |
           set -euo pipefail
           EXPECTED="${GITHUB_SHA::7}"
-          echo "==> SSH reportou falha; conferindo se producao ja esta em ${EXPECTED}..."
+          SSH_SKIPPED="${{ steps.ssh_precheck.outputs.reachable != 'true' }}"
+          if [ "${SSH_SKIPPED}" = "true" ]; then
+            echo "==> SSH indisponivel; aguardando deploy na VPS (cron/manual) ate ${EXPECTED}..."
+            MAX_TRIES=90
+            SLEEP_SEC=30
+          else
+            echo "==> SSH reportou falha; conferindo se producao ja esta em ${EXPECTED}..."
+            MAX_TRIES=12
+            SLEEP_SEC=10
+          fi
           verified=0
-          for i in $(seq 1 12); do
+          for i in $(seq 1 "${MAX_TRIES}"); do
             resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
             if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
               ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
-              echo "tentativa ${i}/12: version=${ver:-?} esperado=${EXPECTED}"
+              echo "tentativa ${i}/${MAX_TRIES}: version=${ver:-?} esperado=${EXPECTED}"
               if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
                 verified=1
                 break
               fi
             else
-              echo "tentativa ${i}/12: health indisponivel"
+              echo "tentativa ${i}/${MAX_TRIES}: health indisponivel"
             fi
-            sleep 10
+            sleep "${SLEEP_SEC}"
           done
           if [ "${verified}" = "1" ]; then
             echo "verified=true" >> "$GITHUB_OUTPUT"
             echo "## Deploy confirmado em producao (version=${ver})" >> "$GITHUB_STEP_SUMMARY"
-            echo "==> Producao ja no commit certo — pulando retries SSH."
+            if [ "${SSH_SKIPPED}" = "true" ]; then
+              echo "==> Producao atualizada via cron/manual na VPS."
+            else
+              echo "==> Producao ja no commit certo — pulando retries SSH."
+            fi
           else
             echo "verified=false" >> "$GITHUB_OUTPUT"
-            echo "==> Versao em producao ainda nao confere; aguardando 60s antes do retry SSH..."
-            sleep 60
+            if [ "${SSH_SKIPPED}" = "true" ]; then
+              echo "==> Versao ainda nao confere apos aguardar cron/manual."
+            else
+              echo "==> Versao em producao ainda nao confere; aguardando 60s antes do retry SSH..."
+              sleep 60
+            fi
           fi
 
       - name: VPS — deploy retry SSH (2)
@@ -336,8 +373,8 @@ jobs:
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_vps.outcome == 'failure' &&
           steps.verify_prod.outputs.verified != 'true' &&
+          steps.deploy_vps.outcome == 'failure' &&
           !(steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         run: |
           set -euo pipefail
@@ -362,12 +399,12 @@ jobs:
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          steps.deploy_vps.outcome == 'failure' &&
           steps.verify_prod.outputs.verified != 'true' &&
           steps.verify_prod_final.outputs.verified != 'true' &&
-          !(steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
+          !(steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         run: |
-          echo "::error::SSH/deploy falhou apos 3 tentativas (timeout :22 ou script na VPS). Re-run failed jobs ou deploy manual na VPS."
+          echo "::error::Deploy nao confirmado em producao. SSH bloqueado ou script na VPS falhou."
+          echo "::error::Na VPS (terminal Hostinger): cd /opt/zapmass && git pull origin main && sudo bash deployment/install-deploy-watch-cron.sh && bash deployment/manual-pull-deploy.sh"
           exit 1
 
       # O GitHub mostra o job vermelho pelo último passo que falhou (muitas vezes só o log do ssh-action).
