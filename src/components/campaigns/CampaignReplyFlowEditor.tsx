@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
-import { ChevronDown, Plus, Trash2 } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  ChevronDown,
+  GitBranch,
+  ListOrdered,
+  MessageSquare,
+  Plus,
+  Sparkles,
+  Trash2
+} from 'lucide-react';
 import { CampaignMessageComposer } from './CampaignMessageComposer';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
-import { Button, Input, Textarea } from '../ui';
+import { Button, Textarea } from '../ui';
 import { insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 
 export type ReplyStageOption = {
@@ -43,6 +51,24 @@ type Props = {
   onInsertInvalidVariable: (token: string) => void;
 };
 
+const MENU_QUICK_TEMPLATES: Array<{ label: string; options: Array<{ tokens: string; reply: string }> }> = [
+  {
+    label: 'Sim / Não',
+    options: [
+      { tokens: '1, sim', reply: 'Ótimo! Seguem os detalhes que você pediu…' },
+      { tokens: '2, não', reply: 'Sem problemas! Se mudar de ideia, é só responder aqui.' }
+    ]
+  },
+  {
+    label: '3 opções',
+    options: [
+      { tokens: '1', reply: 'Opção 1 — descreva aqui a resposta.' },
+      { tokens: '2', reply: 'Opção 2 — descreva aqui a resposta.' },
+      { tokens: '3', reply: 'Opção 3 — descreva aqui a resposta.' }
+    ]
+  }
+];
+
 export const CampaignReplyFlowEditor: React.FC<Props> = ({
   stages,
   setStages,
@@ -61,12 +87,13 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   newMessageStage,
   onInsertInvalidVariable,
 }) => {
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [invalidOpen, setInvalidOpen] = useState(false);
   const first = stages[0];
   const second = stages[1];
   const isConditional = !first?.acceptAnyReply && first?.optionsMode === 'conditional';
   const isAnyReply = Boolean(first?.acceptAnyReply ?? true);
   const hasOpening = Boolean(first?.body?.trim());
+  const menuOptions = first?.options || [];
 
   const patchFirst = (patch: Partial<ReplyMessageStage>) => {
     setStages((prev) => prev.map((s, i) => (i === 0 ? { ...s, ...patch } : s)));
@@ -82,16 +109,29 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   };
 
   const addOption = () => {
-    patchFirst({ options: [...(first?.options || []), newStageOption()] });
+    patchFirst({ options: [...menuOptions, newStageOption()] });
   };
 
   const removeOption = (optId: string) => {
-    patchFirst({ options: (first?.options || []).filter((o) => o.id !== optId) });
+    if (menuOptions.length <= 1) return;
+    patchFirst({ options: menuOptions.filter((o) => o.id !== optId) });
   };
 
   const updateOption = (optId: string, patch: Partial<ReplyStageOption>) => {
     patchFirst({
-      options: (first?.options || []).map((o) => (o.id === optId ? { ...o, ...patch } : o)),
+      options: menuOptions.map((o) => (o.id === optId ? { ...o, ...patch } : o)),
+    });
+  };
+
+  const applyMenuTemplate = (idx: number) => {
+    const tpl = MENU_QUICK_TEMPLATES[idx];
+    if (!tpl) return;
+    patchFirst({
+      options: tpl.options.map((o) => ({
+        ...newStageOption(),
+        tokensText: o.tokens,
+        reply: o.reply
+      }))
     });
   };
 
@@ -105,7 +145,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
       };
       return [f];
     });
-    setShowAdvanced(true);
+    setInvalidOpen(false);
   };
 
   const enableAnyReplyMode = () => {
@@ -116,84 +156,103 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
     });
   };
 
+  const menuPreviewLines = useMemo(
+    () =>
+      menuOptions.map((opt, i) => {
+        const trigger = (opt.tokensText || String(i + 1)).split(/[,;]/)[0]?.trim() || String(i + 1);
+        const preview = opt.reply.trim() || '…';
+        return { trigger, preview, num: i + 1 };
+      }),
+    [menuOptions]
+  );
+
   return (
     <div className="cw-reply-flow cw-reply-flow--simple">
-      {/* Etapa 1 — Abertura */}
       <section className="cw-reply-panel">
         <header className="cw-reply-panel__head">
-          <span className="cw-reply-panel__num" style={{ background: '#10b981' }}>1</span>
+          <span className="cw-reply-panel__num cw-reply-panel__num--open">1</span>
           <div>
             <h4 className="cw-reply-panel__title">Mensagem de abertura</h4>
             <p className="cw-reply-panel__sub">Primeiro texto que o contato recebe quando a campanha iniciar.</p>
           </div>
         </header>
-        <CampaignMessageComposer
-          label="Texto da abertura"
-          placeholder="Olá {nome}! Tudo bem? Responda esta mensagem que te envio mais detalhes."
-          body={first?.body || ''}
-          onBodyChange={(body) => patchFirst({ body })}
-          textareaRef={msgRef}
-          onInsertVariable={(variable) =>
-            insertCampaignTokenIntoTextarea(msgRef.current, first?.body || '', variable, (next) =>
-              patchFirst({ body: next })
-            )
-          }
-          showIdeas={false}
-          showGreetingPicker={false}
-          variablesDensity="compact"
-          variablesCollapsible
-          showAttachment
-          attachment={attachment}
-          attachmentInputRef={attachmentInputRef}
-          onPickAttachment={onPickAttachment}
-          onRemoveAttachment={onRemoveAttachment}
-          launchMode={launchMode}
-          minHeight={120}
-        />
+        <div className="cw-reply-panel__body">
+          <CampaignMessageComposer
+            label="Texto da abertura"
+            placeholder="Olá {nome}! Tudo bem? Responda esta mensagem que te envio mais detalhes."
+            body={first?.body || ''}
+            onBodyChange={(body) => patchFirst({ body })}
+            textareaRef={msgRef}
+            onInsertVariable={(variable) =>
+              insertCampaignTokenIntoTextarea(msgRef.current, first?.body || '', variable, (next) =>
+                patchFirst({ body: next })
+              )
+            }
+            showIdeas={false}
+            showGreetingPicker={false}
+            variablesDensity="compact"
+            variablesCollapsible
+            showAttachment
+            attachment={attachment}
+            attachmentInputRef={attachmentInputRef}
+            onPickAttachment={onPickAttachment}
+            onRemoveAttachment={onRemoveAttachment}
+            launchMode={launchMode}
+            minHeight={120}
+          />
+        </div>
       </section>
 
-      {hasOpening && (
+      {hasOpening ? (
         <>
           <div className="cw-reply-connector" aria-hidden>
-            <svg width="20" height="28" viewBox="0 0 20 28" fill="none">
-              <path d="M10 0v20M10 20l-4 4M10 20l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-              contato responde
-            </span>
+            <div className="cw-reply-connector__line" />
+            <span className="cw-reply-connector__label">contato responde</span>
+            <div className="cw-reply-connector__line" />
           </div>
 
-          {/* Etapa 2 — Resposta automática */}
-          <section className="cw-reply-panel">
+          <section className="cw-reply-panel cw-reply-panel--step2">
             <header className="cw-reply-panel__head">
-              <span className="cw-reply-panel__num" style={{ background: '#6366f1' }}>2</span>
+              <span className="cw-reply-panel__num cw-reply-panel__num--reply">2</span>
               <div className="flex-1 min-w-0">
                 <h4 className="cw-reply-panel__title">Resposta automática</h4>
-                <p className="cw-reply-panel__sub">O que enviar logo depois que o contato mandar qualquer mensagem.</p>
+                <p className="cw-reply-panel__sub">
+                  {isAnyReply
+                    ? 'Envia o mesmo texto para qualquer mensagem que o contato mandar.'
+                    : 'Envia um texto diferente conforme o número ou palavra que o contato digitar.'}
+                </p>
               </div>
             </header>
 
-            <div className="cw-reply-mode-pills">
-              <button
-                type="button"
-                className="cw-reply-mode-pill"
-                data-active={isAnyReply ? 'true' : 'false'}
-                onClick={enableAnyReplyMode}
-              >
-                Qualquer resposta
-              </button>
-              <button
-                type="button"
-                className="cw-reply-mode-pill"
-                data-active={isConditional ? 'true' : 'false'}
-                onClick={enableMenuMode}
-              >
-                Menu 1 / 2 / 3
-              </button>
-            </div>
+            <div className="cw-reply-panel__body space-y-4">
+              <div className="cw-reply-mode-grid" role="group" aria-label="Tipo de resposta automática">
+                <button
+                  type="button"
+                  className="cw-reply-mode-card"
+                  data-active={isAnyReply ? 'true' : 'false'}
+                  onClick={enableAnyReplyMode}
+                >
+                  <span className="cw-reply-mode-card__icon cw-reply-mode-card__icon--any">
+                    <MessageSquare className="w-4 h-4" />
+                  </span>
+                  <span className="cw-reply-mode-card__title">Qualquer resposta</span>
+                  <span className="cw-reply-mode-card__desc">Um único texto de follow-up</span>
+                </button>
+                <button
+                  type="button"
+                  className="cw-reply-mode-card"
+                  data-active={isConditional ? 'true' : 'false'}
+                  onClick={enableMenuMode}
+                >
+                  <span className="cw-reply-mode-card__icon cw-reply-mode-card__icon--menu">
+                    <ListOrdered className="w-4 h-4" />
+                  </span>
+                  <span className="cw-reply-mode-card__title">Menu numerado</span>
+                  <span className="cw-reply-mode-card__desc">1, 2, 3 ou palavras-chave</span>
+                </button>
+              </div>
 
-            {isAnyReply ? (
-              <div className="space-y-3 mt-3">
+              {isAnyReply ? (
                 <CampaignMessageComposer
                   label="Texto após a resposta"
                   placeholder="{horario} {nome}! Obrigado pelo retorno. Seguem as informações..."
@@ -216,67 +275,139 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                   launchMode={launchMode}
                   minHeight={100}
                 />
-              </div>
-            ) : (
-              <div className="mt-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                    Opções do menu
-                  </p>
-                  <Button type="button" size="sm" variant="secondary" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={addOption}>
-                    Opção
-                  </Button>
-                </div>
-                {(first?.options || []).map((opt, oIdx) => (
-                  <div key={opt.id} className="cw-reply-option-row">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-600)' }}>
-                        Se responder {oIdx + 1}
-                      </span>
-                      <button type="button" className="p-1 rounded text-red-500 hover:bg-red-500/10" onClick={() => removeOption(opt.id)} aria-label="Remover">
-                        <Trash2 className="w-4 h-4" />
+              ) : (
+                <div className="cw-reply-menu-builder">
+                  <div className="cw-reply-menu-builder__toolbar">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <GitBranch className="w-4 h-4 shrink-0 text-indigo-400" />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-bold leading-tight" style={{ color: 'var(--text-1)' }}>
+                          Rotas do menu
+                        </p>
+                        <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                          Cada linha = uma opção que o contato pode digitar
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      leftIcon={<Plus className="w-3.5 h-3.5" />}
+                      onClick={addOption}
+                    >
+                      Adicionar
+                    </Button>
+                  </div>
+
+                  <div className="cw-reply-menu-templates">
+                    <Sparkles className="w-3 h-3 shrink-0 text-amber-500" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                      Modelos rápidos
+                    </span>
+                    {MENU_QUICK_TEMPLATES.map((tpl, i) => (
+                      <button key={tpl.label} type="button" className="cw-reply-menu-template-btn" onClick={() => applyMenuTemplate(i)}>
+                        {tpl.label}
                       </button>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-2">
-                      <Input
-                        placeholder="1, sim"
-                        value={opt.tokensText}
-                        onChange={(e) => updateOption(opt.id, { tokensText: e.target.value })}
-                        className="h-9"
-                      />
-                      <Textarea
-                        placeholder="Mensagem para esta opção..."
-                        value={opt.reply}
-                        onChange={(e) => updateOption(opt.id, { reply: e.target.value })}
-                        style={{ minHeight: '64px' }}
-                      />
-                    </div>
+                    ))}
                   </div>
-                ))}
-                <details className="cw-reply-advanced" open={showAdvanced} onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)}>
-                  <summary className="cw-reply-advanced__summary">
-                    <span>Resposta quando a opção for inválida</span>
-                    <ChevronDown className="w-4 h-4" />
-                  </summary>
-                  <div className="pt-2 space-y-2">
-                    <CampaignMessageVariableChips onInsert={onInsertInvalidVariable} density="compact" collapsible />
-                    <Textarea
-                      ref={invalidReplyRef}
-                      placeholder="Não entendi. Digite 1 para sim ou 2 para não."
-                      value={first?.invalidReplyBody || ''}
-                      onChange={(e) => patchFirst({ invalidReplyBody: e.target.value })}
-                      style={{ minHeight: '64px' }}
-                    />
+
+                  <div className="cw-reply-menu-list">
+                    {menuOptions.map((opt, oIdx) => (
+                      <article key={opt.id} className="cw-reply-menu-item">
+                        <div className="cw-reply-menu-item__badge" aria-hidden>
+                          {oIdx + 1}
+                        </div>
+                        <div className="cw-reply-menu-item__fields">
+                          <div className="cw-reply-menu-item__row">
+                            <label className="cw-reply-menu-field">
+                              <span className="cw-reply-menu-field__label">Aceita</span>
+                              <input
+                                type="text"
+                                className="cw-reply-menu-field__input cw-reply-menu-field__input--trigger"
+                                placeholder={String(oIdx + 1)}
+                                value={opt.tokensText}
+                                onChange={(e) => updateOption(opt.id, { tokensText: e.target.value })}
+                              />
+                            </label>
+                            <label className="cw-reply-menu-field cw-reply-menu-field--grow">
+                              <span className="cw-reply-menu-field__label">Mensagem enviada</span>
+                              <textarea
+                                className="cw-reply-menu-field__textarea"
+                                placeholder="Texto que o contato recebe ao escolher esta opção…"
+                                value={opt.reply}
+                                rows={2}
+                                onChange={(e) => updateOption(opt.id, { reply: e.target.value })}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="cw-reply-menu-item__remove"
+                          onClick={() => removeOption(opt.id)}
+                          disabled={menuOptions.length <= 1}
+                          aria-label={`Remover opção ${oIdx + 1}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </article>
+                    ))}
                   </div>
-                </details>
-              </div>
-            )}
+
+                  {menuPreviewLines.some((l) => l.preview !== '…') && (
+                    <div className="cw-reply-menu-preview">
+                      <p className="cw-reply-menu-preview__title">Prévia do fluxo</p>
+                      <div className="cw-reply-menu-preview__track">
+                        {menuPreviewLines.map((line) => (
+                          <div key={line.num} className="cw-reply-menu-preview__step">
+                            <span className="cw-reply-menu-preview__trigger">"{line.trigger}"</span>
+                            <span className="cw-reply-menu-preview__arrow" aria-hidden>→</span>
+                            <span className="cw-reply-menu-preview__msg">{line.preview}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="cw-reply-invalid">
+                    <button
+                      type="button"
+                      className="cw-reply-invalid__toggle"
+                      onClick={() => setInvalidOpen((v) => !v)}
+                      aria-expanded={invalidOpen}
+                    >
+                      <span>Se a resposta não for reconhecida</span>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${invalidOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {invalidOpen && (
+                      <div className="cw-reply-invalid__body">
+                        <p className="text-[10.5px] mb-2 leading-snug" style={{ color: 'var(--text-3)' }}>
+                          Mensagem quando o contato digitar algo fora das opções acima.
+                        </p>
+                        <CampaignMessageVariableChips
+                          onInsert={onInsertInvalidVariable}
+                          density="compact"
+                          collapsible
+                        />
+                        <Textarea
+                          ref={invalidReplyRef}
+                          placeholder="Não entendi. Digite 1 para sim ou 2 para não."
+                          value={first?.invalidReplyBody || ''}
+                          onChange={(e) => patchFirst({ invalidReplyBody: e.target.value })}
+                          className="mt-2"
+                          style={{ minHeight: '72px' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </section>
         </>
-      )}
-
-      {!hasOpening && (
-        <p className="text-center text-[12px] py-4 rounded-xl border border-dashed" style={{ color: 'var(--text-3)', borderColor: 'var(--border-subtle)' }}>
+      ) : (
+        <p className="cw-reply-empty-hint">
           Escreva a mensagem de abertura para configurar a resposta automática.
         </p>
       )}
