@@ -60,6 +60,10 @@ import {
   MAX_CHANNELS_TOTAL
 } from '../utils/connectionLimitPolicy';
 import { Card, CardHeader, Button, Badge, Modal, Textarea, Select } from './ui';
+import { CampaignAttachmentBlock, type CampaignAttachmentState } from './campaigns/CampaignAttachmentBlock';
+import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
+import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
+import { fileToMediaPayload } from '../utils/campaignMediaLibrary';
 import { PerformanceFunnel } from './PerformanceFunnel';
 import { DashboardIntelPanel } from './dashboard/DashboardIntelPanel';
 import { Sparkline } from './Sparkline';
@@ -130,8 +134,6 @@ const useCountUp = (target: number, duration = 1100) => {
   }, [target, duration]);
   return val;
 };
-
-const DEFAULT_BIRTHDAY_TEMPLATE = `Ola {nome}! 🎉🎂\n\nParabens pelo seu dia! Que esse novo ciclo seja repleto de alegrias, saude e conquistas.\n\nVoce e especial para nos!`;
 
 const WEDDING_BULK_DEFAULT = `Ola {nome}! 💍\n\nParabens pelo aniversario de casamento! Que Deus abencoe voce e {conjuge}.\n{anos_line}\n\nFeliz bodas!`;
 
@@ -291,6 +293,7 @@ export const DashboardTab: React.FC = () => {
   const {
     connections,
     sendMessage,
+    sendMedia,
     campaigns,
     contacts,
     contactsHasMore,
@@ -385,6 +388,11 @@ export const DashboardTab: React.FC = () => {
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkPreviewIndex, setBulkPreviewIndex] = useState(0);
+  const [bulkAttachment, setBulkAttachment] = useState<CampaignAttachmentState | null>(null);
+  const bulkAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const [birthdayAttachment, setBirthdayAttachment] = useState<CampaignAttachmentState | null>(null);
+  const birthdayAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const [birthdaySending, setBirthdaySending] = useState(false);
 
   const [selectedWedding, setSelectedWedding] = useState<UpcomingWedding | null>(null);
   const [weddingMessageText, setWeddingMessageText] = useState('');
@@ -548,6 +556,21 @@ export const DashboardTab: React.FC = () => {
     });
   };
 
+  const pickCampaignAttachment = (
+    file: File | null,
+    setter: React.Dispatch<React.SetStateAction<CampaignAttachmentState | null>>
+  ) => {
+    setter((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      if (!file) return null;
+      const previewUrl =
+        file.type.startsWith('image/') || file.type.startsWith('video/')
+          ? URL.createObjectURL(file)
+          : null;
+      return { file, previewUrl };
+    });
+  };
+
   const openBulkBirthday = () => {
     setWeddingBulkOpen(false);
     setBulkBirthdayOpen(true);
@@ -556,6 +579,7 @@ export const DashboardTab: React.FC = () => {
     setBulkTemplate(DEFAULT_BIRTHDAY_TEMPLATE);
     setBulkDaysRange(7);
     setBulkSelectedIds(new Set(upcomingBirthdays.filter((b) => b.daysRemaining <= 7).map((b) => b.id)));
+    pickCampaignAttachment(null, setBulkAttachment);
   };
 
   // Substitui variaveis {nome}, {idade}, etc. igual ao backend
@@ -618,6 +642,10 @@ export const DashboardTab: React.FC = () => {
     const numbers = recipients.map((r) => r.phone);
     setBulkSubmitting(true);
     try {
+      let mediaAttachment: Awaited<ReturnType<typeof fileToMediaPayload>> | undefined;
+      if (bulkAttachment?.file) {
+        mediaAttachment = await fileToMediaPayload(bulkAttachment.file);
+      }
       await startCampaign(
         bulkConnectionId,
         numbers,
@@ -625,12 +653,13 @@ export const DashboardTab: React.FC = () => {
         [bulkConnectionId],
         { id: undefined, name: `Aniversariantes (${bulkSelectedList.length})` },
         `Parabens automatico - ${new Date().toLocaleDateString('pt-BR')}`,
-        { delaySeconds: 10, recipients }
+        { delaySeconds: 10, recipients, ...(mediaAttachment ? { mediaAttachment } : {}) }
       );
       toast.success(`Disparo de parabens iniciado para ${bulkSelectedList.length} contatos.`);
       setBulkBirthdayOpen(false);
       setBulkSelectedIds(new Set());
       setBulkStep('compose');
+      pickCampaignAttachment(null, setBulkAttachment);
     } catch (err: any) {
       toast.error(err?.message || 'Falha ao iniciar disparo de aniversariantes.');
     } finally {
@@ -641,6 +670,7 @@ export const DashboardTab: React.FC = () => {
   const handleOpenChat = (contact: UpcomingBirthday) => {
     setSelectedWedding(null);
     setSelectedContact(contact);
+    pickCampaignAttachment(null, setBirthdayAttachment);
     const firstName = campaignRecipientNameVars(contact.name || '').nome || 'amigo(a)';
     const ageLine = contact.age ? `\n\nParabens pelos seus ${contact.age} anos!` : '';
     const whenLabel = contact.daysRemaining === 0 ? 'hoje' : `em ${contact.daysRemaining} dia${contact.daysRemaining > 1 ? 's' : ''}`;
@@ -649,19 +679,40 @@ export const DashboardTab: React.FC = () => {
     );
   };
 
-  const handleSendMessage = () => {
-    if (!selectedContact || !sendingConnectionId || !messageText.trim()) return;
+  const handleSendMessage = async () => {
+    if (!selectedContact || !sendingConnectionId || (!messageText.trim() && !birthdayAttachment)) return;
     const phone = selectedContact.phone?.replace(/\D/g, '');
     if (!phone) {
       toast.error('Contato sem numero de telefone.');
       return;
     }
     const conversationId = `${sendingConnectionId}:${phone}@c.us`;
-    sendMessage(conversationId, messageText.trim());
-    toast.success(`Mensagem enviada para ${selectedContact.name}.`);
-    setSelectedContact(null);
-    setShowChannelSelector(false);
-    setMessageText('');
+    setBirthdaySending(true);
+    try {
+      if (birthdayAttachment?.file) {
+        const media = await fileToMediaPayload(birthdayAttachment.file);
+        const res = await sendMedia(conversationId, {
+          dataBase64: media.dataBase64,
+          mimeType: media.mimeType,
+          fileName: media.fileName,
+          caption: messageText.trim() || undefined,
+          sendMediaAsDocument: media.sendMediaAsDocument
+        });
+        if (!res.ok) throw new Error(res.error || 'Falha ao enviar imagem.');
+      } else {
+        sendMessage(conversationId, messageText.trim());
+      }
+      toast.success(`Mensagem enviada para ${selectedContact.name}.`);
+      setSelectedContact(null);
+      setShowChannelSelector(false);
+      setMessageText('');
+      pickCampaignAttachment(null, setBirthdayAttachment);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Falha ao enviar mensagem.';
+      toast.error(msg);
+    } finally {
+      setBirthdaySending(false);
+    }
   };
 
   const handleOpenWeddingChat = (w: UpcomingWedding) => {
@@ -1876,10 +1927,10 @@ export const DashboardTab: React.FC = () => {
             <Button
               variant="primary"
               leftIcon={<Send className="w-4 h-4" />}
-              disabled={!sendingConnectionId || !messageText}
-              onClick={handleSendMessage}
+              disabled={!sendingConnectionId || (!messageText.trim() && !birthdayAttachment) || birthdaySending}
+              onClick={() => void handleSendMessage()}
             >
-              Enviar
+              {birthdaySending ? 'Enviando…' : 'Enviar'}
             </Button>
           </>
         }
@@ -1952,6 +2003,18 @@ export const DashboardTab: React.FC = () => {
               onChange={(e) => setMessageText(e.target.value)}
             />
           </div>
+          <CampaignAttachmentBlock
+            compact
+            attachment={birthdayAttachment}
+            inputRef={birthdayAttachmentInputRef}
+            onPick={(file) => pickCampaignAttachment(file, setBirthdayAttachment)}
+            onRemove={() => pickCampaignAttachment(null, setBirthdayAttachment)}
+          />
+          <SavedMediaLibraryPicker
+            compact
+            currentFile={birthdayAttachment?.file ?? null}
+            onPick={(file) => pickCampaignAttachment(file, setBirthdayAttachment)}
+          />
         </div>
       </Modal>
 
@@ -2192,6 +2255,19 @@ export const DashboardTab: React.FC = () => {
               Exemplos: <code>{'{nome}'}</code> = primeiro nome, <code>{'{nome_completo}'}</code>, <code>{'{idade}'}</code>, <code>{'{aniversario}'}</code>.
             </p>
           </div>
+
+          <CampaignAttachmentBlock
+            compact
+            attachment={bulkAttachment}
+            inputRef={bulkAttachmentInputRef}
+            onPick={(file) => pickCampaignAttachment(file, setBulkAttachment)}
+            onRemove={() => pickCampaignAttachment(null, setBulkAttachment)}
+          />
+          <SavedMediaLibraryPicker
+            compact
+            currentFile={bulkAttachment?.file ?? null}
+            onPick={(file) => pickCampaignAttachment(file, setBulkAttachment)}
+          />
 
           <div>
             <div className="flex items-center justify-between mb-2">

@@ -2,7 +2,7 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useSt
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Filter, Upload, Download, UserPlus, UserMinus, Trash2, CheckCircle2, XCircle, MapPin, Church, User, Users, X, Save, ChevronLeft, ChevronRight, FileSpreadsheet, Phone, Briefcase, ListPlus, Square, CheckSquare, Pencil, AlertCircle, Home, Flame, Snowflake, Sparkles, Wand2, ClipboardPaste, Info, Layers, MessageCircle, Send, Cake, Tag, Copy, Clock, MapPinOff, TrendingUp, Rocket, Smartphone, Heart, Loader2, Minimize2, SpellCheck2, RotateCw, Database } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { Contact, ContactList } from '../types';
+import { Contact, ConnectionStatus, ContactList } from '../types';
 import { useZapMassCore, useZapMassConversations } from '../context/ZapMassContext';
 import { useAppView } from '../context/AppViewContext';
 import { useAppProfile } from '../context/AppProfileContext';
@@ -56,7 +56,8 @@ import {
   type TempStats
 } from '../utils/contactTemperature';
 import { normPhoneKey, normalizeBRPhone } from '../utils/brPhoneNormalize';
-import { findBestConversationForPhone } from '../utils/findConversationByPhone';
+import { findBestConversationForPhone, findConversationForPhoneOnChannel, findConversationsForPhone } from '../utils/findConversationByPhone';
+import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
 import { openChatByConversationIdNavigate } from '../utils/openChatByConversationIdNav';
 import { useContactPicturePrefetch } from '../hooks/useContactPicturePrefetch';
 import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contactNameNormalize';
@@ -759,6 +760,7 @@ export const ContactsTab: React.FC = () => {
     contactsSavedTotalLoading,
     refreshContactsSavedTotal,
     refreshContacts,
+    connections,
     contactLists,
     addContact,
     bulkAddContacts,
@@ -1122,6 +1124,40 @@ export const ContactsTab: React.FC = () => {
     []
   );
 
+  const [chatChannelPicker, setChatChannelPicker] = useState<{
+    contact: Contact;
+    digits: string;
+  } | null>(null);
+  const [chatPickerConnectionId, setChatPickerConnectionId] = useState('');
+
+  const navigateOpenChat = useCallback(
+    (contact: Contact, connectionId: string) => {
+      const digits = (contact.phone || '').replace(/\D/g, '');
+      if (!digits) return;
+      const existing = connectionId
+        ? findConversationForPhoneOnChannel(deferredConversations, digits, connectionId)
+        : findBestConversationForPhone(deferredConversations, digits);
+      if (existing?.id) {
+        openChatByConversationIdNavigate(setCurrentView, existing.id);
+        return;
+      }
+      const pic = (picOverrides[contact.id] || contact.profilePicUrl || '').trim();
+      try {
+        const payload = JSON.stringify({
+          phone: digits,
+          name: contact.name || '',
+          profilePicUrl: pic,
+          connectionId: connectionId || undefined
+        });
+        sessionStorage.setItem('zapmass.openChatByPhone', payload);
+      } catch {
+        /* ignore */
+      }
+      setCurrentView('chat');
+    },
+    [setCurrentView, deferredConversations, picOverrides]
+  );
+
   /** Abre a conversa deste contato no Atendimento (histórico existente ou rascunho). */
   const openInChat = useCallback((contact: Contact) => {
     const digits = (contact.phone || '').replace(/\D/g, '');
@@ -1129,24 +1165,21 @@ export const ContactsTab: React.FC = () => {
       toast.error('Contato sem telefone válido.');
       return;
     }
-    const existing = findBestConversationForPhone(deferredConversations, digits);
-    if (existing?.id) {
-      openChatByConversationIdNavigate(setCurrentView, existing.id);
+    if (connections.length <= 1) {
+      const only = connections[0];
+      const existing = findBestConversationForPhone(deferredConversations, digits);
+      navigateOpenChat(contact, existing?.connectionId || only?.id || '');
       return;
     }
-    const pic = (picOverrides[contact.id] || contact.profilePicUrl || '').trim();
-    try {
-      const payload = JSON.stringify({
-        phone: digits,
-        name: contact.name || '',
-        profilePicUrl: pic
-      });
-      sessionStorage.setItem('zapmass.openChatByPhone', payload);
-    } catch {
-      /* ignore */
-    }
-    setCurrentView('chat');
-  }, [setCurrentView, deferredConversations, picOverrides]);
+    const existing = findBestConversationForPhone(deferredConversations, digits);
+    setChatPickerConnectionId(
+      existing?.connectionId ||
+        connections.find((c) => c.status === ConnectionStatus.CONNECTED)?.id ||
+        connections[0]?.id ||
+        ''
+    );
+    setChatChannelPicker({ contact, digits });
+  }, [connections, deferredConversations, navigateOpenChat]);
 
   /** Dispara a Wizard de nova campanha com base em um rascunho pré-preenchido. */
   const launchCampaignWithDraft = useCallback((draft: CampaignWizardDraft, toastMsg?: string) => {
@@ -3323,6 +3356,9 @@ export const ContactsTab: React.FC = () => {
     const name = people.length === 1 ? `Aniversário: ${people[0].name}` : `Aniversariantes (${people.length})`;
     const draft = buildDraftFromContacts(people, name);
     if (!draft) { toast.error('Sem telefones válidos nestes aniversariantes.'); return; }
+    if (draft.messageStages[0]) {
+      draft.messageStages[0].body = DEFAULT_BIRTHDAY_TEMPLATE;
+    }
     launchCampaignWithDraft(draft, 'Abrindo campanha de aniversário…');
   }, [buildDraftFromContacts, launchCampaignWithDraft]);
 
@@ -4232,6 +4268,82 @@ export const ContactsTab: React.FC = () => {
             )}
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={!!chatChannelPicker}
+        onClose={() => setChatChannelPicker(null)}
+        title="Escolher canal"
+        subtitle={
+          chatChannelPicker
+            ? `Com qual chip WhatsApp deseja falar com ${chatChannelPicker.contact.name}?`
+            : undefined
+        }
+        icon={<Smartphone className="w-4 h-4" />}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setChatChannelPicker(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              leftIcon={<MessageCircle className="w-4 h-4" />}
+              disabled={!chatPickerConnectionId}
+              onClick={() => {
+                if (!chatChannelPicker) return;
+                navigateOpenChat(chatChannelPicker.contact, chatPickerConnectionId);
+                setChatChannelPicker(null);
+              }}
+            >
+              Abrir conversa
+            </Button>
+          </>
+        }
+      >
+        {chatChannelPicker && (
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {connections.map((conn) => {
+              const hasHistory = findConversationsForPhone(deferredConversations, chatChannelPicker.digits).some(
+                (c) => c.connectionId === conn.id
+              );
+              const selected = chatPickerConnectionId === conn.id;
+              return (
+                <button
+                  key={conn.id}
+                  type="button"
+                  onClick={() => setChatPickerConnectionId(conn.id)}
+                  className="w-full flex items-center justify-between gap-3 p-3 rounded-xl text-left transition-colors"
+                  style={{
+                    background: selected ? 'color-mix(in srgb, var(--brand-600) 10%, var(--surface-1))' : 'var(--surface-1)',
+                    border: `1px solid ${selected ? 'color-mix(in srgb, var(--brand-600) 35%, var(--border-subtle))' : 'var(--border-subtle)'}`
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
+                      {conn.name}
+                    </p>
+                    <p className="text-[11px] font-mono truncate" style={{ color: 'var(--text-3)' }}>
+                      {conn.phoneNumber || conn.id}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    {conn.status !== ConnectionStatus.CONNECTED ? (
+                      <Badge variant="danger">Offline</Badge>
+                    ) : (
+                      <Badge variant="success">Online</Badge>
+                    )}
+                    {hasHistory ? (
+                      <span className="text-[10px] font-semibold" style={{ color: 'var(--brand-600)' }}>
+                        Com histórico
+                      </span>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </Modal>
 
       <ContactsInsightsModal

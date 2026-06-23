@@ -1,14 +1,14 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowLeft, History, Loader2, Lock, MoreVertical } from 'lucide-react';
-import type { Conversation } from '../../types';
+import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical } from 'lucide-react';
+import type { Conversation, WhatsAppConnection } from '../../types';
 import { WaBubble } from '../chat/wa/WaBubble';
 import { WaComposer } from './WaComposer';
+import { WaMessageContent } from './WaMessageContent';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import { formatContactPresenceSubtitle } from '../../utils/evolutionPresence';
 import { inboxListTitle } from './lib/conversationDisplay';
 import { formatDayLabel, formatMsgTime, messageDayKey } from './lib/messageTime';
-import { formatMessageBubbleText } from './lib/chatPreview';
 import type { WaSocketStatus } from './hooks/useWaRealtime';
 
 type VirtualRow =
@@ -52,6 +52,11 @@ type Props = {
   sendingMedia?: boolean;
   onOpenContactInfo?: () => void;
   hideOnMobile?: boolean;
+  onLoadMedia?: (messageId: string) => void;
+  isDraft?: boolean;
+  draftChannels?: WhatsAppConnection[];
+  draftChannelId?: string;
+  onDraftChannelChange?: (connectionId: string) => void;
 };
 
 export const WaThread: React.FC<Props> = ({
@@ -73,17 +78,24 @@ export const WaThread: React.FC<Props> = ({
   onAttach,
   sendingMedia,
   onOpenContactInfo,
-  hideOnMobile
+  hideOnMobile,
+  onLoadMedia,
+  isDraft,
+  draftChannels,
+  draftChannelId,
+  onDraftChannelChange
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const messages = conversation?.messages ?? [];
   const virtualRows = useMemo(() => buildVirtualRows(messages), [messages]);
 
   const virtualizer = useVirtualizer({
     count: virtualRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (virtualRows[i]?.kind === 'date' ? 36 : 52),
-    overscan: 6,
+    estimateSize: (i) => (virtualRows[i]?.kind === 'date' ? 36 : 72),
+    overscan: 8,
     getItemKey: (i) => virtualRows[i]?.id ?? i,
     measureElement: (el) => el.getBoundingClientRect().height
   });
@@ -137,10 +149,54 @@ export const WaThread: React.FC<Props> = ({
     return '';
   }, [presenceLine]);
 
+  const isNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  }, []);
+
   useEffect(() => {
-    if (!scrollRef.current || messages.length === 0) return;
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [conversation?.id, messages.length, messages[messages.length - 1]?.id]);
+    const el = scrollRef.current;
+    if (!el || !conversation?.id) return;
+
+    if (
+      scrollPreserveRef.current &&
+      conversation.id === scrollPreserveRef.current.id
+    ) {
+      const delta = el.scrollHeight - scrollPreserveRef.current.height;
+      el.scrollTop = scrollPreserveRef.current.top + delta;
+      scrollPreserveRef.current = null;
+      return;
+    }
+
+    if (messages.length === 0) return;
+    if (isNearBottom()) scrollToBottom();
+  }, [conversation?.id, messages.length, messages[messages.length - 1]?.id, isNearBottom, scrollToBottom]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !conversation?.id) return;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollDown(fromBottom > 160);
+    if (
+      el.scrollTop < 180 &&
+      !loadingHistory &&
+      !historyExhausted
+    ) {
+      scrollPreserveRef.current = {
+        id: conversation.id,
+        height: el.scrollHeight,
+        top: el.scrollTop
+      };
+      onLoadOlder();
+    }
+  }, [conversation?.id, loadingHistory, historyExhausted, onLoadOlder]);
 
   if (!conversation) {
     return (
@@ -223,75 +279,95 @@ export const WaThread: React.FC<Props> = ({
         )}
       </header>
 
-      <div ref={scrollRef} className="wa-chat-wallpaper flex-1 min-h-0 overflow-y-auto">
-        {!historyExhausted && (
-          <div className="flex justify-center pt-3">
-            <button
-              type="button"
-              className="wa-history-btn"
-              onClick={onLoadOlder}
-              disabled={loadingHistory}
-            >
-              {loadingHistory ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <History className="w-4 h-4" />
-              )}
-              Carregar mensagens anteriores
-            </button>
-          </div>
-        )}
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={scrollRef}
+          className="wa-chat-wallpaper absolute inset-0 overflow-y-auto"
+          onScroll={handleScroll}
+        >
+          {!historyExhausted && messages.length > 0 && (
+            <div className="flex justify-center pt-3 sticky top-0 z-[1]">
+              <button
+                type="button"
+                className="wa-history-btn"
+                onClick={onLoadOlder}
+                disabled={loadingHistory}
+              >
+                {loadingHistory ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <History className="w-4 h-4" />
+                )}
+                Carregar mensagens anteriores
+              </button>
+            </div>
+          )}
 
-        {messages.length === 0 && !loadingHistory && (
-          <p className="text-center text-[13px] py-12" style={{ color: 'var(--wa-text-3)' }}>
-            Nenhuma mensagem nesta conversa ainda.
-          </p>
-        )}
+          {messages.length === 0 && !loadingHistory && (
+            <p className="text-center text-[13px] py-12" style={{ color: 'var(--wa-text-3)' }}>
+              {isDraft
+                ? 'Nova conversa — envie a primeira mensagem pelo canal escolhido abaixo.'
+                : 'Nenhuma mensagem nesta conversa ainda.'}
+            </p>
+          )}
 
-        <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
-          {virtualizer.getVirtualItems().map((row) => {
-            const vr = virtualRows[row.index];
-            if (!vr) return null;
+          <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+            {virtualizer.getVirtualItems().map((row) => {
+              const vr = virtualRows[row.index];
+              if (!vr) return null;
 
-            if (vr.kind === 'date') {
+              if (vr.kind === 'date') {
+                return (
+                  <div
+                    key={vr.id}
+                    ref={virtualizer.measureElement}
+                    data-index={row.index}
+                    className="wa-date-pill absolute left-0 w-full"
+                    style={{ height: row.size, transform: `translateY(${row.start}px)` }}
+                  >
+                    <span>{vr.label}</span>
+                  </div>
+                );
+              }
+
+              const msg = messages[vr.index];
+              if (!msg) return null;
+              const side = msg.sender === 'me' ? 'out' : 'in';
+
               return (
                 <div
                   key={vr.id}
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  className="wa-date-pill absolute left-0 w-full"
+                  className="absolute left-0 w-full"
                   style={{ height: row.size, transform: `translateY(${row.start}px)` }}
                 >
-                  <span>{vr.label}</span>
+                  <WaBubble
+                    side={side}
+                    showTail={grouped[vr.index]}
+                    status={msg.status}
+                    time={formatMsgTime(msg)}
+                    fromCampaign={msg.fromCampaign}
+                  >
+                    <WaMessageContent msg={msg} onLoadMedia={onLoadMedia} />
+                  </WaBubble>
                 </div>
               );
-            }
-
-            const msg = messages[vr.index];
-            if (!msg) return null;
-            const side = msg.sender === 'me' ? 'out' : 'in';
-
-            return (
-              <div
-                key={vr.id}
-                ref={virtualizer.measureElement}
-                data-index={row.index}
-                className="absolute left-0 w-full"
-                style={{ height: row.size, transform: `translateY(${row.start}px)` }}
-              >
-                <WaBubble
-                  side={side}
-                  showTail={grouped[vr.index]}
-                  status={msg.status}
-                  time={formatMsgTime(msg)}
-                  fromCampaign={msg.fromCampaign}
-                >
-                  {formatMessageBubbleText(msg)}
-                </WaBubble>
-              </div>
-            );
-          })}
+            })}
+          </div>
         </div>
+
+        {showScrollDown && (
+          <button
+            type="button"
+            className="absolute bottom-4 right-4 z-[2] w-10 h-10 rounded-full shadow-md flex items-center justify-center"
+            style={{ background: 'var(--wa-panel,#fff)', color: 'var(--wa-text-2)' }}
+            onClick={() => scrollToBottom(true)}
+            aria-label="Ir para mensagens recentes"
+          >
+            <ArrowDown className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       <WaComposer
@@ -300,6 +376,10 @@ export const WaThread: React.FC<Props> = ({
         sendingMedia={sendingMedia}
         onSend={onSend}
         onAttach={canSend ? onAttach : undefined}
+        isDraft={isDraft}
+        draftChannels={draftChannels}
+        draftChannelId={draftChannelId}
+        onDraftChannelChange={onDraftChannelChange}
       />
     </section>
   );
