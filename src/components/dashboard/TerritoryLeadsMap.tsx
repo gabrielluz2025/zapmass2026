@@ -4,13 +4,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Contact, Conversation } from '../../types';
 import {
   fetchLeadsGeoSummary,
   fetchOfficialNeighborhoods,
-  apiGeocodeContacts,
   type LeadsGeoSummary,
 } from '../../services/leadsGeoApi';
 import { useOperatingLocation } from '../../hooks/useOperatingLocation';
@@ -40,6 +39,7 @@ import {
   TEMP_ORDER,
   type TerritoryViewMode,
 } from './territory/territoryConstants';
+import { buildCityRows } from './territory/buildCityRows';
 import {
   buildNeighborhoodRows,
   filterClustersForScope,
@@ -107,7 +107,6 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const [summary, setSummary] = useState<LeadsGeoSummary | null>(null);
   const [loading, setLoading] = useState(false);
-  const [geocoding, setGeocoding] = useState(false);
   const [scope, setScope] = useState<RegionScope>('city');
   const [tempFilter, setTempFilter] = useState<TempFilter>('all');
   const [selectedRow, setSelectedRow] = useState<NeighborhoodRow | null>(null);
@@ -118,6 +117,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [mapActive, setMapActive] = useState(!deferLoad);
   const [cityOfficialList, setCityOfficialList] = useState<string[] | null>(null);
   const [stateRegionLabel, setStateRegionLabel] = useState<string | null>(null);
+  const [stateDrillCity, setStateDrillCity] = useState<string | null>(null);
   const [mapViewMode, setMapViewMode] = useState<MapViewMode>('neighborhoods');
   const [neighborhoodViz, setNeighborhoodViz] = useState<NeighborhoodViz>('heat');
   const [contactViz, setContactViz] = useState<ContactViz>('heat');
@@ -147,26 +147,29 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const stateCode = effectiveState;
 
   const officialNeighborhoods = useMemo(() => {
-    if (scope !== 'city') return null;
-    return cityOfficialList;
-  }, [scope, cityOfficialList]);
+    if (scope === 'city' || (scope === 'state' && stateDrillCity)) return cityOfficialList;
+    return null;
+  }, [scope, stateDrillCity, cityOfficialList]);
+
+  const cityForOfficialList = scope === 'city' ? city : stateDrillCity;
 
   useEffect(() => {
-    if (scope !== 'city') {
+    if (!cityForOfficialList) {
       setCityOfficialList(null);
       return;
     }
-    const staticList = getStaticOfficialNeighborhoods(cityNameOnly, cityStateCode);
+    const parsed = parseGeoFilterCity(cityForOfficialList);
+    const staticList = getStaticOfficialNeighborhoods(parsed.city, parsed.state || cityStateCode);
     if (staticList && staticList.length > 0) {
       setCityOfficialList(staticList);
       return;
     }
-    if (summary?.officialNeighborhoods && summary.officialNeighborhoods.length > 0) {
+    if (summary?.officialNeighborhoods && summary.officialNeighborhoods.length > 0 && scope === 'city') {
       setCityOfficialList(summary.officialNeighborhoods);
       return;
     }
     let cancelled = false;
-    void fetchOfficialNeighborhoods(city)
+    void fetchOfficialNeighborhoods(cityForOfficialList)
       .then((list) => {
         if (!cancelled && list.length > 0) setCityOfficialList(list);
       })
@@ -176,10 +179,18 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [scope, city, cityNameOnly, cityStateCode, summary?.officialNeighborhoods]);
+  }, [scope, cityForOfficialList, cityStateCode, summary?.officialNeighborhoods]);
 
-  const hasOfficialList = Boolean(officialNeighborhoods?.length) && scope === 'city';
-  const isBusy = loading || geocoding || locationSaving || locationLoading;
+  const hasOfficialList = Boolean(officialNeighborhoods?.length) && (scope === 'city' || Boolean(stateDrillCity));
+  const isBusy = loading || locationSaving || locationLoading;
+
+  const isStateCityList = scope === 'state' && !stateDrillCity;
+  const activeCityLabel = scope === 'city' ? city : stateDrillCity;
+  const activeCityParsed = useMemo(
+    () => (activeCityLabel ? parseGeoFilterCity(activeCityLabel) : parsedCity),
+    [activeCityLabel, parsedCity]
+  );
+  const activeCityName = activeCityParsed.city || cityNameOnly;
 
   const scopeContacts = useMemo(() => {
     if (!mapActive) return [];
@@ -189,10 +200,19 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     return deferredContacts.filter((c) => matchesCity(c.city || '', city, c.state || ''));
   }, [deferredContacts, city, scope, stateCode, mapActive]);
 
+  const listContacts = useMemo(() => {
+    if (scope === 'state' && stateDrillCity) {
+      return scopeContacts.filter((c) =>
+        matchesCity(c.city || '', stateDrillCity, c.state || stateCode)
+      );
+    }
+    return scopeContacts;
+  }, [scopeContacts, scope, stateDrillCity, stateCode]);
+
   const tempsByContact = useMemo(() => {
     if (!mapActive) return {};
-    return computeContactTemperatures(scopeContacts, deferredConversations);
-  }, [scopeContacts, deferredConversations, mapActive]);
+    return computeContactTemperatures(listContacts, deferredConversations);
+  }, [listContacts, deferredConversations, mapActive]);
 
   const clusters = useMemo(() => {
     if (!summary) return [];
@@ -200,23 +220,42 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       summary.clusters,
       scope === 'state' ? regionSearchValue : city,
       scope,
+      stateCode,
       hasOfficialList
     );
-  }, [summary, city, regionSearchValue, scope, hasOfficialList]);
+  }, [summary, city, regionSearchValue, scope, stateCode, hasOfficialList]);
 
-  const allRows = useMemo(
-    () =>
-      buildNeighborhoodRows({
+  const allRows = useMemo(() => {
+    if (isStateCityList) {
+      return buildCityRows({
         contacts: scopeContacts,
-        city: scope === 'state' ? regionSearchValue : city,
-        scope,
+        stateCode,
         tempsByContact,
         clusters,
-        officialNeighborhoods,
-        filterState: scope === 'state' ? stateCode : undefined,
-      }),
-    [scopeContacts, city, regionSearchValue, scope, tempsByContact, clusters, officialNeighborhoods, stateCode]
-  );
+      });
+    }
+    const rowCity = scope === 'state' && stateDrillCity ? stateDrillCity : city;
+    return buildNeighborhoodRows({
+      contacts: listContacts,
+      city: rowCity,
+      scope: 'city',
+      tempsByContact,
+      clusters,
+      officialNeighborhoods,
+      filterState: stateCode || undefined,
+    });
+  }, [
+    isStateCityList,
+    scopeContacts,
+    listContacts,
+    stateCode,
+    tempsByContact,
+    clusters,
+    scope,
+    stateDrillCity,
+    city,
+    officialNeighborhoods,
+  ]);
 
   const showAllNeighborhoods = hasOfficialList;
 
@@ -252,27 +291,32 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     scope === 'city' ? city : stateRegionLabel || (stateCode ? `Estado ${stateCode}` : city);
 
   const buildAtlasLaunch = useCallback(
-    (neighborhood?: string): AtlasRegionLaunch => ({
-      city: cityNameOnly || city,
-      state: stateCode || undefined,
-      neighborhood,
-      tempFilter,
-      scope,
-    }),
-    [city, cityNameOnly, stateCode, tempFilter, scope]
+    (neighborhood?: string): AtlasRegionLaunch => {
+      const launchCity = stateDrillCity || activeCityLabel || city;
+      const parsed = parseGeoFilterCity(launchCity);
+      return {
+        city: parsed.city || cityNameOnly || city,
+        state: parsed.state || stateCode || undefined,
+        neighborhood,
+        tempFilter,
+        scope: stateDrillCity ? 'city' : scope,
+      };
+    },
+    [city, cityNameOnly, stateCode, tempFilter, scope, stateDrillCity, activeCityLabel]
   );
 
   const neighborhoodContacts = useMemo((): NeighborhoodContactRow[] => {
-    if (!selectedRow) return [];
+    if (!selectedRow || isStateCityList) return [];
     const nb = selectedRow.label;
-    const pool = scopeContacts;
+    const pool = listContacts;
+    const nbCityName = activeCityName;
+    const nbStateCode = activeCityParsed.state || stateCode;
     return pool
       .filter((c) => {
-        if (scope === 'state' && stateCode && !matchesStateContact(c, stateCode)) return false;
         if (hasOfficialList) {
           const resolved = resolveContactNeighborhoodForCity(
-            cityNameOnly,
-            stateCode,
+            nbCityName,
+            nbStateCode,
             c.neighborhood || '',
             officialNeighborhoods
           );
@@ -299,11 +343,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         const td = TEMP_ORDER[a.temp] - TEMP_ORDER[b.temp];
         return td !== 0 ? td : a.name.localeCompare(b.name, 'pt-BR');
       });
-  }, [selectedRow, scopeContacts, scope, stateCode, tempsByContact, hasOfficialList, cityNameOnly, officialNeighborhoods]);
+  }, [selectedRow, listContacts, isStateCityList, tempsByContact, hasOfficialList, activeCityName, activeCityParsed.state, stateCode, officialNeighborhoods]);
 
   const contactPinsResult = useMemo(() => {
-    if (!selectedRow) return { pins: [], unmapped: 0 };
-    const cityName = cityNameOnly || city;
+    if (!selectedRow || isStateCityList) return { pins: [], unmapped: 0 };
+    const cityName = activeCityName || city;
+    const pinState = activeCityParsed.state || stateCode;
     let fallbackCenter: { lat: number; lng: number } | null = null;
     if (selectedRow.lat != null && selectedRow.lng != null) {
       const fixed = fixBrazilCoord(selectedRow.lat, selectedRow.lng);
@@ -328,16 +373,22 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       apiPins: nbGeo?.contactPins || [],
       neighborhoodLabel: selectedRow.label,
       filterCity: cityName,
-      filterState: stateCode,
+      filterState: pinState,
       fallbackCenter,
     });
-  }, [selectedRow, neighborhoodContacts, nbGeo?.contactPins, city, cityNameOnly, stateCode]);
+  }, [selectedRow, isStateCityList, neighborhoodContacts, nbGeo?.contactPins, city, activeCityName, activeCityParsed.state, stateCode]);
 
   const contactPins = contactPinsResult.pins;
   const unmappedCount = contactPinsResult.unmapped;
 
+  const pinFilterCity = stateDrillCity
+    ? activeCityName
+    : scope === 'city'
+      ? cityNameOnly || city
+      : '';
+
   const scopeContactRows = useMemo((): NeighborhoodContactRow[] => {
-    return scopeContacts.map((c) => ({
+    return listContacts.map((c) => ({
       id: c.id,
       name: c.name || 'Sem nome',
       phone: c.phone || '',
@@ -352,15 +403,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       longitude: c.longitude,
       geocodePrecision: c.geocodePrecision,
     }));
-  }, [scopeContacts, tempsByContact]);
+  }, [listContacts, tempsByContact]);
 
   const allScopePinsResult = useMemo(() => {
-    if (!mapActive) return { pins: [], unmapped: 0 };
-    const cityName = cityNameOnly || city;
+    if (!mapActive) return { pins: [], unmapped: 0, totalBeforeCap: 0, capped: false };
     const built = buildContactPinsForScope({
       contacts: scopeContactRows,
       apiPins: scopeGeo?.contactPins || [],
-      filterCity: cityName,
+      filterCity: pinFilterCity,
       filterState: stateCode,
       tempFilter,
     });
@@ -371,7 +421,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       totalBeforeCap: capped.totalBeforeCap,
       capped: capped.capped,
     };
-  }, [mapActive, scopeContactRows, scopeGeo?.contactPins, city, cityNameOnly, stateCode, tempFilter]);
+  }, [mapActive, scopeContactRows, scopeGeo?.contactPins, pinFilterCity, stateCode, tempFilter]);
 
   const allScopePins = allScopePinsResult.pins;
   const allScopeUnmapped = allScopePinsResult.unmapped;
@@ -394,6 +444,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     async (region: TerritoryRegionApply) => {
       setSelectedRow(null);
       setSelectedContactId(null);
+      setStateDrillCity(null);
       setSummary(null);
       lastViewportKeyRef.current = '';
       clearDataLayers();
@@ -415,6 +466,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     setScope(next);
     setSelectedRow(null);
     setSelectedContactId(null);
+    setStateDrillCity(null);
     lastViewportKeyRef.current = '';
     if (next === 'state' && cityStateCode) {
       const uf = resolveBrazilStateCode(cityStateCode);
@@ -425,11 +477,30 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
   };
 
-  const handleSelectRow = useCallback((row: NeighborhoodRow | null) => {
-    setSelectedRow(row);
+  const handleBackToStateCities = useCallback(() => {
+    setStateDrillCity(null);
+    setSelectedRow(null);
     setSelectedContactId(null);
+    setNbGeo(null);
     lastViewportKeyRef.current = '';
   }, []);
+
+  const handleSelectRow = useCallback(
+    (row: NeighborhoodRow | null) => {
+      if (row && isStateCityList) {
+        setStateDrillCity(row.label);
+        setSelectedRow(null);
+        setSelectedContactId(null);
+        setNbGeo(null);
+        lastViewportKeyRef.current = '';
+        return;
+      }
+      setSelectedRow(row);
+      setSelectedContactId(null);
+      lastViewportKeyRef.current = '';
+    },
+    [isStateCityList]
+  );
 
   const handleSelectContact = useCallback((contactId: string) => {
     setSelectedContactId(contactId);
@@ -485,8 +556,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     setLoading(true);
     try {
       const data = await fetchLeadsGeoSummary({
-        layer: 'neighborhood',
-        city: scope === 'city' ? city : undefined,
+        layer: isStateCityList ? 'city' : 'neighborhood',
+        city: scope === 'city' ? city : stateDrillCity ?? undefined,
         state: scope === 'state' && stateCode ? stateCode : undefined,
         light: true,
       });
@@ -501,7 +572,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [city, scope, stateCode]);
+  }, [city, scope, stateCode, isStateCityList, stateDrillCity]);
 
   useEffect(() => {
     if (!deferLoad || mapActive || !rootRef.current) return;
@@ -525,19 +596,20 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [loadSummary, mapActive]);
 
   useEffect(() => {
-    if (!mapActive || !selectedRow) {
+    if (!mapActive || !selectedRow || isStateCityList) {
       setNbGeo(null);
       return;
     }
-    const cityName = cityNameOnly || city;
+    const rowCity = stateDrillCity || city;
+    const cityName = activeCityName || city;
     const nbLabel = `${selectedRow.label} · ${cityName}`;
     let cancelled = false;
     setNbGeoLoading(true);
     void fetchLeadsGeoSummary({
       layer: 'neighborhood',
-      city: scope === 'city' ? city : undefined,
-      state: scope === 'state' && stateCode ? stateCode : undefined,
-      neighborhood: scope === 'city' ? nbLabel : selectedRow.label,
+      city: rowCity,
+      state: stateCode || undefined,
+      neighborhood: nbLabel,
       light: false,
     })
       .then((data) => {
@@ -552,10 +624,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedRow?.key, city, mapActive, scope, stateCode, cityNameOnly]);
+  }, [selectedRow?.key, city, stateDrillCity, mapActive, stateCode, activeCityName, isStateCityList]);
 
   useEffect(() => {
-    if (!mapActive || selectedRow) {
+    if (!mapActive || selectedRow || (scope === 'state' && !stateDrillCity)) {
       setScopeGeo(null);
       return;
     }
@@ -563,7 +635,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     const timer = window.setTimeout(() => {
       void fetchLeadsGeoSummary({
         layer: 'neighborhood',
-        city: scope === 'city' ? city : undefined,
+        city: scope === 'city' ? city : stateDrillCity ?? undefined,
         state: scope === 'state' && stateCode ? stateCode : undefined,
         light: false,
       })
@@ -578,7 +650,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [mapActive, selectedRow, city, scope, stateCode]);
+  }, [mapActive, selectedRow, city, scope, stateCode, stateDrillCity, isStateCityList]);
 
   const paintMap = useCallback(() => {
     const map = mapRef.current;
@@ -641,7 +713,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       rowsWithLeads,
       null,
       territoryViewMode,
-      handleSelectRow
+      handleSelectRow,
+      isStateCityList ? 'city' : 'neighborhood'
     );
 
     const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${neighborhoodViz}|${territoryViewMode}|${rowsWithLeads.length}`;
@@ -675,35 +748,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     territoryViewMode,
     clearDataLayers,
     handleSelectRow,
+    isStateCityList,
   ]);
 
   useEffect(() => {
     paintMap();
   }, [paintMap]);
-
-  const handleGeocode = async () => {
-    setGeocoding(true);
-    try {
-      const cityName = cityNameOnly || city;
-      const r = await apiGeocodeContacts({
-        max: 200,
-        city: scope === 'city' ? city : undefined,
-        state: scope === 'state' ? stateCode : undefined,
-        neighborhood: selectedRow ? (scope === 'city' ? `${selectedRow.label} · ${cityNameOnly || city}` : selectedRow.label) : undefined,
-        force: false,
-      });
-      setSummary(r.summary);
-      if (selectedRow) {
-        setNbGeo(r.summary);
-      }
-      lastViewportKeyRef.current = '';
-      toast.success(`${r.geocoded} endereço(s) geolocalizado(s).`);
-    } catch {
-      toast.error('Falha ao geocodificar endereços.');
-    } finally {
-      setGeocoding(false);
-    }
-  };
 
   const handleLaunchCampaign = useCallback(() => {
     launchAtlasCampaign(buildAtlasLaunch());
@@ -786,7 +836,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
     if (mapViewMode === 'contacts') {
       if (allScopePins.length === 0) {
-        return 'Sem coordenadas — use Geocodificar ou volte para Bairros';
+        return 'Poucos contatos com coordenada nesta visão';
       }
       const mode = contactViz === 'heat' ? 'mapa de densidade' : 'pins individuais';
       return `${allScopePins.length.toLocaleString('pt-BR')} contatos · ${mode}${
@@ -795,9 +845,10 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           : ''
       }`;
     }
+    const entity = isStateCityList ? 'cidades' : 'bairros';
     const vizLabel =
       neighborhoodViz === 'heat' ? 'calor territorial' : neighborhoodViz === 'bubbles' ? 'bolhas' : 'rótulos';
-    return `${nbWithData} bairros · ${vizLabel} · colorido por ${
+    return `${nbWithData} ${entity} · ${vizLabel} · colorido por ${
       territoryViewMode === 'temperature' ? 'temperatura' : 'volume'
     }`;
   }, [
@@ -812,6 +863,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     nbWithData,
     neighborhoodViz,
     territoryViewMode,
+    isStateCityList,
   ]);
 
   const handleExportCsv = () => {
@@ -854,9 +906,19 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         <div className="zm-atlas__header-text">
           <h2 className="zm-atlas__title">Atlas territorial</h2>
           <p className="zm-atlas__subtitle">
-            {regionLabel} · {nbTotalListed}{' '}
-            {scope === 'state' ? 'bairros no estado' : 'bairros'}
-            {nbWithData < nbTotalListed ? ` (${nbWithData} com contatos)` : ''} ·{' '}
+            {stateDrillCity ? (
+              <>
+                {stateDrillCity} · {nbTotalListed} bairros
+                {nbWithData < nbTotalListed ? ` (${nbWithData} com contatos)` : ''}
+              </>
+            ) : (
+              <>
+                {regionLabel} · {nbTotalListed}{' '}
+                {isStateCityList ? 'cidades' : scope === 'state' ? 'bairros no estado' : 'bairros'}
+                {nbWithData < nbTotalListed ? ` (${nbWithData} com contatos)` : ''}
+              </>
+            )}
+            {' · '}
             {displayRegionTotal.toLocaleString('pt-BR')} contatos na região
           </p>
         </div>
@@ -890,15 +952,6 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               </button>
             </div>
           )}
-          <button
-            type="button"
-            className="zm-atlas-geocode"
-            disabled={geocoding || loading}
-            onClick={() => void handleGeocode()}
-          >
-            {geocoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Geocodificar
-          </button>
         </div>
       </header>
 
@@ -952,6 +1005,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             onFitBounds={fitMapToContent}
             onRecenter={recenterMap}
             focusMode={Boolean(selectedRow)}
+            neighborhoodsModeLabel={isStateCityList ? 'Cidades' : 'Bairros'}
             statsLine={mapStatsLine}
           />
           <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact zm-territory-map--pro zm-territory-map__frame">
@@ -981,6 +1035,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           selectedKey={selectedRow?.key ?? null}
           selectedContactId={selectedContactId}
           contacts={neighborhoodContacts}
+          entityLabel={isStateCityList ? 'Cidade' : 'Bairro'}
+          emptyLabel={
+            isStateCityList
+              ? 'Nenhuma cidade com contatos neste estado.'
+              : 'Nenhum bairro nesta região.'
+          }
+          onBack={stateDrillCity ? handleBackToStateCities : undefined}
+          backLabel="Voltar às cidades do estado"
           onSelectRow={handleSelectRow}
           onSelectContact={handleSelectContact}
           onExportCsv={handleExportCsv}

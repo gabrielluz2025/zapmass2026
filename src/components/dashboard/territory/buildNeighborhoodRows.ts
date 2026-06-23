@@ -9,6 +9,7 @@ import {
   resolveContactNeighborhoodForCity,
 } from '../../../../shared/officialNeighborhoods';
 import { clusterMatchesFilterCity, dominantNeighborhoodTemp, matchesCity, matchesNeighborhood, matchesStateContact, normalizeKey, type NbTempStats } from './territoryMapUtils';
+import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import type { NeighborhoodRow } from './types';
 
 function emptyStats(label: string): NbTempStats {
@@ -198,19 +199,24 @@ export function buildNeighborhoodRows(input: {
 
 export function filterClustersForScope(
   clusters: GeoCluster[],
-  city: string,
+  filterLabel: string,
   scope: 'city' | 'state',
+  stateCode?: string,
   _hasOfficialList?: boolean
 ): GeoCluster[] {
   if (scope === 'city') {
     return clusters.filter(
-      (c) => c.lat != null && c.lng != null && clusterMatchesFilterCity(c, city)
+      (c) => c.lat != null && c.lng != null && clusterMatchesFilterCity(c, filterLabel)
     );
   }
-  const stateCode = city.split('·')[1]?.trim();
-  if (!stateCode) return clusters.filter((c) => c.lat != null && c.lng != null);
+  const uf =
+    (stateCode && resolveBrazilStateCode(stateCode)) ||
+    resolveBrazilStateCode(filterLabel.split('·').pop()?.trim() || '') ||
+    filterLabel.split('·').pop()?.trim() ||
+    '';
+  if (!uf) return clusters.filter((c) => c.lat != null && c.lng != null);
   return clusters.filter(
-    (c) => c.lat != null && c.lng != null && normalizeKey(c.state || '') === normalizeKey(stateCode)
+    (c) => c.lat != null && c.lng != null && normalizeKey(c.state || '') === normalizeKey(uf)
   );
 }
 

@@ -1223,6 +1223,113 @@ function contactMatchesStateQuery(c: Contact, stateCode: string): boolean {
   return contactMatchesFilters(c, { state: stateCode });
 }
 
+/** Resposta rápida — municípios agregados por UF (drill-down estado → cidade). */
+function buildStateLightCitySummary(
+  contacts: Contact[],
+  query: LeadsGeoQuery
+): LeadsGeoSummary {
+  const stateCode = String(query.state || '')
+    .trim()
+    .toUpperCase()
+    .slice(0, 2);
+  const cache = readGeoCache();
+
+  const byKey = new Map<string, GeoCluster>();
+  const byCity: Record<string, number> = {};
+  let filteredTotal = 0;
+  let withPhone = 0;
+
+  for (const raw of contacts) {
+    const c = hydrateContactForGeo(raw);
+    if (!contactMatchesStateQuery(c, stateCode)) continue;
+
+    filteredTotal++;
+    if ((c.phone || '').replace(/\D/g, '').length >= 10) withPhone++;
+
+    const { city: cityName } = resolveContactCityState(c);
+    const cityTrim = String(cityName || '').trim();
+    if (!cityTrim || cityTrim === '—') continue;
+
+    const cityKey = `${cityTrim} · ${stateCode}`;
+    byCity[cityKey] = (byCity[cityKey] || 0) + 1;
+
+    const mapKey = normKeyPart(cityKey);
+    let slot = byKey.get(mapKey);
+    if (!slot) {
+      const coord = cityToApproxCoord(cityTrim, stateCode) || ufToCoord(stateCode);
+      const clusterCacheKey = clusterKey('city', { city: cityTrim });
+      const cached = cache[clusterCacheKey];
+      slot = {
+        key: clusterCacheKey,
+        label: cityKey,
+        city: cityTrim,
+        state: stateCode,
+        neighborhood: '—',
+        ddd: phoneToDdd(c.phone || '') || '—',
+        count: 0,
+        lat: cached?.lat ?? coord?.lat ?? null,
+        lng: cached?.lng ?? coord?.lng ?? null,
+        precision: 'city',
+        mapped: Boolean(cached?.lat != null || coord),
+        sampleNames: [],
+      };
+      byKey.set(mapKey, slot);
+    }
+    slot.count++;
+    if (slot.sampleNames.length < 5 && c.name) {
+      slot.sampleNames.push(String(c.name).slice(0, 40));
+    }
+  }
+
+  const clusters = [...byKey.values()].sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.label.localeCompare(b.label, 'pt-BR');
+  });
+
+  const top = clusters.find((c) => c.count > 0) || clusters[0];
+  const topConcentration = top
+    ? {
+        label: top.label,
+        count: top.count,
+        sharePct: filteredTotal > 0 ? Math.round((1000 * top.count) / filteredTotal) / 10 : 0,
+        key: top.key,
+      }
+    : null;
+
+  const ufCoord = ufToCoord(stateCode);
+  const mapViewport = ufCoord ? { lat: ufCoord.lat, lng: ufCoord.lng, zoom: 7 } : null;
+
+  return {
+    stats: {
+      totalContacts: contacts.length,
+      withAnyAddress: filteredTotal,
+      withCity: filteredTotal,
+      withNeighborhood: 0,
+      withPhone,
+      clusters: clusters.length,
+      clustersMapped: clusters.filter((c) => c.mapped && c.lat != null).length,
+      clustersPending: clusters.filter((c) => !cache[c.key]).length,
+      filteredTotal,
+    },
+    layer: 'city',
+    clusters,
+    byState: { [stateCode]: filteredTotal },
+    byDdd: {},
+    byCity,
+    byNeighborhood: {},
+    filters: {
+      cities: clusters.map((c) => c.label),
+      states: [stateCode],
+      ddds: [],
+      neighborhoods: [],
+    },
+    topConcentration,
+    contactPins: [],
+    pinStats: { withFullAddress: 0, pinsMapped: 0, pinsApproximate: 0, pinsPending: 0 },
+    mapViewport,
+  };
+}
+
 /** Resposta rápida — bairros agregados por UF (sem lista OSM por município). */
 function buildStateLightNeighborhoodSummary(
   contacts: Contact[],
@@ -1506,6 +1613,10 @@ async function buildLeadsGeoSummaryInner(
 
   const contacts = await loadTenantContacts(tenantId);
   const lightMode = query.light === true;
+
+  if (lightMode && layer === 'city' && query.state?.trim() && !query.city?.trim()) {
+    return buildStateLightCitySummary(contacts, query);
+  }
 
   if (lightMode && layer === 'neighborhood' && query.state?.trim() && !query.city?.trim() && !query.neighborhood?.trim()) {
     return buildStateLightNeighborhoodSummary(contacts, query);
