@@ -21,12 +21,15 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => (
         <span className="cw-flow-segment-icon" aria-hidden>
           <MessageSquare className="w-4 h-4" />
         </span>
-        <span>
-          <span className="block text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            Disparo único
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2 flex-wrap">
+            <span className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
+              Disparo único
+            </span>
+            <span className="cw-flow-badge cw-flow-badge--recommended">Recomendado</span>
           </span>
           <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-            Uma mensagem por contato — sem etapas nem respostas automáticas.
+            Uma mensagem por contato — ideal para avisos e convites.
           </span>
         </span>
       </button>
@@ -44,7 +47,7 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => (
             Sequência automática
           </span>
           <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-            Várias etapas em fila, sem esperar resposta.
+            Várias mensagens em fila — o contato não precisa responder.
           </span>
         </span>
       </button>
@@ -62,7 +65,7 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => (
             Fluxo por respostas
           </span>
           <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-            Próxima mensagem só depois que o contato responder.
+            Próxima mensagem só quando o contato responder.
           </span>
         </span>
       </button>

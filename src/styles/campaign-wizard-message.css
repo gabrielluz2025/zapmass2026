@@ -568,3 +568,71 @@
   color: var(--text-3);
   margin: 0.35rem 0 0.25rem;
 }
+
+.cw-flow-badge {
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+}
+
+.cw-flow-badge--recommended {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+}
+
+.cw-quick-starters {
+  margin-bottom: 0.25rem;
+}
+
+.cw-quick-starter-card {
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.875rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+
+.cw-quick-starter-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  border-color: var(--brand-500);
+}
+
+.cw-quick-starter-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.35rem;
+}
+
+.cw-single-editor__textarea {
+  min-height: 9rem;
+  resize: vertical;
+}
+
+.cw-preview-mobile {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .cw-preview-mobile {
+    display: none;
+  }
+}
+
+.cw-risk-tip {
+  flex: 1;
+  min-width: min(100%, 240px);
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  background: var(--surface-1);
+  border: 1px dashed var(--border-subtle);
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
