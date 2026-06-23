@@ -75,78 +75,58 @@ export const CONTACT_TEMP_DEFAULT: TempStats = {
   score: 0
 };
 
-/**
- * Cache por referência (contacts + conversations). Vários painéis (mapa, dashboard)
- * pedem o mesmo cálculo: sem isto, cada um varre 10k contatos × conversas a cada render.
- */
-let __tempCacheContacts: Contact[] | null = null;
-let __tempCacheConvs: Conversation[] | null = null;
-let __tempCacheResult: Record<string, TempStats> | null = null;
+export type PhoneStatsBase = Omit<TempStats, 'temp' | 'score'>;
+
+const stripDigits = (p: string) => (p || '').replace(/\D/g, '');
+
+const convPrimaryDigits = (conv: Conversation) => {
+  const jid = conv.id || '';
+  const [, suffix = ''] = jid.split('@');
+  const [user = ''] = jid.split('@');
+  if (suffix === 'lid') return stripDigits(conv.contactPhone || '');
+  if (/^\d+$/.test(user)) return user;
+  return stripDigits(conv.contactPhone || '') || user.replace(/\D/g, '');
+};
+
+const emptyPhoneStats = (): PhoneStatsBase => ({
+  sent: 0,
+  delivered: 0,
+  read: 0,
+  replied: 0,
+  lastSentTs: 0,
+  lastReplyTs: 0,
+  lastReadTs: 0
+});
 
 /**
- * Mapa contactId -> temperatura a partir do histórico de conversas globais.
+ * Índice telefone → métricas de mensagens (varre conversas uma vez).
+ * Cache por referência do array `conversations`.
  */
-export function computeContactTemperatures(
-  contacts: Contact[],
-  conversations: Conversation[]
-): Record<string, TempStats> {
-  if (
-    __tempCacheResult &&
-    __tempCacheContacts === contacts &&
-    __tempCacheConvs === conversations
-  ) {
-    return __tempCacheResult;
-  }
-  const out = computeContactTemperaturesInner(contacts, conversations);
-  __tempCacheContacts = contacts;
-  __tempCacheConvs = conversations;
-  __tempCacheResult = out;
-  return out;
-}
+let __phoneIndexConvs: Conversation[] | null = null;
+let __phoneIndexResult: Record<string, PhoneStatsBase> | null = null;
 
-function computeContactTemperaturesInner(
-  contacts: Contact[],
-  conversations: Conversation[]
-): Record<string, TempStats> {
-  const knownPhones = new Set<string>();
-  for (const c of contacts) {
-    const p = normPhoneKey(c.phone);
-    if (p && p.length >= 11) knownPhones.add(p);
+export function buildPhoneMessageStatsIndex(conversations: Conversation[]): Record<string, PhoneStatsBase> {
+  if (__phoneIndexResult && __phoneIndexConvs === conversations) {
+    return __phoneIndexResult;
   }
 
-  const byPhone: Record<string, Omit<TempStats, 'temp' | 'score'>> = {};
-  const stripDigits = (p: string) => (p || '').replace(/\D/g, '');
-  const convPrimaryDigits = (conv: Conversation) => {
-    const jid = conv.id || '';
-    const [, suffix = ''] = jid.split('@');
-    const [user = ''] = jid.split('@');
-    if (suffix === 'lid') return stripDigits(conv.contactPhone || '');
-    if (/^\d+$/.test(user)) return user;
-    return stripDigits(conv.contactPhone || '') || user.replace(/\D/g, '');
-  };
+  const byPhone: Record<string, PhoneStatsBase> = {};
 
   const accum = (phone: string) => {
-    if (!byPhone[phone]) {
-      byPhone[phone] = {
-        sent: 0,
-        delivered: 0,
-        read: 0,
-        replied: 0,
-        lastSentTs: 0,
-        lastReplyTs: 0,
-        lastReadTs: 0
-      };
-    }
+    if (!byPhone[phone]) byPhone[phone] = emptyPhoneStats();
     return byPhone[phone];
   };
 
   for (const conv of conversations) {
     const phoneKey = normPhoneKey(convPrimaryDigits(conv));
-    if (!phoneKey || phoneKey.length < 11 || !knownPhones.has(phoneKey)) continue;
+    if (!phoneKey || phoneKey.length < 11) continue;
     const s = accum(phoneKey);
     const all = conv.messages || [];
-    const msgs = all.length > MAX_MESSAGES_SCAN_PER_CONV ? all.slice(all.length - MAX_MESSAGES_SCAN_PER_CONV) : all;
-    
+    const msgs =
+      all.length > MAX_MESSAGES_SCAN_PER_CONV
+        ? all.slice(all.length - MAX_MESSAGES_SCAN_PER_CONV)
+        : all;
+
     let lastMeTs = 0;
     let waitingReply = false;
 
@@ -179,39 +159,91 @@ function computeContactTemperaturesInner(
     }
   }
 
+  __phoneIndexConvs = conversations;
+  __phoneIndexResult = byPhone;
+  return byPhone;
+}
+
+/** Invalida caches (útil em testes ou após mutação in-place de conversas). */
+export function invalidateContactTemperatureCache(): void {
+  __phoneIndexConvs = null;
+  __phoneIndexResult = null;
+  __tempCacheContacts = null;
+  __tempCacheConvs = null;
+  __tempCacheResult = null;
+}
+
+export function mapContactToTempStats(
+  contact: Contact,
+  phoneIndex: Record<string, PhoneStatsBase>
+): TempStats {
+  const p = normPhoneKey(contact.phone);
+  let base = phoneIndex[p] ? { ...phoneIndex[p] } : emptyPhoneStats();
+
+  if (base.sent === 0 && (contact.campaignMessagesReceived || 0) > 0) {
+    const previewTs = contact.campaignTablePreview?.updatedAt
+      ? Date.parse(contact.campaignTablePreview.updatedAt) || 0
+      : 0;
+    const sent = contact.campaignMessagesReceived || 0;
+    base = {
+      sent,
+      delivered: sent,
+      read: 0,
+      replied: 0,
+      lastSentTs: previewTs,
+      lastReplyTs: 0,
+      lastReadTs: 0
+    };
+  }
+
+  const cls = classifyTemperature(base);
+  return { ...base, temp: cls.temp, score: cls.score };
+}
+
+/**
+ * Mapeia um lote de contatos usando índice já construído (para processamento incremental).
+ */
+export function mapContactsToTempStats(
+  contacts: Contact[],
+  phoneIndex: Record<string, PhoneStatsBase>,
+  start = 0,
+  end = contacts.length
+): Record<string, TempStats> {
   const result: Record<string, TempStats> = {};
-  for (const c of contacts) {
-    const p = normPhoneKey(c.phone);
-    let base =
-      byPhone[p] ||
-      ({
-        sent: 0,
-        delivered: 0,
-        read: 0,
-        replied: 0,
-        lastSentTs: 0,
-        lastReplyTs: 0,
-        lastReadTs: 0
-      } as Omit<TempStats, 'temp' | 'score'>);
-
-    if (base.sent === 0 && (c.campaignMessagesReceived || 0) > 0) {
-      const previewTs = c.campaignTablePreview?.updatedAt
-        ? Date.parse(c.campaignTablePreview.updatedAt) || 0
-        : 0;
-      const sent = c.campaignMessagesReceived || 0;
-      base = {
-        sent,
-        delivered: sent,
-        read: 0,
-        replied: 0,
-        lastSentTs: previewTs,
-        lastReplyTs: 0,
-        lastReadTs: 0
-      };
-    }
-
-    const cls = classifyTemperature(base);
-    result[c.id] = { ...base, temp: cls.temp, score: cls.score };
+  const hi = Math.min(end, contacts.length);
+  for (let i = start; i < hi; i++) {
+    const c = contacts[i];
+    result[c.id] = mapContactToTempStats(c, phoneIndex);
   }
   return result;
+}
+
+/**
+ * Cache por referência (contacts + conversations). Vários painéis (mapa, dashboard)
+ * pedem o mesmo cálculo: sem isto, cada um varre 10k contatos × conversas a cada render.
+ */
+let __tempCacheContacts: Contact[] | null = null;
+let __tempCacheConvs: Conversation[] | null = null;
+let __tempCacheResult: Record<string, TempStats> | null = null;
+
+/**
+ * Mapa contactId -> temperatura a partir do histórico de conversas globais.
+ */
+export function computeContactTemperatures(
+  contacts: Contact[],
+  conversations: Conversation[]
+): Record<string, TempStats> {
+  if (
+    __tempCacheResult &&
+    __tempCacheContacts === contacts &&
+    __tempCacheConvs === conversations
+  ) {
+    return __tempCacheResult;
+  }
+  const phoneIndex = buildPhoneMessageStatsIndex(conversations);
+  const out = mapContactsToTempStats(contacts, phoneIndex);
+  __tempCacheContacts = contacts;
+  __tempCacheConvs = conversations;
+  __tempCacheResult = out;
+  return out;
 }
