@@ -44,8 +44,12 @@ function cityToApproxCoord(city: string, state: string): { lat: number; lng: num
   return spreadCityInUf(city, state);
 }
 
-export function approxCityCoord(city: string, state: string): { lat: number; lng: number } | null {
-  return spreadCityInUf(city, state);
+export function approxCityCoord(
+  city: string,
+  state: string,
+  coordsIndex?: import('./municipioCoords').MunicipioCoordsIndex | null
+): { lat: number; lng: number } | null {
+  return spreadCityInUf(city, state, coordsIndex);
 }
 
 export function isCoordPlausibleForCity(

@@ -1,4 +1,5 @@
 import { phoneDigitsToUf } from '../src/utils/brazilPhoneGeo.js';
+import { lookupMunicipioCoord } from './municipioCoords.js';
 import { spreadCityInUf } from '../src/utils/ufCitySpread.js';
 
 /** Centróides aproximados por UF (mapa imediato sem Google — DDD / estado). */
@@ -82,9 +83,9 @@ const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   sprj: { lat: -22.9068, lng: -43.1729 }
 };
 
-/** Posição aproximada por cidade (tabela conhecida ou espiral dentro da UF). */
+/** Posição aproximada por cidade (IBGE real, tabela conhecida ou espiral dentro da UF). */
 export function cityToApproxCoord(city: string, state: string): { lat: number; lng: number } | null {
-  return spreadCityInUf(city, state);
+  return lookupMunicipioCoord(city, state) || spreadCityInUf(city, state);
 }
 
 export const UF_NAMES: Record<string, string> = {

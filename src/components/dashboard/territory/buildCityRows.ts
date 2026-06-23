@@ -3,6 +3,7 @@ import type { ContactTemperature } from '../../../utils/contactTemperature';
 import type { GeoCluster } from '../../../services/leadsGeoApi';
 import { parseGeoFilterCity, resolveContactCityState } from '../../../utils/contactAddressNormalize';
 import { approxCityCoord, isCoordPlausibleForCity } from '../../../utils/contactGeoValidate';
+import type { MunicipioCoordsIndex } from '../../../utils/municipioCoords';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import {
   dominantNeighborhoodTemp,
@@ -51,7 +52,8 @@ function mergeCityClusters(
 function coordForCity(
   label: string,
   clusters: GeoCluster[],
-  stateCode: string
+  stateCode: string,
+  coordsIndex?: MunicipioCoordsIndex | null
 ): { lat: number | null; lng: number | null } {
   const key = cityKey(label);
   const uf = resolveBrazilStateCode(stateCode) || stateCode;
@@ -69,7 +71,7 @@ function coordForCity(
   const parsed = parseGeoFilterCity(label);
   const parsedCityName = parsed.city || cityName;
   const st = parsed.state || uf;
-  const approx = approxCityCoord(parsedCityName, st);
+  const approx = approxCityCoord(parsedCityName, st, coordsIndex);
   return approx ? { lat: approx.lat, lng: approx.lng } : { lat: null, lng: null };
 }
 
@@ -79,6 +81,7 @@ export function buildCityRows(input: {
   stateCode: string;
   tempsByContact: Record<string, { temp: ContactTemperature }>;
   clusters: GeoCluster[];
+  coordsIndex?: MunicipioCoordsIndex | null;
 }): NeighborhoodRow[] {
   const uf = resolveBrazilStateCode(input.stateCode) || input.stateCode;
   const statsMap = new Map<string, NbTempStats>();
@@ -110,7 +113,7 @@ export function buildCityRows(input: {
   const rows: NeighborhoodRow[] = [];
   for (const stats of statsMap.values()) {
     if (stats.total <= 0 && (stats.clusterCount || 0) <= 0) continue;
-    const { lat, lng } = coordForCity(stats.label, input.clusters, uf);
+    const { lat, lng } = coordForCity(stats.label, input.clusters, uf, input.coordsIndex);
     rows.push({
       key: cityKey(stats.label),
       label: stats.label,

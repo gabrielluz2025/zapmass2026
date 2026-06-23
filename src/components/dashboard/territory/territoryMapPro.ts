@@ -55,27 +55,32 @@ function tempMixLine(row: NeighborhoodRow): string {
   return parts.slice(0, 3).join(' · ');
 }
 
-function bubbleSize(count: number, maxCount: number): number {
+function bubbleSize(count: number, maxCount: number, compact = false): number {
   const t = maxCount > 0 ? Math.min(1, Math.sqrt(count / maxCount)) : 0;
-  return Math.round(30 + t * 34);
+  if (compact) return Math.round(14 + t * 18);
+  return Math.round(22 + t * 26);
 }
 
 function territoryBubbleIcon(
   row: NeighborhoodRow,
   maxCount: number,
   viewMode: TerritoryViewMode,
-  selected: boolean
+  selected: boolean,
+  opts?: { compact?: boolean; showCount?: boolean }
 ): L.DivIcon {
-  const size = bubbleSize(row.count, maxCount);
+  const compact = opts?.compact ?? false;
+  const showCount = opts?.showCount ?? !compact;
+  const size = bubbleSize(row.count, maxCount, compact);
   const color = rowColor(row, maxCount, viewMode);
   const countLabel = formatCompactCount(row.count) || String(row.count);
   const selectedCls = selected ? ' zm-territory-bubble--selected' : '';
+  const compactCls = compact ? ' zm-territory-bubble--compact' : '';
 
   return L.divIcon({
     className: 'zm-territory-bubble-wrap',
-    html: `<div class="zm-territory-bubble${selectedCls}" style="--bubble-size:${size}px;--bubble-color:${color}" role="button" tabindex="0">
+    html: `<div class="zm-territory-bubble${selectedCls}${compactCls}" style="--bubble-size:${size}px;--bubble-color:${color}" role="button" tabindex="0" title="${escapeHtml(row.label)}">
       <span class="zm-territory-bubble__ring"></span>
-      <span class="zm-territory-bubble__count">${escapeHtml(countLabel)}</span>
+      ${showCount ? `<span class="zm-territory-bubble__count">${escapeHtml(countLabel)}</span>` : '<span class="zm-territory-bubble__dot"></span>'}
     </div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -108,33 +113,40 @@ export function paintNeighborhoodHeat(
   onSelect: (row: NeighborhoodRow) => void,
   listEntity: 'city' | 'neighborhood' = 'neighborhood'
 ): L.Layer[] {
+  if (rows.length > 28) {
+    return paintNeighborhoodDensityHeat(target, rows, viewMode, onSelect, listEntity);
+  }
+
   const layers: L.Layer[] = [];
   const maxCount = Math.max(1, ...rows.map((r) => r.count));
+  const density = rows.length;
+  const haloScale = density > 18 ? 0.55 : density > 10 ? 0.72 : 1;
+  const opacityScale = density > 18 ? 0.55 : density > 10 ? 0.72 : 1;
 
   for (const row of rows) {
     if (row.lat == null || row.lng == null || row.count < 1) continue;
 
     const t = row.count / maxCount;
-    const radiusM = Math.round(220 + Math.sqrt(t) * 820);
+    const radiusM = Math.round((160 + Math.sqrt(t) * 520) * haloScale);
     const color = rowColor(row, maxCount, viewMode);
 
     const halo = L.circle([row.lat, row.lng], {
       radius: radiusM,
       fillColor: color,
-      fillOpacity: viewMode === 'volume' ? 0.38 : 0.42,
+      fillOpacity: (viewMode === 'volume' ? 0.28 : 0.32) * opacityScale,
       color,
-      weight: 2,
-      opacity: 0.65,
+      weight: 1.5,
+      opacity: 0.45 * opacityScale,
       className: 'zm-atlas-halo',
     });
 
     const core = L.circleMarker([row.lat, row.lng], {
-      radius: Math.round(6 + Math.sqrt(t) * 12),
+      radius: Math.round(4 + Math.sqrt(t) * 8),
       fillColor: color,
       fillOpacity: 1,
       color: '#fff',
-      weight: 2.5,
-      opacity: 1,
+      weight: 2,
+      opacity: 0.95,
       className: 'zm-atlas-core',
     });
 
@@ -144,7 +156,7 @@ export function paintNeighborhoodHeat(
       direction: 'top',
       offset: [0, -6],
       opacity: 1,
-      sticky: true,
+      sticky: false,
     });
 
     const pick = () => onSelect(row);
@@ -159,6 +171,75 @@ export function paintNeighborhoodHeat(
   return layers;
 }
 
+const TERRITORY_HEAT_GRADIENT: Record<number, string> = {
+  0.08: '#14b8a6',
+  0.28: '#22d3ee',
+  0.48: '#eab308',
+  0.68: '#f97316',
+  1: '#ef4444',
+};
+
+/** Camada única de calor — ideal para visão estadual com muitas cidades. */
+export function paintNeighborhoodDensityHeat(
+  target: L.Map | L.LayerGroup,
+  rows: NeighborhoodRow[],
+  viewMode: TerritoryViewMode,
+  onSelect: (row: NeighborhoodRow) => void,
+  listEntity: 'city' | 'neighborhood' = 'neighborhood'
+): L.Layer[] {
+  const valid = rows.filter((r) => r.lat != null && r.lng != null && r.count > 0);
+  if (valid.length === 0) return [];
+
+  const maxCount = Math.max(1, ...valid.map((r) => r.count));
+  const points: Array<[number, number, number]> = valid.map((r) => {
+    const t = viewMode === 'volume' ? r.count / maxCount : undefined;
+    const weight =
+      viewMode === 'volume'
+        ? 0.25 + Math.min(1, t || 0) * 0.75
+        : ({ hot: 1, warm: 0.72, cold: 0.45, new: 0.22 } as const)[r.dominant] ?? 0.3;
+    return [r.lat!, r.lng!, weight];
+  });
+
+  const layer = heatLayerFactory(points, {
+    radius: valid.length > 120 ? 28 : valid.length > 60 ? 24 : 20,
+    blur: valid.length > 120 ? 22 : 18,
+    maxZoom: 12,
+    max: 1,
+    minOpacity: 0.28,
+    gradient: TERRITORY_HEAT_GRADIENT,
+  });
+  layer.addTo(target);
+
+  const markers: L.Layer[] = [layer];
+  const top = [...valid].sort((a, b) => b.count - a.count).slice(0, Math.min(12, valid.length));
+
+  for (const row of top) {
+    const color = rowColor(row, maxCount, viewMode);
+    const core = L.circleMarker([row.lat!, row.lng!], {
+      radius: row.index === 1 ? 7 : 5,
+      fillColor: color,
+      fillOpacity: 0.95,
+      color: '#fff',
+      weight: 2,
+      opacity: 1,
+      className: 'zm-atlas-core',
+    });
+    core.bindTooltip(territoryTooltipHtml(row.label, row.count, row.dominant, tempMixLine(row)), {
+      className: 'zm-territory-tip-pane',
+      direction: 'top',
+      offset: [0, -6],
+      opacity: 1,
+      sticky: false,
+    });
+    core.on('click', () => onSelect(row));
+    bindNeighborhoodPopup(core, row, listEntity);
+    core.addTo(target);
+    markers.push(core);
+  }
+
+  return markers;
+}
+
 /** Bolhas numeradas — visão executiva. */
 export function paintNeighborhoodBubbles(
   target: L.Map | L.LayerGroup,
@@ -169,23 +250,28 @@ export function paintNeighborhoodBubbles(
   listEntity: 'city' | 'neighborhood' = 'neighborhood'
 ): L.Layer[] {
   const layers: L.Layer[] = [];
-  const maxCount = Math.max(1, ...rows.map((r) => r.count));
+  const valid = rows.filter((r) => r.lat != null && r.lng != null && r.count > 0);
+  if (valid.length === 0) return layers;
 
-  for (const row of rows) {
-    if (row.lat == null || row.lng == null || row.count < 1) continue;
+  const compact = valid.length > 24;
+  const maxCount = Math.max(1, ...valid.map((r) => r.count));
 
+  for (const row of valid) {
     const selected = selectedKey === row.key;
-    const marker = L.marker([row.lat, row.lng], {
-      icon: territoryBubbleIcon(row, maxCount, viewMode, selected),
-      zIndexOffset: selected ? 400 : 100 + (row.count > 0 ? Math.min(200, row.count) : 0),
+    const marker = L.marker([row.lat!, row.lng!], {
+      icon: territoryBubbleIcon(row, maxCount, viewMode, selected, {
+        compact,
+        showCount: !compact || row.index <= 8,
+      }),
+      zIndexOffset: selected ? 400 : 80 + Math.min(120, Math.round(row.count)),
     });
 
     marker.bindTooltip(territoryTooltipHtml(row.label, row.count, row.dominant, tempMixLine(row)), {
       className: 'zm-territory-tip-pane',
       direction: 'top',
-      offset: [0, -8],
+      offset: [0, compact ? -4 : -8],
       opacity: 1,
-      sticky: true,
+      sticky: false,
     });
 
     bindNeighborhoodPopup(marker, row, listEntity);
@@ -227,7 +313,7 @@ export function paintNeighborhoodLabels(
       direction: 'top',
       offset: [0, -4],
       opacity: 1,
-      sticky: true,
+      sticky: false,
     });
 
     marker.on('click', () => onSelect(row));

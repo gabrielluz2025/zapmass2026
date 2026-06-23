@@ -23,6 +23,8 @@ import {
   resolveContactNeighborhoodForCity,
 } from '../../../shared/officialNeighborhoods';
 import { launchAtlasCampaign, saveAtlasContactsHint, type AtlasRegionLaunch } from '../../utils/atlasRegionLaunch';
+import { loadMunicipioCoords, type MunicipioCoordsIndex } from '../../utils/municipioCoords';
+import { spreadOverlappingMarkers } from '../../utils/mapMarkerLayout';
 import { TerritoryAtlasMeta } from './territory/TerritoryAtlasMeta';
 import { TerritoryCitySearch } from './territory/TerritoryCitySearch';
 import { TerritoryTempRiver } from './territory/TerritoryTempRiver';
@@ -122,10 +124,22 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [neighborhoodViz, setNeighborhoodViz] = useState<NeighborhoodViz>('heat');
   const [contactViz, setContactViz] = useState<ContactViz>('heat');
   const [territoryViewMode, setTerritoryViewMode] = useState<TerritoryViewMode>('temperature');
-  const [mapTile, setMapTile] = useState<MapTileId>('dark');
+  const [mapTile, setMapTile] = useState<MapTileId>('voyager');
+  const [municipioCoords, setMunicipioCoords] = useState<MunicipioCoordsIndex | null>(null);
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
+
+  useEffect(() => {
+    if (!mapActive) return;
+    let cancelled = false;
+    void loadMunicipioCoords().then((idx) => {
+      if (!cancelled) setMunicipioCoords(idx);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mapActive]);
 
   const blumenauFocus = isBlumenauCity(city) && scope === 'city';
   const parsedCity = useMemo(() => parseGeoFilterCity(city), [city]);
@@ -232,6 +246,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         stateCode,
         tempsByContact,
         clusters,
+        coordsIndex: municipioCoords,
       });
     }
     const rowCity = scope === 'state' && stateDrillCity ? stateDrillCity : city;
@@ -255,6 +270,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     stateDrillCity,
     city,
     officialNeighborhoods,
+    municipioCoords,
   ]);
 
   const showAllNeighborhoods = hasOfficialList;
@@ -707,10 +723,18 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     }
 
     const rowsWithLeads = normalized.filter((r) => r.count > 0);
-    const mapRows =
-      isStateCityList && rowsWithLeads.length > 120
-        ? rowsWithLeads.slice(0, 120)
-        : rowsWithLeads;
+    let mapRows = rowsWithLeads;
+
+    if (isStateCityList && neighborhoodViz === 'bubbles' && mapRows.length > 80) {
+      mapRows = mapRows.slice(0, 80);
+    }
+
+    if (neighborhoodViz === 'bubbles' && mapRows.length > 18) {
+      mapRows = spreadOverlappingMarkers(
+        mapRows.map((r) => ({ ...r, key: r.key, count: r.count }))
+      );
+    }
+
     layersRef.current = paintNeighborhoodLayer(
       target,
       neighborhoodViz,
@@ -852,7 +876,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     const entity = isStateCityList ? 'cidades' : 'bairros';
     const vizLabel =
       neighborhoodViz === 'heat' ? 'calor territorial' : neighborhoodViz === 'bubbles' ? 'bolhas' : 'rótulos';
-    return `${nbWithData} ${entity} · ${vizLabel} · colorido por ${
+    const capped =
+      isStateCityList && neighborhoodViz === 'bubbles' && nbWithData > 80
+        ? ` · top 80 de ${nbWithData}`
+        : '';
+    return `${nbWithData} ${entity} · ${vizLabel}${capped} · colorido por ${
       territoryViewMode === 'temperature' ? 'temperatura' : 'volume'
     }`;
   }, [
