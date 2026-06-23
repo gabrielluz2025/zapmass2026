@@ -10,6 +10,10 @@ type Props = {
   selectedKey: string | null;
   selectedContactId: string | null;
   contacts: NeighborhoodContactRow[];
+  entityLabel?: string;
+  emptyLabel?: string;
+  onBack?: () => void;
+  backLabel?: string;
   onSelectRow: (row: NeighborhoodRow | null) => void;
   onSelectContact: (contactId: string) => void;
   onExportCsv?: () => void;
@@ -45,6 +49,10 @@ export const TerritoryRankingTable: React.FC<Props> = ({
   selectedKey,
   selectedContactId,
   contacts,
+  entityLabel = 'Bairro',
+  emptyLabel = 'Nenhum bairro nesta região.',
+  onBack,
+  backLabel = 'Voltar às cidades',
   onSelectRow,
   onSelectContact,
   onExportCsv,
@@ -66,16 +74,26 @@ export const TerritoryRankingTable: React.FC<Props> = ({
   if (rows.length === 0) {
     return (
       <div className="zm-atlas-table zm-atlas-table--empty">
-        <p>Nenhum bairro nesta região.</p>
+        <p>{emptyLabel}</p>
+        {onBack && (
+          <button type="button" className="zm-atlas-table__back" onClick={onBack}>
+            {backLabel}
+          </button>
+        )}
       </div>
     );
   }
 
   return (
     <div className="zm-atlas-table zm-atlas-table--split">
+      {onBack && (
+        <button type="button" className="zm-atlas-table__back zm-atlas-table__back--head" onClick={onBack}>
+          ← {backLabel}
+        </button>
+      )}
       <div className="zm-atlas-table__head">
         <span>#</span>
-        <span>Bairro</span>
+        <span>{entityLabel}</span>
         <span>Contatos</span>
         <span>Mix</span>
       </div>

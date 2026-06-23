@@ -29,6 +29,7 @@ type Props = {
   onFitBounds: () => void;
   onRecenter: () => void;
   focusMode: boolean;
+  neighborhoodsModeLabel?: string;
   statsLine: string;
 };
 
@@ -52,6 +53,7 @@ export const TerritoryMapChrome: React.FC<Props> = ({
   onFitBounds,
   onRecenter,
   focusMode,
+  neighborhoodsModeLabel = 'Bairros',
   statsLine,
 }) => {
   return (
@@ -66,7 +68,7 @@ export const TerritoryMapChrome: React.FC<Props> = ({
             onClick={() => onMapViewModeChange('neighborhoods')}
           >
             <Layers className="w-3.5 h-3.5" />
-            Bairros
+            {neighborhoodsModeLabel}
           </button>
           <button
             type="button"

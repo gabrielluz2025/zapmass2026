@@ -58,6 +58,10 @@ function cityToApproxCoord(city: string, state: string): { lat: number; lng: num
   };
 }
 
+export function approxCityCoord(city: string, state: string): { lat: number; lng: number } | null {
+  return cityToApproxCoord(city, state);
+}
+
 export function isCoordPlausibleForCity(
   lat: number,
   lng: number,

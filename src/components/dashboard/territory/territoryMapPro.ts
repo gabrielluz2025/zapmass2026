@@ -86,14 +86,16 @@ function territoryBubbleIcon(
 function bindNeighborhoodPopup(
   layer: L.Layer,
   row: NeighborhoodRow,
-  viewMode: TerritoryViewMode
+  listEntity: 'city' | 'neighborhood' = 'neighborhood'
 ): void {
   const mix = tempMixLine(row);
   const html = `<div class="zm-territory-popup">
     <strong>${escapeHtml(row.label)}</strong>
     <p>${row.count.toLocaleString('pt-BR')} contatos</p>
     ${mix ? `<p style="opacity:.75;font-size:11px;margin:4px 0 0">${escapeHtml(mix)}</p>` : ''}
-    <p style="opacity:.6;font-size:10px;margin:6px 0 0">Clique para abrir o bairro</p>
+    <p style="opacity:.6;font-size:10px;margin:6px 0 0">${
+      listEntity === 'city' ? 'Clique para ver os bairros' : 'Clique para abrir o bairro'
+    }</p>
   </div>`;
   layer.bindPopup(html, { className: 'zm-territory-popup', maxWidth: 260 });
 }
@@ -103,7 +105,8 @@ export function paintNeighborhoodHeat(
   target: L.Map | L.LayerGroup,
   rows: NeighborhoodRow[],
   viewMode: TerritoryViewMode,
-  onSelect: (row: NeighborhoodRow) => void
+  onSelect: (row: NeighborhoodRow) => void,
+  listEntity: 'city' | 'neighborhood' = 'neighborhood'
 ): L.Layer[] {
   const layers: L.Layer[] = [];
   const maxCount = Math.max(1, ...rows.map((r) => r.count));
@@ -147,7 +150,7 @@ export function paintNeighborhoodHeat(
     const pick = () => onSelect(row);
     halo.on('click', pick);
     core.on('click', pick);
-    bindNeighborhoodPopup(core, row, viewMode);
+    bindNeighborhoodPopup(core, row, listEntity);
     halo.addTo(target);
     core.addTo(target);
     layers.push(halo, core);
@@ -162,7 +165,8 @@ export function paintNeighborhoodBubbles(
   rows: NeighborhoodRow[],
   selectedKey: string | null,
   viewMode: TerritoryViewMode,
-  onSelect: (row: NeighborhoodRow) => void
+  onSelect: (row: NeighborhoodRow) => void,
+  listEntity: 'city' | 'neighborhood' = 'neighborhood'
 ): L.Layer[] {
   const layers: L.Layer[] = [];
   const maxCount = Math.max(1, ...rows.map((r) => r.count));
@@ -184,7 +188,7 @@ export function paintNeighborhoodBubbles(
       sticky: true,
     });
 
-    bindNeighborhoodPopup(marker, row, viewMode);
+    bindNeighborhoodPopup(marker, row, listEntity);
     marker.on('click', () => onSelect(row));
     marker.addTo(target);
     layers.push(marker);
@@ -285,9 +289,10 @@ export function paintNeighborhoodLayer(
   rows: NeighborhoodRow[],
   selectedKey: string | null,
   viewMode: TerritoryViewMode,
-  onSelect: (row: NeighborhoodRow) => void
+  onSelect: (row: NeighborhoodRow) => void,
+  listEntity: 'city' | 'neighborhood' = 'neighborhood'
 ): L.Layer[] {
-  if (mode === 'heat') return paintNeighborhoodHeat(target, rows, viewMode, onSelect);
-  if (mode === 'bubbles') return paintNeighborhoodBubbles(target, rows, selectedKey, viewMode, onSelect);
+  if (mode === 'heat') return paintNeighborhoodHeat(target, rows, viewMode, onSelect, listEntity);
+  if (mode === 'bubbles') return paintNeighborhoodBubbles(target, rows, selectedKey, viewMode, onSelect, listEntity);
   return paintNeighborhoodLabels(target, rows, selectedKey, viewMode, onSelect);
 }

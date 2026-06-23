@@ -1,0 +1,117 @@
+import type { Contact } from '../../../types';
+import type { ContactTemperature } from '../../../utils/contactTemperature';
+import type { GeoCluster } from '../../../services/leadsGeoApi';
+import { parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
+import { approxCityCoord } from '../../../utils/contactGeoValidate';
+import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
+import {
+  dominantNeighborhoodTemp,
+  matchesStateContact,
+  normalizeKey,
+  type NbTempStats,
+} from './territoryMapUtils';
+import type { NeighborhoodRow } from './types';
+
+function emptyStats(label: string): NbTempStats {
+  return { label, hot: 0, warm: 0, cold: 0, new: 0, total: 0, clusterCount: 0 };
+}
+
+function cityLabelFromContact(c: Contact, stateCode: string): string {
+  const city = (c.city || '').trim();
+  const st = (c.state || stateCode || '').trim().toUpperCase().slice(0, 2);
+  if (!city) return '';
+  return st ? `${city} · ${st}` : city;
+}
+
+function cityKey(label: string): string {
+  return normalizeKey(label).replace(/\s+/g, '');
+}
+
+function mergeCityClusters(
+  map: Map<string, NbTempStats>,
+  clusters: GeoCluster[],
+  stateCode: string
+): void {
+  const uf = resolveBrazilStateCode(stateCode) || stateCode;
+  for (const cl of clusters) {
+    if (cl.precision !== 'city' && !cl.label.includes('·')) continue;
+    if (normalizeKey(cl.state || '') !== normalizeKey(uf)) continue;
+    const label = cl.label.includes('·') ? cl.label : `${cl.city} · ${cl.state || uf}`;
+    const key = cityKey(label);
+    const slot = map.get(key) || emptyStats(label);
+    slot.clusterCount = Math.max(slot.clusterCount || 0, cl.count);
+    if (!map.has(key)) map.set(key, slot);
+  }
+}
+
+function coordForCity(
+  label: string,
+  clusters: GeoCluster[],
+  stateCode: string
+): { lat: number | null; lng: number | null } {
+  const key = cityKey(label);
+  const cluster = clusters.find(
+    (c) =>
+      cityKey(c.label) === key ||
+      (c.precision === 'city' && normalizeKey(c.city) === normalizeKey(label.split('·')[0]?.trim() || ''))
+  );
+  if (cluster?.lat != null && cluster?.lng != null) {
+    return { lat: cluster.lat, lng: cluster.lng };
+  }
+  const parsed = parseGeoFilterCity(label);
+  const cityName = parsed.city || label.split('·')[0]?.trim() || label;
+  const st = parsed.state || stateCode;
+  const approx = approxCityCoord(cityName, st);
+  return approx ? { lat: approx.lat, lng: approx.lng } : { lat: null, lng: null };
+}
+
+/** Agrega contatos por município dentro de uma UF (visão estado). */
+export function buildCityRows(input: {
+  contacts: Contact[];
+  stateCode: string;
+  tempsByContact: Record<string, { temp: ContactTemperature }>;
+  clusters: GeoCluster[];
+}): NeighborhoodRow[] {
+  const uf = resolveBrazilStateCode(input.stateCode) || input.stateCode;
+  const statsMap = new Map<string, NbTempStats>();
+
+  for (const c of input.contacts) {
+    if (!matchesStateContact(c, uf)) continue;
+    const label = cityLabelFromContact(c, uf);
+    if (!label) continue;
+    const key = cityKey(label);
+    const slot = statsMap.get(key) || emptyStats(label);
+    if (!statsMap.has(key)) statsMap.set(key, slot);
+
+    const t = input.tempsByContact[c.id]?.temp || 'new';
+    slot[t]++;
+    slot.total++;
+  }
+
+  mergeCityClusters(statsMap, input.clusters, uf);
+
+  const rows: NeighborhoodRow[] = [];
+  for (const stats of statsMap.values()) {
+    if (stats.total <= 0 && (stats.clusterCount || 0) <= 0) continue;
+    const { lat, lng } = coordForCity(stats.label, input.clusters, uf);
+    rows.push({
+      key: cityKey(stats.label),
+      label: stats.label,
+      count: Math.max(stats.total, stats.clusterCount || 0),
+      hot: stats.hot,
+      warm: stats.warm,
+      cold: stats.cold,
+      new: stats.new,
+      lat,
+      lng,
+      dominant: stats.total > 0 ? dominantNeighborhoodTemp(stats) : 'new',
+    });
+  }
+
+  return rows
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.label.localeCompare(b.label, 'pt-BR');
+    })
+    .map((row, idx) => ({ ...row, index: idx + 1 }));
+}

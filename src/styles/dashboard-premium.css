@@ -4126,6 +4126,32 @@
   background: #faf5ff;
 }
 
+.zm-atlas-table__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid #ddd6fe;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7c3aed;
+  cursor: pointer;
+}
+
+.zm-atlas-table__back--head {
+  margin: 0;
+  width: 100%;
+  justify-content: flex-start;
+  border: none;
+  border-bottom: 1px solid #e9d5ff;
+  border-radius: 0;
+  background: #faf5ff;
+  padding: 8px 12px;
+}
+
 .zm-atlas-table__stack--tall {
   height: 10px;
   border-radius: 4px;
