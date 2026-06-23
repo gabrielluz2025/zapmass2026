@@ -2,6 +2,7 @@ import type { GeoCluster } from '../../../services/leadsGeoApi';
 import type { Contact } from '../../../types';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
 import { citiesMatch, normPlaceKey, parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
+import { isCoordPlausibleForState } from '../../../utils/contactGeoValidate';
 import { phoneDigitsToUf } from '../../../utils/brazilPhoneGeo';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import {
@@ -62,6 +63,22 @@ export function clusterMatchesFilterCity(cluster: GeoCluster, filterCity: string
   }
   if (fc.state && clusterState && clusterState !== '—') {
     if (normPlaceKey(clusterState) !== normPlaceKey(fc.state)) return false;
+  }
+  return true;
+}
+
+/** Cluster pertence à UF ativa (metadado + coordenada plausível). */
+export function clusterMatchesFilterState(cluster: GeoCluster, stateCode: string): boolean {
+  const uf =
+    resolveBrazilStateCode(stateCode) ||
+    String(stateCode || '').trim().toUpperCase().slice(0, 2);
+  if (!uf) return true;
+  const clusterState = String(cluster.state || '').trim();
+  if (clusterState && clusterState !== '—') {
+    if (normPlaceKey(clusterState) !== normPlaceKey(uf)) return false;
+  }
+  if (cluster.lat != null && cluster.lng != null) {
+    if (!isCoordPlausibleForState(cluster.lat, cluster.lng, uf)) return false;
   }
   return true;
 }

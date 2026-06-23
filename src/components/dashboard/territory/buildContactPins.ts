@@ -4,7 +4,26 @@ import type { ContactTemperature } from '../../../utils/contactTemperature';
 import { resolveTrustedContactCoord } from '../../../utils/contactGeoValidate';
 import { fixBrazilCoord, isMapCoordValid } from '../../../utils/brazilMapCoords';
 import { matchesNeighborhood } from './territoryMapUtils';
+import { citiesMatch } from '../../../utils/contactAddressNormalize';
+import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import type { MapContactPin } from './types';
+
+function apiPinMatchesScope(
+  pin: GeoContactPin,
+  filterCity: string,
+  filterState: string
+): boolean {
+  const uf = resolveBrazilStateCode(filterState) || filterState.trim().toUpperCase().slice(0, 2);
+  if (uf) {
+    const pinUf = String(pin.state || '').trim().toUpperCase().slice(0, 2);
+    if (pinUf && pinUf !== uf) return false;
+  }
+  if (filterCity.trim()) {
+    const pinCity = String(pin.city || '').trim();
+    if (pinCity && !citiesMatch(pinCity, filterCity, pin.state || filterState)) return false;
+  }
+  return true;
+}
 
 export type NeighborhoodContactInput = {
   id: string;
@@ -33,8 +52,11 @@ export function buildContactPinsForNeighborhood(input: {
 }): { pins: MapContactPin[]; unmapped: number } {
   const byId = new Map<string, MapContactPin>();
   const nb = input.neighborhoodLabel;
+  const poolIds = new Set(input.contacts.map((c) => c.id));
 
   for (const pin of input.apiPins) {
+    if (!poolIds.has(pin.id)) continue;
+    if (!apiPinMatchesScope(pin, input.filterCity, input.filterState)) continue;
     const pinNb = pin.neighborhood || '';
     if (pinNb && !matchesNeighborhood(pinNb, nb)) continue;
 
@@ -164,9 +186,12 @@ export function buildContactPinsForScope(input: {
       ? input.contacts
       : input.contacts.filter((c) => c.temp === input.tempFilter);
 
+  const poolIds = new Set(pool.map((c) => c.id));
   const byId = new Map<string, MapContactPin>();
 
   for (const pin of input.apiPins || []) {
+    if (!poolIds.has(pin.id)) continue;
+    if (!apiPinMatchesScope(pin, input.filterCity, input.filterState)) continue;
     const trusted = resolveTrustedContactCoord({
       latitude: pin.lat,
       longitude: pin.lng,
@@ -247,10 +272,11 @@ export function buildContactPinsForScope(input: {
     });
   }
 
-  return { pins: [...byId.values()], unmapped };
+  return {
+    pins: [...byId.values()].filter((p) => poolIds.has(p.id)),
+    unmapped,
+  };
 }
-
-/** Limita pins no mapa sem travar o navegador em bases grandes. */
 export const MAP_CONTACT_PIN_CAP = 1200;
 
 export function capMapContactPins(

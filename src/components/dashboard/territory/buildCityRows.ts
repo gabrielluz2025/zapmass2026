@@ -2,7 +2,7 @@ import type { Contact } from '../../../types';
 import type { ContactTemperature } from '../../../utils/contactTemperature';
 import type { GeoCluster } from '../../../services/leadsGeoApi';
 import { parseGeoFilterCity } from '../../../utils/contactAddressNormalize';
-import { approxCityCoord } from '../../../utils/contactGeoValidate';
+import { approxCityCoord, isCoordPlausibleForCity } from '../../../utils/contactGeoValidate';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import {
   dominantNeighborhoodTemp,
@@ -50,18 +50,22 @@ function coordForCity(
   stateCode: string
 ): { lat: number | null; lng: number | null } {
   const key = cityKey(label);
-  const cluster = clusters.find(
-    (c) =>
-      cityKey(c.label) === key ||
-      (c.precision === 'city' && normalizeKey(c.city) === normalizeKey(label.split('·')[0]?.trim() || ''))
-  );
+  const uf = resolveBrazilStateCode(stateCode) || stateCode;
+  const cityName = label.split('·')[0]?.trim() || label;
+  const cluster = clusters.find((c) => {
+    if (normalizeKey(c.state || '') !== normalizeKey(uf)) return false;
+    if (cityKey(c.label) === key) return true;
+    return c.precision === 'city' && normalizeKey(c.city) === normalizeKey(cityName);
+  });
   if (cluster?.lat != null && cluster?.lng != null) {
-    return { lat: cluster.lat, lng: cluster.lng };
+    if (isCoordPlausibleForCity(cluster.lat, cluster.lng, cityName, uf, 95)) {
+      return { lat: cluster.lat, lng: cluster.lng };
+    }
   }
   const parsed = parseGeoFilterCity(label);
-  const cityName = parsed.city || label.split('·')[0]?.trim() || label;
-  const st = parsed.state || stateCode;
-  const approx = approxCityCoord(cityName, st);
+  const parsedCityName = parsed.city || cityName;
+  const st = parsed.state || uf;
+  const approx = approxCityCoord(parsedCityName, st);
   return approx ? { lat: approx.lat, lng: approx.lng } : { lat: null, lng: null };
 }
 

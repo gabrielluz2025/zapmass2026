@@ -76,8 +76,23 @@ export function isCoordPlausibleForCity(
   if (!cityTrim && !stateTrim) return false;
   const ref = cityToApproxCoord(cityTrim, stateTrim) || (stateTrim ? UF_CENTER[stateTrim] : null);
   if (!ref) return false;
-  const radius = cityTrim ? maxKm : Math.max(maxKm, 280);
+  const radius = cityTrim ? maxKm : Math.min(165, Math.max(maxKm, 120));
   return haversineKm(ref.lat, ref.lng, fixed.lat, fixed.lng) <= radius;
+}
+
+/** Coordenada dentro de um raio razoável do centro da UF (visão estadual sem cidade). */
+export function isCoordPlausibleForState(
+  lat: number,
+  lng: number,
+  state: string,
+  maxKm = 165
+): boolean {
+  const st = String(state || '').trim().toUpperCase().slice(0, 2);
+  const ref = UF_CENTER[st];
+  const fixed = fixBrazilCoord(lat, lng);
+  if (!isInsideBrazilBounds(fixed.lat, fixed.lng)) return false;
+  if (!ref) return true;
+  return haversineKm(ref.lat, ref.lng, fixed.lat, fixed.lng) <= maxKm;
 }
 
 /** CEP incompatível com a cidade cadastrada (ex.: 60xxx em Blumenau). */
@@ -141,6 +156,13 @@ export function resolveTrustedContactCoord(
 
   const city = (c.city || '').split('·')[0].trim();
   const state = (c.state || '').trim();
+
+  if (!city && state) {
+    if (isCoordPlausibleForState(fixed.lat, fixed.lng, state)) {
+      return { ...fixed, verified: false };
+    }
+    return null;
+  }
 
   if (hasTrustedGeocode(c)) {
     const maxKm = c.geocodePrecision === 'cep' ? 40 : 25;
