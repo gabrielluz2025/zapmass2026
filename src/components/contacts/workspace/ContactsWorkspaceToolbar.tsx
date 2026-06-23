@@ -34,6 +34,7 @@ type Props = {
   filteredCount: number;
   contactsHasMore: boolean;
   contactsLoadingMore: boolean;
+  contactsLoadPaused?: boolean;
   onRefreshTotals: () => void;
 };
 
@@ -48,6 +49,7 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
   filteredCount,
   contactsHasMore,
   contactsLoadingMore,
+  contactsLoadPaused = false,
   onRefreshTotals
 }) => {
   const title = listName
@@ -88,9 +90,20 @@ export const ContactsWorkspaceToolbar: React.FC<Props> = ({
         >
           <RotateCw className={`w-3 h-3 ${contactsSavedTotalLoading ? 'animate-spin' : ''}`} />
         </button>
-        {(contactsHasMore || contactsLoadingMore) && (
-          <span className="crm-mini-stat" style={{ color: '#10b981', borderColor: 'rgba(16,185,129,0.3)' }}>
-            <Loader2 className="w-3 h-3 animate-spin" />
+        {(contactsLoadingMore || (contactsHasMore && contactsSavedTotal != null && contactsSavedTotal > contactsLoaded)) && (
+          <span
+            className="crm-mini-stat"
+            style={{
+              color: contactsLoadPaused ? '#f59e0b' : '#10b981',
+              borderColor: contactsLoadPaused ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.3)'
+            }}
+            title={
+              contactsLoadPaused
+                ? 'Carregamento pausado para manter a interface fluida — use Carregar mais na barra abaixo.'
+                : undefined
+            }
+          >
+            {contactsLoadingMore && <Loader2 className="w-3 h-3 animate-spin" />}
             {contactsSavedTotal != null && contactsSavedTotal > contactsLoaded
               ? `${contactsLoaded.toLocaleString('pt-BR')} / ${contactsSavedTotal.toLocaleString('pt-BR')}`
               : 'Carregando…'}

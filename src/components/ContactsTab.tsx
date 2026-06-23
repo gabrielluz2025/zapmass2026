@@ -70,7 +70,7 @@ const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT
 const DEFAULT_CHURCH_ROLES = ['Membro', 'Visitante', 'Lider', 'Diacono', 'Pastor', 'Musico', 'Obreiro', 'Professor'];
 
 /** Limite de auto-carga em RAM — bases 40k+ continuam utilizáveis sem travar o browser. */
-const MAX_AUTO_LOAD_CONTACTS = 15_000;
+const MAX_AUTO_LOAD_CONTACTS = 20_000;
 
 // Colunas do modelo de importacao (tambem usadas em todos os exports)
 const TEMPLATE_COLUMNS: Array<{ key: keyof Contact | 'tags' | 'status'; label: string; width: number }> = [
@@ -860,15 +860,17 @@ export const ContactsTab: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
+  const contactsLoadPaused =
+    contactsSavedTotal != null &&
+    contacts.length >= autoLoadBudget &&
+    contacts.length < contactsSavedTotal &&
+    !contactsLoadingMore;
+
   const shouldAutoLoadContacts =
     autoLoadActive &&
     currentView === 'contacts' &&
     !pageHidden &&
-    !(
-      contactsSavedTotal != null &&
-      contacts.length >= autoLoadBudget &&
-      contacts.length < contactsSavedTotal
-    );
+    !contactsLoadPaused;
 
   /** Base ainda sendo hidratada — adia cálculos pesados (temperatura, stats). */
   const isHydratingContacts =
@@ -881,7 +883,7 @@ export const ContactsTab: React.FC = () => {
   const autoLoadDelayMs = useMemo(() => {
     const total = contactsSavedTotal ?? contacts.length;
     if (total > 30_000) return 400;
-    if (total > 15_000) return 300;
+    if (total > 20_000) return 300;
     if (total > 8000) return 200;
     return 100;
   }, [contactsSavedTotal, contacts.length]);
@@ -3769,6 +3771,7 @@ export const ContactsTab: React.FC = () => {
             filteredCount={totalAvailable}
             contactsHasMore={contactsHasMore}
             contactsLoadingMore={contactsLoadingMore}
+            contactsLoadPaused={contactsLoadPaused}
             onRefreshTotals={() => void refreshContactsSavedTotal?.()}
           />
 
