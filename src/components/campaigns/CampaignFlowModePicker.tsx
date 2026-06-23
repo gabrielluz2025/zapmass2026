@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, GitBranch, ListOrdered, MessageSquare } from 'lucide-react';
+import { GitBranch, MessageSquare, Zap } from 'lucide-react';
 
 export type CampaignFlowMode = 'single' | 'sequential' | 'reply';
 
@@ -8,92 +8,84 @@ type Props = {
   onChange: (mode: CampaignFlowMode) => void;
 };
 
-export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => (
-  <div className="cw-msg-section">
-    <p className="cw-msg-section-title">Como as mensagens serão enviadas</p>
-    <div className="cw-flow-segment cw-flow-segment-3" role="group" aria-label="Modo das etapas">
-      <button
-        type="button"
-        className="cw-flow-segment-btn"
-        data-active={mode === 'single' ? 'true' : 'false'}
-        onClick={() => onChange('single')}
-      >
-        <span className="cw-flow-segment-icon" aria-hidden>
-          <MessageSquare className="w-4 h-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-              Disparo único
-            </span>
-            <span className="cw-flow-badge cw-flow-badge--recommended">Recomendado</span>
-          </span>
-          <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-            Uma mensagem por contato — ideal para avisos e convites.
-          </span>
-        </span>
-      </button>
-      <button
-        type="button"
-        className="cw-flow-segment-btn"
-        data-active={mode === 'sequential' ? 'true' : 'false'}
-        onClick={() => onChange('sequential')}
-      >
-        <span className="cw-flow-segment-icon" aria-hidden>
-          <ListOrdered className="w-4 h-4" />
-        </span>
-        <span>
-          <span className="block text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            Sequência automática
-          </span>
-          <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-            Várias mensagens em fila — o contato não precisa responder.
-          </span>
-        </span>
-      </button>
-      <button
-        type="button"
-        className="cw-flow-segment-btn"
-        data-active={mode === 'reply' ? 'true' : 'false'}
-        onClick={() => onChange('reply')}
-      >
-        <span className="cw-flow-segment-icon" aria-hidden>
-          <GitBranch className="w-4 h-4" />
-        </span>
-        <span>
-          <span className="block text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            Fluxo por respostas
-          </span>
-          <span className="block text-[11px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-            Próxima mensagem só quando o contato responder.
-          </span>
-        </span>
-      </button>
-    </div>
+/** Modos visíveis no wizard — `sequential` mantido no tipo só para campanhas antigas. */
+const VISIBLE_MODES: Array<{
+  id: Exclude<CampaignFlowMode, 'sequential'>;
+  title: string;
+  desc: string;
+  icon: React.ReactNode;
+  accent: string;
+  recommended?: boolean;
+}> = [
+  {
+    id: 'single',
+    title: 'Disparo único',
+    desc: 'Uma mensagem para cada contato — avisos, convites e promoções.',
+    icon: <MessageSquare className="w-5 h-5" />,
+    accent: '#10b981',
+    recommended: true,
+  },
+  {
+    id: 'reply',
+    title: 'Fluxo por respostas',
+    desc: 'Envia uma abertura e, quando o contato responder, manda o próximo texto.',
+    icon: <GitBranch className="w-5 h-5" />,
+    accent: '#6366f1',
+  },
+];
 
-    <details className="cw-flow-help">
-      <summary>
-        <span>Como funciona este modo?</span>
-        <ChevronDown className="w-4 h-4 shrink-0 opacity-60" />
-      </summary>
-      <div className="cw-flow-help-body">
-        {mode === 'single' ? (
-          <p>
-            Envia <strong>apenas uma mensagem</strong> para cada contato. Se o contato responder, o ZapMass{' '}
-            <strong>não envia</strong> mensagem de follow-up automaticamente.
-          </p>
-        ) : mode === 'sequential' ? (
-          <p>
-            Cada contato recebe a etapa 1, depois a 2 e assim por diante, <strong>sem precisar responder</strong>. O
-            intervalo anti-ban vale entre cada envio.
-          </p>
-        ) : (
-          <p>
-            A <strong>primeira</strong> mensagem sai na abertura. As seguintes só após a resposta do contato, conforme as
-            regras que você definir abaixo (qualquer texto, menu 1/2, CRM, etc.).
-          </p>
-        )}
+export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => {
+  const active = mode === 'sequential' ? 'single' : mode;
+
+  return (
+    <div className="cw-msg-section">
+      <div className="flex items-center gap-2 mb-3">
+        <Zap className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
+        <p className="cw-msg-section-title mb-0">Tipo de campanha</p>
       </div>
-    </details>
-  </div>
-);
+      <div className="cw-flow-pick-grid" role="group" aria-label="Tipo de campanha">
+        {VISIBLE_MODES.map((m) => {
+          const isActive = active === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              className="cw-flow-pick-card"
+              data-active={isActive ? 'true' : 'false'}
+              onClick={() => onChange(m.id)}
+              style={
+                isActive
+                  ? {
+                      borderColor: `${m.accent}55`,
+                      boxShadow: `0 8px 24px ${m.accent}18`,
+                    }
+                  : undefined
+              }
+            >
+              <div
+                className="cw-flow-pick-icon"
+                style={{
+                  background: isActive ? m.accent : 'var(--surface-2)',
+                  color: isActive ? '#fff' : 'var(--text-3)',
+                }}
+              >
+                {m.icon}
+              </div>
+              <div className="min-w-0 flex-1 text-left">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[14px] font-bold" style={{ color: 'var(--text-1)' }}>
+                    {m.title}
+                  </span>
+                  {m.recommended && <span className="cw-flow-badge cw-flow-badge--recommended">Mais usado</span>}
+                </div>
+                <p className="text-[11.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
+                  {m.desc}
+                </p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};

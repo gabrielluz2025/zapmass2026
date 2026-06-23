@@ -33,7 +33,7 @@ const emptyDraft = (overrides: Partial<CampaignWizardDraft>): CampaignWizardDraf
   channelWeightMode: 'equal',
   channelWeights: {},
   delaySeconds: 30,
-  campaignFlowMode: 'sequential',
+  campaignFlowMode: 'single',
   messageStages: [],
   filterCities: [],
   filterChurches: [],
@@ -293,7 +293,11 @@ const SavedTemplatesSection: React.FC<{ onUseTemplate: (draft: CampaignWizardDra
                 {item.name}
               </p>
               <p className="text-[10.5px] truncate" style={{ color: 'var(--text-3)' }}>
-                {item.doc?.campaignFlowMode === 'reply' ? 'Fluxo por respostas' : 'Sequência automática'} ·{' '}
+                {item.doc?.campaignFlowMode === 'reply'
+                  ? 'Fluxo por respostas'
+                  : item.doc?.campaignFlowMode === 'single'
+                  ? 'Disparo único'
+                  : 'Campanha'} ·{' '}
                 {item.doc?.messageStages?.length || 0} etapa(s)
               </p>
             </button>
