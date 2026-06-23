@@ -29,7 +29,6 @@ import {
   CampaignReplyFlow,
   CampaignScheduleSlot,
   CampaignStageConfig,
-  CampaignStageTriggerType,
   Contact,
   ContactList,
   ConnectionStatus,
@@ -57,7 +56,6 @@ import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowModePicker';
 import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
-import { CampaignSequentialEditor } from './CampaignSequentialEditor';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea, type CampaignPreviewSample } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
@@ -195,15 +193,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [campaignFlowMode, setCampaignFlowMode] = useState<CampaignFlowMode>('single');
   const [flowModeChosen, setFlowModeChosen] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
-  /** Modo sequencial: gatilhos avançados por etapa (motor multi-etapas). Opt-in. */
-  const [seqAdvancedTriggers, setSeqAdvancedTriggers] = useState(false);
-  /** Config de gatilho por etapa (keyed por stage.id). Define como avança p/ a próxima. */
-  const [seqStageTriggers, setSeqStageTriggers] = useState<
-    Record<string, { type: CampaignStageTriggerType; timeoutHours?: number }>
-  >({});
   const [selectedListId, setSelectedListId] = useState('');
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
-  /** Distribuição de carga entre chips (somente modo sequencial, 2+ conectados). */
+  /** Distribuição de carga entre chips (2+ conectados). */
   const [channelWeightMode, setChannelWeightMode] = useState<'equal' | 'custom'>('equal');
   const [channelWeightsById, setChannelWeightsById] = useState<Record<string, number>>({});
   const [delaySeconds, setDelaySeconds] = useState(45);
@@ -218,10 +210,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [quickTestBusy, setQuickTestBusy] = useState(false);
   const [quickTestSentOk, setQuickTestSentOk] = useState(false);
   const { socket } = useZapMassCore();
-  /** Laboratório A/B: duas campanhas com 1ª mensagem diferente (apenas sequencial). */
-  const [abLabEnabled, setAbLabEnabled] = useState(false);
-  const [abFirstBodyB, setAbFirstBodyB] = useState('');
-  const [abPercentEach, setAbPercentEach] = useState(5);
   const [launchMode, setLaunchMode] = useState<'now' | 'schedule'>('now');
   const [repeatWeekly, setRepeatWeekly] = useState(true);
   const [onceScheduleDate, setOnceScheduleDate] = useState('');
@@ -246,7 +234,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [manualSelection, setManualSelection] = useState(false);
   const msgRef = useRef<HTMLTextAreaElement>(null);
   const invalidReplyRef = useRef<HTMLTextAreaElement>(null);
-  const abFirstBodyBRef = useRef<HTMLTextAreaElement>(null);
 
   /**
    * Anexo unico da campanha — vai junto com a 1a etapa de cada destinatario,
@@ -773,10 +760,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   }, [activeStageIdx, messageStages.length]);
 
   useEffect(() => {
-    if (campaignFlowMode === 'reply') setAbLabEnabled(false);
-  }, [campaignFlowMode]);
-
-  useEffect(() => {
     if (!initialDraft) return;
     setName(initialDraft.name);
     setSendMode(initialDraft.sendMode);
@@ -784,17 +767,38 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setSelectedListId(initialDraft.selectedListId);
     setSelectedConnectionIds(initialDraft.selectedConnectionIds);
     setDelaySeconds(initialDraft.delaySeconds);
-    setCampaignFlowMode(initialDraft.campaignFlowMode);
+    const draftMode = initialDraft.campaignFlowMode;
+    if (draftMode === 'sequential') {
+      toast('O modo sequência automática foi descontinuado. Usamos disparo único com a primeira mensagem.', {
+        icon: 'ℹ️',
+        duration: 6000
+      });
+      setCampaignFlowMode('single');
+      setMessageStages(
+        initialDraft.messageStages.length > 0
+          ? [
+              {
+                ...newMessageStage(),
+                ...initialDraft.messageStages[0],
+                id: initialDraft.messageStages[0].id || newMessageStage().id,
+                marketingEffect: initialDraft.messageStages[0].marketingEffect ?? 'none'
+              }
+            ]
+          : [newMessageStage()]
+      );
+    } else {
+      setCampaignFlowMode(draftMode);
+      setMessageStages(
+        initialDraft.messageStages.map((s) => ({
+          ...newMessageStage(),
+          ...s,
+          id: s.id || newMessageStage().id,
+          marketingEffect: s.marketingEffect ?? 'none'
+        }))
+      );
+    }
     // Draft/template/clone já traz o modo definido — não força reescolha.
     setFlowModeChosen(true);
-    setMessageStages(
-      initialDraft.messageStages.map((s) => ({
-        ...newMessageStage(),
-        ...s,
-        id: s.id || newMessageStage().id,
-        marketingEffect: s.marketingEffect ?? 'none'
-      }))
-    );
     setFilterCities(new Set(initialDraft.filterCities));
     setFilterChurches(new Set(initialDraft.filterChurches));
     setFilterRoles(new Set(initialDraft.filterRoles));
@@ -810,8 +814,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ? { ...initialDraft.channelWeights }
         : {}
     );
-    setAbLabEnabled(false);
-    setAbFirstBodyB('');
     setActiveStageIdx(0);
     setStep(1);
     onDraftConsumed?.();
@@ -855,14 +857,21 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   };
 
   const setFlowMode = (mode: CampaignFlowMode) => {
-    if (mode === 'reply') {
+    const nextMode: CampaignFlowMode = mode === 'sequential' ? 'single' : mode;
+    if (mode === 'sequential') {
+      toast('Sequência automática não está mais disponível. Use disparo único ou fluxo por respostas.', {
+        icon: 'ℹ️',
+        duration: 5000
+      });
+      setMessageStages((prev) => (prev.length === 0 ? [newMessageStage()] : [prev[0]]));
+      setActiveStageIdx(0);
+    } else if (nextMode === 'reply') {
       setMessageStages((prev) => (prev.length < 2 ? [...prev, newMessageStage()] : prev));
-    }
-    if (mode === 'single') {
+    } else if (nextMode === 'single') {
       setMessageStages((prev) => (prev.length === 0 ? [newMessageStage()] : [prev[0]]));
       setActiveStageIdx(0);
     }
-    setCampaignFlowMode(mode);
+    setCampaignFlowMode(nextMode);
     setFlowModeChosen(true);
   };
 
@@ -933,10 +942,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     });
   };
 
-  const insertAbFirstBodyBVariable = (variable: string) => {
-    insertCampaignTokenIntoTextarea(abFirstBodyBRef.current, abFirstBodyB, variable, setAbFirstBodyB);
-  };
-
   const numbers =
     sendMode === 'list'
       ? selectedListNumbers
@@ -977,9 +982,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const messageStepHint =
     campaignFlowMode === 'single'
       ? 'Escreva o texto que cada contato receberá no WhatsApp — use modelos ou variáveis como {nome}.'
-      : campaignFlowMode === 'sequential'
-      ? 'Monte as etapas da sequência. Elas saem em fila, sem precisar de resposta.'
-      : 'Configure a mensagem de abertura e o que acontece quando o contato responder.';
+      : 'Configure a abertura e o que enviar quando o contato responder.';
 
   const canGoFromAudience =
     sendMode === 'list'
@@ -1005,7 +1008,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       }));
 
   const stageCountOk =
-    campaignFlowMode === 'single' || campaignFlowMode === 'sequential'
+    campaignFlowMode === 'single'
       ? messageStages.length >= 1
       : messageStages[0]?.optionsMode === 'conditional'
       ? messageStages.length >= 1
@@ -1018,9 +1021,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     replyFlowGatesOk &&
     stageCountOk;
   const canGoFromChannels = connectedIds.length > 0;
-  const abLabOk =
-    !abLabEnabled ||
-    (campaignFlowMode === 'sequential' && abFirstBodyB.trim().length > 0 && messageStages.length >= 1);
   const scheduleSlots = useMemo((): CampaignScheduleSlot[] => {
     if (!repeatWeekly) {
       const ymd = onceScheduleDate.trim();
@@ -1054,13 +1054,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     scheduleSlots,
     scheduleTimeZone
   ]);
-  const scheduleOk = launchMode === 'now' || abLabEnabled || scheduleSlots.length > 0;
+  const scheduleOk = launchMode === 'now' || scheduleSlots.length > 0;
   const canSubmit =
     canGoFromAudience &&
     canGoFromMessage &&
     canGoFromChannels &&
     !isSubmitting &&
-    abLabOk &&
     scheduleOk;
 
   useEffect(() => {
@@ -1071,10 +1070,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   useEffect(() => {
     if (step !== 4) setQuickTestSentOk(false);
   }, [step]);
-
-  useEffect(() => {
-    if (abLabEnabled) setLaunchMode('now');
-  }, [abLabEnabled]);
 
   /** Disparo único: garante uma data inicial no dia corrente (fuso do assistente). */
   useEffect(() => {
@@ -1237,24 +1232,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       return;
     }
     const stagesBodies = messageStages.map((s) => s.body.trim()).filter((b) => b.length > 0);
-    // Gatilhos avançados (motor multi-etapas): só no modo sequencial com opt-in e 2+ etapas.
-    const stageConfigs: CampaignStageConfig[] | undefined =
-      campaignFlowMode === 'sequential' && seqAdvancedTriggers && messageStages.filter((s) => s.body.trim()).length >= 2
-        ? messageStages
-            .filter((s) => s.body.trim().length > 0)
-            .map((s, idx, arr) => {
-              const isLast = idx === arr.length - 1;
-              const cfg = seqStageTriggers[s.id];
-              const type: CampaignStageTriggerType = isLast ? 'delay' : cfg?.type || 'delay';
-              return {
-                body: s.body.trim(),
-                trigger_type: type,
-                ...(type === 'any_reply'
-                  ? { timeout_hours: cfg?.timeoutHours ?? 24, timeout_action: 'complete' as const }
-                  : {})
-              };
-            })
-        : undefined;
     const useReplyFlow = campaignFlowMode === 'reply';
     const replyFlow: CampaignReplyFlow | undefined = useReplyFlow
       ? {
@@ -1285,6 +1262,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         : { id: undefined, name: 'Envio manual' };
 
     const runSingle = async () => {
+      const cw = buildChannelWeightsPayload();
       const base = {
         name: name.trim(),
         message: stagesBodies[0] || '',
@@ -1295,11 +1273,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         recipients: buildRecipients(),
         contactListMeta,
         delaySeconds,
-        ...(stageConfigs ? { stageConfigs } : {}),
+        ...(cw ? { channelWeights: cw } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
         ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {})
       };
-      if (launchMode === 'schedule' && !abLabEnabled) {
+      if (launchMode === 'schedule') {
         await onSubmit({
           ...base,
           launchMode: 'schedule' as const,
@@ -1319,63 +1297,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         await onSubmit({ ...base, launchMode: 'now' as const });
       }
     };
-
-    if (abLabEnabled && campaignFlowMode === 'sequential' && stagesBodies.length >= 1) {
-      const clean = Array.from(
-        new Set(numbers.map((n) => String(n).replace(/\D/g, '')).filter((n) => n.length >= 10))
-      ).sort();
-      const each = Math.max(1, Math.floor((clean.length * abPercentEach) / 100));
-      const numsA = clean.slice(0, each);
-      const numsB = clean.slice(each, each * 2);
-      if (numsA.length === 0 || numsB.length === 0) {
-        toast.error('Público pequeno para A/B. Aumente a lista ou o percentual por variante.');
-        return;
-      }
-      const stagesB = [...stagesBodies];
-      stagesB[0] = abFirstBodyB.trim();
-      const recAll = buildRecipients();
-      const setPhones = new Set<string>();
-      numsA.forEach((p) => setPhones.add(p));
-      const recA = recAll.filter((r) => setPhones.has(r.phone.replace(/\D/g, '')));
-      const setB = new Set(numsB);
-      const recB = recAll.filter((r) => setB.has(r.phone.replace(/\D/g, '')));
-      setIsSubmitting(true);
-      try {
-        const cw = buildChannelWeightsPayload();
-        await onSubmit({
-          name: `${name.trim()} — Var A`,
-          message: stagesBodies[0] || '',
-          messageStages: stagesBodies,
-          replyFlow: undefined,
-          connectedIds,
-          numbers: numsA,
-          recipients: recA.length ? recA : numsA.map((phone) => ({ phone, vars: { telefone: phone } })),
-          contactListMeta,
-          delaySeconds,
-          ...(cw ? { channelWeights: cw } : {}),
-          ...(mediaPayload ? { mediaAttachment: mediaPayload } : {})
-        });
-        await onSubmit({
-          name: `${name.trim()} — Var B`,
-          message: stagesB[0] || '',
-          messageStages: stagesB,
-          replyFlow: undefined,
-          connectedIds,
-          numbers: numsB,
-          recipients: recB.length ? recB : numsB.map((phone) => ({ phone, vars: { telefone: phone } })),
-          contactListMeta,
-          delaySeconds,
-          ...(cw ? { channelWeights: cw } : {}),
-          ...(mediaPayload ? { mediaAttachment: mediaPayload } : {})
-        });
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Falha ao iniciar campanha.';
-        toast.error(errorMessage);
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
 
     setIsSubmitting(true);
     const submitToastId = 'campaign-submit';
@@ -1399,7 +1320,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const estimateMinutes =
     campaignFlowMode === 'reply'
       ? Math.round((numbers.length * delaySeconds) / 60)
-      : Math.round((numbers.length * Math.max(1, messageStages.length) * delaySeconds) / 60);
+      : Math.round((numbers.length * delaySeconds) / 60);
 
   const estimateLabel =
     campaignFlowMode === 'reply'
@@ -1990,82 +1911,62 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 </div>
               </div>
 
-              <div className="cw-msg-section">
-                <p className="cw-msg-section-title">Nome da campanha</p>
-                <Input
-                  placeholder="Ex: Promoção Janeiro — Base VIP"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-                <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-                  Só para você organizar — seus contatos não veem este nome.
-                </p>
+              <div className="cw-msg-section cw-msg-name-row">
+                <div>
+                  <p className="cw-msg-section-title">Nome da campanha</p>
+                  <Input
+                    placeholder="Ex: Promoção Janeiro — Base VIP"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                  <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+                    Só para você organizar — seus contatos não veem este nome.
+                  </p>
+                </div>
               </div>
 
               <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
 
-              {!flowModeChosen ? (
-                <div
-                  className="rounded-xl px-4 py-6 text-center text-[12.5px]"
-                  style={{ background: 'var(--surface-1)', border: '1px dashed var(--border)', color: 'var(--text-3)' }}
-                >
-                  Escolha acima <strong>como as mensagens serão enviadas</strong> para liberar o editor de etapas.
+              {flowModeChosen && (
+                <div className="cw-msg-editor-zone">
+                  {campaignFlowMode === 'single' ? (
+                    <CampaignSingleMessageEditor
+                      body={messageStages[0]?.body ?? ''}
+                      onBodyChange={(body) =>
+                        setMessageStages((prev) => {
+                          const first = prev[0] ?? newMessageStage();
+                          return [{ ...first, body }];
+                        })
+                      }
+                      onInsertVariable={insertVariable}
+                      msgRef={msgRef}
+                      attachment={campaignAttachment}
+                      attachmentInputRef={attachmentInputRef}
+                      onPickAttachment={onPickAttachment}
+                      onRemoveAttachment={removeAttachment}
+                      launchMode={launchMode}
+                    />
+                  ) : (
+                    <CampaignReplyFlowEditor
+                      stages={messageStages}
+                      setStages={setMessageStages}
+                      msgRef={msgRef}
+                      invalidReplyRef={invalidReplyRef}
+                      attachment={campaignAttachment}
+                      attachmentInputRef={attachmentInputRef}
+                      onPickAttachment={onPickAttachment}
+                      onRemoveAttachment={removeAttachment}
+                      followUpAttachment={followUpAttachment}
+                      followUpAttachmentInputRef={followUpAttachmentInputRef}
+                      onPickFollowUpAttachment={onPickFollowUpAttachment}
+                      onRemoveFollowUpAttachment={removeFollowUpAttachment}
+                      launchMode={launchMode}
+                      newStageOption={newMessageStageOption}
+                      newMessageStage={newMessageStage}
+                      onInsertInvalidVariable={insertInvalidReplyVariable}
+                    />
+                  )}
                 </div>
-              ) : campaignFlowMode === 'single' ? (
-                <CampaignSingleMessageEditor
-                  body={messageStages[0]?.body ?? ''}
-                  onBodyChange={(body) =>
-                    setMessageStages((prev) => {
-                      const first = prev[0] ?? newMessageStage();
-                      return [{ ...first, body }];
-                    })
-                  }
-                  onInsertVariable={insertVariable}
-                  msgRef={msgRef}
-                  attachment={campaignAttachment}
-                  attachmentInputRef={attachmentInputRef}
-                  onPickAttachment={onPickAttachment}
-                  onRemoveAttachment={removeAttachment}
-                  launchMode={launchMode}
-                />
-              ) : campaignFlowMode === 'sequential' ? (
-                <CampaignSequentialEditor
-                  stages={messageStages}
-                  setStages={setMessageStages}
-                  msgRef={msgRef}
-                  attachment={campaignAttachment}
-                  attachmentInputRef={attachmentInputRef}
-                  onPickAttachment={onPickAttachment}
-                  onRemoveAttachment={removeAttachment}
-                  launchMode={launchMode}
-                  newMessageStage={newMessageStage}
-                  delaySeconds={delaySeconds}
-                  advancedTriggers={seqAdvancedTriggers}
-                  onToggleAdvancedTriggers={setSeqAdvancedTriggers}
-                  stageTriggers={seqStageTriggers}
-                  onChangeStageTrigger={(stageId, cfg) =>
-                    setSeqStageTriggers((prev) => ({ ...prev, [stageId]: cfg }))
-                  }
-                />
-              ) : (
-                <CampaignReplyFlowEditor
-                  stages={messageStages}
-                  setStages={setMessageStages}
-                  msgRef={msgRef}
-                  invalidReplyRef={invalidReplyRef}
-                  attachment={campaignAttachment}
-                  attachmentInputRef={attachmentInputRef}
-                  onPickAttachment={onPickAttachment}
-                  onRemoveAttachment={removeAttachment}
-                  followUpAttachment={followUpAttachment}
-                  followUpAttachmentInputRef={followUpAttachmentInputRef}
-                  onPickFollowUpAttachment={onPickFollowUpAttachment}
-                  onRemoveFollowUpAttachment={removeFollowUpAttachment}
-                  launchMode={launchMode}
-                  newStageOption={newMessageStageOption}
-                  newMessageStage={newMessageStage}
-                  onInsertInvalidVariable={insertInvalidReplyVariable}
-                />
               )}
 
               {/* Prévia no celular (telas menores) */}
@@ -2289,8 +2190,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   (acc, c) => acc + Math.max(0, (Number(c.dailyLimit) || 0) - (Number(c.messagesSentToday) || 0)),
                   0
                 );
-                const stagesCount = Math.max(1, messageStages.filter((s) => s.body.trim().length > 0).length);
-                const needed = numbers.length * (campaignFlowMode === 'sequential' ? stagesCount : 1);
+                const needed = numbers.length;
                 const insufficient = needed > totalRemaining;
                 return (
                   <Card>
@@ -2310,11 +2210,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           Capacidade de hoje: {totalRemaining} envio{totalRemaining !== 1 ? 's' : ''} disponíve{totalRemaining !== 1 ? 'is' : 'l'}
                         </p>
                         <p className="text-[11.5px] mt-0.5 leading-snug" style={{ color: 'var(--text-3)' }}>
-                          Esta campanha precisa de ~{needed} envio{needed !== 1 ? 's' : ''}
-                          {campaignFlowMode === 'sequential' && stagesCount > 1
-                            ? ` (${numbers.length} contatos × ${stagesCount} etapas)`
-                            : ''}
-                          .{' '}
+                          Esta campanha precisa de ~{needed} envio{needed !== 1 ? 's' : ''}.{' '}
                           {insufficient
                             ? 'O excedente fica em fila e sai amanhã, quando os limites zerarem. Adicione outro chip ou aumente o limite para enviar tudo hoje.'
                             : 'Cabe dentro do limite diário dos chips selecionados.'}
@@ -2325,13 +2221,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 );
               })()}
 
-              {campaignFlowMode === 'sequential' && getConnectedSelectedIds().length > 1 && onlineConnections.length > 0 && (
+              {getConnectedSelectedIds().length > 1 && onlineConnections.length > 0 && (
                 <Card>
                   <div className="mb-3">
                     <h3 className="ui-title text-[15px]">Carga por canal</h3>
                     <p className="ui-subtitle text-[12.5px]">
-                      Defina a proporção entre os chips selecionados (somente envio sequencial). Ex.: pesos 3 e 1 ≈ 75% e
-                      25% dos destinos ao longo da fila.
+                      Defina a proporção entre os chips selecionados. Ex.: pesos 3 e 1 ≈ 75% e 25% dos destinos ao longo
+                      da fila.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -2454,16 +2350,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <button
                     type="button"
                     onClick={() => setLaunchMode('schedule')}
-                    disabled={abLabEnabled}
                     className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all inline-flex items-center gap-1.5"
                     style={
                       launchMode === 'schedule'
                         ? { background: '#06B6D4', color: '#fff' }
                         : {
                             background: 'var(--surface-0)',
-                            color: abLabEnabled ? 'var(--text-3)' : 'var(--text-2)',
-                            border: '1px solid var(--border-subtle)',
-                            opacity: abLabEnabled ? 0.55 : 1
+                            color: 'var(--text-2)',
+                            border: '1px solid var(--border-subtle)'
                           }
                     }
                   >
@@ -2471,12 +2365,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     Agendar na semana
                   </button>
                 </div>
-                {abLabEnabled && (
-                  <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                    Laboratório A/B só pode ser disparado imediatamente (duas campanhas em sequência).
-                  </p>
-                )}
-                {launchMode === 'schedule' && !abLabEnabled && (
+                {launchMode === 'schedule' && (
                   <div className="space-y-3 pt-1">
                     <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
                       Fuso: <strong style={{ color: 'var(--text-1)' }}>{scheduleTimeZone}</strong> — horários iguais aos do seu relógio local do navegador.
@@ -2593,61 +2482,6 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 )}
               </div>
 
-              {campaignFlowMode === 'sequential' && (
-                <div
-                  className="mb-5 p-4 rounded-xl space-y-3"
-                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                >
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={abLabEnabled}
-                      onChange={(e) => setAbLabEnabled(e.target.checked)}
-                    />
-                    <span className="text-[13px] leading-snug" style={{ color: 'var(--text-1)' }}>
-                      <strong>Laboratório A/B</strong> — cria <strong>duas campanhas</strong> com a mesma base de etapas, alterando só a{' '}
-                      <strong>primeira mensagem</strong> na variante B. Os destinatários são divididos em dois grupos disjuntos
-                      (percentual cada um abaixo). O restante da lista <strong>não</strong> recebe envio neste disparo.
-                    </span>
-                  </label>
-                  {abLabEnabled && (
-                    <div className="space-y-3 pt-1">
-                      <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
-                          Texto da 1ª mensagem — variante B
-                        </label>
-                        <CampaignMessageVariableChips onInsert={insertAbFirstBodyBVariable} density="compact" />
-                        <Textarea
-                          ref={abFirstBodyBRef}
-                          placeholder="Mensagem alternativa para teste..."
-                          value={abFirstBodyB}
-                          onChange={(e) => setAbFirstBodyB(e.target.value)}
-                          style={{ minHeight: '100px' }}
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-[11px] mb-1" style={{ color: 'var(--text-3)' }}>
-                          <span>Percentual do público para cada variante</span>
-                          <span className="font-mono font-bold text-emerald-600">{abPercentEach}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={1}
-                          max={25}
-                          value={abPercentEach}
-                          onChange={(e) => setAbPercentEach(Number(e.target.value))}
-                          className="w-full accent-emerald-600"
-                        />
-                        <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-                          Ex.: 5% recebem A, 5% recebem B (mín. 1 contato por grupo). Ajuste conforme o tamanho da lista.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* ── Saúde dos chips selecionados ── */}
               {(() => {
                 const selectedConns = connections.filter((c) => selectedConnectionIds.includes(c.id));
@@ -2724,7 +2558,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               </div>
 
               <div className="space-y-3">
-                <ReviewRow label="Nome" value={abLabEnabled ? `${name} — Var A / Var B` : name} />
+                <ReviewRow label="Nome" value={name} />
                 <ReviewRow
                   label="Publico"
                   value={
@@ -2749,9 +2583,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   value={
                     campaignFlowMode === 'single'
                       ? 'Disparo único'
-                      : campaignFlowMode === 'reply'
-                      ? 'Fluxo por respostas'
-                      : 'Sequência automática'
+                      : 'Fluxo por respostas'
                   }
                 />
                 <div
@@ -2765,15 +2597,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     <span style={{ color: 'var(--text-2)' }}>
                       Cada contato recebe apenas uma mensagem. Respostas não disparam follow-up automático.
                     </span>
-                  ) : campaignFlowMode === 'sequential' ? (
-                    <span style={{ color: 'var(--text-2)' }}>
-                      Todas as etapas serão enviadas em fila para cada contato (intervalo entre cada envio). Não é
-                      necessário que o destinatário responda entre uma mensagem e outra.
-                    </span>
                   ) : (
                     <span style={{ color: 'var(--text-2)' }}>
-                      Apenas a 1ª mensagem vai na abertura; as próximas só depois da resposta do contato e conforme as
-                      regras por etapa configuradas na aba Mensagem.
+                      Apenas a 1ª mensagem vai na abertura; a próxima só depois que o contato responder, conforme você
+                      configurou no passo Mensagem.
                     </span>
                   )}
                 </div>
@@ -2786,7 +2613,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   }
                 />
                 <ReviewRow label="Estimativa" value={<span>{estimateLabel}</span>} />
-                {launchMode === 'schedule' && !abLabEnabled && (
+                {launchMode === 'schedule' && (
                   <ReviewRow
                     label="Agendamento"
                     value={
@@ -2888,11 +2715,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   loading={isSubmitting}
                   disabled={!canSubmit}
                 >
-                  {abLabEnabled
-                    ? 'Iniciar laboratório (2 campanhas)'
-                    : launchMode === 'schedule'
-                      ? 'Agendar campanha'
-                      : 'Iniciar disparo'}
+                  {launchMode === 'schedule' ? 'Agendar campanha' : 'Iniciar disparo'}
                 </Button>
               )}
             </div>

@@ -725,7 +725,7 @@ const emptyCampaignDraft = (): CampaignWizardDraft => {
     channelWeightMode: 'equal',
     channelWeights: {},
     delaySeconds: 45,
-    campaignFlowMode: 'sequential',
+    campaignFlowMode: 'single',
     messageStages: [
       {
         id: stageId,

@@ -16,6 +16,7 @@ type Props = {
   textareaKey?: string;
   onInsertVariable: (token: string) => void;
   variablesDensity?: 'full' | 'compact';
+  variablesCollapsible?: boolean;
   showIdeas?: boolean;
   onApplyTemplate?: (body: string) => void;
   showAttachment?: boolean;
@@ -37,6 +38,7 @@ export const CampaignMessageComposer: React.FC<Props> = ({
   textareaKey,
   onInsertVariable,
   variablesDensity = 'full',
+  variablesCollapsible,
   showIdeas = true,
   onApplyTemplate,
   showAttachment,
@@ -69,7 +71,7 @@ export const CampaignMessageComposer: React.FC<Props> = ({
       <CampaignMessageVariableChips
         onInsert={onInsertVariable}
         density={variablesDensity}
-        collapsible={variablesDensity === 'full'}
+        collapsible={variablesCollapsible ?? variablesDensity === 'full'}
       />
       {showIdeas && onApplyTemplate && <SegmentCampaignIdeas onApplyTemplate={onApplyTemplate} />}
       <Textarea
