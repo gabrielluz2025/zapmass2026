@@ -972,10 +972,7 @@ export const DashboardTab: React.FC = () => {
         animReplied={animReplied}
         campaigns={campaigns}
         contacts={contacts}
-        conversations={deferredConversations}
         contactsSavedTotal={contactsSavedTotal}
-        contactsHasMore={contactsHasMore}
-        contactsLoadingMore={contactsLoadingMore}
         bestWindow={bestWindow}
         onNavigate={setCurrentView}
         onScrollFunnel={scrollToFunnel}

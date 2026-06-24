@@ -4457,3 +4457,197 @@
     max-height: 280px;
   }
 }
+
+/* ── Mapa dos contatos — aba dedicada ─────────────────────────────────────── */
+
+.zm-contacts-map-page {
+  min-height: 0;
+  flex: 1;
+  padding: 0 0 1rem;
+}
+
+.zm-atlas--page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--surface-0);
+  padding: 0.75rem 1rem 1rem;
+  gap: 0.75rem;
+}
+
+.zm-atlas--page .zm-atlas__header--compact {
+  padding-bottom: 0.25rem;
+}
+
+.zm-atlas--page .zm-atlas__subtitle--page {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 0;
+}
+
+.zm-atlas--page .zm-atlas__split {
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  gap: 0.75rem;
+}
+
+.zm-atlas--page .zm-atlas__map-wrap--compact {
+  height: min(calc(100vh - 220px), 720px);
+  min-height: 480px;
+  flex: 1;
+}
+
+.zm-atlas--page .zm-atlas-table--split {
+  max-height: min(calc(100vh - 220px), 720px);
+}
+
+.zm-atlas--page .zm-atlas-meta {
+  border-radius: 0.75rem;
+  background: var(--surface-1);
+  border-color: var(--border-subtle);
+}
+
+.zm-atlas--page .zm-atlas-river {
+  border-radius: 0.75rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  padding: 0.625rem 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .zm-atlas--page .zm-atlas__split {
+    grid-template-columns: 1fr;
+  }
+
+  .zm-atlas--page .zm-atlas__map-wrap--compact {
+    height: min(52vh, 480px);
+    min-height: 320px;
+  }
+
+  .zm-atlas--page .zm-atlas-table--split {
+    max-height: 360px;
+  }
+}
+
+/* Teaser no painel */
+.zm-map-teaser {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 1rem 1.25rem;
+  padding: 1rem 1.125rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border-subtle);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.06) 100%);
+}
+
+.zm-map-teaser__copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.zm-map-teaser__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #6366f1, #10b981);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
+}
+
+.zm-map-teaser__title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 0 0 0.2rem;
+}
+
+.zm-map-teaser__sub {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.zm-map-teaser__kpis {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.zm-map-teaser__kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 4.5rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.625rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-3);
+}
+
+.zm-map-teaser__kpi-val {
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: var(--text-1);
+  line-height: 1.2;
+}
+
+.zm-map-teaser__kpi-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.zm-map-teaser__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 1rem;
+  border-radius: 0.625rem;
+  border: none;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.zm-map-teaser__cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.4);
+}
+
+@media (max-width: 768px) {
+  .zm-map-teaser {
+    grid-template-columns: 1fr;
+  }
+
+  .zm-map-teaser__kpis {
+    justify-content: flex-start;
+  }
+
+  .zm-map-teaser__cta {
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, X, Send, Users, Smartphone, Zap, MessageCircle,
-  ArrowRight, BarChart3, Settings, BookOpen, RefreshCw
+  ArrowRight, BarChart3, Settings, BookOpen, RefreshCw, Globe2
 } from 'lucide-react';
 import type { Campaign, Contact, WhatsAppConnection } from '../../types';
 
@@ -97,6 +97,12 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({
           title: 'Ver contatos', subtitle: 'Abrir lista de contatos',
           icon: <Users className="w-4 h-4" />,
           onSelect: () => { onNavigate('contacts'); onClose(); },
+        },
+        {
+          id: 'go-contacts-map', kind: 'action',
+          title: 'Mapa dos contatos', subtitle: 'Atlas territorial e campanhas por região',
+          icon: <Globe2 className="w-4 h-4" />,
+          onSelect: () => { onNavigate('contacts-map'); onClose(); },
         },
         {
           id: 'go-connections', kind: 'action',

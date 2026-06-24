@@ -22,6 +22,7 @@ import {
   BookOpen,
   UserPlus,
   Church,
+  Globe2,
   MapPin
 } from 'lucide-react';
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
@@ -86,6 +87,12 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'campaigns', label: 'Campanhas', icon: Send, description: 'Criar e gerenciar' },
       { id: 'contacts', label: 'Contatos', icon: Users, description: 'Listas e base' },
+      {
+        id: 'contacts-map',
+        label: 'Mapa dos contatos',
+        icon: Globe2,
+        description: 'Atlas territorial, calor e campanhas por região'
+      },
       { id: 'reports', label: 'Relatórios', icon: BarChart3, description: 'Análise e métricas' }
     ]
   },
