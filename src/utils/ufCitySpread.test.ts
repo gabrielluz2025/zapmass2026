@@ -8,6 +8,7 @@ const MOCK_COORDS = {
     joinville: [-26.3045, -48.8487],
     florianopolis: [-27.5954, -48.548],
     riodosul: [-27.214, -49.6431],
+    barravelha: [-26.637, -48.6933],
   },
 } as const;
 
@@ -33,6 +34,12 @@ describe('spreadCityInUf', () => {
     expect(c.lat).toBeGreaterThan(-29.5);
     expect(c.lng).toBeLessThan(-47);
     expect(c.lng).toBeGreaterThan(-53.5);
+  });
+
+  it('corrige Barraco para coordenadas de Barra Velha (não no mar)', () => {
+    const c = spreadCityInUf('Barraco', 'SC', MOCK_COORDS as never)!;
+    expect(c.lat).toBeCloseTo(-26.637, 2);
+    expect(c.lng).toBeCloseTo(-48.6933, 2);
   });
 });
 

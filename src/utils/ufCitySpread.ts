@@ -1,4 +1,5 @@
-import { lookupMunicipioCoord, type MunicipioCoordsIndex } from './municipioCoords';
+import { lookupMunicipioCoord, resolveMunicipioCoord, type MunicipioCoordsIndex } from './municipioCoords';
+import { isCoordLikelyOnLand } from './brazilMapCoords';
 
 /** Posição aproximada de município dentro da UF (IBGE real ou espiral de fallback). */
 
@@ -75,8 +76,8 @@ export function spreadCityInUf(
   const cityNorm = normKey(city.split('·')[0] || city);
   if (!cityNorm) return null;
 
-  const ibge = lookupMunicipioCoord(city, st, coordsIndex);
-  if (ibge) return ibge;
+  const ibge = resolveMunicipioCoord(city, st, coordsIndex);
+  if (ibge) return { lat: ibge.lat, lng: ibge.lng };
 
   const known = CITY_COORDS[`${st.toLowerCase()}${cityNorm}`];
   if (known) return known;
@@ -95,8 +96,9 @@ export function spreadCityInUf(
   const span = UF_SPAN[st] || { lat: 2.8, lng: 3.6 };
   const cosLat = Math.cos((base.lat * Math.PI) / 180);
 
-  return {
+  const spread = {
     lat: base.lat + r * span.lat * 0.48 * Math.cos(angle),
     lng: base.lng + (r * span.lng * 0.48 * Math.sin(angle)) / (cosLat || 1),
   };
+  return isCoordLikelyOnLand(spread.lat, spread.lng) ? spread : null;
 }
