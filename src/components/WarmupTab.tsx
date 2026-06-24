@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Flame, Play, Pause, ToggleLeft, ToggleRight, TrendingUp, MessageCircle, Clock, Zap, RefreshCw, AlertTriangle,
-  BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2, AlertCircle, Activity, Timer
+  BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2, AlertCircle, Timer
 } from 'lucide-react';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
 import { ConnectionStatus, WarmupChipStats } from '../types';
+import { brazilDayKey } from '../utils/channelDispatchInsights';
+import toast from 'react-hot-toast';
 import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
 
 interface WarmupChannel {
@@ -84,9 +86,18 @@ const computeMaturity = (stats?: WarmupChipStats): Maturity => {
   return { tier: 'premium', label: 'Premium', color: '#8b5cf6', bg: 'rgba(139,92,246,0.14)', dailyTarget: 250, progress: 100, days };
 };
 
-const todayStr = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayStr = () => brazilDayKey();
+
+const getLastNDays = (stats: WarmupChipStats | undefined, n: number) => {
+  const out: { date: string; sent: number; received: number; failed: number }[] = [];
+  const dict = new Map((stats?.dailyHistory || []).map((d) => [d.date, d]));
+  const nowMs = Date.now();
+  for (let i = n - 1; i >= 0; i--) {
+    const key = brazilDayKey(nowMs - i * 24 * 60 * 60 * 1000);
+    const entry = dict.get(key);
+    out.push({ date: key, sent: entry?.sent || 0, received: entry?.received || 0, failed: entry?.failed || 0 });
+  }
+  return out;
 };
 
 const getTodayCounts = (stats?: WarmupChipStats) => {
@@ -97,20 +108,6 @@ const getTodayCounts = (stats?: WarmupChipStats) => {
     received: row?.received || 0,
     failed: row?.failed || 0
   };
-};
-
-// Retorna os ultimos N dias preenchendo zeros para dias vazios
-const getLastNDays = (stats: WarmupChipStats | undefined, n: number) => {
-  const out: { date: string; sent: number; received: number; failed: number }[] = [];
-  const dict = new Map((stats?.dailyHistory || []).map((d) => [d.date, d]));
-  const today = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const entry = dict.get(key);
-    out.push({ date: key, sent: entry?.sent || 0, received: entry?.received || 0, failed: entry?.failed || 0 });
-  }
-  return out;
 };
 
 const formatLastActive = (ts?: number) => {
@@ -168,7 +165,6 @@ export const WarmupTab: React.FC = () => {
   /** Countdown apenas nesta aba — evita atualizar ZapMassProvider a cada segundo. */
   const [warmupCountdownUi, setWarmupCountdownUi] = useState(0);
   const [intervalMinutes, setIntervalMinutes] = useState(5);
-  const [totalMessagesSent, setTotalMessagesSent] = useState(0);
   const [lastRoundTime, setLastRoundTime] = useState<string>('');
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
   const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
@@ -229,11 +225,10 @@ export const WarmupTab: React.FC = () => {
             return savedCh ? { ...ch, ...savedCh, status: 'idle' as const } : ch;
           }));
         }
-        if (parsed.totalMessagesSent) setTotalMessagesSent(parsed.totalMessagesSent);
         if (parsed.intervalMinutes) setIntervalMinutes(parsed.intervalMinutes);
       }
     } catch {}
-  }, []);
+  }, [user?.uid]);
 
   // Salvar estado
   useEffect(() => {
@@ -246,17 +241,13 @@ export const WarmupTab: React.FC = () => {
           warmupTimerActive: warmupActive,
           channels: channels.map((ch) => ({
             connectionId: ch.connectionId,
-            enabled: ch.enabled,
-            score: ch.score,
-            messagesSent: ch.messagesSent,
-            messagesReceived: ch.messagesReceived
+            enabled: ch.enabled
           })),
-          totalMessagesSent,
           intervalMinutes
         })
       );
     } catch {}
-  }, [channels, totalMessagesSent, intervalMinutes, warmupActive]);
+  }, [channels, intervalMinutes, warmupActive, user?.uid]);
 
   const toggleChannel = (connectionId: string) => {
     setChannels(prev => prev.map(ch =>
@@ -279,41 +270,32 @@ export const WarmupTab: React.FC = () => {
     const pairs = getEnabledPairs();
     if (pairs.length === 0) return;
 
-    setChannels(prev => prev.map(ch => ch.enabled ? { ...ch, status: 'warming' as const } : ch));
-
-    for (const [a, b] of pairs) {
-      // A envia para B
-      const msgAtoB = getRandomMessage();
-      socket?.emit('warmup-send', { from: a.connectionId, to: b.phoneNumber, message: msgAtoB });
-
-      // Delay aleatório 3-8s
-      await new Promise(r => setTimeout(r, 3000 + Math.random() * 5000));
-
-      // B responde para A
-      const msgBtoA = getRandomMessage();
-      socket?.emit('warmup-send', { from: b.connectionId, to: a.phoneNumber, message: msgBtoA });
-
-      await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
+    const validPairs = pairs.filter(
+      ([a, b]) => Boolean(a.phoneNumber?.replace(/\D/g, '')) && Boolean(b.phoneNumber?.replace(/\D/g, ''))
+    );
+    if (validPairs.length === 0) {
+      toast.error('Canais ativos sem número — configure o telefone em Conexões.');
+      return;
+    }
+    if (validPairs.length < pairs.length) {
+      toast('Alguns pares foram ignorados por falta de número no canal.', { icon: '⚠️' });
     }
 
-    // Atualizar scores
-    setChannels(prev => prev.map(ch => {
-      if (!ch.enabled) return ch;
-      const newSent = ch.messagesSent + pairs.filter(([a, b]) => a.connectionId === ch.connectionId || b.connectionId === ch.connectionId).length;
-      const newReceived = ch.messagesReceived + pairs.filter(([a, b]) => a.connectionId === ch.connectionId || b.connectionId === ch.connectionId).length;
-      const newScore = Math.min(100, Math.round((newSent + newReceived) / 2));
-      return {
-        ...ch,
-        messagesSent: newSent,
-        messagesReceived: newReceived,
-        score: newScore,
-        status: 'idle' as const,
-        lastActivity: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-      };
-    }));
+    setChannels((prev) => prev.map((ch) => (ch.enabled ? { ...ch, status: 'warming' as const } : ch)));
 
-    const totalInRound = pairs.length * 2;
-    setTotalMessagesSent(prev => prev + totalInRound);
+    for (const [a, b] of validPairs) {
+      const msgAtoB = getRandomMessage();
+      socket?.emit('warmup-send', { from: a.connectionId, to: b.phoneNumber, message: msgAtoB });
+      await new Promise((r) => setTimeout(r, 3000 + Math.random() * 5000));
+
+      const msgBtoA = getRandomMessage();
+      socket?.emit('warmup-send', { from: b.connectionId, to: a.phoneNumber, message: msgBtoA });
+      await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+    }
+
+    setChannels((prev) =>
+      prev.map((ch) => (ch.enabled ? { ...ch, status: 'idle' as const } : ch))
+    );
     setLastRoundTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
   };
 
@@ -345,7 +327,20 @@ export const WarmupTab: React.FC = () => {
     startWarmupTimer(intervalMinutes, () => {
       void runWarmupRoundRef.current();
     });
-  }, [socket?.connected, warmupActive, intervalMinutes, channels, startWarmupTimer]);
+  }, [socket?.connected, warmupActive, intervalMinutes, channels, startWarmupTimer, user?.uid]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const onWarmupError = (data: { from?: string; to?: string; error?: string }) => {
+      const conn = connections.find((c) => c.id === data.from);
+      const label = conn?.name || 'Canal';
+      toast.error(`Falha no aquecimento (${label}): ${data.error || 'erro desconhecido'}`);
+    };
+    socket.on('warmup-send-error', onWarmupError);
+    return () => {
+      socket.off('warmup-send-error', onWarmupError);
+    };
+  }, [socket, connections]);
 
   const startGlobalWarmup = () => {
     const pairs = getEnabledPairs();
@@ -361,11 +356,53 @@ export const WarmupTab: React.FC = () => {
     setChannels(prev => prev.map(ch => ({ ...ch, status: 'idle' as const })));
   };
 
-  const enabledCount = channels.filter(ch => ch.enabled).length;
+  const enabledCount = channels.filter((ch) => ch.enabled).length;
   const pairsCount = getEnabledPairs().length;
-  const avgScore = channels.filter(ch => ch.enabled).length > 0
-    ? Math.round(channels.filter(ch => ch.enabled).reduce((acc, ch) => acc + ch.score, 0) / channels.filter(ch => ch.enabled).length)
-    : 0;
+
+  const deriveChipScore = (stats?: WarmupChipStats) => {
+    if (!stats) return 0;
+    const maturity = computeMaturity(stats);
+    const totalMsgs = stats.totalSent + stats.totalReceived;
+    return Math.min(
+      100,
+      Math.round(maturity.days * 3 + totalMsgs * 0.3 + (stats.totalFailed > 0 ? -Math.min(15, stats.totalFailed) : 0))
+    );
+  };
+
+  const chipAggregates = useMemo(() => {
+    const todayKey = todayStr();
+    const enabledIds = channels.filter((ch) => ch.enabled).map((ch) => ch.connectionId);
+    let todayTotal = 0;
+    let totalMsgs = 0;
+    const scores: number[] = [];
+
+    for (const id of enabledIds) {
+      const stats = warmupChipStats[id];
+      if (!stats) continue;
+      const row = stats.dailyHistory?.find((d) => d.date === todayKey);
+      todayTotal += (row?.sent || 0) + (row?.received || 0);
+      totalMsgs += stats.totalSent + stats.totalReceived;
+      scores.push(deriveChipScore(stats));
+    }
+
+    const allIds = channels.map((ch) => ch.connectionId);
+    let allToday = 0;
+    for (const id of allIds) {
+      const stats = warmupChipStats[id];
+      if (!stats) continue;
+      const row = stats.dailyHistory?.find((d) => d.date === todayKey);
+      allToday += (row?.sent || 0) + (row?.received || 0);
+    }
+
+    return {
+      todayEnabled: todayTotal,
+      todayAll: allToday,
+      totalMsgs,
+      avgScore: scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
+    };
+  }, [channels, warmupChipStats]);
+
+  const avgScore = chipAggregates.avgScore;
 
   const formatCountdown = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -373,28 +410,31 @@ export const WarmupTab: React.FC = () => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const heroTiles = useMemo(() => [
-    {
-      icon: <Flame className="w-4 h-4 text-orange-400" />,
-      label: 'Aquecidos',
-      value: warmedCount ?? 0,
-    },
-    {
-      icon: <Timer className="w-4 h-4 text-yellow-400" />,
-      label: 'Na fila',
-      value: (warmupQueue ?? []).length,
-    },
-    {
-      icon: <Activity className="w-4 h-4 text-blue-400" />,
-      label: 'Chips ativos',
-      value: connections.filter((c) => c.status === ConnectionStatus.CONNECTED).length,
-    },
-    {
-      icon: <CheckCircle2 className="w-4 h-4 text-green-400" />,
-      label: 'Total enviado hoje',
-      value: totalMessagesSent,
-    },
-  ], [warmedCount, warmupQueue, connections, totalMessagesSent]);
+  const heroTiles = useMemo(
+    () => [
+      {
+        icon: <MessageCircle className="w-4 h-4 text-orange-400" />,
+        label: 'Trocas hoje (chips)',
+        value: chipAggregates.todayAll
+      },
+      {
+        icon: <Flame className="w-4 h-4 text-yellow-400" />,
+        label: 'Canais no aquecimento',
+        value: enabledCount
+      },
+      {
+        icon: <Timer className="w-4 h-4 text-blue-400" />,
+        label: 'Fila LID (campanhas)',
+        value: (warmupQueue ?? []).length
+      },
+      {
+        icon: <CheckCircle2 className="w-4 h-4 text-green-400" />,
+        label: 'LIDs prontos',
+        value: warmedCount ?? 0
+      }
+    ],
+    [chipAggregates.todayAll, enabledCount, warmupQueue, warmedCount]
+  );
 
   return (
     <div className="space-y-5 pb-10">
@@ -517,16 +557,16 @@ export const WarmupTab: React.FC = () => {
         />
         <StatCard
           label="Msgs trocadas"
-          value={totalMessagesSent}
+          value={chipAggregates.totalMsgs}
           icon={<MessageCircle className="w-4 h-4" />}
-          helper={lastRoundTime ? `Ultima: ${lastRoundTime}` : 'Nenhuma rodada'}
+          helper={lastRoundTime ? `Ultima rodada: ${lastRoundTime}` : 'Nenhuma rodada nesta sessao'}
           accent="info"
         />
         <StatCard
           label="Proxima rodada"
           value={warmupActive ? formatCountdown(warmupCountdownUi) : '--:--'}
           icon={<Clock className="w-4 h-4" />}
-          helper={`Fila: ${warmupQueue.length} | Prontos: ${warmedCount}`}
+          helper={warmupActive ? `${chipAggregates.todayEnabled} trocas hoje nos ativos` : 'Timer inativo'}
         />
       </div>
 
@@ -600,9 +640,7 @@ export const WarmupTab: React.FC = () => {
               const trend = prev7Total === 0 ? (weeklyTotal > 0 ? 100 : 0) : Math.round(((weeklyTotal - prev7Total) / Math.max(1, prev7Total)) * 100);
               const totalMsgs = (chipStats?.totalSent || 0) + (chipStats?.totalReceived || 0);
               const targetProgress = Math.min(100, Math.round(((today.sent + today.received) / maturity.dailyTarget) * 100));
-              const derivedScore = chipStats
-                ? Math.min(100, Math.round(maturity.days * 3 + totalMsgs * 0.3 + (chipStats.totalFailed > 0 ? -Math.min(15, chipStats.totalFailed) : 0)))
-                : channel.score;
+              const derivedScore = chipStats ? deriveChipScore(chipStats) : 0;
 
               return (
                 <div
