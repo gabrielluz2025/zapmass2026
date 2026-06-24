@@ -91,7 +91,7 @@ fi
 cd "$ZAPMASS_ROOT"
 
 # ─── 1. Auditoria ────────────────────────────────────────────────────────────
-log "1/8 Auditoria inicial"
+log "1/9 Auditoria inicial"
 echo "  Data:     $(date -Iseconds)"
 echo "  Host:     $(hostname -f 2>/dev/null || hostname)"
 echo "  Uptime:   $(uptime -p 2>/dev/null || uptime)"
@@ -119,7 +119,7 @@ docker stats --no-stream 2>/dev/null | head -10 || true
 echo ""
 
 # ─── 2. Isolar demo/staging do deploy automático ────────────────────────────
-log "2/8 Clientes não-produção (skip deploy + parar containers)"
+log "2/9 Clientes não-produção (skip deploy + parar containers)"
 IFS=',' read -r -a _skip_arr <<< "$DEPLOY_SKIP_CLIENTS"
 for raw in "${_skip_arr[@]}"; do
   slug="$(echo "$raw" | tr -d '[:space:]')"
@@ -155,7 +155,7 @@ if [ -d "$CLIENTES_DIR" ]; then
 fi
 
 # ─── 3. .env produção ───────────────────────────────────────────────────────
-log "3/8 Ajustes idempotentes em ${ENV_FILE}"
+log "3/9 Ajustes idempotentes em ${ENV_FILE}"
 if [ ! -f "$ENV_FILE" ]; then
   warn ".env não existe — copie de .env.example antes de continuar."
 else
@@ -175,7 +175,7 @@ else
 fi
 
 # ─── 4. Postgres tuning + índice Evolution ──────────────────────────────────
-log "4/8 PostgreSQL (tuning + índice Message)"
+log "4/9 PostgreSQL (tuning + índice Message)"
 PG_C="$(find_postgres_container)"
 if [ -z "$PG_C" ]; then
   warn "Container Postgres não encontrado — pulando tuning SQL."
@@ -202,7 +202,7 @@ PSQL
 fi
 
 # ─── 5. Prune cache de build Docker ───────────────────────────────────────────
-log "5/8 Limpeza de cache de build Docker"
+log "5/9 Limpeza de cache de build Docker"
 if [ "${SKIP_BUILDER_PRUNE:-0}" = "1" ]; then
   warn "  SKIP_BUILDER_PRUNE=1 — pulando"
 else
@@ -213,7 +213,7 @@ else
 fi
 
 # ─── 6. Recriar API principal (aplica .env) ─────────────────────────────────
-log "6/8 Recriar serviço zapmass principal (aplica .env)"
+log "6/9 Recriar serviço zapmass principal (aplica .env)"
 if [ "${SKIP_RECREATE_ZAPMASS:-0}" = "1" ]; then
   warn "  SKIP_RECREATE_ZAPMASS=1 — pulando recreate"
 else
@@ -227,8 +227,27 @@ else
   fi
 fi
 
-# ─── 7. Healthcheck final ───────────────────────────────────────────────────
-log "7/8 Aguardando health da produção (porta ${NGINX_PORT})"
+# ─── 7. Garantir Evolution (WhatsApp) ───────────────────────────────────────
+log "7/9 Garantir Evolution (docker compose up -d evolution)"
+if [ -f docker-compose.yml ]; then
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'zapmass-evolution-1'; then
+    ok "  evolution já está Up"
+  else
+    warn "  evolution parado ou ausente — subindo..."
+    docker compose up -d evolution 2>/dev/null || docker compose up -d evolution || warn "falha ao subir evolution"
+    sleep 12
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'zapmass-evolution-1'; then
+      ok "  evolution Up"
+    else
+      warn "  evolution não ficou Up — rode: docker logs zapmass-evolution-1 --tail 50"
+    fi
+  fi
+else
+  warn "  docker-compose.yml ausente — pulando evolution"
+fi
+
+# ─── 8. Healthcheck final ───────────────────────────────────────────────────
+log "8/9 Aguardando health da produção (porta ${NGINX_PORT})"
 waited=0
 max=120
 code="000"
@@ -250,7 +269,7 @@ if [ "$code" != "200" ]; then
 fi
 
 # ─── 8. Relatório ───────────────────────────────────────────────────────────
-log "8/8 Relatório final"
+log "9/9 Relatório final"
 echo ""
 echo "${BLD}── Estado ──${END}"
 uptime
@@ -269,5 +288,9 @@ echo ""
 echo "Para ligar demo temporariamente (vendas/teste):"
 echo "  sudo bash deployment/clientes/scripts/iniciar-cliente.sh demo"
 echo "  sudo bash deployment/clientes/scripts/parar-cliente.sh demo   # quando terminar"
+echo ""
+echo "Monitor semanal (se instalado):"
+echo "  tail -50 /var/log/zapmass-monitor-alerts.log"
+echo "  sudo bash deployment/vps-monitor-producao.sh   # teste manual"
 echo ""
 date -Iseconds > "${ZAPMASS_ROOT}/.vps-stabilize-applied" 2>/dev/null || true
