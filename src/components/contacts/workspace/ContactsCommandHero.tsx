@@ -2,7 +2,7 @@
 import {
   Users, Flame, TrendingUp, Clock, Cake, Heart,
   UserPlus, Upload, Download, Wand2, FileSpreadsheet, Smartphone,
-  ChevronDown, SpellCheck2, MapPin, BarChart3
+  ChevronDown, SpellCheck2, BarChart3
 } from 'lucide-react';
 
 export interface ContactsCommandHeroStats {
@@ -31,8 +31,6 @@ interface Props {
   onExport: () => void;
   onOpenInsights: () => void;
   onOpenNormalizeNames?: () => void;
-  onOpenNormalizeAddresses?: () => void;
-  addressNormalizeBusy?: boolean;
 }
 
 const fmt = (n: number) =>
@@ -45,7 +43,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   savedTotal,
   onNewContact, onImportXLSX, onImportVcf, onSmartImport,
   onDownloadTemplate, onExport, onOpenInsights,
-  onOpenNormalizeNames, onOpenNormalizeAddresses, addressNormalizeBusy = false
+  onOpenNormalizeNames
 }) => {
   const [importOpen, setImportOpen] = React.useState(false);
   const importRef = React.useRef<HTMLDivElement>(null);
@@ -73,7 +71,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
   return (
     <div className="crm-fade-up flex flex-col gap-3">
       {/* Linha 1: título + ações */}
-      <div className="crm-topbar flex flex-col lg:flex-row lg:items-center gap-4">
+      <div className={`crm-topbar flex flex-col lg:flex-row lg:items-center gap-4${importOpen ? ' crm-topbar--menu-open' : ''}`}>
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shrink-0"
@@ -98,21 +96,28 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap lg:ml-auto">
-          <button type="button" onClick={onOpenInsights} className="crm-btn">
+        <div className="crm-topbar__actions flex items-center gap-2 flex-wrap lg:ml-auto">
+          <button type="button" onClick={onOpenInsights} className="crm-btn" title="Insights e segmentos">
             <BarChart3 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
             <span className="hidden sm:inline">Insights</span>
           </button>
 
-          <div className="relative" ref={importRef}>
-            <button type="button" onClick={() => setImportOpen(v => !v)} className="crm-btn">
+          <div className="relative z-[70]" ref={importRef}>
+            <button
+              type="button"
+              onClick={() => setImportOpen((v) => !v)}
+              className={`crm-btn${importOpen ? ' crm-btn--active' : ''}`}
+              aria-expanded={importOpen}
+              aria-haspopup="menu"
+            >
               <Upload className="w-4 h-4 text-emerald-500" />
               <span className="hidden sm:inline">Importar</span>
-              <ChevronDown className="w-3 h-3 opacity-50" />
+              <ChevronDown className={`w-3 h-3 opacity-50 transition-transform${importOpen ? ' rotate-180' : ''}`} />
             </button>
             {importOpen && (
               <div
-                className="absolute right-0 top-full mt-2 w-72 rounded-2xl z-[100] overflow-hidden shadow-xl"
+                role="menu"
+                className="crm-import-menu absolute right-0 top-full mt-2 w-72 rounded-2xl z-[100] overflow-hidden shadow-xl"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
               >
                 <div className="px-4 py-2 text-[10px] font-bold uppercase tracking-wider" style={{ background: 'var(--surface-0)', color: 'var(--text-3, #94a3b8)', borderBottom: '1px solid var(--border)' }}>
@@ -146,16 +151,9 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
           </button>
 
           {onOpenNormalizeNames && (
-            <button type="button" onClick={onOpenNormalizeNames} className="crm-btn" title="Padronizar nomes">
+            <button type="button" onClick={onOpenNormalizeNames} className="crm-btn" title="Padronizar nomes da base">
               <SpellCheck2 className="w-4 h-4 text-cyan-500" />
-              <span className="hidden sm:inline">Limpar nomes</span>
-            </button>
-          )}
-
-          {onOpenNormalizeAddresses && (
-            <button type="button" onClick={onOpenNormalizeAddresses} disabled={addressNormalizeBusy} className="crm-btn disabled:opacity-50">
-              <MapPin className={`w-4 h-4 text-rose-500 ${addressNormalizeBusy ? 'animate-pulse' : ''}`} />
-              <span className="hidden sm:inline">{addressNormalizeBusy ? 'Padronizando…' : 'Cidades'}</span>
+              <span className="hidden md:inline">Limpar nomes</span>
             </button>
           )}
 

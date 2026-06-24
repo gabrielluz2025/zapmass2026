@@ -14,8 +14,6 @@ export const ContactsHeaderBar: React.FC<{
   onExport: () => void;
   onOpenInsights: () => void;
   onOpenNormalizeNames?: () => void;
-  onOpenNormalizeAddresses?: () => void;
-  addressNormalizeBusy?: boolean;
   contactTempsReady?: boolean;
 }> = () => null;
 

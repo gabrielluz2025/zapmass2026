@@ -17,11 +17,16 @@
 /* ── Header principal ─────────────────────────────── */
 .crm-topbar {
   position: relative;
+  z-index: 1;
   border-radius: 18px;
   padding: 1.1rem 1.35rem;
   background: var(--surface-1);
   border: 1px solid var(--border);
-  overflow: hidden;
+  overflow: visible;
+}
+
+.crm-topbar--menu-open {
+  z-index: 60;
 }
 
 /* Faixa colorida no topo do header */
@@ -38,6 +43,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 0.75rem;
+  position: relative;
+  z-index: 0;
 }
 
 .crm-kpi-tile {
@@ -142,6 +149,22 @@
   filter: brightness(1.06);
   transform: translateY(-1px);
   box-shadow: 0 6px 18px -4px rgba(16,185,129,0.6);
+}
+
+.crm-btn--active {
+  color: var(--text-1);
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.crm-topbar__actions {
+  position: relative;
+}
+
+.crm-import-menu {
+  box-shadow:
+    0 16px 40px -12px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(139, 92, 246, 0.08);
 }
 
 /* ── Filtros rápidos (chips) ────────────────────── */

@@ -64,8 +64,6 @@ import { normalizeContactPersonName, parseExtraPrefixes } from '../utils/contact
 import { applyAddressNormalizationToContact } from '../utils/contactAddressNormalize';
 import { consumeAtlasContactsHint } from '../utils/atlasRegionLaunch';
 import { validateImportRow } from '../utils/contactImportSchema';
-import { apiNormalizeContactAddresses } from '../services/contactsApi';
-import { apiGeocodeContacts, apiNormalizeAddresses } from '../services/leadsGeoApi';
 import { apiFetchJson } from '../utils/apiFetchAuth';
 import { AiSparkButton } from './ai/AiSparkButton';
 import { useAiStatus } from '../hooks/useAiStatus';
@@ -1054,7 +1052,6 @@ export const ContactsTab: React.FC = () => {
   const [nameNormalizePreviewCount, setNameNormalizePreviewCount] = useState<number | null>(null);
   const [nameNormalizePreviewBusy, setNameNormalizePreviewBusy] = useState(false);
   const [nameNormalizeApplyBusy, setNameNormalizeApplyBusy] = useState(false);
-  const [addressNormalizeBusy, setAddressNormalizeBusy] = useState(false);
   const [smartImportRaw, setSmartImportRaw] = useState('');
   const [smartImportRows, setSmartImportRows] = useState<SmartRow[]>([]);
   const [smartImportPreviewFilter, setSmartImportPreviewFilter] = useState<FileImportPreviewFilter>('all');
@@ -3744,80 +3741,6 @@ export const ContactsTab: React.FC = () => {
     setNameNormalizeModalOpen(true);
   }, []);
 
-  const runAddressNormalize = useCallback(async () => {
-    if (
-      !window.confirm(
-        'Corrigir e padronizar TODOS os endereços da base?\n\n' +
-          '• Bairro no campo cidade (ex.: Vorstadt → Blumenau + bairro Vorstadt)\n' +
-          '• CEP, rua e UF nos campos certos (ViaCEP + IBGE)\n' +
-          '• Depois geolocaliza contatos para aparecerem no mapa\n\n' +
-          'Pode levar alguns minutos em bases grandes.'
-      )
-    ) {
-      return;
-    }
-    setAddressNormalizeBusy(true);
-    const progressId = 'address-normalize-progress';
-    try {
-      let offset = 0;
-      let totalScanned = 0;
-      let totalUpdated = 0;
-      const allSamples: Array<{ from: string; to: string }> = [];
-
-      do {
-        const r = await apiNormalizeContactAddresses({ offset, limit: 5000 });
-        totalScanned += r.scanned;
-        totalUpdated += r.updated;
-        for (const s of r.samples) {
-          if (allSamples.length < 12) allSamples.push(s);
-        }
-        offset = r.nextOffset;
-        toast.loading(
-          `Padronizando endereços… ${offset.toLocaleString('pt-BR')} verificados${totalUpdated > 0 ? ` · ${totalUpdated.toLocaleString('pt-BR')} corrigidos` : ''}`,
-          { id: progressId }
-        );
-        if (!r.hasMore) break;
-      } while (true);
-
-      toast.loading('Enriquecendo ruas e CEP (ViaCEP)…', { id: progressId });
-      try {
-        const smart = await apiNormalizeAddresses({ max: 1000 });
-        totalUpdated += smart.changed || 0;
-      } catch {
-        /* opcional */
-      }
-
-      let totalGeocoded = 0;
-      for (let round = 0; round < 300; round++) {
-        const g = await apiGeocodeContacts({ max: 120, force: true });
-        totalGeocoded += g.geocoded || 0;
-        toast.loading(
-          `Geolocalizando no mapa… ${totalGeocoded.toLocaleString('pt-BR')} posicionados`,
-          { id: progressId }
-        );
-        if (!g.geocoded) break;
-        await new Promise((resolve) => window.setTimeout(resolve, 350));
-      }
-
-      toast.dismiss(progressId);
-      await refreshContacts();
-
-      if (totalUpdated === 0 && totalGeocoded === 0) {
-        toast('Nenhum endereço precisou de alteração.', { icon: 'ℹ️' });
-      } else {
-        const sample = allSamples.slice(0, 2).map((s) => `${s.from} → ${s.to}`).join('; ');
-        toast.success(
-          `${totalUpdated.toLocaleString('pt-BR')} endereço(s) corrigido(s) · ${totalGeocoded.toLocaleString('pt-BR')} geolocalizado(s).${sample ? ` Ex.: ${sample}` : ''}`
-        );
-      }
-    } catch (e) {
-      toast.dismiss(progressId);
-      toast.error(e instanceof Error ? e.message : 'Falha ao padronizar endereços.');
-    } finally {
-      setAddressNormalizeBusy(false);
-    }
-  }, [refreshContacts]);
-
   const runNameNormalizePreview = useCallback(async () => {
     setNameNormalizePreviewBusy(true);
     try {
@@ -3930,8 +3853,6 @@ export const ContactsTab: React.FC = () => {
         onExport={handleExport}
         onOpenInsights={openInsights}
         onOpenNormalizeNames={openNameNormalizeModal}
-        onOpenNormalizeAddresses={() => void runAddressNormalize()}
-        addressNormalizeBusy={addressNormalizeBusy}
       />
 
       <>
