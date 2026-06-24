@@ -31,11 +31,12 @@
 .wa-chat-pro.wa-pipeline-root {
   flex: 1 1 auto;
   min-height: 0;
-  height: clamp(480px, calc(100dvh - 10.5rem), 1200px);
-  border-radius: 12px;
+  height: clamp(520px, calc(100dvh - 9.5rem), 1200px);
+  border-radius: 14px;
   border: 1px solid var(--wa-divider);
   box-shadow: var(--wa-shadow-md);
   overflow: hidden;
+  background: var(--wa-panel);
 }
 
 .wa-chat-pro .wa-side {
@@ -189,23 +190,24 @@
   justify-content: center;
   padding: 48px 32px;
   text-align: center;
-  background: #f0f2f5;
-  border-bottom: 6px solid var(--wa-green-strong);
+  background: linear-gradient(165deg, var(--wa-header) 0%, var(--wa-panel) 45%, var(--wa-bg) 100%);
+  border-bottom: 4px solid var(--wa-green-strong);
+  min-height: 280px;
 }
 
 .wa-chat-pro .wa-empty-pro h2 {
-  font-size: 32px;
-  font-weight: 300;
-  color: #41525d;
-  margin: 0 0 16px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--wa-text);
+  margin: 0 0 12px;
   letter-spacing: -0.02em;
 }
 
 .wa-chat-pro .wa-empty-pro p {
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.65;
   color: var(--wa-text-2);
-  max-width: 420px;
+  max-width: 360px;
   margin: 0;
 }
 
@@ -340,6 +342,15 @@
 }
 
 /* Dark mode WA nativo — paleta escura do WhatsApp Web */
+html[data-mode='dark'] .wa-chat-pro .wa-empty-pro {
+  background: linear-gradient(165deg, #111b21 0%, #0b141a 55%, #0a1014 100%);
+}
+
+html[data-mode='dark'] .wa-chat-pro .wa-empty-zap-badge {
+  background: color-mix(in srgb, var(--wa-green) 18%, var(--wa-panel));
+  color: #d1f4e0;
+}
+
 html[data-mode='dark'] .wa-chat-pro {
   --wa-bg: #0B141A;
   --wa-panel: #111B21;

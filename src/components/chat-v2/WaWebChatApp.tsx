@@ -6,6 +6,7 @@ import {
   useZapMassCore,
   useZapMassConversations,
   useZapMassInboxPagination,
+  useZapMassConnectionsSlice,
 } from '../../context/ZapMassContext';
 import { ClientCrmPanel } from '../chat/ClientCrmPanel';
 import { WaContactDrawer } from '../chat/wa/WaContactDrawer';
@@ -47,9 +48,9 @@ export const WaWebChatApp: React.FC<{
   const crm = useClientCrm(user?.uid);
   const conversations = useZapMassConversations();
   const { inboxHasMore, inboxLoadingMore, loadMoreInbox } = useZapMassInboxPagination();
+  const connections = useZapMassConnectionsSlice();
   const {
     contacts,
-    connections,
     sendMessage,
     sendMedia,
     markAsRead,
@@ -73,6 +74,7 @@ export const WaWebChatApp: React.FC<{
   const [draftConversations, setDraftConversations] = useState<Conversation[]>([]);
   const [draftChannelById, setDraftChannelById] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [connectionFilterId, setConnectionFilterId] = useState<string | 'ALL'>('ALL');
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -172,7 +174,7 @@ export const WaWebChatApp: React.FC<{
   }, [sortedConversations, displayById, profilePicByPhoneKey]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return sortedConversations.filter((c) => {
       if (connectionFilterId !== 'ALL' && c.connectionId !== connectionFilterId) return false;
       if (unreadOnly && unreadCount(c) === 0) return false;
@@ -184,7 +186,7 @@ export const WaWebChatApp: React.FC<{
       const preview = (c.lastMessage || '').toLowerCase();
       return primary.includes(q) || sub.includes(q) || phone.includes(q) || preview.includes(q);
     });
-  }, [sortedConversations, search, unreadOnly, connectionFilterId, displayById]);
+  }, [sortedConversations, deferredSearch, unreadOnly, connectionFilterId, displayById]);
 
   const selected = useMemo(
     () => sortedConversations.find((c) => c.id === selectedId) ?? null,
@@ -352,11 +354,11 @@ export const WaWebChatApp: React.FC<{
     [fetchConversationPicture]
   );
 
-  /** Prefetch da lista (não espera clicar na conversa). */
+  /** Prefetch leve — só primeiras conversas visíveis (evita 60 round-trips ao abrir a aba). */
   useEffect(() => {
-    const MAX = 60;
-    const BATCH = 4;
-    const DELAY_MS = 400;
+    const MAX = 12;
+    const BATCH = 3;
+    const DELAY_MS = 600;
     const queue: string[] = [];
     for (const conv of sortedConversations) {
       if (queue.length >= MAX) break;
@@ -379,7 +381,7 @@ export const WaWebChatApp: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [sortedConversations, conversationNeedsRemotePicture, requestConversationPicture]);
+  }, [sortedConversations.length, conversationNeedsRemotePicture, requestConversationPicture]);
 
   useEffect(() => {
     if (!selected?.id || selected.profilePicUrl) return;
@@ -436,7 +438,7 @@ export const WaWebChatApp: React.FC<{
   useEffect(() => {
     if (!selected?.id || !socket?.connected) return;
     const msgCount = selected.messages?.length ?? 0;
-    if (msgCount < 30) void loadMoreHistory(selected.id, true);
+    if (msgCount < 8) void loadMoreHistory(selected.id, true);
   }, [selected?.id, selected?.messages?.length, socket?.connected, loadMoreHistory]);
 
   const isSelectedDraft = useMemo(() => {

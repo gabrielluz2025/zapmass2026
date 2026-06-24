@@ -4,7 +4,9 @@ import type { Socket } from 'socket.io-client';
 export type WaSocketStatus = 'online' | 'offline' | 'slow';
 
 /** Reemit inbox do servidor (leve) enquanto a aba está visível. */
-const AUTO_LIGHT_SYNC_MS = 45_000;
+const AUTO_LIGHT_SYNC_MS = 90_000;
+/** Não re-sincroniza se houve delta/update recente. */
+const RECENT_REALTIME_SKIP_MS = 45_000;
 /** Acima disso (RTT), considera servidor lento — sync pesado pode atrasar pong sem estar offline. */
 const SLOW_RTT_MS = 45_000;
 /** Pings consecutivos lentos antes de exibir aviso (evita falso positivo). */
@@ -38,6 +40,13 @@ export function useWaRealtime(
   const runResync = useCallback(
     (opts?: { full?: boolean }) => {
       if (!socket?.connected) return;
+      if (
+        !opts?.full &&
+        lastRealtimeActivityRef.current > 0 &&
+        Date.now() - lastRealtimeActivityRef.current < RECENT_REALTIME_SKIP_MS
+      ) {
+        return;
+      }
       setSyncing(true);
       if (syncingTimerRef.current) clearTimeout(syncingTimerRef.current);
       syncingTimerRef.current = setTimeout(() => setSyncing(false), opts?.full ? 120_000 : 12_000);
@@ -117,14 +126,25 @@ export function useWaRealtime(
     socket.on('pong-latency', onPong);
 
     const onVis = () => {
-      if (document.visibilityState === 'visible' && socket.connected) {
-        runResync({ full: false });
+      if (document.visibilityState !== 'visible' || !socket.connected) return;
+      if (
+        lastRealtimeActivityRef.current > 0 &&
+        Date.now() - lastRealtimeActivityRef.current < RECENT_REALTIME_SKIP_MS
+      ) {
+        return;
       }
+      runResync({ full: false });
     };
     document.addEventListener('visibilitychange', onVis);
 
     const lightSyncTimer = setInterval(() => {
       if (document.visibilityState !== 'visible' || !socket.connected) return;
+      if (
+        lastRealtimeActivityRef.current > 0 &&
+        Date.now() - lastRealtimeActivityRef.current < RECENT_REALTIME_SKIP_MS
+      ) {
+        return;
+      }
       runResync({ full: false });
     }, AUTO_LIGHT_SYNC_MS);
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowLeft, History, Loader2, Lock, MoreVertical } from 'lucide-react';
 import type { Conversation, WhatsAppConnection } from '../../types';
@@ -59,7 +59,14 @@ type Props = {
   onDraftChannelChange?: (connectionId: string) => void;
 };
 
-export const WaThread: React.FC<Props> = ({
+function messageShowsTail(messages: Conversation['messages'], index: number): boolean {
+  const cur = messages?.[index];
+  const prev = messages?.[index - 1];
+  if (!cur) return true;
+  return !prev || prev.sender !== cur.sender;
+}
+
+export const WaThread: React.FC<Props> = memo(function WaThread({
   conversation,
   display,
   avatarSrc,
@@ -84,7 +91,7 @@ export const WaThread: React.FC<Props> = ({
   draftChannels,
   draftChannelId,
   onDraftChannelChange
-}) => {
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
@@ -101,16 +108,6 @@ export const WaThread: React.FC<Props> = ({
   });
 
   const primary = conversation ? inboxListTitle(display ?? undefined, conversation) : '';
-
-  const grouped = useMemo(() => {
-    const out: boolean[] = [];
-    for (let i = 0; i < messages.length; i++) {
-      const cur = messages[i];
-      const prev = messages[i - 1];
-      out.push(!prev || prev.sender !== cur.sender);
-    }
-    return out;
-  }, [messages]);
 
   const presenceLine = useMemo(
     () => formatContactPresenceSubtitle(conversation),
@@ -202,22 +199,21 @@ export const WaThread: React.FC<Props> = ({
     return (
       <section className="wa-empty-pro flex-1 min-w-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
         <div
-          className="w-20 h-20 rounded-3xl flex items-center justify-center mb-5"
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5 wa-empty-pro__icon"
           style={{
-            background: 'linear-gradient(135deg, rgba(37,211,102,0.15), rgba(18,140,126,0.1))',
-            border: '1.5px solid rgba(37,211,102,0.25)',
+            background: 'linear-gradient(135deg, rgba(37,211,102,0.18), rgba(18,140,126,0.08))',
+            border: '1.5px solid rgba(37,211,102,0.28)',
           }}
         >
-          <Lock className="w-9 h-9 opacity-60" style={{ color: 'var(--wa-green-strong)' }} />
+          <Lock className="w-8 h-8 opacity-80" style={{ color: 'var(--wa-green-strong)' }} />
         </div>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.01em' }}>
-          ZapMass Atendimento
-        </h2>
-        <p style={{ maxWidth: 320, lineHeight: 1.65 }}>
-          Selecione uma conversa ao lado para começar. Histórico completo, tempo real e nomes da sua agenda CRM.
+        <h2>ZapMass Atendimento</h2>
+        <p>
+          Selecione uma conversa na lista ao lado. Mensagens em tempo real, histórico completo e nomes da sua agenda CRM.
         </p>
-        <div className="flex items-center gap-3 mt-6">
+        <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
           <span className="wa-empty-zap-badge">Criptografia de ponta a ponta</span>
+          <span className="wa-empty-zap-badge">Multi-chip</span>
         </div>
       </section>
     );
@@ -344,7 +340,7 @@ export const WaThread: React.FC<Props> = ({
                 >
                   <WaBubble
                     side={side}
-                    showTail={grouped[vr.index]}
+                    showTail={messageShowsTail(messages, vr.index)}
                     status={msg.status}
                     time={formatMsgTime(msg)}
                     fromCampaign={msg.fromCampaign}
@@ -383,4 +379,4 @@ export const WaThread: React.FC<Props> = ({
       />
     </section>
   );
-};
+});
