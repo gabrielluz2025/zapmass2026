@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock,
   Layers,
-  MessageSquare,
   Rocket,
   Smartphone,
   Users,
@@ -24,9 +23,13 @@ import {
 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { campaignRecipientNameVars } from '../../utils/contactNameNormalize';
 import { campaignClockVars } from '../../utils/campaignClockVars';
-import { apiPreflightCheck, apiFrequencyCapCheck, ensureDispatchReady } from '../../services/campaignsApi';
+import {
+  apiPreflightCheck,
+  apiFrequencyCapCheck,
+  fetchDispatchHealth,
+  reconnectDispatchHealth,
+} from '../../services/campaignsApi';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useAuth } from '../../context/AuthContext';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
@@ -76,6 +79,24 @@ function formatRelativeHours(iso?: string): string {
   if (hours < 1) return 'há menos de 1 h';
   if (hours < 24) return `há ${hours} h`;
   return `há ${Math.floor(hours / 24)} dia(s)`;
+}
+
+function buildTriagedFromRecipients(
+  recipients: SampleRecipient[],
+  cappedByPhone?: Map<string, { capped: boolean; lastSentAt?: string }>
+): TriagedContact[] {
+  return recipients.map((r) => {
+    const digits = r.phone.replace(/\D/g, '');
+    const key = digits.slice(-11);
+    const cap = cappedByPhone?.get(key);
+    return {
+      phone: digits,
+      name: r.name || r.phone,
+      vars: r.vars,
+      capped: cap?.capped ?? false,
+      lastSentAt: cap?.lastSentAt,
+    };
+  });
 }
 
 // ── tipos ────────────────────────────────────────────────────────────────────
@@ -148,18 +169,29 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
   const [triagedContacts, setTriagedContacts] = useState<TriagedContact[]>([]);
   const [cappedCount, setCappedCount] = useState(0);
   const [confirmRepeatSend, setConfirmRepeatSend] = useState(false);
-  const [showAllContacts, setShowAllContacts] = useState(false);
 
   const allMessages = useMemo(() => {
     return [message, ...messageStages].filter(Boolean);
   }, [message, messageStages]);
 
+  const triagedByPhone = useMemo(() => {
+    const map = new Map<string, TriagedContact>();
+    triagedContacts.forEach((c) => map.set(c.phone.slice(-11), c));
+    return map;
+  }, [triagedContacts]);
+
   const previewSamples = useMemo(() => {
-    return allRecipients.slice(0, 3).map((r) => ({
-      ...r,
-      preview: allMessages.map((tmpl) => renderMessage(tmpl, r.vars)),
-    }));
-  }, [allRecipients, allMessages]);
+    return allRecipients.slice(0, 3).map((r) => {
+      const digits = r.phone.replace(/\D/g, '');
+      const triage = triagedByPhone.get(digits.slice(-11));
+      return {
+        ...r,
+        preview: allMessages.map((tmpl) => renderMessage(tmpl, r.vars)),
+        capped: triage?.capped ?? false,
+        lastSentAt: triage?.lastSentAt,
+      };
+    });
+  }, [allRecipients, allMessages, triagedByPhone]);
 
   const hasUnresolved = previewSamples.some((s) =>
     s.preview.some((p) => p.includes('{{') && p.includes('}}'))
@@ -174,75 +206,61 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       const cappedByPhone = new Map(
         res.contacts.map((c) => [c.phoneKey, { capped: c.capped, lastSentAt: c.lastSentAt }])
       );
-      const triaged: TriagedContact[] = allRecipients.map((r) => {
-        const digits = r.phone.replace(/\D/g, '');
-        const key = digits.slice(-11);
-        const cap = cappedByPhone.get(key);
-        return {
-          phone: digits,
-          name: r.name || r.phone,
-          vars: r.vars,
-          capped: cap?.capped ?? false,
-          lastSentAt: cap?.lastSentAt,
-        };
-      });
-      setTriagedContacts(triaged);
+      setTriagedContacts(buildTriagedFromRecipients(allRecipients, cappedByPhone));
       setCappedCount(res.cappedCount);
       setFreqCapStatus('ok');
     } catch {
-      setTriagedContacts(
-        allRecipients.map((r) => ({
-          phone: r.phone.replace(/\D/g, ''),
-          name: r.name || r.phone,
-          vars: r.vars,
-          capped: false,
-        }))
-      );
+      setTriagedContacts(buildTriagedFromRecipients(allRecipients));
       setCappedCount(0);
       setFreqCapStatus('error');
     }
   }, [allRecipients]);
 
-  const runHealthCheck = useCallback(async () => {
+  const runMotorCheck = useCallback(async () => {
     setMotorStatus('checking');
-    setChipStatus('checking');
-    let motorOk = false;
     try {
-      const h = await ensureDispatchReady({ maxAttempts: 4, tryReconnect: true });
-      motorOk = h.ok;
+      let h = await fetchDispatchHealth({ retries: 0 });
+      if (!h.ok && h.reachable && (h.kind === 'redis_down' || h.kind === 'misconfig')) {
+        setMotorStatus('reconnecting');
+        h = await reconnectDispatchHealth();
+      }
       setMotorStatus(h.ok ? 'ok' : h.reachable === false ? 'reconnecting' : 'error');
     } catch {
       setMotorStatus('reconnecting');
     }
+  }, []);
 
+  const runChipCheck = useCallback(async () => {
     if (selectedConnectionIds.length === 0) {
-      setChipStatus('warn');
-      return;
-    }
-    if (!motorOk) {
       setChipStatus('warn');
       setChipResults([]);
       return;
     }
+    setChipStatus('checking');
     try {
       const res = await Promise.race([
         apiPreflightCheck(selectedConnectionIds),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 12000)
+          setTimeout(() => reject(new Error('timeout')), 8000)
         ),
       ]);
       setChipResults(res.results);
       setChipStatus(res.allReady ? 'ok' : 'error');
     } catch {
       setChipStatus('error');
+      setChipResults([]);
     }
   }, [selectedConnectionIds]);
 
-  // Verificação automática ao abrir
+  const runAllChecks = useCallback(() => {
+    void Promise.all([runMotorCheck(), runChipCheck(), runFrequencyCapCheck()]);
+  }, [runMotorCheck, runChipCheck, runFrequencyCapCheck]);
+
   useEffect(() => {
     if (isOpen) {
-      runHealthCheck();
-      void runFrequencyCapCheck();
+      setTriagedContacts(buildTriagedFromRecipients(allRecipients));
+      setExpanded(allRecipients.length === 1 ? 0 : null);
+      runAllChecks();
     } else {
       setMotorStatus('idle');
       setChipStatus('idle');
@@ -252,57 +270,99 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
       setTriagedContacts([]);
       setCappedCount(0);
       setConfirmRepeatSend(false);
-      setShowAllContacts(false);
+      setExpanded(null);
     }
-  }, [isOpen, runHealthCheck, runFrequencyCapCheck]);
+  }, [isOpen, runAllChecks, allRecipients]);
 
-  const triageComplete = freqCapStatus === 'ok' || freqCapStatus === 'error';
   const needsRepeatConfirm = cappedCount > 0 && freqCapStatus === 'ok';
   const repeatConfirmed = !needsRepeatConfirm || confirmRepeatSend;
 
-  const overallHealth: HealthStatus =
-    motorStatus === 'error'
-      ? 'error'
-      : chipStatus === 'error'
-      ? 'error'
-      : freqCapStatus === 'error'
-      ? 'warn'
-      : motorStatus === 'checking' || chipStatus === 'checking' || freqCapStatus === 'checking'
-      ? 'checking'
-      : motorStatus === 'reconnecting'
-      ? 'reconnecting'
-      : motorStatus === 'ok' && chipStatus === 'ok' && triageComplete
-      ? 'ok'
-      : 'idle';
+  const dispatchHealthReady =
+    (motorStatus === 'ok' || motorStatus === 'reconnecting') &&
+    motorStatus !== 'checking' &&
+    motorStatus !== 'error' &&
+    chipStatus !== 'error' &&
+    chipStatus !== 'checking';
 
-  const canDispatch = (overallHealth === 'ok' || overallHealth === 'reconnecting') && repeatConfirmed && motorStatus !== 'error' && chipStatus !== 'error';
+  const canDispatch = dispatchHealthReady && repeatConfirmed;
 
-  const palette = {
-    ok: { bg: '#10b98115', border: '#10b98135', text: '#10b981', icon: <CheckCircle2 className="w-4 h-4" /> },
-    error: { bg: '#ef444415', border: '#ef444435', text: '#ef4444', icon: <WifiOff className="w-4 h-4" /> },
-    checking: { bg: 'var(--surface-1)', border: 'var(--border-subtle)', text: 'var(--text-3)', icon: <Loader2 className="w-4 h-4 animate-spin" /> },
-    reconnecting: { bg: '#f59e0b15', border: '#f59e0b35', text: '#f59e0b', icon: <Loader2 className="w-4 h-4 animate-spin" /> },
-    warn: { bg: '#f59e0b15', border: '#f59e0b35', text: '#f59e0b', icon: <AlertTriangle className="w-4 h-4" /> },
-    idle: { bg: 'var(--surface-1)', border: 'var(--border-subtle)', text: 'var(--text-3)', icon: <Wifi className="w-4 h-4" /> },
+  const checksPending = motorStatus === 'checking' || chipStatus === 'checking';
+  const preflightHeadline = checksPending
+    ? 'Verificando envio…'
+    : dispatchHealthReady
+    ? 'Pronto para disparar'
+    : motorStatus === 'error'
+    ? isAdmin
+      ? 'Problema no motor — veja abaixo'
+      : 'Aguarde a sincronização'
+    : chipStatus === 'error'
+    ? 'Chip offline — verifique a conexão'
+    : 'Verificação de pré-disparo';
+
+  const statusColor = (status: HealthStatus) => {
+    if (status === 'ok') return '#10b981';
+    if (status === 'error') return '#ef4444';
+    if (status === 'warn' || status === 'reconnecting') return '#f59e0b';
+    return 'var(--text-3)';
   };
+
+  const statusIcon = (status: HealthStatus) => {
+    if (status === 'checking' || status === 'reconnecting') {
+      return <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: statusColor(status) }} />;
+    }
+    if (status === 'ok') return <CheckCircle2 className="w-3.5 h-3.5" style={{ color: statusColor(status) }} />;
+    if (status === 'error') return <WifiOff className="w-3.5 h-3.5" style={{ color: statusColor(status) }} />;
+    if (status === 'warn') return <AlertTriangle className="w-3.5 h-3.5" style={{ color: statusColor(status) }} />;
+    return <Wifi className="w-3.5 h-3.5" style={{ color: statusColor(status) }} />;
+  };
+
+  const motorStatusText =
+    motorStatus === 'ok'
+      ? 'Pronto'
+      : motorStatus === 'error'
+      ? isAdmin
+        ? 'Indisponível'
+        : 'Reconectando…'
+      : motorStatus === 'reconnecting'
+      ? 'Sincronizando…'
+      : motorStatus === 'checking'
+      ? 'Verificando…'
+      : 'Aguardando';
+
+  const chipStatusText =
+    chipStatus === 'ok'
+      ? `${chipResults.filter((r) => r.isReady).length}/${chipResults.length} online`
+      : chipStatus === 'error'
+      ? `${chipResults.filter((r) => !r.isReady).length || chipCount} offline`
+      : chipStatus === 'checking'
+      ? 'Verificando…'
+      : chipStatus === 'warn'
+      ? selectedConnectionIds.length === 0
+        ? 'Nenhum chip'
+        : 'Aguardando'
+      : 'Aguardando';
+
+  const freqCapStatusText =
+    freqCapStatus === 'checking'
+      ? 'Verificando…'
+      : freqCapStatus === 'error'
+      ? 'Não verificado'
+      : cappedCount > 0
+      ? `${cappedCount} em 24 h`
+      : 'Liberados';
+
+  const showFreqCapBanner = freqCapStatus === 'error';
+  const showRepeatPanel = needsRepeatConfirm;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="" size="lg">
-      <div className="space-y-4">
-
-        {/* ── HEADER ────────────────────────────────────────────────────── */}
-        <div
-          className="rounded-2xl p-4 flex items-center gap-4"
-          style={{ background: 'linear-gradient(135deg,#3b82f610 0%,#10b98110 100%)', border: '1px solid var(--border-subtle)' }}
-        >
-          <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
-            style={{ background: 'linear-gradient(135deg,#3b82f6,#10b981)', boxShadow: '0 4px 14px #3b82f640' }}
-          >
-            <Rocket className="w-6 h-6 text-white" />
+      <div className="cpm-root">
+        <header className="cpm-hero">
+          <div className="cpm-hero__icon">
+            <Rocket className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-black text-[18px] truncate" style={{ color: 'var(--text-1)' }}>
+            <h2 className="font-bold text-[17px] truncate" style={{ color: 'var(--text-1)' }}>
               {campaignName}
             </h2>
             <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-3)' }}>
@@ -310,134 +370,121 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             </p>
           </div>
           {launchMode === 'schedule' && (
-            <div
-              className="shrink-0 rounded-full px-3 py-1 text-[11px] font-bold"
-              style={{ background: '#3b82f620', color: '#3b82f6' }}
+            <span
+              className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold"
+              style={{ background: 'rgba(59, 130, 246, 0.14)', color: '#60a5fa' }}
             >
               Agendado
-            </div>
+            </span>
           )}
-        </div>
+        </header>
 
-        {/* ── STATS CARDS ───────────────────────────────────────────────── */}
-        <div className="grid grid-cols-4 gap-2">
+        <div className="cpm-stats">
           {[
-            { icon: <Users className="w-4 h-4" />, label: 'Contatos', value: contactCount.toLocaleString('pt-BR'), color: '#3b82f6' },
-            { icon: <Smartphone className="w-4 h-4" />, label: 'Chips', value: String(chipCount), color: '#10b981' },
-            { icon: <Layers className="w-4 h-4" />, label: 'Etapas', value: String(allMessages.length), color: '#8b5cf6' },
-            { icon: <Clock className="w-4 h-4" />, label: 'Duração', value: estimateDuration(contactCount, delaySeconds, allMessages.length), color: '#f59e0b' },
+            { icon: <Users className="w-3.5 h-3.5" />, label: 'Contatos', value: contactCount.toLocaleString('pt-BR'), color: '#3b82f6' },
+            { icon: <Smartphone className="w-3.5 h-3.5" />, label: 'Chips', value: String(chipCount), color: '#10b981' },
+            { icon: <Layers className="w-3.5 h-3.5" />, label: 'Etapas', value: String(allMessages.length), color: '#8b5cf6' },
+            { icon: <Clock className="w-3.5 h-3.5" />, label: 'Duração', value: estimateDuration(contactCount, delaySeconds, allMessages.length), color: '#f59e0b' },
           ].map((s) => (
-            <div
-              key={s.label}
-              className="rounded-xl p-3 flex flex-col items-center gap-1 text-center"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div style={{ color: s.color }}>{s.icon}</div>
-              <div className="text-[16px] font-black" style={{ color: 'var(--text-1)' }}>{s.value}</div>
-              <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>{s.label}</div>
+            <div key={s.label} className="cpm-stat">
+              <div className="cpm-stat__icon" style={{ color: s.color }}>{s.icon}</div>
+              <div className="cpm-stat__value">{s.value}</div>
+              <div className="cpm-stat__label">{s.label}</div>
             </div>
           ))}
         </div>
-        <p className="text-[11px] text-center -mt-1" style={{ color: 'var(--text-3)' }}>
-          {formatDelay(delaySeconds)} entre mensagens &nbsp;·&nbsp;
+        <p className="cpm-meta">
+          {formatDelay(delaySeconds)} entre mensagens ·{' '}
           {allMessages.length > 1 ? `${allMessages.length} etapas em sequência` : 'mensagem única por contato'}
         </p>
 
-        {/* ── VERIFICAÇÃO DE SAÚDE ──────────────────────────────────────── */}
-        <div
-          className="rounded-2xl overflow-hidden"
-          style={{ border: '1px solid var(--border-subtle)' }}
-        >
-          <div
-            className="px-4 py-3 flex items-center justify-between"
-            style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
-          >
-            <div className="flex items-center gap-2">
-              {overallHealth === 'checking' && <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--text-3)' }} />}
-              {overallHealth === 'ok' && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-              {overallHealth === 'error' && <AlertTriangle className="w-4 h-4 text-red-500" />}
-              {overallHealth === 'idle' && <Wifi className="w-4 h-4" style={{ color: 'var(--text-3)' }} />}
-              <span className="text-[12px] font-bold" style={{ color: 'var(--text-1)' }}>
-                {overallHealth === 'checking' ? 'Preparando envio…' :
-                 overallHealth === 'reconnecting' ? 'Sincronizando com o servidor…' :
-                 overallHealth === 'ok' ? 'Tudo pronto para disparar!' :
-                 overallHealth === 'error' ? (isAdmin ? 'Problema detectado — veja abaixo' : 'Aguarde um instante e tente novamente') :
-                 'Verificação de pré-disparo'}
-              </span>
+        <section className="cpm-preflight">
+          <div className="cpm-preflight__head">
+            <div className="cpm-preflight__title">
+              {dispatchHealthReady ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              ) : checksPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--text-3)' }} />
+              ) : motorStatus === 'error' || chipStatus === 'error' ? (
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+              ) : (
+                <Wifi className="w-4 h-4" style={{ color: 'var(--text-3)' }} />
+              )}
+              <span>{preflightHeadline}</span>
             </div>
             <button
-              onClick={() => {
-                runHealthCheck();
-                void runFrequencyCapCheck();
-              }}
-              className="flex items-center gap-1.5 text-[11px] rounded-lg px-2 py-1"
-              style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
-              disabled={overallHealth === 'checking'}
+              type="button"
+              className="cpm-preflight__refresh"
+              onClick={runAllChecks}
+              disabled={checksPending}
             >
-              <RefreshCw className={`w-3 h-3 ${overallHealth === 'checking' ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3 h-3 ${checksPending ? 'animate-spin' : ''}`} />
               Reverificar
             </button>
           </div>
 
-          <div className="px-4 py-3 grid grid-cols-2 gap-2">
-            {/* Motor de envio */}
-            {(['idle', 'checking', 'ok', 'error', 'warn', 'reconnecting'] as HealthStatus[]).includes(motorStatus) && (
-              <div
-                className="rounded-xl px-3 py-2.5 flex items-center gap-2"
-                style={{ background: palette[motorStatus].bg, border: `1px solid ${palette[motorStatus].border}` }}
-              >
-                <span style={{ color: palette[motorStatus].text }}>{palette[motorStatus].icon}</span>
-                <div>
-                  <div className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>Motor de envio</div>
-                  <div className="text-[10px]" style={{ color: palette[motorStatus].text }}>
-                    {motorStatus === 'ok' ? 'Pronto' :
-                     motorStatus === 'error' ? (isAdmin ? 'Indisponível — ver correção' : 'Reconectando…') :
-                     motorStatus === 'reconnecting' ? 'Sincronizando…' :
-                     motorStatus === 'checking' ? 'Verificando…' : 'Não verificado'}
-                  </div>
+          <div className="cpm-checks">
+            <div className="cpm-check" data-status={motorStatus}>
+              <span className="cpm-check__icon">{statusIcon(motorStatus)}</span>
+              <div className="cpm-check__body">
+                <div className="cpm-check__label">Motor de envio</div>
+                <div className="cpm-check__status" style={{ color: statusColor(motorStatus) }}>
+                  {motorStatusText}
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* Chips */}
             <div
-              className="rounded-xl px-3 py-2.5 flex items-center gap-2 cursor-pointer"
-              style={{ background: palette[chipStatus].bg, border: `1px solid ${palette[chipStatus].border}` }}
-              onClick={() => chipResults.length > 0 && setShowChipDetails(!showChipDetails)}
+              className={`cpm-check cpm-check--clickable${chipResults.length > 0 ? '' : ''}`}
+              data-status={chipStatus}
+              onClick={() => chipResults.length > 0 && setShowChipDetails((v) => !v)}
+              onKeyDown={(e) => {
+                if (chipResults.length > 0 && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  setShowChipDetails((v) => !v);
+                }
+              }}
+              role={chipResults.length > 0 ? 'button' : undefined}
+              tabIndex={chipResults.length > 0 ? 0 : undefined}
             >
-              <span style={{ color: palette[chipStatus].text }}>{palette[chipStatus].icon}</span>
-              <div className="flex-1">
-                <div className="text-[11px] font-bold" style={{ color: 'var(--text-1)' }}>WhatsApp Chips</div>
-                <div className="text-[10px]" style={{ color: palette[chipStatus].text }}>
-                  {chipStatus === 'ok' ? `${chipResults.filter(r => r.isReady).length}/${chipResults.length} online` :
-                   chipStatus === 'error' ? `${chipResults.filter(r => !r.isReady).length} chip(s) offline` :
-                   chipStatus === 'checking' ? 'Verificando…' :
-                   chipStatus === 'warn'
-                     ? (selectedConnectionIds.length === 0 ? 'Nenhum chip selecionado' : 'Aguardando motor de envio')
-                     : 'Não verificado'}
+              <span className="cpm-check__icon">{statusIcon(chipStatus)}</span>
+              <div className="cpm-check__body">
+                <div className="cpm-check__label flex items-center gap-1">
+                  WhatsApp Chips
+                  {chipResults.length > 0 && (
+                    showChipDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                  )}
+                </div>
+                <div className="cpm-check__status" style={{ color: statusColor(chipStatus) }}>
+                  {chipStatusText}
                 </div>
               </div>
-              {chipResults.length > 0 && (
-                <span style={{ color: 'var(--text-3)' }}>
-                  {showChipDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                </span>
-              )}
+            </div>
+
+            <div className="cpm-check" data-status={freqCapStatus === 'error' ? 'warn' : freqCapStatus}>
+              <span className="cpm-check__icon">{statusIcon(freqCapStatus === 'error' ? 'warn' : freqCapStatus)}</span>
+              <div className="cpm-check__body">
+                <div className="cpm-check__label">Limite 24 h</div>
+                <div
+                  className="cpm-check__status"
+                  style={{ color: statusColor(freqCapStatus === 'error' ? 'warn' : freqCapStatus) }}
+                >
+                  {freqCapStatusText}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Detalhes dos chips */}
           {showChipDetails && chipResults.length > 0 && (
-            <div className="px-4 pb-3 space-y-1.5">
+            <div className="cpm-chip-details">
               {chipResults.map((r) => (
-                <div
-                  key={r.connectionId}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                  style={{ background: r.isReady ? '#10b98108' : '#ef444408', border: `1px solid ${r.isReady ? '#10b98120' : '#ef444420'}` }}
-                >
-                  {r.isReady
-                    ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
-                    : <WifiOff className="w-3.5 h-3.5 shrink-0 text-red-400" />}
-                  <span className="text-[11px] flex-1 truncate font-mono" style={{ color: 'var(--text-2)' }}>
+                <div key={r.connectionId} className="cpm-chip-row" data-ready={r.isReady ? 'true' : 'false'}>
+                  {r.isReady ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                  ) : (
+                    <WifiOff className="w-3.5 h-3.5 shrink-0 text-red-400" />
+                  )}
+                  <span className="flex-1 truncate font-mono" style={{ color: 'var(--text-2)' }}>
                     {r.connectionId}
                   </span>
                   <span
@@ -451,213 +498,109 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             </div>
           )}
 
-          {/* Correção técnica — só para administradores da plataforma */}
           {motorStatus === 'error' && isAdmin && (
             <div className="px-4 pb-3">
               <DispatchFixPanel compact />
             </div>
           )}
           {motorStatus === 'error' && !isAdmin && (
-            <div className="px-4 pb-3">
-              <div
-                className="rounded-xl px-3.5 py-3 flex items-start gap-2.5"
-                style={{ background: '#f59e0b12', border: '1px solid #f59e0b35' }}
-              >
-                <Loader2 className="w-4 h-4 shrink-0 mt-0.5 text-amber-500 animate-spin" />
-                <p className="text-[11.5px] leading-snug" style={{ color: 'var(--text-2)' }}>
-                  O servidor está se preparando para o envio. Aguarde alguns segundos e clique em{' '}
-                  <strong>Reverificar</strong>. Se persistir, recarregue a página.
-                </p>
-              </div>
+            <div className="cpm-banner cpm-banner--warn">
+              <Loader2 className="w-4 h-4 shrink-0 text-amber-500 animate-spin" />
+              <p>
+                O servidor está se preparando. Aguarde alguns segundos e clique em <strong>Reverificar</strong>.
+              </p>
             </div>
           )}
-        </div>
 
-        {/* ── TRIAGEM DE CONTATOS (limite 24 h) ─────────────────────────── */}
-        <div
-          className="rounded-2xl overflow-hidden"
-          style={{ border: '1px solid var(--border-subtle)' }}
-        >
-          <div
-            className="px-4 py-3 flex items-center justify-between gap-2"
-            style={{ background: 'var(--surface-1)', borderBottom: '1px solid var(--border-subtle)' }}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              {freqCapStatus === 'checking' && <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: 'var(--text-3)' }} />}
-              {freqCapStatus === 'ok' && cappedCount === 0 && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />}
-              {freqCapStatus === 'ok' && cappedCount > 0 && <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />}
-              {freqCapStatus === 'error' && <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />}
-              <span className="text-[12px] font-bold truncate" style={{ color: 'var(--text-1)' }}>
-                {freqCapStatus === 'checking'
-                  ? 'Verificando contatos (limite 24 h)…'
-                  : freqCapStatus === 'error'
-                  ? 'Não foi possível verificar o limite de 24 h'
-                  : cappedCount > 0
-                  ? `${cappedCount} contato${cappedCount !== 1 ? 's' : ''} já recebeu mensagem hoje`
-                  : `Todos os ${contactCount} contatos liberados`}
-              </span>
-            </div>
-            {triagedContacts.length > 6 && (
-              <button
-                type="button"
-                onClick={() => setShowAllContacts((v) => !v)}
-                className="text-[10px] font-bold shrink-0 rounded-lg px-2 py-1"
-                style={{ background: 'var(--surface-0)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }}
-              >
-                {showAllContacts ? 'Recolher' : `Ver todos (${triagedContacts.length})`}
-              </button>
-            )}
-          </div>
-
-          <div className="px-4 py-3 space-y-1.5 max-h-56 overflow-y-auto">
-            {freqCapStatus === 'checking' && triagedContacts.length === 0 && (
-              <div className="text-[11px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
-                Carregando lista de contatos…
-              </div>
-            )}
-            {(showAllContacts ? triagedContacts : triagedContacts.slice(0, 6)).map((c, idx) => (
-              <div
-                key={`${c.phone}-${idx}`}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                style={{
-                  background: c.capped ? '#f59e0b08' : '#10b98108',
-                  border: `1px solid ${c.capped ? '#f59e0b25' : '#10b98120'}`,
-                }}
-              >
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white shrink-0"
-                  style={{ background: `hsl(${(idx * 137) % 360},60%,50%)` }}
-                >
-                  {c.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                    {c.name}
-                  </div>
-                  <div className="text-[10px] font-mono truncate" style={{ color: 'var(--text-3)' }}>
-                    {c.phone}
-                    {c.capped && c.lastSentAt ? ` · ${formatRelativeHours(c.lastSentAt)}` : ''}
-                  </div>
-                </div>
-                <span
-                  className="text-[9px] font-bold rounded-full px-2 py-0.5 shrink-0"
-                  style={{
-                    background: c.capped ? '#f59e0b' : '#10b981',
-                    color: '#fff',
-                  }}
-                >
-                  {c.capped ? '24 h' : 'OK'}
-                </span>
-              </div>
-            ))}
-            {!showAllContacts && triagedContacts.length > 6 && (
-              <p className="text-[10px] text-center pt-1" style={{ color: 'var(--text-3)' }}>
-                + {triagedContacts.length - 6} contato(s) oculto(s)
+          {showFreqCapBanner && (
+            <div className="cpm-banner cpm-banner--warn">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+              <p>
+                Não foi possível verificar o limite de 24 h — você ainda pode disparar normalmente.
               </p>
-            )}
-          </div>
+            </div>
+          )}
 
-          {needsRepeatConfirm && (
-            <div
-              className="mx-4 mb-3 rounded-xl px-3 py-2.5 flex items-start gap-2"
-              style={{ background: '#f59e0b12', border: '1px solid #f59e0b35' }}
-            >
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
-              <label className="flex items-start gap-2 cursor-pointer">
+          {showRepeatPanel && (
+            <div className="cpm-repeat-confirm">
+              <label>
                 <input
                   type="checkbox"
-                  className="mt-0.5"
                   checked={confirmRepeatSend}
                   onChange={(e) => setConfirmRepeatSend(e.target.checked)}
                 />
-                <span className="text-[12px] leading-snug" style={{ color: 'var(--text-2)' }}>
-                  Confirmo que desejo enviar mesmo assim para{' '}
-                  <strong>{cappedCount} contato{cappedCount !== 1 ? 's' : ''}</strong> que já
-                  recebeu mensagem nas últimas 24 horas.
+                <span>
+                  Confirmo envio para <strong>{cappedCount} contato{cappedCount !== 1 ? 's' : ''}</strong> que já
+                  recebeu mensagem nas últimas 24 horas
+                  {triagedContacts.find((c) => c.capped)?.lastSentAt
+                    ? ` (${formatRelativeHours(triagedContacts.find((c) => c.capped)?.lastSentAt)})`
+                    : ''}
+                  .
                 </span>
               </label>
             </div>
           )}
-        </div>
+        </section>
 
-        {/* ── PREVIEW DAS MENSAGENS ─────────────────────────────────────── */}
         {previewSamples.length > 0 && (
-          <div>
-            <p className="text-[11px] font-bold mb-2 uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+          <section>
+            <p className="cpm-samples__title">
               Amostra — {previewSamples.length} contato{previewSamples.length !== 1 ? 's' : ''}
             </p>
             <div className="space-y-2">
               {previewSamples.map((s, idx) => {
                 const isExpanded = expanded === idx;
                 return (
-                  <div
-                    key={s.phone}
-                    className="rounded-2xl overflow-hidden"
-                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                  >
-                    {/* Header contato */}
+                  <div key={s.phone} className="cpm-sample">
                     <button
-                      className="w-full px-3 py-2.5 flex items-center gap-2 text-left"
-                      style={{ background: 'var(--surface-0)', borderBottom: isExpanded ? '1px solid var(--border-subtle)' : 'none' }}
+                      type="button"
+                      className="cpm-sample__head"
+                      data-expanded={isExpanded ? 'true' : 'false'}
                       onClick={() => setExpanded(isExpanded ? null : idx)}
                     >
                       <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-black text-white shrink-0"
+                        className="cpm-sample__avatar"
                         style={{ background: `hsl(${(idx * 137) % 360},60%,50%)` }}
                       >
                         {(s.name || s.phone).charAt(0).toUpperCase()}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-semibold truncate" style={{ color: 'var(--text-1)' }}>
-                          {s.name || s.phone}
-                        </div>
-                        <div className="text-[10px]" style={{ color: 'var(--text-3)' }}>{s.phone}</div>
+                      <div className="cpm-sample__meta">
+                        <div className="cpm-sample__name">{s.name || s.phone}</div>
+                        <div className="cpm-sample__phone">{s.phone}</div>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <div
-                          className="text-[10px] font-bold rounded-full px-2 py-0.5"
-                          style={{ background: '#25d36620', color: '#25d366' }}
-                        >
+                      <div className="cpm-sample__badges">
+                        {freqCapStatus === 'checking' ? (
+                          <span className="cpm-badge cpm-badge--checking">24 h…</span>
+                        ) : s.capped ? (
+                          <span className="cpm-badge cpm-badge--cap" title={s.lastSentAt ? formatRelativeHours(s.lastSentAt) : undefined}>
+                            24 h
+                          </span>
+                        ) : freqCapStatus === 'ok' ? (
+                          <span className="cpm-badge cpm-badge--ok">OK</span>
+                        ) : null}
+                        <span className="cpm-badge cpm-badge--msgs">
                           {allMessages.length} msg{allMessages.length !== 1 ? 's' : ''}
-                        </div>
-                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} /> : <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />}
+                        </span>
+                        {isExpanded ? (
+                          <ChevronUp className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--text-3)' }} />
+                        )}
                       </div>
                     </button>
 
-                    {/* Bolhas */}
                     {isExpanded && (
-                      <div
-                        className="px-4 py-4 space-y-2"
-                        style={{ background: 'linear-gradient(180deg,#0a0a0a00 0%,#25d36604 100%)' }}
-                      >
+                      <div className="cpm-sample__bubbles">
                         {s.preview.map((msg, mIdx) => (
-                          <div key={mIdx} className="flex justify-end">
-                            <div className="max-w-[85%] space-y-1">
-                              {allMessages.length > 1 && (
-                                <div className="text-right">
-                                  <span
-                                    className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
-                                    style={{ background: '#25d36620', color: '#25d366' }}
-                                  >
-                                    Etapa {mIdx + 1}
-                                  </span>
-                                </div>
-                              )}
-                              <div
-                                className="rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words shadow-sm"
-                                style={{
-                                  background: '#25d36618',
-                                  color: 'var(--text-1)',
-                                  border: '1px solid #25d36628',
-                                }}
-                              >
-                                {msg}
-                                <div className="text-right mt-1">
-                                  <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                                    {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ✓✓
-                                  </span>
-                                </div>
+                          <div key={mIdx} className="cpm-bubble">
+                            {allMessages.length > 1 && (
+                              <div className="text-[9px] font-bold uppercase tracking-wider mb-1 opacity-70">
+                                Etapa {mIdx + 1}
                               </div>
+                            )}
+                            {msg}
+                            <div className="cpm-bubble__time">
+                              {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ✓✓
                             </div>
                           </div>
                         ))}
@@ -667,38 +610,45 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* ── AVISO VARIÁVEIS NÃO RESOLVIDAS ───────────────────────────── */}
         {hasUnresolved && (
-          <div
-            className="rounded-xl px-3 py-2.5 flex items-start gap-2 text-[12px]"
-            style={{ background: '#f59e0b12', border: '1px solid #f59e0b35', color: '#d97706' }}
-          >
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="cpm-banner cpm-banner--warn">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
             <span>
               Variáveis <code>{'{{nome}}'}</code> sem valor — verifique se os contatos têm o campo preenchido.
             </span>
           </div>
         )}
 
-        {/* ── AÇÕES ──────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+        <footer className="cpm-footer">
           <Button variant="ghost" size="sm" onClick={onClose} leftIcon={<X className="w-4 h-4" />}>
             Cancelar
           </Button>
-          <div className="flex items-center gap-2">
-            {overallHealth === 'error' && (
-              <span className="text-[11px] text-red-400 flex items-center gap-1">
+          <div className="cpm-footer__actions">
+            {!canDispatch && motorStatus === 'error' && (
+              <span className="cpm-footer__hint cpm-footer__hint--error">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                {isAdmin ? 'Corrija os problemas acima' : 'Aguarde a sincronização ou clique em Reverificar'}
+                {isAdmin ? 'Corrija acima' : 'Aguarde ou reverifique'}
               </span>
             )}
-            {overallHealth === 'ok' && needsRepeatConfirm && !confirmRepeatSend && (
-              <span className="text-[11px] text-amber-500 flex items-center gap-1">
+            {!canDispatch && chipStatus === 'error' && motorStatus !== 'error' && (
+              <span className="cpm-footer__hint cpm-footer__hint--error">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                Marque a confirmação acima
+                Chip offline
+              </span>
+            )}
+            {!canDispatch && checksPending && (
+              <span className="cpm-footer__hint" style={{ color: 'var(--text-3)' }}>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Verificando…
+              </span>
+            )}
+            {dispatchHealthReady && needsRepeatConfirm && !confirmRepeatSend && (
+              <span className="cpm-footer__hint cpm-footer__hint--warn">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Confirme o envio repetido
               </span>
             )}
             <Button
@@ -716,7 +666,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
               {launchMode === 'schedule' ? 'Confirmar agendamento' : 'Confirmar e disparar'}
             </Button>
           </div>
-        </div>
+        </footer>
       </div>
     </Modal>
   );
