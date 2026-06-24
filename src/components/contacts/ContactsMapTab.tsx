@@ -3,13 +3,13 @@
  */
 import React, { useDeferredValue } from 'react';
 import { TerritoryLeadsMap } from '../dashboard/TerritoryLeadsMap';
-import { useZapMassCore } from '../../context/ZapMassContext';
+import { useZapMassCore, useZapMassConversations } from '../../context/ZapMassContext';
 import { useAppView } from '../../context/AppViewContext';
 
 export const ContactsMapTab: React.FC = () => {
   const { setCurrentView } = useAppView();
-  const { contacts, conversations, contactsSavedTotal, contactsHasMore, contactsLoadingMore } =
-    useZapMassCore();
+  const { contacts, contactsSavedTotal, contactsHasMore, contactsLoadingMore } = useZapMassCore();
+  const conversations = useZapMassConversations();
   const deferredConversations = useDeferredValue(conversations);
 
   return (
