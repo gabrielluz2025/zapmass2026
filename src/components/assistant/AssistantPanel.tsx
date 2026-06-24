@@ -1,13 +1,28 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, Send, Sparkles, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BarChart3,
+  BookOpen,
+  Bot,
+  ChevronRight,
+  Database,
+  Loader2,
+  Send,
+  Sparkles,
+  X
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
+import { useAiStatus } from '../../hooks/useAiStatus';
 import {
   askAssistant,
   fetchAssistantStatus,
   type AssistantMessage,
   type AssistantStatus
 } from '../../services/assistantApi';
+import {
+  getAssistantSuggestions,
+  VIEW_LABEL_PT
+} from './assistantSuggestedQuestions';
 
 function renderAnswerText(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
@@ -23,21 +38,62 @@ function renderAnswerText(text: string): React.ReactNode {
   });
 }
 
+function sourceLabel(source?: string): { text: string; className: string } | null {
+  switch (source) {
+    case 'tools':
+      return { text: 'Dados ao vivo', className: 'zm-asst-source zm-asst-source--tools' };
+    case 'rag':
+      return { text: 'Tutorial', className: 'zm-asst-source zm-asst-source--rag' };
+    case 'cache':
+      return { text: 'Resposta salva', className: 'zm-asst-source zm-asst-source--cache' };
+    case 'llm':
+      return { text: 'IA externa', className: 'zm-asst-source zm-asst-source--llm' };
+    default:
+      return { text: 'Grátis', className: 'zm-asst-source zm-asst-source--rag' };
+  }
+}
+
+const QUICK_ACTIONS = [
+  { id: 'overview', label: 'Resumo', hint: 'Números da conta', question: 'Resumo da minha conta', Icon: BarChart3 },
+  { id: 'chips', label: 'Chips', hint: 'Online/offline', question: 'Quantos chips estão online?', Icon: Database },
+  { id: 'contacts', label: 'Contatos', hint: 'Total na base', question: 'Quantos contatos tenho?', Icon: Database },
+  { id: 'help', label: 'Tutorial', hint: 'Como usar', question: 'Por onde começar no ZapMass?', Icon: BookOpen }
+] as const;
+
 type Props = {
   open: boolean;
   onClose: () => void;
   currentView?: string;
   onNavigate?: (view: string) => void;
+  onOpenGemini?: () => void;
 };
 
-export const AssistantPanel: React.FC<Props> = ({ open, onClose, currentView, onNavigate }) => {
+export const AssistantPanel: React.FC<Props> = ({
+  open,
+  onClose,
+  currentView,
+  onNavigate,
+  onOpenGemini
+}) => {
   const { user } = useAuth();
+  const { configured: geminiConfigured } = useAiStatus();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<AssistantStatus | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const screenLabel = VIEW_LABEL_PT[currentView || ''] || 'Painel';
+  const suggestions = useMemo(
+    () => getAssistantSuggestions(currentView || 'dashboard'),
+    [currentView]
+  );
+
+  const quotaPct = useMemo(() => {
+    if (!status?.dailyLimit) return 100;
+    return Math.max(0, Math.min(100, (status.remainingToday / status.dailyLimit) * 100));
+  }, [status]);
 
   const loadStatus = useCallback(async () => {
     if (!user) return;
@@ -59,7 +115,7 @@ export const AssistantPanel: React.FC<Props> = ({ open, onClose, currentView, on
   useEffect(() => {
     if (!open) return;
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, open]);
+  }, [messages, open, sending]);
 
   useEffect(() => {
     if (!open) return;
@@ -95,9 +151,7 @@ export const AssistantPanel: React.FC<Props> = ({ open, onClose, currentView, on
         return;
       }
 
-      setStatus((s) =>
-        s ? { ...s, remainingToday: res.remainingToday, llmEnabled: res.usedLlm || s.llmEnabled } : s
-      );
+      setStatus((s) => (s ? { ...s, remainingToday: res.remainingToday } : s));
 
       setMessages((prev) => [
         ...prev,
@@ -119,129 +173,125 @@ export const AssistantPanel: React.FC<Props> = ({ open, onClose, currentView, on
 
   if (!open) return null;
 
-  const suggestions = status?.suggestions ?? [
-    'Quantos contatos tenho?',
-    'Como conectar um chip?',
-    'Resumo da minha conta'
-  ];
-
   return (
     <>
-      <div
-        className="fixed inset-0 zm-layer-modal bg-black/40"
-        onClick={onClose}
-        aria-hidden
-      />
-      <aside
-        className="fixed top-0 right-0 z-[60] flex h-full w-full max-w-md flex-col border-l shadow-2xl"
-        style={{ background: 'var(--surface-0)', borderColor: 'var(--border)' }}
-        role="dialog"
-        aria-label="Assistente ZapMass"
-      >
-        <header
-          className="flex items-center gap-3 border-b px-4 py-3 shrink-0"
-          style={{ borderColor: 'var(--border-subtle)' }}
-        >
-          <div
-            className="flex h-9 w-9 items-center justify-center rounded-xl"
-            style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(59,130,246,0.12))' }}
-          >
-            <Bot className="h-5 w-5 text-emerald-500" />
+      <div className="zm-asst-backdrop" onClick={onClose} aria-hidden />
+      <aside className="zm-asst-panel" role="dialog" aria-label="Assistente ZapMass">
+        <header className="zm-asst-head">
+          <div className="zm-asst-head__row">
+            <div className="zm-asst-head__icon">
+              <Bot className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="zm-asst-head__title">Assistente ZapMass</h2>
+              <p className="zm-asst-head__sub">
+                <span className="zm-asst-badge zm-asst-badge--free">Grátis</span>{' '}
+                <span className="zm-asst-badge zm-asst-badge--screen">Tela: {screenLabel}</span>
+              </p>
+            </div>
+            <button type="button" className="zm-asst-close" onClick={onClose} aria-label="Fechar">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold truncate" style={{ color: 'var(--text-1)' }}>
-              Assistente ZapMass
-            </h2>
-            <p className="text-[11px] truncate" style={{ color: 'var(--text-3)' }}>
-              {status
-                ? `${status.remainingToday} perguntas restantes hoje${status.llmEnabled ? ` · IA ${status.provider}` : ' · sem custo de API'}`
-                : 'Carregando…'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 transition-colors hover:bg-[var(--surface-2)]"
-            style={{ color: 'var(--text-2)' }}
-            aria-label="Fechar"
-          >
-            <X className="h-4 w-4" />
-          </button>
+
+          {status && (
+            <div className="zm-asst-quota">
+              <div className="zm-asst-quota__bar">
+                <div className="zm-asst-quota__fill" style={{ width: `${quotaPct}%` }} />
+              </div>
+              <div className="zm-asst-quota__label">
+                <span>{status.remainingToday} de {status.dailyLimit} perguntas hoje</span>
+                <span>Sem custo de API</span>
+              </div>
+            </div>
+          )}
         </header>
 
-        <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
+        <div ref={listRef} className="zm-asst-body">
           {messages.length === 0 && (
-            <div
-              className="rounded-xl border p-4 space-y-3"
-              style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-            >
-              <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
-                Pergunte sobre o sistema ou peça seus números (contatos, campanhas, chips). A maior parte das
-                respostas é **grátis** — sem Gemini.
+            <div className="zm-asst-welcome">
+              <p className="zm-asst-welcome__title">Olá! Posso ajudar com o ZapMass.</p>
+              <p className="zm-asst-welcome__text">
+                Respondo com <strong>dados reais</strong> da sua conta (contatos, chips, campanhas) e com o{' '}
+                <strong>tutorial do sistema</strong>. A maior parte é gratuita — não usa Gemini.
               </p>
-              <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
-                <Sparkles className="h-3 w-3" /> Sugestões
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {suggestions.map((s) => (
+
+              <div className="zm-asst-quick">
+                {QUICK_ACTIONS.map(({ label, hint, question, Icon }) => (
                   <button
-                    key={s}
+                    key={label}
                     type="button"
-                    onClick={() => void sendQuestion(s)}
-                    className="text-[11px] font-medium px-2.5 py-1 rounded-lg border transition-colors hover:bg-[var(--surface-2)]"
-                    style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}
+                    className="zm-asst-quick__btn"
+                    onClick={() => void sendQuestion(question)}
                   >
-                    {s}
+                    <Icon className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="zm-asst-quick__label">{label}</span>
+                    <span className="zm-asst-quick__hint">{hint}</span>
                   </button>
                 ))}
+              </div>
+
+              <div className="zm-asst-suggestions">
+                <span className="zm-asst-suggestions__label">
+                  <Sparkles className="inline h-3 w-3 mr-1 -mt-0.5" />
+                  Sugestões para {screenLabel}
+                </span>
+                <div className="zm-asst-suggestions__grid">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.question}
+                      type="button"
+                      className="zm-asst-chip"
+                      onClick={() => void sendQuestion(s.question)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+          {messages.map((m) => {
+            const src = m.role === 'assistant' ? sourceLabel(m.source) : null;
+            return (
               <div
-                className="max-w-[92%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap"
-                style={
-                  m.role === 'user'
-                    ? { background: 'var(--brand-500)', color: '#fff' }
-                    : { background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
-                }
+                key={m.id}
+                className={`zm-asst-msg ${m.role === 'user' ? 'zm-asst-msg--user' : 'zm-asst-msg--bot'}`}
               >
-                {m.role === 'assistant' ? renderAnswerText(m.content) : m.content}
-                {m.navigateTo && onNavigate && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onNavigate(m.navigateTo!);
-                      onClose();
-                    }}
-                    className="mt-2 block text-[11px] font-semibold underline"
-                    style={{ color: m.role === 'user' ? '#fff' : 'var(--brand-500)' }}
-                  >
-                    Abrir tela →
-                  </button>
-                )}
+                <div
+                  className={`zm-asst-bubble ${m.role === 'user' ? 'zm-asst-bubble--user' : 'zm-asst-bubble--bot'}`}
+                >
+                  {m.role === 'assistant' ? renderAnswerText(m.content) : m.content}
+                  {src && <span className={src.className}>{src.text}</span>}
+                  {m.navigateTo && onNavigate && (
+                    <button
+                      type="button"
+                      className="zm-asst-nav-btn"
+                      onClick={() => {
+                        onNavigate(m.navigateTo!);
+                        onClose();
+                      }}
+                    >
+                      Abrir {VIEW_LABEL_PT[m.navigateTo] || m.navigateTo}
+                      <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {sending && (
-            <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-3)' }}>
+            <div className="zm-asst-typing">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Pensando…
+              Consultando seus dados…
             </div>
           )}
         </div>
 
-        <footer
-          className="border-t p-3 shrink-0 space-y-2"
-          style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
-        >
-          <div className="flex gap-2 items-end">
+        <footer className="zm-asst-foot">
+          <div className="zm-asst-foot__row">
             <textarea
               ref={inputRef}
               value={input}
@@ -255,28 +305,36 @@ export const AssistantPanel: React.FC<Props> = ({ open, onClose, currentView, on
               rows={2}
               maxLength={2000}
               placeholder="Ex.: quantos chips online? Como importar contatos?"
-              className="flex-1 resize-none rounded-xl border px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-emerald-500/30"
-              style={{
-                borderColor: 'var(--border)',
-                background: 'var(--surface-0)',
-                color: 'var(--text-1)'
-              }}
+              className="zm-asst-input"
               disabled={sending}
             />
             <button
               type="button"
               onClick={() => void sendQuestion(input)}
               disabled={sending || !input.trim()}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-40 transition-opacity"
-              style={{ background: 'var(--brand-500)' }}
+              className="zm-asst-send"
               aria-label="Enviar"
             >
               <Send className="h-4 w-4" />
             </button>
           </div>
-          <p className="text-[10px] text-center" style={{ color: 'var(--text-3)' }}>
-            Enter envia · Shift+Enter quebra linha
-          </p>
+          <p className="zm-asst-foot__hint">Enter envia · Shift+Enter nova linha</p>
+          {geminiConfigured && onOpenGemini && (
+            <p className="zm-asst-foot__gemini">
+              Para importação inteligente, mapa ou análises profundas, use o{' '}
+              <button
+                type="button"
+                className="underline font-semibold text-violet-400 hover:text-violet-300"
+                onClick={() => {
+                  onClose();
+                  onOpenGemini();
+                }}
+              >
+                Assistente IA (Gemini)
+              </button>{' '}
+              no canto inferior — consome API paga.
+            </p>
+          )}
         </footer>
       </aside>
     </>

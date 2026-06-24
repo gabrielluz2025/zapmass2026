@@ -8,6 +8,7 @@
 @import './styles/contacts-premium.css';
 @import './styles/campaign-wizard-message.css';
 @import './styles/ai-assistant.css';
+@import './styles/assistant-panel.css';
 
 @tailwind base;
 @tailwind components;

@@ -22,6 +22,12 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
   }, [currentView]);
 
   useEffect(() => {
+    const openGemini = () => setOpen(true);
+    window.addEventListener('zapmass:open-gemini-assistant', openGemini);
+    return () => window.removeEventListener('zapmass:open-gemini-assistant', openGemini);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -62,7 +68,9 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
             <Sparkles className="w-4 h-4 text-violet-400" />
             <div>
               <span className="zm-ai-drawer__title">Assistente IA</span>
-              <span className="zm-ai-drawer__sub">Dados ao vivo da sua conta</span>
+              <span className="zm-ai-drawer__sub">
+                Gemini · dados ao vivo · <span className="zm-ai-drawer__cost">usa API paga</span>
+              </span>
             </div>
           </div>
           <div className="zm-ai-drawer__actions">

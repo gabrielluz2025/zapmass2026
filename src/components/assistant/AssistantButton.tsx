@@ -1,21 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Bot } from 'lucide-react';
 import { AssistantPanel } from './AssistantPanel';
 
 type Props = {
   currentView?: string;
   onNavigate?: (view: string) => void;
+  onOpenGemini?: () => void;
 };
 
-export const AssistantButton: React.FC<Props> = ({ currentView, onNavigate }) => {
+export const AssistantButton: React.FC<Props> = ({ currentView, onNavigate, onOpenGemini }) => {
   const [open, setOpen] = useState(false);
+  const geminiOpenerRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!onOpenGemini) {
+      geminiOpenerRef.current = () => {
+        window.dispatchEvent(new CustomEvent('zapmass:open-gemini-assistant'));
+      };
+    } else {
+      geminiOpenerRef.current = onOpenGemini;
+    }
+  }, [onOpenGemini]);
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Assistente ZapMass — ajuda e seus números"
+        title="Assistente ZapMass — ajuda e seus números (grátis)"
         className="flex h-9 items-center gap-1.5 rounded-full border pl-2.5 pr-2.5 sm:pr-3 shrink-0 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
         style={{
           borderColor: 'rgba(16,185,129,0.35)',
@@ -31,6 +43,7 @@ export const AssistantButton: React.FC<Props> = ({ currentView, onNavigate }) =>
         onClose={() => setOpen(false)}
         currentView={currentView}
         onNavigate={onNavigate}
+        onOpenGemini={() => geminiOpenerRef.current?.()}
       />
     </>
   );

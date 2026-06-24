@@ -100,11 +100,18 @@ export const AiAssistantChat: React.FC<Props> = ({
           <div>
             <h1 className="zm-ai-chat__hero-title">Assistente IA</h1>
             <p className="zm-ai-chat__hero-sub">
-              Respostas com dados ao vivo — contatos, mapa, campanhas, listas e conversas.
+              Análises profundas com Gemini — importação, mapa, textos e perguntas abertas.
               {model ? ` Modelo: ${model}.` : ''}
             </p>
           </div>
         </header>
+      )}
+
+      {turns.length === 0 && (
+        <p className="zm-ai-cost-banner">
+          <strong>Custo:</strong> cada pergunta consome a API Gemini. Para números simples (contatos, chips),
+          use o botão <strong>Assistente</strong> verde na barra — é grátis.
+        </p>
       )}
 
       <div className="zm-ai-chat__messages" ref={scrollRef}>
@@ -117,6 +124,20 @@ export const AiAssistantChat: React.FC<Props> = ({
             <p className="zm-ai-chat__welcome-hint">
               Pergunte sobre sua base, bairros, campanhas ou conversas — ou toque numa sugestão abaixo.
             </p>
+            <div className="zm-ai-capabilities">
+              <div className="zm-ai-capability">
+                <span className="zm-ai-capability__title">Importação</span>
+                <span className="zm-ai-capability__desc">Organizar CSV, colar listas, corrigir nomes</span>
+              </div>
+              <div className="zm-ai-capability">
+                <span className="zm-ai-capability__title">Mapa</span>
+                <span className="zm-ai-capability__desc">Bairros, cidades, dados incompletos</span>
+              </div>
+              <div className="zm-ai-capability">
+                <span className="zm-ai-capability__title">Textos</span>
+                <span className="zm-ai-capability__desc">Mensagens de campanha criativas</span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -131,7 +152,7 @@ export const AiAssistantChat: React.FC<Props> = ({
             <div className="zm-ai-bubble__body">
               {t.role === 'assistant' ? <AiAnswerText text={t.text} /> : <p>{t.text}</p>}
               {t.role === 'assistant' && (
-                <span className="zm-ai-bubble__badge">Dados ao vivo</span>
+                <span className="zm-ai-bubble__badge">Gemini · dados ao vivo</span>
               )}
             </div>
           </div>
