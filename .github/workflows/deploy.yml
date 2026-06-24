@@ -122,9 +122,31 @@ jobs:
         if: github.event_name == 'schedule' && steps.cron_window.outputs.within == 'false'
         run: echo "==> Cron fora da janela UTC; deploy na VPS adiado (sem tentativa SSH)."
 
+      - name: Produção já no commit? (pula SSH)
+        id: prod_already
+        if: github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true'
+        run: |
+          set -euo pipefail
+          EXPECTED="${GITHUB_SHA::7}"
+          resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
+          if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
+            ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
+            echo "producao version=${ver:-?} esperado=${EXPECTED}"
+            if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
+              echo "already=true" >> "$GITHUB_OUTPUT"
+              echo "## Produção já está em \`${ver}\` — deploy SSH dispensado" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "already=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Pré-teste de conectividade SSH (runner -> VPS)
         id: ssh_precheck
-        if: github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true'
+        if: >-
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.prod_already.outputs.already != 'true'
         continue-on-error: true
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -154,6 +176,7 @@ jobs:
         id: deploy_vps
         if: >-
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.prod_already.outputs.already != 'true' &&
           steps.ssh_precheck.outputs.reachable == 'true'
         continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
@@ -398,6 +421,7 @@ jobs:
       - name: Falhar job se SSH/deploy falhou
         if: >-
           always() &&
+          steps.prod_already.outputs.already != 'true' &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.verify_prod.outputs.verified != 'true' &&
           steps.verify_prod_final.outputs.verified != 'true' &&
@@ -411,9 +435,9 @@ jobs:
       # Isto adiciona texto legível no separador "Summary" da execução.
       - name: Tag de versão automática após deploy bem-sucedido
         if: >-
-          (success() || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true') &&
+          (success() || steps.prod_already.outputs.already == 'true' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true') &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          (steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true')
+          (steps.prod_already.outputs.already == 'true' || steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
