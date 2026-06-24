@@ -57,13 +57,12 @@ on:
     - cron: "0,30 0-4 * * *"
   workflow_dispatch: {}
 
-# IMPORTANTE: NÃO usar cancel-in-progress:true aqui.
-# Este workflow também corre em schedule (*/30 min). Um novo run (cron ou segundo push)
-# cancelava o deploy SSH em curso após ~30 min — o job ficava "Cancelado" mesmo com VPS OK.
-# Com false: o run seguinte espera na fila até o deploy atual terminar (sem corridas à VPS).
+# Concurrency: em push/dispatch, cancela deploy antigo na fila (evita PR novo ficar
+# "Pendente" atrás de retry SSH de 40+ min). Em schedule, não cancela — evita matar
+# deploy cron a meio.
 concurrency:
   group: deploy-${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   build:
@@ -257,7 +256,7 @@ jobs:
             SLEEP_SEC=30
           else
             echo "==> SSH reportou falha; conferindo se producao ja esta em ${EXPECTED}..."
-            MAX_TRIES=12
+            MAX_TRIES=30
             SLEEP_SEC=10
           fi
           verified=0
@@ -293,13 +292,38 @@ jobs:
             fi
           fi
 
+      - name: Produção já no commit? (antes do retry SSH)
+        id: prod_before_retry
+        if: >-
+          always() &&
+          (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
+          steps.deploy_vps.outcome == 'failure' &&
+          steps.verify_prod.outputs.verified != 'true'
+        run: |
+          set -euo pipefail
+          EXPECTED="${GITHUB_SHA::7}"
+          resp=$(curl -sf --max-time 12 https://zap-mass.com/api/health 2>/dev/null || echo "")
+          if [ -n "${resp}" ] && echo "${resp}" | grep -q '"status":"ok"'; then
+            ver=$(echo "${resp}" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || true)
+            echo "producao version=${ver:-?} esperado=${EXPECTED}"
+            if [ -n "${ver}" ] && { [ "${ver}" = "${EXPECTED}" ] || [ "${ver}" = "${GITHUB_SHA}" ]; }; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "## Produção já em \`${ver}\` — retries SSH dispensados" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: VPS — deploy retry SSH (2)
         id: deploy_vps_retry
         if: >-
           always() &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
-          steps.verify_prod.outputs.verified != 'true'
+          steps.verify_prod.outputs.verified != 'true' &&
+          steps.prod_before_retry.outputs.skip != 'true'
         continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -354,6 +378,7 @@ jobs:
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.deploy_vps.outcome == 'failure' &&
           steps.verify_prod.outputs.verified != 'true' &&
+          steps.prod_before_retry.outputs.skip != 'true' &&
           steps.deploy_vps_retry.outcome == 'failure'
         continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
@@ -425,6 +450,7 @@ jobs:
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
           steps.verify_prod.outputs.verified != 'true' &&
           steps.verify_prod_final.outputs.verified != 'true' &&
+          steps.prod_before_retry.outputs.skip != 'true' &&
           !(steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success')
         run: |
           echo "::error::Deploy nao confirmado em producao. SSH bloqueado ou script na VPS falhou."
@@ -435,9 +461,9 @@ jobs:
       # Isto adiciona texto legível no separador "Summary" da execução.
       - name: Tag de versão automática após deploy bem-sucedido
         if: >-
-          (success() || steps.prod_already.outputs.already == 'true' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true') &&
+          (success() || steps.prod_already.outputs.already == 'true' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true' || steps.prod_before_retry.outputs.skip == 'true') &&
           (github.event_name != 'schedule' || steps.cron_window.outputs.within == 'true') &&
-          (steps.prod_already.outputs.already == 'true' || steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true')
+          (steps.prod_already.outputs.already == 'true' || steps.deploy_vps.outcome == 'success' || steps.deploy_vps_retry.outcome == 'success' || steps.deploy_vps_retry2.outcome == 'success' || steps.verify_prod.outputs.verified == 'true' || steps.verify_prod_final.outputs.verified == 'true' || steps.prod_before_retry.outputs.skip == 'true')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
