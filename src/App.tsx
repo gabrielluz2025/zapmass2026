@@ -354,6 +354,9 @@ const MainLayout: React.FC = () => {
       case 'contacts-map':
         return <ContactsMapTab />;
       case 'ai-assistant':
+        if (!isAdmin) {
+          return <DashboardTab />;
+        }
         return <AiAssistantTab />;
       case 'reports':
         return <ReportsTab />;
@@ -452,7 +455,7 @@ const MainLayout: React.FC = () => {
       {searchOpen && (
         <GlobalSearchOverlay onNavigate={setCurrentView} onClose={() => setSearchOpen(false)} />
       )}
-      {aiConfigured && (
+      {aiConfigured && isAdmin && (
         <div className="fixed bottom-20 right-4 z-[80] sm:bottom-6 sm:right-6 pointer-events-none">
           <div className="pointer-events-auto">
             <AiAskPanel

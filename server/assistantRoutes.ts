@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { isPlatformAdminDecoded } from './adminIdentity.js';
 import { requireTenant } from './httpTenant.js';
 import { getAssistantConfig, getRemainingQuota } from './assistant/assistantCache.js';
 import { getStarterSuggestions, handleAssistantAsk } from './assistant/assistantEngine.js';
@@ -8,7 +9,12 @@ export function registerAssistantRoutes(app: Express): void {
   app.get('/api/assistant/status', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
-    const config = getAssistantConfig();
+    const isAdmin = isPlatformAdminDecoded({
+      uid: ctx.principal.authUid,
+      email: ctx.principal.email,
+      admin: false
+    });
+    const config = getAssistantConfig(isAdmin);
     const remainingToday = await getRemainingQuota(ctx.tenantId, ctx.principal.authUid);
     return res.json({
       ok: true,
@@ -42,12 +48,18 @@ export function registerAssistantRoutes(app: Express): void {
       : [];
 
     try {
+      const isAdmin = isPlatformAdminDecoded({
+        uid: ctx.principal.authUid,
+        email: ctx.principal.email,
+        admin: false
+      });
       const result = await handleAssistantAsk({
         tenantId: ctx.tenantId,
         actorId: ctx.principal.authUid,
         question,
         currentView,
-        history
+        history,
+        allowLlm: isAdmin
       });
 
       if (!result.ok) {

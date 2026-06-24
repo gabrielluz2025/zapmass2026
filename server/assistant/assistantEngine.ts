@@ -45,7 +45,8 @@ export function getStarterSuggestions(): string[] {
 async function buildBaseAnswer(
   intent: ReturnType<typeof classifyIntent>,
   tenantId: string,
-  question: string
+  question: string,
+  allowLlm: boolean
 ): Promise<{ answer: string; navigateTo?: string; suggestions?: string[] }> {
   switch (intent) {
     case 'data_overview':
@@ -72,7 +73,7 @@ async function buildBaseAnswer(
     }
     case 'creative': {
       const creative = getCreativeAnswer(question);
-      if (isLlmAvailable()) {
+      if (allowLlm && isLlmAvailable()) {
         const llmText = await creativeWithLlm(question);
         if (llmText) {
           return {
@@ -108,6 +109,8 @@ export async function handleAssistantAsk(params: {
   question: string;
   currentView?: string;
   history?: AssistantHistoryMessage[];
+  /** LLM externo (Gemini/Groq) — só administradores da plataforma. */
+  allowLlm?: boolean;
 }): Promise<AssistantAskResult | { ok: false; error: string; remainingToday: number }> {
   const question = params.question.trim().slice(0, 2000);
   if (question.length < 2) {
@@ -143,10 +146,11 @@ export async function handleAssistantAsk(params: {
   let source: AssistantAskResult['source'] = intent.startsWith('data_') ? 'tools' : 'rag';
   let usedLlm = false;
 
-  const base = await buildBaseAnswer(intent, params.tenantId, question);
+  const base = await buildBaseAnswer(intent, params.tenantId, question, !!params.allowLlm);
   let answer = base.answer;
 
   const shouldPolish =
+    !!params.allowLlm &&
     isLlmAvailable() &&
     process.env.ASSISTANT_LLM_POLISH !== 'false' &&
     (intent === 'tutorial' || intent === 'unknown') &&

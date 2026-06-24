@@ -13,6 +13,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { useAiStatus } from '../../hooks/useAiStatus';
+import { isPlatformAdminUser } from '../../utils/adminAccess';
 import {
   askAssistant,
   fetchAssistantStatus,
@@ -76,6 +77,7 @@ export const AssistantPanel: React.FC<Props> = ({
   onOpenGemini
 }) => {
   const { user } = useAuth();
+  const isAdmin = isPlatformAdminUser(user);
   const { configured: geminiConfigured } = useAiStatus();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState('');
@@ -319,7 +321,7 @@ export const AssistantPanel: React.FC<Props> = ({
             </button>
           </div>
           <p className="zm-asst-foot__hint">Enter envia · Shift+Enter nova linha</p>
-          {geminiConfigured && onOpenGemini && (
+          {isAdmin && geminiConfigured && onOpenGemini && (
             <p className="zm-asst-foot__gemini">
               Para importação inteligente, mapa ou análises profundas, use o{' '}
               <button

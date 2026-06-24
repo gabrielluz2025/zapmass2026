@@ -1,6 +1,8 @@
 import type { Express, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { isPlatformAdminDecoded } from './adminIdentity.js';
 import { requireTenant } from './httpTenant.js';
+import type { AuthPrincipal } from './auth/types.js';
 import { geminiGenerateJson, geminiGenerateText, isGeminiConfigured } from './geminiService.js';
 import {
   buildAiAssistSystemInstruction,
@@ -38,19 +40,48 @@ type ImportRowOut = ImportRowIn & {
   fixes?: string[];
 };
 
+function isTenantPlatformAdmin(principal: AuthPrincipal): boolean {
+  return isPlatformAdminDecoded({
+    uid: principal.authUid,
+    email: principal.email,
+    admin: false
+  });
+}
+
+async function requireTenantPlatformAdmin(
+  req: Request,
+  res: Response
+): Promise<{ tenantId: string; principal: AuthPrincipal } | null> {
+  const ctx = await requireTenant(req, res);
+  if (!ctx) return null;
+  if (!isTenantPlatformAdmin(ctx.principal)) {
+    res.status(403).json({
+      ok: false,
+      error: 'Assistente IA (Gemini) restrito a administradores da plataforma.'
+    });
+    return null;
+  }
+  return ctx;
+}
+
 export function registerAiAssistantRoutes(app: Express): void {
   app.get('/api/ai/status', async (req: Request, res: Response) => {
     const ctx = await requireTenant(req, res);
     if (!ctx) return;
+    const admin = isTenantPlatformAdmin(ctx.principal);
+    if (!admin) {
+      return res.json({ ok: true, configured: false, admin: false, model: null });
+    }
     return res.json({
       ok: true,
       configured: isGeminiConfigured(),
+      admin: true,
       model: isGeminiConfigured() ? (process.env.GEMINI_MODEL || 'gemini-3.5-flash').trim() : null,
     });
   });
 
   app.post('/api/ai/contacts/import-organize', aiLimiter, async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
+    const ctx = await requireTenantPlatformAdmin(req, res);
     if (!ctx) return;
     if (!isGeminiConfigured()) {
       return res.status(503).json({ ok: false, error: 'IA não configurada. Adicione GEMINI_API_KEY no servidor.' });
@@ -79,7 +110,7 @@ export function registerAiAssistantRoutes(app: Express): void {
   });
 
   app.post('/api/ai/contacts/parse-text', aiLimiter, async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
+    const ctx = await requireTenantPlatformAdmin(req, res);
     if (!ctx) return;
     if (!isGeminiConfigured()) {
       return res.status(503).json({ ok: false, error: 'IA não configurada.' });
@@ -117,7 +148,7 @@ export function registerAiAssistantRoutes(app: Express): void {
   });
 
   app.post('/api/ai/contacts/enrich', aiLimiter, async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
+    const ctx = await requireTenantPlatformAdmin(req, res);
     if (!ctx) return;
     if (!isGeminiConfigured()) {
       return res.status(503).json({ ok: false, error: 'IA não configurada.' });
@@ -150,7 +181,7 @@ export function registerAiAssistantRoutes(app: Express): void {
   });
 
   app.post('/api/ai/map/data-quality', aiLimiter, async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
+    const ctx = await requireTenantPlatformAdmin(req, res);
     if (!ctx) return;
     if (!isGeminiConfigured()) {
       return res.status(503).json({ ok: false, error: 'IA não configurada.' });
@@ -195,7 +226,7 @@ export function registerAiAssistantRoutes(app: Express): void {
   });
 
   app.post('/api/ai/campaigns/suggest-message', aiLimiter, async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
+    const ctx = await requireTenantPlatformAdmin(req, res);
     if (!ctx) return;
     if (!isGeminiConfigured()) {
       return res.status(503).json({ ok: false, error: 'IA não configurada.' });
@@ -223,7 +254,7 @@ export function registerAiAssistantRoutes(app: Express): void {
   });
 
   app.post('/api/ai/assist', aiLimiter, async (req: Request, res: Response) => {
-    const ctx = await requireTenant(req, res);
+    const ctx = await requireTenantPlatformAdmin(req, res);
     if (!ctx) return;
     if (!isGeminiConfigured()) {
       return res.status(503).json({ ok: false, error: 'IA não configurada.' });

@@ -3,6 +3,7 @@ import { apiFetchJson } from '../utils/apiFetchAuth';
 export type AiStatus = {
   ok: boolean;
   configured: boolean;
+  admin?: boolean;
   model: string | null;
 };
 

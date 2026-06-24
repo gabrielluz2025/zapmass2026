@@ -126,10 +126,17 @@ export async function setCachedAnswer(tenantId: string, questionKey: string, ans
   }
 }
 
-export function getAssistantConfig() {
+export function getAssistantConfig(isPlatformAdmin = false) {
+  const hasKeys = !!(process.env.GEMINI_API_KEY?.trim() || process.env.GROQ_API_KEY?.trim());
+  const llmAllowed =
+    isPlatformAdmin && hasKeys && process.env.ASSISTANT_LLM_ENABLED !== 'false';
   return {
     dailyLimit: dailyLimit(),
-    llmEnabled: !!(process.env.GEMINI_API_KEY?.trim() || process.env.GROQ_API_KEY?.trim()),
-    provider: process.env.GROQ_API_KEY?.trim() ? 'groq' : process.env.GEMINI_API_KEY?.trim() ? 'gemini' : 'none'
+    llmEnabled: llmAllowed,
+    provider: llmAllowed
+      ? process.env.GROQ_API_KEY?.trim()
+        ? 'groq'
+        : 'gemini'
+      : 'none'
   };
 }

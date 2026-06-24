@@ -104,7 +104,6 @@ const navGroups: NavGroup[] = [
   {
     label: 'Sistema',
     items: [
-      { id: 'ai-assistant', label: 'Assistente IA', icon: Sparkles, description: 'Pergunte sobre contatos, mapa e campanhas' },
       { id: 'help', label: 'Como usar', icon: BookOpen, description: 'Tutorial passo a passo' },
       { id: 'subscription', label: 'Minha assinatura', icon: Crown, description: 'Plano, renovação e cartão' },
       { id: 'settings', label: 'Configurações', icon: Settings, description: 'Ajustes gerais' }
@@ -131,6 +130,13 @@ const ADMIN_OPS_ITEM: NavItemDef = {
   label: 'Servidor & alertas',
   icon: Server,
   description: 'RAM, fila e integrações'
+};
+
+const AI_ASSISTANT_NAV_ITEM: NavItemDef = {
+  id: 'ai-assistant',
+  label: 'Assistente IA',
+  icon: Sparkles,
+  description: 'Gemini — administrador da plataforma'
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -169,7 +175,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
     if (isPlatformAdminUser(user)) {
       groups = groups.map((gr) => {
-        if (gr.label === 'Sistema') return { ...gr, items: [...gr.items, ADMIN_NAV_ITEM] };
+        if (gr.label === 'Sistema') {
+          return {
+            ...gr,
+            items: [AI_ASSISTANT_NAV_ITEM, ...gr.items, ADMIN_NAV_ITEM]
+          };
+        }
         if (gr.label === 'Operações') return { ...gr, items: [...gr.items, ADMIN_OPS_ITEM] };
         return gr;
       });
