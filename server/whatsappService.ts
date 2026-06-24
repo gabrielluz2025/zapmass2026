@@ -1060,13 +1060,29 @@ export const recordConnectionDispatch = (connectionId: string) => {
 };
 
 const recordWarmupSent = (fromId: string, toPhone: string) => {
+    recordWarmupExchange(fromId, toPhone, connectionsInfo);
+};
+
+function phonesMatch(a: string, b: string): boolean {
+    const na = a.replace(/\D/g, '');
+    const nb = b.replace(/\D/g, '');
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    const va = buildBrE164Variants(na);
+    const vb = buildBrE164Variants(nb);
+    return va.some((x) => vb.includes(x));
+}
+
+/** Regista troca de aquecimento (envio + recebimento no chip destino, se for nosso). */
+export const recordWarmupExchange = (
+    fromId: string,
+    toPhone: string,
+    connections: Array<{ id: string; phoneNumber?: string }> = connectionsInfo
+) => {
     const now = Date.now();
     recordConnectionDispatch(fromId);
-    const fromStats = getOrCreateChipStats(fromId);
-
-    // Se o destino eh um dos nossos proprios chips, contabiliza "recebida" nele
     const normalized = toPhone.replace(/\D/g, '');
-    const targetConn = connectionsInfo.find((c) => (c.phoneNumber || '').replace(/\D/g, '') === normalized);
+    const targetConn = connections.find((c) => phonesMatch(c.phoneNumber || '', normalized));
     if (targetConn) {
         const toStats = getOrCreateChipStats(targetConn.id);
         if (!toStats.firstWarmedAt) toStats.firstWarmedAt = now;
@@ -1078,7 +1094,7 @@ const recordWarmupSent = (fromId: string, toPhone: string) => {
     }
 };
 
-const recordWarmupFailed = (fromId: string) => {
+export const recordWarmupFailed = (fromId: string) => {
     const stats = getOrCreateChipStats(fromId);
     stats.totalFailed += 1;
     ensureTodayEntry(stats).failed += 1;

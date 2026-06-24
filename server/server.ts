@@ -960,7 +960,7 @@ const registerSocketHandlers = () => {
             ownsConnectionId(item?.connectionId || '')
           )
         : [];
-      return { pending, warmedCount: pending.length };
+      return { pending, warmedCount: state?.warmedCount ?? 0 };
     };
     if (uid && uid !== 'anonymous') {
       socket.join(`user:${uid}`);
@@ -1903,10 +1903,21 @@ const registerSocketHandlers = () => {
       }
       userLog('warmup:send', { from, to });
       try {
-        // Fallback to sendMessage if evolutionService.sendWarmupMessage isn't explicitly defined yet.
         await evolutionService.sendMessage(`${from}:${to}`, message);
+        waService.recordWarmupExchange(from, to, evolutionService.getConnections());
+        socket.emit(
+          'warmup-chip-stats-update',
+          filterByConnectionScope(uid, waService.getWarmupChipStats())
+        );
       } catch (e: any) {
-        console.error(`[Warmup] Erro ao enviar de ${from} para ${to}:`, e?.message || e);
+        waService.recordWarmupFailed(from);
+        socket.emit(
+          'warmup-chip-stats-update',
+          filterByConnectionScope(uid, waService.getWarmupChipStats())
+        );
+        const errMsg = e?.message || String(e);
+        console.error(`[Warmup] Erro ao enviar de ${from} para ${to}:`, errMsg);
+        socket.emit('warmup-send-error', { from, to, error: errMsg });
       }
     });
 

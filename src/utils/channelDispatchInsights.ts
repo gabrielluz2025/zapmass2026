@@ -17,7 +17,7 @@ export interface ChannelDailySent {
 
 /** Gera chave YYYY-MM-DD para uma data em UTC-3 (horário de Brasília, fixo desde 2019).
  *  Equivalente ao que o servidor grava após a correção de timezone no todayKey(). */
-const brazilDayKey = (ts: number = Date.now()): string => {
+export const brazilDayKey = (ts: number = Date.now()): string => {
   const d = new Date(ts - 3 * 60 * 60 * 1000); // UTC → UTC-3
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 };
