@@ -3,6 +3,8 @@ import type { ContactTemperature } from '../../../utils/contactTemperature';
 import { CONTACT_TEMP_LABEL } from '../../../utils/contactTemperature';
 import { TEMP_COLOR } from './territoryConstants';
 import type { TempFilter } from './types';
+import type { StateMunicipalityCoverage } from './stateMunicipalityCoverage';
+import { formatMunicipalityCoverageLine } from './stateMunicipalityCoverage';
 
 type Props = {
   totals: Record<ContactTemperature, number>;
@@ -11,6 +13,7 @@ type Props = {
   /** Total autoritativo da região (servidor), quando diferente da soma de temperaturas. */
   regionTotalLabel?: number | null;
   contactsHydrating?: boolean;
+  municipalityCoverage?: StateMunicipalityCoverage | null;
 };
 
 const SEGMENTS: ContactTemperature[] = ['hot', 'warm', 'cold', 'new'];
@@ -21,6 +24,7 @@ export const TerritoryTempRiver: React.FC<Props> = ({
   onFilterChange,
   regionTotalLabel,
   contactsHydrating,
+  municipalityCoverage,
 }) => {
   const tempSum = totals.hot + totals.warm + totals.cold + totals.new;
   const displayTotal = regionTotalLabel ?? tempSum;
@@ -41,6 +45,20 @@ export const TerritoryTempRiver: React.FC<Props> = ({
 
       {contactsHydrating && (
         <p className="zm-atlas-river__hint">Atualizando temperaturas conforme a base carrega…</p>
+      )}
+
+      {municipalityCoverage && (
+        <p className="zm-atlas-river__hint zm-atlas-river__hint--muni">
+          <strong>Municípios ({municipalityCoverage.total} no estado):</strong>{' '}
+          {formatMunicipalityCoverageLine(municipalityCoverage)}
+          {municipalityCoverage.unmappedContactCities > 0 && (
+            <>
+              {' '}
+              · {municipalityCoverage.unmappedContactCities.toLocaleString('pt-BR')} cidade(s) cadastrada(s)
+              fora do catálogo IBGE
+            </>
+          )}
+        </p>
       )}
 
       {newDominant && !contactsHydrating && (

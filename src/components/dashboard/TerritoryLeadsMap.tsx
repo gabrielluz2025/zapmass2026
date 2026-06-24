@@ -45,6 +45,10 @@ import {
 } from './territory/territoryConstants';
 import { buildCityRows } from './territory/buildCityRows';
 import {
+  computeStateMunicipalityCoverage,
+  formatMunicipalityCoverageLine,
+} from './territory/stateMunicipalityCoverage';
+import {
   buildNeighborhoodRows,
   filterClustersForScope,
   matchesCity,
@@ -325,6 +329,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const contactsHydrating = contactsHasMore || contactsLoadingMore;
   const nbWithData = allRows.filter((r) => r.count > 0).length;
   const nbTotalListed = allRows.length;
+
+  const municipalityCoverage = useMemo(() => {
+    if (!isStateCityList || !stateCode) return null;
+    return computeStateMunicipalityCoverage(stateCode, allRows, municipioCoords);
+  }, [isStateCityList, stateCode, allRows, municipioCoords]);
 
   const cadastroHealth = useMemo(() => {
     const n = scopeContacts.length;
@@ -939,7 +948,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
           : ''
       }`;
     }
-    const entity = isStateCityList ? 'cidades' : 'bairros';
+    const entity = isStateCityList ? 'cidades com contatos' : 'bairros';
     const vizMode = neighborhoodViz === 'borders' ? 'bubbles' : neighborhoodViz;
     const vizLabel =
       vizMode === 'heat'
@@ -957,7 +966,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         : isStateCityList && showMuniOutline
           ? ' · contornos IBGE'
           : '';
-    return `${nbWithData} ${entity} · ${vizLabel}${capped}${geoHint} · colorido por ${
+    const muniHint =
+      isStateCityList && municipalityCoverage
+        ? ` · ${formatMunicipalityCoverageLine(municipalityCoverage)}`
+        : '';
+    return `${nbWithData} ${entity}${muniHint} · ${vizLabel}${capped}${geoHint} · colorido por ${
       territoryViewMode === 'temperature' ? 'temperatura' : 'volume'
     }`;
   }, [
@@ -975,6 +988,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     isStateCityList,
     municipiosGeoLoading,
     showMuniOutline,
+    municipalityCoverage,
   ]);
 
   const handleExportCsv = () => {
@@ -1024,9 +1038,23 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
               </>
             ) : (
               <>
-                {regionLabel} · {nbTotalListed}{' '}
-                {isStateCityList ? 'cidades' : scope === 'state' ? 'bairros no estado' : 'bairros'}
-                {nbWithData < nbTotalListed ? ` (${nbWithData} com contatos)` : ''}
+                {regionLabel}
+                {isStateCityList && municipalityCoverage ? (
+                  <>
+                    {' · '}
+                    {municipalityCoverage.withContacts.toLocaleString('pt-BR')} municípios com contatos
+                    {' · '}
+                    {municipalityCoverage.withoutContacts.toLocaleString('pt-BR')} sem contatos
+                    {' · '}
+                    {municipalityCoverage.total.toLocaleString('pt-BR')} no estado
+                  </>
+                ) : (
+                  <>
+                    {' · '}
+                    {nbTotalListed} {isStateCityList ? 'cidades' : scope === 'state' ? 'bairros no estado' : 'bairros'}
+                    {nbWithData < nbTotalListed ? ` (${nbWithData} com contatos)` : ''}
+                  </>
+                )}
               </>
             )}
             {' · '}
@@ -1076,6 +1104,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         scopeContactCount={scopeContacts.length}
         withNeighborhoodPct={cadastroHealth.withNeighborhoodPct}
         withCoordsPct={cadastroHealth.withCoordsPct}
+        municipalityCoverage={isStateCityList ? municipalityCoverage : null}
         onLaunchCampaign={handleLaunchCampaign}
         onOpenContacts={handleOpenContacts}
       />
@@ -1086,6 +1115,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         onFilterChange={setTempFilter}
         regionTotalLabel={displayRegionTotal}
         contactsHydrating={contactsHydrating}
+        municipalityCoverage={isStateCityList ? municipalityCoverage : null}
       />
 
       <div className="zm-atlas__split">
