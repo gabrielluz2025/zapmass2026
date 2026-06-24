@@ -14,6 +14,7 @@ const ALLOWED_VIEWS = new Set([
   'warmup',
   'campaigns',
   'contacts',
+  'contacts-map',
   'reports',
   'settings',
   'subscription',

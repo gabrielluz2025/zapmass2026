@@ -4,6 +4,7 @@ const PREFETCH: Record<string, () => Promise<unknown>> = {
   chat: () => import('../components/ChatTab'),
   campaigns: () => import('../components/CampaignsTab'),
   contacts: () => import('../components/ContactsTab'),
+  'contacts-map': () => import('../components/contacts/ContactsMapTab'),
   admin: () => import('../components/admin/AdminPanel'),
   'admin-ops': () => import('../components/AdminServerTab'),
   'creator-studio': () => import('../components/creator/CreatorStudio'),
@@ -29,6 +30,7 @@ export function prefetchDefaultAppViews(): void {
   const run = () => {
     prefetchAppView('campaigns');
     prefetchAppView('contacts');
+    prefetchAppView('contacts-map');
   };
   if (typeof requestIdleCallback === 'function') {
     requestIdleCallback(run, { timeout: 4000 });

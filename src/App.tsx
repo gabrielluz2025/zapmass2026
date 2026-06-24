@@ -60,6 +60,10 @@ const CampaignsTab = lazyWithRetry(
   () => import('./components/CampaignsTab').then((m) => ({ default: m.CampaignsTab })),
   'campaigns'
 );
+const ContactsMapTab = lazyWithRetry(
+  () => import('./components/contacts/ContactsMapTab').then((m) => ({ default: m.ContactsMapTab })),
+  'contacts-map'
+);
 const ContactsTab = lazyWithRetry(
   () => import('./components/ContactsTab').then((m) => ({ default: m.ContactsTab })),
   'contacts'
@@ -95,6 +99,7 @@ const HEAVY_VIEWS = new Set([
   'chat',
   'campaigns',
   'contacts',
+  'contacts-map',
   'admin',
   'admin-ops',
   'creator-studio',
@@ -341,6 +346,8 @@ const MainLayout: React.FC = () => {
         return <CampaignsTab connections={connections} />;
       case 'contacts':
         return <ContactsTab />;
+      case 'contacts-map':
+        return <ContactsMapTab />;
       case 'reports':
         return <ReportsTab />;
       case 'settings':

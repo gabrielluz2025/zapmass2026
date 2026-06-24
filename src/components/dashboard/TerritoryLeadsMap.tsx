@@ -84,11 +84,13 @@ type Props = {
   conversations: Conversation[];
   defaultCity?: string;
   compact?: boolean;
+  /** `page`: aba dedicada em tela cheia; `embedded`: card no painel (legado). */
+  variant?: 'embedded' | 'page';
   deferLoad?: boolean;
   contactsSavedTotal?: number | null;
   contactsHasMore?: boolean;
   contactsLoadingMore?: boolean;
-  onNavigate?: (view: 'campaigns' | 'contacts') => void;
+  onNavigate?: (view: string) => void;
 };
 
 export const TerritoryLeadsMap: React.FC<Props> = ({
@@ -96,12 +98,15 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   conversations,
   defaultCity = 'Blumenau · SC',
   compact = false,
+  variant = 'embedded',
   deferLoad = false,
   contactsSavedTotal = null,
   contactsHasMore = false,
   contactsLoadingMore = false,
   onNavigate,
 }) => {
+  const isPage = variant === 'page';
+  const shouldDeferLoad = deferLoad && !isPage;
   const { cityLabel: city, applyCityLabel, loading: locationLoading, saving: locationSaving } =
     useOperatingLocation(defaultCity);
 
@@ -123,7 +128,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [nbGeo, setNbGeo] = useState<LeadsGeoSummary | null>(null);
   const [scopeGeo, setScopeGeo] = useState<LeadsGeoSummary | null>(null);
   const [nbGeoLoading, setNbGeoLoading] = useState(false);
-  const [mapActive, setMapActive] = useState(!deferLoad);
+  const [mapActive, setMapActive] = useState(!shouldDeferLoad);
   const [cityOfficialList, setCityOfficialList] = useState<string[] | null>(null);
   const [stateRegionLabel, setStateRegionLabel] = useState<string | null>(null);
   const [stateDrillCity, setStateDrillCity] = useState<string | null>(null);
@@ -638,7 +643,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [city, scope, stateCode, isStateCityList, stateDrillCity]);
 
   useEffect(() => {
-    if (!deferLoad || mapActive || !rootRef.current) return;
+    if (!shouldDeferLoad || mapActive || !rootRef.current) return;
     const el = rootRef.current;
     const obs = new IntersectionObserver(
       (entries) => {
@@ -651,7 +656,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [deferLoad, mapActive]);
+  }, [shouldDeferLoad, mapActive]);
 
   useEffect(() => {
     if (!mapActive) return;
@@ -1026,11 +1031,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }
 
   return (
-    <div ref={rootRef} className="zm-atlas zm-atlas--v2">
+    <div ref={rootRef} className={`zm-atlas zm-atlas--v2${isPage ? ' zm-atlas--page' : ''}`}>
       <header className="zm-atlas__header zm-atlas__header--compact">
         <div className="zm-atlas__header-text">
-          <h2 className="zm-atlas__title">Atlas territorial</h2>
-          <p className="zm-atlas__subtitle">
+          {!isPage && <h2 className="zm-atlas__title">Atlas territorial</h2>}
+          <p className={`zm-atlas__subtitle${isPage ? ' zm-atlas__subtitle--page' : ''}`}>
             {stateDrillCity ? (
               <>
                 {stateDrillCity} · {nbTotalListed} bairros
@@ -1162,7 +1167,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
                 <Loader2 className="w-5 h-5 animate-spin" />
               </div>
             )}
-            {!mapActive && deferLoad && (
+            {!mapActive && shouldDeferLoad && (
               <div className="zm-atlas__map-loading">Role para carregar</div>
             )}
             {nbGeoLoading && selectedRow && (

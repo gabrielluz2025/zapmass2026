@@ -20,6 +20,7 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   chat: { title: 'Bate-papo', subtitle: 'Conversas WhatsApp em tempo real' },
   campaigns: { title: 'Campanhas', subtitle: 'Centro de missões, A/B, modelos e disparos' },
   contacts: { title: 'Contatos', subtitle: 'Base e listas de contatos' },
+  'contacts-map': { title: 'Mapa dos contatos', subtitle: 'Atlas territorial, temperatura e campanhas por região' },
   reports: { title: 'Relatórios', subtitle: 'Análise de performance' },
   warmup: { title: 'Aquecimento', subtitle: 'Warmup dos números' },
   subscription: { title: 'Minha assinatura', subtitle: 'Plano, pagamento e renovação' },

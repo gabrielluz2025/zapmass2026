@@ -32,6 +32,7 @@ const VIEW_LABEL_PT: Record<string, string> = {
   warmup: 'Aquecimento',
   campaigns: 'Campanhas',
   contacts: 'Contatos',
+  'contacts-map': 'Mapa dos contatos',
   reports: 'Relatórios',
   settings: 'Definições',
   subscription: 'Assinatura',

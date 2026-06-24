@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   BookOpen,
   Flame,
+  Globe2,
   Rocket,
   Send,
   Smartphone,
@@ -15,10 +16,10 @@ import {
   Wifi,
   Zap,
 } from 'lucide-react';
-import type { Campaign, Contact, Conversation, DashboardMetrics } from '../../types';
-import { TerritoryLeadsMap } from './TerritoryLeadsMap';
+import type { Campaign, Contact, DashboardMetrics } from '../../types';
+import { TerritoryMapTeaser } from './TerritoryMapTeaser';
 
-type NavView = 'campaigns' | 'connections' | 'contacts' | 'warmup' | 'team' | 'help';
+type NavView = 'campaigns' | 'connections' | 'contacts' | 'contacts-map' | 'warmup' | 'team' | 'help';
 
 type Props = {
   firstName: string;
@@ -38,10 +39,7 @@ type Props = {
   animReplied: number;
   campaigns: Campaign[];
   contacts: Contact[];
-  conversations: Conversation[];
   contactsSavedTotal?: number | null;
-  contactsHasMore?: boolean;
-  contactsLoadingMore?: boolean;
   bestWindow?: { label: string } | null;
   onNavigate: (view: NavView) => void;
   onScrollFunnel: () => void;
@@ -51,6 +49,7 @@ const dockItems = [
   { id: 'campaigns' as const, label: 'Campanhas', icon: Rocket },
   { id: 'connections' as const, label: 'Canais', icon: Smartphone },
   { id: 'contacts' as const, label: 'Contatos', icon: Users },
+  { id: 'contacts-map' as const, label: 'Mapa', icon: Globe2 },
   { id: 'warmup' as const, label: 'Aquecimento', icon: Flame },
   { id: 'help' as const, label: 'Guia', icon: BookOpen },
 ];
@@ -65,10 +64,7 @@ export const DashboardCommandPanel: React.FC<Props> = ({
   connectionsTotal,
   campaigns,
   contacts,
-  conversations,
   contactsSavedTotal,
-  contactsHasMore,
-  contactsLoadingMore,
   bestWindow,
   onNavigate,
   onScrollFunnel,
@@ -134,15 +130,10 @@ export const DashboardCommandPanel: React.FC<Props> = ({
         </div>
       </div>
 
-      <TerritoryLeadsMap
+      <TerritoryMapTeaser
         contacts={contacts}
-        conversations={conversations}
-        defaultCity="Blumenau · SC"
-        deferLoad
         contactsSavedTotal={contactsSavedTotal}
-        contactsHasMore={contactsHasMore}
-        contactsLoadingMore={contactsLoadingMore}
-        onNavigate={onNavigate}
+        onOpenMap={() => onNavigate('contacts-map')}
       />
 
       <footer className="zm-command-v3__dock">
