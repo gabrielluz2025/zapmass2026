@@ -3,7 +3,10 @@
  * Configure GEMINI_API_KEY e opcionalmente GEMINI_MODEL no .env da VPS.
  */
 
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+/** Substitui gemini-2.0-flash (desligado em jun/2026). Ver changelog Google Gemini API. */
+const DEFAULT_MODEL = 'gemini-3.5-flash';
+
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'] as const;
 
 export function isGeminiConfigured(): boolean {
   return Boolean((process.env.GEMINI_API_KEY || '').trim());
@@ -11,6 +14,23 @@ export function isGeminiConfigured(): boolean {
 
 function geminiModel(): string {
   return (process.env.GEMINI_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+}
+
+function modelsToTry(): string[] {
+  const primary = geminiModel();
+  const chain = [primary, ...FALLBACK_MODELS.filter((m) => m !== primary)];
+  return [...new Set(chain)];
+}
+
+function isModelUnavailableError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('no longer available') ||
+    m.includes('not found') ||
+    m.includes('is not supported') ||
+    m.includes('has been shut down') ||
+    m.includes('was not found')
+  );
 }
 
 export function extractJsonFromModelText<T>(text: string): T {
@@ -37,9 +57,6 @@ export async function geminiGenerateText(
     throw new Error('GEMINI_API_KEY não configurada no servidor.');
   }
 
-  const model = geminiModel();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
   const generationConfig: Record<string, unknown> = {
     temperature: 0.25,
     maxOutputTokens: 8192,
@@ -56,26 +73,37 @@ export async function geminiGenerateText(
     body.systemInstruction = { parts: [{ text: systemInstruction.trim() }] };
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(90_000),
-    body: JSON.stringify(body),
-  });
+  let lastError = 'Falha na IA.';
+  for (const model of modelsToTry()) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(90_000),
+      body: JSON.stringify(body),
+    });
 
-  const json = (await res.json().catch(() => ({}))) as {
-    error?: { message?: string };
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: { message?: string };
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
 
-  if (!res.ok) {
-    const msg = json.error?.message || `Gemini HTTP ${res.status}`;
-    throw new Error(msg);
+    if (!res.ok) {
+      const msg = json.error?.message || `Gemini HTTP ${res.status}`;
+      lastError = msg;
+      if (isModelUnavailableError(msg)) continue;
+      throw new Error(msg);
+    }
+
+    const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('').trim();
+    if (!text) {
+      lastError = 'Resposta vazia da IA.';
+      continue;
+    }
+    return text;
   }
 
-  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('').trim();
-  if (!text) throw new Error('Resposta vazia da IA.');
-  return text;
+  throw new Error(lastError);
 }
 
 export async function geminiGenerateJson<T>(

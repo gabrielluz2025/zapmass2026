@@ -40,7 +40,7 @@ export function registerAiAssistantRoutes(app: Express): void {
     return res.json({
       ok: true,
       configured: isGeminiConfigured(),
-      model: isGeminiConfigured() ? (process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() : null,
+      model: isGeminiConfigured() ? (process.env.GEMINI_MODEL || 'gemini-3.5-flash').trim() : null,
     });
   });
 

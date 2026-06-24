@@ -109,7 +109,7 @@ if [ -f .env ]; then
     echo "==> AVISO: RESEND_API_KEY vazio — emails via Resend (confirmação de pagamento, sugestões, respostas no painel) ficam desativados no Swarm sem esta variável exportada."
   fi
   if [ -n "${GEMINI_API_KEY:-}" ]; then
-    echo "==> GEMINI_API_KEY presente (prefixo ${GEMINI_API_KEY:0:8}…; modelo ${GEMINI_MODEL:-gemini-2.0-flash})"
+    echo "==> GEMINI_API_KEY presente (prefixo ${GEMINI_API_KEY:0:8}…; modelo ${GEMINI_MODEL:-gemini-3.5-flash})"
   else
     echo "==> AVISO: GEMINI_API_KEY vazio — assistente IA (contatos/mapa/campanhas) fica desativado."
   fi
