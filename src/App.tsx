@@ -33,6 +33,8 @@ import { SegmentOnboardingScreen } from './components/onboarding/SegmentOnboardi
 import { TabLoadErrorBoundary } from './components/TabLoadErrorBoundary';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
+import { AiAskPanel } from './components/ai/AiAskPanel';
+import { useAiStatus } from './hooks/useAiStatus';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
 import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
 import { lazyWithRetry } from './utils/lazyWithRetry';
@@ -192,6 +194,7 @@ const MainLayout: React.FC = () => {
   const { user } = useAuth();
   const { readOnlyMode, readOnlyMessage, subscription, enforce, hasFullAccess } = useSubscription();
   const { currentView, setCurrentView } = useAppView();
+  const { configured: aiConfigured } = useAiStatus();
   const [lightCachedViews, setLightCachedViews] = useState<string[]>([currentView]);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [trialEndedOpen, setTrialEndedOpen] = useState(false);
@@ -443,6 +446,13 @@ const MainLayout: React.FC = () => {
       <TrialEndedModal isOpen={trialEndedOpen} onClose={() => setTrialEndedOpen(false)} />
       {searchOpen && (
         <GlobalSearchOverlay onNavigate={setCurrentView} onClose={() => setSearchOpen(false)} />
+      )}
+      {aiConfigured && (
+        <div className="fixed bottom-20 right-4 z-[80] sm:bottom-6 sm:right-6 pointer-events-none">
+          <div className="pointer-events-auto">
+            <AiAskPanel screen={currentView} compact placeholder="Pergunte à IA sobre esta tela…" />
+          </div>
+        </div>
       )}
     </>
   );

@@ -97,6 +97,7 @@ import { registerPlatformDataRoutes } from './platformRoutes.js';
 import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
 import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
+import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
@@ -363,6 +364,7 @@ registerWorkspaceStaffPasswordRoutes(app);
 registerProductSuggestionRoutes(app);
 registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
+registerAiAssistantRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', async (_req, res) => {
