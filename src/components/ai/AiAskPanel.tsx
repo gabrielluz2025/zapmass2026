@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Loader2, Send, Sparkles, X } from 'lucide-react';
-import { aiAsk } from '../../services/aiApi';
+import React, { useEffect, useState } from 'react';
+import { Minimize2, Sparkles, X } from 'lucide-react';
 import { useAiStatus } from '../../hooks/useAiStatus';
+import { useAppView } from '../../context/AppViewContext';
+import { AiAssistantChat } from './AiAssistantChat';
 
 type Props = {
   screen: string;
@@ -10,85 +11,84 @@ type Props = {
   compact?: boolean;
 };
 
-/** Painel de pergunta livre à IA (contexto da tela atual). */
-export const AiAskPanel: React.FC<Props> = ({
-  screen,
-  context,
-  placeholder = 'Pergunte como organizar, corrigir ou melhorar…',
-  compact = false,
-}) => {
+/** FAB + painel deslizante do assistente IA. */
+export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, compact = false }) => {
   const { configured, loading: statusLoading } = useAiStatus();
+  const { currentView, setCurrentView } = useAppView();
   const [open, setOpen] = useState(false);
-  const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  if (statusLoading) return null;
-  if (!configured) return null;
+  useEffect(() => {
+    if (currentView === 'ai-assistant') setOpen(false);
+  }, [currentView]);
 
-  const ask = async () => {
-    const q = question.trim();
-    if (!q || loading) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await aiAsk(screen, q, context);
-      if (!res.ok) throw new Error(res.error || 'Falha na IA');
-      setAnswer(res.answer);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao consultar IA');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  if (statusLoading || !configured) return null;
+  if (currentView === 'ai-assistant') return null;
 
   if (!open) {
     return (
       <button
         type="button"
-        className={`zm-ai-ask-fab${compact ? ' zm-ai-ask-fab--compact' : ''}`}
+        className={`zm-ai-fab${compact ? ' zm-ai-fab--compact' : ''}`}
         onClick={() => setOpen(true)}
-        title="Assistente IA"
+        title="Abrir assistente IA"
       >
-        <Sparkles className="w-4 h-4" />
+        <span className="zm-ai-fab__glow" aria-hidden />
+        <Sparkles className="w-4 h-4 zm-ai-fab__icon" />
         {!compact && <span>Assistente IA</span>}
       </button>
     );
   }
 
   return (
-    <div className="zm-ai-ask-panel">
-      <header className="zm-ai-ask-panel__head">
-        <Sparkles className="w-4 h-4 text-violet-400" />
-        <span>Assistente IA</span>
-        <button type="button" className="zm-ai-ask-panel__close" onClick={() => setOpen(false)} aria-label="Fechar">
-          <X className="w-4 h-4" />
-        </button>
-      </header>
-      <div className="zm-ai-ask-panel__body">
-        <textarea
-          className="zm-ai-ask-panel__input"
-          rows={compact ? 2 : 3}
-          placeholder={placeholder}
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void ask();
-          }}
-        />
-        <button type="button" className="zm-ai-ask-panel__send" onClick={() => void ask()} disabled={loading || !question.trim()}>
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          Perguntar
-        </button>
-        {error && <p className="zm-ai-ask-panel__error">{error}</p>}
-        {answer && (
-          <div className="zm-ai-ask-panel__answer">
-            {answer}
-            <p className="zm-ai-ask-panel__data-note">Resposta com dados ao vivo da sua conta.</p>
+    <>
+      <button
+        type="button"
+        className="zm-ai-backdrop"
+        aria-label="Fechar assistente"
+        onClick={() => setOpen(false)}
+      />
+      <aside className="zm-ai-drawer" role="dialog" aria-label="Assistente IA">
+        <header className="zm-ai-drawer__head">
+          <div className="zm-ai-drawer__head-main">
+            <Sparkles className="w-4 h-4 text-violet-400" />
+            <div>
+              <span className="zm-ai-drawer__title">Assistente IA</span>
+              <span className="zm-ai-drawer__sub">Dados ao vivo da sua conta</span>
+            </div>
           </div>
-        )}
-      </div>
-    </div>
+          <div className="zm-ai-drawer__actions">
+            <button
+              type="button"
+              className="zm-ai-drawer__icon-btn"
+              title="Abrir em tela cheia"
+              onClick={() => {
+                setOpen(false);
+                setCurrentView('ai-assistant');
+              }}
+            >
+              <Minimize2 className="w-4 h-4 rotate-90" />
+            </button>
+            <button
+              type="button"
+              className="zm-ai-drawer__icon-btn"
+              onClick={() => setOpen(false)}
+              aria-label="Fechar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
+        <AiAssistantChat screen={screen} context={context} variant="drawer" placeholder={placeholder} />
+      </aside>
+    </>
   );
 };
