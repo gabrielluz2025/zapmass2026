@@ -238,6 +238,7 @@ export function registerAiAssistantRoutes(app: Express): void {
     try {
       const snapshot = await buildAiTenantSnapshot(
         ctx.tenantId,
+        ctx.principal.authUid,
         screen,
         question,
         context

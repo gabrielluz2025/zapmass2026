@@ -1,11 +1,13 @@
 /**
  * Monta contexto com dados reais do tenant para o assistente IA (Gemini).
  */
-import { CampaignStatus } from '../src/types.js';
+import { CampaignStatus, type Campaign, type ContactList } from '../src/types.js';
+import { conversationsPayloadForViewer } from './conversationsEmit.js';
 import { filterByConnectionScope } from './connectionScopeServer.js';
-import { getConnections } from './evolutionService.js';
+import { getConnections, getConversations, resolveConnectionOwnerUid } from './evolutionService.js';
 import { buildLeadsGeoSummary } from './leadsGeoService.js';
 import { listCampaigns } from './repositories/campaignsRepository.js';
+import { listContactLists } from './repositories/contactListsRepository.js';
 import { countContactsCached } from './repositories/contactsRepository.js';
 
 const SCREEN_GUIDES: Record<string, string> = {
@@ -49,6 +51,45 @@ export type AiTenantSnapshot = {
     concluidas: number;
     rascunho: number;
     recentes: Array<{ nome: string; status: string; contatos: number; enviados: number }>;
+    detalhadas: Array<{
+      nome: string;
+      status: string;
+      contatosAlvo: number;
+      processados: number;
+      enviados: number;
+      falhas: number;
+      lista: string | null;
+      taxaRespostaPct: number | null;
+    }>;
+    consultada: {
+      nome: string;
+      status: string;
+      contatosAlvo: number;
+      processados: number;
+      enviados: number;
+      falhas: number;
+      lista: string | null;
+      taxaEntregaPct: number | null;
+      taxaLeituraPct: number | null;
+      taxaRespostaPct: number | null;
+      etapas: Array<{ etapa: number; enviados: number; respostas: number }>;
+    } | null;
+  };
+  listas: {
+    total: number;
+    principais: Array<{ nome: string; contatos: number; descricao: string | null }>;
+    consultada: { nome: string; contatos: number; descricao: string | null } | null;
+  };
+  conversas: {
+    total: number;
+    naoLidas: number;
+    recentes: Array<{
+      nome: string;
+      telefone: string;
+      ultimaMensagem: string;
+      horario: string;
+      naoLidas: number;
+    }>;
   };
   chips: {
     total: number;
@@ -88,6 +129,118 @@ function wantsNeighborhoodBreakdown(question: string): boolean {
   return /\b(bairro|bairros|vizinhanca|regiao|por bairro)\b/.test(q);
 }
 
+function wantsConversationData(question: string, screen: string): boolean {
+  const q = normalizeForMatch(question);
+  if (screen === 'chat') return true;
+  return /\b(conversa|conversas|bate-papo|chat|mensagem|mensagens|nao lida|nao lidas|inbox|whatsapp|respondeu|responder)\b/.test(
+    q
+  );
+}
+
+function wantsCampaignDetail(question: string, screen: string): boolean {
+  const q = normalizeForMatch(question);
+  if (screen === 'campaigns') return true;
+  return /\b(campanha|campanhas|disparo|disparos|envio|enviados|resposta|taxa|funil)\b/.test(q);
+}
+
+function findEntityByNameInQuestion<T extends { name: string }>(
+  question: string,
+  items: T[]
+): T | null {
+  const q = normalizeForMatch(question);
+  let best: T | null = null;
+  let bestLen = 0;
+  for (const item of items) {
+    const name = normalizeForMatch(item.name);
+    if (name.length < 3) continue;
+    if (q.includes(name) && name.length > bestLen) {
+      best = item;
+      bestLen = name.length;
+    }
+  }
+  return best;
+}
+
+function findCampaignInQuestion(question: string, campaigns: Campaign[]): Campaign | null {
+  const byName = findEntityByNameInQuestion(question, campaigns);
+  if (byName) return byName;
+  const q = normalizeForMatch(question);
+  if (!/\b(ultima|recente|ativa|agendada|concluida)\b/.test(q) || campaigns.length === 0) return null;
+  if (/\bativa\b/.test(q)) {
+    return (
+      campaigns.find(
+        (c) => c.status === CampaignStatus.RUNNING || c.status === CampaignStatus.WAITING_REPLY
+      ) ?? null
+    );
+  }
+  if (/\bagendada\b/.test(q)) {
+    return campaigns.find((c) => c.status === CampaignStatus.SCHEDULED) ?? null;
+  }
+  if (/\bconcluida\b/.test(q)) {
+    return campaigns.find((c) => c.status === CampaignStatus.COMPLETED) ?? null;
+  }
+  return campaigns[0] ?? null;
+}
+
+function campaignDetailBlock(c: Campaign) {
+  const funnel = c.reportSnapshot?.stageFunnels?.[0];
+  return {
+    nome: c.name,
+    status: c.status,
+    contatosAlvo: c.totalContacts || 0,
+    processados: c.processedCount || 0,
+    enviados: c.successCount || 0,
+    falhas: c.failedCount || 0,
+    lista: c.contactListName || null,
+    taxaEntregaPct: funnel?.deliveryPct ?? null,
+    taxaLeituraPct: funnel?.readPct ?? null,
+    taxaRespostaPct: funnel?.replyPct ?? null,
+    etapas: (c.reportSnapshot?.stageFunnels || []).slice(0, 5).map((s) => ({
+      etapa: s.stageNumber,
+      enviados: s.sent,
+      respostas: s.replied,
+    })),
+  };
+}
+
+function buildConversationSummary(tenantId: string, authUid: string, question: string) {
+  const scoped = conversationsPayloadForViewer(
+    tenantId,
+    authUid,
+    getConversations(),
+    resolveConnectionOwnerUid
+  );
+  const sorted = [...scoped].sort(
+    (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+  );
+  const naoLidas = sorted.reduce((s, c) => s + (c.unreadCount || 0), 0);
+  const q = normalizeForMatch(question);
+  const onlyUnread = /\b(nao lida|nao lidas|pendente|sem resposta)\b/.test(q);
+  const pool = onlyUnread ? sorted.filter((c) => (c.unreadCount || 0) > 0) : sorted;
+  return {
+    total: scoped.length,
+    naoLidas,
+    recentes: pool.slice(0, 12).map((c) => ({
+      nome: (c.contactName || c.waContactName || 'Sem nome').slice(0, 80),
+      telefone: (c.contactPhone || '').replace(/\D/g, '').slice(-11),
+      ultimaMensagem: (c.lastMessage || '').replace(/\s+/g, ' ').slice(0, 100),
+      horario: c.lastMessageTime || '',
+      naoLidas: c.unreadCount || 0,
+    })),
+  };
+}
+
+function listSummaryBlock(lists: ContactList[]) {
+  return lists
+    .map((l) => ({
+      nome: l.name,
+      contatos: l.contactIds?.length || 0,
+      descricao: l.description?.trim() || null,
+    }))
+    .sort((a, b) => b.contatos - a.contatos)
+    .slice(0, 15);
+}
+
 function topEntries(rec: Record<string, number>, limit: number): Array<{ label: string; count: number }> {
   return Object.entries(rec)
     .filter(([, n]) => n > 0)
@@ -98,14 +251,16 @@ function topEntries(rec: Record<string, number>, limit: number): Array<{ label: 
 
 export async function buildAiTenantSnapshot(
   tenantId: string,
+  authUid: string,
   screen: string,
   question: string,
   clientContext?: unknown
 ): Promise<AiTenantSnapshot> {
-  const [totalContacts, geoCity, campaigns] = await Promise.all([
+  const [totalContacts, geoCity, campaigns, contactLists] = await Promise.all([
     countContactsCached(tenantId),
     buildLeadsGeoSummary(tenantId, { layer: 'city', light: true }),
     listCampaigns(tenantId),
+    listContactLists(tenantId),
   ]);
 
   const cityHint = findCityInQuestion(question, geoCity.byCity);
@@ -176,6 +331,35 @@ export async function buildAiTenantSnapshot(
     if (c.status === 'CONNECTED' || (c.status as string) === 'open') conectados++;
   }
 
+  const campaignMatch = findCampaignInQuestion(question, campaigns);
+  const listMatch = findEntityByNameInQuestion(question, contactLists);
+
+  const listasPrincipais = listSummaryBlock(contactLists);
+  const convFull = buildConversationSummary(tenantId, authUid, question);
+  const includeRecentConversas =
+    wantsConversationData(question, screen) || screen === 'dashboard' || screen === 'chat';
+  const conversas = {
+    total: convFull.total,
+    naoLidas: convFull.naoLidas,
+    recentes: includeRecentConversas ? convFull.recentes : [],
+  };
+
+  const campanhasDetalhadas = wantsCampaignDetail(question, screen)
+    ? campaigns.slice(0, 10).map((c) => {
+        const d = campaignDetailBlock(c);
+        return {
+          nome: d.nome,
+          status: d.status,
+          contatosAlvo: d.contatosAlvo,
+          processados: d.processados,
+          enviados: d.enviados,
+          falhas: d.falhas,
+          lista: d.lista,
+          taxaRespostaPct: d.taxaRespostaPct,
+        };
+      })
+    : [];
+
   return {
     geradoEm: new Date().toISOString(),
     tela: screen,
@@ -197,7 +381,21 @@ export async function buildAiTenantSnapshot(
         contatos: c.totalContacts || 0,
         enviados: c.successCount || 0,
       })),
+      detalhadas: campanhasDetalhadas,
+      consultada: campaignMatch ? campaignDetailBlock(campaignMatch) : null,
     },
+    listas: {
+      total: contactLists.length,
+      principais: listasPrincipais,
+      consultada: listMatch
+        ? {
+            nome: listMatch.name,
+            contatos: listMatch.contactIds?.length || 0,
+            descricao: listMatch.description?.trim() || null,
+          }
+        : null,
+    },
+    conversas,
     chips: {
       total: conns.length,
       conectados,
@@ -214,10 +412,11 @@ export function buildAiAssistSystemInstruction(): string {
     'Você é o assistente inteligente do ZapMass (CRM + campanhas WhatsApp, Brasil). ' +
     'Você RECEBE um bloco JSON "DADOS AO VIVO" com números reais da conta do usuário. ' +
     'REGRAS: (1) Use APENAS números e listas desse JSON — nunca invente totais. ' +
-    '(2) Se faltar dado (ex.: bairro não listado), diga o que existe e sugira abrir Contatos ou Mapa. ' +
-    '(3) Formate números em pt-BR (ex.: 3.200). (4) Para "por bairro", use contatos.porBairro ou topCidades. ' +
-    '(5) Responda em português do Brasil, prático, com bullets quando listar bairros/cidades. ' +
-    '(6) Máximo 12 frases. (7) Pode mencionar atalhos do app (Contatos, Mapa, Campanhas).'
+    '(2) contatos.porBairro / topCidades para geo; campanhas.consultada ou detalhadas para disparos; ' +
+    'listas.principais ou listas.consultada para listas; conversas.recentes e conversas.naoLidas para bate-papo. ' +
+    '(3) Se faltar dado, diga o que existe e sugira abrir Contatos, Mapa, Campanhas ou Bate-papo. ' +
+    '(4) Formate números em pt-BR (ex.: 3.200). (5) Responda em português do Brasil, prático, com bullets. ' +
+    '(6) Máximo 14 frases.'
   );
 }
 
@@ -227,7 +426,7 @@ export function buildAiAssistUserPrompt(
   snapshot: AiTenantSnapshot
 ): string {
   const dados = JSON.stringify(snapshot);
-  const dadosTrim = dados.length > 14_000 ? `${dados.slice(0, 14_000)}…` : dados;
+  const dadosTrim = dados.length > 20_000 ? `${dados.slice(0, 20_000)}…` : dados;
   return (
     `DADOS AO VIVO (JSON):\n${dadosTrim}\n\n` +
     `TELA ATUAL: ${screen}\n` +
