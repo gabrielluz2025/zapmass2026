@@ -1745,6 +1745,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       setConversations((prev) => {
         const c = prev.find((x) => x.id === conversationId);
         if (!c || !ownsConnectionId(c.connectionId)) return prev;
+        if (c.profilePicUrl === pic) return prev;
         return prev.map((x) => (x.id === conversationId ? { ...x, profilePicUrl: pic } : x));
       });
     });
