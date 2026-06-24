@@ -13,6 +13,7 @@ import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
 import { Button, Textarea } from '../ui';
 import { insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
+import { formatTokensPreview, parseValidTokensText } from '../../utils/campaignReplyFlowTokens';
 
 export type ReplyStageOption = {
   id: string;
@@ -62,9 +63,9 @@ const MENU_QUICK_TEMPLATES: Array<{ label: string; options: Array<{ tokens: stri
   {
     label: '3 opções',
     options: [
-      { tokens: '1', reply: 'Opção 1 — descreva aqui a resposta.' },
-      { tokens: '2', reply: 'Opção 2 — descreva aqui a resposta.' },
-      { tokens: '3', reply: 'Opção 3 — descreva aqui a resposta.' }
+      { tokens: '1, 01, um', reply: 'Opção 1 — descreva aqui a resposta.' },
+      { tokens: '2, 02, dois', reply: 'Opção 2 — descreva aqui a resposta.' },
+      { tokens: '3, 03, três', reply: 'Opção 3 — descreva aqui a resposta.' }
     ]
   }
 ];
@@ -159,9 +160,11 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   const menuPreviewLines = useMemo(
     () =>
       menuOptions.map((opt, i) => {
-        const trigger = (opt.tokensText || String(i + 1)).split(/[,;]/)[0]?.trim() || String(i + 1);
+        const fallback = String(i + 1);
+        const tokens = parseValidTokensText(opt.tokensText);
+        const triggerLabel = formatTokensPreview(opt.tokensText, fallback);
         const preview = opt.reply.trim() || '…';
-        return { trigger, preview, num: i + 1 };
+        return { tokens, triggerLabel, preview, num: i + 1 };
       }),
     [menuOptions]
   );
@@ -285,7 +288,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                           Rotas do menu
                         </p>
                         <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                          Cada linha = uma opção que o contato pode digitar
+                          Cada opção aceita vários gatilhos (ex.: 1, 01, um)
                         </p>
                       </div>
                     </div>
@@ -313,46 +316,62 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                   </div>
 
                   <div className="cw-reply-menu-list">
-                    {menuOptions.map((opt, oIdx) => (
-                      <article key={opt.id} className="cw-reply-menu-item">
-                        <div className="cw-reply-menu-item__badge" aria-hidden>
-                          {oIdx + 1}
-                        </div>
-                        <div className="cw-reply-menu-item__fields">
-                          <div className="cw-reply-menu-item__row">
-                            <label className="cw-reply-menu-field">
-                              <span className="cw-reply-menu-field__label">Aceita</span>
+                    {menuOptions.map((opt, oIdx) => {
+                      const parsedTokens = parseValidTokensText(opt.tokensText);
+                      const defaultTrigger = String(oIdx + 1);
+                      return (
+                        <article key={opt.id} className="cw-reply-menu-item">
+                          <div className="cw-reply-menu-item__badge" aria-hidden>
+                            {oIdx + 1}
+                          </div>
+                          <div className="cw-reply-menu-item__fields">
+                            <label className="cw-reply-menu-field cw-reply-menu-field--triggers">
+                              <span className="cw-reply-menu-field__label">Gatilhos aceitos</span>
                               <input
                                 type="text"
                                 className="cw-reply-menu-field__input cw-reply-menu-field__input--trigger"
-                                placeholder={String(oIdx + 1)}
+                                placeholder={`${defaultTrigger}, 0${defaultTrigger}, um`}
                                 value={opt.tokensText}
                                 onChange={(e) => updateOption(opt.id, { tokensText: e.target.value })}
+                                spellCheck={false}
+                                autoComplete="off"
                               />
+                              <p className="cw-reply-menu-field__hint">
+                                Separe com vírgula ou ponto-e-vírgula — o contato pode digitar qualquer um.
+                              </p>
+                              {parsedTokens.length > 0 && (
+                                <div className="cw-reply-menu-tokens" aria-label="Gatilhos reconhecidos">
+                                  {parsedTokens.map((token, tIdx) => (
+                                    <span key={`${opt.id}-${tIdx}-${token}`} className="cw-reply-menu-token">
+                                      {token}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </label>
-                            <label className="cw-reply-menu-field cw-reply-menu-field--grow">
+                            <label className="cw-reply-menu-field">
                               <span className="cw-reply-menu-field__label">Mensagem enviada</span>
                               <textarea
                                 className="cw-reply-menu-field__textarea"
                                 placeholder="Texto que o contato recebe ao escolher esta opção…"
                                 value={opt.reply}
-                                rows={2}
+                                rows={3}
                                 onChange={(e) => updateOption(opt.id, { reply: e.target.value })}
                               />
                             </label>
                           </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="cw-reply-menu-item__remove"
-                          onClick={() => removeOption(opt.id)}
-                          disabled={menuOptions.length <= 1}
-                          aria-label={`Remover opção ${oIdx + 1}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </article>
-                    ))}
+                          <button
+                            type="button"
+                            className="cw-reply-menu-item__remove"
+                            onClick={() => removeOption(opt.id)}
+                            disabled={menuOptions.length <= 1}
+                            aria-label={`Remover opção ${oIdx + 1}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </article>
+                      );
+                    })}
                   </div>
 
                   {menuPreviewLines.some((l) => l.preview !== '…') && (
@@ -361,7 +380,13 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                       <div className="cw-reply-menu-preview__track">
                         {menuPreviewLines.map((line) => (
                           <div key={line.num} className="cw-reply-menu-preview__step">
-                            <span className="cw-reply-menu-preview__trigger">"{line.trigger}"</span>
+                            <div className="cw-reply-menu-preview__triggers">
+                              {(line.tokens.length > 0 ? line.tokens : [String(line.num)]).map((token) => (
+                                <span key={token} className="cw-reply-menu-preview__trigger">
+                                  {token}
+                                </span>
+                              ))}
+                            </div>
                             <span className="cw-reply-menu-preview__arrow" aria-hidden>→</span>
                             <span className="cw-reply-menu-preview__msg">{line.preview}</span>
                           </div>

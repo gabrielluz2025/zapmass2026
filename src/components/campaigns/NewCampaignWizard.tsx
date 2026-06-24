@@ -108,8 +108,7 @@ const newMessageStage = (): MessageStageDraft => ({
   options: []
 });
 
-const parseValidTokensText = (s: string) =>
-  s.split(/[,;\n\r]+/).map((t) => t.trim()).filter(Boolean);
+import { parseValidTokensText } from '../../utils/campaignReplyFlowTokens';
 
 type SendMode = 'list' | 'manual' | 'filter';
 

@@ -66,14 +66,7 @@ export const CampaignMessageComposer: React.FC<Props> = ({
       </span>
       <span className="cw-char-badge">{body.length} caracteres</span>
     </div>
-    <div className="cw-composer-body space-y-2">
-      {showGreetingPicker && <CampaignGreetingPicker onInsert={insertGreeting} />}
-      <CampaignMessageVariableChips
-        onInsert={onInsertVariable}
-        density={variablesDensity}
-        collapsible={variablesCollapsible ?? variablesDensity === 'full'}
-      />
-      {showIdeas && onApplyTemplate && <SegmentCampaignIdeas onApplyTemplate={onApplyTemplate} />}
+    <div className="cw-composer-body">
       <Textarea
         key={textareaKey}
         ref={textareaRef}
@@ -82,6 +75,13 @@ export const CampaignMessageComposer: React.FC<Props> = ({
         onChange={(e) => onBodyChange(e.target.value)}
         style={{ minHeight: `${minHeight}px` }}
       />
+      {showGreetingPicker && <CampaignGreetingPicker onInsert={insertGreeting} />}
+      <CampaignMessageVariableChips
+        onInsert={onInsertVariable}
+        density={variablesDensity}
+        collapsible={variablesCollapsible ?? variablesDensity === 'full'}
+      />
+      {showIdeas && onApplyTemplate && <SegmentCampaignIdeas onApplyTemplate={onApplyTemplate} />}
       {showAttachment &&
         attachmentInputRef &&
         onPickAttachment &&
