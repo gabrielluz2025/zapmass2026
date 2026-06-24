@@ -11,6 +11,7 @@ type Props = {
   scopeContactCount: number;
   withNeighborhoodPct: number;
   withCoordsPct: number;
+  municipalityCoverage?: { withContacts: number; withoutContacts: number; total: number } | null;
   onLaunchCampaign: () => void;
   onOpenContacts: () => void;
 };
@@ -25,6 +26,7 @@ export const TerritoryAtlasMeta: React.FC<Props> = ({
   scopeContactCount,
   withNeighborhoodPct,
   withCoordsPct,
+  municipalityCoverage,
   onLaunchCampaign,
   onOpenContacts,
 }) => {
@@ -72,6 +74,14 @@ export const TerritoryAtlasMeta: React.FC<Props> = ({
       </div>
 
       <div className="zm-atlas-meta__health">
+        {municipalityCoverage && (
+          <>
+            <span title="Municípios oficiais com pelo menos um contato">
+              Municípios {municipalityCoverage.withContacts}/{municipalityCoverage.total}
+            </span>
+            <span className="zm-atlas-meta__sep">·</span>
+          </>
+        )}
         <span title="Contatos com bairro cadastrado">Bairro {withNeighborhoodPct}%</span>
         <span className="zm-atlas-meta__sep">·</span>
         <span title="Contatos com coordenada no mapa">Mapa {withCoordsPct}%</span>
