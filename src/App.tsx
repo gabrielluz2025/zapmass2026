@@ -16,6 +16,7 @@ import { TrialEndedModal } from './components/billing/TrialEndedModal';
 import { UpgradeProModal } from './components/billing/UpgradeProModal';
 import { ProHeaderPromo } from './components/shell/ProHeaderPromo';
 import { ImprovementSuggestionButton } from './components/shell/ImprovementSuggestionButton';
+import { AssistantButton } from './components/assistant/AssistantButton';
 import { NotificationBell } from './components/shell/NotificationBell';
 import { NotificationProvider } from './context/NotificationContext';
 import { firestoreTimeToMs } from './utils/firestoreTime';
@@ -438,6 +439,7 @@ const MainLayout: React.FC = () => {
                 </kbd>
               </button>
               <NotificationBell />
+              <AssistantButton currentView={currentView} onNavigate={setCurrentView} />
               <ImprovementSuggestionButton currentView={currentView} />
             </>
           }

@@ -91,6 +91,7 @@ COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/src/utils ./src/utils
 # insightMerge e mergeLegacyUserDocs importam tipos (Contact, Campaign, etc.)
 COPY --from=builder /app/src/types.ts ./src/types.ts
+COPY --from=builder /app/docs ./docs
 COPY --from=builder /app/scripts/diagnose-connection-owners.ts ./scripts/diagnose-connection-owners.ts
 COPY --from=builder /app/scripts/repair-connection-owners.ts ./scripts/repair-connection-owners.ts
 COPY --from=builder /app/scripts/reset-vps-user-password.ts ./scripts/reset-vps-user-password.ts

@@ -98,6 +98,7 @@ import { registerProductSuggestionRoutes } from './productSuggestionRoutes.js';
 import { registerConnectionsSyncRoutes } from './connectionsSyncRoutes.js';
 import { registerSupportBotRoutes } from './supportBotRoutes.js';
 import { registerAiAssistantRoutes } from './aiAssistantRoutes.js';
+import { registerAssistantRoutes } from './assistantRoutes.js';
 import { structuredLog } from './structuredLog.js';
 import { incrementTenantUsageMs } from './usageStatsHeartbeat.js';
 import { redisPing, redisPingWithFallback } from './redisPing.js';
@@ -365,6 +366,7 @@ registerProductSuggestionRoutes(app);
 registerConnectionsSyncRoutes(app);
 registerSupportBotRoutes(app);
 registerAiAssistantRoutes(app);
+registerAssistantRoutes(app);
 
 // --- API ROUTES ---
 app.get('/api/health', async (_req, res) => {
