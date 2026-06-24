@@ -389,10 +389,12 @@ export function paintMunicipalityBorders(
   geo: MunicipiosGeoJson | null,
   rows: NeighborhoodRow[],
   viewMode: TerritoryViewMode,
-  onSelect: (row: NeighborhoodRow) => void
+  onSelect: (row: NeighborhoodRow) => void,
+  opts?: { overlay?: boolean }
 ): L.Layer[] {
   if (!geo?.features?.length) return [];
 
+  const overlay = opts?.overlay === true;
   const rowByKey = buildRowByMunicipalityKey(rows);
   const maxCount = Math.max(1, ...rows.map((r) => r.count));
   const layers: L.Layer[] = [];
@@ -403,6 +405,17 @@ export function paintMunicipalityBorders(
       const row = nameKey ? rowByKey.get(nameKey) : undefined;
       const hasData = Boolean(row && row.count > 0);
       const color = row ? rowColor(row, maxCount, viewMode) : '#94a3b8';
+
+      if (overlay) {
+        return {
+          fillColor: color,
+          fillOpacity: hasData ? 0.06 : 0,
+          color: hasData ? color : '#64748b',
+          weight: hasData ? 2.2 : 1.1,
+          opacity: hasData ? 0.9 : 0.42,
+          className: 'zm-atlas-muni-border zm-atlas-muni-border--overlay',
+        };
+      }
 
       return {
         fillColor: color,
@@ -449,6 +462,8 @@ export function paintMunicipalityBorders(
 
   gj.addTo(target);
   layers.push(gj);
+
+  if (overlay) return layers;
 
   const top = [...rows]
     .filter((r) => r.count > 0 && r.lat != null && r.lng != null)

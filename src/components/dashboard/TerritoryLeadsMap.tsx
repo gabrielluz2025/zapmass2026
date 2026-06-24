@@ -65,6 +65,7 @@ import {
 import {
   paintContactPins,
   paintContactsHeat,
+  paintMunicipalityBorders,
   paintNeighborhoodLayer,
   type ContactViz,
   type MapTileId,
@@ -130,6 +131,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [municipioCoords, setMunicipioCoords] = useState<MunicipioCoordsIndex | null>(null);
   const [municipiosGeo, setMunicipiosGeo] = useState<MunicipiosGeoJson | null>(null);
   const [municipiosGeoLoading, setMunicipiosGeoLoading] = useState(false);
+  const [showMuniOutline, setShowMuniOutline] = useState(true);
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
@@ -234,10 +236,12 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   }, [mapActive, isStateCityList, stateCode]);
 
   useEffect(() => {
-    if (isStateCityList) {
-      setNeighborhoodViz((prev) => (prev === 'heat' || prev === 'bubbles' ? 'borders' : prev));
+    if (!isStateCityList) return;
+    if (neighborhoodViz === 'borders') {
+      setNeighborhoodViz('bubbles');
+      setShowMuniOutline(true);
     }
-  }, [isStateCityList, stateCode]);
+  }, [isStateCityList, neighborhoodViz]);
 
   const scopeContacts = useMemo(() => {
     if (!mapActive) return [];
@@ -769,22 +773,42 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       );
     }
 
-    layersRef.current = paintNeighborhoodLayer(
-      target,
-      neighborhoodViz,
-      mapRows,
-      null,
-      territoryViewMode,
-      handleSelectRow,
-      isStateCityList ? 'city' : 'neighborhood',
-      { municipiosGeo: isStateCityList ? municipiosGeo : null }
+    const vizMode = neighborhoodViz === 'borders' ? 'bubbles' : neighborhoodViz;
+    const allLayers: L.Layer[] = [];
+
+    if (isStateCityList && showMuniOutline && municipiosGeo?.features?.length) {
+      allLayers.push(
+        ...paintMunicipalityBorders(
+          target,
+          municipiosGeo,
+          mapRows,
+          territoryViewMode,
+          handleSelectRow,
+          { overlay: true }
+        )
+      );
+    }
+
+    allLayers.push(
+      ...paintNeighborhoodLayer(
+        target,
+        vizMode,
+        mapRows,
+        null,
+        territoryViewMode,
+        handleSelectRow,
+        isStateCityList ? 'city' : 'neighborhood',
+        { municipiosGeo: isStateCityList ? municipiosGeo : null }
+      )
     );
 
-    const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${neighborhoodViz}|${territoryViewMode}|${mapRows.length}|${municipiosGeo?.features?.length ?? 0}`;
+    layersRef.current = allLayers;
+
+    const vpKey = `nb|${city}|${scope}|${tempFilter}|${mapViewMode}|${vizMode}|${showMuniOutline}|${territoryViewMode}|${mapRows.length}|${municipiosGeo?.features?.length ?? 0}`;
     if (vpKey !== lastViewportKeyRef.current) {
       lastViewportKeyRef.current = vpKey;
-      if (neighborhoodViz === 'borders' && municipiosGeo?.features?.length) {
-        const borderLayer = layersRef.current.find((l) => l instanceof L.GeoJSON) as L.GeoJSON | undefined;
+      if (isStateCityList && showMuniOutline && municipiosGeo?.features?.length) {
+        const borderLayer = allLayers.find((l) => l instanceof L.GeoJSON) as L.GeoJSON | undefined;
         if (borderLayer) {
           map.fitBounds(borderLayer.getBounds(), { padding: [24, 24], maxZoom: 9 });
         }
@@ -818,6 +842,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     handleSelectRow,
     isStateCityList,
     municipiosGeo,
+    showMuniOutline,
   ]);
 
   useEffect(() => {
@@ -915,22 +940,23 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
       }`;
     }
     const entity = isStateCityList ? 'cidades' : 'bairros';
+    const vizMode = neighborhoodViz === 'borders' ? 'bubbles' : neighborhoodViz;
     const vizLabel =
-      neighborhoodViz === 'borders'
-        ? 'contornos IBGE'
-        : neighborhoodViz === 'heat'
-          ? 'calor territorial'
-          : neighborhoodViz === 'bubbles'
-            ? 'bolhas'
-            : 'rótulos';
+      vizMode === 'heat'
+        ? 'calor territorial'
+        : vizMode === 'bubbles'
+          ? 'bolhas'
+          : 'rótulos';
     const capped =
-      isStateCityList && neighborhoodViz === 'bubbles' && nbWithData > 80
+      isStateCityList && vizMode === 'bubbles' && nbWithData > 80
         ? ` · top 80 de ${nbWithData}`
         : '';
     const geoHint =
-      isStateCityList && neighborhoodViz === 'borders' && municipiosGeoLoading
-        ? ' · carregando malha…'
-        : '';
+      isStateCityList && showMuniOutline && municipiosGeoLoading
+        ? ' · carregando contornos…'
+        : isStateCityList && showMuniOutline
+          ? ' · contornos IBGE'
+          : '';
     return `${nbWithData} ${entity} · ${vizLabel}${capped}${geoHint} · colorido por ${
       territoryViewMode === 'temperature' ? 'temperatura' : 'volume'
     }`;
@@ -948,6 +974,7 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     territoryViewMode,
     isStateCityList,
     municipiosGeoLoading,
+    showMuniOutline,
   ]);
 
   const handleExportCsv = () => {
@@ -1091,6 +1118,11 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
             focusMode={Boolean(selectedRow)}
             neighborhoodsModeLabel={isStateCityList ? 'Cidades' : 'Bairros'}
             showMunicipioBorders={isStateCityList}
+            showMuniOutline={showMuniOutline}
+            onShowMuniOutlineChange={(on) => {
+              setShowMuniOutline(on);
+              lastViewportKeyRef.current = '';
+            }}
             statsLine={mapStatsLine}
           />
           <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact zm-territory-map--pro zm-territory-map__frame">

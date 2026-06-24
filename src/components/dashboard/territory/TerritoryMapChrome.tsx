@@ -31,6 +31,8 @@ type Props = {
   focusMode: boolean;
   neighborhoodsModeLabel?: string;
   showMunicipioBorders?: boolean;
+  showMuniOutline?: boolean;
+  onShowMuniOutlineChange?: (on: boolean) => void;
   statsLine: string;
 };
 
@@ -56,20 +58,15 @@ export const TerritoryMapChrome: React.FC<Props> = ({
   focusMode,
   neighborhoodsModeLabel = 'Bairros',
   showMunicipioBorders = false,
+  showMuniOutline = true,
+  onShowMuniOutlineChange,
   statsLine,
 }) => {
-  const vizModes: Array<[NeighborhoodViz, string]> = showMunicipioBorders
-    ? [
-        ['borders', 'Contornos'],
-        ['heat', 'Calor'],
-        ['bubbles', 'Bolhas'],
-        ['labels', 'Rótulos'],
-      ]
-    : [
-        ['heat', 'Calor'],
-        ['bubbles', 'Bolhas'],
-        ['labels', 'Rótulos'],
-      ];
+  const vizModes: Array<[NeighborhoodViz, string]> = [
+    ['heat', 'Calor'],
+    ['bubbles', 'Bolhas'],
+    ['labels', 'Rótulos'],
+  ];
 
   return (
     <div className="zm-atlas-map-chrome">
@@ -109,6 +106,16 @@ export const TerritoryMapChrome: React.FC<Props> = ({
                 {label}
               </button>
             ))}
+            {showMunicipioBorders && onShowMuniOutlineChange && (
+              <button
+                type="button"
+                className={`zm-atlas-map-chrome__chip${showMuniOutline ? ' zm-atlas-map-chrome__chip--on' : ''}`}
+                onClick={() => onShowMuniOutlineChange(!showMuniOutline)}
+                title="Mostrar contornos oficiais dos municípios (IBGE) sobre o mapa"
+              >
+                Contornos
+              </button>
+            )}
           </div>
         )}
 

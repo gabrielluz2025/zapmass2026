@@ -3,7 +3,8 @@ import type { ContactTemperature } from '../../../utils/contactTemperature';
 import type { GeoCluster } from '../../../services/leadsGeoApi';
 import { parseGeoFilterCity, resolveContactCityState } from '../../../utils/contactAddressNormalize';
 import { approxCityCoord, isCoordPlausibleForCity } from '../../../utils/contactGeoValidate';
-import type { MunicipioCoordsIndex } from '../../../utils/municipioCoords';
+import { resolveMunicipioCoord, type MunicipioCoordsIndex } from '../../../utils/municipioCoords';
+import { isCoordLikelyOnLand } from '../../../utils/brazilMapCoords';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
 import {
   dominantNeighborhoodTemp,
@@ -16,7 +17,7 @@ function emptyStats(label: string): NbTempStats {
   return { label, hot: 0, warm: 0, cold: 0, new: 0, total: 0, clusterCount: 0 };
 }
 
-function cityLabelFromContact(c: Contact): string {
+function cityLabelFromContact(c: Contact, coordsIndex?: MunicipioCoordsIndex | null): string {
   const resolved = resolveContactCityState({
     city: c.city,
     state: c.state,
@@ -25,7 +26,9 @@ function cityLabelFromContact(c: Contact): string {
   const city = resolved.city.trim();
   const st = resolved.state.trim().toUpperCase().slice(0, 2);
   if (!city) return '';
-  return st ? `${city} · ${st}` : city;
+  const canon = resolveMunicipioCoord(city, st, coordsIndex);
+  const displayCity = canon?.canonicalCity || city;
+  return st ? `${displayCity} · ${st}` : displayCity;
 }
 
 function cityKey(label: string): string {
@@ -58,16 +61,22 @@ function coordForCity(
   const key = cityKey(label);
   const uf = resolveBrazilStateCode(stateCode) || stateCode;
   const cityName = label.split('·')[0]?.trim() || label;
+  const ibgeRef = resolveMunicipioCoord(cityName, uf, coordsIndex);
   const cluster = clusters.find((c) => {
     if (normalizeKey(c.state || '') !== normalizeKey(uf)) return false;
     if (cityKey(c.label) === key) return true;
     return c.precision === 'city' && normalizeKey(c.city) === normalizeKey(cityName);
   });
   if (cluster?.lat != null && cluster?.lng != null) {
-    if (isCoordPlausibleForCity(cluster.lat, cluster.lng, cityName, uf, 95)) {
+    const refCity = ibgeRef?.canonicalCity || cityName;
+    if (
+      isCoordLikelyOnLand(cluster.lat, cluster.lng) &&
+      isCoordPlausibleForCity(cluster.lat, cluster.lng, refCity, uf, ibgeRef ? 45 : 95)
+    ) {
       return { lat: cluster.lat, lng: cluster.lng };
     }
   }
+  if (ibgeRef) return { lat: ibgeRef.lat, lng: ibgeRef.lng };
   const parsed = parseGeoFilterCity(label);
   const parsedCityName = parsed.city || cityName;
   const st = parsed.state || uf;
@@ -97,7 +106,7 @@ export function buildCityRows(input: {
       resolved.state.trim().toUpperCase().slice(0, 2);
     if (contactUf !== uf) continue;
 
-    const label = cityLabelFromContact(c);
+    const label = cityLabelFromContact(c, input.coordsIndex);
     if (!label) continue;
     const key = cityKey(label);
     const slot = statsMap.get(key) || emptyStats(label);
