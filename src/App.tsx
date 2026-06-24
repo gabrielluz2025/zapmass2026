@@ -34,6 +34,7 @@ import { TabLoadErrorBoundary } from './components/TabLoadErrorBoundary';
 import { MainLayoutNavProvider } from './context/MainLayoutNavContext';
 import { AppViewProvider, useAppView } from './context/AppViewContext';
 import { AiAskPanel } from './components/ai/AiAskPanel';
+import { AiAssistantTab } from './components/ai/AiAssistantTab';
 import { useAiStatus } from './hooks/useAiStatus';
 import { EVENT_OPEN_CHANNEL_EXTRAS, markScrollToChannelExtras } from './utils/openChannelExtraFlow';
 import { readClientSurveyTokenFromWindow } from './utils/readClientSurveyTokenFromWindow';
@@ -351,6 +352,8 @@ const MainLayout: React.FC = () => {
         return <ContactsTab />;
       case 'contacts-map':
         return <ContactsMapTab />;
+      case 'ai-assistant':
+        return <AiAssistantTab />;
       case 'reports':
         return <ReportsTab />;
       case 'settings':
