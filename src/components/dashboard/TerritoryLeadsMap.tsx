@@ -7,6 +7,10 @@ import 'leaflet/dist/leaflet.css';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Contact, Conversation } from '../../types';
+import { useZapMassCore } from '../../context/ZapMassContext';
+import { AiSparkButton } from '../ai/AiSparkButton';
+import { useAiStatus } from '../../hooks/useAiStatus';
+import { aiMapDataQuality } from '../../services/aiApi';
 import {
   fetchLeadsGeoSummary,
   fetchMunicipiosGeoJson,
@@ -105,6 +109,14 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   contactsLoadingMore = false,
   onNavigate,
 }) => {
+  const { bulkUpdateContacts } = useZapMassCore();
+  const { configured: aiConfigured } = useAiStatus();
+  const [aiMapLoading, setAiMapLoading] = useState(false);
+  const [aiMapResult, setAiMapResult] = useState<{
+    summary: string;
+    tips: string[];
+    fixes: Array<{ id: string; neighborhood?: string; city?: string; state?: string; note?: string }>;
+  } | null>(null);
   const isPage = variant === 'page';
   const shouldDeferLoad = deferLoad && !isPage;
   const { cityLabel: city, applyCityLabel, loading: locationLoading, saving: locationSaving } =
@@ -357,6 +369,69 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
 
   const regionLabel =
     scope === 'city' ? city : stateRegionLabel || (stateCode ? `Estado ${stateCode}` : city);
+
+  const incompleteGeoSamples = useMemo(
+    () =>
+      scopeContacts
+        .filter((c) => !(c.neighborhood || '').trim() || !(c.city || '').trim() || !(c.state || '').trim())
+        .slice(0, 30)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          city: c.city,
+          state: c.state,
+          neighborhood: c.neighborhood,
+          phone: c.phone,
+        })),
+    [scopeContacts]
+  );
+
+  const runAiMapQuality = useCallback(async () => {
+    if (!aiConfigured || aiMapLoading) return;
+    if (incompleteGeoSamples.length === 0) {
+      toast('Nesta região, os contatos já têm bairro, cidade e UF preenchidos.', { icon: '✓' });
+      return;
+    }
+    setAiMapLoading(true);
+    setAiMapResult(null);
+    try {
+      const res = await aiMapDataQuality(regionLabel, incompleteGeoSamples);
+      if (!res.ok) throw new Error(res.error || 'Falha na IA');
+      setAiMapResult({ summary: res.summary, tips: res.tips, fixes: res.fixes });
+      if (!res.fixes.length) {
+        toast('IA analisou a região mas não sugeriu correções automáticas.', { icon: 'ℹ️' });
+      } else {
+        toast.success(`IA sugeriu correções para ${res.fixes.length} contato(s).`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha na IA.');
+    } finally {
+      setAiMapLoading(false);
+    }
+  }, [aiConfigured, aiMapLoading, incompleteGeoSamples, regionLabel]);
+
+  const applyAiMapFixes = useCallback(async () => {
+    if (!aiMapResult?.fixes.length) return;
+    const items = aiMapResult.fixes
+      .map((fix) => {
+        const c = contacts.find((x) => x.id === fix.id);
+        if (!c) return null;
+        const updates: Partial<Contact> = {};
+        if (fix.neighborhood?.trim() && !(c.neighborhood || '').trim()) updates.neighborhood = fix.neighborhood.trim();
+        if (fix.city?.trim() && !(c.city || '').trim()) updates.city = fix.city.trim();
+        if (fix.state?.trim() && !(c.state || '').trim()) updates.state = fix.state.trim().toUpperCase().slice(0, 2);
+        if (Object.keys(updates).length === 0) return null;
+        return { id: fix.id, updates };
+      })
+      .filter((x): x is { id: string; updates: Partial<Contact> } => x !== null);
+    if (items.length === 0) {
+      toast('Nenhuma correção aplicável — os campos já estão preenchidos.', { icon: 'ℹ️' });
+      return;
+    }
+    await bulkUpdateContacts(items, { silent: true });
+    toast.success(`Correções da IA aplicadas em ${items.length} contato(s).`);
+    setAiMapResult(null);
+  }, [aiMapResult, contacts, bulkUpdateContacts]);
 
   const buildAtlasLaunch = useCallback(
     (neighborhood?: string): AtlasRegionLaunch => {
@@ -1113,6 +1188,54 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         onLaunchCampaign={handleLaunchCampaign}
         onOpenContacts={handleOpenContacts}
       />
+
+      {aiConfigured && incompleteGeoSamples.length > 0 && (
+        <div className="zm-ai-map-banner">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              <b>{incompleteGeoSamples.length}</b> contato(s) com bairro/cidade/UF incompletos em{' '}
+              <b>{regionLabel}</b>.
+            </span>
+            <AiSparkButton
+              label="IA corrigir dados"
+              loading={aiMapLoading}
+              disabled={aiMapLoading}
+              onClick={() => void runAiMapQuality()}
+              title="Gemini sugere bairro e localização plausíveis para a região"
+            />
+          </div>
+          {aiMapResult && (
+            <div className="mt-2 space-y-2">
+              {aiMapResult.summary && <p>{aiMapResult.summary}</p>}
+              {aiMapResult.tips.length > 0 && (
+                <ul>
+                  {aiMapResult.tips.slice(0, 3).map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              )}
+              {aiMapResult.fixes.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    className="zm-ai-ask-panel__send"
+                    onClick={() => void applyAiMapFixes()}
+                  >
+                    Aplicar {aiMapResult.fixes.length} correção(ões)
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[11px] text-slate-500 underline"
+                    onClick={() => setAiMapResult(null)}
+                  >
+                    Descartar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <TerritoryTempRiver
         totals={regionTemps}

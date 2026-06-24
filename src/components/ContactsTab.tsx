@@ -67,6 +67,9 @@ import { validateImportRow } from '../utils/contactImportSchema';
 import { apiNormalizeContactAddresses } from '../services/contactsApi';
 import { apiGeocodeContacts, apiNormalizeAddresses } from '../services/leadsGeoApi';
 import { apiFetchJson } from '../utils/apiFetchAuth';
+import { AiSparkButton } from './ai/AiSparkButton';
+import { useAiStatus } from '../hooks/useAiStatus';
+import { aiEnrichContact, aiOrganizeImportRows, aiParseContactsText } from '../services/aiApi';
 
 const BR_STATES = new Set(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']);
 
@@ -774,6 +777,10 @@ export const ContactsTab: React.FC = () => {
   } = useZapMassCore();
   const { currentView, setCurrentView } = useAppView();
   const { segment } = useAppProfile();
+  const { configured: aiConfigured } = useAiStatus();
+  const [aiImportLoading, setAiImportLoading] = useState(false);
+  const [aiSmartImportLoading, setAiSmartImportLoading] = useState(false);
+  const [aiEnrichLoading, setAiEnrichLoading] = useState(false);
   /** Evita travar a UI quando o socket atualiza conversas em alta frequência — o cálculo de temperatura acompanha com pequeno atraso. */
   const deferredConversations = useDeferredValue(conversations);
 
@@ -2737,6 +2744,158 @@ export const ContactsTab: React.FC = () => {
     }
   }, [contacts]);
 
+  const aiOrganizeFileImportRows = useCallback(async () => {
+    const prevRows = fileImportRowsRef.current;
+    if (!aiConfigured || prevRows.length === 0) return;
+    if (fileImportPipelineBusyRef.current) {
+      toast.error('Importação em curso — aguarde para usar a IA.');
+      return;
+    }
+    if (autoFixRunLockRef.current || aiImportLoading) return;
+    setAiImportLoading(true);
+    setAutoFixProgress({ percent: 0, message: 'IA organizando dados…' });
+    try {
+      const fixByLine = new Map<number, Awaited<ReturnType<typeof aiOrganizeImportRows>>['rows'][number]>();
+      for (let i = 0; i < prevRows.length; i += 25) {
+        const batch = prevRows.slice(i, i + 25);
+        const payload = batch.map((r) => ({
+          lineNumber: r.lineNumber,
+          name: r.contact.name,
+          phone: r.contact.phone,
+          city: r.contact.city,
+          state: r.contact.state,
+          neighborhood: r.contact.neighborhood,
+          email: r.contact.email,
+          church: r.contact.church,
+          role: r.contact.role,
+        }));
+        setAutoFixProgress({
+          percent: Math.min(99, Math.round((100 * i) / prevRows.length)),
+          message: `IA organizando linhas ${i + 1}–${Math.min(i + 25, prevRows.length)}…`,
+        });
+        const res = await aiOrganizeImportRows(payload);
+        if (!res.ok) throw new Error(res.error || 'Falha na IA');
+        for (const row of res.rows) fixByLine.set(row.lineNumber, row);
+      }
+      setFileImportRows((rows) =>
+        rows.map((r) => {
+          const fix = fixByLine.get(r.lineNumber);
+          if (!fix) return r;
+          return {
+            ...r,
+            contact: {
+              ...r.contact,
+              name: fix.name?.trim() ? fix.name : r.contact.name,
+              phone: fix.phone ? normalizeBRPhone(fix.phone) : r.contact.phone,
+              city: fix.city?.trim() ? fix.city : r.contact.city,
+              state: fix.state?.trim() ? fix.state.toUpperCase().slice(0, 2) : r.contact.state,
+              neighborhood: fix.neighborhood?.trim() ? fix.neighborhood : r.contact.neighborhood,
+              email: fix.email?.trim() ? fix.email : r.contact.email,
+              church: fix.church?.trim() ? fix.church : r.contact.church,
+              role: fix.role?.trim() ? fix.role : r.contact.role,
+            },
+          };
+        })
+      );
+      const fixCount = fixByLine.size;
+      toast.success(
+        fixCount > 0
+          ? `IA revisou ${fixCount} linha(s). Confira os dados antes de importar.`
+          : 'IA não sugeriu alterações — revise manualmente se necessário.'
+      );
+    } catch (err) {
+      console.error('[aiOrganizeFileImportRows]', err);
+      toast.error(err instanceof Error ? err.message : 'Falha na IA.');
+    } finally {
+      setAiImportLoading(false);
+      setAutoFixProgress(null);
+    }
+  }, [aiConfigured, aiImportLoading]);
+
+  const aiParseSmartImportWithAi = useCallback(async () => {
+    if (!aiConfigured || !smartImportRaw.trim()) {
+      if (!smartImportRaw.trim()) toast.error('Cole algum conteúdo primeiro.');
+      return;
+    }
+    if (aiSmartImportLoading) return;
+    setAiSmartImportLoading(true);
+    try {
+      const res = await aiParseContactsText(smartImportRaw);
+      if (!res.ok) throw new Error(res.error || 'Falha na IA');
+      const parsed = res.contacts.map((c) =>
+        mkSmartRow({
+          name: c.name || '',
+          phone: c.phone || '',
+          email: c.email || '',
+          city: c.city || '',
+          state: c.state || '',
+          neighborhood: c.neighborhood || '',
+          church: c.church || '',
+          role: c.role || '',
+        })
+      );
+      if (parsed.length === 0) {
+        toast.error('A IA não identificou contatos no texto.');
+        return;
+      }
+      setSmartImportPreviewFilter('all');
+      setSmartImportRows(enrichSmartImportParsedForInclude(parsed, contacts));
+      toast.success(`${parsed.length} contato(s) extraído(s) pela IA. Revise antes de importar.`);
+    } catch (err) {
+      console.error('[aiParseSmartImport]', err);
+      toast.error(err instanceof Error ? err.message : 'Falha na IA.');
+    } finally {
+      setAiSmartImportLoading(false);
+    }
+  }, [aiConfigured, smartImportRaw, contacts, aiSmartImportLoading]);
+
+  const handleAiEnrichContact = useCallback(async () => {
+    if (!aiConfigured || aiEnrichLoading) return;
+    setAiEnrichLoading(true);
+    try {
+      const res = await aiEnrichContact({
+        name: newContact.name,
+        phone: newContact.phone,
+        city: newContact.city,
+        state: newContact.state,
+        street: newContact.street,
+        number: newContact.number,
+        neighborhood: newContact.neighborhood,
+        zipCode: newContact.zipCode,
+        church: newContact.church,
+        role: newContact.role,
+        email: newContact.email,
+        profession: newContact.profession,
+      });
+      if (!res.ok) throw new Error(res.error || 'Falha na IA');
+      const patch = res.contact;
+      setNewContact((prev) => ({
+        ...prev,
+        name: patch.name?.trim() || prev.name,
+        phone: patch.phone ? normalizeBRPhone(patch.phone) : prev.phone,
+        city: patch.city?.trim() || prev.city,
+        state: patch.state?.trim()?.toUpperCase().slice(0, 2) || prev.state,
+        street: patch.street?.trim() || prev.street,
+        number: patch.number?.trim() || prev.number,
+        neighborhood: patch.neighborhood?.trim() || prev.neighborhood,
+        zipCode: patch.zipCode?.trim() || prev.zipCode,
+        church: patch.church?.trim() || prev.church,
+        role: patch.role?.trim() || prev.role,
+        email: patch.email?.trim() || prev.email,
+      }));
+      if (res.suggestions.length > 0) {
+        toast(res.suggestions.slice(0, 2).join(' · '), { icon: '✨', duration: 5000 });
+      } else {
+        toast.success('IA completou os campos disponíveis.');
+      }
+    } catch (err) {
+      console.error('[handleAiEnrichContact]', err);
+      toast.error(err instanceof Error ? err.message : 'Falha na IA.');
+    } finally {
+      setAiEnrichLoading(false);
+    }
+  }, [aiConfigured, aiEnrichLoading, newContact]);
+
   const runSingleFileImportPayload = useCallback(
     async (job: FileImportQueuedPayload, queuedBehind: number): Promise<void> => {
       const snapshotRows = job.snapshotRows;
@@ -4383,6 +4542,18 @@ export const ContactsTab: React.FC = () => {
                  </button>
               </div>
 
+              {aiConfigured && (
+                <div className="px-6 pt-4 flex justify-end">
+                  <AiSparkButton
+                    label="IA completar dados"
+                    loading={aiEnrichLoading}
+                    disabled={aiEnrichLoading}
+                    onClick={() => void handleAiEnrichContact()}
+                    title="A IA normaliza e sugere endereço, cidade, UF e campos em branco"
+                  />
+                </div>
+              )}
+
               <div className="p-6 space-y-6 overflow-y-auto max-h-[80vh]">
                  
                  {/* Section: Personal Info */}
@@ -4944,14 +5115,23 @@ export const ContactsTab: React.FC = () => {
                   </div>
                 </div>
               )}
-              <div className="flex items-center justify-end">
+              <div className="flex items-center justify-end gap-2">
+                {aiConfigured && (
+                  <AiSparkButton
+                    label="IA organizar"
+                    loading={aiImportLoading}
+                    disabled={autoFixProgress !== null || aiImportLoading || fileImportRows.length === 0}
+                    onClick={() => void aiOrganizeFileImportRows()}
+                    title="Usa Gemini para corrigir nomes, telefones e endereços antes de importar"
+                  />
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
                   type="button"
-                  loading={autoFixProgress !== null}
+                  loading={autoFixProgress !== null && !aiImportLoading}
                   onClick={() => void autoFixFileImportRows()}
-                  disabled={autoFixProgress !== null}
+                  disabled={autoFixProgress !== null || aiImportLoading}
                 >
                   Correção automática (todos)
                 </Button>
@@ -5322,6 +5502,15 @@ export const ContactsTab: React.FC = () => {
                     >
                       Analisar conteudo
                     </Button>
+                    {aiConfigured && (
+                      <AiSparkButton
+                        label="Analisar com IA"
+                        loading={aiSmartImportLoading}
+                        disabled={aiSmartImportLoading || !smartImportRaw.trim()}
+                        onClick={() => void aiParseSmartImportWithAi()}
+                        title="Gemini extrai contatos de textos bagunçados (Word, listas, etc.)"
+                      />
+                    )}
                   </div>
                 </div>
               </div>
@@ -5744,6 +5933,7 @@ export const ContactsTab: React.FC = () => {
           </div>
         </div>
       )}
+
     </div>
   );
 };
