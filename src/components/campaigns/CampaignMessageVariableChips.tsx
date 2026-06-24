@@ -44,7 +44,7 @@ export const CampaignMessageVariableChips: React.FC<Props> = ({
           onClick={() => setExpanded((e) => !e)}
           aria-expanded={expanded}
         >
-          <span>Personalizar com variáveis ({WIZARD_CAMPAIGN_VARS_PRIMARY.length + fichaVars.length})</span>
+          <span>Variáveis de personalização ({WIZARD_CAMPAIGN_VARS_PRIMARY.length + fichaVars.length})</span>
           <ChevronDown
             className="w-4 h-4 shrink-0 transition-transform"
             style={{ transform: expanded ? 'rotate(180deg)' : undefined }}
