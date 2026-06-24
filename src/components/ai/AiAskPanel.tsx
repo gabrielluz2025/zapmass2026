@@ -82,7 +82,12 @@ export const AiAskPanel: React.FC<Props> = ({
           Perguntar
         </button>
         {error && <p className="zm-ai-ask-panel__error">{error}</p>}
-        {answer && <div className="zm-ai-ask-panel__answer">{answer}</div>}
+        {answer && (
+          <div className="zm-ai-ask-panel__answer">
+            {answer}
+            <p className="zm-ai-ask-panel__data-note">Resposta com dados ao vivo da sua conta.</p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -2,6 +2,11 @@ import type { Express, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireTenant } from './httpTenant.js';
 import { geminiGenerateJson, geminiGenerateText, isGeminiConfigured } from './geminiService.js';
+import {
+  buildAiAssistSystemInstruction,
+  buildAiAssistUserPrompt,
+  buildAiTenantSnapshot,
+} from './aiContextService.js';
 
 const aiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -231,12 +236,18 @@ export function registerAiAssistantRoutes(app: Express): void {
     }
 
     try {
+      const snapshot = await buildAiTenantSnapshot(
+        ctx.tenantId,
+        screen,
+        question,
+        context
+      );
       const answer = await geminiGenerateText(
-        `Tela: ${screen}\nContexto: ${JSON.stringify(context ?? {}).slice(0, 4000)}\n\nPergunta: ${question}`,
-        `${SYSTEM_PT} Responda de forma prática e curta (máx. 8 frases). Se for sobre dados do ZapMass, sugira passos clicáveis.`,
+        buildAiAssistUserPrompt(screen, question, snapshot),
+        buildAiAssistSystemInstruction(),
         { jsonMode: false }
       );
-      return res.json({ ok: true, answer });
+      return res.json({ ok: true, answer, dataUsed: true });
     } catch (e) {
       console.error('[ai/assist]', e);
       return res.status(502).json({ ok: false, error: e instanceof Error ? e.message : 'Falha na IA.' });

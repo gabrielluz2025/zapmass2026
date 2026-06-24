@@ -99,7 +99,7 @@ export async function aiSuggestCampaignMessage(brief: string, current: string, s
 }
 
 export async function aiAsk(screen: string, question: string, context?: unknown) {
-  return apiFetchJson<{ ok: boolean; answer: string; error?: string }>('/api/ai/assist', {
+  return apiFetchJson<{ ok: boolean; answer: string; dataUsed?: boolean; error?: string }>('/api/ai/assist', {
     method: 'POST',
     body: JSON.stringify({ screen, question, context }),
   });

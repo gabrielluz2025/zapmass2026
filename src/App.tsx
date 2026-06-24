@@ -450,7 +450,7 @@ const MainLayout: React.FC = () => {
       {aiConfigured && (
         <div className="fixed bottom-20 right-4 z-[80] sm:bottom-6 sm:right-6 pointer-events-none">
           <div className="pointer-events-auto">
-            <AiAskPanel screen={currentView} compact placeholder="Pergunte à IA sobre esta tela…" />
+            <AiAskPanel screen={currentView} compact placeholder="Pergunte sobre seus contatos, bairros, campanhas…" />
           </div>
         </div>
       )}
