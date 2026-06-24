@@ -99,6 +99,9 @@ services:
       WA_FULL_INBOX_SYNC: ${WA_FULL_INBOX_SYNC:-0}
       # 1 (default): arquivar mensagens no Firestore (users/{uid}/waChatThreads) — Firebase Admin obrigatório.
       WA_CHAT_ARCHIVE: ${WA_CHAT_ARCHIVE:-1}
+      # Assistente IA (Gemini) — exportado por deployment/vps-deploy.sh antes do stack deploy.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
     env_file:
       - .env
     extra_hosts:

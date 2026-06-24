@@ -93,6 +93,8 @@ services:
       ADMIN_UIDS: ${ADMIN_UIDS:-${ZAPMASS_ADMIN_UIDS:-}}
       ZAPMASS_ADMIN_UIDS: ${ZAPMASS_ADMIN_UIDS:-}
       WWEBJS_WEB_VERSION_URL: ${WWEBJS_WEB_VERSION_URL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
     env_file:
       - path: .env
         required: false
