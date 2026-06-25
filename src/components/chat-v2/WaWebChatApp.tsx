@@ -1,5 +1,6 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
+import { aiSuggestChatReplies } from '../../services/aiApi';
 import { useAuth } from '../../context/AuthContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import {
@@ -468,6 +469,21 @@ export const WaWebChatApp: React.FC<{
     [selected?.id, loadMessageMedia]
   );
 
+  const handleGetAiSuggestions = useCallback(async (): Promise<string[]> => {
+    if (!selected?.messages?.length) return [];
+    const msgs = (selected.messages ?? []).slice(-8).map((m) => ({
+      sender: m.sender === 'me' ? 'eu' : 'contato',
+      text: (m.text || '').trim(),
+      type: m.type || 'text',
+    })).filter((m) => m.text || m.type !== 'text');
+    const res = await aiSuggestChatReplies(msgs);
+    if (!res.ok || res.suggestions.length === 0) {
+      toast.error('IA não conseguiu gerar sugestões. Tente novamente.');
+      return [];
+    }
+    return res.suggestions;
+  }, [selected]);
+
   const handleExportConversation = useCallback(() => {
     if (!selected) return;
     const msgs = selected.messages ?? [];
@@ -702,6 +718,7 @@ export const WaWebChatApp: React.FC<{
         hideOnMobile={!mobileShowThread}
         onLoadMedia={handleLoadMedia}
         onExport={selected ? handleExportConversation : undefined}
+        onGetAiSuggestions={selected && !isSelectedDraft ? handleGetAiSuggestions : undefined}
         isDraft={isSelectedDraft}
         draftChannels={connections}
         draftChannelId={selectedDraftChannelId}

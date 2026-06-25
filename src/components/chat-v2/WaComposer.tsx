@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Download, Loader2, Mic, MicOff, Paperclip, Send, Square } from 'lucide-react';
+import { Download, Loader2, Mic, MicOff, Paperclip, Send, Sparkles, Square, X } from 'lucide-react';
 import type { WhatsAppConnection } from '../../types';
 import { ConnectionStatus } from '../../types';
 
@@ -11,8 +11,9 @@ type Props = {
   sendingMedia?: boolean;
   onSend: (text: string) => void;
   onAttach?: (file: File, caption?: string) => void;
-  /** Exportar conversa como texto */
   onExport?: () => void;
+  /** Função para gerar sugestões de resposta via IA */
+  onGetAiSuggestions?: () => Promise<string[]>;
   isDraft?: boolean;
   draftChannels?: WhatsAppConnection[];
   draftChannelId?: string;
@@ -21,12 +22,14 @@ type Props = {
 
 export const WaComposer: React.FC<Props> = ({
   disabled, disabledHint, sendingMedia,
-  onSend, onAttach, onExport,
+  onSend, onAttach, onExport, onGetAiSuggestions,
   isDraft, draftChannels, draftChannelId, onDraftChannelChange,
 }) => {
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [loadingAi, setLoadingAi] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -38,7 +41,6 @@ export const WaComposer: React.FC<Props> = ({
   const blocked = disabled || (isDraft && !draftChannelId);
   const hasText = text.trim().length > 0;
 
-  /* ── Timer de gravação ── */
   useEffect(() => {
     if (recording) {
       setRecSeconds(0);
@@ -50,11 +52,12 @@ export const WaComposer: React.FC<Props> = ({
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [recording]);
 
-  const submit = () => {
-    const t = text.trim();
+  const submit = (override?: string) => {
+    const t = (override ?? text).trim();
     if (!t || blocked || busy) return;
     onSend(t);
     setText('');
+    setAiSuggestions([]);
     if (textRef.current) textRef.current.style.height = 'auto';
   };
 
@@ -79,16 +82,13 @@ export const WaComposer: React.FC<Props> = ({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-          ? 'audio/ogg;codecs=opus'
-          : 'audio/webm';
+        : 'audio/webm';
       const recorder = new MediaRecorder(stream, { mimeType });
       chunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mimeType });
-        const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
-        const file = new File([blob], `audio_${Date.now()}.${ext}`, { type: mimeType });
+        const file = new File([blob], `audio_${Date.now()}.webm`, { type: mimeType });
         onAttach(file);
         stream.getTracks().forEach((t) => t.stop());
       };
@@ -117,6 +117,21 @@ export const WaComposer: React.FC<Props> = ({
     setRecording(false);
   };
 
+  /* ── Sugestões de IA ── */
+  const handleAiSuggest = async () => {
+    if (!onGetAiSuggestions || loadingAi) return;
+    setLoadingAi(true);
+    setAiSuggestions([]);
+    try {
+      const suggestions = await onGetAiSuggestions();
+      setAiSuggestions(suggestions);
+    } catch {
+      // silencioso
+    } finally {
+      setLoadingAi(false);
+    }
+  };
+
   const fmtTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   return (
@@ -140,27 +155,51 @@ export const WaComposer: React.FC<Props> = ({
         </div>
       )}
 
+      {/* ── Chips de sugestão IA ── */}
+      {(aiSuggestions.length > 0 || loadingAi) && (
+        <div className="wa-ai-suggestions">
+          {loadingAi ? (
+            <div className="wa-ai-suggestions__loading">
+              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              <span>Gemini pensando…</span>
+            </div>
+          ) : (
+            <>
+              <Sparkles className="w-3 h-3 flex-shrink-0" style={{ color: '#818cf8' }} />
+              {aiSuggestions.map((s, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="wa-ai-chip"
+                  onClick={() => submit(s)}
+                >
+                  {s}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="wa-ai-suggestions__close"
+                onClick={() => setAiSuggestions([])}
+                title="Fechar sugestões"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Barra de gravação ── */}
       {recording && (
         <div className="wa-rec-bar">
           <span className="wa-rec-dot" />
           <span className="wa-rec-time">{fmtTime(recSeconds)}</span>
-          <span className="wa-rec-label">Gravando áudio…</span>
-          <button
-            type="button"
-            className="wa-rec-cancel"
-            onClick={cancelRecording}
-            title="Cancelar"
-          >
-            <MicOff className="w-4 h-4" /> Cancelar
+          <span className="wa-rec-label">Gravando…</span>
+          <button type="button" className="wa-rec-cancel" onClick={cancelRecording} title="Cancelar">
+            <MicOff className="w-3.5 h-3.5" /> Cancelar
           </button>
-          <button
-            type="button"
-            className="wa-rec-stop"
-            onClick={stopRecording}
-            title="Parar e enviar"
-          >
-            <Square className="w-3.5 h-3.5 fill-current" /> Enviar
+          <button type="button" className="wa-rec-stop" onClick={stopRecording} title="Enviar áudio">
+            <Square className="w-3 h-3 fill-current" /> Enviar
           </button>
         </div>
       )}
@@ -172,12 +211,9 @@ export const WaComposer: React.FC<Props> = ({
 
           {onAttach && (
             <button
-              type="button"
-              className="wa-composer-btn"
-              disabled={blocked || busy}
-              onClick={pickFile}
-              aria-label="Anexar arquivo"
-              title="Foto, vídeo ou documento"
+              type="button" className="wa-composer-btn"
+              disabled={blocked || busy} onClick={pickFile}
+              aria-label="Anexar" title="Foto, vídeo ou documento"
             >
               <Paperclip className="w-5 h-5" />
             </button>
@@ -200,44 +236,53 @@ export const WaComposer: React.FC<Props> = ({
               const el = e.target;
               el.style.height = 'auto';
               el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+              if (aiSuggestions.length > 0) setAiSuggestions([]);
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
             }}
           />
 
-          {/* Mic ou Send dependendo do estado */}
-          {!hasText && onAttach && !blocked && !busy ? (
+          {/* Botão IA */}
+          {onGetAiSuggestions && !hasText && !blocked && !busy && (
             <button
               type="button"
-              className="wa-composer-btn wa-composer-btn--mic"
-              onClick={startRecording}
-              aria-label="Gravar áudio"
-              title="Gravar mensagem de voz"
+              className="wa-composer-btn wa-composer-btn--ai"
+              onClick={handleAiSuggest}
+              disabled={loadingAi}
+              aria-label="Sugerir resposta com IA"
+              title="Gemini: sugerir resposta"
+            >
+              {loadingAi
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Sparkles className="w-4 h-4" />
+              }
+            </button>
+          )}
+
+          {/* Mic ou Send */}
+          {!hasText && onAttach && !blocked && !busy ? (
+            <button
+              type="button" className="wa-composer-btn wa-composer-btn--mic"
+              onClick={startRecording} aria-label="Gravar áudio" title="Gravar mensagem de voz"
             >
               <Mic className="w-5 h-5" />
             </button>
           ) : (
             <button
-              type="button"
-              className="wa-composer-send"
+              type="button" className="wa-composer-send"
               data-mode={hasText ? 'send' : undefined}
-              disabled={blocked || busy || !hasText}
-              onClick={submit}
+              disabled={blocked || busy || !hasText} onClick={() => submit()}
               aria-label="Enviar"
             >
               {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
           )}
 
-          {/* Exportar conversa */}
           {onExport && (
             <button
-              type="button"
-              className="wa-composer-btn"
-              onClick={onExport}
-              aria-label="Exportar conversa"
-              title="Baixar conversa como texto"
+              type="button" className="wa-composer-btn"
+              onClick={onExport} aria-label="Exportar conversa" title="Baixar conversa como texto"
             >
               <Download className="w-4 h-4" />
             </button>

@@ -105,3 +105,28 @@ export async function aiAsk(screen: string, question: string, context?: unknown)
     body: JSON.stringify({ screen, question, context }),
   });
 }
+
+/** Sugere 2-3 respostas rápidas para a última mensagem recebida no chat */
+export async function aiSuggestChatReplies(
+  lastMessages: Array<{ sender: string; text: string; type: string }>
+): Promise<{ ok: boolean; suggestions: string[]; error?: string }> {
+  const result = await apiFetchJson<{ ok: boolean; answer: string; error?: string }>('/api/ai/assist', {
+    method: 'POST',
+    body: JSON.stringify({
+      screen: 'chat',
+      question:
+        'Baseado nas últimas mensagens desta conversa de WhatsApp, sugira EXATAMENTE 3 respostas curtas, naturais e prontas para enviar. ' +
+        'Retorne SOMENTE as 3 respostas separadas pelo símbolo | (pipe), sem numeração, sem aspas, sem explicação. Máximo 12 palavras cada.',
+      context: { messages: lastMessages.slice(-6) },
+    }),
+  });
+  if (!result.ok || !result.answer) {
+    return { ok: false, suggestions: [], error: result.error };
+  }
+  const suggestions = result.answer
+    .split('|')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.length < 120)
+    .slice(0, 3);
+  return { ok: true, suggestions };
+}
