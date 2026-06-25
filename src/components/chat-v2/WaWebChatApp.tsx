@@ -472,10 +472,22 @@ export const WaWebChatApp: React.FC<{
   }, [selected?.id, isSelectedDraft, hydrateFirestoreChatArchive]);
 
   const handleLoadMedia = useCallback(
-    async (messageId: string) => {
-      if (!selected?.id) return;
-      const res = await loadMessageMedia(selected.id, messageId);
-      if (!res.ok && res.error) toast.error(res.error);
+    async (messageId: string): Promise<string | null> => {
+      if (!selected?.id) return null;
+      // Timeout de 30s — Evolution API pode demorar
+      const timeoutPromise = new Promise<{ ok: boolean; error?: string }>((resolve) =>
+        setTimeout(() => resolve({ ok: false, error: 'Tempo esgotado. Tente novamente.' }), 30_000)
+      );
+      const res = await Promise.race([
+        loadMessageMedia(selected.id, messageId),
+        timeoutPromise,
+      ]) as { ok: boolean; mediaUrl?: string; error?: string };
+      if (!res.ok) {
+        if (res.error) toast.error(`Mídia: ${res.error}`);
+        return null;
+      }
+      // Retorna a URL para o componente atualizar localmente (conversation-delta pode não chegar)
+      return res.mediaUrl || null;
     },
     [selected?.id, loadMessageMedia]
   );

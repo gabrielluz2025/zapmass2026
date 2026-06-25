@@ -52,7 +52,7 @@ type Props = {
   sendingMedia?: boolean;
   onOpenContactInfo?: () => void;
   hideOnMobile?: boolean;
-  onLoadMedia?: (messageId: string) => void;
+  onLoadMedia?: (messageId: string) => Promise<string | null>;
   isDraft?: boolean;
   draftChannels?: WhatsAppConnection[];
   draftChannelId?: string;
