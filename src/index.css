@@ -59,25 +59,25 @@
   --brand-800: #065f46;
   --brand-900: #064e3b;
 
-  /* Surfaces — Dark Pro */
-  --bg:        #0a0f18;
-  --surface-0: #0f1623;
-  --surface-1: #141d2e;
-  --surface-2: #1a2438;
-  --surface-3: #212c43;
+  /* Surfaces — Pure Dark (preto puro com toque neutro) */
+  --bg:        #09090b;
+  --surface-0: #111115;
+  --surface-1: #18181d;
+  --surface-2: #202027;
+  --surface-3: #28282f;
   --surface:   var(--surface-0);
 
-  /* Borders */
-  --border-subtle: rgba(255,255,255,0.055);
-  --border:        rgba(255,255,255,0.095);
-  --border-strong: rgba(16,185,129,0.32);
+  /* Borders — mais contrastados no preto */
+  --border-subtle: rgba(255,255,255,0.07);
+  --border:        rgba(255,255,255,0.12);
+  --border-strong: rgba(16,185,129,0.38);
 
-  /* Text */
-  --text:    #e8edf5;
-  --text-1:  #e8edf5;
-  --text-2:  #7b93b8;
-  --text-3:  #49607e;
-  --muted:   #4a6178;
+  /* Text — mais brilhante no fundo preto */
+  --text:    #f0f2f8;
+  --text-1:  #f0f2f8;
+  --text-2:  #8896aa;
+  --text-3:  #4e5e72;
+  --muted:   #4a5a6a;
 
   /* Semantic */
   --accent:         #10B981;
@@ -114,17 +114,17 @@
   --radius-xl:  18px;
   --radius-2xl: 24px;
 
-  /* Shadows — dark */
-  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-sm: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 12px rgba(0,0,0,0.28);
-  --shadow-md: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.40);
-  --shadow-lg: 0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.55);
-  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.28), 0 0 14px rgba(16,185,129,0.16);
-  --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.45), 0 0 24px rgba(16,185,129,0.28);
+  /* Shadows — pure dark elevação real */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-sm: 0 0 0 1px rgba(255,255,255,0.06) inset, 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-md: 0 0 0 1px rgba(255,255,255,0.07) inset, 0 8px 32px rgba(0,0,0,0.65);
+  --shadow-lg: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 20px 56px rgba(0,0,0,0.75);
+  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.35), 0 0 20px rgba(16,185,129,0.20);
+  --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.50), 0 0 28px rgba(16,185,129,0.35);
 
   /* Sidebar */
-  --sidebar-bg:         #080c14;
-  --sidebar-bg-2:       #080c14;
+  --sidebar-bg:         #060608;
+  --sidebar-bg-2:       #060608;
   --sidebar-border:     rgba(255,255,255,0.06);
   --sidebar-text:       #E2E8F0;
   --sidebar-text-muted: rgba(148,163,184,0.65);
@@ -155,27 +155,27 @@
   --surface-selected-brand: color-mix(in srgb, var(--brand-500) 20%, var(--surface-1));
 }
 
-/* Modo escuro explícito — idêntico ao :root (dark é o padrão) */
+/* Modo escuro explícito — idêntico ao :root */
 html[data-mode='dark'] {
-  --bg:        #0a0f18;
-  --surface-0: #0f1623;
-  --surface-1: #141d2e;
-  --surface-2: #1a2438;
-  --surface-3: #212c43;
-  --border-subtle: rgba(255,255,255,0.055);
-  --border:        rgba(255,255,255,0.095);
-  --border-strong: rgba(16,185,129,0.32);
-  --text:   #e8edf5;
-  --text-1: #e8edf5;
-  --text-2: #7b93b8;
-  --text-3: #49607e;
-  --muted:  #4a6178;
-  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-sm: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 12px rgba(0,0,0,0.28);
-  --shadow-md: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.40);
-  --shadow-lg: 0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.55);
-  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.28), 0 0 14px rgba(16,185,129,0.16);
-  --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.45), 0 0 24px rgba(16,185,129,0.28);
+  --bg:        #09090b;
+  --surface-0: #111115;
+  --surface-1: #18181d;
+  --surface-2: #202027;
+  --surface-3: #28282f;
+  --border-subtle: rgba(255,255,255,0.07);
+  --border:        rgba(255,255,255,0.12);
+  --border-strong: rgba(16,185,129,0.38);
+  --text:   #f0f2f8;
+  --text-1: #f0f2f8;
+  --text-2: #8896aa;
+  --text-3: #4e5e72;
+  --muted:  #4a5a6a;
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-sm: 0 0 0 1px rgba(255,255,255,0.06) inset, 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-md: 0 0 0 1px rgba(255,255,255,0.07) inset, 0 8px 32px rgba(0,0,0,0.65);
+  --shadow-lg: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 20px 56px rgba(0,0,0,0.75);
+  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.35), 0 0 20px rgba(16,185,129,0.20);
+  --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.50), 0 0 28px rgba(16,185,129,0.35);
   --semantic-success-fg:  #34d399;
   --semantic-warning-fg:  #fbbf24;
   --semantic-danger-fg:   #f87171;
@@ -238,7 +238,10 @@ html[data-mode='light'] {
   }
 
   body {
-    background: var(--bg);
+    background-color: var(--bg);
+    /* Grão sutil para dar textura ao fundo preto */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     color: var(--text);
     line-height: 1.6;

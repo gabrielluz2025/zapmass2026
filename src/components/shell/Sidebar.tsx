@@ -281,22 +281,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     aria-current={isActive ? 'page' : undefined}
                     title={collapsed ? item.label : undefined}
                     className={`zm-nav-item-aurora w-full flex items-center gap-3 ${
-                      collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2'
-                    } text-[13px] font-medium group relative ${
-                      isActive ? 'is-active text-white' : 'text-slate-400 hover:text-slate-100'
+                      collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'
+                    } text-[13px] group relative ${
+                      isActive ? 'is-active font-semibold' : 'font-medium text-slate-400 hover:text-slate-100'
                     }`}
+                    style={isActive ? { color: '#f0f9f4' } : {}}
                   >
                     <Icon
-                      className={`flex-shrink-0 transition-colors ${
-                        isActive ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-200'
-                      }`}
-                      style={{ width: '17px', height: '17px' }}
+                      className="flex-shrink-0 transition-colors"
+                      style={{
+                        width: '16px', height: '16px',
+                        color: isActive ? 'var(--brand-400)' : undefined,
+                      }}
                     />
                     {!collapsed && (
                       <>
                         <span className="flex-1 text-left truncate">{item.label}</span>
                         {isActive && (
-                          <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--brand-500)' }} />
+                          <div
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ background: 'var(--brand-500)', boxShadow: '0 0 6px rgba(16,185,129,0.8)' }}
+                          />
                         )}
                       </>
                     )}

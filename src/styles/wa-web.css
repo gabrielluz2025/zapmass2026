@@ -5,21 +5,21 @@
  * ====================================================================== */
 
 :root {
-  /* Cores WA Web — dark-first (padrão do ZapMass) */
-  --wa-bg:            #0a0f18;
-  --wa-panel:         #0f1623;
-  --wa-panel-2:       #141d2e;
-  --wa-header:        #0f1623;
-  --wa-search:        #1a2438;
-  --wa-divider:       rgba(255,255,255,0.06);
-  --wa-bubble-in:     #1a2438;
+  /* Cores WA Web — dark-first sincronizado com paleta pura */
+  --wa-bg:            #09090b;
+  --wa-panel:         #111115;
+  --wa-panel-2:       #18181d;
+  --wa-header:        #111115;
+  --wa-search:        #202027;
+  --wa-divider:       rgba(255,255,255,0.08);
+  --wa-bubble-in:     #202027;
   --wa-bubble-out:    #064e3b;
-  --wa-text:          #e8edf5;
-  --wa-text-2:        #7b93b8;
-  --wa-text-3:        #49607e;
-  --wa-icon:          #7b93b8;
-  --wa-hover:         rgba(255,255,255,0.04);
-  --wa-active:        rgba(16,185,129,0.10);
+  --wa-text:          #f0f2f8;
+  --wa-text-2:        #8896aa;
+  --wa-text-3:        #4e5e72;
+  --wa-icon:          #8896aa;
+  --wa-hover:         rgba(255,255,255,0.05);
+  --wa-active:        rgba(16,185,129,0.12);
 
   /* Comuns */
   --wa-green:         #10b981;
@@ -31,20 +31,20 @@
 }
 
 html[data-mode='dark'] {
-  --wa-bg:            #0a0f18;
-  --wa-panel:         #0f1623;
-  --wa-panel-2:       #141d2e;
-  --wa-header:        #0f1623;
-  --wa-search:        #1a2438;
-  --wa-divider:       rgba(255,255,255,0.06);
-  --wa-bubble-in:     #1a2438;
+  --wa-bg:            #09090b;
+  --wa-panel:         #111115;
+  --wa-panel-2:       #18181d;
+  --wa-header:        #111115;
+  --wa-search:        #202027;
+  --wa-divider:       rgba(255,255,255,0.08);
+  --wa-bubble-in:     #202027;
   --wa-bubble-out:    #064e3b;
-  --wa-text:          #e8edf5;
-  --wa-text-2:        #7b93b8;
-  --wa-text-3:        #49607e;
-  --wa-icon:          #7b93b8;
-  --wa-hover:         rgba(255,255,255,0.04);
-  --wa-active:        rgba(16,185,129,0.10);
+  --wa-text:          #f0f2f8;
+  --wa-text-2:        #8896aa;
+  --wa-text-3:        #4e5e72;
+  --wa-icon:          #8896aa;
+  --wa-hover:         rgba(255,255,255,0.05);
+  --wa-active:        rgba(16,185,129,0.12);
   --wa-green:         #10b981;
   --wa-green-strong:  #059669;
   --wa-shadow-sm:     0 1px 0.5px rgba(0,0,0,0.45);

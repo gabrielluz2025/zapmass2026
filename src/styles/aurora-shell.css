@@ -1,5 +1,6 @@
-/* ZapMass Dark Pro — shell v4.0 */
+/* ZapMass Pure Dark — shell v5.0 */
 
+/* ── Root ─────────────────────────────────── */
 .zm-aurora-root {
   position: relative;
   isolation: isolate;
@@ -16,23 +17,34 @@
   background: var(--sidebar-bg) !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  box-shadow: 1px 0 0 var(--sidebar-border);
+  border-right: 1px solid rgba(255,255,255,0.07) !important;
 }
 
+/* Linha de acento esmeralda no topo da sidebar */
+.zm-sidebar-aurora::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--brand-500) 40%, transparent);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ── Nav items ────────────────────────────── */
 .zm-nav-item-aurora {
   position: relative;
   border-radius: var(--radius-md);
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .zm-nav-item-aurora:hover:not(.is-active) {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.06);
 }
 
 .zm-nav-item-aurora.is-active {
-  background: var(--brand-glow);
+  background: rgba(16,185,129,0.16);
+  box-shadow: 0 0 0 1px rgba(16,185,129,0.22) inset;
 }
 
 .zm-nav-item-aurora.is-active::before {
@@ -42,9 +54,10 @@
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 55%;
+  height: 60%;
   border-radius: 0 3px 3px 0;
   background: var(--brand-500);
+  box-shadow: 0 0 10px rgba(16,185,129,0.6);
 }
 
 /* ── TopBar ───────────────────────────────── */
@@ -54,7 +67,7 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border-bottom: 1px solid var(--border-subtle) !important;
-  box-shadow: none;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04);
 }
 
 /* ── Cards ────────────────────────────────── */
@@ -65,7 +78,15 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* ── Entrada de páginas ───────────────────── */
+/* ── Seções e cards com elevação real ─────── */
+.zm-section,
+.ui-card,
+.ui-card-compact,
+.premium-card {
+  box-shadow: var(--shadow-sm) !important;
+}
+
+/* ── Página: animação de entrada ──────────── */
 @keyframes zm-page-rise {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
