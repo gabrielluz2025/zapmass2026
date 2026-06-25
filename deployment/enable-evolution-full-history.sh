@@ -7,21 +7,55 @@ set -eu
 ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
 
-export API_KEY="${EVOLUTION_API_KEY:-$(grep -E '^EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d $'\r"\'')}"
-API_KEY="${API_KEY:-zapmass-secure-key-2026}"
-export EVO_URL="${EVOLUTION_API_URL:-${EVOLUTION_SERVER_URL:-http://127.0.0.1:8080}}"
+read_evolution_api_key() {
+  local key cid
+  cid="$(docker compose ps -q evolution 2>/dev/null | head -1 || true)"
+  if [ -n "$cid" ]; then
+    key="$(docker exec "$cid" printenv AUTHENTICATION_API_KEY 2>/dev/null || true)"
+    [ -n "$key" ] && printf '%s' "$key" && return 0
+  fi
+  if [ -f .env ]; then
+    key="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 \
+      | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' \
+      | sed 's/^["'\'']//;s/["'\'']$//' || true)"
+    [ -n "$key" ] && printf '%s' "$key" && return 0
+  fi
+  printf '%s' "${EVOLUTION_API_KEY:-zapmass-secure-key-2026}"
+}
+
+API_KEY="$(read_evolution_api_key)"
+EVO_URL="${EVOLUTION_API_URL:-${EVOLUTION_SERVER_URL:-http://127.0.0.1:8080}}"
 EVO_URL="${EVO_URL%/}"
-export RESTART_OPEN="${RESTART_OPEN:-0}"
+RESTART_OPEN="${RESTART_OPEN:-0}"
 
 echo "==> Evolution URL: ${EVO_URL}"
-INST_JSON="$(curl -sS --max-time 20 "${EVO_URL}/instance/fetchInstances" -H "apikey: ${API_KEY}")"
+echo "==> API key prefix: ${API_KEY:0:8}..."
 
+INST_JSON="$(curl -sS --max-time 20 "${EVO_URL}/instance/fetchInstances" -H "apikey: ${API_KEY}")"
+if ! echo "$INST_JSON" | grep -q '"name"'; then
+  echo "ERR: fetchInstances falhou (401/chave errada?). Resposta:"
+  echo "$INST_JSON" | head -c 400
+  echo ""
+  exit 1
+fi
+
+export API_KEY EVO_URL RESTART_OPEN
 echo "$INST_JSON" | python3 <<'PY'
 import json, os, sys, urllib.parse, urllib.request
 
 api_key = os.environ.get('API_KEY', '')
 evo_url = os.environ.get('EVO_URL', '').rstrip('/')
 restart_open = os.environ.get('RESTART_OPEN', '0') == '1'
+
+SETTINGS_BODY = {
+    'rejectCall': False,
+    'msgCall': '',
+    'groupsIgnore': False,
+    'alwaysOnline': False,
+    'readMessages': False,
+    'readStatus': False,
+    'syncFullHistory': True,
+}
 
 def req(method, path, body=None):
     url = f'{evo_url}{path}'
@@ -52,12 +86,12 @@ for row in rows:
     setting = row.get('Setting') or row.get('setting') or {}
     before = setting.get('syncFullHistory')
     try:
-        req('POST', f'/settings/set/{enc}', {'syncFullHistory': True})
+        req('POST', f'/settings/set/{enc}', SETTINGS_BODY)
         print(f'OK  {name}  syncFullHistory: {before!r} -> true  status={status}')
         if restart_open and status == 'open':
             try:
-                req('PUT', f'/instance/restart/{enc}', {})
-                print('    restart solicitado (histórico pode demorar minutos)')
+                req('POST', f'/instance/restart/{enc}', {})
+                print('    restart POST OK (histórico pode demorar minutos)')
             except Exception as e:
                 print(f'    restart falhou: {e}')
     except Exception as e:
@@ -66,5 +100,5 @@ PY
 
 echo ""
 echo "==> Concluído."
-echo "    Instâncias já conectadas precisam de restart/reconexão para baixar histórico antigo."
+echo "    Instâncias open precisam de restart/reconexão para baixar histórico antigo."
 echo "    Depois: bash deployment/diagnose-evolution-chat.sh"

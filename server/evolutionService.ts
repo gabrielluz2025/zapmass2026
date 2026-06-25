@@ -997,7 +997,7 @@ function scheduleEvolutionAutoReconnect(connectionId: string, options?: { immedi
             log('info', `Auto-reconnect Evolution: ${connectionId} (tentativa ${attempt})`);
             try {
                 try {
-                    await api.put(`/instance/restart/${evoInst(connectionId)}`, {});
+                    await api.post(`/instance/restart/${evoInst(connectionId)}`, {});
                     await sleep(3000);
                 } catch {
                     await api.post(`/instance/connect/${evoInst(connectionId)}`, {});
@@ -1336,7 +1336,7 @@ async function tryRecoverCountZeroInstance(instanceName: string): Promise<boolea
     log('info', `count:0 — recuperar sessão Evolution: ${instanceName} (tentativa ${attempts + 1})`);
 
     try {
-        await api.put(`/instance/restart/${evoInst(instanceName)}`, {});
+        await api.post(`/instance/restart/${evoInst(instanceName)}`, {});
         await sleep(4000);
         return true;
     } catch {

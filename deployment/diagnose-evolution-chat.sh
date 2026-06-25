@@ -6,7 +6,13 @@ set -eu
 ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
 
-API_KEY="${EVOLUTION_API_KEY:-$(grep -E '^EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d $'\r"\'')}"
+if [ -z "${EVOLUTION_API_KEY:-}" ]; then
+  _cid="$(docker compose ps -q evolution 2>/dev/null | head -1 || true)"
+  if [ -n "$_cid" ]; then
+    EVOLUTION_API_KEY="$(docker exec "$_cid" printenv AUTHENTICATION_API_KEY 2>/dev/null || true)"
+  fi
+fi
+API_KEY="${EVOLUTION_API_KEY:-$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' | sed 's/^["'\'']//;s/["'\'']$//' || true)}"
 API_KEY="${API_KEY:-zapmass-secure-key-2026}"
 EVO_URL="${EVOLUTION_API_URL:-${EVOLUTION_SERVER_URL:-http://127.0.0.1:8080}}"
 EVO_URL="${EVO_URL%/}"
