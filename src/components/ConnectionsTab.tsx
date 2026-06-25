@@ -102,6 +102,7 @@ export const ConnectionsTab: React.FC = () => {
     connections,
     addConnection,
     removeConnection,
+    logoutConnection,
     reconnectConnection,
     forceQr,
     renameConnection,
@@ -848,6 +849,7 @@ export const ConnectionsTab: React.FC = () => {
                     connection={connection}
                     chipStats={warmupChipStats[connection.id]}
                     onDisconnect={removeConnection}
+                    onLogoutConnection={logoutConnection}
                     onReconnect={reconnectConnection}
                     onForceQr={forceQr}
                     onRename={renameConnection}
@@ -871,6 +873,7 @@ export const ConnectionsTab: React.FC = () => {
                 onToggleSelect={toggleSelect}
                 onReconnect={reconnectConnection}
                 onForceQr={forceQr}
+                onLogoutConnection={logoutConnection}
                 onDisconnect={removeConnection}
               />
             ))}

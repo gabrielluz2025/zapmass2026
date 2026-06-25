@@ -314,6 +314,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   addConnection: async () => {},
   setConnectionProxy: async () => {},
   removeConnection: () => {},
+  logoutConnection: async () => {},
   updateConnectionStatus: () => {},
   reconnectConnection: async () => {},
   forceQr: async () => {},
@@ -2804,6 +2805,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     sock.emit('delete-connection', { id });
   };
 
+  const logoutConnection = async (id: string) => {
+    const sock = socketRef.current;
+    if (!sock) {
+      toast.error('Socket nao pronto. Atualize a pagina.');
+      return;
+    }
+    try {
+      await refreshSocketAuthToken();
+      if (!sock.connected) sock.connect();
+      await waitForSocketConnected(20000);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Falha ao conectar ao servidor.';
+      toast.error(msg);
+      return;
+    }
+    sock.emit('ui-log', { action: 'disconnect-connection', id });
+    sock.emit('disconnect-connection', { id });
+    toast('Desconectando WhatsApp...', { icon: '🔌' });
+  };
+
   const updateConnectionStatus = (id: string, status: ConnectionStatus) => {
     setConnections(prev => prev.map(c => c.id === id ? { ...c, status } : c));
   };
@@ -3888,6 +3909,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableAddConnection = useStableCallback(addConnection);
   const stableSetConnectionProxy = useStableCallback(setConnectionProxy);
   const stableRemoveConnection = useStableCallback(removeConnection);
+  const stableLogoutConnection = useStableCallback(logoutConnection);
   const stableUpdateConnectionStatus = useStableCallback(updateConnectionStatus);
   const stableReconnectConnection = useStableCallback(reconnectConnection);
   const stableForceQr = useStableCallback(forceQr);
@@ -4001,6 +4023,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       addConnection: stableAddConnection,
       setConnectionProxy: stableSetConnectionProxy,
       removeConnection: stableRemoveConnection,
+      logoutConnection: stableLogoutConnection,
       updateConnectionStatus: stableUpdateConnectionStatus,
       reconnectConnection: stableReconnectConnection,
       forceQr: stableForceQr,

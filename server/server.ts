@@ -1279,6 +1279,26 @@ const registerSocketHandlers = () => {
       })();
     });
 
+    socket.on('disconnect-connection', ({ id }) => {
+      void (async () => {
+        try {
+          if (!(await requireActiveSubscription())) return;
+          if (!ownsConnectionId(id)) {
+            denyCrossTenant('disconnect-connection', { id });
+            return;
+          }
+          userLog('ui:disconnect-connection', { id });
+          await runConnectionCommand({
+            submit: () => submitReconnectConnection(id, authOp),
+            local: async () => { await evolutionService.disconnectConnection(id); }
+          });
+          socket.emit('connections-update', filterByConnectionScope(uid, evolutionService.getConnections()));
+        } catch (e) {
+          reportSocketAsyncError('disconnect-connection', e);
+        }
+      })();
+    });
+
     socket.on('set-connection-proxy', ({ id, proxy }: { id?: string; proxy?: evolutionService.ConnectionProxyConfig | null }) => {
       void (async () => {
         try {

@@ -3250,6 +3250,48 @@ export async function forceQr(id: string): Promise<{ qrCode?: string; error?: st
 }
 
 /**
+ * Desconecta (logout) sem remover a instância — exibe QR para novo pareamento.
+ */
+export async function disconnectConnection(id: string): Promise<void> {
+    log('info', `Desconectando instância (logout): ${id}`);
+    stopWatchingConnection(id);
+    stopQrWatch(id);
+    clearAutoReconnect(id);
+    pairingStartedAt.delete(id);
+
+    if (!connections.has(id)) {
+        await hydrateInstancesFromEvolution();
+    }
+    if (!connections.has(id)) {
+        throw new Error('Canal não encontrado.');
+    }
+
+    try {
+        await api.delete(`/instance/logout/${evoInst(id)}`);
+    } catch (error: any) {
+        log('warn', `logout ${id} falhou`, { error: error?.message });
+    }
+
+    applyConnectionStateUpdate(id, 'close', {});
+    const conn = connections.get(id);
+    if (conn) {
+        conn.qrCode = undefined;
+        conn.lastActivity = 'Desconectado';
+        connections.set(id, conn);
+    }
+    emitConnectionsUpdateForConnection(id);
+
+    void (async () => {
+        const extracted = await fetchConnectQr(id);
+        if (extracted) {
+            emitQrToFrontend(id, extracted);
+        } else {
+            ensureQrDelivered(id, 25, 2000);
+        }
+    })();
+}
+
+/**
  * Reconecta uma instância
  */
 export async function reconnectConnection(id: string) {
@@ -5587,6 +5629,7 @@ export default {
     createConnection,
     setConnectionProxy,
     deleteConnection,
+    disconnectConnection,
     forceQr,
     reconnectConnection,
     sendMessage,

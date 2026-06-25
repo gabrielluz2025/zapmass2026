@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings, Flame, Thermometer, Snowflake, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Wifi, WifiOff, Trash2, RefreshCw, Send, ListOrdered, QrCode, Loader2, Clock, Zap, ShieldCheck, ShieldAlert, Power, RotateCcw, Pencil, Check, X, Settings, Flame, Thermometer, Snowflake, TrendingUp, TrendingDown, Minus, LogOut } from 'lucide-react';
 import { QRCodeModal } from './QRCodeModal';
 import { QrCanvas } from './QrCanvas';
 import { Sparkline } from './Sparkline';
@@ -19,6 +19,7 @@ interface ConnectionCardProps {
   connection: WhatsAppConnection;
   chipStats?: WarmupChipStats;
   onDisconnect: (id: string) => void;
+  onLogoutConnection: (id: string) => void;
   onReconnect: (id: string) => void;
   onForceQr: (id: string) => void;
   onRename?: (id: string, name: string) => void;
@@ -35,6 +36,7 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
   connection,
   chipStats,
   onDisconnect, 
+  onLogoutConnection,
   onReconnect,
   onForceQr,
   onRename,
@@ -574,12 +576,28 @@ export const ConnectionCardNew: React.FC<ConnectionCardProps> = ({
               </>
             )}
             {isConnected && (
-              <button onClick={() => onReconnect(connection.id)}
-                className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
-                style={{ background: 'var(--surface-2)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reiniciar
-              </button>
+              <>
+                <button onClick={() => onReconnect(connection.id)}
+                  className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                  style={{ background: 'var(--surface-2)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reiniciar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const label = connection.name?.trim() || connection.id;
+                    if (!window.confirm(
+                      `Desconectar "${label}"?\n\nO WhatsApp será deslogado deste canal. Para usar de novo, escaneie o QR ou clique em Conectar.`
+                    )) return;
+                    onLogoutConnection(connection.id);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95"
+                  style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <LogOut className="w-3.5 h-3.5" />
+                  Desconectar
+                </button>
+              </>
             )}
             {isConnecting && (
               <button onClick={() => onForceQr(connection.id)}

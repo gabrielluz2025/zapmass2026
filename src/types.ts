@@ -581,6 +581,7 @@ export interface ZapMassContextType {
     proxy: { host: string; port: string | number; protocol?: string; username?: string; password?: string } | null
   ) => void | Promise<void>;
   removeConnection: (id: string) => void;
+  logoutConnection: (id: string) => void | Promise<void>;
   updateConnectionStatus: (id: string, status: ConnectionStatus) => void;
   reconnectConnection: (id: string) => void | Promise<void>;
   forceQr: (id: string) => void | Promise<void>;

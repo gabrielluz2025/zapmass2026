@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  LogOut,
   Wifi,
   WifiOff,
   Flame,
@@ -43,6 +44,7 @@ export interface ConnectionListRowProps {
   onToggleSelect: (id: string) => void;
   onReconnect: (id: string) => void;
   onForceQr: (id: string) => void;
+  onLogoutConnection: (id: string) => void;
   onDisconnect: (id: string) => void;
 }
 
@@ -56,6 +58,7 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
   onToggleSelect,
   onReconnect,
   onForceQr,
+  onLogoutConnection,
   onDisconnect
 }) => {
   const isConnected = connection.status === ConnectionStatus.CONNECTED;
@@ -266,14 +269,31 @@ export const ConnectionListRow: React.FC<ConnectionListRowProps> = ({
             </button>
           )}
           {isConnected && (
-            <button
-              onClick={() => onReconnect(connection.id)}
-              className="p-1.5 rounded-lg transition-colors"
-              title="Reiniciar"
-              style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
+            <>
+              <button
+                onClick={() => onReconnect(connection.id)}
+                className="p-1.5 rounded-lg transition-colors"
+                title="Reiniciar"
+                style={{ background: 'var(--surface-2)', color: 'var(--text-3)' }}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const label = connection.name?.trim() || connection.id;
+                  if (!window.confirm(
+                    `Desconectar "${label}"?\n\nO WhatsApp será deslogado deste canal. Para usar de novo, escaneie o QR ou clique em Conectar.`
+                  )) return;
+                  onLogoutConnection(connection.id);
+                }}
+                className="p-1.5 rounded-lg transition-colors"
+                title="Desconectar"
+                style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
           {(isConnecting || !isConnected) && (
             <button
