@@ -3,6 +3,7 @@ import { Minimize2, Sparkles, X } from 'lucide-react';
 import { useAiStatus } from '../../hooks/useAiStatus';
 import { useAppView } from '../../context/AppViewContext';
 import { AiAssistantChat } from './AiAssistantChat';
+import { AI_ASSIST_PAYLOAD_EVENT, type AiAssistPayload } from '../../utils/aiAssistEvents';
 
 type Props = {
   screen: string;
@@ -16,6 +17,7 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
   const { configured, loading: statusLoading } = useAiStatus();
   const { currentView, setCurrentView } = useAppView();
   const [open, setOpen] = useState(false);
+  const [assistPayload, setAssistPayload] = useState<AiAssistPayload | null>(null);
 
   useEffect(() => {
     if (currentView === 'ai-assistant') setOpen(false);
@@ -25,6 +27,16 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
     const openGemini = () => setOpen(true);
     window.addEventListener('zapmass:open-gemini-assistant', openGemini);
     return () => window.removeEventListener('zapmass:open-gemini-assistant', openGemini);
+  }, []);
+
+  useEffect(() => {
+    const onPayload = (e: Event) => {
+      const detail = (e as CustomEvent<AiAssistPayload>).detail;
+      if (!detail?.question) return;
+      setAssistPayload(detail);
+    };
+    window.addEventListener(AI_ASSIST_PAYLOAD_EVENT, onPayload);
+    return () => window.removeEventListener(AI_ASSIST_PAYLOAD_EVENT, onPayload);
   }, []);
 
   useEffect(() => {
@@ -95,7 +107,14 @@ export const AiAskPanel: React.FC<Props> = ({ screen, context, placeholder, comp
             </button>
           </div>
         </header>
-        <AiAssistantChat screen={screen} context={context} variant="drawer" placeholder={placeholder} />
+        <AiAssistantChat
+          screen={assistPayload?.screen ?? screen}
+          context={assistPayload?.context ?? context}
+          variant="drawer"
+          placeholder={placeholder}
+          assistPayload={assistPayload}
+          onAssistPayloadConsumed={() => setAssistPayload(null)}
+        />
       </aside>
     </>
   );

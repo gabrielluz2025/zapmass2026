@@ -4,6 +4,7 @@ import { aiAsk } from '../../services/aiApi';
 import { useAiStatus } from '../../hooks/useAiStatus';
 import { getAiSuggestions } from './aiSuggestedQuestions';
 import { AiAnswerText } from './AiAnswerText';
+import type { AiAssistPayload } from '../../utils/aiAssistEvents';
 
 type ChatTurn = {
   id: string;
@@ -16,6 +17,8 @@ type Props = {
   context?: unknown;
   variant?: 'drawer' | 'page';
   placeholder?: string;
+  assistPayload?: AiAssistPayload | null;
+  onAssistPayloadConsumed?: () => void;
 };
 
 export const AiAssistantChat: React.FC<Props> = ({
@@ -23,6 +26,8 @@ export const AiAssistantChat: React.FC<Props> = ({
   context,
   variant = 'drawer',
   placeholder = 'Pergunte sobre contatos, bairros, campanhas, listas…',
+  assistPayload,
+  onAssistPayloadConsumed
 }) => {
   const { configured, loading: statusLoading, model } = useAiStatus();
   const [question, setQuestion] = useState('');
@@ -47,7 +52,7 @@ export const AiAssistantChat: React.FC<Props> = ({
   }, [turns, loading, scrollToBottom]);
 
   const ask = useCallback(
-    async (raw: string) => {
+    async (raw: string, ctxOverride?: unknown) => {
       const q = raw.trim();
       if (!q || loading || !configured) return;
       setQuestion('');
@@ -56,7 +61,7 @@ export const AiAssistantChat: React.FC<Props> = ({
       setTurns((prev) => [...prev, userTurn]);
       setLoading(true);
       try {
-        const res = await aiAsk(screen, q, context);
+        const res = await aiAsk(screen, q, ctxOverride ?? context);
         if (!res.ok) throw new Error(res.error || 'Falha na IA');
         setTurns((prev) => [
           ...prev,
@@ -71,6 +76,17 @@ export const AiAssistantChat: React.FC<Props> = ({
     },
     [configured, context, loading, screen]
   );
+
+  useEffect(() => {
+    if (!assistPayload?.question || !configured || loading) return;
+    const ctx = assistPayload.context ?? context;
+    if (assistPayload.autoSend) {
+      void ask(assistPayload.question, ctx);
+    } else {
+      setQuestion(assistPayload.question);
+    }
+    onAssistPayloadConsumed?.();
+  }, [assistPayload, configured, loading, ask, context, onAssistPayloadConsumed]);
 
   if (statusLoading) {
     return (

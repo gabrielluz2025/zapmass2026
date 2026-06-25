@@ -276,7 +276,7 @@ export function registerAiAssistantRoutes(app: Express): void {
       );
       const answer = await geminiGenerateText(
         buildAiAssistUserPrompt(screen, question, snapshot),
-        buildAiAssistSystemInstruction(),
+        buildAiAssistSystemInstruction(screen),
         { jsonMode: false }
       );
       return res.json({ ok: true, answer, dataUsed: true });

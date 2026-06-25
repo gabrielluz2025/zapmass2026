@@ -25,6 +25,8 @@ const SCREEN_GUIDES: Record<string, string> = {
   settings: 'Configurações: perfil, segmento, localização padrão do mapa.',
   subscription: 'Minha assinatura: plano, trial, pagamento.',
   help: 'Como usar: tutorial do sistema.',
+  'admin-ops':
+    'Operações servidor: RAM, load, canais offline, integrações (Firebase), manutenção VPS, cron de monitor, alertas de load/Postgres.',
 };
 
 const ZAPMASS_OVERVIEW =
@@ -407,8 +409,8 @@ export async function buildAiTenantSnapshot(
   };
 }
 
-export function buildAiAssistSystemInstruction(): string {
-  return (
+export function buildAiAssistSystemInstruction(screen?: string): string {
+  const base =
     'Você é o assistente inteligente do ZapMass (CRM + campanhas WhatsApp, Brasil). ' +
     'Você RECEBE um bloco JSON "DADOS AO VIVO" com números reais da conta do usuário. ' +
     'REGRAS: (1) Use APENAS números e listas desse JSON — nunca invente totais. ' +
@@ -416,8 +418,16 @@ export function buildAiAssistSystemInstruction(): string {
     'listas.principais ou listas.consultada para listas; conversas.recentes e conversas.naoLidas para bate-papo. ' +
     '(3) Se faltar dado, diga o que existe e sugira abrir Contatos, Mapa, Campanhas ou Bate-papo. ' +
     '(4) Formate números em pt-BR (ex.: 3.200). (5) Responda em português do Brasil, prático, com bullets. ' +
-    '(6) Máximo 14 frases.'
-  );
+    '(6) Máximo 14 frases.';
+  if (screen === 'admin-ops') {
+    return (
+      base +
+      ' TELA admin-ops: se contextoCliente.relatorioServidor existir, analise opsSnapshot e vpsMaintenance ' +
+      '(load, Postgres CPU, índice Evolution, alertas, cron). Diga se operação está normal, riscos e próximos passos. ' +
+      'Load > 4 ou Postgres > 80% com Evolution Up são limiares de alerta. Não confunda pico pós-deploy com crise sustentada.'
+    );
+  }
+  return base;
 }
 
 export function buildAiAssistUserPrompt(

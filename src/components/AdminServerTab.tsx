@@ -19,6 +19,7 @@ import { Card, CardHeader, Badge, RingGauge } from './ui';
 import { DashMetric } from './dashboard/DashMetric';
 import { AdminOpsMonitor } from './AdminOpsMonitor';
 import { AdminVpsMaintenancePanel } from './AdminVpsMaintenancePanel';
+import { AdminSendOpsToAssistantButton } from './admin/AdminSendOpsToAssistantButton';
 import { AdminConnectionsOverview } from './admin/AdminConnectionsOverview';
 
 /**
@@ -99,11 +100,17 @@ export const AdminServerTab: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-10 max-w-[1800px] mx-auto w-full">
-      <header className="rounded-2xl border px-4 py-3.5 sm:px-5" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}>
-        <h1 className="ui-title text-[20px] sm:text-[22px] tracking-tight">Operações (servidor)</h1>
-        <p className="ui-subtitle text-[13px] mt-1 max-w-2xl leading-relaxed">
-          Heurísticas de RAM, canais e integrações — visível só para administradores.
-        </p>
+      <header
+        className="rounded-2xl border px-4 py-3.5 sm:px-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"
+        style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-0)' }}
+      >
+        <div className="min-w-0">
+          <h1 className="ui-title text-[20px] sm:text-[22px] tracking-tight">Operações (servidor)</h1>
+          <p className="ui-subtitle text-[13px] mt-1 max-w-2xl leading-relaxed">
+            Heurísticas de RAM, canais e integrações — visível só para administradores.
+          </p>
+        </div>
+        <AdminSendOpsToAssistantButton user={user} className="shrink-0" />
       </header>
 
       <Card
