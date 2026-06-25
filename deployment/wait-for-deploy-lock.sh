@@ -6,7 +6,17 @@ WAIT_SEC="${DEPLOY_LOCK_WAIT_SEC:-900}"
 STEP="${DEPLOY_LOCK_WAIT_STEP:-15}"
 
 has_deploy_procs() {
-  pgrep -f 'deployment/vps-deploy\.sh|deployment/deploy-completo\.sh|manual-pull-deploy\.sh|vps-watch-deploy\.sh' >/dev/null 2>&1
+  local pids pid my_pid=$$ ppid=${PPID:-0}
+  pids=$(pgrep -f 'deployment/vps-deploy\.sh|deployment/deploy-completo\.sh|manual-pull-deploy\.sh|vps-watch-deploy\.sh' 2>/dev/null || true)
+  [ -z "$pids" ] && return 1
+  while read -r pid; do
+    [ -z "$pid" ] && continue
+    # Ignora este shell e o pai — senão DEPLOY_FORCE=1 detecta a si mesmo e espera 900s.
+    [ "$pid" = "$my_pid" ] && continue
+    [ "$pid" = "$ppid" ] && continue
+    return 0
+  done <<< "$pids"
+  return 1
 }
 
 lock_busy() {
