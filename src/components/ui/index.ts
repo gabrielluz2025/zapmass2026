@@ -9,5 +9,8 @@ export { Modal } from './Modal';
 export { StatCard } from './StatCard';
 export { EmptyState } from './EmptyState';
 export { SectionHeader } from './SectionHeader';
+export { PageShell } from './PageShell';
+export { StatTile } from './StatTile';
+export { CollapsibleSection } from './CollapsibleSection';
 export { Skeleton } from './Skeleton';
 export { RingGauge } from './RingGauge';

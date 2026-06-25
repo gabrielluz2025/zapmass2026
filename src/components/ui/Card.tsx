@@ -32,6 +32,8 @@ interface CardHeaderProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'ti
   subtitle?: React.ReactNode;
   actions?: React.ReactNode;
   icon?: React.ReactNode;
+  /** Menos padding; subtítulo em 1 linha. */
+  compact?: boolean;
 }
 
 export const CardHeader: React.FC<CardHeaderProps> = ({
@@ -39,25 +41,35 @@ export const CardHeader: React.FC<CardHeaderProps> = ({
   subtitle,
   actions,
   icon,
+  compact = false,
   className = '',
   children,
   ...rest
 }) => {
   return (
-    <div className={`flex items-start justify-between gap-4 ${className}`} {...rest}>
-      <div className="flex items-start gap-3 min-w-0 flex-1">
+    <div
+      className={`flex items-center justify-between gap-4 ${compact ? 'py-0.5' : ''} ${className}`}
+      {...rest}
+    >
+      <div className="flex items-center gap-3 min-w-0 flex-1">
         {icon && (
-          <div className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center brand-soft">
+          <div
+            className={`flex-shrink-0 rounded-lg flex items-center justify-center brand-soft ${compact ? 'w-8 h-8' : 'w-9 h-9'}`}
+          >
             {icon}
           </div>
         )}
         <div className="min-w-0 flex-1">
-          {title && <h3 className="ui-title text-[15px] truncate">{title}</h3>}
-          {subtitle && <p className="ui-subtitle text-[12.5px] mt-0.5">{subtitle}</p>}
+          {title && (
+            <h3 className={`ui-title truncate ${compact ? '' : ''}`}>{title}</h3>
+          )}
+          {subtitle && (
+            <p className={`ui-subtitle mt-0.5 ${compact ? 'line-clamp-1' : 'line-clamp-2'}`}>{subtitle}</p>
+          )}
           {children}
         </div>
       </div>
-      {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-shrink-0 self-center">{actions}</div>}
     </div>
   );
 };

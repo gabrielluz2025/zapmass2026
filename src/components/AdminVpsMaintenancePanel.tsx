@@ -7,12 +7,10 @@ import {
   ClipboardCopy,
   Database,
   RefreshCw,
-  ServerCog,
-  Terminal,
-  Wrench
+  Terminal
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Card, CardHeader, Badge, Button } from './ui';
+import { CollapsibleSection, Badge, Button, StatTile } from './ui';
 import { apiUrl } from '../utils/apiBase';
 
 type VpsMaintenancePayload = {
@@ -96,27 +94,7 @@ const Metric: React.FC<{ label: string; value: React.ReactNode; hint?: string; w
   value,
   hint,
   warn
-}) => (
-  <div
-    className="flex flex-col gap-0.5 min-w-0 rounded-lg px-2.5 py-2"
-    style={{
-      background: 'var(--surface-2)',
-      border: warn ? '1px solid var(--semantic-danger-border)' : '1px solid transparent'
-    }}
-  >
-    <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-      {label}
-    </span>
-    <span className="text-[15px] font-semibold tabular-nums leading-tight" style={{ color: 'var(--text-1)' }}>
-      {value}
-    </span>
-    {hint && (
-      <span className="text-[10px] leading-snug" style={{ color: warn ? 'var(--semantic-danger-fg)' : 'var(--text-3)' }}>
-        {hint}
-      </span>
-    )}
-  </div>
-);
+}) => <StatTile label={label} value={value} hint={hint} warn={warn} />;
 
 export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = ({ user }) => {
   const [data, setData] = useState<VpsMaintenancePayload | null>(null);
@@ -162,48 +140,24 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
   const live = data?.live;
 
   return (
-    <Card
-      className="overflow-hidden shadow-sm animate-fade-in-up"
-      style={{
-        background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
-        borderColor: 'var(--border-subtle)'
-      }}
+    <CollapsibleSection
+      title="Manutenção da VPS"
+      summary={data ? statusLabel(data.operatingStatus) : 'Monitor semanal'}
+      defaultOpen
+      actions={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={load}
+          loading={loading}
+          leftIcon={<RefreshCw className="w-3.5 h-3.5" aria-hidden />}
+        >
+          <span className="hidden sm:inline">Atualizar</span>
+        </Button>
+      }
     >
-      <div className="p-1">
-        <CardHeader
-          icon={
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
-              style={{ background: 'var(--semantic-success-tint)' }}
-            >
-              <Wrench className="w-[18px] h-[18px] text-emerald-600" aria-hidden />
-            </div>
-          }
-          title="Manutenção da VPS"
-          subtitle="Acompanhamento pós-incidente — cron semanal, checks manuais e limiares de alerta."
-          actions={
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              {data?.at && (
-                <span className="text-[10px] tabular-nums hidden sm:inline" style={{ color: 'var(--text-3)' }}>
-                  Atual.: {new Date(data.at).toLocaleTimeString('pt-BR')}
-                </span>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={load}
-                loading={loading}
-                leftIcon={<RefreshCw className="w-3.5 h-3.5" aria-hidden />}
-              >
-                <span className="hidden sm:inline">Atualizar</span>
-              </Button>
-            </div>
-          }
-        />
-      </div>
-
-      <div className="px-4 pb-5 pt-0 space-y-4">
+      <div className="space-y-4">
         {err && (
           <div
             className="rounded-2xl px-4 py-3 text-[12px] border flex items-start gap-3"
@@ -221,26 +175,20 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
 
         {data && (
           <>
-            <div
-              className="rounded-2xl px-4 py-3 space-y-2"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge dot variant={badge}>
-                  {statusLabel(data.operatingStatus)}
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge dot variant={badge}>
+                {statusLabel(data.operatingStatus)}
+              </Badge>
+              {data.snapshotStale && (
+                <Badge variant="warning">
+                  Check desatualizado{data.snapshotAgeHours != null ? ` (${data.snapshotAgeHours}h)` : ''}
                 </Badge>
-                {data.snapshotStale && (
-                  <Badge variant="warning" className="text-[10px]">
-                    Check completo desatualizado
-                    {data.snapshotAgeHours != null ? ` (${data.snapshotAgeHours}h)` : ''}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-[12px] leading-relaxed flex items-start gap-2" style={{ color: 'var(--text-2)' }}>
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
-                {data.incidentNote}
-              </p>
+              )}
             </div>
+            <p className="ui-body flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" aria-hidden />
+              {data.incidentNote}
+            </p>
 
             {data.alerts.length > 0 && (
               <ul className="space-y-2" aria-label="Alertas de manutenção">
@@ -264,45 +212,26 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
               </ul>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div
-                className="rounded-2xl p-4 space-y-3"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-              >
-                <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  <CalendarClock className="w-4 h-4 text-sky-500 shrink-0" aria-hidden />
+            <div className="zm-panel-grid zm-panel-grid--2">
+              <div className="zm-panel space-y-3">
+                <span className="ui-overline flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5" aria-hidden />
                   Automático
-                </div>
-                <p className="text-[12px]" style={{ color: 'var(--text-2)' }}>
-                  Cron <code className="text-[11px]">zapmass-monitor-producao</code>
-                </p>
-                <Metric
-                  label="Agendamento"
+                </span>
+                <StatTile
+                  label="Cron"
                   value={data.maintenance.automatic.scheduleHuman}
-                  hint={`Expressão: ${data.maintenance.automatic.schedule} (UTC)`}
+                  hint={data.maintenance.automatic.cronName}
                 />
-                <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                  Log: {data.maintenance.automatic.logPath}
-                  <br />
-                  Alertas: {data.maintenance.automatic.alertLogPath}
-                </p>
               </div>
 
-              <div
-                className="rounded-2xl p-4 space-y-3"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-              >
-                <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  <Terminal className="w-4 h-4 text-violet-500 shrink-0" aria-hidden />
-                  Manual (opcional)
-                </div>
-                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                  {data.maintenance.manual.description}
-                </p>
-                <div className="space-y-2">
-                  <div className="rounded-lg p-2.5 text-[10px] font-mono break-all" style={{ background: 'var(--surface-2)', color: 'var(--text-2)' }}>
-                    {data.maintenance.manual.fullMonitor}
-                  </div>
+              <div className="zm-panel space-y-3">
+                <span className="ui-overline flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5" aria-hidden />
+                  Manual
+                </span>
+                <p className="ui-caption">{data.maintenance.manual.description}</p>
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="ghost"
@@ -310,7 +239,7 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
                     leftIcon={<ClipboardCopy className="w-3.5 h-3.5" aria-hidden />}
                     onClick={() => void copyText(data.maintenance.manual.fullMonitor, 'Monitor completo')}
                   >
-                    Copiar monitor completo
+                    Copiar monitor
                   </Button>
                   <Button
                     type="button"
@@ -319,21 +248,13 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
                     leftIcon={<ClipboardCopy className="w-3.5 h-3.5" aria-hidden />}
                     onClick={() => void copyText(data.maintenance.manual.quickCheck, 'Check rápido')}
                   >
-                    Copiar check rápido
+                    Copiar check
                   </Button>
                 </div>
               </div>
             </div>
 
-            <div
-              className="rounded-2xl p-4 space-y-3"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                <ServerCog className="w-4 h-4 text-cyan-500 shrink-0" aria-hidden />
-                Métricas
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="zm-stat-grid zm-stat-grid--4">
                 <Metric
                   label="Load 1m (live)"
                   value={live ? live.load1.toFixed(2) : '—'}
@@ -368,41 +289,31 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
                   hint={snap?.diskFree ? `${snap.diskFree} livre` : undefined}
                   warn={snap != null && snap.diskPct > 70}
                 />
-              </div>
             </div>
 
-            <div
-              className="rounded-2xl p-4 space-y-2"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                <Database className="w-4 h-4 text-amber-500 shrink-0" aria-hidden />
+            <details className="ui-caption">
+              <summary className="cursor-pointer flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
+                <Database className="w-3.5 h-3.5" aria-hidden />
                 Regras de alerta
-              </div>
-              <ul className="text-[11px] space-y-1 list-disc pl-4" style={{ color: 'var(--text-3)' }}>
+              </summary>
+              <ul className="mt-2 pl-4 list-disc space-y-1 zm-panel">
                 {data.maintenance.alertRules.map((rule) => (
                   <li key={rule}>{rule}</li>
                 ))}
               </ul>
-            </div>
+            </details>
 
             {snap && (
-              <div
-                className="rounded-2xl p-4 space-y-2"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-              >
-                <p className="text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  Último check completo ({snap.source === 'manual' ? 'manual' : 'cron'})
-                </p>
-                <p className="text-[10px]" style={{ color: 'var(--text-3)' }}>
+              <div className="zm-panel space-y-2">
+                <p className="ui-overline">Último check ({snap.source === 'manual' ? 'manual' : 'cron'})</p>
+                <p className="ui-caption">
                   {new Date(snap.at).toLocaleString('pt-BR')} ·{' '}
-                  {snap.ok ? 'OK — 0 alertas' : `${snap.issueCount} alerta(s)`}
-                  {snap.fixCount > 0 ? ` · ${snap.fixCount} correção(ões) auto` : ''}
+                  {snap.ok ? 'OK' : `${snap.issueCount} alerta(s)`}
                   {snap.evolutionRecovered ? ' · Evolution recuperado' : ''}
                 </p>
-                <div className="flex flex-wrap gap-1.5 pt-1">
+                <div className="flex flex-wrap gap-1.5">
                   {snap.containers.map((c) => (
-                    <Badge key={c.name} variant={c.up ? 'success' : 'danger'} className="text-[10px]">
+                    <Badge key={c.name} variant={c.up ? 'success' : 'danger'}>
                       {c.name.replace('zapmass-', '').replace('-1', '')}
                     </Badge>
                   ))}
@@ -411,14 +322,13 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
             )}
 
             {!snap && (
-              <p className="text-[11px] text-center py-2 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                Ainda não há snapshot na VPS. Rode uma vez:{' '}
-                <code className="text-[10px]">sudo bash /opt/zapmass/deployment/vps-monitor-producao.sh</code>
+              <p className="ui-caption text-center py-2">
+                Rode na VPS: <code>sudo bash /opt/zapmass/deployment/vps-monitor-producao.sh</code>
               </p>
             )}
           </>
         )}
       </div>
-    </Card>
+    </CollapsibleSection>
   );
 };

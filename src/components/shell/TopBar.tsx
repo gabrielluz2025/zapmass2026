@@ -86,13 +86,9 @@ export const TopBar: React.FC<TopBarProps> = ({
                 className="w-1 h-3.5 rounded-full flex-shrink-0 hidden sm:block"
                 style={{ background: 'var(--brand-500)', opacity: 0.8 }}
               />
-              <h1 className="text-[14px] font-bold tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
-                {meta.title}
-              </h1>
+              <h1 className="ui-section-title truncate">{meta.title}</h1>
             </div>
-            <p className="text-[11.5px] truncate hidden sm:block mt-0.5" style={{ color: 'var(--text-3)' }}>
-              {meta.subtitle}
-            </p>
+            <p className="ui-caption truncate hidden md:block mt-0.5 max-w-md">{meta.subtitle}</p>
           </div>
         </div>
 

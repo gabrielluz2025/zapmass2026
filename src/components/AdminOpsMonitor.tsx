@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SessionUser } from '../types/sessionUser';
-import { Activity, AlertTriangle, Cpu, HardDrive, Radio, RefreshCw, Server, Shield, Wifi } from 'lucide-react';
-import { Card, CardHeader, Badge, Button, RingGauge } from './ui';
+import { AlertTriangle, Cpu, HardDrive, Radio, RefreshCw, Wifi } from 'lucide-react';
+import { CollapsibleSection, Badge, Button, RingGauge, StatTile } from './ui';
 import { apiUrl } from '../utils/apiBase';
 
 type AdminOpsSnapshot = {
@@ -76,19 +76,7 @@ function healthSummary(alerts: AdminOpsSnapshot['alerts']): { variant: 'success'
 }
 
 const Metric: React.FC<{ label: string; value: React.ReactNode; hint?: string }> = ({ label, value, hint }) => (
-  <div className="flex flex-col gap-0.5 min-w-0 rounded-lg px-2 py-1.5 -mx-0.5" style={{ background: 'var(--surface-2)' }}>
-    <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-      {label}
-    </span>
-    <span className="text-[15px] font-semibold tabular-nums leading-tight tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
-      {value}
-    </span>
-    {hint && (
-      <span className="text-[10px] leading-snug" style={{ color: 'var(--text-3)' }}>
-        {hint}
-      </span>
-    )}
-  </div>
+  <StatTile label={label} value={value} hint={hint} />
 );
 
 function formatLoadDisplay(load1: number, cpus: number): { main: string; sub: string } {
@@ -161,53 +149,32 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
   if (!user) return null;
 
   return (
-    <Card
-      className="overflow-hidden shadow-sm animate-fade-in-up"
-      style={{
-        background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
-        borderColor: 'var(--border-subtle)'
-      }}
+    <CollapsibleSection
+      title="Integrações & host"
+      summary={health?.title ?? 'Métricas do processo Node'}
+      defaultOpen
+      actions={
+        <div className="flex items-center gap-2">
+          {data?.at && (
+            <span className="ui-caption tabular-nums hidden sm:inline">
+              {new Date(data.at).toLocaleTimeString('pt-BR')}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={load}
+            loading={loading}
+            aria-label="Atualizar métricas operacionais"
+            leftIcon={<RefreshCw className="w-3.5 h-3.5" aria-hidden />}
+          >
+            <span className="hidden sm:inline">Atualizar</span>
+          </Button>
+        </div>
+      }
     >
-      <div className="p-1">
-        <CardHeader
-          icon={
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
-              style={{ background: 'var(--semantic-info-tint)' }}
-            >
-              <Server className="w-[18px] h-[18px] text-cyan-500" aria-hidden />
-            </div>
-          }
-          title="Operações & integrações"
-          subtitle="Métricas técnicas do processo e do host — leitura em blocos, atualização automática a cada ~20s."
-          actions={
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <Badge variant="info" className="text-[10px]">
-                <Shield className="w-3 h-3 mr-1 inline" aria-hidden />
-                Admin
-              </Badge>
-              {data?.at && (
-                <span className="text-[10px] tabular-nums hidden sm:inline" style={{ color: 'var(--text-3)' }}>
-                  Atual.: {new Date(data.at).toLocaleTimeString('pt-BR')}
-                </span>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={load}
-                loading={loading}
-                aria-label="Atualizar métricas operacionais"
-                leftIcon={<RefreshCw className="w-3.5 h-3.5" aria-hidden />}
-              >
-                <span className="hidden sm:inline">Atualizar</span>
-              </Button>
-            </div>
-          }
-        />
-      </div>
-
-      <div className="px-4 pb-5 pt-0 space-y-4">
+      <div className="space-y-4">
         {err && (
           <div
             className="rounded-2xl px-4 py-3 text-[12px] border flex items-start gap-3"
@@ -224,101 +191,52 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
         )}
 
         {data && health && (
-          <div
-            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl px-4 py-3"
-            style={{
-              background: 'var(--surface-1)',
-              border: '1px solid var(--border-subtle)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)'
-            }}
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: healthBadge === 'danger' ? 'var(--semantic-danger-bg)' : healthBadge === 'warning' ? 'var(--semantic-warning-bg)' : 'var(--semantic-success-bg)' }}
-              >
-                <Activity className="w-4 h-4" style={{ color: healthBadge === 'danger' ? 'var(--danger)' : healthBadge === 'warning' ? 'var(--warning)' : 'var(--semantic-success-fg)' }} aria-hidden />
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge dot variant={healthBadge}>
-                    {health.title}
-                  </Badge>
-                </div>
-                {health.detail && (
-                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                    {health.detail}
-                  </p>
-                )}
-              </div>
-            </div>
-            <span className="text-[10px] sm:text-right shrink-0 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-              Atual. automática ~20s
-              <br />
-              <span className="opacity-80">histórico ~24h (amostra)</span>
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge dot variant={healthBadge}>
+              {health.title}
+            </Badge>
+            {health.detail && <span className="ui-caption">{health.detail}</span>}
+            <span className="ui-caption ml-auto">Atualização ~20s</span>
           </div>
         )}
 
         {data?.scopeNote && (
-          <p
-            className="text-[11px] leading-relaxed rounded-xl px-3 py-2.5"
-            style={{ color: 'var(--text-2)', background: 'var(--surface-2)' }}
-          >
-            {data.scopeNote}
-          </p>
+          <details className="ui-caption">
+            <summary className="cursor-pointer" style={{ color: 'var(--text-2)' }}>
+              Escopo das métricas
+            </summary>
+            <p className="mt-1.5 zm-panel">{data.scopeNote}</p>
+          </details>
         )}
 
         {data && data.alerts.length > 0 && (
-          <div role="list" aria-label="Alertas operacionais" className="space-y-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-              Alertas
-            </p>
-            <ul className="space-y-2">
+          <ul role="list" aria-label="Alertas operacionais" className="space-y-2">
             {data.alerts.map((a, idx) => (
               <li
                 key={`${a.code}-${idx}`}
-                className="rounded-2xl pl-0 pr-3 py-3 text-[12px] leading-relaxed flex gap-3"
+                className="zm-panel ui-body flex gap-3 py-3"
                 style={{
-                  border: `1px solid ${a.level === 'critical' ? 'rgba(220, 38, 38, 0.25)' : 'rgba(234, 179, 8, 0.25)'}`,
-                  background: a.level === 'critical' ? 'var(--semantic-danger-bg)' : 'var(--semantic-warning-bg)',
-                  color: 'var(--text-2)'
+                  background: a.level === 'critical' ? 'var(--semantic-danger-bg)' : 'var(--semantic-warning-bg)'
                 }}
               >
-                {a.level === 'critical' ? (
-                  <AlertTriangle className="w-4 h-4 shrink-0 ml-3 mt-0.5" style={{ color: 'var(--semantic-danger-fg)' }} aria-hidden />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 shrink-0 ml-3 mt-0.5 opacity-70" style={{ color: 'var(--warning)' }} aria-hidden />
-                )}
-                <div className="min-w-0 flex-1">
-                  <span
-                    className="text-[10px] font-bold uppercase tracking-wide"
-                    style={{ color: a.level === 'critical' ? 'var(--semantic-danger-fg)' : 'var(--semantic-warning-fg)' }}
-                  >
-                    {a.level === 'critical' ? 'Crítico' : 'Aviso'}
-                  </span>
-                  <p className="mt-1" style={{ color: 'var(--text-2)' }}>
-                {a.message}
-                  </p>
-                </div>
+                <AlertTriangle
+                  className="w-4 h-4 shrink-0 mt-0.5"
+                  style={{ color: a.level === 'critical' ? 'var(--semantic-danger-fg)' : 'var(--warning)' }}
+                  aria-hidden
+                />
+                <span>{a.message}</span>
               </li>
             ))}
-            </ul>
-          </div>
+          </ul>
         )}
 
         {data && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div
-              className="rounded-2xl p-4 space-y-3"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  <Cpu className="w-4 h-4 text-cyan-400 shrink-0" aria-hidden />
-                  Host
-                </div>
-              </div>
+            <div className="zm-panel space-y-3 lg:col-span-1">
+              <span className="ui-overline flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5" aria-hidden />
+                Host
+              </span>
               <div className="flex flex-wrap justify-center gap-5 sm:gap-6 pt-1">
                 <RingGauge
                   percent={data.system.cpu}
@@ -337,18 +255,15 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
                   stroke={5}
                 />
               </div>
-              <p className="text-[10px] leading-snug pt-0.5" style={{ color: 'var(--text-3)' }}>
+              <p className="ui-caption">
                 5m / 15m: {data.system.load5.toFixed(1)} / {data.system.load15.toFixed(1)} · {data.system.cpus} CPU(s)
               </p>
             </div>
-            <div
-              className="rounded-2xl p-4 space-y-3"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                <HardDrive className="w-4 h-4 text-violet-400 shrink-0" aria-hidden />
+            <div className="zm-panel space-y-3">
+              <span className="ui-overline flex items-center gap-1.5">
+                <HardDrive className="w-3.5 h-3.5" aria-hidden />
                 Processo Node
-              </div>
+              </span>
               <div className="flex flex-wrap justify-center gap-5 sm:gap-6 pt-1">
                 <RingGauge
                   percent={data.system.ram}
@@ -374,54 +289,41 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
                 />
               </div>
             </div>
-            <div
-              className="rounded-2xl p-4 space-y-3"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                <Radio className="w-4 h-4 text-emerald-500/90 shrink-0" aria-hidden />
+            <div className="zm-panel space-y-3">
+              <span className="ui-overline flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5" aria-hidden />
                 Integrações
-              </div>
+              </span>
               <div className="space-y-2.5">
-                <div
-                  className="rounded-lg px-2 py-2 space-y-1"
-                  style={{ background: 'var(--surface-2)' }}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Wifi className="w-3.5 h-3.5 text-amber-500/80 shrink-0" aria-hidden />
-                    <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>
-                      Firebase
-                    </span>
-                    {data.firebase.pingOk ? (
-                      <Badge variant={data.firebase.latencyMs != null && data.firebase.latencyMs > 15_000 ? 'warning' : 'success'} className="text-[10px]">
-                        {data.firebase.latencyMs != null
-                          ? `OK · ${formatFirebaseLatency(data.firebase.latencyMs)}`
-                          : 'OK'}
-                      </Badge>
-                    ) : (
-                      <Badge variant="danger" className="text-[10px]">
-                        Falha
-                      </Badge>
-                    )}
-                  </div>
-                  {data.firebase.projectId && (
-                    <span className="text-[10px] block truncate" style={{ color: 'var(--text-3)' }}>
-                      {data.firebase.projectId}
-                    </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Wifi className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  <span className="ui-overline">Firebase</span>
+                  {data.firebase.pingOk ? (
+                    <Badge variant={data.firebase.latencyMs != null && data.firebase.latencyMs > 15_000 ? 'warning' : 'success'}>
+                      {data.firebase.latencyMs != null
+                        ? `OK · ${formatFirebaseLatency(data.firebase.latencyMs)}`
+                        : 'OK'}
+                    </Badge>
+                  ) : (
+                    <Badge variant="danger">Falha</Badge>
                   )}
+                </div>
+                {data.firebase.projectId && (
+                  <span className="ui-caption block truncate">{data.firebase.projectId}</span>
+                )}
                 {data.firebase.error && (
-                  <p className="text-[10px] break-words" style={{ color: 'var(--semantic-danger-fg)' }}>
+                  <p className="ui-caption" style={{ color: 'var(--semantic-danger-fg)' }}>
                     {data.firebase.error}
                   </p>
                 )}
-                </div>
                 <Metric
                   label="Sessões WA (API)"
                   value={String(data.whatsapp.connectedSessions)}
-                  hint={`Conforto ~${data.whatsapp.capacityHint.safe} · instável &gt; ~${data.whatsapp.capacityHint.critical}`}
+                  hint={`Conforto ~${data.whatsapp.capacityHint.safe}`}
                 />
-                <p className="text-[10px] tabular-nums leading-snug rounded-lg px-2 py-1.5" style={{ color: 'var(--text-3)', background: 'var(--surface-2)' }}>
-                  Router: {data.sessionRouter.commandsCompleted} ok · {data.sessionRouter.commandsFailed} falh. · workers {data.sessionRouter.aliveWorkers}
+                <p className="ui-caption tabular-nums">
+                  Router: {data.sessionRouter.commandsCompleted} ok · {data.sessionRouter.commandsFailed} falh. · workers{' '}
+                  {data.sessionRouter.aliveWorkers}
                 </p>
               </div>
             </div>
@@ -429,17 +331,10 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
         )}
 
         {data && data.history.length > 0 && (
-          <div
-            className="rounded-2xl p-4 space-y-3"
-            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-          >
+          <div className="zm-panel space-y-3">
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                RAM do processo (24h)
-              </span>
-              <span className="text-[10px]" style={{ color: 'var(--text-3)' }}>
-                Pico por hora · esq. mais antigo → direita recente
-              </span>
+              <span className="ui-section-title">RAM do processo (24h)</span>
+              <span className="ui-caption">Pico por hora</span>
             </div>
             <div className="flex justify-between text-[9px] mb-1 px-0.5 font-medium" style={{ color: 'var(--text-3)' }}>
               <span>−24h</span>
@@ -480,11 +375,11 @@ export const AdminOpsMonitor: React.FC<{ user: SessionUser | null }> = ({ user }
         )}
 
         {data && data.history.length === 0 && !loading && (
-          <p className="text-[11px] text-center py-1" style={{ color: 'var(--text-3)' }}>
-            Histórico a encher: primeiro ponto cerca de 5 min após o arranque da API.
+          <p className="ui-caption text-center py-1">
+            Histórico a encher: primeiro ponto ~5 min após arranque da API.
           </p>
         )}
       </div>
-    </Card>
+    </CollapsibleSection>
   );
 };
