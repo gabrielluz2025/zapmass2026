@@ -78,6 +78,7 @@ import {
   readTenantDailyCache,
   scheduleTenantDailyCacheWrite,
 } from '../utils/tenantDailyCache';
+import { readContactsFromIdb } from '../utils/contactsIdbCache';
 import { openChannelExtraPurchaseFlow } from '../utils/openChannelExtraFlow';
 import {
   getCampaignPlannedSendTotal,
@@ -964,21 +965,45 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!opts?.force) {
         const cachedRaw = readTenantDailyCache(uid);
         const cached = cachedRaw ? healTenantDailyContactsCache(cachedRaw) : null;
-        if (cached && isTenantDailyCacheBootstrapValid(cached)) {
+        if (cached) {
+          // Restaura meta (campanhas, listas) imediatamente do localStorage
+          setCampaigns(healStuckRunningCampaignsList(cached.campaigns));
+          setContactLists(cached.contactLists);
           contactsVpsOffsetRef.current = cached.contactsOffset;
-          setContacts(cached.contacts);
           setContactsHasMore(cached.contactsHasMore);
           setContactsSavedTotal(cached.contactsSavedTotal);
           contactsSavedTotalRef.current = cached.contactsSavedTotal;
-          setCampaigns(healStuckRunningCampaignsList(cached.campaigns));
-          setContactLists(cached.contactLists);
-          devLog('[bootstrap] cache diário restaurado', {
-            contacts: cached.contacts.length,
-            campaigns: cached.campaigns.length,
+
+          // Restaura contatos do IndexedDB (assíncrono — suporta bases grandes)
+          readContactsFromIdb(uid).then((idbContacts) => {
+            if (idbContacts && idbContacts.length > 0) {
+              setContacts(idbContacts);
+              contactsVpsOffsetRef.current = Math.max(cached.contactsOffset, idbContacts.length);
+              devLog('[bootstrap] cache IDB restaurado', { contacts: idbContacts.length });
+              // Se há mais a carregar, retoma de onde parou
+              if (cached.contactsHasMore) {
+                void reloadVpsContactsRef.current();
+              }
+            } else if (isTenantDailyCacheBootstrapValid(cached) && cached.contacts.length > 0) {
+              // Fallback: contatos no localStorage antigo (caches v1)
+              setContacts(cached.contacts);
+              devLog('[bootstrap] cache localStorage (legado) restaurado', { contacts: cached.contacts.length });
+            } else {
+              // IDB vazio e localStorage sem contatos — força reload
+              devLog('[bootstrap] IDB vazio, recarregando contatos do servidor');
+              void reloadVpsContactsRef.current();
+            }
+          }).catch(() => {
+            // IDB falhou — tenta localStorage legado ou reload
+            if (cached.contacts && cached.contacts.length > 0) {
+              setContacts(cached.contacts);
+            } else {
+              void reloadVpsContactsRef.current();
+            }
           });
           return;
         }
-        if (cached && !isTenantDailyCacheBootstrapValid(cached)) {
+        if (cachedRaw && !cached) {
           clearTenantDailyCache(uid);
         }
       }

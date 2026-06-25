@@ -1,7 +1,8 @@
 import type { Campaign, Contact, ContactList } from '../types';
 import { calendarDayKey } from '../../shared/dailyFullSync';
+import { readContactsFromIdb, writeContactsToIdb, clearContactsIdb } from './contactsIdbCache';
 
-const STORAGE_PREFIX = 'zm:daily-bootstrap:v1:';
+const STORAGE_PREFIX = 'zm:daily-bootstrap:v2:';
 /** Evita JSON.stringify síncrono a cada página de contatos — bloqueava a UI em todas as abas. */
 const CACHE_WRITE_DEBOUNCE_MS = 4_000;
 
@@ -9,6 +10,11 @@ export type TenantDailyBootstrapCache = {
   day: string;
   uid: string;
   cachedAt: number;
+  /**
+   * Contatos agora persistidos no IndexedDB via contactsIdbCache.ts.
+   * Mantemos o campo aqui para compatibilidade retroativa com caches v1
+   * que possam ainda estar no localStorage — ignorados na leitura IDB.
+   */
   contacts: Contact[];
   contactsOffset: number;
   contactsHasMore: boolean;
@@ -69,7 +75,7 @@ export function writeTenantDailyCache(uid: string, patch: Partial<TenantDailyBoo
       day: calendarDayKey(),
       uid,
       cachedAt: Date.now(),
-      contacts: patch.contacts ?? prev?.contacts ?? [],
+      contacts: [],           // contatos no IDB — não serializar no localStorage
       contactsOffset: patch.contactsOffset ?? prev?.contactsOffset ?? 0,
       contactsHasMore: patch.contactsHasMore ?? prev?.contactsHasMore ?? false,
       contactsSavedTotal: patch.contactsSavedTotal ?? prev?.contactsSavedTotal ?? null,
@@ -78,6 +84,11 @@ export function writeTenantDailyCache(uid: string, patch: Partial<TenantDailyBoo
       inboxFullSyncDone: patch.inboxFullSyncDone ?? prev?.inboxFullSyncDone ?? false,
     };
     localStorage.setItem(storageKey(uid), JSON.stringify(next));
+
+    // Persiste contatos no IndexedDB (assíncrono — não bloqueia)
+    if (patch.contacts && patch.contacts.length > 0) {
+      void writeContactsToIdb(uid, patch.contacts);
+    }
   } catch {
     /* quota / private mode */
   }
@@ -149,4 +160,5 @@ export function clearTenantDailyCache(uid: string): void {
   } catch {
     /* ignore */
   }
+  void clearContactsIdb(uid);
 }
