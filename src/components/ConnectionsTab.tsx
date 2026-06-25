@@ -37,7 +37,7 @@ import { ConnectionCardNew as ConnectionCard } from './ConnectionCardNew';
 import { ConnectionListRow } from './ConnectionListRow';
 import { AddConnectionModal } from './AddConnectionModal';
 import { SessionLoadIndicator } from './SessionLoadIndicator';
-import { SectionHeader, StatCard, Tabs, Input, Button, EmptyState, Modal } from './ui';
+import { PageShell, StatTile, CollapsibleSection, Badge, Button, EmptyState, Modal, Input, Tabs } from './ui';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useMainLayoutNav } from '../context/MainLayoutNavContext';
@@ -510,355 +510,167 @@ export const ConnectionsTab: React.FC = () => {
   }, [connections]);
 
   return (
-    <div className="space-y-5 pb-8">
-      {/* HERO — Central de Canais */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-white/10 p-6 mb-6">
-        {/* glow decorativo */}
-        <div className="pointer-events-none absolute -top-16 -right-16 w-64 h-64 rounded-full bg-emerald-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 -left-16 w-64 h-64 rounded-full bg-blue-500/10 blur-3xl" />
-
-        {/* topo: ícone + títulos */}
-        <div className="relative flex items-start gap-4 mb-5">
-          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-            <Radio className="w-6 h-6 text-emerald-400" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-white tracking-tight leading-tight">
-              Central de Canais
-            </h2>
-            <p className="text-sm text-slate-400 mt-0.5">
-              Gerencie e monitore seus chips WhatsApp
-            </p>
-          </div>
-        </div>
-
-        {/* 4 tiles de métricas */}
-        <div className="relative grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Online</span>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.5)]" />
-              <span className="text-2xl font-bold text-white">{heroStats.online}</span>
-            </div>
-          </div>
-          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Conectando</span>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-yellow-400 shadow-[0_0_6px_2px_rgba(250,204,21,0.4)]" />
-              <span className="text-2xl font-bold text-white">{heroStats.connecting}</span>
-            </div>
-          </div>
-          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Total</span>
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-blue-400" />
-              <span className="text-2xl font-bold text-white">{heroStats.total}</span>
-            </div>
-          </div>
-          <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Enviados Hoje</span>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-400" />
-              <span className="text-2xl font-bold text-white">{heroStats.sentToday.toLocaleString('pt-BR')}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* barra de saúde da frota */}
-        <div className="relative">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <Gauge className="w-3.5 h-3.5 text-slate-400" />
-              Saúde da Frota
+    <PageShell
+      statusStrip={
+        <>
+          <Badge variant={heroStats.online === heroStats.total && heroStats.total > 0 ? 'success' : heroStats.online > 0 ? 'neutral' : 'warning'} dot>
+            {heroStats.online}/{heroStats.total} online
+          </Badge>
+          {heroStats.connecting > 0 && (
+            <span className="ui-caption tabular-nums">{heroStats.connecting} conectando</span>
+          )}
+          <span className="ui-caption tabular-nums">
+            {heroStats.sentToday.toLocaleString('pt-BR')} envios hoje
+          </span>
+          <span className="ui-caption tabular-nums">Saúde {heroStats.healthPct}%</span>
+          {!isAdmin && (
+            <span className="ui-caption tabular-nums">
+              Plano {Math.min(scopedCount, maxConnectionSlots)}/{maxConnectionSlots}
             </span>
-            <span className={`text-xs font-bold ${
-              heroStats.healthPct >= 70
-                ? 'text-emerald-400'
-                : heroStats.healthPct >= 40
-                  ? 'text-yellow-400'
-                  : 'text-red-400'
+          )}
+        </>
+      }
+      actions={
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <SessionLoadIndicator compact />
+          <KeyboardHintButton />
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={needChannelExtraPurchase ? <Radio className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            disabled={primaryActionDisabled}
+            title={
+              blockNewBySubscription
+                ? 'Assine o plano para adicionar canais.'
+                : atPlatformMax
+                  ? 'Limite de 5 canais atingido.'
+                  : needChannelExtraPurchase
+                    ? 'Adquirir canais extras em Minha assinatura'
+                    : 'Adicionar conexão'
+            }
+            onClick={handlePrimaryConnectClick}
+          >
+            {needChannelExtraPurchase ? 'Mais canais' : 'Conectar'}
+          </Button>
+          {primaryActionDisabled && !blockNewBySubscription && atPlatformMax && (
+            <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
+              Assinatura
+            </Button>
+          )}
+          {blockNewBySubscription && (
+            <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
+              Ver planos
+            </Button>
+          )}
+        </div>
+      }
+    >
+    <div className="space-y-4 pb-8">
+      {heroStats.total > 0 && (
+        <div className="zm-panel">
+          <div className="flex items-center justify-between mb-2">
+            <span className="ui-overline flex items-center gap-1.5">
+              <Gauge className="w-3.5 h-3.5" />
+              Saúde da frota
+            </span>
+            <span className={`ui-caption font-semibold ${
+              heroStats.healthPct >= 70 ? 'text-emerald-500' : heroStats.healthPct >= 40 ? 'text-amber-500' : 'text-red-500'
             }`}>
               {heroStats.healthPct}%
             </span>
           </div>
-          <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
             <div
-              className={`h-full rounded-full transition-all duration-700 ${
-                heroStats.healthPct >= 70
-                  ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-                  : heroStats.healthPct >= 40
-                    ? 'bg-gradient-to-r from-yellow-500 to-yellow-400'
-                    : 'bg-gradient-to-r from-red-500 to-red-400'
-              }`}
-              style={{ width: `${heroStats.healthPct}%` }}
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${heroStats.healthPct}%`,
+                background: heroStats.healthPct >= 70 ? 'var(--success)' : heroStats.healthPct >= 40 ? 'var(--warning)' : 'var(--danger, #ef4444)'
+              }}
             />
           </div>
-          <p className="mt-1.5 text-[11px] text-slate-500">
-            {heroStats.online} de {heroStats.total} chip{heroStats.total !== 1 ? 's' : ''} online
-          </p>
-        </div>
-      </div>
-
-      {/* HEADER */}
-      <SectionHeader
-        eyebrow={
-          <>
-            <Radio className="w-3 h-3" />
-            Central de Comando da Frota
-          </>
-        }
-        title="Conexões WhatsApp"
-        description="Controle, monitore e otimize sua frota de canais WhatsApp em tempo real."
-        icon={<Radio className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
-        actions={
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-            <p className="text-[11px] order-2 sm:order-1" style={{ color: 'var(--text-3)' }}>
-              {isAdmin
-                ? 'Criador: sem teto padrão de canais no painel.'
-                : `Canais usados: ${Math.min(scopedCount, maxConnectionSlots)}/${maxConnectionSlots} (máx. ${MAX_CHANNELS_TOTAL} com extras).`}{' '}
-              {!isAdmin && (
-                <span>
-                  O limite contratado é aplicado por plano (1 a 5 canais).
-                </span>
-              )}
-            </p>
-            <div className="flex items-center gap-2 order-1 sm:order-2 sm:shrink-0">
-              <SessionLoadIndicator compact />
-              <KeyboardHintButton />
-              <Button
-                variant="primary"
-                size="lg"
-                leftIcon={needChannelExtraPurchase ? <Radio className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                disabled={primaryActionDisabled}
-                title={
-                  blockNewBySubscription
-                    ? 'Assine o plano para adicionar canais.'
-                    : atPlatformMax
-                      ? 'Limite de 5 canais atingido. Remova um canal para adicionar outro.'
-                      : needChannelExtraPurchase
-                        ? 'Adquirir canais extras (3.º em diante) em Minha assinatura'
-                        : 'Adicionar conexão'
-                }
-                onClick={handlePrimaryConnectClick}
-              >
-                {needChannelExtraPurchase ? 'Adquirir mais canais' : 'Conectar WhatsApp'}
-              </Button>
-              {primaryActionDisabled && !blockNewBySubscription && atPlatformMax && (
-                <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
-                  Minha assinatura
-                </Button>
-              )}
-              {blockNewBySubscription && (
-                <Button variant="secondary" size="sm" onClick={() => goToView('subscription')}>
-                  Ver planos
-                </Button>
-              )}
-            </div>
-          </div>
-        }
-      />
-
-      {!isAdmin && !blockNewBySubscription && (
-        <div
-          className="rounded-xl px-4 py-3 text-[12.5px] leading-relaxed"
-          style={{
-            background: needChannelExtraPurchase
-              ? 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(6,182,212,0.08))'
-              : 'var(--surface-0)',
-            border: `1px solid ${needChannelExtraPurchase ? 'rgba(16,185,129,0.35)' : 'var(--border-subtle)'}`
-          }}
-        >
-          <p className="font-bold mb-0.5" style={{ color: 'var(--text-1)' }}>
-            Plano e canais WhatsApp
-          </p>
-          <p style={{ color: 'var(--text-2)' }}>
-            O limite de canais segue o plano contratado (de <strong>1 a {MAX_CHANNELS_TOTAL}</strong>). Quando
-            precisar de mais canais, use <strong>Adquirir mais canais</strong> para abrir a assinatura na secção certa.
-          </p>
-          {needChannelExtraPurchase && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span
-                className="text-[11.5px] font-semibold rounded-md px-2 py-0.5"
-                style={{ background: 'rgba(16,185,129,0.2)', color: 'var(--text-1)' }}
-              >
-                Atingiu os {maxConnectionSlots} canais contratados — adquira slots extra para o próximo
-              </span>
-              <Button size="sm" variant="primary" onClick={handlePrimaryConnectClick}>
-                Abrir canais extras
-              </Button>
-            </div>
-          )}
         </div>
       )}
 
-      {/* KPI GRID - 4 colunas */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <StatCard
-          label="Canais Online"
+      {!isAdmin && !blockNewBySubscription && (
+        <details className="zm-panel">
+          <summary className="ui-body font-semibold cursor-pointer">Plano e canais WhatsApp</summary>
+          <p className="ui-caption mt-2">
+            Limite de {maxConnectionSlots} canal(is) no plano (até {MAX_CHANNELS_TOTAL} com extras).{' '}
+            {needChannelExtraPurchase && (
+              <>
+                Você atingiu o limite —{' '}
+                <button type="button" className="underline font-semibold" onClick={handlePrimaryConnectClick}>
+                  adquira slots extra
+                </button>
+                .
+              </>
+            )}
+          </p>
+        </details>
+      )}
+
+      <div className="zm-stat-grid">
+        <StatTile
+          label="Canais online"
           value={`${counts.online}/${connections.length}`}
-          helper={
-            connections.length === 0
-              ? 'Adicione seu primeiro canal'
-              : counts.online === connections.length
-              ? 'Frota 100% ativa'
-              : `${counts.offline + counts.pairing} precisam de atenção`
-          }
-          icon={<Wifi className="w-4 h-4" />}
-          accent={counts.online === 0 ? 'warning' : counts.online === connections.length ? 'success' : 'default'}
+          warn={counts.online === 0 && connections.length > 0}
         />
-        <StatCard
-          label="Disparos Hoje"
-          value={counts.totalSentToday.toLocaleString('pt-BR')}
-          helper={
-            forecastToday !== null && forecastToday > counts.totalSentToday
-              ? `Projeção: ~${forecastToday.toLocaleString('pt-BR')} até 23:59`
-              : counts.totalSentToday > 0
-              ? 'Aguardando próximo envio'
-              : 'Nenhum envio ainda'
-          }
-          icon={<Activity className="w-4 h-4" />}
-        />
-        <StatCard
-          label="Fila Global"
-          value={counts.totalQueue.toLocaleString('pt-BR')}
-          helper={
-            counts.totalQueue > 200
-              ? 'Alta demanda'
-              : counts.totalQueue > 0
-              ? 'Fluxo normal'
-              : 'Fila vazia'
-          }
-          icon={<Activity className="w-4 h-4" />}
-          accent={counts.totalQueue > 200 ? 'warning' : 'default'}
-        />
-        <StatCard
-          label="Saúde da Frota"
-          value={`${counts.avgHealth}%`}
-          helper={
-            counts.avgHealth >= 80
-              ? 'Frota saudável'
-              : counts.avgHealth >= 50
-              ? 'Monitorar'
-              : 'Intervenção urgente'
-          }
-          icon={<Gauge className="w-4 h-4" />}
-          accent={counts.avgHealth >= 80 ? 'success' : counts.avgHealth >= 50 ? 'default' : 'warning'}
-        />
+        <StatTile label="Disparos hoje" value={counts.totalSentToday.toLocaleString('pt-BR')} />
+        <StatTile label="Fila global" value={counts.totalQueue.toLocaleString('pt-BR')} warn={counts.totalQueue > 200} />
+        <StatTile label="Saúde média" value={`${counts.avgHealth}%`} warn={counts.avgHealth < 50} />
       </div>
 
-      {/* PAINEL THROUGHPUT + RANKING */}
       {connections.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Throughput card */}
-          <div
-            className="lg:col-span-2 ui-card relative overflow-hidden"
-            style={{ padding: 18 }}
-          >
-            <div
-              className="absolute inset-0 pointer-events-none opacity-[0.08]"
-              style={{
-                background:
-                  'radial-gradient(700px 160px at 10% 0%, var(--brand-600), transparent 60%)'
-              }}
-              aria-hidden
-            />
-            <div className="relative flex items-start justify-between gap-3 mb-3">
-              <div>
-                <p
-                  className="text-[10.5px] font-bold uppercase tracking-[0.12em] mb-1"
-                  style={{ color: 'var(--text-3)' }}
-                >
-                  Throughput da frota
-                </p>
-                <div className="flex items-baseline gap-1.5">
-                  <span
-                    className="text-[32px] font-extrabold tabular-nums leading-none"
-                    style={{ color: 'var(--text-1)' }}
-                  >
-                    {throughput.perMin < 10
-                      ? throughput.perMin.toFixed(1)
-                      : Math.round(throughput.perMin)}
-                  </span>
-                  <span className="text-[13px] font-bold" style={{ color: 'var(--text-3)' }}>
-                    msgs/min
-                  </span>
+        <CollapsibleSection
+          title="Throughput e ranking"
+          summary={`${throughput.perMin < 10 ? throughput.perMin.toFixed(1) : Math.round(throughput.perMin)} msgs/min`}
+          defaultOpen={false}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2 zm-panel">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <p className="ui-overline mb-1">Throughput da frota</p>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="zm-stat-tile__value tabular-nums">
+                      {throughput.perMin < 10
+                        ? throughput.perMin.toFixed(1)
+                        : Math.round(throughput.perMin)}
+                    </span>
+                    <span className="ui-caption">msgs/min</span>
+                  </div>
+                  {forecastToday != null && forecastToday > counts.totalSentToday && (
+                    <p className="ui-caption mt-1">
+                      Projeção hoje: {forecastToday.toLocaleString('pt-BR')}
+                    </p>
+                  )}
                 </div>
-                <p className="text-[11.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
-                  Média dos últimos ~
-                  {Math.round(
-                    ((throughput.sparkData.length + 1) * THROUGHPUT_SAMPLE_MS) / 60_000
-                  )}{' '}
-                  min
-                </p>
-              </div>
-              <div className="flex flex-col items-end gap-1.5">
                 {throughput.trend !== 0 && (
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
-                    style={{
-                      background:
-                        throughput.trend > 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                      color: throughput.trend > 0 ? '#10b981' : '#ef4444',
-                      border: `1px solid ${
-                        throughput.trend > 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'
-                      }`
-                    }}
-                  >
+                  <Badge variant={throughput.trend > 0 ? 'success' : 'warning'}>
                     {throughput.trend > 0 ? '↗' : '↘'} {Math.abs(Math.round(throughput.trend))}%
-                  </span>
-                )}
-                {forecastToday !== null && forecastToday > counts.totalSentToday && (
-                  <span
-                    className="text-[10.5px] font-semibold"
-                    style={{ color: 'var(--text-3)' }}
-                  >
-                    Projeção dia:{' '}
-                    <strong style={{ color: 'var(--text-1)' }}>
-                      {forecastToday.toLocaleString('pt-BR')}
-                    </strong>
-                  </span>
+                  </Badge>
                 )}
               </div>
+              <ThroughputSpark data={throughput.sparkData} />
             </div>
-            {/* Sparkline */}
-            <ThroughputSpark data={throughput.sparkData} />
-          </div>
 
-          {/* Ranking top 3 */}
-          <div className="ui-card" style={{ padding: 18 }}>
-            <div className="flex items-center gap-2 mb-3">
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center"
-                style={{
-                  background: 'linear-gradient(135deg, #f59e0b33, #d9770622)',
-                  border: '1px solid rgba(245,158,11,0.3)'
-                }}
-              >
+            <div className="zm-panel">
+              <p className="ui-overline mb-3 flex items-center gap-1.5">
                 <Trophy className="w-3.5 h-3.5 text-amber-500" />
-              </div>
-              <div>
-                <h3 className="ui-title text-[13.5px]">Top do dia</h3>
-                <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                  Canais que mais dispararam hoje
-                </p>
-              </div>
-            </div>
-            {topPerformers.length === 0 ? (
-              <p
-                className="text-[11.5px] text-center py-3"
-                style={{ color: 'var(--text-3)' }}
-              >
-                Nenhum envio registrado ainda
+                Top do dia
               </p>
-            ) : (
-              <div className="space-y-1.5">
-                {topPerformers.map((conn, idx) => (
-                  <PodiumRow key={conn.id} rank={idx + 1} conn={conn} />
-                ))}
-              </div>
-            )}
+              {topPerformers.length === 0 ? (
+                <p className="ui-caption text-center py-3">Nenhum envio registrado ainda</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {topPerformers.map((conn, idx) => (
+                    <PodiumRow key={conn.id} rank={idx + 1} conn={conn} />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* ALERTAS INTELIGENTES */}
@@ -1147,6 +959,7 @@ export const ConnectionsTab: React.FC = () => {
         </div>
       </Modal>
     </div>
+    </PageShell>
   );
 };
 

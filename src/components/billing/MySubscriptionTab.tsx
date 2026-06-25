@@ -30,6 +30,7 @@ import {
   CHANNEL_TIER_PRICES_MONTHLY,
   brl
 } from '../../constants/channelTierPricing';
+import { PageShell, CollapsibleSection, Badge, StatTile } from '../ui';
 import type { UserSubscription } from '../../types';
 import { apiUrl } from '../../utils/apiBase';
 import { formatMercadoPagoCheckoutError } from '../../utils/mercadopagoCheckoutError';
@@ -383,195 +384,115 @@ export const MySubscriptionTab: React.FC = () => {
     return pct > 0 ? `Economize ${pct}%` : null;
   })();
   const showRenewCta = subscription?.status === 'active' || subscription?.status === 'past_due';
-  const heroAccent = statusLabel.color;
+  const statusBadgeVariant =
+    effectiveStatus === 'active'
+      ? 'success'
+      : effectiveStatus === 'trialing'
+        ? 'info'
+        : effectiveStatus === 'past_due'
+          ? 'warning'
+          : effectiveStatus === 'blocked'
+            ? 'danger'
+            : 'neutral';
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
-      <header className="flex items-center gap-3">
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center"
-          style={{
-            background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
-            boxShadow: '0 8px 22px rgba(245,158,11,0.3)'
-          }}
-        >
-          <Crown className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h1 className="text-[20px] font-extrabold" style={{ color: 'var(--text-1)' }}>
-            Minha assinatura
-          </h1>
-          <p className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
-            Veja seu plano, pague em segundos e contrate mais canais quando precisar.
-          </p>
-        </div>
-      </header>
-
-      {/* HERO STATUS — visão clara do plano + 1 CTA principal */}
-      <section
-        className="relative overflow-hidden rounded-2xl px-5 py-5"
-        style={{
-          background:
-            'linear-gradient(135deg, color-mix(in srgb, ' +
-            heroAccent +
-            ' 14%, var(--surface-0)) 0%, var(--surface-0) 65%)',
-          border: '1px solid var(--border)',
-          boxShadow: '0 8px 28px color-mix(in srgb, ' + heroAccent + ' 18%, transparent)'
-        }}
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-16 -top-16 w-56 h-56 rounded-full opacity-30 blur-3xl"
-          style={{ background: heroAccent }}
-        />
-        <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-[240px]">
-            <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-bold uppercase tracking-wider"
-              style={{
-                background: 'color-mix(in srgb, ' + heroAccent + ' 18%, transparent)',
-                color: heroAccent,
-                border: '1px solid color-mix(in srgb, ' + heroAccent + ' 35%, transparent)'
-              }}
-            >
-              <Sparkles className="w-3 h-3" />
-              {statusLabel.text}
+    <PageShell
+      statusStrip={
+        <>
+          <Badge variant={statusBadgeVariant} dot>
+            {statusLabel.text}
+          </Badge>
+          <span className="ui-caption tabular-nums">
+            {contractedChannels} canal{contractedChannels === 1 ? '' : 'is'}
+          </span>
+          {daysLeft != null && (
+            <span className="ui-caption tabular-nums">
+              {daysLeft} {daysLeft === 1 ? 'dia' : 'dias'}
             </span>
-            <p
-              className="text-[24px] sm:text-[26px] font-extrabold mt-2 leading-tight"
-              style={{ color: 'var(--text-1)' }}
-            >
-              {planSnapshotLine}
-            </p>
-            <p className="text-[12.5px] mt-1" style={{ color: 'var(--text-2)' }}>
-              {expiryInfoLabel} <strong style={{ color: 'var(--text-1)' }}>{expiryInfoValue}</strong>
-              {statusLabel.sub ? (
-                <>
-                  {' · '}
-                  <span>{statusLabel.sub}</span>
-                </>
-              ) : null}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {subscription?.plan !== 'annual' && (
-              <Action
-                onClick={() => void migrateToAnnualPix()}
-                loading={busy === 'pix'}
-                disabled={!!busy}
-                icon={<TrendingUp className="w-4 h-4" />}
-                primary
-                label="Pagar 1 ano (Pix −5%)"
-                hint={annualSavingsLabel ? `${annualSavingsLabel} vs mensal` : 'Soma os dias que faltam'}
-              />
-            )}
-            <Action
-              onClick={() => {
-                if (showRenewCta) {
-                  document
-                    .getElementById('canais-extras-whatsapp')
-                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                } else {
-                  setUpgradeOpen(true);
-                }
-              }}
+          )}
+          <span className="ui-caption hidden sm:inline">{expiryInfoLabel}: {expiryInfoValue}</span>
+        </>
+      }
+      actions={
+        <div className="flex flex-wrap gap-2 justify-end">
+          {subscription?.plan !== 'annual' && (
+            <button
+              type="button"
+              onClick={() => void migrateToAnnualPix()}
               disabled={!!busy}
-              icon={<Zap className="w-4 h-4" />}
-              label={showRenewCta ? 'Renovar / mudar plano' : 'Assinar Pro'}
-              hint={showRenewCta ? 'Veja os planos abaixo' : `${priceMonthly} · ${priceAnnual}`}
-            />
-          </div>
+              className="px-3 py-1.5 rounded-lg text-[12px] font-bold transition-opacity disabled:opacity-50"
+              style={{ background: 'var(--success)', color: '#fff' }}
+            >
+              {busy === 'pix' ? '…' : 'Anual Pix'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (showRenewCta) {
+                document.getElementById('canais-extras-whatsapp')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              } else {
+                setUpgradeOpen(true);
+              }
+            }}
+            disabled={!!busy}
+            className="px-3 py-1.5 rounded-lg text-[12px] font-bold"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)', color: 'var(--text-1)' }}
+          >
+            {showRenewCta ? 'Renovar' : 'Assinar Pro'}
+          </button>
         </div>
-
+      }
+    >
+    <div className="max-w-5xl mx-auto space-y-4">
+      <div className="zm-panel space-y-3">
+        <p className="ui-body font-semibold">{planSnapshotLine}</p>
+        {statusLabel.sub && <p className="ui-caption">{statusLabel.sub}</p>}
         {progressPct != null && (
-          <div className="relative mt-5">
-            <div className="flex items-center justify-between text-[11px] mb-1.5" style={{ color: 'var(--text-3)' }}>
+          <div>
+            <div className="flex items-center justify-between ui-caption mb-1.5">
               <span className="flex items-center gap-1.5">
                 <CalendarDays className="w-3.5 h-3.5" />
-                Tempo restante do plano
+                Tempo restante
               </span>
-              <span className="font-semibold" style={{ color: 'var(--text-2)' }}>
-                {daysLeft} {daysLeft === 1 ? 'dia' : 'dias'}
-              </span>
+              <span>{daysLeft} {daysLeft === 1 ? 'dia' : 'dias'}</span>
             </div>
-            <div
-              className="h-2 rounded-full overflow-hidden"
-              style={{ background: 'var(--surface-2)' }}
-            >
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${progressPct}%`,
-                  background: `linear-gradient(90deg, ${heroAccent}, color-mix(in srgb, ${heroAccent} 70%, white))`
-                }}
-              />
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${progressPct}%`, background: 'var(--success)' }} />
             </div>
           </div>
         )}
-
-        <div className="relative mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[12px]">
-          <Info icon={<Crown className="w-3.5 h-3.5" />} label="Plano" value={planLabel} />
-          <Info
-            icon={<Users className="w-3.5 h-3.5" />}
-            label="Canais"
-            value={`${contractedChannels} canal${contractedChannels === 1 ? '' : 'is'}`}
-          />
-          <Info icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Pagamento via" value={providerLabel} />
+        <div className="zm-stat-grid">
+          <StatTile label="Plano" value={planLabel} />
+          <StatTile label="Canais" value={String(contractedChannels)} />
+          <StatTile label="Pagamento" value={providerLabel} />
         </div>
-
         {isRecurring && (
-          <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl px-3.5 py-2.5"
-            style={{
-              background: 'rgba(59,130,246,0.10)',
-              border: '1px solid rgba(59,130,246,0.30)'
-            }}
-          >
-            <div className="flex items-start gap-2 text-[12px]" style={{ color: 'var(--text-2)' }}>
-              <Repeat className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#3b82f6' }} />
-              <div>
-                <strong style={{ color: 'var(--text-1)' }}>Renovação automática ativa.</strong>{' '}
-                Seu cartão é cobrado todo ciclo. Pode cancelar quando quiser e o acesso continua até a data atual.
-              </div>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl px-3 py-2.5 zm-panel">
+            <p className="ui-caption flex items-start gap-2">
+              <Repeat className="w-4 h-4 mt-0.5 shrink-0 text-blue-500" />
+              <span>
+                <strong>Renovação automática ativa.</strong> Cancele quando quiser — o acesso continua até {expiryInfoValue}.
+              </span>
+            </p>
             <button
               type="button"
               onClick={cancelRecurring}
               disabled={busy === 'cancel'}
-              className="text-[12px] font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+              className="text-[12px] font-bold px-3 py-1.5 rounded-lg disabled:opacity-60"
               style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.4)', background: 'var(--surface-1)' }}
             >
-              {busy === 'cancel' ? (
-                <span className="flex items-center gap-1.5">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cancelando…
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5">
-                  <XCircle className="w-3.5 h-3.5" /> Cancelar renovação
-                </span>
-              )}
+              {busy === 'cancel' ? 'Cancelando…' : 'Cancelar renovação'}
             </button>
           </div>
         )}
-      </section>
+      </div>
 
-      {/* PLANOS — escolher quantidade de canais */}
-      <section
-        id="canais-extras-whatsapp"
-        className="rounded-2xl px-5 py-5 scroll-mt-4"
-        style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
-      >
-        <div className="flex flex-wrap items-end justify-between gap-3 mb-1">
-          <div>
-            <h2 className="text-[18px] font-extrabold" style={{ color: 'var(--text-1)' }}>
-              Escolha seu plano
-            </h2>
-            <p className="text-[12.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-              Quanto mais canais, menor o custo por canal. Pague em 1 clique.
-            </p>
-          </div>
-
-          {/* Toggle Mensal / Anual */}
+      <CollapsibleSection
+        title="Escolha seu plano"
+        summary={`${upgradeTarget} canal(is) · ${tierPlanMode === 'annual' ? 'Anual' : 'Mensal'}`}
+        defaultOpen
+        actions={
           <div
             className="inline-flex p-1 rounded-xl"
             style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -579,11 +500,10 @@ export const MySubscriptionTab: React.FC = () => {
             <button
               type="button"
               onClick={() => setTierPlanMode('monthly')}
-              className="px-3.5 py-1.5 text-[12px] font-bold rounded-lg transition-all"
+              className="px-3 py-1 text-[12px] font-bold rounded-lg"
               style={{
                 background: tierPlanMode === 'monthly' ? 'var(--surface-0)' : 'transparent',
-                color: tierPlanMode === 'monthly' ? 'var(--text-1)' : 'var(--text-3)',
-                boxShadow: tierPlanMode === 'monthly' ? '0 2px 8px rgba(0,0,0,0.08)' : undefined
+                color: tierPlanMode === 'monthly' ? 'var(--text-1)' : 'var(--text-3)'
               }}
             >
               Mensal
@@ -591,31 +511,24 @@ export const MySubscriptionTab: React.FC = () => {
             <button
               type="button"
               onClick={() => setTierPlanMode('annual')}
-              className="px-3.5 py-1.5 text-[12px] font-bold rounded-lg transition-all flex items-center gap-1.5"
+              className="px-3 py-1 text-[12px] font-bold rounded-lg flex items-center gap-1"
               style={{
                 background: tierPlanMode === 'annual' ? 'var(--surface-0)' : 'transparent',
-                color: tierPlanMode === 'annual' ? 'var(--text-1)' : 'var(--text-3)',
-                boxShadow: tierPlanMode === 'annual' ? '0 2px 8px rgba(0,0,0,0.08)' : undefined
+                color: tierPlanMode === 'annual' ? 'var(--text-1)' : 'var(--text-3)'
               }}
             >
               Anual
               {annualSavingsLabel && (
-                <span
-                  className="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-md"
-                  style={{
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    color: '#fff'
-                  }}
-                >
+                <span className="text-[9px] font-bold px-1 rounded" style={{ background: 'var(--success)', color: '#fff' }}>
                   {annualSavingsLabel}
                 </span>
               )}
             </button>
           </div>
-        </div>
-
-        {/* Grid de planos */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 mt-4">
+        }
+      >
+        <div id="canais-extras-whatsapp" className="scroll-mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
           {(Object.keys(CHANNEL_TIER_PRICES_MONTHLY) as unknown as Array<keyof typeof CHANNEL_TIER_PRICES_MONTHLY>).map((n) => {
             const tier = Number(n) as ChannelTier;
             const price = tierPrice(tier, tierPlanMode);
@@ -703,14 +616,7 @@ export const MySubscriptionTab: React.FC = () => {
         </div>
 
         {/* Resumo da escolha + CTAs */}
-        <div
-          className="rounded-xl px-4 py-4 mt-4"
-          style={{
-            background:
-              'linear-gradient(135deg, color-mix(in srgb, var(--brand-500) 8%, var(--surface-1)), var(--surface-1))',
-            border: '1px solid var(--border-subtle)'
-          }}
-        >
+        <div className="zm-panel mt-4">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div>
               <p className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
@@ -800,16 +706,10 @@ export const MySubscriptionTab: React.FC = () => {
             <span>Sem fidelidade · Cancele quando quiser</span>
           </div>
         </div>
-      </section>
+        </div>
+      </CollapsibleSection>
 
-      {/* FAQ COMPACTO */}
-      <section
-        className="rounded-2xl px-5 py-5"
-        style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-      >
-        <h2 className="text-[15px] font-extrabold mb-3" style={{ color: 'var(--text-1)' }}>
-          Dúvidas comuns
-        </h2>
+      <CollapsibleSection title="Dúvidas comuns" defaultOpen={false}>
         <div className="space-y-1.5">
           <FaqItem
             q="Como funciona o pagamento?"
@@ -858,17 +758,10 @@ export const MySubscriptionTab: React.FC = () => {
             }
           />
         </div>
-      </section>
+      </CollapsibleSection>
 
       {subscription?.nfeLastInvoiceId && (
-        <section
-          className="rounded-2xl px-5 py-4"
-          style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-        >
-          <h2 className="text-[14px] font-bold mb-2 flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-            <FileText className="w-4 h-4" style={{ color: '#3b82f6' }} />
-            Nota fiscal
-          </h2>
+        <CollapsibleSection title="Nota fiscal" defaultOpen={false}>
           <div className="flex flex-wrap items-center gap-3 justify-between">
             <div className="text-[12.5px]" style={{ color: 'var(--text-2)' }}>
               <p>
@@ -899,11 +792,12 @@ export const MySubscriptionTab: React.FC = () => {
               </span>
             )}
           </div>
-        </section>
+        </CollapsibleSection>
       )}
 
       <UpgradeProModal isOpen={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </div>
+    </PageShell>
   );
 };
 

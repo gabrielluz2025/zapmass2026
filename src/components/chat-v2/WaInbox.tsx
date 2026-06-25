@@ -149,8 +149,15 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   return (
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
       <div className="wa-side-header flex items-center justify-between gap-2 px-3 flex-shrink-0">
-        <div className="flex-1 min-w-0">
-          <p className="wa-conv-name text-[17px] leading-tight">Conversas</p>
+        <div className="flex flex-1 min-w-0 items-center gap-2">
+          {totalUnread > 0 && (
+            <span className="ui-caption font-semibold tabular-nums shrink-0" style={{ color: 'var(--brand-600)' }}>
+              {totalUnread} não lida{totalUnread === 1 ? '' : 's'}
+            </span>
+          )}
+          <span className="ui-caption truncate hidden sm:inline">
+            {allConversations.length} conversa{allConversations.length === 1 ? '' : 's'}
+          </span>
         </div>
         <button
           type="button"
@@ -164,7 +171,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
       </div>
 
       <div
-        className="wa-status-strip"
+        className="wa-status-strip ui-caption"
         data-offline={stripOffline ? 'true' : 'false'}
         data-slow={socketStatus === 'slow' ? 'true' : 'false'}
         role="status"
