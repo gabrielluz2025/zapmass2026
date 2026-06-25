@@ -5,6 +5,15 @@ export function isFullInboxSyncEnabled(): boolean {
   );
 }
 
+/** Baileys/Evolution: baixar histórico completo do celular na conexão (settings.syncFullHistory). */
+export function isEvolutionFullHistorySyncEnabled(): boolean {
+  const raw = process.env.EVOLUTION_SYNC_FULL_HISTORY;
+  if (raw != null && String(raw).trim() !== '') {
+    return !['0', 'false', 'no', 'off'].includes(String(raw).trim().toLowerCase());
+  }
+  return isFullInboxSyncEnabled();
+}
+
 /** Mensagens prefetch por conversa “vazia” no sync Evolution (findMessages). */
 export function evolutionSyncMsgPrefetch(): number {
   const def = isFullInboxSyncEnabled() ? 200 : 80;

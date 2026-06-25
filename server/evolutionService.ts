@@ -30,6 +30,7 @@ import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
+import { isEvolutionFullHistorySyncEnabled } from '../shared/chatSyncConfig.js';
 import {
     getOwnerLastFullSyncMs,
     markOwnerFullSyncDone,
@@ -738,6 +739,7 @@ export async function syncConnectionsForOwner(
                         error: err?.message,
                     });
                 });
+                await ensureEvolutionFullHistorySync(id);
                 const n = await chatStore.syncChatsForConnection(id, { deferEmit: true });
                 syncedChats.push(id);
                 if (n === 0) {
@@ -1227,6 +1229,7 @@ function applyConnectionStateUpdate(
         });
         void (async () => {
             await enrichConnectionMeta(instance);
+            await ensureEvolutionFullHistorySync(instance);
             await chatStore.syncChatsForConnection(instance);
             const ou = resolveOwnerUid(instance);
             if (ou) {
@@ -2421,6 +2424,34 @@ const chatStore: EvolutionChatStore = createEvolutionChat(api, {
     ownerUidFromConnectionId
 });
 
+/** Evita POST repetido em /settings/set na mesma sessão do processo. */
+const fullHistorySyncEnsured = new Set<string>();
+
+/**
+ * Ativa syncFullHistory na Evolution (histórico completo do WhatsApp no servidor).
+ * Idempotente; falha silenciosa com log warn.
+ */
+async function ensureEvolutionFullHistorySync(instanceName: string): Promise<boolean> {
+    const id = String(instanceName || '').trim();
+    if (!id || !isEvolutionFullHistorySyncEnabled()) return false;
+    if (fullHistorySyncEnsured.has(id)) return true;
+
+    try {
+        await api.post(`/settings/set/${evoInst(id)}`, {
+            syncFullHistory: true,
+        });
+        fullHistorySyncEnsured.add(id);
+        log('info', `Evolution syncFullHistory ativado: ${id}`);
+        return true;
+    } catch (error: any) {
+        log('warn', `Falha ao ativar syncFullHistory: ${id}`, {
+            error: error?.message,
+            response: error?.response?.data,
+        });
+        return false;
+    }
+}
+
 // ================== FUNÇÕES AUXILIARES ==================
 
 async function applyProxyToInstance(instanceName: string, proxy?: ConnectionProxyConfig | null) {
@@ -3019,6 +3050,7 @@ async function createConnectionInternal(
             instanceName: id,
             qrcode: true,
             integration: 'WHATSAPP-BAILEYS',
+            ...(isEvolutionFullHistorySyncEnabled() ? { syncFullHistory: true } : {}),
         };
 
         if (proxy?.host && proxy.port) {
@@ -3056,6 +3088,7 @@ async function createConnectionInternal(
         }
 
         await setupWebhook(id);
+        await ensureEvolutionFullHistorySync(id);
 
         emitConnectionProgress(id, 'awaiting-scan');
         let extracted = extractQrFromApiResponse(response.data);

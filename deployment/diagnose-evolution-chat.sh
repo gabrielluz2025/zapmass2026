@@ -31,10 +31,20 @@ echo ""
 echo ""
 
 if [ -z "$CONN" ]; then
-  CONN="$(echo "$INST_JSON" | sed -n \
-    -e 's/.*"instanceName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    -e 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -1)"
+  CONN="$(echo "$INST_JSON" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+rows = data if isinstance(data, list) else data.get('instances') or data.get('data') or []
+if not isinstance(rows, list):
+    sys.exit(0)
+open_rows = [r for r in rows if str(r.get('connectionStatus') or r.get('state') or '').lower() == 'open']
+pick = open_rows[0] if open_rows else (rows[0] if rows else None)
+if pick:
+    print(pick.get('name') or pick.get('instanceName') or '')
+" 2>/dev/null || true)"
 fi
 
 if [ -z "$CONN" ]; then
@@ -46,6 +56,32 @@ fi
 
 ENC="$(python3 -c "import urllib.parse; print(urllib.parse.quote('${CONN}'))" 2>/dev/null || printf '%s' "$CONN")"
 echo "==> Instância teste: ${CONN}"
+echo ""
+
+echo "==> syncFullHistory (Setting da instância)"
+echo "$INST_JSON" | python3 -c "
+import json, sys
+target = sys.argv[1] if len(sys.argv) > 1 else ''
+try:
+    data = json.load(sys.stdin)
+except Exception as e:
+    print(f'(parse falhou: {e})')
+    sys.exit(0)
+rows = data if isinstance(data, list) else data.get('instances') or data.get('data') or []
+for r in rows:
+    name = r.get('name') or r.get('instanceName') or ''
+    if name == target:
+        setting = r.get('Setting') or r.get('setting') or {}
+        print('syncFullHistory:', setting.get('syncFullHistory'))
+        print('connectionStatus:', r.get('connectionStatus') or r.get('state'))
+        msgs = (r.get('_count') or {}).get('Message')
+        chats = (r.get('_count') or {}).get('Chat')
+        if msgs is not None:
+            print('_count.Message:', msgs, '| Chat:', chats)
+        break
+else:
+    print('(instância não encontrada no JSON)')
+" "$CONN" 2>/dev/null || echo "(python indisponível)"
 echo ""
 
 echo "==> connectionState"
@@ -78,4 +114,5 @@ else
 fi
 echo ""
 echo "==> Fim."
-echo "    Se state=open mas findMessages vazio, a Evolution não indexou histórico nesta sessão."
+echo "    syncFullHistory=false impede histórico antigo no servidor Evolution."
+echo "    Rode: bash deployment/enable-evolution-full-history.sh (e reconecte o chip se já estava open)."
