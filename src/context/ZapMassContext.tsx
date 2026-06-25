@@ -1755,11 +1755,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
           data?.hasMore && data.nextCursor != null ? Number(data.nextCursor) : null;
         setInboxHasMore(!!data?.hasMore);
         setInboxTotal(Number(data?.total) || 0);
-        setConversations((prev) =>
-          data?.reset
-            ? mergeConversationsFromSocketUpdate([], list, ownsConnectionId)
-            : mergeConversationsFromSocketUpdate(prev, list, ownsConnectionId)
-        );
+        setConversations((prev) => {
+          if (data?.reset) {
+            return mergeConversationsFromSocketUpdate([], list, ownsConnectionId);
+          }
+          // Paginação acumulativa: preserva conversas do prev não presentes na nova página
+          const newIds = new Set(list.map((c) => c.id));
+          const prevNotInNew = prev.filter((c) => !newIds.has(c.id));
+          const merged = mergeConversationsFromSocketUpdate(prev, list, ownsConnectionId);
+          if (prevNotInNew.length === 0) return merged;
+          const mergedIds = new Set(merged.map((c) => c.id));
+          const missed = prevNotInNew.filter((c) => !mergedIds.has(c.id));
+          if (missed.length === 0) return merged;
+          return [...missed, ...merged].sort(
+            (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+          );
+        });
       }
     );
 

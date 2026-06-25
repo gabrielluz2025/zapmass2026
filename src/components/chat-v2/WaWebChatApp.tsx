@@ -391,15 +391,22 @@ export const WaWebChatApp: React.FC<{
     requestConversationPicture(selected.id);
   }, [selected?.id, selected?.profilePicUrl, conversationNeedsRemotePicture, requestConversationPicture]);
 
+  // loadingHistory por conversa (antes era boolean global — causava spinner errado ao trocar de chat)
+  const loadingHistoryById = useRef<Set<string>>(new Set());
+
   const loadMoreHistory = useCallback(
     async (conversationId: string, silent = false) => {
-      if (!conversationId || historyExhausted[conversationId]) return;
+      if (!conversationId) return;
+      if (historyExhausted[conversationId]) return;
+      // Evita carga paralela da mesma conversa
+      if (loadingHistoryById.current.has(conversationId)) return;
+
       const current = historyRequestedRef.current.get(conversationId) || 0;
       const nextLevel =
         HISTORY_LEVELS.find((lvl) => lvl > current) || HISTORY_LEVELS[HISTORY_LEVELS.length - 1];
       if (nextLevel === current) return;
 
-      historyRequestedRef.current.set(conversationId, nextLevel);
+      loadingHistoryById.current.add(conversationId);
       setLoadingHistory(true);
       const prevCount =
         sortedConversations.find((c) => c.id === conversationId)?.messages.length || 0;
@@ -420,6 +427,8 @@ export const WaWebChatApp: React.FC<{
           }
           return;
         }
+        // Só avança o nível APÓS sucesso confirmado
+        historyRequestedRef.current.set(conversationId, nextLevel);
         const grew = res.total > prevCount;
         if (!grew && nextLevel >= HISTORY_LEVELS[HISTORY_LEVELS.length - 1]) {
           setHistoryExhausted((prev) => ({ ...prev, [conversationId]: true }));
@@ -431,6 +440,7 @@ export const WaWebChatApp: React.FC<{
           });
         }
       } finally {
+        loadingHistoryById.current.delete(conversationId);
         setLoadingHistory(false);
       }
     },
@@ -614,21 +624,31 @@ export const WaWebChatApp: React.FC<{
     if (selected?.id) void loadMoreHistory(selected.id);
   }, [selected?.id, loadMoreHistory]);
 
-  // Auto-load máximo de histórico ao abrir uma conversa
+  // Auto-load sequencial de histórico ao abrir conversa — espera cada nível terminar antes do próximo
   const autoLoadedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!selected?.id || isSelectedDraft) return;
+    if (!selected?.id || isSelectedDraft || !socket?.connected) return;
     if (autoLoadedRef.current.has(selected.id)) return;
     autoLoadedRef.current.add(selected.id);
-    // Carrega progressivamente todos os níveis de histórico disponíveis
-    const loadAll = async () => {
-      for (let i = 0; i < 4; i++) {
-        await new Promise((r) => setTimeout(r, 600 * i));
-        void loadMoreHistory(selected.id!);
+
+    const convId = selected.id;
+    const loadSequential = async () => {
+      // Aguarda 300ms para hydrate terminar antes de começar
+      await new Promise((r) => setTimeout(r, 300));
+      // Carrega todos os níveis sequencialmente até o nível máximo (8000)
+      for (let i = 0; i < HISTORY_LEVELS.length; i++) {
+        // Para se trocou de conversa
+        if (autoLoadedRef.current.has(convId) === false) break;
+        await loadMoreHistory(convId, true);
+        // Pequena pausa entre níveis para não sobrecarregar o socket
+        if (i < HISTORY_LEVELS.length - 1) {
+          await new Promise((r) => setTimeout(r, 400));
+        }
       }
     };
-    void loadAll();
-  }, [selected?.id, isSelectedDraft, loadMoreHistory]);
+    void loadSequential();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, isSelectedDraft]);
 
   const handleSendMedia = useCallback(
     (file: File, caption?: string) => {
