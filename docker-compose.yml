@@ -122,8 +122,8 @@ services:
         condition: service_started
 
   evolution:
-    # v2.2+ LID: prefira imagem mais recente via EVOLUTION_IMAGE no .env (ex. evoapicloud/evolution-api:2.4.0).
-    image: ${EVOLUTION_IMAGE:-atendai/evolution-api:v2.2.0}
+    # Padrao: v2.3.7 (estavel). Override via EVOLUTION_IMAGE no .env (ex.: 2.4.0-rc2).
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7}
     restart: unless-stopped
     # Antes os logs cresciam sem limite e podiam encher o disco da VPS.
     logging:
