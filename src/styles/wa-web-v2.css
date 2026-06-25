@@ -1,26 +1,38 @@
-/* Bate-papo ZapMass — shell profissional (tokens WA Web claros, independente do tema global) */
+/* Bate-papo ZapMass — shell independente do tema global.
+   Usa 'html .wa-chat-pro' (especificidade 0,1,1) para vencer
+   'html[data-mode="dark"]' (também 0,1,1) pela ordem de importação (wa-web-v2 importado depois). */
 
-.wa-chat-pro {
-  --wa-bg: #efeae2;
-  --wa-panel: #ffffff;
-  --wa-panel-2: #f7f8fa;
-  --wa-header: #f0f2f5;
-  --wa-search: #f0f2f5;
-  --wa-divider: #e9edef;
-  --wa-bubble-in: #ffffff;
-  --wa-bubble-out: #d9fdd3;
-  --wa-text: #111b21;
-  --wa-text-2: #54656f;
-  --wa-text-3: #667781;
-  --wa-icon: #54656f;
-  --wa-hover: #f5f6f6;
-  --wa-active: #f0f2f5;
-  --wa-green: #00a884;
-  --wa-green-strong: #008069;
-  --wa-tick-blue: #53bdeb;
-  --wa-unread: #25d366;
-  --wa-shadow-sm: 0 1px 0.5px rgba(11, 20, 26, 0.13);
-  --wa-shadow-md: 0 8px 24px rgba(11, 20, 26, 0.12);
+html .wa-chat-pro {
+  /* Paleta dark premium — bolhas claras sobre fundo escuro */
+  --wa-bg:         #0d1117;
+  --wa-panel:      #161b22;
+  --wa-panel-2:    #1c2128;
+  --wa-header:     #161b22;
+  --wa-search:     #0d1117;
+  --wa-divider:    rgba(255,255,255,0.08);
+
+  /* Bolhas com boa visibilidade */
+  --wa-bubble-in:  #1e2d3f;
+  --wa-bubble-out: #0a3622;
+
+  /* Texto claro */
+  --wa-text:       #e6edf3;
+  --wa-text-2:     #8b949e;
+  --wa-text-3:     #6e7681;
+  --wa-icon:       #8b949e;
+  --wa-hover:      rgba(255,255,255,0.05);
+  --wa-active:     rgba(22,185,129,0.10);
+
+  /* Verde WhatsApp */
+  --wa-green:        #25d366;
+  --wa-green-strong: #22c55e;
+  --wa-tick-blue:    #53bdeb;
+  --wa-unread:       #25d366;
+  --wa-shadow-sm:    0 1px 3px rgba(0,0,0,0.5);
+  --wa-shadow-md:    0 8px 24px rgba(0,0,0,0.45);
+
+  /* Side-bg para borda do dot de presença */
+  --wa-side-bg: #161b22;
 
   color: var(--wa-text);
   background: var(--wa-bg);
@@ -448,55 +460,38 @@
   letter-spacing: 0.04em;
 }
 
-/* Dark mode WA nativo — paleta escura do WhatsApp Web */
-html[data-mode='dark'] .wa-chat-pro .wa-empty-pro {
-  background: linear-gradient(165deg, #111b21 0%, #0b141a 55%, #0a1014 100%);
-}
-
-html[data-mode='dark'] .wa-chat-pro .wa-empty-zap-badge {
-  background: color-mix(in srgb, var(--wa-green) 18%, var(--wa-panel));
-  color: #d1f4e0;
-}
-
-html[data-mode='dark'] .wa-chat-pro {
-  --wa-bg: #0B141A;
-  --wa-panel: #111B21;
-  --wa-panel-2: #182229;
-  --wa-header: #202C33;
-  --wa-search: #182229;
-  --wa-divider: #2A3942;
-  --wa-bubble-in: #202C33;
-  --wa-bubble-out: #054740;
-  --wa-text: #E9EDEF;
-  --wa-text-2: #8696A0;
-  --wa-text-3: #667781;
-  --wa-icon: #8696A0;
-  --wa-hover: #182229;
-  --wa-active: #2A3942;
-  color-scheme: dark;
-}
-
-html[data-mode='dark'] .wa-chat-pro .wa-chat-wallpaper {
-  background-color: var(--wa-bg);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='560' height='560' viewBox='0 0 560 560'><g fill='none' stroke='%232A3942' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.5'><path d='M40 90c12-20 28-26 44-14s12 36-6 42-30-6-38-28'/><circle cx='200' cy='160' r='10'/><circle cx='340' cy='220' r='12'/></g></svg>");
-}
-
-html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-side='in'] {
+/* Bolhas explícitas — garante fundo correto independente de herança */
+html .wa-chat-pro .wa-bubble[data-side='in'] {
   background: var(--wa-bubble-in);
   color: var(--wa-text);
 }
 
-html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-side='out'] {
+html .wa-chat-pro .wa-bubble[data-side='out'] {
   background: var(--wa-bubble-out);
   color: var(--wa-text);
 }
 
-html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-tail='true'][data-side='in']::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23202C33' d='M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'/></svg>");
+html .wa-chat-pro .wa-empty-pro {
+  background: linear-gradient(165deg, #0d1117 0%, #0b1118 55%, #090d13 100%);
 }
 
-html[data-mode='dark'] .wa-chat-pro .wa-bubble[data-tail='true'][data-side='out']::before {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%23054740' d='M2.812 1H8v11.193L1.533 3.568C.474 2.156 1.042 1 2.812 1z'/></svg>");
+html .wa-chat-pro .wa-empty-zap-badge {
+  background: color-mix(in srgb, var(--wa-green) 18%, var(--wa-panel));
+  color: #d1f4e0;
+}
+
+/* Wallpaper minimalista no dark — sem pattern (evita os círculos confusos) */
+html .wa-chat-pro .wa-chat-wallpaper {
+  background-color: var(--wa-bg);
+  background-image: none;
+}
+
+html .wa-chat-pro .wa-bubble[data-tail='true'][data-side='in']::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%231e2d3f' d='M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'/></svg>");
+}
+
+html .wa-chat-pro .wa-bubble[data-tail='true'][data-side='out']::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='13' viewBox='0 0 8 13'><path fill='%230a3622' d='M2.812 1H8v11.193L1.533 3.568C.474 2.156 1.042 1 2.812 1z'/></svg>");
 }
 
 /* ── Mídia e player de áudio ─────────────────── */
