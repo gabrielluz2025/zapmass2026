@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { ConnectionStatus, WarmupChipStats } from '../types';
 import { brazilDayKey } from '../utils/channelDispatchInsights';
 import toast from 'react-hot-toast';
-import { Badge, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
+import { Badge, Button, Card, EmptyState, Modal, PageShell, CollapsibleSection, StatTile } from './ui';
 
 interface WarmupChannel {
   connectionId: string;
@@ -410,174 +410,59 @@ export const WarmupTab: React.FC = () => {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const heroTiles = useMemo(
-    () => [
-      {
-        icon: <MessageCircle className="w-4 h-4 text-orange-400" />,
-        label: 'Trocas hoje (chips)',
-        value: chipAggregates.todayAll
-      },
-      {
-        icon: <Flame className="w-4 h-4 text-yellow-400" />,
-        label: 'Canais no aquecimento',
-        value: enabledCount
-      },
-      {
-        icon: <Timer className="w-4 h-4 text-blue-400" />,
-        label: 'Fila LID (campanhas)',
-        value: (warmupQueue ?? []).length
-      },
-      {
-        icon: <CheckCircle2 className="w-4 h-4 text-green-400" />,
-        label: 'LIDs prontos',
-        value: warmedCount ?? 0
-      }
-    ],
-    [chipAggregates.todayAll, enabledCount, warmupQueue, warmedCount]
-  );
-
   return (
-    <div className="space-y-5 pb-10">
-      {/* ── HERO FIRE STARTER ─────────────────────────────────────── */}
-      <div className="mb-6 rounded-2xl overflow-hidden bg-gradient-to-br from-orange-950 via-red-900/50 to-slate-900 border border-white/10 shadow-xl">
-        <div className="px-6 pt-6 pb-5">
-          {/* Cabeçalho */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-orange-500/20 border border-orange-500/30">
-                <Flame className="w-6 h-6 text-orange-400" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-white leading-tight">Aquecimento de Chips</h2>
-                <p className="text-sm text-slate-300 mt-0.5">
-                  Humanize seus canais com trocas naturais de mensagens
-                </p>
-              </div>
-            </div>
-            {/* Status badge */}
-            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 shrink-0">
-              <span
-                className={`w-2 h-2 rounded-full ${warmupActive ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`}
-              />
-              <span className={`text-xs font-medium ${warmupActive ? 'text-green-300' : 'text-slate-400'}`}>
-                {warmupActive ? 'Ativo' : 'Inativo'}
-              </span>
-            </div>
-          </div>
+    <PageShell
+      statusStrip={
+        <>
+          <Badge variant={warmupActive ? 'success' : 'neutral'} dot>
+            {warmupActive ? 'Ativo' : 'Inativo'}
+          </Badge>
+          <span className="ui-caption tabular-nums">{enabledCount} canais ativos</span>
+          <span className="ui-caption tabular-nums">Score {avgScore}%</span>
+          <span className="ui-caption tabular-nums hidden sm:inline">
+            {warmupActive ? `Próxima ${formatCountdown(warmupCountdownUi)}` : `${pairsCount} pares`}
+          </span>
+        </>
+      }
+      actions={
+        warmupActive ? (
+          <Button variant="danger" size="sm" leftIcon={<Pause className="w-4 h-4" />} onClick={stopGlobalWarmup}>
+            Parar
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={<Play className="w-4 h-4" />}
+            disabled={enabledCount < 2}
+            onClick={startGlobalWarmup}
+          >
+            Iniciar
+          </Button>
+        )
+      }
+    >
+    <div className="space-y-4 pb-10">
+      <details className="zm-panel ui-caption">
+        <summary className="ui-body font-semibold cursor-pointer">Como funciona o aquecimento</summary>
+        <p className="mt-2">
+          Precisa de <strong>pelo menos dois canais</strong> ativos. As conversas cruzadas elevam o score e reduzem risco de bloqueio.
+          Recomendado: <strong>10–30 min</strong> entre rodadas. Continua neste navegador até clicar em Parar.
+        </p>
+      </details>
 
-          {/* Tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
-            {heroTiles.map((tile) => (
-              <div
-                key={tile.label}
-                className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3"
-              >
-                <div className="shrink-0">{tile.icon}</div>
-                <div className="min-w-0">
-                  <p className="text-lg font-bold text-white leading-none">{tile.value}</p>
-                  <p className="text-xs text-slate-400 mt-0.5 truncate">{tile.label}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Dica visual */}
-          <div className="flex items-center gap-2 mt-4">
-            <Zap className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-            <p className="text-xs text-slate-400">
-              Recomendado: <span className="text-orange-300 font-medium">10–30 min</span> entre rodadas
-            </p>
-          </div>
-        </div>
-      </div>
-      {/* ── FIM HERO ──────────────────────────────────────────────── */}
-
-      <SectionHeader
-        eyebrow={<><Flame className="w-3 h-3" />Aquecimento</>}
-        title="Aquecer Numeros"
-        description="Seus canais conversam entre si automaticamente para elevar o score e evitar bloqueios."
-        icon={<Flame className="w-5 h-5" style={{ color: '#f97316' }} />}
-        actions={
-          warmupActive ? (
-            <Button variant="danger" size="lg" leftIcon={<Pause className="w-4 h-4" />} onClick={stopGlobalWarmup}>
-              Parar Aquecimento
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              size="lg"
-              leftIcon={<Play className="w-4 h-4" />}
-              disabled={enabledCount < 2}
-              onClick={startGlobalWarmup}
-              style={
-                enabledCount >= 2
-                  ? { background: 'linear-gradient(135deg, #f97316, #ea580c)', color: '#fff', boxShadow: '0 4px 20px rgba(249,115,22,0.35)' }
-                  : undefined
-              }
-            >
-              Iniciar Aquecimento
-            </Button>
-          )
-        }
-      />
-
-      <div
-        className="flex gap-3 rounded-xl px-4 py-3 text-[12px] leading-relaxed items-start border"
-        style={{
-          borderColor: 'rgba(249,115,22,0.35)',
-          background: 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(234,88,12,0.06))',
-          color: 'var(--text-2)'
-        }}
-        role="status"
-      >
-        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: '#ea580c' }} aria-hidden />
-        <div>
-          <strong style={{ color: 'var(--text-1)' }}>Precisa do 2º canal em diante.</strong>{' '}
-          O aquecimento só faz efeito quando há <strong>pelo menos dois números</strong> ligados — as conversas cruzadas
-          acontecem <em>entre</em> canais. Com um único canal o botão &quot;Iniciar aquecimento&quot; fica bloqueado.{' '}
-          Depois de iniciar, ele continua <strong>neste navegador</strong> mesmo se fechar ou recarregar a aba, até
-          clicar em <strong>Parar aquecimento</strong>.
-        </div>
+      <div className="zm-stat-grid">
+        <StatTile label="Canais ativos" value={enabledCount} hint={`${pairsCount} pares`} />
+        <StatTile label="Score médio" value={`${avgScore}%`} hint={getScoreLabel(avgScore)} warn={avgScore < 40} />
+        <StatTile label="Msgs trocadas" value={chipAggregates.totalMsgs} hint={lastRoundTime ? `Última: ${lastRoundTime}` : undefined} />
+        <StatTile label="Próxima rodada" value={warmupActive ? formatCountdown(warmupCountdownUi) : '—'} />
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard
-          label="Canais ativos"
-          value={enabledCount}
-          icon={<Flame className="w-4 h-4" />}
-          helper={`${pairsCount} pares formados`}
-          accent="warning"
-        />
-        <StatCard
-          label="Score medio"
-          value={`${avgScore}%`}
-          icon={<TrendingUp className="w-4 h-4" />}
-          helper={getScoreLabel(avgScore)}
-          accent={avgScore >= 80 ? 'success' : avgScore >= 40 ? 'warning' : 'danger'}
-        />
-        <StatCard
-          label="Msgs trocadas"
-          value={chipAggregates.totalMsgs}
-          icon={<MessageCircle className="w-4 h-4" />}
-          helper={lastRoundTime ? `Ultima rodada: ${lastRoundTime}` : 'Nenhuma rodada nesta sessao'}
-          accent="info"
-        />
-        <StatCard
-          label="Proxima rodada"
-          value={warmupActive ? formatCountdown(warmupCountdownUi) : '--:--'}
-          icon={<Clock className="w-4 h-4" />}
-          helper={warmupActive ? `${chipAggregates.todayEnabled} trocas hoje nos ativos` : 'Timer inativo'}
-        />
-      </div>
-
-      <Card>
-        <h3 className="ui-title text-[14px] mb-3">Configuracao do aquecimento</h3>
-        <div className="flex flex-wrap items-end gap-5">
+      <CollapsibleSection title="Configuração" summary={`Intervalo ${intervalMinutes} min`} defaultOpen>
+        <div className="space-y-3">
           <div>
-            <label className="text-[11px] font-semibold uppercase tracking-widest mb-2 block" style={{ color: 'var(--text-3)' }}>
-              Intervalo entre rodadas
-            </label>
-            <div className="flex items-center gap-1.5">
+            <label className="ui-overline mb-2 block">Intervalo entre rodadas</label>
+            <div className="flex flex-wrap items-center gap-1.5">
               {[3, 5, 10, 15, 30].map((min) => (
                 <button
                   key={min}
@@ -586,7 +471,7 @@ export const WarmupTab: React.FC = () => {
                   className="px-3.5 py-2 rounded-lg text-[12px] font-bold transition-all"
                   style={
                     intervalMinutes === min
-                      ? { background: '#f97316', color: '#fff', boxShadow: '0 4px 14px rgba(249,115,22,0.3)' }
+                      ? { background: '#f97316', color: '#fff' }
                       : { background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
                   }
                 >
@@ -597,25 +482,17 @@ export const WarmupTab: React.FC = () => {
           </div>
 
           {enabledCount < 2 && (
-            <div
-              className="flex items-center gap-2 px-4 py-3 rounded-lg"
-              style={{
-                background: 'rgba(245,158,11,0.08)',
-                border: '1px solid rgba(245,158,11,0.2)'
-              }}
-            >
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: '#f59e0b' }} />
-              <span className="text-[12px] font-semibold" style={{ color: '#b45309' }}>
-                Ative pelo menos 2 canais para iniciar o aquecimento
-              </span>
-            </div>
+            <p className="ui-caption flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+              Ative pelo menos 2 canais para iniciar o aquecimento
+            </p>
           )}
         </div>
-      </Card>
+      </CollapsibleSection>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
-          <h3 className="ui-title text-[14px]">Canais disponiveis</h3>
+          <h3 className="ui-section-title">Canais disponíveis</h3>
           <Badge variant="neutral">{channels.length}</Badge>
         </div>
 
@@ -1104,5 +981,6 @@ export const WarmupTab: React.FC = () => {
         </div>
       </Modal>
     </div>
+    </PageShell>
   );
 };

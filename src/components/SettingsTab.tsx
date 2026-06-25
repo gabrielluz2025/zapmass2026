@@ -41,7 +41,7 @@ import {
 } from '../utils/whatsappRiskStorage';
 import { apiUrl } from '../utils/apiBase';
 import toast from 'react-hot-toast';
-import { Badge, Button, Card, Input, SectionHeader } from './ui';
+import { Badge, Button, Card, Input, PageShell, CollapsibleSection } from './ui';
 import { WorkspaceTeamSection } from './settings/WorkspaceTeamSection';
 import { SupportBotSettingsPanel } from './settings/SupportBotSettingsPanel';
 import { AccountProfileEditor } from './settings/AccountProfileEditor';
@@ -328,89 +328,31 @@ export const SettingsTab: React.FC = () => {
     : (subscription?.status === 'trialing' ? 'Teste grátis' : '—');
 
   return (
-    <div className="max-w-5xl mx-auto space-y-5 pb-10">
-      {/* ── SETTINGS HERO ────────────────────────────────────── */}
-      <div className="relative rounded-2xl overflow-hidden mb-2"
-        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)' }}>
-        <div className="absolute inset-0 opacity-20"
-          style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, #06B6D4 0%, transparent 50%), radial-gradient(circle at 80% 50%, #06B6D4 0%, transparent 50%)' }} />
-        <div className="relative px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
-              style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.3)' }}>
-              <Sliders className="w-6 h-6 text-cyan-400" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-white font-bold text-xl leading-tight">Configurações</h1>
-              <p className="text-slate-400 text-[13px] mt-0.5">Personalize o comportamento e aparência do ZapMass</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 shrink-0">
-            {[
-              { icon: <Sliders className="w-3.5 h-3.5" />, label: 'Disparo', id: 'disparo' as const },
-              { icon: <Palette className="w-3.5 h-3.5" />, label: 'Aparência', id: 'aparencia' as const },
-              { icon: <Users className="w-3.5 h-3.5" />, label: 'Equipa', id: 'equipa' as const },
-              { icon: <UserIcon className="w-3.5 h-3.5" />, label: 'Conta', id: 'conta' as const },
-            ].map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSection(item.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${
-                  section === item.id
-                    ? 'bg-cyan-500/20 border border-cyan-400/40 text-cyan-200'
-                    : 'bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10'
-                }`}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      {/* ─────────────────────────────────────────────────────── */}
-
-      <SectionHeader
-        eyebrow={
-          <>
-            <Sparkles className="w-3 h-3" />
-            Configurações
-          </>
-        }
-        title="Configurações"
-        description={
-          <span>
-            <span className="font-semibold" style={{ color: 'var(--text-1)' }}>
-              {currentSection.label}.{' '}
-            </span>
-            <span style={{ color: 'var(--text-3)' }}>{currentSection.description}</span>
-          </span>
-        }
-        icon={<Sliders className="w-5 h-5" style={{ color: 'var(--brand-600)' }} />}
-        actions={
-          section === 'disparo' || section === 'notificacoes' ? (
-            <div className="flex items-center gap-3">
-              {serverSettingsDirty && (
-                <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                  Alterações não salvas
-                </span>
-              )}
-              <Button
-                variant="primary"
-                size="lg"
-                leftIcon={savedOk ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                onClick={handleSaveSettings}
-                disabled={!serverSettingsDirty && !savedOk}
-              >
-                {savedOk ? 'Salvo' : 'Salvar'}
-              </Button>
-            </div>
-          ) : null
-        }
-      />
-
-      {/* Nav de seções em chips horizontais — mais clean que Tabs */}
+    <PageShell
+      statusStrip={
+        <>
+          <Badge variant="neutral">{currentSection.label}</Badge>
+          <span className="ui-caption">Plano {planLabel}</span>
+          {serverSettingsDirty && (
+            <Badge variant="warning">Não salvo</Badge>
+          )}
+        </>
+      }
+      actions={
+        section === 'disparo' || section === 'notificacoes' ? (
+          <Button
+            variant="primary"
+            size="sm"
+            leftIcon={savedOk ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            onClick={handleSaveSettings}
+            disabled={!serverSettingsDirty && !savedOk}
+          >
+            {savedOk ? 'Salvo' : 'Salvar'}
+          </Button>
+        ) : null
+      }
+    >
+    <div className="max-w-5xl mx-auto space-y-4 pb-10">
       <div className="flex flex-wrap gap-2">
         {SECTIONS.map((s) => {
           const active = section === s.id;
@@ -922,9 +864,9 @@ export const SettingsTab: React.FC = () => {
             </div>
           </Card>
 
-          <Card className="p-5">
-            <ChangelogPanel maxItems={3} showTitle={true} />
-          </Card>
+          <CollapsibleSection title="Novidades do app" defaultOpen={false}>
+            <ChangelogPanel maxItems={3} showTitle={false} />
+          </CollapsibleSection>
         </div>
       )}
 
@@ -1006,5 +948,6 @@ export const SettingsTab: React.FC = () => {
         </div>
       )}
     </div>
+    </PageShell>
   );
 };
