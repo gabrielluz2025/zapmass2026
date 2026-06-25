@@ -242,61 +242,16 @@
 }
 
 .zm-radar-accent,
-.zm-chip-health-accent {
-  height: 3px;
-  width: 100%;
-}
-
-.zm-radar-accent {
-  background: linear-gradient(90deg, #2563eb, #3b82f6, #60a5fa);
-  opacity: 0.9;
-}
-
-.zm-chip-health-accent {
-  background: linear-gradient(90deg, #059669, #10b981, #34d399);
-  opacity: 0.9;
-}
-
-.zm-crm-accent {
-  height: 3px;
-  width: 100%;
-  background: linear-gradient(90deg, #f43f5e, #fb7185, #fda4af);
-  opacity: 0.9;
-}
-
-.zm-quality-accent {
-  height: 3px;
-  width: 100%;
-  background: linear-gradient(90deg, #0891b2, #06b6d4, #22d3ee);
-  opacity: 0.9;
-}
-
-.zm-activity-accent {
-  height: 3px;
-  width: 100%;
-  background: linear-gradient(90deg, #64748b, #94a3b8, #cbd5e1);
-  opacity: 0.85;
-}
-
-.zm-channel-accent {
-  height: 3px;
-  width: 100%;
-  background: linear-gradient(90deg, #059669, #10b981, #34d399);
-  opacity: 0.9;
-}
-
-.zm-account-accent {
-  height: 3px;
-  width: 100%;
-  background: linear-gradient(90deg, #047857, #10b981, #6ee7b7);
-  opacity: 0.9;
-}
-
+.zm-chip-health-accent,
+.zm-crm-accent,
+.zm-quality-accent,
+.zm-activity-accent,
+.zm-channel-accent,
+.zm-account-accent,
 .zm-ops-accent {
-  height: 3px;
+  height: 0;
   width: 100%;
-  background: linear-gradient(90deg, #4338ca, #06B6D4, #818cf8);
-  opacity: 0.9;
+  display: none;
 }
 
 /* Envios 7 dias + meta mensal */
@@ -358,17 +313,6 @@
 .zm-funnel-panel {
   position: relative;
   overflow: hidden;
-}
-
-.zm-funnel-panel::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #10b981, #3b82f6, #8b5cf6, #f59e0b);
-  opacity: 0.85;
 }
 
 .zm-ranking-scroll {
@@ -2823,11 +2767,11 @@
 /* â”€â”€ Command panel v3 â€” layout coluna Ãºnica â”€â”€ */
 
 .zm-command-v3 {
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: #111827;
-  box-shadow: 0 24px 64px -32px rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-0);
+  box-shadow: var(--shadow-xs);
 }
 
 .zm-command-v3__status {
@@ -2836,9 +2780,9 @@
   align-items: center;
   gap: 12px;
   padding: 10px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-3);
 }
 
 .zm-command-v3__pill {
@@ -2887,18 +2831,19 @@
   margin: 0;
   font-size: 22px;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--text-1);
   letter-spacing: -0.02em;
 }
 
 .zm-command-v3__greet h1 span {
-  color: #a5b4fc;
+  color: var(--brand-600);
 }
 
 .zm-command-v3__greet p {
   margin: 6px 0 0;
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--text-2);
+  line-height: 1.45;
   max-width: 42ch;
 }
 
@@ -2917,9 +2862,9 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  color: #cbd5e1;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--text-2);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
 }
 
 .zm-command-v3__actions {

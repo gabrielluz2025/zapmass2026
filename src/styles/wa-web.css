@@ -172,13 +172,12 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   transition: background 0.1s ease;
 }
 .wa-conv-row::after {
-  content: '';
-  position: absolute;
-  left: 80px;
-  right: 0;
-  bottom: 0;
-  height: 1px;
-  background: var(--wa-divider);
+  display: none;
+}
+
+.wa-conv-body {
+  border-bottom: 1px solid var(--wa-divider);
+  padding-bottom: 9px;
 }
 .wa-conv-row:hover { background: var(--wa-hover); }
 .wa-conv-row[data-active='true'] { background: var(--wa-active); }
@@ -229,6 +228,20 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   color: var(--wa-text-3);
   line-height: 1.25;
   margin-top: 1px;
+}
+
+.wa-conv-channel-tag {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--wa-green-strong);
+  background: color-mix(in srgb, var(--wa-green) 10%, transparent);
+  line-height: 1.4;
 }
 
 .wa-conv-channel {

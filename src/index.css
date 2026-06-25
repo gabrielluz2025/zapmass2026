@@ -412,6 +412,10 @@ html[data-mode='dark'] {
     justify-content: space-between;
     gap: var(--space-inline);
     margin-bottom: var(--space-section);
+    padding: 0.6rem 1rem;
+    background: var(--surface-0);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
   }
 
   .zm-page-status {
@@ -813,6 +817,27 @@ html[data-mode='dark'] {
 ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.3); border-radius: 9999px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(16,185,129,0.4); }
 html[data-mode='dark'] ::-webkit-scrollbar-thumb { background: rgba(30,41,59,0.8); }
+
+/* Scroll horizontal fino ou oculto em faixas de chips */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar { height: 3px; width: 3px; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+html[data-mode='dark'] .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.85);
+}
+
+.zm-scroll-x-hidden {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.zm-scroll-x-hidden::-webkit-scrollbar { display: none; }
 
 /* ─── Keyframes ────────────────────────────── */
 @keyframes float {

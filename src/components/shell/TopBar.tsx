@@ -80,15 +80,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
 
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="zm-view-pill hidden sm:inline-flex">ZapMass</span>
-              <div
-                className="w-1 h-3.5 rounded-full flex-shrink-0 hidden sm:block"
-                style={{ background: 'var(--brand-500)', opacity: 0.8 }}
-              />
-              <h1 className="ui-section-title truncate">{meta.title}</h1>
-            </div>
-            <p className="ui-caption truncate hidden md:block mt-0.5 max-w-md">{meta.subtitle}</p>
+            <h1 className="ui-section-title truncate leading-tight">{meta.title}</h1>
+            {meta.subtitle ? (
+              <p className="ui-caption truncate hidden sm:block mt-0.5 max-w-lg">{meta.subtitle}</p>
+            ) : null}
           </div>
         </div>
 

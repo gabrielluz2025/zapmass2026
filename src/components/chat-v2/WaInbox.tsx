@@ -80,9 +80,12 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => {
       const conv = conversations[i];
-      if (!conv) return 72;
+      if (!conv) return 76;
       const disp = displayById.get(conv.id);
-      return disp?.fromDatabase && disp?.whatsappSubtitle ? 88 : 72;
+      let h = 76;
+      if (disp?.fromDatabase && disp?.whatsappSubtitle) h += 14;
+      if (connectionDisplayLabel(connections, conv.connectionId)) h += 22;
+      return h;
     },
     overscan: 4,
     getItemKey: (i) => conversations[i]?.id ?? i,

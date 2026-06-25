@@ -18,24 +18,11 @@
 .crm-topbar {
   position: relative;
   z-index: 1;
-  border-radius: 18px;
-  padding: 1.1rem 1.35rem;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
   overflow: visible;
 }
 
 .crm-topbar--menu-open {
   z-index: 60;
-}
-
-/* Faixa colorida no topo do header */
-.crm-topbar::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--brand-500), #6366f1 60%, #8b5cf6);
 }
 
 /* ── KPI tiles ───────────────────────────────────── */
@@ -52,7 +39,6 @@
   padding: 1rem 1.1rem;
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);
-  border-top-width: 2.5px;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;

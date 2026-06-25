@@ -57,9 +57,9 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
 
   return (
     <div className="crm-fade-up flex flex-col gap-3">
-      {/* Linha 1: ações (título fica no TopBar + faixa PageShell) */}
-      <div className={`crm-topbar flex flex-col lg:flex-row lg:items-center lg:justify-end gap-4${importOpen ? ' crm-topbar--menu-open' : ''}`}>
-        <div className="crm-topbar__actions flex items-center gap-2 flex-wrap w-full lg:w-auto lg:ml-auto">
+      {/* Ações principais — toolbar leve, sem caixa com faixa colorida */}
+      <div className={`flex flex-col lg:flex-row lg:items-center lg:justify-end gap-3${importOpen ? ' relative z-[60]' : ''}`}>
+        <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto lg:ml-auto">
           <button type="button" onClick={onOpenInsights} className="crm-btn" title="Insights e segmentos">
             <BarChart3 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
             <span className="hidden sm:inline">Insights</span>

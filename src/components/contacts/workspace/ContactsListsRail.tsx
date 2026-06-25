@@ -64,7 +64,7 @@ export const ContactsListsRail: React.FC<Props> = ({
           <ChevronRight className="w-3 h-3" />
         </button>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar" style={{ scrollbarWidth: 'thin' }}>
+      <div className="flex gap-2 zm-scroll-x-hidden pb-0.5">
         <RailChip
           label="Todos"
           count={null}
