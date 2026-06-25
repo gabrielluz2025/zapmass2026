@@ -212,10 +212,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         borderRight: '1px solid var(--sidebar-border)'
       }}
     >
-      <div
-        className="absolute top-0 left-0 right-0 h-px pointer-events-none"
-        style={{ background: 'linear-gradient(90deg, transparent, rgba(16,185,129,0.5), transparent)' }}
-      />
 
       <button
         onClick={onClose}
@@ -229,10 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))',
-              boxShadow: '0 0 20px rgba(16,185,129,0.35)'
-            }}
+            style={{ background: 'var(--brand-600)' }}
           >
             <Zap className="w-4 h-4 text-white fill-white" />
           </div>
@@ -242,13 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center gap-1.5 mt-1">
                 <div
                   className={`w-1.5 h-1.5 rounded-full ${linkDotClass}`}
-                  style={
-                    backendLinkState === 'online'
-                      ? { boxShadow: '0 0 6px rgba(52,211,153,0.8)' }
-                      : backendLinkState === 'reconnecting'
-                        ? { boxShadow: '0 0 6px rgba(251,191,36,0.7)' }
-                        : {}
-                  }
+                  style={{}}
                 />
                 <span
                   className="text-[10px] font-semibold uppercase tracking-widest"
@@ -299,12 +286,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       isActive ? 'is-active text-white' : 'text-slate-400 hover:text-slate-100'
                     }`}
                   >
-                    {isActive && !collapsed && (
-                      <div
-                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-emerald-400 hidden"
-                        style={{ boxShadow: '0 0 10px rgba(52,211,153,0.7)' }}
-                      />
-                    )}
                     <Icon
                       className={`flex-shrink-0 transition-colors ${
                         isActive ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-200'
@@ -315,10 +296,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <>
                         <span className="flex-1 text-left truncate">{item.label}</span>
                         {isActive && (
-                          <div
-                            className="w-1.5 h-1.5 rounded-full bg-emerald-400"
-                            style={{ boxShadow: '0 0 6px rgba(52,211,153,0.8)' }}
-                          />
+                          <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--brand-500)' }} />
                         )}
                       </>
                     )}
@@ -379,16 +357,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   displayName={displayName}
                   className="w-8 h-8 rounded-md object-cover"
                   fallbackClassName="w-8 h-8 rounded-md flex items-center justify-center text-[11px] font-bold"
-                  fallbackStyle={{ background: '#059669', color: '#fff' }}
+                  fallbackStyle={{ background: 'var(--brand-700)', color: '#fff' }}
                 />
                 <div
-                  className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 bg-emerald-400"
-                  style={{ borderColor: 'var(--sidebar-bg)' }}
+                  className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border-2"
+                  style={{ background: 'var(--brand-500)', borderColor: 'var(--sidebar-bg)' }}
                 />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[12.5px] font-bold text-white truncate leading-tight">{displayName}</p>
-                <p className="text-[10px] text-emerald-400 font-semibold truncate leading-tight mt-0.5">
+                <p className="text-[10px] font-semibold truncate leading-tight mt-0.5" style={{ color: 'var(--brand-400)' }}>
                   {email || 'ZapMass Pro'}
                 </p>
               </div>

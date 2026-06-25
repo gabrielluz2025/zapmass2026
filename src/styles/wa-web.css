@@ -5,7 +5,53 @@
  * ====================================================================== */
 
 :root {
-  /* Cores WA Web — modo claro */
+  /* Cores WA Web — dark-first (padrão do ZapMass) */
+  --wa-bg:            #0a0f18;
+  --wa-panel:         #0f1623;
+  --wa-panel-2:       #141d2e;
+  --wa-header:        #0f1623;
+  --wa-search:        #1a2438;
+  --wa-divider:       rgba(255,255,255,0.06);
+  --wa-bubble-in:     #1a2438;
+  --wa-bubble-out:    #064e3b;
+  --wa-text:          #e8edf5;
+  --wa-text-2:        #7b93b8;
+  --wa-text-3:        #49607e;
+  --wa-icon:          #7b93b8;
+  --wa-hover:         rgba(255,255,255,0.04);
+  --wa-active:        rgba(16,185,129,0.10);
+
+  /* Comuns */
+  --wa-green:         #10b981;
+  --wa-green-strong:  #059669;
+  --wa-tick-blue:     #53bdeb;
+  --wa-unread:        #25d366;
+  --wa-shadow-sm:     0 1px 0.5px rgba(0,0,0,0.45);
+  --wa-shadow-md:     0 16px 32px -12px rgba(0,0,0,0.55);
+}
+
+html[data-mode='dark'] {
+  --wa-bg:            #0a0f18;
+  --wa-panel:         #0f1623;
+  --wa-panel-2:       #141d2e;
+  --wa-header:        #0f1623;
+  --wa-search:        #1a2438;
+  --wa-divider:       rgba(255,255,255,0.06);
+  --wa-bubble-in:     #1a2438;
+  --wa-bubble-out:    #064e3b;
+  --wa-text:          #e8edf5;
+  --wa-text-2:        #7b93b8;
+  --wa-text-3:        #49607e;
+  --wa-icon:          #7b93b8;
+  --wa-hover:         rgba(255,255,255,0.04);
+  --wa-active:        rgba(16,185,129,0.10);
+  --wa-green:         #10b981;
+  --wa-green-strong:  #059669;
+  --wa-shadow-sm:     0 1px 0.5px rgba(0,0,0,0.45);
+  --wa-shadow-md:     0 16px 32px -12px rgba(0,0,0,0.55);
+}
+
+html[data-mode='light'] {
   --wa-bg:            #efeae2;
   --wa-panel:         #ffffff;
   --wa-panel-2:       #f7f8fa;
@@ -18,37 +64,12 @@
   --wa-text-2:        #54656f;
   --wa-text-3:        #667781;
   --wa-icon:          #54656f;
-  --wa-hover:         rgba(11, 20, 26, 0.04);
+  --wa-hover:         rgba(11,20,26,0.04);
   --wa-active:        #f0f2f5;
-
-  /* Comuns */
   --wa-green:         #00a884;
   --wa-green-strong:  #008069;
-  --wa-tick-blue:     #53bdeb;
-  --wa-unread:        #25d366;
-  --wa-shadow-sm:     0 1px 0.5px rgba(11, 20, 26, 0.13);
-  --wa-shadow-md:     0 12px 26px -10px rgba(11, 20, 26, 0.18);
-}
-
-html[data-mode='dark'] {
-  --wa-bg:            #0a1018;
-  --wa-panel:         #0f1623;
-  --wa-panel-2:       #141c2b;
-  --wa-header:        #111827;
-  --wa-search:        #1a2332;
-  --wa-divider:       rgba(16, 185, 129, 0.08);
-  --wa-bubble-in:     #1a2332;
-  --wa-bubble-out:    #064e3b;
-  --wa-text:          #eef2ff;
-  --wa-text-2:        #94a3b8;
-  --wa-text-3:        #64748b;
-  --wa-icon:          #94a3b8;
-  --wa-hover:         rgba(16, 185, 129, 0.06);
-  --wa-active:        rgba(16, 185, 129, 0.12);
-  --wa-green:         #10b981;
-  --wa-green-strong:  #059669;
-  --wa-shadow-sm:     0 1px 0.5px rgba(0, 0, 0, 0.45);
-  --wa-shadow-md:     0 16px 32px -12px rgba(0, 0, 0, 0.55);
+  --wa-shadow-sm:     0 1px 0.5px rgba(11,20,26,0.13);
+  --wa-shadow-md:     0 12px 26px -10px rgba(11,20,26,0.18);
 }
 
 /* ---------- Container raiz da aba ---------- */

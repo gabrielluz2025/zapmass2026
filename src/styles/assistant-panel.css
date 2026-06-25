@@ -55,7 +55,7 @@
   border-radius: 0.75rem;
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(59, 130, 246, 0.1));
   border: 1px solid rgba(16, 185, 129, 0.25);
-  color: #10b981;
+  color: var(--brand-500);
   flex-shrink: 0;
 }
 

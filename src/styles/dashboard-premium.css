@@ -1589,8 +1589,8 @@
   padding: 4px;
   list-style: none;
   border-radius: 10px;
-  background: #18181b;
-  border: 1px solid var(--ta-border);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   max-height: 220px;
   overflow-y: auto;
@@ -2880,16 +2880,17 @@
   padding: 9px 16px;
   border: none;
   border-radius: 10px;
-  background: #4f46e5;
+  background: var(--brand-500);
   color: #fff;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, box-shadow 0.15s;
 }
 
 .zm-command-v3__primary:hover {
-  background: #4338ca;
+  background: var(--brand-600);
+  box-shadow: 0 4px 14px rgba(16,185,129,0.35);
 }
 
 .zm-command-v3__ghost {
@@ -2898,9 +2899,9 @@
   gap: 6px;
   padding: 9px 14px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   background: transparent;
-  color: #cbd5e1;
+  color: var(--text-2);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -2908,8 +2909,8 @@
 }
 
 .zm-command-v3__ghost:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #f8fafc;
+  background: var(--surface-2);
+  color: var(--text-1);
 }
 
 .zm-command-v3__dock {
@@ -2918,8 +2919,8 @@
   align-items: center;
   gap: 4px;
   padding: 10px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(0, 0, 0, 0.25);
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-1) 60%, transparent);
 }
 
 .zm-command-v3__dock button {
@@ -2930,7 +2931,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #94a3b8;
+  color: var(--text-3);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -2938,8 +2939,8 @@
 }
 
 .zm-command-v3__dock button:hover {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
+  background: var(--surface-2);
 }
 
 .zm-command-v3__invite {
@@ -2953,9 +2954,9 @@
   margin: 0 16px 16px;
   padding: 20px;
   border-radius: 16px;
-  background: #fafaf9;
-  border: 1px solid #e7e5e4;
-  color: #1c1917;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-1);
   display: flex;
   flex-direction: column;
   gap: 18px;

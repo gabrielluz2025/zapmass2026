@@ -45,7 +45,7 @@
   }
 }
 
-/* ─── Design Tokens ────────────────────────── */
+/* ─── Design Tokens — Dark Pro (dark-first) ─── */
 :root {
   /* Brand scale (overridden by theme.ts) */
   --brand-50:  #ecfdf5;
@@ -59,153 +59,175 @@
   --brand-800: #065f46;
   --brand-900: #064e3b;
 
-  /* Surfaces (light mode defaults) — Neon palette */
-  --bg:          #F0F4F8;
-  --surface-0:   #FFFFFF;
-  --surface-1:   #F8FAFC;
-  --surface-2:   #F1F5F9;
-  --surface-3:   #E2E8F0;
-  --surface:     var(--surface-0);
+  /* Surfaces — Dark Pro */
+  --bg:        #0a0f18;
+  --surface-0: #0f1623;
+  --surface-1: #141d2e;
+  --surface-2: #1a2438;
+  --surface-3: #212c43;
+  --surface:   var(--surface-0);
 
-  /* Borders — brand-tinted */
-  --border-subtle: rgba(16,185,129,0.10);
-  --border:        rgba(16,185,129,0.16);
-  --border-strong: rgba(16,185,129,0.24);
+  /* Borders */
+  --border-subtle: rgba(255,255,255,0.055);
+  --border:        rgba(255,255,255,0.095);
+  --border-strong: rgba(16,185,129,0.32);
 
   /* Text */
-  --text:    #0F172A;
-  --text-1:  #0F172A;
-  --text-2:  #475569;
-  --text-3:  #94A3B8;
-  --muted:   #64748B;
+  --text:    #e8edf5;
+  --text-1:  #e8edf5;
+  --text-2:  #7b93b8;
+  --text-3:  #49607e;
+  --muted:   #4a6178;
 
   /* Semantic */
-  --accent:   #10B981;
-  --accent-2: #06B6D4;
+  --accent:         #10B981;
+  --accent-2:       #06B6D4;
   --accent-2-muted: rgba(6,182,212,0.12);
   --success:  #22C55E;
   --warning:  #F59E0B;
   --danger:   #F87171;
   --info:     #06B6D4;
 
-  /* Severidade — texto, barras e alertas (Dashboard / Ops) */
-  --semantic-success-fg: #059669;
-  --semantic-warning-fg: #b45309;
-  --semantic-danger-fg: #dc2626;
-  --semantic-muted-fg: #64748b;
-  --semantic-danger-bg: rgba(239, 68, 68, 0.08);
-  --semantic-danger-border: rgba(239, 68, 68, 0.22);
-  --semantic-warning-bg: rgba(245, 158, 11, 0.08);
-  --semantic-warning-border: rgba(245, 158, 11, 0.3);
-  --semantic-success-bg: rgba(16, 185, 129, 0.1);
-  --semantic-info-tint: rgba(6, 182, 212, 0.12);
-  /* Histograma RAM 24h (ops) */
-  --ops-hist-low: rgba(6, 182, 212, 0.42);
-  --ops-hist-mid: rgba(245, 158, 11, 0.5);
-  --ops-hist-high: rgba(239, 68, 68, 0.55);
-  /* Topo do cartão admin / canais */
-  --ops-panel-fade: color-mix(in srgb, #06B6D4 4%, var(--surface-0));
-
-  /* Radius */
-  --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
-  --radius-2xl: 24px;
-
-  /* Shadows (light) */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10);
-  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.25), 0 0 12px rgba(16,185,129,0.12);
-  --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.45), 0 0 24px rgba(16,185,129,0.28);
-
-  /* Sidebar — sempre escura (light e dark) */
-  --sidebar-bg: #080B10;
-  --sidebar-bg-2: #0D1220;
-  --sidebar-border: rgba(16,185,129,0.08);
-  --sidebar-text: #E2E8F0;
-  --sidebar-text-muted: rgba(148,163,184,0.70);
-
-  /* Layout */
-  --sidebar-w: 256px;
-  --sidebar-w-collapsed: 68px;
-  --topbar-h: 48px;
-
-  /* Spacing scale (Fase 1 — layout unificado) */
-  --space-page: 20px;
-  --space-section: 20px;
-  --space-card: 16px;
-  --space-inline: 12px;
-  --space-tight: 8px;
-
-  /* Camadas de overlay — usar classes .zm-layer-* em modais/drawers */
-  --z-sidebar: 100;
-  --z-dropdown: 200;
-  --z-drawer: 300;
-  --z-modal: 400;
-  --z-modal-elevated: 410;
-  --z-toast: 500;
-  --z-search: 550;
-
-  /**
-   * Superfície de seleção / destaque com cor da marca.
-   * Em modo escuro, --brand-50 (mint claro) conflita com --text-1 claro: usamos mistura com surface escura.
-   */
-  --surface-selected-brand: var(--brand-50);
-}
-
-html[data-mode='dark'] {
-  --bg:          #080B10;
-  --surface-0:   #0F1420;
-  --surface-1:   #141926;
-  --surface-2:   #1A2030;
-  --surface-3:   #202736;
-  --surface:     var(--surface-0);
-
-  --border-subtle: rgba(16,185,129,0.10);
-  --border:        rgba(16,185,129,0.14);
-  --border-strong: rgba(16,185,129,0.20);
-
-  --text:    #EEF2FF;
-  --text-1:  #EEF2FF;
-  --text-2:  #94A3B8;
-  --text-3:  #64748B;
-  --muted:   #64748B;
-
-  --semantic-success-fg: #34d399;
-  --semantic-warning-fg: #fbbf24;
-  --semantic-danger-fg: #f87171;
-  --semantic-muted-fg: #94a3b8;
-  --semantic-danger-bg: rgba(239, 68, 68, 0.12);
+  /* Severidade */
+  --semantic-success-fg:  #34d399;
+  --semantic-warning-fg:  #fbbf24;
+  --semantic-danger-fg:   #f87171;
+  --semantic-muted-fg:    #7b93b8;
+  --semantic-danger-bg:   rgba(239, 68, 68, 0.12);
   --semantic-danger-border: rgba(239, 68, 68, 0.32);
-  --semantic-warning-bg: rgba(245, 158, 11, 0.1);
+  --semantic-warning-bg:  rgba(245, 158, 11, 0.10);
   --semantic-warning-border: rgba(245, 158, 11, 0.32);
-  --semantic-success-bg: rgba(16, 185, 129, 0.12);
-  --semantic-info-tint: rgba(6, 182, 212, 0.16);
-  --ops-hist-low: rgba(6, 182, 212, 0.45);
-  --ops-hist-mid: rgba(245, 158, 11, 0.48);
-  --ops-hist-high: rgba(239, 68, 68, 0.5);
+  --semantic-success-bg:  rgba(16, 185, 129, 0.12);
+  --semantic-info-tint:   rgba(6, 182, 212, 0.16);
+
+  /* Histograma RAM 24h */
+  --ops-hist-low:   rgba(6, 182, 212, 0.45);
+  --ops-hist-mid:   rgba(245, 158, 11, 0.48);
+  --ops-hist-high:  rgba(239, 68, 68, 0.50);
   --ops-panel-fade: color-mix(in srgb, #06B6D4 6%, var(--surface-0));
 
-  --accent:   #10B981;
-  --accent-2: #06B6D4;
-  --accent-2-muted: rgba(6,182,212,0.12);
-  --success:  #22C55E;
-  --warning:  #F59E0B;
-  --danger:   #F87171;
-  --info:     #06B6D4;
+  /* Radius */
+  --radius-xs:  6px;
+  --radius-sm:  8px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  18px;
+  --radius-2xl: 24px;
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 12px rgba(0,0,0,0.25);
-  --shadow-md: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.35);
-  --shadow-lg: 0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.5);
-  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.30), 0 0 16px rgba(16,185,129,0.18);
+  /* Shadows — dark */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 12px rgba(0,0,0,0.28);
+  --shadow-md: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.40);
+  --shadow-lg: 0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.55);
+  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.28), 0 0 14px rgba(16,185,129,0.16);
   --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.45), 0 0 24px rgba(16,185,129,0.28);
 
-  --surface-selected-brand: color-mix(in srgb, var(--brand-500) 22%, var(--surface-1));
+  /* Sidebar */
+  --sidebar-bg:         #080c14;
+  --sidebar-bg-2:       #080c14;
+  --sidebar-border:     rgba(255,255,255,0.06);
+  --sidebar-text:       #E2E8F0;
+  --sidebar-text-muted: rgba(148,163,184,0.65);
+
+  /* Layout */
+  --sidebar-w:           256px;
+  --sidebar-w-collapsed:  68px;
+  --topbar-h:             56px;
+
+  /* Spacing */
+  --space-page:    20px;
+  --space-section: 20px;
+  --space-card:    16px;
+  --space-inline:  12px;
+  --space-tight:    8px;
+
+  /* Camadas de overlay */
+  --z-sidebar:        100;
+  --z-dropdown:       200;
+  --z-drawer:         300;
+  --z-modal:          400;
+  --z-modal-elevated: 410;
+  --z-toast:          500;
+  --z-search:         550;
+
+  /* Extras */
+  --brand-glow:            rgba(16,185,129,0.14);
+  --surface-selected-brand: color-mix(in srgb, var(--brand-500) 20%, var(--surface-1));
+}
+
+/* Modo escuro explícito — idêntico ao :root (dark é o padrão) */
+html[data-mode='dark'] {
+  --bg:        #0a0f18;
+  --surface-0: #0f1623;
+  --surface-1: #141d2e;
+  --surface-2: #1a2438;
+  --surface-3: #212c43;
+  --border-subtle: rgba(255,255,255,0.055);
+  --border:        rgba(255,255,255,0.095);
+  --border-strong: rgba(16,185,129,0.32);
+  --text:   #e8edf5;
+  --text-1: #e8edf5;
+  --text-2: #7b93b8;
+  --text-3: #49607e;
+  --muted:  #4a6178;
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 12px rgba(0,0,0,0.28);
+  --shadow-md: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.40);
+  --shadow-lg: 0 1px 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.55);
+  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.28), 0 0 14px rgba(16,185,129,0.16);
+  --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.45), 0 0 24px rgba(16,185,129,0.28);
+  --semantic-success-fg:  #34d399;
+  --semantic-warning-fg:  #fbbf24;
+  --semantic-danger-fg:   #f87171;
+  --semantic-muted-fg:    #7b93b8;
+  --semantic-danger-bg:   rgba(239, 68, 68, 0.12);
+  --semantic-danger-border: rgba(239, 68, 68, 0.32);
+  --semantic-warning-bg:  rgba(245, 158, 11, 0.10);
+  --semantic-warning-border: rgba(245, 158, 11, 0.32);
+  --semantic-success-bg:  rgba(16, 185, 129, 0.12);
+  --semantic-info-tint:   rgba(6, 182, 212, 0.16);
+  --surface-selected-brand: color-mix(in srgb, var(--brand-500) 20%, var(--surface-1));
+}
+
+/* Override claro — para quem preferir modo claro */
+html[data-mode='light'] {
+  --bg:        #f0f4f8;
+  --surface-0: #ffffff;
+  --surface-1: #f8fafc;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --border-subtle: rgba(16,185,129,0.10);
+  --border:        rgba(16,185,129,0.16);
+  --border-strong: rgba(16,185,129,0.26);
+  --text:   #0F172A;
+  --text-1: #0F172A;
+  --text-2: #475569;
+  --text-3: #94A3B8;
+  --muted:  #64748B;
+  --shadow-xs: 0 1px 2px rgba(15,23,42,0.04);
+  --shadow-sm: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.08);
+  --shadow-lg: 0 12px 32px rgba(15,23,42,0.10);
+  --shadow-glow: 0 0 0 1px rgba(16,185,129,0.25), 0 0 12px rgba(16,185,129,0.12);
+  --shadow-glow-strong: 0 0 0 1px rgba(16,185,129,0.45), 0 0 24px rgba(16,185,129,0.28);
+  --semantic-success-fg: #059669;
+  --semantic-warning-fg: #b45309;
+  --semantic-danger-fg:  #dc2626;
+  --semantic-muted-fg:   #64748b;
+  --semantic-danger-bg:  rgba(239,68,68,0.08);
+  --semantic-danger-border: rgba(239,68,68,0.22);
+  --semantic-warning-bg: rgba(245,158,11,0.08);
+  --semantic-warning-border: rgba(245,158,11,0.3);
+  --semantic-success-bg: rgba(16,185,129,0.10);
+  --semantic-info-tint:  rgba(6,182,212,0.12);
+  --ops-hist-low:  rgba(6,182,212,0.42);
+  --ops-hist-mid:  rgba(245,158,11,0.50);
+  --ops-hist-high: rgba(239,68,68,0.55);
+  --ops-panel-fade: color-mix(in srgb, #06B6D4 4%, var(--surface-0));
+  --sidebar-bg:     #080B10;
+  --sidebar-bg-2:   #0D1220;
+  --sidebar-border: rgba(16,185,129,0.08);
+  --surface-selected-brand: var(--brand-50);
 }
 
 /* ─── Base ─────────────────────────────────── */
@@ -216,14 +238,9 @@ html[data-mode='dark'] {
   }
 
   body {
-    background-color: var(--bg);
-    background-image:
-      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(16,185,129,0.06), transparent),
-      url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%2310b981' fill-opacity='0.018'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-    background-attachment: fixed;
+    background: var(--bg);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     color: var(--text);
-    background: var(--bg);
     line-height: 1.6;
     overflow-x: hidden;
   }
