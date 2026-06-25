@@ -25,6 +25,17 @@
     <meta name="theme-color" content="#059669" />
   </head>
   <body>
+    <!-- Aplica modo escuro antes do React montar — evita flash de tela branca -->
+    <script>
+      (function() {
+        try {
+          var mode = localStorage.getItem('zapmass.mode') || 'dark';
+          document.documentElement.setAttribute('data-mode', mode);
+        } catch(e) {
+          document.documentElement.setAttribute('data-mode', 'dark');
+        }
+      })();
+    </script>
     <!-- app-mount: árvore React. portal-root: modais (fora da sub-árvore do mount, mas sob #root — menos conflitos com o body). -->
     <div id="root">
       <div id="app-mount"></div>

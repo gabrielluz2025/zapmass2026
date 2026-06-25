@@ -574,6 +574,11 @@ const App: React.FC = () => {
       localStorage.removeItem('zapmass.mode');
       localStorage.setItem('zapmass.ui.v2', '1');
     }
+    // Dark Pro redesign — força modo escuro como padrão para todos os usuários
+    if (!localStorage.getItem('zapmass.ui.v3')) {
+      localStorage.setItem('zapmass.mode', 'dark');
+      localStorage.setItem('zapmass.ui.v3', '1');
+    }
     applyTheme(getSavedTheme());
     applyMode(getSavedMode());
   }, []);
