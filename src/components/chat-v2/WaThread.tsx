@@ -57,6 +57,7 @@ type Props = {
   draftChannels?: WhatsAppConnection[];
   draftChannelId?: string;
   onDraftChannelChange?: (connectionId: string) => void;
+  onExport?: () => void;
 };
 
 function messageShowsTail(messages: Conversation['messages'], index: number): boolean {
@@ -90,7 +91,8 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   isDraft,
   draftChannels,
   draftChannelId,
-  onDraftChannelChange
+  onDraftChannelChange,
+  onExport,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPreserveRef = useRef<{ id: string; height: number; top: number } | null>(null);
@@ -372,6 +374,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
         sendingMedia={sendingMedia}
         onSend={onSend}
         onAttach={canSend ? onAttach : undefined}
+        onExport={onExport}
         isDraft={isDraft}
         draftChannels={draftChannels}
         draftChannelId={draftChannelId}

@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowDown } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowDown, Download, FileText, Loader2, Play } from 'lucide-react';
 import type { ChatMessage } from '../../types';
 
 type Props = {
@@ -7,79 +7,121 @@ type Props = {
   onLoadMedia?: (messageId: string) => void;
 };
 
+/** Botão placeholder enquanto a mídia não está carregada */
+const MediaPlaceholder: React.FC<{
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  loading?: boolean;
+}> = ({ label, icon, onClick, loading }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="wa-media-placeholder"
+    title="Carregar mídia"
+  >
+    <span className="wa-media-placeholder__icon">{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : icon}</span>
+    <span className="wa-media-placeholder__label">{label}</span>
+    {!loading && <ArrowDown className="w-3.5 h-3.5 ml-auto opacity-50 flex-shrink-0" />}
+  </button>
+);
+
 export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia }) => {
+  const [loading, setLoading] = useState(false);
   const text = (msg.text || '').trim();
   const hasText = Boolean(text && text !== '[Mídia]');
-  const isMedia = msg.type !== 'text';
 
-  const placeholder = (label: string, icon: string) => (
-    <button
-      type="button"
-      onClick={() => onLoadMedia?.(msg.id)}
-      className="flex items-center gap-2 p-2 rounded-md mb-1 transition-colors hover:bg-black/10 w-full text-left"
-      style={{ background: 'rgba(0,0,0,0.06)', minWidth: 160 }}
-      title="Carregar mídia do WhatsApp"
-    >
-      <span className="text-lg">{icon}</span>
-      <span className="text-[12px] opacity-80 truncate">{label}</span>
-      <ArrowDown className="w-3 h-3 ml-auto opacity-60" />
-    </button>
-  );
+  const handleLoad = async () => {
+    if (!onLoadMedia || loading) return;
+    setLoading(true);
+    try {
+      await onLoadMedia(msg.id);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (msg.type === 'sticker' && msg.mediaUrl) {
-    return <img src={msg.mediaUrl} alt="" className="w-32 h-32 object-contain" />;
+  /* ── Sticker ── */
+  if (msg.type === 'sticker') {
+    if (msg.mediaUrl) return <img src={msg.mediaUrl} alt="Figurinha" className="w-32 h-32 object-contain" />;
+    return <MediaPlaceholder label="Figurinha" icon="🌟" onClick={handleLoad} loading={loading} />;
   }
-  if (msg.type === 'image' && msg.mediaUrl) {
-    return (
-      <div className="rounded-md overflow-hidden mb-1" style={{ maxWidth: 330 }}>
-        <img
-          src={msg.mediaUrl}
-          alt=""
-          className="w-full object-cover"
-          style={{ minHeight: 100, maxHeight: 330 }}
-        />
-        {hasText ? (
-          <p className="mt-1 text-[14px] whitespace-pre-wrap break-words">{text}</p>
-        ) : null}
-      </div>
-    );
-  }
-  if (msg.type === 'video' && msg.mediaUrl) {
-    return (
-      <div className="rounded-md overflow-hidden mb-1" style={{ maxWidth: 330 }}>
-        <video src={msg.mediaUrl} controls className="w-full" style={{ maxHeight: 280 }} />
-        {hasText ? (
-          <p className="mt-1 text-[14px] whitespace-pre-wrap break-words">{text}</p>
-        ) : null}
-      </div>
-    );
-  }
-  if (msg.type === 'document' && msg.mediaUrl) {
-    return (
-      <a
-        href={msg.mediaUrl}
-        download
-        className="flex items-center gap-3 p-3 rounded-lg mb-1"
-        style={{ background: 'rgba(255,255,255,0.06)', minWidth: 240 }}
-      >
-        <div className="w-10 h-12 rounded-lg flex items-center justify-center flex-shrink-0 bg-black/20">
-          <span className="text-xl">📄</span>
+
+  /* ── Imagem ── */
+  if (msg.type === 'image') {
+    if (msg.mediaUrl) {
+      return (
+        <div className="wa-media-image">
+          <img
+            src={msg.mediaUrl}
+            alt="Foto"
+            loading="lazy"
+            style={{ cursor: 'pointer' }}
+            onClick={() => window.open(msg.mediaUrl!, '_blank')}
+          />
+          {hasText && <p className="wa-media-caption">{text}</p>}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] truncate">{text || 'Documento'}</p>
-          <p className="text-[11px] opacity-70">Toque para baixar</p>
+      );
+    }
+    return <MediaPlaceholder label="Foto — toque para ver" icon="📷" onClick={handleLoad} loading={loading} />;
+  }
+
+  /* ── Vídeo ── */
+  if (msg.type === 'video') {
+    if (msg.mediaUrl) {
+      return (
+        <div className="wa-media-video">
+          <video src={msg.mediaUrl} controls preload="metadata" style={{ maxWidth: '100%', maxHeight: 300 }} />
+          {hasText && <p className="wa-media-caption">{text}</p>}
         </div>
-      </a>
-    );
+      );
+    }
+    return <MediaPlaceholder label="Vídeo — toque para ver" icon="🎥" onClick={handleLoad} loading={loading} />;
   }
 
-  if (isMedia && !msg.mediaUrl) {
-    if (msg.type === 'image') return placeholder('Foto — toque para ver', '📷');
-    if (msg.type === 'video') return placeholder('Vídeo — toque para ver', '🎥');
-    if (msg.type === 'audio') return placeholder('Áudio — toque para ouvir', '🎙️');
-    if (msg.type === 'sticker') return placeholder('Figurinha', '🌟');
-    if (msg.type === 'document') return placeholder(text || 'Documento', '📄');
+  /* ── Áudio — player real quando carregado ── */
+  if (msg.type === 'audio') {
+    if (msg.mediaUrl) {
+      return (
+        <div className="wa-audio-player">
+          <span className="wa-audio-player__icon">🎙️</span>
+          <audio
+            src={msg.mediaUrl}
+            controls
+            preload="metadata"
+            className="wa-audio-element"
+          />
+        </div>
+      );
+    }
+    return <MediaPlaceholder label="Áudio — toque para ouvir" icon="🎙️" onClick={handleLoad} loading={loading} />;
   }
 
+  /* ── Documento ── */
+  if (msg.type === 'document') {
+    if (msg.mediaUrl) {
+      return (
+        <a
+          href={msg.mediaUrl}
+          download
+          target="_blank"
+          rel="noreferrer"
+          className="wa-media-document"
+        >
+          <div className="wa-media-document__icon">
+            <FileText className="w-6 h-6" />
+          </div>
+          <div className="wa-media-document__info">
+            <p className="wa-media-document__name">{text || 'Documento'}</p>
+            <p className="wa-media-document__hint">Toque para baixar</p>
+          </div>
+          <Download className="w-4 h-4 flex-shrink-0 opacity-60" />
+        </a>
+      );
+    }
+    return <MediaPlaceholder label={text || 'Documento — toque para baixar'} icon="📄" onClick={handleLoad} loading={loading} />;
+  }
+
+  /* ── Texto ── */
   return <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{text}</span>;
 };

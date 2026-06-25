@@ -468,6 +468,40 @@ export const WaWebChatApp: React.FC<{
     [selected?.id, loadMessageMedia]
   );
 
+  const handleExportConversation = useCallback(() => {
+    if (!selected) return;
+    const msgs = selected.messages ?? [];
+    const title = selected.contactName || selected.contactPhone || 'conversa';
+    const lines: string[] = [
+      `=== Conversa: ${title} ===`,
+      `Exportado em: ${new Date().toLocaleString('pt-BR')}`,
+      '='.repeat(40),
+      '',
+    ];
+    for (const msg of msgs) {
+      const ts = msg.timestamp
+        ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR')
+        : '';
+      const who = msg.sender === 'me' ? 'Você' : title;
+      const content =
+        msg.type === 'image' ? '[Foto]'
+          : msg.type === 'video' ? '[Vídeo]'
+            : msg.type === 'audio' ? '[Áudio]'
+              : msg.type === 'document' ? `[Documento: ${msg.text || ''}]`
+                : msg.type === 'sticker' ? '[Figurinha]'
+                  : (msg.text || '');
+      lines.push(`[${ts}] ${who}: ${content}`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `zapmass_${title.replace(/\s+/g, '_')}_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Conversa exportada!');
+  }, [selected]);
+
   const handleDraftChannelChange = useCallback(
     (connectionId: string) => {
       if (!selected?.id || !isSelectedDraft) return;
@@ -667,6 +701,7 @@ export const WaWebChatApp: React.FC<{
         onOpenContactInfo={selected ? () => setShowContactInfo(true) : undefined}
         hideOnMobile={!mobileShowThread}
         onLoadMedia={handleLoadMedia}
+        onExport={selected ? handleExportConversation : undefined}
         isDraft={isSelectedDraft}
         draftChannels={connections}
         draftChannelId={selectedDraftChannelId}
