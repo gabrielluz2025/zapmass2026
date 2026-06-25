@@ -415,7 +415,7 @@ export const WaWebChatApp: React.FC<{
         const res = await loadChatHistory(
           conversationId,
           Math.max(nextLevel, prevCount + 50),
-          false
+          true
         );
         if (!res.ok) {
           const suppressed = [

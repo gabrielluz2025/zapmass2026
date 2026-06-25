@@ -1000,7 +1000,8 @@ const registerSocketHandlers = () => {
       }
       emitScopedConnections();
       if (useEvolutionChat() && uid && uid !== 'anonymous') {
-        await evolutionService.reemitConversationsForOwner(uid).catch(() => undefined);
+        // Sync completo (findChats) respeita cooldown 24h; senão reemite RAM.
+        await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
       } else {
         socket.emit(
           'conversations-update',

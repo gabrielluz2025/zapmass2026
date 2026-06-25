@@ -52,10 +52,10 @@ import {
 } from './evolutionLidResolve.js';
 import { resolvePhoneDigitsFromEvolutionMessage } from './evolutionWebhookMessages.js';
 import {
-    appendChatArchiveMessages,
-    isWaChatArchiveEnabled,
-    threadIdFromConversationId
-} from './chatArchiveStore.js';
+    evolutionSyncMsgPrefetch,
+    evolutionSyncSparseConvLimit,
+    isFullInboxSyncEnabled,
+} from '../shared/chatSyncConfig.js';
 import {
     hydrateChatArchiveForConversation as mergeHydrateChatArchive,
     mergeChatArchiveIntoConversation
@@ -1056,20 +1056,31 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             }
 
             // Prefetch de histórico para conversas com pouco/no cache local (prioriza as mais recentes).
+            const sparseLimit = evolutionSyncSparseConvLimit();
+            const msgPrefetch = evolutionSyncMsgPrefetch();
+            const sparseMaxMsgs = Math.min(msgPrefetch + 40, 250);
             const sparseConvs = conversations
                 .filter(
                     (c) =>
                         c.connectionId === connectionId &&
-                        (!c.messages || c.messages.length <= 3)
+                        (!c.messages || c.messages.length <= (isFullInboxSyncEnabled() ? 8 : 3))
                 )
-                .slice(0, 40);
+                .sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0))
+                .slice(0, sparseLimit);
             if (sparseConvs.length > 0) {
-                await Promise.all(
-                    sparseConvs.map(async (conv) => {
+                const batchSize = isFullInboxSyncEnabled() ? 8 : 4;
+                for (let i = 0; i < sparseConvs.length; i += batchSize) {
+                    const slice = sparseConvs.slice(i, i + batchSize);
+                    await Promise.all(
+                        slice.map(async (conv) => {
                         const parsed = parseConversationId(conv.id);
                         if (!parsed) return;
                         try {
-                            const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, 80);
+                            const fetched = await fetchMessages(
+                                parsed.connectionId,
+                                parsed.remoteJid,
+                                msgPrefetch
+                            );
                             const converted = fetched
                                 .map((m) => evolutionRawToChatMessage(m, true))
                                 .filter((m): m is ChatMessage => Boolean(m))
@@ -1077,7 +1088,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                             if (converted.length === 0) return;
                             const target = conversations.find((c) => c.id === conv.id);
                             if (!target) return;
-                            target.messages = converted.slice(-120);
+                            target.messages = converted.slice(-sparseMaxMsgs);
                             const last = converted[converted.length - 1];
                             target.lastMessage = last.text || target.lastMessage;
                             target.lastMessageTime = last.timestamp || target.lastMessageTime;
@@ -1095,6 +1106,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
                         }
                     })
                 );
+                }
             }
 
             applyPhonebookNamesToConnection(connectionId, phonebook);

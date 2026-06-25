@@ -347,9 +347,9 @@ const MAX_MESSAGES = 10000; // cap generoso para permitir historico completo qua
 const MAX_CONVERSATIONS = 200;
 /** Durante sync inicial (getChats), emitir lista parcial ao browser a cada N conversas — valores baixos martelam UI/WS. */
 const SYNC_CONV_EMIT_EVERY = Math.max(12, Number(process.env.WA_SYNC_CONV_EMIT_EVERY || '48'));
-/** 1 (default): após `ready`, corre sync completo (getChats/Store) — pesado. 0: omite — Pipeline só com tempo real (campanhas, envios, mensagens recebidas). */
+/** 1 (default): após `ready`, corre sync completo (getChats/Store) — pesado. 0: omite — Pipeline só com tempo real. */
 const WA_FULL_INBOX_SYNC = !['0', 'false', 'no', 'off'].includes(
-    String(process.env.WA_FULL_INBOX_SYNC ?? '0').trim().toLowerCase()
+    String(process.env.WA_FULL_INBOX_SYNC ?? '1').trim().toLowerCase()
 );
 const MAX_RECONNECT_ATTEMPTS = 10;
 const reconnectState = new Map<string, { attempts: number; timeout?: NodeJS.Timeout }>();

@@ -163,9 +163,9 @@ else
   set_env_kv "CAMPAIGN_WORKER_CONCURRENCY" "5" "$ENV_FILE"
   set_env_kv "PRUNE_AFTER_DEPLOY" "1" "$ENV_FILE"
   set_env_kv "PRUNE_BUILDER_AFTER_DEPLOY" "1" "$ENV_FILE"
-  # Inbox incremental reduz pico ao conectar WhatsApp (descomente no .env se precisar sync completo)
+  # Inbox: 1 = findChats + prefetch histórico (recomendado para bate-papo completo)
   if ! grep -qE '^[[:space:]]*WA_FULL_INBOX_SYNC=' "$ENV_FILE" 2>/dev/null; then
-    set_env_kv "WA_FULL_INBOX_SYNC" "0" "$ENV_FILE"
+    set_env_kv "WA_FULL_INBOX_SYNC" "1" "$ENV_FILE"
   fi
   if ! grep -qE '^[[:space:]]*HOST_PORT=' "$ENV_FILE" 2>/dev/null; then
     set_env_kv "HOST_PORT" "${HOST_PORT}" "$ENV_FILE"

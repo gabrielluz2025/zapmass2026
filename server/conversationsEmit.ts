@@ -48,7 +48,11 @@ export function slimConversationsForBroadcast(list: Conversation[]): Conversatio
 }
 
 /** Máximo de mensagens por conversa no payload socket (lista + tempo real). Histórico completo via load-chat-history. */
-const SOCKET_INBOX_MSG_TAIL = 25;
+const SOCKET_INBOX_MSG_TAIL = (() => {
+  const raw = Number(process.env.CHAT_SOCKET_MSG_TAIL ?? 25);
+  if (!Number.isFinite(raw)) return 25;
+  return Math.max(15, Math.min(80, Math.floor(raw)));
+})();
 
 /** Limite de conversas no broadcast completo (evita JSON gigante na RAM). */
 const SOCKET_MAX_CONVERSATIONS = (() => {
