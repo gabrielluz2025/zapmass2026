@@ -536,6 +536,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [inboxLoadingMore, setInboxLoadingMore] = useState(false);
   const [inboxTotal, setInboxTotal] = useState(0);
   const inboxNextCursorRef = useRef<number | null>(null);
+  const inboxFullRecoveryPendingRef = useRef(false);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const [warmupQueue, setWarmupQueue] = useState<WarmupItem[]>([]);
   const [warmedCount, setWarmedCount] = useState(0);
@@ -1760,7 +1761,20 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         setInboxTotal(Number(data?.total) || 0);
         setConversations((prev) => {
           if (data?.reset) {
-            return mergeConversationsFromSocketUpdate([], list, ownsConnectionId);
+            const merged = mergeConversationsFromSocketUpdate([], list, ownsConnectionId);
+            if (merged.length === 0 && list.length === 0) {
+              if (prev.length > 0) return prev;
+              if (!inboxFullRecoveryPendingRef.current && socket.connected) {
+                inboxFullRecoveryPendingRef.current = true;
+                window.setTimeout(() => {
+                  inboxFullRecoveryPendingRef.current = false;
+                  if (socket.connected) {
+                    socket.emit('request-conversations-sync', { full: true });
+                  }
+                }, 400);
+              }
+            }
+            return merged;
           }
           // Paginação acumulativa: preserva conversas do prev não presentes na nova página
           const newIds = new Set(list.map((c) => c.id));

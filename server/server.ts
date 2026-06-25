@@ -1106,7 +1106,7 @@ const registerSocketHandlers = () => {
           }
           if (useEvolutionChat()) {
             if (fullSync && uid && uid !== 'anonymous') {
-              await evolutionService.syncConnectionsForOwner(uid).catch(() => undefined);
+              await evolutionService.syncConnectionsForOwner(uid, { force: true }).catch(() => undefined);
               return;
             }
             if (fullSync) {

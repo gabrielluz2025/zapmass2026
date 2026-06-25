@@ -264,12 +264,24 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
           <div className="flex flex-col items-center justify-center py-16 px-4 text-center gap-3">
             <MessageCircle className="w-10 h-10 opacity-20" style={{ color: 'var(--wa-text-3)' }} />
             <p className="text-sm" style={{ color: 'var(--wa-text-3)' }}>
-              {connectionFilterId !== 'ALL' || unreadOnly
+              {syncing
+                ? 'Sincronizando conversas com o WhatsApp…'
+                : connectionFilterId !== 'ALL' || unreadOnly
                 ? 'Nenhuma conversa com esses filtros.'
                 : chipsConnected === 0
                   ? 'Vá em Conexões e escaneie o QR do WhatsApp.'
                   : 'Aguardando mensagens…'}
             </p>
+            {!syncing && chipsConnected > 0 && connectionFilterId === 'ALL' && !unreadOnly && (
+              <button
+                type="button"
+                className="wa-filter-pill mt-1"
+                data-active="false"
+                onClick={onRefresh}
+              >
+                Sincronizar agora
+              </button>
+            )}
           </div>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>

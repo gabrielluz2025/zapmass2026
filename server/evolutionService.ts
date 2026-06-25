@@ -804,6 +804,15 @@ export async function reemitConversationsForOwner(ownerUid: string): Promise<voi
     const { isInboxPaginationEnabled } = await import('./inboxPagination.js');
     if (isInboxPaginationEnabled()) {
         const page = await getInboxPageForOwner(uid, uid, { reset: true });
+        const scoped = filterByConnectionScope(uid, getConnections());
+        const hasOpenChip = scoped.some((c) => String(c.status || '').toUpperCase() === 'CONNECTED');
+        if (page.total === 0 && hasOpenChip) {
+            log('info', 'reemitConversationsForOwner: RAM vazia com chips abertos — sync completo', {
+                ownerUid: uid,
+            });
+            await syncConnectionsForOwner(uid, { force: true }).catch(() => undefined);
+            return;
+        }
         publishOwnerEvent(uid, 'inbox-page', page as unknown as Record<string, unknown>);
         return;
     }

@@ -98,8 +98,10 @@ export const WaWebChatApp: React.FC<{
     chipsConnected: connectedChannels.length
   });
 
-  /** Atendimento: sync completo no máximo 1× por dia; resto via webhook/socket. */
+  /** Atendimento: sync completo no máximo 1× por dia; se inbox vazia, força full (ex.: pós-deploy). */
   const initialFullSyncDoneRef = useRef(false);
+  const emptyInboxRecoveryRef = useRef(false);
+
   useEffect(() => {
     if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0 || !tenantUid) return;
     if (initialFullSyncDoneRef.current) return;
@@ -112,6 +114,29 @@ export const WaWebChatApp: React.FC<{
     runResync({ full: true });
     requestSync({ full: true });
   }, [isBackendConnected, socket, connectedChannels.length, tenantUid, runResync, requestSync]);
+
+  /** Chips online mas zero conversas — servidor pode ter reiniciado (RAM vazia). */
+  useEffect(() => {
+    if (!isBackendConnected || !socket?.connected || connectedChannels.length === 0) return;
+    if (conversations.length > 0) {
+      emptyInboxRecoveryRef.current = false;
+      return;
+    }
+    if (emptyInboxRecoveryRef.current) return;
+    emptyInboxRecoveryRef.current = true;
+    const t = window.setTimeout(() => {
+      requestSync({ full: true });
+      runResync({ full: true });
+    }, 2800);
+    return () => window.clearTimeout(t);
+  }, [
+    isBackendConnected,
+    socket,
+    connectedChannels.length,
+    conversations.length,
+    requestSync,
+    runResync,
+  ]);
 
   const mergedConversations = useMemo(() => {
     const realIds = new Set(conversations.map((c) => c.id));
