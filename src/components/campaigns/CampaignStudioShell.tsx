@@ -5,24 +5,22 @@
  */
 import React, { useMemo } from 'react';
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
   CheckCircle2,
   LayoutGrid,
   Loader2,
   Plus,
-  Radio,
   RefreshCw,
   Send,
   Sparkles,
-  Zap,
 } from 'lucide-react';
 import { Campaign, CampaignStatus, ConnectionStatus, WhatsAppConnection } from '../../types';
 import { getCampaignProgressMetrics } from '../../utils/campaignMetrics';
 import { DispatchFixPanel } from './DispatchFixPanel';
 import { useDispatchHealth } from './useDispatchHealth';
 import { useAuth } from '../../context/AuthContext';
+import { PageShell, StatTile, Badge } from '../ui';
 import { isPlatformAdminUser } from '../../utils/adminAccess';
 
 export type CampaignStudioTab = 'overview' | 'mission' | 'campaigns' | 'create';
@@ -95,32 +93,25 @@ export const CampaignStudioShell: React.FC<Props> = ({
   ];
 
   return (
+    <PageShell
+      statusStrip={
+        <>
+          <Badge variant={ready ? 'success' : healthUi === 'checking' ? 'neutral' : 'warning'} dot>
+            {motorTitle}
+          </Badge>
+          <span className="ui-caption tabular-nums">{stats.running.length} em execução</span>
+          <span className="ui-caption tabular-nums">
+            Chips {stats.onlineChips.length}/{connections.length}
+          </span>
+        </>
+      }
+    >
     <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 pb-24 lg:pb-10">
       {/* ── Navegação lateral ── */}
       <aside
         className="lg:w-[210px] shrink-0 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0"
         style={{ scrollbarWidth: 'none' }}
       >
-        <div
-          className="hidden lg:flex items-center gap-2.5 px-3 py-3 mb-2 rounded-2xl"
-          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-        >
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: 'linear-gradient(135deg, #06B6D4, #06B6D4)' }}
-          >
-            <Zap className="w-4 h-4 text-white" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[13px] font-black truncate" style={{ color: 'var(--text-1)' }}>
-              Broadcast
-            </p>
-            <p className="text-[10px] truncate" style={{ color: 'var(--text-3)' }}>
-              Studio de campanhas
-            </p>
-          </div>
-        </div>
-
         {nav.map((item) => {
           const active = subTab === item.id;
           return (
@@ -149,9 +140,6 @@ export const CampaignStudioShell: React.FC<Props> = ({
               </span>
               <span className="hidden sm:block lg:block min-w-0 flex-1">
                 <span className="text-[12.5px] font-bold block truncate">{item.label}</span>
-                <span className="text-[10px] block truncate" style={{ color: 'var(--text-3)' }}>
-                  {item.hint}
-                </span>
               </span>
               {item.badge && (
                 <span
@@ -181,27 +169,10 @@ export const CampaignStudioShell: React.FC<Props> = ({
 
       {/* ── Área principal ── */}
       <div className="flex-1 min-w-0 space-y-4">
-        {/* Header + saúde */}
-        <div
-          className="rounded-2xl overflow-hidden"
-          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-        >
-          <div className="px-4 py-3.5 sm:px-5 flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-extrabold uppercase tracking-[0.16em]" style={{ color: 'var(--text-3)' }}>
-                Status do motor
-              </p>
-              <p className="text-[15px] font-black mt-0.5" style={{ color: 'var(--text-1)' }}>
-                {motorTitle}
-              </p>
-              {healthUi === 'reconnecting' && (
-                <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                  Mantendo o último status estável — nova verificação em andamento.
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill
+        {/* Saúde do motor — compacto */}
+        <div className="zm-panel space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill
                 label="Redis"
                 ok={healthUi === 'ok'}
                 warn={healthUi === 'reconnecting'}
@@ -228,12 +199,10 @@ export const CampaignStudioShell: React.FC<Props> = ({
                 <RefreshCw className={`w-3.5 h-3.5 ${healthUi === 'checking' ? 'animate-spin' : ''}`} />
                 Reverificar
               </button>
-            </div>
           </div>
 
           {showErrorPanel && (
-            <div className="px-4 pb-4 sm:px-5">
-              <DispatchFixPanel
+            <DispatchFixPanel
                 compact
                 mode={errorPanelMode}
                 fixCommand={health?.fixCommand}
@@ -244,55 +213,25 @@ export const CampaignStudioShell: React.FC<Props> = ({
                 }
                 onRetry={() => void check()}
               />
-            </div>
           )}
 
-          {(healthUi === 'ok' || healthUi === 'reconnecting') && (
-            <div
-              className="h-[2px]"
-              style={{
-                background:
-                  healthUi === 'reconnecting'
-                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b)'
-                    : 'linear-gradient(90deg, #06B6D4, #22d3ee, #06B6D4)',
-              }}
-            />
+          {healthUi === 'reconnecting' && (
+            <p className="ui-caption">Nova verificação em andamento — mantendo último status estável.</p>
           )}
         </div>
 
-        {/* KPI bento */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          {[
-            { label: 'Em execução', val: stats.running.length, icon: <Activity className="w-4 h-4" />, tone: '#22c55e' },
-            { label: 'Agendadas', val: stats.scheduled.length, icon: <Radio className="w-4 h-4" />, tone: '#06B6D4' },
-            { label: 'Enviadas (total)', val: stats.sentToday, icon: <Send className="w-4 h-4" />, tone: '#f97316' },
-            { label: 'Canais online', val: stats.onlineChips.length, icon: <Zap className="w-4 h-4" />, tone: '#06b6d4' },
-          ].map((k) => (
-            <div
-              key={k.label}
-              className="rounded-xl px-3 py-3 flex flex-col gap-1.5"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-            >
-              <span style={{ color: k.tone }}>{k.icon}</span>
-              <span className="text-[22px] font-black tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-                {k.val}
-              </span>
-              <span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)' }}>
-                {k.label}
-              </span>
-            </div>
-          ))}
+        {/* KPIs */}
+        <div className="zm-stat-grid">
+          <StatTile label="Em execução" value={stats.running.length} />
+          <StatTile label="Agendadas" value={stats.scheduled.length} />
+          <StatTile label="Enviadas (total)" value={stats.sentToday.toLocaleString('pt-BR')} />
+          <StatTile label="Canais online" value={stats.onlineChips.length} warn={stats.onlineChips.length === 0} />
         </div>
 
         {/* Missões ativas — compacto */}
         {stats.running.length > 0 && (
-          <div
-            className="rounded-xl px-3 py-3 space-y-2"
-            style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.22)' }}
-          >
-            <p className="text-[9px] font-extrabold uppercase tracking-widest" style={{ color: '#818cf8' }}>
-              Ao vivo agora
-            </p>
+          <div className="zm-panel space-y-2">
+            <p className="ui-overline">Ao vivo agora</p>
             {stats.running.slice(0, 2).map((c) => {
               const m = getCampaignProgressMetrics(c);
               return (
@@ -324,6 +263,7 @@ export const CampaignStudioShell: React.FC<Props> = ({
         <div className="animate-fade-in-up">{children}</div>
       </div>
     </div>
+    </PageShell>
   );
 };
 

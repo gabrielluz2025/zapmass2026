@@ -43,6 +43,8 @@ type Props = {
   bestWindow?: { label: string } | null;
   onNavigate: (view: NavView) => void;
   onScrollFunnel: () => void;
+  /** Oculta pills de status quando o PageShell já exibe a faixa. */
+  hideStatusBar?: boolean;
 };
 
 const dockItems = [
@@ -68,9 +70,11 @@ export const DashboardCommandPanel: React.FC<Props> = ({
   bestWindow,
   onNavigate,
   onScrollFunnel,
+  hideStatusBar = false,
 }) => {
   return (
     <section className="zm-command-v3 zm-dash-section">
+      {!hideStatusBar && (
       <header className="zm-command-v3__status">
         <span
           className={`zm-command-v3__pill ${isBackendConnected ? 'zm-command-v3__pill--ok' : 'zm-command-v3__pill--warn'}`}
@@ -90,13 +94,14 @@ export const DashboardCommandPanel: React.FC<Props> = ({
           </span>
         )}
       </header>
+      )}
 
       <div className="zm-command-v3__intro">
         <div className="zm-command-v3__greet">
           <h1>
             {greeting}, <span>{firstName}</span>
           </h1>
-          {segmentTagline && <p>{segmentTagline}</p>}
+          {segmentTagline && !hideStatusBar && <p>{segmentTagline}</p>}
           <div className="zm-command-v3__tags">
             {bestWindow && (
               <span>

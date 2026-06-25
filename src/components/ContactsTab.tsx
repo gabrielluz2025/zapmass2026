@@ -18,7 +18,7 @@ import {
 } from './religious/religiousMemberFormShared';
 import type { CampaignWizardDraft } from '../types/campaignMission';
 import toast from 'react-hot-toast';
-import { Badge, BrDateInput, Button, Card, EmptyState, Modal, SectionHeader, StatCard } from './ui';
+import { Badge, BrDateInput, Button, Card, EmptyState, Modal, PageShell, SectionHeader, StatCard } from './ui';
 import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
 import { ContactsListsRail } from './contacts/workspace/ContactsListsRail';
 import { ContactsSidebar, type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
@@ -3822,7 +3822,19 @@ export const ContactsTab: React.FC = () => {
   ]);
 
   return (
-    <div className="zm-contacts-v3 space-y-4 pb-10 relative">
+    <PageShell
+      statusStrip={
+        <>
+          <span className="ui-caption tabular-nums">
+            {(contactsSavedTotal ?? smartStats.total).toLocaleString('pt-BR')} contatos
+          </span>
+          <span className="ui-caption tabular-nums">Quentes {smartStats.hot}</span>
+          <span className="ui-caption tabular-nums">Novos 7d {smartStats.last7}</span>
+          <span className="ui-caption tabular-nums">Retorno hoje {smartStats.retorno_hoje}</span>
+        </>
+      }
+    >
+    <div className="zm-contacts-v3 space-y-4 relative">
       {/* input file escondido, usado pelos botões do hero/tabela */}
             <input
               ref={fileInputRef}
@@ -5856,6 +5868,7 @@ export const ContactsTab: React.FC = () => {
       )}
 
     </div>
+    </PageShell>
   );
 };
 

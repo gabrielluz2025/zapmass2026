@@ -59,7 +59,7 @@ import {
   BASE_CHANNEL_SLOTS,
   MAX_CHANNELS_TOTAL
 } from '../utils/connectionLimitPolicy';
-import { Card, CardHeader, Button, Badge, Modal, Textarea, Select } from './ui';
+import { Card, CardHeader, Button, Badge, Modal, Textarea, Select, PageShell, CollapsibleSection, StatTile } from './ui';
 import { CampaignAttachmentBlock, type CampaignAttachmentState } from './campaigns/CampaignAttachmentBlock';
 import { SavedMediaLibraryPicker } from './campaigns/SavedMediaLibraryPicker';
 import { DEFAULT_BIRTHDAY_TEMPLATE } from '../constants/birthdayTemplates';
@@ -229,7 +229,7 @@ const DashboardStat: React.FC<{
       <p className="text-[28px] sm:text-[32px] font-black leading-none tabular-nums tracking-tight" style={{ color: 'var(--text-1)' }}>
         {value}
       </p>
-      <p className="text-[9.5px] font-bold uppercase tracking-widest mt-2" style={{ color: gradient[0], opacity: 0.9 }}>
+      <p className="ui-overline mt-2" style={{ color: gradient[0], opacity: 0.9 }}>
         {label}
       </p>
       {helper && (
@@ -953,11 +953,28 @@ export const DashboardTab: React.FC = () => {
   };
 
   return (
-    <div className="zm-dashboard space-y-5 pb-10">
+    <PageShell
+      statusStrip={
+        <>
+          <Badge variant={isBackendConnected ? 'success' : 'warning'} dot>
+            {isBackendConnected ? 'Online' : 'Reconectando'}
+          </Badge>
+          <span className="ui-caption tabular-nums">
+            Canais {onlineCount}/{connections.length}
+          </span>
+          <span className="ui-caption tabular-nums">
+            Enviados {animSent.toLocaleString('pt-BR')}
+          </span>
+          <span className="ui-caption tabular-nums">Respostas {replyRate}%</span>
+        </>
+      }
+    >
+    <div className="zm-dashboard space-y-5">
       <DashboardCommandPanel
         firstName={firstName}
         greeting={greeting}
         segmentTagline={segmentXp.dashboardTagline}
+        hideStatusBar
         isBackendConnected={isBackendConnected}
         now={now}
         onlineCount={onlineCount}
@@ -1007,40 +1024,34 @@ export const DashboardTab: React.FC = () => {
         className="zm-dash-section grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-5 scroll-mt-6"
       >
         <Card className="zm-funnel-panel lg:col-span-2">
-          <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-            <div className="flex items-center gap-2.5">
+          <CardHeader
+            compact
+            icon={
               <div className="w-8 h-8 rounded-lg flex items-center justify-center brand-soft">
                 <TrendingUp className="w-4 h-4" />
               </div>
-              <div>
-                <h3 className="ui-title text-[15px]">Funil de Desempenho</h3>
-                <p className="ui-subtitle text-[12px]">
-                  Acumulado histórico — persiste após reinícios e exclusão de campanhas
-                </p>
+            }
+            title="Funil de desempenho"
+            subtitle="Acumulado histórico — persiste após reinícios"
+            actions={
+              <div className="flex items-center gap-2">
+                <Badge variant="success" dot>
+                  Tempo real
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmClearFunnel(true)}
+                  disabled={funnelEmpty}
+                  title="Zerar contadores do funil"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                  Limpar
+                </Button>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="success" dot>
-                Tempo real
-              </Badge>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfirmClearFunnel(true)}
-                disabled={
-                  metrics.totalSent === 0 &&
-                  metrics.totalDelivered === 0 &&
-                  metrics.totalRead === 0 &&
-                  metrics.totalReplied === 0
-                }
-                title="Zerar contadores do funil"
-              >
-                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-                Limpar
-              </Button>
-            </div>
-          </div>
-
+            }
+          />
+          <div className="mt-4">
           <PerformanceFunnel
             sent={metrics.totalSent}
             delivered={metrics.totalDelivered}
@@ -1048,32 +1059,18 @@ export const DashboardTab: React.FC = () => {
             replied={metrics.totalReplied}
             height={360}
           />
+          </div>
 
-          <div
-            className="mt-6 p-4 rounded-2xl flex items-start gap-3.5 relative overflow-hidden"
-            style={{
-              background: 'linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(16,185,129,0.08) 100%)',
-              border: '1px solid rgba(245, 158, 11, 0.22)',
-              boxShadow: '0 12px 40px -24px rgba(245, 158, 11, 0.45)'
-            }}
-          >
+          <div className="mt-6 zm-panel flex items-start gap-3.5">
             <div
-              className="absolute inset-0 pointer-events-none opacity-[0.12]"
-              style={{
-                background: 'radial-gradient(600px 120px at 20% 0%, rgba(245,158,11,0.5), transparent 60%)'
-              }}
-            />
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 relative"
-              style={{ background: 'rgba(245, 158, 11, 0.2)', border: '1px solid rgba(245, 158, 11, 0.35)' }}
+              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: 'rgba(245, 158, 11, 0.15)' }}
             >
               <Zap className="w-5 h-5" style={{ color: '#fbbf24' }} />
             </div>
-            <div className="relative min-w-0">
-              <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                Insight operacional
-              </p>
-              <p className="text-[12.5px] mt-1 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+            <div className="min-w-0">
+              <p className="ui-body font-semibold">Insight operacional</p>
+              <p className="ui-caption mt-1">
                 {bestWindow ? (
                   <>
                     Os seus clientes mais respondem entre{' '}
@@ -1668,43 +1665,16 @@ export const DashboardTab: React.FC = () => {
         </Card>
 
         {!isAdmin ? (
-          <Card
-            className="overflow-hidden p-0"
-            style={{
-              background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
-              borderColor: 'var(--border-subtle)'
-            }}
+          <CollapsibleSection
+            title="Resumo da conta"
+            summary={`${planScopedCount}/${maxPlanChannelSlots} canais · ${accountSummary.sentToday.toLocaleString('pt-BR')} envios hoje`}
+            defaultOpen
           >
-            <div className="zm-account-accent" aria-hidden />
-            <div className="p-1">
-              <CardHeader
-                icon={
-                  <div
-                    className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: 'var(--semantic-success-bg)' }}
-                  >
-                    <Users className="w-[18px] h-[18px] text-emerald-600" aria-hidden />
-                  </div>
-                }
-                title="Resumo da sua conta"
-                subtitle="Plano, envios de hoje e próximos passos — sem detalhes técnicos de servidor."
-                actions={
-                  <Badge variant="neutral" className="text-[10px] hidden sm:inline-flex" dot={isBackendConnected}>
-                    {isBackendConnected ? 'Sincronizado' : '…'}
-                  </Badge>
-                }
-              />
-            </div>
-            <div className="px-4 pb-4 space-y-3">
-              <div
-                className="rounded-xl px-3 py-2.5"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-              >
+            <div className="space-y-3">
+              <div className="zm-panel">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[11px] font-semibold uppercase" style={{ color: 'var(--text-3)' }}>
-                    Canais no plano
-                  </span>
-                  <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--text-1)' }}>
+                  <span className="ui-overline">Canais no plano</span>
+                  <span className="ui-body font-semibold tabular-nums">
                     {planScopedCount} / {maxPlanChannelSlots}
                   </span>
                 </div>
@@ -1713,107 +1683,35 @@ export const DashboardTab: React.FC = () => {
                     className="h-full rounded-full transition-all duration-700"
                     style={{
                       width: `${planUsagePct}%`,
-                      background:
-                        atPlanChannelLimit || planUsagePct >= 80
-                          ? 'linear-gradient(90deg, var(--warning), #f59e0b)'
-                          : 'linear-gradient(90deg, var(--success), #10b981)'
+                      background: atPlanChannelLimit || planUsagePct >= 80 ? 'var(--warning)' : 'var(--success)'
                     }}
                   />
                 </div>
-                <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-3)' }}>
-                  {atPlanChannelLimit
-                    ? 'Limite atingido — adicione extras na assinatura.'
-                    : `Inclui ${BASE_CHANNEL_SLOTS} no plano${
-                        typeof subscription?.extraChannelSlots === 'number' && subscription.extraChannelSlots > 0
-                          ? ` + ${subscription.extraChannelSlots} extra(s).`
-                          : '.'
-                      }`}
-                </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  {
-                    label: 'Enviados hoje',
-                    value: accountSummary.sentToday.toLocaleString('pt-BR'),
-                    icon: <Send className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
-                  },
-                  {
-                    label: 'Canais online',
-                    value: `${accountSummary.onlineChannels}/${accountSummary.totalChannels}`,
-                    icon: <Wifi className="w-3.5 h-3.5" style={{ color: '#3b82f6' }} />
-                  },
-                  {
-                    label: 'Campanhas ativas',
-                    value: String(accountSummary.runningCampaigns + accountSummary.scheduledCampaigns),
-                    icon: <Rocket className="w-3.5 h-3.5" style={{ color: '#06B6D4' }} />
-                  },
-                  {
-                    label: 'Lembretes hoje',
-                    value: String(accountSummary.followUpsToday),
-                    icon: <Calendar className="w-3.5 h-3.5" style={{ color: '#f59e0b' }} />
-                  }
-                ].map((kpi) => (
-                  <div
-                    key={kpi.label}
-                    className="rounded-xl px-2.5 py-2"
-                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                  >
-                    <div className="flex items-center gap-1.5 mb-1">
-                      {kpi.icon}
-                      <span className="text-[9px] uppercase font-bold" style={{ color: 'var(--text-3)' }}>
-                        {kpi.label}
-                      </span>
-                    </div>
-                    <p className="text-[18px] font-black tabular-nums leading-none" style={{ color: 'var(--text-1)' }}>
-                      {kpi.value}
-                    </p>
-                  </div>
-                ))}
+              <div className="zm-stat-grid">
+                <StatTile label="Enviados hoje" value={accountSummary.sentToday.toLocaleString('pt-BR')} />
+                <StatTile label="Canais online" value={`${accountSummary.onlineChannels}/${accountSummary.totalChannels}`} />
+                <StatTile label="Campanhas ativas" value={String(accountSummary.runningCampaigns + accountSummary.scheduledCampaigns)} />
+                <StatTile label="Lembretes hoje" value={String(accountSummary.followUpsToday)} />
               </div>
 
-              <div
-                className="rounded-xl px-3 py-2.5 text-[11px] leading-relaxed"
-                style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.18)' }}
-              >
-                {accountSummary.offlineChannels > 0 ? (
-                  <p style={{ color: 'var(--text-2)' }}>
-                    <strong style={{ color: '#f59e0b' }}>{accountSummary.offlineChannels} canal(is) offline.</strong>{' '}
-                    Reconecte em Canais para não perder disparos.
-                  </p>
-                ) : bestWindow ? (
-                  <p style={{ color: 'var(--text-2)' }}>
-                    Melhor horário para disparar hoje: <strong>{bestWindow.label}</strong> (com base nas respostas recentes).
-                  </p>
-                ) : accountSummary.sentToday === 0 ? (
-                  <p style={{ color: 'var(--text-2)' }}>
-                    Ainda sem envios hoje. Crie uma campanha ou envie mensagens pelo Pipeline para começar.
-                  </p>
-                ) : (
-                  <p style={{ color: 'var(--text-2)' }}>
-                    Tudo sincronizado. Use Campanhas para escalar ou Contatos para retomar conversas quentes.
-                  </p>
-                )}
-              </div>
+              <p className="ui-caption zm-panel">
+                {accountSummary.offlineChannels > 0
+                  ? `${accountSummary.offlineChannels} canal(is) offline — reconecte em Canais.`
+                  : bestWindow
+                    ? `Melhor horário hoje: ${bestWindow.label}.`
+                    : accountSummary.sentToday === 0
+                      ? 'Sem envios hoje — crie uma campanha para começar.'
+                      : 'Tudo sincronizado.'}
+              </p>
 
               <div className="flex flex-col gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => setCurrentView('connections')}
-                  leftIcon={<Smartphone className="w-4 h-4" />}
-                >
+                <Button type="button" variant="secondary" className="w-full" onClick={() => setCurrentView('connections')} leftIcon={<Smartphone className="w-4 h-4" />}>
                   Gerir conexões
                 </Button>
                 <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="primary"
-                    className="flex-1"
-                    onClick={() => setCurrentView('campaigns')}
-                    leftIcon={<Rocket className="w-4 h-4" />}
-                  >
+                  <Button type="button" variant="primary" className="flex-1" onClick={() => setCurrentView('campaigns')} leftIcon={<Rocket className="w-4 h-4" />}>
                     Campanhas
                   </Button>
                   <Button type="button" variant="ghost" className="flex-1" onClick={() => setCurrentView('contacts')}>
@@ -1827,121 +1725,41 @@ export const DashboardTab: React.FC = () => {
                 )}
               </div>
             </div>
-          </Card>
+          </CollapsibleSection>
         ) : (
-          <Card
-            className="overflow-hidden p-0"
-            style={{
-              background: 'linear-gradient(180deg, var(--ops-panel-fade) 0%, var(--surface-0) 48%)',
-              borderColor: 'var(--border-subtle)'
-            }}
+          <CollapsibleSection
+            title="Operações de servidor"
+            summary={`RAM ${adminOps.ramPct != null ? `${adminOps.ramPct}%` : '—'} · ${adminOps.offlineChannels} offline`}
+            defaultOpen={false}
+            actions={
+              <Button type="button" size="sm" variant="primary" onClick={() => setCurrentView('admin-ops')}>
+                Abrir
+              </Button>
+            }
           >
-            <div className="zm-ops-accent" aria-hidden />
-            <div className="p-1">
-              <CardHeader
-                icon={
-                  <div
-                    className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: 'var(--semantic-info-tint)' }}
-                  >
-                    <Server className="w-[18px] h-[18px] text-cyan-500" aria-hidden />
-                  </div>
-                }
-                title="Operações de servidor"
-                subtitle="Visão rápida da infra. Detalhes completos na aba Operações."
-                actions={
-                  <Button type="button" size="sm" variant="primary" onClick={() => setCurrentView('admin-ops')}>
-                    Abrir operações
-                  </Button>
-                }
-              />
-            </div>
-            <div className="px-4 pb-4 space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  {
-                    label: 'RAM',
-                    value: adminOps.ramPct != null ? `${adminOps.ramPct}%` : '—',
-                    sub: adminOps.ramTotalGb != null ? `${adminOps.ramTotalGb} GB` : 'A sincronizar',
-                    warn: (adminOps.ramPct ?? 0) >= 85
-                  },
-                  {
-                    label: 'Latência',
-                    value: adminOps.latencyMs != null ? `${adminOps.latencyMs} ms` : '—',
-                    sub: 'Socket',
-                    warn: (adminOps.latencyMs ?? 0) >= 400
-                  },
-                  {
-                    label: 'Offline',
-                    value: String(adminOps.offlineChannels),
-                    sub: 'canais',
-                    warn: adminOps.offlineChannels > 0
-                  },
-                  {
-                    label: 'Fila',
-                    value: String(adminOps.queueTotal),
-                    sub: 'mensagens',
-                    warn: adminOps.queueTotal > 50
-                  }
-                ].map((kpi) => (
-                  <div
-                    key={kpi.label}
-                    className="rounded-xl px-2.5 py-2"
-                    style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                  >
-                    <p className="text-[9px] uppercase font-bold" style={{ color: 'var(--text-3)' }}>
-                      {kpi.label}
-                    </p>
-                    <p
-                      className="text-[18px] font-black tabular-nums leading-none mt-0.5"
-                      style={{ color: kpi.warn ? '#f59e0b' : 'var(--text-1)' }}
-                    >
-                      {kpi.value}
-                    </p>
-                    <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                      {kpi.sub}
-                    </p>
-                  </div>
-                ))}
+            <div className="space-y-3">
+              <div className="zm-stat-grid">
+                <StatTile label="RAM" value={adminOps.ramPct != null ? `${adminOps.ramPct}%` : '—'} hint={adminOps.ramTotalGb != null ? `${adminOps.ramTotalGb} GB` : undefined} warn={(adminOps.ramPct ?? 0) >= 85} />
+                <StatTile label="Latência" value={adminOps.latencyMs != null ? `${adminOps.latencyMs} ms` : '—'} warn={(adminOps.latencyMs ?? 0) >= 400} />
+                <StatTile label="Offline" value={String(adminOps.offlineChannels)} warn={adminOps.offlineChannels > 0} />
+                <StatTile label="Fila" value={String(adminOps.queueTotal)} warn={adminOps.queueTotal > 50} />
               </div>
-
               {adminOps.ramPct != null && (
                 <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-2)' }}>
                   <div
                     className="h-full rounded-full transition-all"
                     style={{
                       width: `${Math.min(100, adminOps.ramPct)}%`,
-                      background:
-                        adminOps.ramPct >= 85
-                          ? 'linear-gradient(90deg, #f59e0b, #f43f5e)'
-                          : 'linear-gradient(90deg, #06B6D4, #22d3ee)'
+                      background: adminOps.ramPct >= 85 ? 'var(--warning)' : 'var(--success)'
                     }}
                   />
                 </div>
               )}
-
-              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                Conta com <strong style={{ color: 'var(--text-1)' }}>{planScopedCount}</strong> canais ·{' '}
-                <strong style={{ color: 'var(--text-1)' }}>{accountSummary.runningCampaigns}</strong> campanha(s) em
-                disparo. Host, Docker e integrações ficam na aba <strong>Operações</strong>.
+              <p className="ui-caption">
+                {planScopedCount} canais · {accountSummary.runningCampaigns} campanha(s) em disparo. Detalhes na aba Operações.
               </p>
-
-              <div
-                className="flex items-center gap-2 rounded-xl px-3 py-2 text-[11px]"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                role="status"
-              >
-                {isBackendConnected ? (
-                  <Wifi className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />
-                ) : (
-                  <WifiOff className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
-                )}
-                <span style={{ color: 'var(--text-3)' }}>
-                  {isBackendConnected ? 'Backend online e sincronizado.' : 'A reconectar ao servidor…'}
-                </span>
-              </div>
             </div>
-          </Card>
+          </CollapsibleSection>
         )}
       </div>
 
@@ -2605,5 +2423,6 @@ export const DashboardTab: React.FC = () => {
         </div>
       </Modal>
     </div>
+    </PageShell>
   );
 };

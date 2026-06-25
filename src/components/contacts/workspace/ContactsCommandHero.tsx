@@ -1,6 +1,5 @@
 ﻿import React from 'react';
 import {
-  Users, Flame, TrendingUp, Clock, Cake, Heart,
   UserPlus, Upload, Download, Wand2, FileSpreadsheet, Smartphone,
   ChevronDown, SpellCheck2, BarChart3
 } from 'lucide-react';
@@ -33,9 +32,6 @@ interface Props {
   onOpenNormalizeNames?: () => void;
 }
 
-const fmt = (n: number) =>
-  n >= 10000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : n.toLocaleString('pt-BR');
-
 export const ContactsCommandHero: React.FC<Props> = React.memo(({
   stats,
   contactTempsReady,
@@ -59,44 +55,11 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
 
   const displayTotal = Math.max(stats.total, savedTotal ?? 0, 1);
 
-  const kpis = [
-    { label: 'Total', value: fmt(stats.total), accent: '#6366f1', icon: <Users className="w-3.5 h-3.5" /> },
-    { label: 'Quentes', value: contactTempsReady ? fmt(stats.hot) : '…', accent: '#ef4444', icon: <Flame className="w-3.5 h-3.5" />, pulse: !contactTempsReady },
-    { label: 'Novos (7d)', value: fmt(stats.last7), accent: '#10b981', icon: <TrendingUp className="w-3.5 h-3.5" /> },
-    { label: 'Retorno hoje', value: fmt(stats.retorno_hoje), accent: '#f59e0b', icon: <Clock className="w-3.5 h-3.5" /> },
-    { label: 'Aniv. hoje', value: fmt(stats.bdayToday), accent: '#a855f7', icon: <Cake className="w-3.5 h-3.5" /> },
-    ...(!hideWedding ? [{ label: 'Casamentos 7d', value: fmt(stats.weddingWeek), accent: '#ec4899', icon: <Heart className="w-3.5 h-3.5" /> }] : []),
-  ];
-
   return (
     <div className="crm-fade-up flex flex-col gap-3">
-      {/* Linha 1: título + ações */}
-      <div className={`crm-topbar flex flex-col lg:flex-row lg:items-center gap-4${importOpen ? ' crm-topbar--menu-open' : ''}`}>
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, var(--brand-500), #10b981)',
-              boxShadow: '0 8px 20px -8px rgba(16,185,129,0.55)'
-            }}
-          >
-            <Users className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-lg font-black tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
-              Central de Contatos
-            </h1>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-3, #94a3b8)' }}>
-              {savedTotal != null && savedTotal > 0
-                ? `${savedTotal.toLocaleString('pt-BR')} contatos na base`
-                : stats.total > 0
-                  ? `${stats.total.toLocaleString('pt-BR')} contatos na base`
-                  : 'Importe contatos para começar'}
-            </p>
-          </div>
-        </div>
-
-        <div className="crm-topbar__actions flex items-center gap-2 flex-wrap lg:ml-auto">
+      {/* Linha 1: ações (título fica no TopBar + faixa PageShell) */}
+      <div className={`crm-topbar flex flex-col lg:flex-row lg:items-center lg:justify-end gap-4${importOpen ? ' crm-topbar--menu-open' : ''}`}>
+        <div className="crm-topbar__actions flex items-center gap-2 flex-wrap w-full lg:w-auto lg:ml-auto">
           <button type="button" onClick={onOpenInsights} className="crm-btn" title="Insights e segmentos">
             <BarChart3 className="w-4 h-4" style={{ color: 'var(--brand-500)' }} />
             <span className="hidden sm:inline">Insights</span>
@@ -164,22 +127,7 @@ export const ContactsCommandHero: React.FC<Props> = React.memo(({
         </div>
       </div>
 
-      {/* Linha 2: KPI tiles */}
-      {stats.total > 0 && (
-        <div className="crm-kpi-row crm-fade-up">
-          {kpis.map((k) => (
-            <div key={k.label} className="crm-kpi-tile" style={{ borderTopColor: k.accent, borderTopWidth: 3 }}>
-              <div className="crm-kpi-tile__eyebrow">
-                <span style={{ color: k.accent }}>{k.icon}</span>
-                {k.label}
-              </div>
-              <div className={`crm-kpi-tile__value ${k.pulse ? 'animate-pulse opacity-50' : ''}`} style={{ color: k.accent }}>{k.value}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Linha 3: barra de temperatura */}
+      {/* Barra de temperatura */}
       {stats.total > 0 && (
         <div className="crm-temp-row crm-fade-up">
           <span className="text-[10px] font-bold uppercase tracking-widest shrink-0" style={{ color: 'var(--text-3, #94a3b8)' }}>
