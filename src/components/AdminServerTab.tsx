@@ -18,6 +18,7 @@ import { getChannelCapacity } from '../utils/channelCapacityHeuristic';
 import { Card, CardHeader, Badge, RingGauge } from './ui';
 import { DashMetric } from './dashboard/DashMetric';
 import { AdminOpsMonitor } from './AdminOpsMonitor';
+import { AdminVpsMaintenancePanel } from './AdminVpsMaintenancePanel';
 import { AdminConnectionsOverview } from './admin/AdminConnectionsOverview';
 
 /**
@@ -358,6 +359,7 @@ export const AdminServerTab: React.FC = () => {
         </div>
       </Card>
 
+      <AdminVpsMaintenancePanel user={user} />
       <AdminOpsMonitor user={user} />
       <AdminConnectionsOverview user={user} />
     </div>

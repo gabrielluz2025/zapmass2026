@@ -17,6 +17,31 @@ export function zapmassDatabaseUrl(): string {
   return (process.env.ZAPMASS_DATABASE_URL || defaultDatabaseUrl()).trim();
 }
 
+/** Mesmo host/credenciais, base evolution_db (índices Evolution). */
+export function evolutionDatabaseUrl(): string {
+  const u = zapmassDatabaseUrl();
+  if (!u) return '';
+  return u.replace(/\/zapmass_db(?=[?#]|$)/, '/evolution_db');
+}
+
+let evolutionPool: pg.Pool | null = null;
+
+export function getEvolutionPool(): pg.Pool | null {
+  const url = evolutionDatabaseUrl();
+  if (!url || !isZapmassPostgresConfigured()) return null;
+  if (!evolutionPool) {
+    evolutionPool = new Pool({
+      connectionString: url,
+      max: Number(process.env.ZAPMASS_PG_POOL_MAX_EVOLUTION || 2),
+      idleTimeoutMillis: 30_000
+    });
+    evolutionPool.on('error', (err) => {
+      console.error('[EvolutionDB] pool error:', err?.message || err);
+    });
+  }
+  return evolutionPool;
+}
+
 export function isZapmassPostgresConfigured(): boolean {
   if (!vpsAuthEnabled() && !vpsDataEnabled()) return false;
   return zapmassDatabaseUrl().length > 0;

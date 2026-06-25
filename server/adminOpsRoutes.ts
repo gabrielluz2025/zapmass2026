@@ -9,6 +9,7 @@ import * as waService from './whatsappService.js';
 import { getChannelCapacityHeuristic, buildAlerts, type AdminOpsAlert } from './opsHealth.js';
 import { pingFirebaseAdmin } from './firebaseAdminProbe.js';
 import { getMercadoPagoHealthCached } from './mercadoPagoAccess.js';
+import { buildVpsMaintenancePayload } from './vpsMaintenance.js';
 
 const HISTORY_MAX = 288;
 const HISTORY_INTERVAL_MS = 5 * 60 * 1000;
@@ -113,5 +114,19 @@ export function registerAdminOpsRoutes(app: Express): void {
       history: opsHistory.map((p) => ({ ...p })),
       historyMeta: { intervalMs: HISTORY_INTERVAL_MS, maxPoints: HISTORY_MAX, windowApproxHours: 24 }
     });
+  });
+
+  app.get('/api/admin/vps-maintenance', async (req: Request, res: Response) => {
+    const auth = await assertAdminFromBearer(req, res);
+    if (!auth) return;
+    try {
+      const payload = await buildVpsMaintenancePayload();
+      res.json(payload);
+    } catch (e) {
+      res.status(500).json({
+        ok: false,
+        error: e instanceof Error ? e.message : 'Falha ao ler manutenção VPS'
+      });
+    }
   });
 }
