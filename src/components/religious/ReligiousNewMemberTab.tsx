@@ -5,7 +5,7 @@ import { useAppProfile } from '../../context/AppProfileContext';
 import { useAppView } from '../../context/AppViewContext';
 import { useZapMassCore } from '../../context/ZapMassContext';
 import type { Contact } from '../../types';
-import { BrDateInput, Button, Card, Input, SectionHeader, Textarea } from '../ui';
+import { BrDateInput, Button, Card, Input, Textarea, PageShell } from '../ui';
 import {
   LEADER_GROUPS,
   MINISTER_ROLES,
@@ -188,18 +188,23 @@ export const ReligiousNewMemberTab: React.FC = () => {
   const grid2 = 'grid grid-cols-1 sm:grid-cols-2 gap-4';
 
   return (
-    <div className="space-y-6 pb-14 max-w-4xl mx-auto">
-      <SectionHeader
-        icon={<Church className="w-5 h-5" />}
-        title="Ficha de membro"
-        description="Cadastro alinhado a uma ficha eclesiástica: dados pessoais, família, endereço e funções. Grava nos Contatos (telefone principal = WhatsApp). Campos sensíveis (CPF, RG) ficam na sua base — trate o acesso conforme a LGPD."
-      />
+    <PageShell
+      statusStrip={
+        <span className="ui-caption">Cadastro eclesiástico · grava nos Contatos</span>
+      }
+    >
+    <div className="space-y-4 pb-14 max-w-4xl mx-auto">
+      <details className="zm-panel ui-caption">
+        <summary className="ui-body font-semibold cursor-pointer">Sobre a ficha de membro</summary>
+        <p className="mt-2">
+          Dados pessoais, família, endereço e funções. Telefone principal vira WhatsApp nos Contatos. Campos sensíveis (CPF, RG)
+          ficam na sua base — trate o acesso conforme a LGPD.
+        </p>
+      </details>
 
-      <form onSubmit={(ev) => void handleSubmit(ev)} className="space-y-5">
+      <form onSubmit={(ev) => void handleSubmit(ev)} className="space-y-4">
         <Card className="p-5 sm:p-6">
-          <h3 className="text-[14px] font-bold mb-4" style={{ color: 'var(--text-1)' }}>
-            Dados pessoais
-          </h3>
+          <h3 className="ui-section-title mb-4">Dados pessoais</h3>
           <div className={grid2}>
             <div className="sm:col-span-2">
               <FieldLabel>Nome completo *</FieldLabel>
@@ -258,9 +263,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
         </Card>
 
         <Card className="p-5 sm:p-6">
-          <h3 className="text-[14px] font-bold mb-4" style={{ color: 'var(--text-1)' }}>
-            Endereço e contacto
-          </h3>
+          <h3 className="ui-section-title mb-4">Endereço e contacto</h3>
           <div className={grid2}>
             <div className="sm:col-span-2">
               <FieldLabel optional>Endereço (rua, av.)</FieldLabel>
@@ -306,9 +309,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
         </Card>
 
         <Card className="p-5 sm:p-6">
-          <h3 className="text-[14px] font-bold mb-4" style={{ color: 'var(--text-1)' }}>
-            Família
-          </h3>
+          <h3 className="ui-section-title mb-4">Família</h3>
           <div className={grid2}>
             <div>
               <FieldLabel optional>Nome do pai</FieldLabel>
@@ -339,9 +340,7 @@ export const ReligiousNewMemberTab: React.FC = () => {
         </Card>
 
         <Card className="p-5 sm:p-6">
-          <h3 className="text-[14px] font-bold mb-4" style={{ color: 'var(--text-1)' }}>
-            Dados eclesiásticos
-          </h3>
+          <h3 className="ui-section-title mb-4">Dados eclesiásticos</h3>
           <div className="space-y-5">
             <div>
               <FieldLabel optional>Igreja / célula atual</FieldLabel>
@@ -460,5 +459,6 @@ export const ReligiousNewMemberTab: React.FC = () => {
         </div>
       </form>
     </div>
+    </PageShell>
   );
 };

@@ -28,7 +28,7 @@ import {
 } from '../../utils/pastoralVisitHelpers';
 import { openChatNavigate } from '../../utils/openChatByPhoneNav';
 import { downloadPastoralVisitIcs } from '../../utils/pastoralVisitIcs';
-import { Badge, Button, Card, Input, Modal, Textarea } from '../ui';
+import { Badge, Button, Card, Input, Modal, Textarea, PageShell } from '../ui';
 
 const NO_VISIT_MS = 60 * 86400000;
 const DURATIONS = [30, 60, 90] as const;
@@ -277,22 +277,21 @@ export const PastoralVisitsTab: React.FC = () => {
   );
 
   return (
-    <div className="mx-auto max-w-[1200px] px-3 sm:px-5 py-6 space-y-5">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-            <MapPin className="w-6 h-6 text-emerald-500" />
-            Visitas pastorais
-          </h1>
-          <p className="text-[13px] mt-1 max-w-xl" style={{ color: 'var(--text-3)' }}>
-            Agende visitas, acompanhe o mês, Santa Ceia e quem está há mais tempo sem visita realizada (60 dias). Conflitos
-            de horário são avisados entre visitas ZapMass agendadas.
-          </p>
-        </div>
-        <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={openNew}>
+    <PageShell
+      statusStrip={
+        <>
+          <span className="ui-caption tabular-nums">{stats.doneM} realizadas (mês)</span>
+          <span className="ui-caption tabular-nums">{stats.schedM} agendadas</span>
+          <span className="ui-caption tabular-nums">{stats.ceia} ceia pendente</span>
+        </>
+      }
+      actions={
+        <Button variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />} onClick={openNew}>
           Nova visita
         </Button>
-      </div>
+      }
+    >
+    <div className="mx-auto max-w-[1200px] space-y-4">
 
       {error && (
         <div
@@ -303,36 +302,6 @@ export const PastoralVisitsTab: React.FC = () => {
           <span>{error}</span>
         </div>
       )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card className="p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-            Realizadas (mês)
-          </p>
-          <p className="text-3xl font-extrabold tabular-nums mt-1" style={{ color: 'var(--text-1)' }}>
-            {stats.doneM}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-            Agendadas (mês)
-          </p>
-          <p className="text-3xl font-extrabold tabular-nums mt-1" style={{ color: 'var(--text-1)' }}>
-            {stats.schedM}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
-            Ceia pendente
-          </p>
-          <p className="text-3xl font-extrabold tabular-nums mt-1" style={{ color: 'var(--text-1)' }}>
-            {stats.ceia}
-          </p>
-          <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
-            Agendar levar ceia ou realizada sem registo de ceia
-          </p>
-        </Card>
-      </div>
 
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -629,5 +598,6 @@ export const PastoralVisitsTab: React.FC = () => {
         )}
       </Modal>
     </div>
+    </PageShell>
   );
 };

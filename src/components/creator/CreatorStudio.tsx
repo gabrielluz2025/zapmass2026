@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Code2, ExternalLink, RefreshCw, Shield, Wrench, AlertTriangle, Lock } from 'lucide-react';
-import { Button, Card } from '../ui';
+import { ExternalLink, RefreshCw, Shield, Wrench, AlertTriangle, Lock } from 'lucide-react';
+import { Button, Card, PageShell, Badge } from '../ui';
 import { useMainLayoutNav } from '../../context/MainLayoutNavContext';
 import { useZapMassCore } from '../../context/ZapMassContext';
 import { apiUrl } from '../../utils/apiBase';
@@ -133,20 +133,30 @@ export const CreatorStudio: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5 pb-10">
-      <div
-        className="rounded-xl border px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2"
-        style={{ borderColor: 'rgba(59,130,246,0.35)', background: 'rgba(59,130,246,0.08)' }}
-      >
-        <div className="flex items-center gap-2 text-[13px] font-bold" style={{ color: 'var(--text-1)' }}>
-          <Code2 className="w-4 h-4 text-blue-500 shrink-0" />
-          Estudio do criador
-        </div>
-        <p className="text-[12px] leading-relaxed flex-1" style={{ color: 'var(--text-2)' }}>
-          Ambiente interno para evoluir o ZapMass sem limitar-se ao que o cliente ve. O painel do cliente continua
-          igual; use isto para prototipar, consultar API e abrir o painel de configuracao remota.
-        </p>
-      </div>
+    <PageShell
+      statusStrip={
+        <>
+          <Badge variant={health?.status === 'ok' ? 'success' : err ? 'danger' : 'neutral'} dot>
+            API {health?.status ?? (loading ? '…' : 'offline')}
+          </Badge>
+          {version?.version && <span className="ui-caption font-mono">v{version.version}</span>}
+          <span className="ui-caption tabular-nums">{securityLogs.length} eventos ({auditRange})</span>
+        </>
+      }
+      actions={
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          disabled={loading}
+          leftIcon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
+          onClick={() => void load()}
+        >
+          Atualizar
+        </Button>
+      }
+    >
+    <div className="max-w-4xl mx-auto space-y-4 pb-10">
 
       <div className="grid sm:grid-cols-2 gap-4">
         <Card className="p-5 space-y-3">
@@ -183,19 +193,7 @@ export const CreatorStudio: React.FC = () => {
 
       <Card className="p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[15px] font-bold" style={{ color: 'var(--text-1)' }}>
-            API local
-          </h2>
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            disabled={loading}
-            leftIcon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
-            onClick={() => void load()}
-          >
-            Atualizar
-          </Button>
+          <h2 className="ui-section-title">API local</h2>
         </div>
         {err && (
           <p className="text-[12px] text-red-500" role="alert">
@@ -413,5 +411,6 @@ export const CreatorStudio: React.FC = () => {
         </ul>
       </Card>
     </div>
+    </PageShell>
   );
 };
