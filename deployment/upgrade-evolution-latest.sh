@@ -94,6 +94,7 @@ bash deployment/deploy-completo.sh
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  Evolution atualizada: ${TARGET_IMAGE}"
-echo "║  Verifique: curl -s http://127.0.0.1:8080/ | head -c 120"
+echo "║  Validação: bash deployment/validate-post-deploy.sh"
+echo "║  App: Bate-papo → ↻ Sincronizar + Ctrl+Shift+R"
 echo "║  Chips podem precisar novo QR em Conexões após upgrade maior."
 echo "╚══════════════════════════════════════════════════════════════╝"
