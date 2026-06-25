@@ -156,8 +156,173 @@ html .wa-chat-pro {
 /* ── Lista de conversas (coluna 2) ─────────── */
 .wa-chat-pro .wa-side {
   width: 100%;
-  max-width: 380px;
-  min-width: 280px;
+  max-width: 420px;
+  min-width: 300px;
+}
+
+/* Header inbox — mais compacto e alinhado */
+.wa-chat-pro .wa-inbox-header {
+  height: 56px;
+  padding: 0 14px;
+}
+
+.wa-chat-pro .wa-inbox-status {
+  padding: 5px 14px 6px;
+  font-size: 12px;
+}
+
+.wa-chat-pro .wa-search-wrap {
+  padding: 8px 12px 6px;
+}
+
+.wa-chat-pro .wa-filter-row {
+  padding: 6px 12px 8px;
+  gap: 6px;
+}
+
+.wa-chat-pro .wa-filter-pill {
+  padding: 6px 13px;
+  font-size: 12.5px;
+  max-width: none;
+}
+
+.wa-chat-pro .wa-filter-pill--channel {
+  max-width: none;
+}
+
+.wa-chat-pro .wa-filter-pill-label {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Linhas de conversa (visual pro) ──────── */
+.wa-chat-pro .wa-conv-row {
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  margin: 1px 8px;
+  border-radius: 10px;
+  min-height: 72px;
+}
+
+.wa-chat-pro .wa-conv-row[data-active='true'] {
+  background: color-mix(in srgb, var(--wa-green) 10%, var(--wa-panel-2));
+  box-shadow: inset 3px 0 0 var(--wa-green);
+}
+
+.wa-chat-pro .wa-conv-avatar-wrap {
+  width: 52px;
+  height: 52px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--wa-panel-2);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06);
+}
+
+.wa-chat-pro .wa-conv-avatar-wrap[data-channel='true'] {
+  box-shadow:
+    0 0 0 2px var(--wa-panel),
+    0 0 0 3.5px hsl(var(--wa-channel-hue, 160), 55%, 48%);
+}
+
+.wa-chat-pro .wa-conv-avatar {
+  width: 52px;
+  height: 52px;
+  display: block;
+}
+
+.wa-chat-pro .wa-presence-ring {
+  right: 1px;
+  bottom: 1px;
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+
+.wa-chat-pro .wa-conv-topline,
+.wa-chat-pro .wa-conv-bottomline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wa-chat-pro .wa-conv-topline {
+  margin-bottom: 2px;
+}
+
+.wa-chat-pro .wa-conv-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.wa-chat-pro .wa-conv-wa-alias {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  line-height: 1.25;
+  margin-bottom: 2px;
+  color: var(--wa-text-3);
+}
+
+.wa-chat-pro .wa-conv-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--wa-text-2);
+}
+
+.wa-chat-pro .wa-conv-channel-inline {
+  flex-shrink: 0;
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+}
+
+.wa-chat-pro .wa-conv-time {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--wa-text-3);
+}
+
+.wa-chat-pro .wa-conv-time[data-unread='true'] {
+  color: var(--wa-green);
+  font-weight: 600;
+}
+
+.wa-chat-pro .wa-unread-badge {
+  min-width: 19px;
+  height: 19px;
+  font-size: 11px;
+}
+
+.wa-chat-pro .wa-channel-dot {
+  display: none;
+}
+
+.wa-chat-pro .wa-conv-channel-tag {
+  display: none;
 }
 
 .wa-chat-pro .wa-status-strip {

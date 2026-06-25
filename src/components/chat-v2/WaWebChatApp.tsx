@@ -349,8 +349,9 @@ export const WaWebChatApp: React.FC<{
   );
 
   const requestConversationPicture = useCallback(
-    (conversationId: string) => {
-      if (!conversationId || pictureAttemptedRef.current.has(conversationId)) return;
+    (conversationId: string, force = false) => {
+      if (!conversationId) return;
+      if (!force && pictureAttemptedRef.current.has(conversationId)) return;
       pictureAttemptedRef.current.add(conversationId);
       fetchConversationPicture(conversationId);
     },
@@ -359,9 +360,9 @@ export const WaWebChatApp: React.FC<{
 
   /** Prefetch leve — só primeiras conversas visíveis (evita 60 round-trips ao abrir a aba). */
   useEffect(() => {
-    const MAX = 12;
-    const BATCH = 3;
-    const DELAY_MS = 600;
+    const MAX = 28;
+    const BATCH = 4;
+    const DELAY_MS = 400;
     const queue: string[] = [];
     for (const conv of sortedConversations) {
       if (queue.length >= MAX) break;
@@ -751,6 +752,7 @@ export const WaWebChatApp: React.FC<{
         inboxHasMore={inboxHasMore}
         inboxLoadingMore={inboxLoadingMore}
         onLoadMore={loadMoreInbox}
+        onRequestPicture={requestConversationPicture}
       />
 
       <WaThread

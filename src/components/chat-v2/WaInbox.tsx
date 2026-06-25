@@ -33,6 +33,7 @@ type Props = {
   inboxHasMore?: boolean;
   inboxLoadingMore?: boolean;
   onLoadMore?: () => void;
+  onRequestPicture?: (conversationId: string, force?: boolean) => void;
 };
 
 export const WaInbox: React.FC<Props> = memo(function WaInbox({
@@ -57,6 +58,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   inboxHasMore,
   inboxLoadingMore,
   onLoadMore,
+  onRequestPicture,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreLockRef = useRef(false);
@@ -71,18 +73,18 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     window.setTimeout(() => { loadMoreLockRef.current = false; }, 800);
   }, [inboxHasMore, inboxLoadingMore, onLoadMore]);
 
-  const showMultiChannelUi = connections.length > 1;
+  const showChannelRail = connections.length > 1;
+  const showChannelTagsInRows = showChannelRail && connectionFilterId === 'ALL';
 
   const virtualizer = useVirtualizer({
     count: conversations.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => {
       const conv = conversations[i];
-      if (!conv) return 76;
+      if (!conv) return 80;
       const disp = displayById.get(conv.id);
-      let h = 76;
-      if (disp?.fromDatabase && disp?.whatsappSubtitle) h += 14;
-      if (connectionDisplayLabel(connections, conv.connectionId)) h += 22;
+      let h = 80;
+      if (disp?.fromDatabase && disp?.whatsappSubtitle) h += 16;
       return h;
     },
     overscan: 4,
@@ -106,20 +108,20 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   }, [allConversations]);
 
   const channelPills = useMemo(() => {
-    if (!showMultiChannelUi) return [];
+    if (showChannelRail) return [];
     return connections
       .map((conn) => {
         const label = connectionDisplayLabel(connections, conn.id);
         if (!label) return null;
         return {
-          id: conn.id, label,
+          id: conn.id,
+          label,
           count: channelCounts.get(conn.id) ?? 0,
           hue: connectionBadgeHue(conn.id),
-          connected: conn.status === 'CONNECTED',
         };
       })
       .filter((x): x is NonNullable<typeof x> => x != null);
-  }, [showMultiChannelUi, connections, channelCounts]);
+  }, [showChannelRail, connections, channelCounts]);
 
   const isOnline = socketStatus === 'online';
   const isSlow = socketStatus === 'slow';
@@ -246,7 +248,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
               aria-hidden
               style={{ background: `hsl(${pill.hue}, 60%, 50%)` }}
             />
-            <span className="truncate max-w-[8rem]">{pill.label}</span>
+            <span className="wa-filter-pill-label">{pill.label}</span>
             {pill.count > 0 && <span className="wa-pill-badge">{pill.count}</span>}
           </button>
         ))}
@@ -282,10 +284,12 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
                   avatarSrc={avatarById.get(conv.id) || ''}
                   selected={conv.id === selectedId}
                   connections={connections}
+                  showChannelTag={showChannelTagsInRows}
                   measureRef={virtualizer.measureElement}
                   dataIndex={row.index}
                   style={{ height: row.size, transform: `translateY(${row.start}px)` }}
                   onSelect={onSelect}
+                  onRequestPicture={onRequestPicture}
                 />
               );
             })}
