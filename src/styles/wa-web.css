@@ -317,34 +317,41 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   color: #d1f4e0;
 }
 
-/* ── Linhas de conversa ─────────────────────── */
+/* ── Cards de conversa (novo visual) ──────── */
 .wa-conv-row {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 11px 14px 0 16px;
+  gap: 11px;
+  padding: 10px 12px;
+  margin: 2px 6px;
+  border-radius: 12px;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
-  width: 100%;
+  width: calc(100% - 12px);
   position: relative;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, box-shadow 0.12s;
 }
 
-.wa-conv-row:hover { background: var(--wa-hover); }
-.wa-conv-row[data-active='true'] {
-  background: color-mix(in srgb, var(--wa-green) 10%, var(--wa-panel));
+.wa-conv-row:hover {
+  background: var(--wa-hover);
 }
+
+.wa-conv-row[data-active='true'] {
+  background: color-mix(in srgb, var(--wa-green) 12%, var(--wa-panel));
+  box-shadow: inset 0 0 0 1px rgba(16,185,129,0.25);
+}
+
 .wa-conv-row[data-unread='true']:not([data-active='true']) {
-  background: color-mix(in srgb, var(--wa-green) 4%, var(--wa-panel));
+  background: rgba(255,255,255,0.03);
 }
 
 .wa-conv-body {
-  border-bottom: 1px solid var(--wa-divider);
-  padding-bottom: 11px;
   flex: 1;
   min-width: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .wa-conv-avatar-wrap {

@@ -209,32 +209,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         </label>
       </div>
 
-      {/* ── Seletor de conexão (collapse em select) ── */}
-      {connections.length > 1 && (
-        <div className="wa-connection-bar flex-shrink-0">
-          <label htmlFor="wa-connection-filter" className="wa-connection-bar-label">
-            Canal
-          </label>
-          <select
-            id="wa-connection-filter"
-            className="wa-connection-select"
-            value={connectionFilterId}
-            onChange={(e) => onConnectionFilterChange(e.target.value)}
-          >
-            <option value="ALL">Todas as conexões ({allConversations.length})</option>
-            {connections.map((conn) => {
-              const label = connectionDisplayLabel(connections, conn.id) || 'Canal';
-              const count = channelCounts.get(conn.id) ?? 0;
-              const suffix = conn.status !== 'CONNECTED' ? ' · offline' : '';
-              return (
-                <option key={conn.id} value={conn.id}>
-                  {label} ({count}){suffix}
-                </option>
-              );
-            })}
-          </select>
-        </div>
-      )}
+      {/* O seletor de canal foi movido para o WaChannelRail (coluna esquerda) */}
 
       {/* ── Pills de filtro ─────────────────────────── */}
       <div className="wa-filter-row flex-shrink-0">

@@ -24,6 +24,7 @@ import {
 import type { Conversation } from '../../types';
 import { WaInbox } from './WaInbox';
 import { WaThread } from './WaThread';
+import { WaChannelRail } from './WaChannelRail';
 import { useWaRealtime } from './hooks/useWaRealtime';
 import {
   avatarUrl,
@@ -613,6 +614,22 @@ export const WaWebChatApp: React.FC<{
     if (selected?.id) void loadMoreHistory(selected.id);
   }, [selected?.id, loadMoreHistory]);
 
+  // Auto-load máximo de histórico ao abrir uma conversa
+  const autoLoadedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!selected?.id || isSelectedDraft) return;
+    if (autoLoadedRef.current.has(selected.id)) return;
+    autoLoadedRef.current.add(selected.id);
+    // Carrega progressivamente todos os níveis de histórico disponíveis
+    const loadAll = async () => {
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 600 * i));
+        void loadMoreHistory(selected.id!);
+      }
+    };
+    void loadAll();
+  }, [selected?.id, isSelectedDraft, loadMoreHistory]);
+
   const handleSendMedia = useCallback(
     (file: File, caption?: string) => {
       if (!selected?.id) return;
@@ -668,6 +685,15 @@ export const WaWebChatApp: React.FC<{
   return (
     <div className="flex flex-1 min-h-0 flex-col">
       <div className="wa-chat-pro wa-pipeline-root flex min-h-0 flex-1">
+
+      {/* ── Rail de canais (3ª coluna à esquerda) ── */}
+      <WaChannelRail
+        connections={connections}
+        conversations={sortedConversations}
+        activeId={connectionFilterId}
+        onChange={setConnectionFilterId}
+      />
+
       <WaInbox
         conversations={filtered}
         allConversations={sortedConversations}

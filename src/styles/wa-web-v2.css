@@ -39,10 +39,113 @@
   background: var(--wa-panel);
 }
 
+/* ── Rail de canais (coluna 1) ──────────────── */
+.wa-channel-rail {
+  width: 68px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--wa-panel) 85%, black 15%);
+  border-right: 1px solid var(--wa-divider);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0;
+  gap: 4px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.wa-channel-rail::-webkit-scrollbar { display: none; }
+
+.wa-rail-divider {
+  width: 36px;
+  height: 1px;
+  background: var(--wa-divider);
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+.wa-rail-btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+  border: none;
+  background: rgba(255,255,255,0.06);
+  color: var(--wa-text-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.wa-rail-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: var(--wa-text);
+  border-radius: 12px;
+}
+
+.wa-rail-btn[data-active='true'] {
+  background: var(--wa-green);
+  color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(16,185,129,0.4);
+}
+
+.wa-rail-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.02em;
+  transition: border-radius 0.15s;
+}
+
+.wa-rail-btn[data-active='true'] .wa-rail-avatar {
+  border-radius: 10px;
+}
+
+.wa-rail-status-dot {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--wa-panel);
+  box-sizing: border-box;
+}
+
+.wa-rail-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--wa-panel);
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+/* ── Lista de conversas (coluna 2) ─────────── */
 .wa-chat-pro .wa-side {
   width: 100%;
-  max-width: 440px;
-  min-width: 340px;
+  max-width: 380px;
+  min-width: 280px;
 }
 
 .wa-chat-pro .wa-status-strip {
