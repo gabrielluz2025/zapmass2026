@@ -1770,36 +1770,45 @@ export const ContactsTab: React.FC = () => {
     const gen = ++computeTempsGenRef.current;
     const c = contacts;
     const index = phoneMessageIndex;
-    const CHUNK = c.length > 25_000 ? 4000 : c.length > 10_000 ? 3000 : 2000;
+    // Chunk maior = menos re-renders; pausa entre chunks deixa o main thread respirar
+    const CHUNK = c.length > 25_000 ? 8000 : c.length > 10_000 ? 5000 : 3000;
+    const DELAY = c.length > 25_000 ? 40 : 20; // ms entre chunks (evita travar UI)
     let cursor = startFrom;
+    let timerId: ReturnType<typeof setTimeout>;
 
     const processChunk = () => {
       if (gen !== computeTempsGenRef.current) return;
       const end = Math.min(cursor + CHUNK, c.length);
       const patch = mapContactsToTempStats(c, index, cursor, end);
-      const merged = { ...contactTempsAccRef.current, ...patch };
-      contactTempsAccRef.current = merged;
+      Object.assign(contactTempsAccRef.current, patch);
       cursor = end;
       const done = cursor >= c.length;
-      setContactTemps(merged);
-      if (Object.keys(merged).length > 0) setContactTempsReady(true);
+
       if (done) {
+        // Flush final — único setState ao terminar
         tempsProcessedCountRef.current = c.length;
-      } else if (typeof requestAnimationFrame !== 'undefined') {
-        requestAnimationFrame(processChunk);
+        setContactTemps({ ...contactTempsAccRef.current });
+        setContactTempsReady(true);
       } else {
-        setTimeout(processChunk, 0);
+        // Atualiza estado apenas a cada 2 chunks para reduzir re-renders
+        if (cursor % (CHUNK * 2) < CHUNK) {
+          setContactTemps({ ...contactTempsAccRef.current });
+          if (!contactTempsReady) setContactTempsReady(true);
+        }
+        timerId = setTimeout(processChunk, DELAY);
       }
     };
 
+    // Inicia após frame ocioso ou pequena pausa
     if (typeof requestIdleCallback !== 'undefined') {
-      const idleId = requestIdleCallback(processChunk, { timeout: 800 });
+      const idleId = requestIdleCallback(() => { timerId = setTimeout(processChunk, 0); }, { timeout: 500 });
       return () => {
         cancelIdleCallback(idleId as number);
+        clearTimeout(timerId);
       };
     }
-    const t = setTimeout(processChunk, 0);
-    return () => clearTimeout(t);
+    timerId = setTimeout(processChunk, 0);
+    return () => clearTimeout(timerId);
   }, [contacts, phoneMessageIndex]);
 
   // ============================================================
