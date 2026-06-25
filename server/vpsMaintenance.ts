@@ -9,6 +9,7 @@ export type VpsHealthSnapshot = {
   ok: boolean;
   issueCount: number;
   fixCount: number;
+  evolutionRecovered?: boolean;
   load1: number;
   load15: number;
   cpus: number;
@@ -126,7 +127,11 @@ export function buildVpsMaintenanceAlerts(input: {
   }
 
   if (snapshot && !snapshot.ok && snapshot.alerts.length > 0) {
+    const evolutionRecovered =
+      snapshot.evolutionRecovered === true ||
+      (snapshot.fixCount > 0 && snapshot.containers.some((c) => c.name === 'zapmass-evolution-1' && c.up));
     for (const msg of snapshot.alerts.slice(0, 5)) {
+      if (evolutionRecovered && /evolution-1.*não está up/i.test(msg)) continue;
       if (alerts.some((a) => a.message === msg)) continue;
       alerts.push({
         level: 'warn',

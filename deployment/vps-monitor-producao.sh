@@ -151,7 +151,7 @@ if [ "${AUTO_FIX_EVOLUTION}" = "1" ] && ! container_running "zapmass-evolution-1
     if container_running "zapmass-evolution-1"; then
       ok_msg "Evolution corrigido automaticamente"
       fixes=$((fixes + 1))
-      # remove evolution from missing if fixed
+      evolution_up=1
       missing=("${missing[@]/zapmass-evolution-1/}")
     else
       alert "Evolution não subiu após compose up — ver docker logs zapmass-evolution-1"
@@ -188,6 +188,13 @@ fi
 echo ""
 docker stats --no-stream 2>/dev/null | head -6 || true
 
+# Releitura pós auto-fix (Evolution pode ter subido; CPU do PG muda)
+if container_running "zapmass-postgres-1"; then
+  pg_cpu_pct="$(docker stats --no-stream --format '{{.Name}} {{.CPUPerc}}' 2>/dev/null \
+    | awk '/^zapmass-postgres-1 /{gsub(/%/,"",$2); print $2; exit}')"
+fi
+container_running "zapmass-evolution-1" && evolution_up=1
+
 # ─── Snapshot JSON (painel admin) ─────────────────────────────────────────────
 write_health_json() {
   local ok_flag=false
@@ -221,6 +228,7 @@ write_health_json() {
   "ok": ${ok_flag},
   "issueCount": ${issues},
   "fixCount": ${fixes},
+  "evolutionRecovered": $([ "$fixes" -gt 0 ] && container_running "zapmass-evolution-1" && echo true || echo false),
   "load1": ${load1},
   "load15": ${load15},
   "cpus": ${cpus},

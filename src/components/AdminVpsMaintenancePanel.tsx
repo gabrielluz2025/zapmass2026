@@ -44,6 +44,7 @@ type VpsMaintenancePayload = {
     ok: boolean;
     issueCount: number;
     fixCount: number;
+    evolutionRecovered?: boolean;
     load1: number;
     load15: number;
     cpus: number;
@@ -397,6 +398,7 @@ export const AdminVpsMaintenancePanel: React.FC<{ user: SessionUser | null }> = 
                   {new Date(snap.at).toLocaleString('pt-BR')} ·{' '}
                   {snap.ok ? 'OK — 0 alertas' : `${snap.issueCount} alerta(s)`}
                   {snap.fixCount > 0 ? ` · ${snap.fixCount} correção(ões) auto` : ''}
+                  {snap.evolutionRecovered ? ' · Evolution recuperado' : ''}
                 </p>
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {snap.containers.map((c) => (
