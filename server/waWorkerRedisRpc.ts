@@ -183,8 +183,8 @@ export async function loadChatHistoryViaRedis(
   conversationId: string,
   limit: number,
   skipMedia: boolean
-): Promise<{ ok: boolean; total: number; error?: string }> {
-  const r = await rpcReply<{ ok?: boolean; total?: number; error?: string }>(redisUrl, {
+): Promise<{ ok: boolean; total: number; error?: string; messages?: unknown[] }> {
+  const r = await rpcReply<{ ok?: boolean; total?: number; error?: string; messages?: unknown[] }>(redisUrl, {
     kind: 'loadChatHistory',
     conversationId,
     limit,
@@ -196,6 +196,9 @@ export async function loadChatHistoryViaRedis(
   return {
     ok: Boolean((r as { ok?: boolean }).ok),
     total: typeof (r as { total?: number }).total === 'number' ? (r as { total: number }).total : 0,
+    ...((r as { messages?: unknown[] }).messages
+      ? { messages: (r as { messages: unknown[] }).messages }
+      : {}),
     ...((r as { error?: string }).error ? { error: (r as { error: string }).error } : {})
   };
 }

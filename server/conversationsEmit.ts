@@ -81,6 +81,28 @@ export function prepareSingleConversationForSocketEmit(conv: Conversation): Conv
   return one;
 }
 
+/**
+ * Histórico completo para callback `load-chat-history` (não usar tail de 25 do socket).
+ * Remove base64 pesado mas devolve até `maxMessages` entradas para o cliente aplicar direto.
+ */
+export function prepareConversationHistoryForClient(
+  conv: Conversation,
+  maxMessages: number
+): Conversation['messages'] {
+  const capped = Math.max(50, Math.min(maxMessages, MAX_HISTORY_CLIENT_MSGS));
+  const [slim] = slimConversationsForBroadcast([conv]);
+  if (!slim) return [];
+  const msgs = Array.isArray(slim.messages) ? slim.messages : [];
+  if (msgs.length <= capped) return msgs;
+  return msgs.slice(-capped);
+}
+
+const MAX_HISTORY_CLIENT_MSGS = (() => {
+  const raw = Number(process.env.CHAT_HISTORY_CLIENT_MSGS ?? 8000);
+  if (!Number.isFinite(raw)) return 8000;
+  return Math.max(200, Math.min(12000, Math.floor(raw)));
+})();
+
 /** Uma conversa para `conversation-delta` (escopo + CRM aplicado no caller). */
 export async function socketConversationDeltaPayload(
   tenantUid: string,

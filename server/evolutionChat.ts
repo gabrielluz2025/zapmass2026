@@ -5,6 +5,7 @@ import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
 import {
     prepareConversationsForSocketEmit,
+    prepareConversationHistoryForClient,
     socketConversationDeltaPayload
 } from './conversationsEmit.js';
 import { enrichConversationsWithCrmNames } from './contactNameEnrich.js';
@@ -1551,7 +1552,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         conversationId: string,
         limit = 500,
         skipMedia = true
-    ): Promise<{ ok: boolean; total: number; error?: string }> {
+    ): Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }> {
         const parsed = parseConversationId(conversationId);
         if (!parsed) return { ok: false, total: 0, error: 'conversationId inválido.' };
 
@@ -1677,7 +1678,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             }
         }
         emitConversationDelta(conversationId);
-        return { ok: true, total: conv.messages.length };
+        const messages = prepareConversationHistoryForClient(conv, requested);
+        return { ok: true, total: conv.messages.length, messages };
     }
 
     async function loadMessageMedia(
@@ -1691,8 +1693,43 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const local = conv?.messages.find((m) => m.id === messageId);
         if (local?.mediaUrl) return { ok: true, mediaUrl: local.mediaUrl };
 
-        const fetched = await fetchMessages(parsed.connectionId, parsed.remoteJid, 200);
-        const match = fetched.find((m) => String(m?.key?.id) === messageId);
+        let match: any = null;
+
+        // Mensagens antigas não aparecem no tail de 200 — busca por janela de timestamp.
+        if (local?.timestampMs) {
+            const ts = local.timestampMs;
+            for (const padMs of [86_400_000, 604_800_000, 2_592_000_000]) {
+                const batch = await fetchMessages(parsed.connectionId, parsed.remoteJid, 120, {
+                    beforeTimestampMs: ts + padMs,
+                });
+                match = batch.find((m) => String(m?.key?.id) === messageId);
+                if (match) break;
+            }
+        }
+
+        if (!match) {
+            const fetched = await fetchMessages(
+                parsed.connectionId,
+                parsed.remoteJid,
+                Math.min(800, MAX_MESSAGES)
+            );
+            match = fetched.find((m) => String(m?.key?.id) === messageId);
+        }
+
+        // Evolution aceita chave mínima quando findMessages não retorna o registro.
+        if (!match && local) {
+            match = {
+                key: {
+                    remoteJid: parsed.remoteJid,
+                    fromMe: local.sender === 'me',
+                    id: messageId,
+                },
+                messageTimestamp: local.timestampMs
+                    ? Math.floor(local.timestampMs / 1000)
+                    : undefined,
+            };
+        }
+
         if (!match) return { ok: false, error: 'Mensagem não encontrada.' };
 
         try {

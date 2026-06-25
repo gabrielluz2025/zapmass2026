@@ -5079,7 +5079,7 @@ export async function loadChatHistory(
     conversationId: string,
     limit = 500,
     skipMedia = true
-): Promise<{ ok: boolean; total: number; error?: string }> {
+): Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }> {
     return chatStore.loadChatHistory(conversationId, limit, skipMedia);
 }
 

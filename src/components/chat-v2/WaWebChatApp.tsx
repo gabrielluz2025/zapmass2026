@@ -60,6 +60,7 @@ export const WaWebChatApp: React.FC<{
     fetchConversationPicture,
     hydrateFirestoreChatArchive,
     loadMessageMedia,
+    patchChatMessageMediaUrl,
     socket,
     isBackendConnected,
   } = useZapMassCore();
@@ -486,10 +487,12 @@ export const WaWebChatApp: React.FC<{
         if (res.error) toast.error(`Mídia: ${res.error}`);
         return null;
       }
-      // Retorna a URL para o componente atualizar localmente (conversation-delta pode não chegar)
+      if (res.mediaUrl) {
+        patchChatMessageMediaUrl(selected.id, messageId, res.mediaUrl);
+      }
       return res.mediaUrl || null;
     },
-    [selected?.id, loadMessageMedia]
+    [selected?.id, loadMessageMedia, patchChatMessageMediaUrl]
   );
 
   const handleGetAiSuggestions = useCallback(async (): Promise<string[]> => {

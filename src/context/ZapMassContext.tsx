@@ -100,7 +100,8 @@ import { getCampaignStageTotal } from '../utils/campaignStageCount';
 import {
   dedupeConversationsById,
   mergeConversationDelta,
-  mergeConversationsFromSocketUpdate
+  mergeConversationsFromSocketUpdate,
+  mergeHistoryMessagesIntoConversation
 } from '../utils/conversationInboxTrim';
 import { devLog, devWarn, warnProd } from '../utils/logger';
 
@@ -335,6 +336,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   loadChatHistory: async () => ({ ok: false, total: 0 }),
   hydrateFirestoreChatArchive: async () => ({ ok: false, total: 0 }),
   loadMessageMedia: async () => ({ ok: false }),
+  patchChatMessageMediaUrl: () => {},
   markWarmupReady: () => {},
   pauseCampaign: () => {},
   resumeCampaign: () => {},
@@ -3253,7 +3255,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     conversationId: string,
     limit: number = 500,
     includeMedia: boolean = false
-  ): Promise<{ ok: boolean; total: number; error?: string }> => {
+  ): Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }> => {
     return new Promise((resolve) => {
       const socket = socketRef.current;
       if (!socket) {
@@ -3264,10 +3266,15 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       // chegava (worker offline, socket morto), travando o ChatTab em
       // historyLoading. Agora cai em timeout apos 60s.
       let settled = false;
-      const finish = (resp: { ok: boolean; total: number; error?: string }) => {
+      const finish = (resp: { ok: boolean; total: number; error?: string; messages?: ChatMessage[] }) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutId);
+        if (resp.ok && Array.isArray(resp.messages) && resp.messages.length > 0) {
+          setConversations((prev) =>
+            mergeHistoryMessagesIntoConversation(prev, conversationId, resp.messages!)
+          );
+        }
         resolve(resp);
       };
       const timeoutId = setTimeout(() => {
@@ -3276,7 +3283,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       socket.emit(
         'load-chat-history',
         { conversationId, limit, includeMedia },
-        (resp?: { ok: boolean; total: number; error?: string }) => {
+        (resp?: { ok: boolean; total: number; error?: string; messages?: ChatMessage[] }) => {
           finish(resp || { ok: false, total: 0, error: 'Sem resposta.' });
         }
       );
@@ -3321,6 +3328,26 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       );
     });
+  };
+
+  const patchChatMessageMediaUrl = (
+    conversationId: string,
+    messageId: string,
+    mediaUrl: string
+  ) => {
+    if (!conversationId || !messageId || !mediaUrl) return;
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== conversationId) return c;
+        const msgs = c.messages || [];
+        const hit = msgs.some((m) => m.id === messageId);
+        if (!hit) return c;
+        return {
+          ...c,
+          messages: msgs.map((m) => (m.id === messageId ? { ...m, mediaUrl } : m)),
+        };
+      })
+    );
   };
 
   const loadMoreInbox = useCallback(() => {
@@ -3886,6 +3913,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableLoadChatHistory = useStableCallback(loadChatHistory);
   const stableHydrateFirestoreChatArchive = useStableCallback(hydrateFirestoreChatArchive);
   const stableLoadMessageMedia = useStableCallback(loadMessageMedia);
+  const stablePatchChatMessageMediaUrl = useStableCallback(patchChatMessageMediaUrl);
   const stableMarkWarmupReady = useStableCallback(markWarmupReady);
   const stablePauseCampaign = useStableCallback(pauseCampaign);
   const stableResumeCampaign = useStableCallback(resumeCampaign);
@@ -3996,6 +4024,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       loadChatHistory: stableLoadChatHistory,
       hydrateFirestoreChatArchive: stableHydrateFirestoreChatArchive,
       loadMessageMedia: stableLoadMessageMedia,
+      patchChatMessageMediaUrl: stablePatchChatMessageMediaUrl,
       markWarmupReady: stableMarkWarmupReady,
       pauseCampaign: stablePauseCampaign,
       resumeCampaign: stableResumeCampaign,

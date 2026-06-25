@@ -1943,7 +1943,7 @@ const registerSocketHandlers = () => {
 
     socket.on('load-chat-history', async (
       { conversationId, limit, includeMedia }: { conversationId: string; limit?: number; includeMedia?: boolean },
-      callback?: (resp: { ok: boolean; total: number; error?: string }) => void
+      callback?: (resp: { ok: boolean; total: number; error?: string; messages?: unknown[] }) => void
     ) => {
       if (!conversationId) {
         callback?.({ ok: false, total: 0, error: 'conversationId ausente.' });

@@ -6578,7 +6578,9 @@ export const loadChatHistory = async (
 
         conv.messages = merged.slice(-MAX_MESSAGES);
         emitConversationsUpdate();
-        return { ok: true, total: conv.messages.length };
+        const { prepareConversationHistoryForClient } = await import('./conversationsEmit.js');
+        const messages = prepareConversationHistoryForClient(conv, requested);
+        return { ok: true, total: conv.messages.length, messages };
     } catch (e: any) {
         console.error('[loadChatHistory] Erro:', e?.message || e);
         return { ok: false, total: 0, error: e?.message || 'Erro ao carregar historico.' };
@@ -6605,8 +6607,8 @@ export const loadMessageMedia = async (
         const chat = await client.getChatById(chatId).catch(() => null);
         if (!chat) return { ok: false, error: 'Chat nao encontrado.' };
 
-        // Buscamos ate 500 mensagens e filtramos pelo id — whatsapp-web nao tem `getMessageById`
-        const fetched = await chat.fetchMessages({ limit: 500 }).catch(() => []);
+        // Buscamos ate 800 mensagens — whatsapp-web nao tem `getMessageById`
+        const fetched = await chat.fetchMessages({ limit: 800 }).catch(() => []);
         const match = (fetched as any[]).find((m: any) => m.id?.id === messageId);
         if (!match || !match.hasMedia) return { ok: false, error: 'Mensagem nao tem midia ou nao foi encontrada.' };
 

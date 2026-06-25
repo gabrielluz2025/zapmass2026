@@ -122,9 +122,7 @@ export function mergeConversationsFromSocketUpdate(
       for (const m of incMsgs) {
         const ex = byId.get(m.id);
         if (ex) {
-          if (m.waRemoteJidAlt && !ex.waRemoteJidAlt) ex.waRemoteJidAlt = m.waRemoteJidAlt;
-          if (m.waSenderPn && !ex.waSenderPn) ex.waSenderPn = m.waSenderPn;
-          byId.set(m.id, ex);
+          byId.set(m.id, mergeChatMessageFields(ex, m));
         } else {
           byId.set(m.id, m);
         }
@@ -149,6 +147,45 @@ export function mergeConversationsFromSocketUpdate(
 }
 
 export const conversationSyncTailLimit = SYNC_MSG_TAIL;
+
+function mergeChatMessageFields(existing: ChatMessage, incoming: ChatMessage): ChatMessage {
+  const merged: ChatMessage = { ...existing, ...incoming };
+  if (existing.mediaUrl && !incoming.mediaUrl) merged.mediaUrl = existing.mediaUrl;
+  if (existing.fromCampaign) merged.fromCampaign = existing.fromCampaign;
+  if (existing.campaignId) merged.campaignId = existing.campaignId;
+  if (existing.waRemoteJidAlt && !incoming.waRemoteJidAlt) merged.waRemoteJidAlt = existing.waRemoteJidAlt;
+  if (existing.waSenderPn && !incoming.waSenderPn) merged.waSenderPn = existing.waSenderPn;
+  if (incoming.status && existing.sender === 'me') merged.status = incoming.status;
+  return merged;
+}
+
+/** Aplica lote de histórico retornado pelo callback `load-chat-history` (evita depender do tail de 25 do socket). */
+export function mergeHistoryMessagesIntoConversation(
+  prev: Conversation[],
+  conversationId: string,
+  incoming: ChatMessage[]
+): Conversation[] {
+  if (!conversationId || incoming.length === 0) return prev;
+  const idx = prev.findIndex((c) => c.id === conversationId);
+  if (idx < 0) return prev;
+
+  const conv = prev[idx]!;
+  const byId = new Map<string, ChatMessage>();
+  for (const m of conv.messages || []) byId.set(m.id, m);
+  for (const m of incoming) {
+    const ex = byId.get(m.id);
+    byId.set(m.id, ex ? mergeChatMessageFields(ex, m) : m);
+  }
+  const mergedMsgs = Array.from(byId.values()).sort(
+    (a, b) => (a.timestampMs || 0) - (b.timestampMs || 0)
+  );
+  const nextConv = { ...conv, messages: mergedMsgs };
+  const next = [...prev];
+  next[idx] = nextConv;
+  return collapseConversationsByPhone(dedupeConversationsById(next)).sort(
+    (a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0)
+  );
+}
 
 function mergeOneConversation(
   prev: Conversation | undefined,
@@ -202,10 +239,7 @@ function mergeOneConversation(
   for (const m of incMsgs) {
     const ex = byId.get(m.id);
     if (ex) {
-      if (m.waRemoteJidAlt && !ex.waRemoteJidAlt) ex.waRemoteJidAlt = m.waRemoteJidAlt;
-      if (m.waSenderPn && !ex.waSenderPn) ex.waSenderPn = m.waSenderPn;
-      if (m.status && ex.sender === 'me') ex.status = m.status;
-      byId.set(m.id, ex);
+      byId.set(m.id, mergeChatMessageFields(ex, m));
     } else {
       byId.set(m.id, m);
     }
