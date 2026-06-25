@@ -21,6 +21,9 @@ cd "$ROOT"
 
 if [ -z "${EVOLUTION_API_KEY:-}" ]; then
   _cid="$(docker compose ps -q evolution 2>/dev/null | head -1 || true)"
+  if [ -z "$_cid" ]; then
+    _cid="$(docker ps -q --filter 'name=zapmass_evolution' 2>/dev/null | head -1 || true)"
+  fi
   if [ -n "$_cid" ]; then
     EVOLUTION_API_KEY="$(docker exec "$_cid" printenv AUTHENTICATION_API_KEY 2>/dev/null || true)"
   fi
@@ -65,6 +68,15 @@ if [ -n "$EVO_INFO" ]; then
   ok "Evolution responde (${EVO_URL}) — versão ${EVO_VER:-?}"
 else
   bad "Evolution não responde em ${EVO_URL}"
+  if docker stack ls 2>/dev/null | grep -q zapmass; then
+    ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '?')"
+    pg_rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '?')"
+    echo "  Swarm: evolution=${ev_rep} postgres=${pg_rep}"
+    docker service ps zapmass_evolution --no-trunc 2>/dev/null | head -4 | sed 's/^/    /' || true
+  else
+    docker compose ps evolution postgres 2>/dev/null | sed 's/^/    /' || docker ps --filter name=evolution --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | sed 's/^/    /' || true
+  fi
+  echo "  → bash deployment/recover-postgres-evolution.sh"
 fi
 EVO_IMG="$(grep -E '^EVOLUTION_IMAGE=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d $'\r"' || true)"
 if [ -n "$EVO_IMG" ]; then
@@ -87,7 +99,10 @@ section "4/5 — Chips (status, syncFullHistory, mensagens no Postgres Evolution
 INST_JSON="$(curl -sS --max-time 20 "${EVO_URL}/instance/fetchInstances" -H "apikey: ${API_KEY}" 2>&1)" || INST_JSON=''
 
 if [ -z "$INST_JSON" ] || echo "$INST_JSON" | grep -qiE 'error|unauthorized|401'; then
-  bad "fetchInstances falhou — verifique EVOLUTION_API_KEY e container evolution"
+  bad "fetchInstances falhou — Evolution offline ou API key incorreta"
+  if [ -z "$EVO_INFO" ]; then
+    echo "  (Evolution não responde — corrija antes com recover-postgres-evolution.sh)"
+  fi
 else
   python3 - "$INST_JSON" <<'PY'
 import json, sys
@@ -234,7 +249,11 @@ section "Resumo automático"
 echo "  Passou: ${pass}  |  Avisos: ${warn}  |  Falhas: ${fail}"
 if [ "$fail" -gt 0 ]; then
   echo ""
-  echo "  Ação: corrija falhas acima antes de considerar deploy OK."
+  echo "  Ação sugerida (ordem):"
+  echo "    1. bash deployment/recover-postgres-evolution.sh   # subir Evolution + Postgres"
+  echo "    2. bash deployment/deploy-completo.sh                # alinhar ZapMass ao git"
+  echo "    3. bash deployment/validate-post-deploy.sh           # rodar de novo"
+  echo ""
   echo "  Diagnóstico detalhado: bash deployment/diagnose-evolution-chat.sh [conn_id]"
   exit 1
 fi
