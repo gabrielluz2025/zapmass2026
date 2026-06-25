@@ -84,19 +84,158 @@ html[data-mode='light'] {
   border-right: 1px solid var(--wa-divider);
 }
 
-/* Header da lista (avatar usuário + ícones) */
-.wa-side-header {
+/* ── Novo header do inbox ─────────────────── */
+.wa-inbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 62px;
+  padding: 0 12px 0 14px;
   background: var(--wa-header);
   border-bottom: 1px solid var(--wa-divider);
-  height: 60px;
+  flex-shrink: 0;
+}
+
+.wa-inbox-header__left,
+.wa-inbox-header__right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wa-inbox-header__center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.wa-inbox-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--wa-text);
+  letter-spacing: -0.02em;
+}
+
+/* Badge de não-lidas hero */
+.wa-unread-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.wa-unread-hero__count {
+  font-size: 22px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  color: var(--wa-green);
+  line-height: 1;
+  text-shadow: 0 0 16px rgba(16,185,129,0.5);
+}
+
+.wa-unread-hero__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wa-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Badge LIVE */
+.wa-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  border: 1px solid currentColor;
+  opacity: 0.9;
+}
+
+.wa-live-badge[data-state='on'] {
+  color: var(--wa-green);
+  border-color: rgba(16,185,129,0.35);
+  background: rgba(16,185,129,0.10);
+}
+.wa-live-badge[data-state='sync'] {
+  color: #06b6d4;
+  border-color: rgba(6,182,212,0.35);
+  background: rgba(6,182,212,0.10);
+}
+.wa-live-badge[data-state='slow'] {
+  color: #f59e0b;
+  border-color: rgba(245,158,11,0.35);
+  background: rgba(245,158,11,0.10);
+}
+.wa-live-badge[data-state='off'] {
+  color: #f87171;
+  border-color: rgba(248,113,113,0.35);
+  background: rgba(248,113,113,0.10);
+}
+
+.wa-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.wa-live-badge[data-state='on'] .wa-live-dot,
+.wa-live-badge[data-state='sync'] .wa-live-dot {
+  animation: wa-dot-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes wa-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ── Linha de status contextual ─────────────── */
+.wa-inbox-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--wa-divider);
+  flex-shrink: 0;
+  color: var(--wa-text-3);
+}
+
+.wa-inbox-status[data-state='on'] {
+  color: var(--wa-green-strong);
+}
+.wa-inbox-status[data-state='slow'] {
+  background: rgba(245,158,11,0.08);
+  color: #d97706;
+}
+.wa-inbox-status[data-state='off'] {
+  background: rgba(248,113,113,0.08);
+  color: #dc2626;
+}
+
+.wa-inbox-status__chips {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 .wa-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 9999px;
   color: var(--wa-icon);
   background: transparent;
@@ -178,30 +317,35 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   color: #d1f4e0;
 }
 
-/* Lista de conversas — items */
+/* ── Linhas de conversa ─────────────────────── */
 .wa-conv-row {
   display: flex;
   align-items: flex-start;
-  gap: 13px;
-  padding: 10px 13px 11px 13px;
+  gap: 12px;
+  padding: 11px 14px 0 16px;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
   width: 100%;
   position: relative;
-  transition: background 0.1s ease;
+  transition: background 0.12s ease;
 }
-.wa-conv-row::after {
-  display: none;
+
+.wa-conv-row:hover { background: var(--wa-hover); }
+.wa-conv-row[data-active='true'] {
+  background: color-mix(in srgb, var(--wa-green) 10%, var(--wa-panel));
+}
+.wa-conv-row[data-unread='true']:not([data-active='true']) {
+  background: color-mix(in srgb, var(--wa-green) 4%, var(--wa-panel));
 }
 
 .wa-conv-body {
   border-bottom: 1px solid var(--wa-divider);
-  padding-bottom: 9px;
+  padding-bottom: 11px;
+  flex: 1;
+  min-width: 0;
 }
-.wa-conv-row:hover { background: var(--wa-hover); }
-.wa-conv-row[data-active='true'] { background: var(--wa-active); }
 
 .wa-conv-avatar-wrap {
   width: 49px;
@@ -226,21 +370,46 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   height: 12px;
   border-radius: 9999px;
   background: #25d366;
-  border: 2px solid var(--wa-side-bg, #fff);
+  border: 2px solid var(--wa-panel, #111115);
   box-sizing: border-box;
 }
 
+/* Presença online — anel pulsante */
+.wa-presence-ring {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #25d366;
+  border: 2.5px solid var(--wa-panel, #111115);
+  box-sizing: border-box;
+  animation: wa-presence-pulse 2s ease-in-out infinite;
+}
+
+@keyframes wa-presence-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37,211,102,0.5); }
+  50% { box-shadow: 0 0 0 4px rgba(37,211,102,0); }
+}
+
 .wa-conv-name {
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 14.5px;
+  font-weight: 500;
   color: var(--wa-text);
-  letter-spacing: -0.005em;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.wa-conv-name--bold {
+  font-weight: 700;
+  color: var(--wa-text);
 }
 
 .wa-conv-name--crm {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 .wa-conv-wa-alias {
@@ -318,12 +487,28 @@ html[data-mode='dark'] .wa-filter-pill[data-active='true'] {
   justify-content: center;
   min-width: 20px;
   height: 20px;
-  padding: 0 6px;
+  padding: 0 5px;
   border-radius: 9999px;
-  background: var(--wa-unread);
+  background: var(--wa-green);
   color: #fff;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11.5px;
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgba(37,211,102,0.35), 0 2px 8px rgba(16,185,129,0.4);
+}
+
+/* Badge de pill de filtro */
+.wa-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .wa-tick {

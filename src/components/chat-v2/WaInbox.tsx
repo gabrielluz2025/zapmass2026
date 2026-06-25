@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { MessageCircle, RefreshCw, Search } from 'lucide-react';
+import { MessageCircle, RefreshCw, Search, Wifi, WifiOff, Zap } from 'lucide-react';
 import type { Conversation, WhatsAppConnection } from '../../types';
 import type { ConversationDisplay } from './lib/conversationDisplay';
 import {
@@ -68,9 +68,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     if (!nearBottom) return;
     loadMoreLockRef.current = true;
     onLoadMore();
-    window.setTimeout(() => {
-      loadMoreLockRef.current = false;
-    }, 800);
+    window.setTimeout(() => { loadMoreLockRef.current = false; }, 800);
   }, [inboxHasMore, inboxLoadingMore, onLoadMore]);
 
   const showMultiChannelUi = connections.length > 1;
@@ -89,7 +87,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
     },
     overscan: 4,
     getItemKey: (i) => conversations[i]?.id ?? i,
-    measureElement: (el) => el.getBoundingClientRect().height
+    measureElement: (el) => el.getBoundingClientRect().height,
   });
 
   const totalUnread = useMemo(
@@ -114,8 +112,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         const label = connectionDisplayLabel(connections, conn.id);
         if (!label) return null;
         return {
-          id: conn.id,
-          label,
+          id: conn.id, label,
           count: channelCounts.get(conn.id) ?? 0,
           hue: connectionBadgeHue(conn.id),
           connected: conn.status === 'CONNECTED',
@@ -124,17 +121,18 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
       .filter((x): x is NonNullable<typeof x> => x != null);
   }, [showMultiChannelUi, connections, channelCounts]);
 
-  const statusText = useMemo(() => {
-    if (syncing) return 'Sincronizando conversas…';
-    if (socketStatus === 'offline') return 'Servidor desconectado';
-    if (socketStatus === 'slow') return 'Conexão instável — sync automático ativo';
-    if (chipsConnected > 0) {
-      return `Painel online · ${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''} · sync automático`;
-    }
-    return 'Painel online · conecte um chip em Conexões';
-  }, [syncing, socketStatus, chipsConnected]);
+  const isOnline = socketStatus === 'online';
+  const isSlow = socketStatus === 'slow';
+  const isOffline = socketStatus === 'offline';
 
-  const stripOffline = socketStatus === 'offline';
+  const statusText = useMemo(() => {
+    if (syncing) return 'Sincronizando…';
+    if (isOffline) return 'Servidor desconectado';
+    if (isSlow) return 'Conexão instável — sync ativo';
+    if (chipsConnected > 0) return `${chipsConnected} chip${chipsConnected > 1 ? 's' : ''} ativo${chipsConnected > 1 ? 's' : ''}`;
+    return 'Conecte um chip em Conexões';
+  }, [syncing, isOffline, isSlow, chipsConnected]);
+
   const showAllActive = !unreadOnly && connectionFilterId === 'ALL';
 
   const handleShowAll = useCallback(() => {
@@ -143,81 +141,94 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
   }, [onConnectionFilterChange, unreadOnly, onToggleUnread]);
 
   const handleChannelPill = useCallback(
-    (id: string) => {
-      onConnectionFilterChange(connectionFilterId === id ? 'ALL' : id);
-    },
+    (id: string) => { onConnectionFilterChange(connectionFilterId === id ? 'ALL' : id); },
     [connectionFilterId, onConnectionFilterChange]
   );
 
   return (
     <aside className="wa-side flex flex-col min-h-0" data-hide-mobile={hideOnMobile ? 'true' : undefined}>
-      <div className="wa-side-header flex items-center justify-between gap-2 px-3 flex-shrink-0">
-        <div className="flex flex-1 min-w-0 items-center gap-2">
-          {totalUnread > 0 && (
-            <span className="ui-caption font-semibold tabular-nums shrink-0" style={{ color: 'var(--brand-600)' }}>
-              {totalUnread} não lida{totalUnread === 1 ? '' : 's'}
+
+      {/* ── Header redesenhado ─────────────────────── */}
+      <div className="wa-inbox-header">
+        <div className="wa-inbox-header__left">
+          {/* Indicador de status ao vivo */}
+          <div className="wa-live-badge" data-state={syncing ? 'sync' : isOffline ? 'off' : isSlow ? 'slow' : 'on'}>
+            <span className="wa-live-dot" />
+            <span className="wa-live-label">
+              {syncing ? 'SYNC' : isOffline ? 'OFF' : isSlow ? 'LENTO' : 'LIVE'}
             </span>
-          )}
-          <span className="ui-caption truncate hidden sm:inline">
-            {allConversations.length} conversa{allConversations.length === 1 ? '' : 's'}
-          </span>
+          </div>
         </div>
-        <button
-          type="button"
-          className="wa-icon-btn"
-          title="Sincronizar com o WhatsApp (completo)"
-          aria-label="Sincronizar com o WhatsApp"
-          onClick={onRefresh}
-        >
-          <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
-        </button>
+
+        <div className="wa-inbox-header__center">
+          {totalUnread > 0 ? (
+            <div className="wa-unread-hero">
+              <span className="wa-unread-hero__count">{totalUnread > 999 ? '999+' : totalUnread}</span>
+              <span className="wa-unread-hero__label">não lidas</span>
+            </div>
+          ) : (
+            <span className="wa-inbox-title">Bate-papo</span>
+          )}
+        </div>
+
+        <div className="wa-inbox-header__right">
+          <button
+            type="button"
+            className="wa-icon-btn"
+            title="Sincronizar conversas"
+            onClick={onRefresh}
+          >
+            <RefreshCw className={`w-[18px] h-[18px] ${syncing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
-      <div
-        className="wa-status-strip ui-caption"
-        data-offline={stripOffline ? 'true' : 'false'}
-        data-slow={socketStatus === 'slow' ? 'true' : 'false'}
-        role="status"
-      >
-        <span className="wa-status-dot" aria-hidden />
+      {/* ── Linha de status contextual ──────────────── */}
+      <div className="wa-inbox-status" data-state={isOffline ? 'off' : isSlow ? 'slow' : 'on'}>
+        {isOffline ? <WifiOff className="w-3 h-3 shrink-0" /> : <Wifi className="w-3 h-3 shrink-0" />}
         <span className="flex-1 truncate">{statusText}</span>
+        {chipsConnected > 0 && !isOffline && (
+          <span className="wa-inbox-status__chips">
+            <Zap className="w-2.5 h-2.5" />
+            {allConversations.length}
+          </span>
+        )}
       </div>
 
+      {/* ── Busca ──────────────────────────────────── */}
       <div className="wa-search-wrap">
         <label className="wa-search">
-          <Search className="w-[18px] h-[18px] flex-shrink-0 opacity-60" aria-hidden />
-          <span className="sr-only">Pesquisar conversas</span>
+          <Search className="w-[16px] h-[16px] shrink-0 opacity-50" aria-hidden />
+          <span className="sr-only">Pesquisar</span>
           <input
             type="search"
-            placeholder="Pesquisar conversa ou número"
+            placeholder="Pesquisar conversa ou número…"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
           />
         </label>
       </div>
 
-      {connections.length > 0 && (
+      {/* ── Seletor de conexão (collapse em select) ── */}
+      {connections.length > 1 && (
         <div className="wa-connection-bar flex-shrink-0">
           <label htmlFor="wa-connection-filter" className="wa-connection-bar-label">
-            Conexão WhatsApp
+            Canal
           </label>
           <select
             id="wa-connection-filter"
             className="wa-connection-select"
             value={connectionFilterId}
             onChange={(e) => onConnectionFilterChange(e.target.value)}
-            aria-label="Filtrar conversas por conexão WhatsApp"
           >
-            <option value="ALL">
-              Todas as conexões ({allConversations.length})
-            </option>
+            <option value="ALL">Todas as conexões ({allConversations.length})</option>
             {connections.map((conn) => {
               const label = connectionDisplayLabel(connections, conn.id) || 'Canal';
               const count = channelCounts.get(conn.id) ?? 0;
-              const offline = conn.status !== 'CONNECTED' ? ' · offline' : '';
+              const suffix = conn.status !== 'CONNECTED' ? ' · offline' : '';
               return (
                 <option key={conn.id} value={conn.id}>
-                  {label} ({count}){offline}
+                  {label} ({count}){suffix}
                 </option>
               );
             })}
@@ -225,6 +236,7 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         </div>
       )}
 
+      {/* ── Pills de filtro ─────────────────────────── */}
       <div className="wa-filter-row flex-shrink-0">
         <button
           type="button"
@@ -241,7 +253,8 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             data-active={unreadOnly ? 'true' : 'false'}
             onClick={onToggleUnread}
           >
-            Não lidas {totalUnread}
+            Não lidas
+            <span className="wa-pill-badge">{totalUnread}</span>
           </button>
         )}
         {channelPills.map((pill) => (
@@ -250,37 +263,42 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
             type="button"
             className="wa-filter-pill wa-filter-pill--channel"
             data-active={connectionFilterId === pill.id ? 'true' : 'false'}
-            title={pill.connected ? pill.label : `${pill.label} (offline)`}
+            title={pill.label}
             onClick={() => handleChannelPill(pill.id)}
           >
             <span
               className="wa-filter-pill-dot"
               aria-hidden
-              style={{ background: `hsl(${pill.hue}, 52%, 42%)` }}
+              style={{ background: `hsl(${pill.hue}, 60%, 50%)` }}
             />
-            <span className="truncate max-w-[9rem]">{pill.label}</span>
-            {pill.count > 0 && <span className="opacity-70">{pill.count}</span>}
+            <span className="truncate max-w-[8rem]">{pill.label}</span>
+            {pill.count > 0 && <span className="wa-pill-badge">{pill.count}</span>}
           </button>
         ))}
       </div>
 
+      {/* ── Lista virtualizada ──────────────────────── */}
       <div
         ref={scrollRef}
         className="wa-conv-list flex-1 min-h-0 overflow-y-auto"
         onScroll={handleScroll}
       >
         {conversations.length === 0 ? (
-          <p className="text-center text-sm py-10 px-4" style={{ color: 'var(--wa-text-3)' }}>
-            {connectionFilterId !== 'ALL' || unreadOnly
-              ? 'Nenhuma conversa com esses filtros.'
-              : 'Nenhuma conversa. Conecte um chip e use Atualizar, ou aguarde novas mensagens.'}
-          </p>
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center gap-3">
+            <MessageCircle className="w-10 h-10 opacity-20" style={{ color: 'var(--wa-text-3)' }} />
+            <p className="text-sm" style={{ color: 'var(--wa-text-3)' }}>
+              {connectionFilterId !== 'ALL' || unreadOnly
+                ? 'Nenhuma conversa com esses filtros.'
+                : chipsConnected === 0
+                  ? 'Vá em Conexões e escaneie o QR do WhatsApp.'
+                  : 'Aguardando mensagens…'}
+            </p>
+          </div>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
             {virtualizer.getVirtualItems().map((row) => {
               const conv = conversations[row.index];
               if (!conv) return null;
-
               return (
                 <WaConvRow
                   key={conv.id}
@@ -300,24 +318,10 @@ export const WaInbox: React.FC<Props> = memo(function WaInbox({
         )}
         {inboxLoadingMore && (
           <p className="text-center text-xs py-3" style={{ color: 'var(--wa-text-3)' }}>
-            Carregando mais conversas…
-          </p>
-        )}
-        {inboxHasMore && !inboxLoadingMore && conversations.length > 0 && (
-          <p className="text-center text-[11px] py-2 opacity-60" style={{ color: 'var(--wa-text-3)' }}>
-            Role para carregar mais
+            Carregando mais…
           </p>
         )}
       </div>
-
-      {conversations.length === 0 && chipsConnected === 0 && (
-        <div className="px-4 pb-4 text-center">
-          <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
-          <p className="text-xs" style={{ color: 'var(--wa-text-3)' }}>
-            Vá em Conexões e escaneie o QR do WhatsApp.
-          </p>
-        </div>
-      )}
     </aside>
   );
 });
