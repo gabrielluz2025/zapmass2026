@@ -45,17 +45,22 @@ export const Modal: React.FC<ModalProps> = ({
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div className="fixed inset-0 zm-layer-modal flex items-center justify-center p-4">
+    <div className="fixed inset-0 zm-layer-modal flex items-start justify-center overflow-y-auto overscroll-contain p-4 sm:p-6 sm:py-8">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        aria-hidden
         onClick={() => closeOnBackdrop && onClose()}
       />
       <div
-        className={`relative w-full ${sizeClass[size]} rounded-2xl overflow-hidden shadow-2xl`}
+        className={`relative z-10 w-full ${sizeClass[size]} rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[min(calc(100dvh-2rem),920px)] my-auto`}
         style={{ background: 'var(--surface-0)', border: '1px solid var(--border)' }}
+        onClick={(e) => e.stopPropagation()}
       >
         {(title || icon) && (
-          <div className="flex items-start justify-between gap-4 px-6 py-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div
+            className="flex items-start justify-between gap-4 px-6 py-5 border-b shrink-0"
+            style={{ borderColor: 'var(--border-subtle)' }}
+          >
             <div className="flex items-start gap-3 min-w-0 flex-1">
               {icon && (
                 <div className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center brand-soft">
@@ -76,9 +81,12 @@ export const Modal: React.FC<ModalProps> = ({
             </button>
           </div>
         )}
-        <div className="px-6 py-5 max-h-[70vh] overflow-y-auto">{children}</div>
+        <div className="px-6 py-5 overflow-y-auto flex-1 min-h-0">{children}</div>
         {footer && (
-          <div className="px-6 py-4 border-t flex items-center justify-end gap-2" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
+          <div
+            className="px-6 py-4 border-t flex items-center justify-end gap-2 shrink-0"
+            style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}
+          >
             {footer}
           </div>
         )}

@@ -160,6 +160,12 @@ export interface CampaignReplyFlowStep {
    * Nao enviado = sem efeito (equivalente a `none`).
    */
   marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+  /** Rotas condicionais: gatilho → mensagem de resposta (fluxo por palavra/número). */
+  options?: Array<{
+    tokens: string[];
+    reply: string;
+    marketingEffect?: 'none' | 'opt_in' | 'opt_out';
+  }>;
 }
 
 /** Fluxo conversacional: etapa 1 enviada na abertura; proximas apos resposta do contato. */

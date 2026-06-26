@@ -2,6 +2,8 @@
 export type CampaignQueueFlowItem = {
   stageIndex?: number;
   replyFlowAfterSend?: unknown;
+  /** Resposta automática do fluxo (menu, fallback ou follow-up) — mesma conversa. */
+  replyFlowResponse?: boolean;
   multiStepContact?: { stepIndex: number };
 };
 
@@ -11,6 +13,7 @@ export type CampaignQueueFlowItem = {
  */
 export function isCampaignFlowContinuation(item: CampaignQueueFlowItem): boolean {
   if (item.replyFlowAfterSend) return true;
+  if (item.replyFlowResponse) return true;
   if (item.multiStepContact && item.multiStepContact.stepIndex > 0) return true;
   if (typeof item.stageIndex === 'number' && item.stageIndex > 0) return true;
   return false;

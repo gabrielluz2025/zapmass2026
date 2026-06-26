@@ -2,17 +2,20 @@ import React, { useMemo, useState } from 'react';
 import {
   ChevronDown,
   GitBranch,
+  Lightbulb,
   ListOrdered,
   MessageSquare,
   Plus,
+  Smartphone,
   Sparkles,
   Trash2
 } from 'lucide-react';
 import { CampaignMessageComposer } from './CampaignMessageComposer';
+import { CampaignMessageQuickStarters } from './CampaignMessageQuickStarters';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import type { CampaignAttachmentState } from './CampaignAttachmentBlock';
 import { Button, Textarea } from '../ui';
-import { insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
+import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
 
 export type ReplyStageOption = {
   id: string;
@@ -49,6 +52,8 @@ type Props = {
   newStageOption: () => ReplyStageOption;
   newMessageStage: () => ReplyMessageStage;
   onInsertInvalidVariable: (token: string) => void;
+  campaignBrief?: string;
+  previewDisplayName?: string;
 };
 
 const MENU_QUICK_TEMPLATES: Array<{ label: string; options: Array<{ tokens: string; reply: string }> }> = [
@@ -86,6 +91,8 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   newStageOption,
   newMessageStage,
   onInsertInvalidVariable,
+  campaignBrief = '',
+  previewDisplayName = 'Maria',
 }) => {
   const [invalidOpen, setInvalidOpen] = useState(false);
   const first = stages[0];
@@ -166,8 +173,21 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
     [menuOptions]
   );
 
+  const openingPreview = applyCampaignMessagePreviewVars(first?.body || '', { nome: previewDisplayName });
+  const followUpPreview = applyCampaignMessagePreviewVars(second?.body || '', { nome: previewDisplayName });
+
   return (
     <div className="cw-reply-flow cw-reply-flow--simple">
+      <CampaignMessageQuickStarters onPick={(body) => patchFirst({ body })} />
+
+      <div className="cw-reply-tips">
+        <Lightbulb className="w-4 h-4 shrink-0" aria-hidden />
+        <p>
+          <strong>Dica:</strong> no fluxo por respostas, só a abertura sai no disparo. O follow-up ou menu só dispara
+          depois que o contato responder — evite textos genéricos como &quot;oi&quot; sozinho.
+        </p>
+      </div>
+
       <section className="cw-reply-panel">
         <header className="cw-reply-panel__head">
           <span className="cw-reply-panel__num cw-reply-panel__num--open">1</span>
@@ -176,30 +196,46 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
             <p className="cw-reply-panel__sub">Primeiro texto que o contato recebe quando a campanha iniciar.</p>
           </div>
         </header>
-        <div className="cw-reply-panel__body">
-          <CampaignMessageComposer
-            label="Texto da abertura"
-            placeholder="Olá {nome}! Tudo bem? Responda esta mensagem que te envio mais detalhes."
-            body={first?.body || ''}
-            onBodyChange={(body) => patchFirst({ body })}
-            textareaRef={msgRef}
-            onInsertVariable={(variable) =>
-              insertCampaignTokenIntoTextarea(msgRef.current, first?.body || '', variable, (next) =>
-                patchFirst({ body: next })
-              )
-            }
-            showIdeas={false}
-            showGreetingPicker={false}
-            variablesDensity="compact"
-            variablesCollapsible
-            showAttachment
-            attachment={attachment}
-            attachmentInputRef={attachmentInputRef}
-            onPickAttachment={onPickAttachment}
-            onRemoveAttachment={onRemoveAttachment}
-            launchMode={launchMode}
-            minHeight={120}
-          />
+        <div className="cw-reply-panel__body cw-reply-panel__body--split">
+          <div className="cw-reply-panel__editor">
+            <CampaignMessageComposer
+              label="Texto da abertura"
+              placeholder="Olá {nome}! Tudo bem? Responda esta mensagem que te envio mais detalhes."
+              body={first?.body || ''}
+              onBodyChange={(body) => patchFirst({ body })}
+              textareaRef={msgRef}
+              onInsertVariable={(variable) =>
+                insertCampaignTokenIntoTextarea(msgRef.current, first?.body || '', variable, (next) =>
+                  patchFirst({ body: next })
+                )
+              }
+              showIdeas={false}
+              showGreetingPicker
+              variablesDensity="compact"
+              variablesCollapsible
+              showAttachment
+              attachment={attachment}
+              attachmentInputRef={attachmentInputRef}
+              onPickAttachment={onPickAttachment}
+              onRemoveAttachment={onRemoveAttachment}
+              launchMode={launchMode}
+              minHeight={120}
+              campaignBrief={campaignBrief}
+            />
+          </div>
+          <aside className="cw-reply-mini-preview" aria-label="Prévia da abertura">
+            <div className="cw-reply-mini-preview__head">
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Como chega no WhatsApp</span>
+            </div>
+            <div className="cw-reply-mini-preview__phone">
+              {openingPreview.trim() ? (
+                <div className="cw-wa-bubble cw-wa-bubble--out">{openingPreview}</div>
+              ) : (
+                <p className="cw-reply-mini-preview__empty">Digite acima para ver a bolha</p>
+              )}
+            </div>
+          </aside>
         </div>
       </section>
 
@@ -247,34 +283,43 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                   <span className="cw-reply-mode-card__icon cw-reply-mode-card__icon--menu">
                     <ListOrdered className="w-4 h-4" />
                   </span>
-                  <span className="cw-reply-mode-card__title">Menu numerado</span>
-                  <span className="cw-reply-mode-card__desc">1, 2, 3 ou palavras-chave</span>
+                  <span className="cw-reply-mode-card__title">Por palavra ou número</span>
+                  <span className="cw-reply-mode-card__desc">Gatilhos (1, sim, oi…) → resposta com variáveis</span>
                 </button>
               </div>
 
               {isAnyReply ? (
-                <CampaignMessageComposer
-                  label="Texto após a resposta"
-                  placeholder="{horario} {nome}! Obrigado pelo retorno. Seguem as informações..."
-                  body={second?.body || ''}
-                  onBodyChange={setSecondBody}
-                  onInsertVariable={(variable) =>
-                    insertCampaignTokenIntoTextarea(null, second?.body || '', variable, setSecondBody)
-                  }
-                  variablesDensity="compact"
-                  variablesCollapsible
-                  showIdeas={false}
-                  showGreetingPicker={false}
-                  showAttachment={Boolean(
-                    followUpAttachmentInputRef && onPickFollowUpAttachment && onRemoveFollowUpAttachment
-                  )}
-                  attachment={followUpAttachment ?? null}
-                  attachmentInputRef={followUpAttachmentInputRef}
-                  onPickAttachment={onPickFollowUpAttachment}
-                  onRemoveAttachment={onRemoveFollowUpAttachment}
-                  launchMode={launchMode}
-                  minHeight={100}
-                />
+                <div className="cw-reply-followup-wrap">
+                  <CampaignMessageComposer
+                    label="Texto após a resposta"
+                    placeholder="{horario} {nome}! Obrigado pelo retorno. Seguem as informações..."
+                    body={second?.body || ''}
+                    onBodyChange={setSecondBody}
+                    onInsertVariable={(variable) =>
+                      insertCampaignTokenIntoTextarea(null, second?.body || '', variable, setSecondBody)
+                    }
+                    variablesDensity="compact"
+                    variablesCollapsible
+                    showIdeas={false}
+                    showGreetingPicker={false}
+                    showAttachment={Boolean(
+                      followUpAttachmentInputRef && onPickFollowUpAttachment && onRemoveFollowUpAttachment
+                    )}
+                    attachment={followUpAttachment ?? null}
+                    attachmentInputRef={followUpAttachmentInputRef}
+                    onPickAttachment={onPickFollowUpAttachment}
+                    onRemoveAttachment={onRemoveFollowUpAttachment}
+                    launchMode={launchMode}
+                    minHeight={100}
+                    campaignBrief={campaignBrief}
+                  />
+                  {followUpPreview.trim() ? (
+                    <div className="cw-reply-followup-preview">
+                      <span className="cw-reply-followup-preview__label">Prévia do follow-up</span>
+                      <div className="cw-wa-bubble cw-wa-bubble--out cw-wa-bubble--sm">{followUpPreview}</div>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <div className="cw-reply-menu-builder">
                   <div className="cw-reply-menu-builder__toolbar">
@@ -285,7 +330,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                           Rotas do menu
                         </p>
                         <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
-                          Cada linha = uma opção que o contato pode digitar
+                          O contato digita o gatilho; você define a mensagem com {'{nome}'}, {'{cidade}'}, etc.
                         </p>
                       </div>
                     </div>
@@ -334,7 +379,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                               <span className="cw-reply-menu-field__label">Mensagem enviada</span>
                               <textarea
                                 className="cw-reply-menu-field__textarea"
-                                placeholder="Texto que o contato recebe ao escolher esta opção…"
+                                placeholder="Texto com variáveis — ex.: Ótimo {nome}! Seguem os detalhes…"
                                 value={opt.reply}
                                 rows={2}
                                 onChange={(e) => updateOption(opt.id, { reply: e.target.value })}
@@ -355,20 +400,37 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                     ))}
                   </div>
 
-                  {menuPreviewLines.some((l) => l.preview !== '…') && (
-                    <div className="cw-reply-menu-preview">
-                      <p className="cw-reply-menu-preview__title">Prévia do fluxo</p>
-                      <div className="cw-reply-menu-preview__track">
-                        {menuPreviewLines.map((line) => (
+                  <div className="cw-reply-menu-preview">
+                    <p className="cw-reply-menu-preview__title">Prévia do fluxo</p>
+                    <div className="cw-reply-menu-preview__wa">
+                      {openingPreview.trim() ? (
+                        <div className="cw-wa-bubble cw-wa-bubble--out cw-wa-bubble--sm">{openingPreview}</div>
+                      ) : null}
+                      {isConditional && menuOptions.length > 0 && (
+                        <div className="cw-reply-menu-chips" role="list" aria-label="Opções do menu">
+                          {menuOptions.map((opt, i) => {
+                            const trigger =
+                              (opt.tokensText || String(i + 1)).split(/[,;]/)[0]?.trim() || String(i + 1);
+                            return (
+                              <span key={opt.id} className="cw-reply-menu-chip" role="listitem">
+                                {trigger}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="cw-wa-bubble cw-wa-bubble--in">1</div>
+                      {menuPreviewLines.map((line) =>
+                        line.preview !== '…' ? (
                           <div key={line.num} className="cw-reply-menu-preview__step">
-                            <span className="cw-reply-menu-preview__trigger">"{line.trigger}"</span>
+                            <span className="cw-reply-menu-preview__trigger">&quot;{line.trigger}&quot;</span>
                             <span className="cw-reply-menu-preview__arrow" aria-hidden>→</span>
                             <span className="cw-reply-menu-preview__msg">{line.preview}</span>
                           </div>
-                        ))}
-                      </div>
+                        ) : null
+                      )}
                     </div>
-                  )}
+                  </div>
 
                   <div className="cw-reply-invalid">
                     <button

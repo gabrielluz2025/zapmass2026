@@ -8,6 +8,10 @@ describe('isCampaignFlowContinuation', () => {
     expect(isCampaignFlowContinuation({})).toBe(false);
   });
 
+  it('resposta automática do reply flow é continuação', () => {
+    expect(isCampaignFlowContinuation({ replyFlowResponse: true })).toBe(true);
+  });
+
   it('reply flow após resposta é continuação', () => {
     expect(
       isCampaignFlowContinuation({

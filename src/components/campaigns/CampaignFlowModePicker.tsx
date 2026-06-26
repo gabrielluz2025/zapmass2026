@@ -81,6 +81,21 @@ export const CampaignFlowModePicker: React.FC<Props> = ({ mode, onChange }) => {
                 <p className="text-[11.5px] mt-1 leading-snug" style={{ color: 'var(--text-3)' }}>
                   {m.desc}
                 </p>
+                {isActive && (
+                  <ul className="cw-flow-pick-features">
+                    {m.id === 'single' ? (
+                      <>
+                        <li>Uma mensagem por contato</li>
+                        <li>Ideal para avisos e promoções</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>Abertura + resposta automática</li>
+                        <li>Por palavra, número ou gatilho</li>
+                      </>
+                    )}
+                  </ul>
+                )}
               </div>
             </button>
           );

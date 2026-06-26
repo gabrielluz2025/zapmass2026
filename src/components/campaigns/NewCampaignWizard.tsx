@@ -56,6 +56,7 @@ import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignReplyFlowEditor } from './CampaignReplyFlowEditor';
 import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowModePicker';
 import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
+import { CampaignMessageSetupProgress } from './CampaignMessageSetupProgress';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea, type CampaignPreviewSample } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
@@ -1236,22 +1237,25 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     const replyFlow: CampaignReplyFlow | undefined = useReplyFlow
       ? {
           enabled: true,
-          steps: messageStages.map((s) => ({
+          steps: messageStages.map((s) => {
+            const hasMenuOptions = Array.isArray(s.options) && s.options.length > 0;
+            return {
             body: s.body.trim(),
-            acceptAnyReply: s.acceptAnyReply,
+            acceptAnyReply: hasMenuOptions ? false : s.acceptAnyReply,
             validTokens: parseValidTokensText(s.validTokensText),
             invalidReplyBody: s.invalidReplyBody.trim(),
             marketingEffect: s.marketingEffect ?? 'none',
-            ...(Array.isArray(s.options) && s.options.length > 0
+            ...(hasMenuOptions
               ? {
-                  options: s.options.map((opt) => ({
+                  options: s.options!.map((opt) => ({
                     tokens: parseValidTokensText(opt.tokensText),
                     reply: opt.reply.trim(),
                     marketingEffect: opt.marketingEffect ?? 'none'
                   }))
                 }
               : {})
-          }))
+          };
+          })
         }
       : undefined;
     const contactListMeta =
@@ -1316,6 +1320,64 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const stagePreviewBodies = messageStages
     .map((s) => applyCampaignMessagePreviewVars(s.body, previewSample))
     .filter((b) => b.trim().length > 0);
+
+  const replyPreviewMeta = useMemo(() => {
+    if (campaignFlowMode !== 'reply') return undefined;
+    const first = messageStages[0];
+    if (!first) return undefined;
+    const isAnyReply = Boolean(first.acceptAnyReply ?? true);
+    if (isAnyReply) {
+      const followUp = messageStages[1]?.body?.trim();
+      return {
+        isAnyReply: true as const,
+        followUpBody: followUp
+          ? applyCampaignMessagePreviewVars(followUp, previewSample)
+          : undefined,
+      };
+    }
+    const options = (first.options || []).map((opt, i) => ({
+      trigger: (opt.tokensText || String(i + 1)).split(/[,;]/)[0]?.trim() || String(i + 1),
+      reply: opt.reply.trim()
+        ? applyCampaignMessagePreviewVars(opt.reply, previewSample)
+        : '',
+    }));
+    return { isAnyReply: false as const, menuOptions: options };
+  }, [campaignFlowMode, messageStages, previewSample]);
+
+  const messageSetupProgress = useMemo(() => {
+    const first = messageStages[0];
+    const hasName = name.trim().length > 0;
+    const hasMode = flowModeChosen;
+    const hasOpening = Boolean(first?.body?.trim());
+    if (campaignFlowMode === 'single') {
+      return [
+        { id: 'name', label: 'Nome da campanha', done: hasName, hint: 'Dê um nome interno' },
+        { id: 'mode', label: 'Tipo escolhido', done: hasMode },
+        { id: 'body', label: 'Texto da mensagem', done: hasOpening, hint: 'Escreva ou use um modelo' },
+      ];
+    }
+    const isMenu = !first?.acceptAnyReply && first?.optionsMode === 'conditional';
+    const hasFollowUp = isMenu
+      ? (first?.options || []).every(
+          (o) => parseValidTokensText(o.tokensText).length > 0 && o.reply.trim().length > 0
+        )
+      : Boolean(messageStages[1]?.body?.trim());
+    const hasFallback = isMenu ? Boolean(first?.invalidReplyBody?.trim()) : true;
+    return [
+      { id: 'name', label: 'Nome da campanha', done: hasName, hint: 'Dê um nome interno' },
+      { id: 'mode', label: 'Tipo escolhido', done: hasMode },
+      { id: 'opening', label: 'Mensagem de abertura', done: hasOpening, hint: 'Primeiro texto enviado' },
+      {
+        id: 'reply',
+        label: isMenu ? 'Rotas do menu preenchidas' : 'Resposta automática',
+        done: hasFollowUp,
+        hint: isMenu ? 'Cada opção precisa de gatilho e texto' : 'Texto após o contato responder',
+      },
+      ...(isMenu
+        ? [{ id: 'fallback', label: 'Resposta para opção inválida', done: hasFallback, hint: 'Quando não reconhecer' }]
+        : []),
+    ];
+  }, [name, flowModeChosen, campaignFlowMode, messageStages]);
 
   const estimateMinutes =
     campaignFlowMode === 'reply'
@@ -1928,6 +1990,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
 
               {flowModeChosen && (
+                <CampaignMessageSetupProgress items={messageSetupProgress} />
+              )}
+
+              {flowModeChosen && (
                 <div className="cw-msg-editor-zone">
                   {campaignFlowMode === 'single' ? (
                     <CampaignSingleMessageEditor
@@ -1964,6 +2030,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       newStageOption={newMessageStageOption}
                       newMessageStage={newMessageStage}
                       onInsertInvalidVariable={insertInvalidReplyVariable}
+                      campaignBrief={name.trim() || 'Campanha WhatsApp'}
+                      previewDisplayName={previewDisplayName}
                     />
                   )}
                 </div>
@@ -1978,6 +2046,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     chipsCount={connectedIds.length}
                     delaySeconds={delaySeconds}
                     estimateLabel={estimateLabel}
+                    flowMode={campaignFlowMode}
+                    replyPreview={replyPreviewMeta}
                   />
               </div>
 
@@ -2732,6 +2802,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               chipsCount={connectedIds.length}
               delaySeconds={delaySeconds}
               estimateLabel={estimateLabel}
+              flowMode={campaignFlowMode}
+              replyPreview={replyPreviewMeta}
             />
           </div>
         </div>
@@ -2747,8 +2819,17 @@ const WizardLivePreview: React.FC<{
   chipsCount: number;
   delaySeconds: number;
   estimateLabel: string;
-}> = ({ displayName, bodies, numbersCount, chipsCount, delaySeconds, estimateLabel }) => {
+  flowMode?: CampaignFlowMode;
+  replyPreview?: {
+    isAnyReply: boolean;
+    followUpBody?: string;
+    menuOptions?: Array<{ trigger: string; reply: string }>;
+  };
+}> = ({ displayName, bodies, numbersCount, chipsCount, delaySeconds, estimateLabel, flowMode, replyPreview }) => {
   const initial = (displayName || 'C').charAt(0).toUpperCase();
+  const isReplyFlow = flowMode === 'reply' && bodies.length > 0;
+  const openingBody = bodies[0];
+  const menuOptions = replyPreview?.menuOptions?.filter((o) => o.reply.trim()) ?? [];
   return (
     <div className="space-y-3">
       <div
@@ -2790,6 +2871,71 @@ const WizardLivePreview: React.FC<{
 
         <div className="p-4 min-h-[180px] flex flex-col justify-end gap-2.5">
           {bodies.length > 0 ? (
+            isReplyFlow ? (
+              <>
+                <div className="self-end max-w-[92%]">
+                  <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
+                    Abertura (disparo)
+                  </p>
+                  <div
+                    className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
+                    style={{
+                      background: 'linear-gradient(135deg,#005c4b,#006b58)',
+                      color: '#e9edef',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                    }}
+                  >
+                    {openingBody}
+                  </div>
+                </div>
+                {!replyPreview?.isAnyReply && replyPreview?.menuOptions && replyPreview.menuOptions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 justify-end max-w-[92%] self-end">
+                    {replyPreview.menuOptions.map((opt) => (
+                      <span
+                        key={opt.trigger}
+                        className="text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                        style={{ background: 'rgba(255,255,255,0.08)', color: '#53bdeb', border: '1px solid rgba(83,189,235,0.25)' }}
+                      >
+                        {opt.trigger}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="self-start max-w-[78%]">
+                  <p className="text-[9px] font-semibold mb-1" style={{ color: '#8696a0' }}>
+                    Contato responde
+                  </p>
+                  <div
+                    className="rounded-xl rounded-tl-none px-3 py-2 text-[12px]"
+                    style={{ background: '#202c33', color: '#e9edef' }}
+                  >
+                    {replyPreview?.isAnyReply ? '…' : replyPreview?.menuOptions?.[0]?.trigger || '1'}
+                  </div>
+                </div>
+                {(replyPreview?.isAnyReply && replyPreview.followUpBody) ||
+                (!replyPreview?.isAnyReply && menuOptions[0]?.reply) ? (
+                  <div className="self-end max-w-[92%]">
+                    <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
+                      Resposta automática
+                    </p>
+                    <div
+                      className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
+                      style={{
+                        background: 'linear-gradient(135deg,#005c4b,#006b58)',
+                        color: '#e9edef',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                      }}
+                    >
+                      {replyPreview?.isAnyReply ? replyPreview.followUpBody : menuOptions[0]?.reply}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-center text-[10px] py-2" style={{ color: '#667781' }}>
+                    Configure a resposta automática para ver o follow-up
+                  </p>
+                )}
+              </>
+            ) : (
             bodies.map((body, idx) => (
               <div key={`pv-${idx}`} className="self-end max-w-[92%]">
                 {bodies.length > 1 && (
@@ -2815,6 +2961,7 @@ const WizardLivePreview: React.FC<{
                 </div>
               </div>
             ))
+            )
           ) : (
             <div className="flex flex-col items-center justify-center py-8 gap-2 opacity-50">
               <Smartphone className="w-8 h-8" style={{ color: '#667781' }} />

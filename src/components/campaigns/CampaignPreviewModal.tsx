@@ -286,8 +286,52 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
     idle: { bg: 'var(--surface-1)', border: 'var(--border-subtle)', text: 'var(--text-3)', icon: <Wifi className="w-4 h-4" /> },
   };
 
+  const footerActions = (
+    <>
+      <Button variant="ghost" size="sm" onClick={onClose} leftIcon={<X className="w-4 h-4" />}>
+        Cancelar
+      </Button>
+      <div className="flex items-center gap-2 flex-wrap justify-end">
+        {overallHealth === 'error' && (
+          <span className="text-[11px] text-red-400 flex items-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            {isAdmin ? 'Corrija os problemas acima' : 'Aguarde a sincronização ou clique em Reverificar'}
+          </span>
+        )}
+        {overallHealth === 'ok' && needsRepeatConfirm && !confirmRepeatSend && (
+          <span className="text-[11px] text-amber-500 flex items-center gap-1">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            Marque a confirmação acima
+          </span>
+        )}
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() =>
+            onConfirm({
+              skipFrequencyCap: needsRepeatConfirm && confirmRepeatSend,
+            })
+          }
+          loading={isLoading}
+          leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
+          disabled={!canDispatch}
+        >
+          {launchMode === 'schedule' ? 'Confirmar agendamento' : 'Confirmar e disparar'}
+        </Button>
+      </div>
+    </>
+  );
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="" size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title=""
+      size="lg"
+      footer={
+        <div className="flex w-full items-center justify-between gap-3 flex-wrap">{footerActions}</div>
+      }
+    >
       <div className="space-y-4">
 
         {/* ── HEADER ────────────────────────────────────────────────────── */}
@@ -509,7 +553,7 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
             )}
           </div>
 
-          <div className="px-4 py-3 space-y-1.5 max-h-56 overflow-y-auto">
+          <div className="px-4 py-3 space-y-1.5 max-h-48 sm:max-h-56 overflow-y-auto">
             {freqCapStatus === 'checking' && triagedContacts.length === 0 && (
               <div className="text-[11px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
                 Carregando lista de contatos…
@@ -683,40 +727,6 @@ export const CampaignPreviewModal: React.FC<CampaignPreviewModalProps> = ({
           </div>
         )}
 
-        {/* ── AÇÕES ──────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-          <Button variant="ghost" size="sm" onClick={onClose} leftIcon={<X className="w-4 h-4" />}>
-            Cancelar
-          </Button>
-          <div className="flex items-center gap-2">
-            {overallHealth === 'error' && (
-              <span className="text-[11px] text-red-400 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                {isAdmin ? 'Corrija os problemas acima' : 'Aguarde a sincronização ou clique em Reverificar'}
-              </span>
-            )}
-            {overallHealth === 'ok' && needsRepeatConfirm && !confirmRepeatSend && (
-              <span className="text-[11px] text-amber-500 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Marque a confirmação acima
-              </span>
-            )}
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() =>
-                onConfirm({
-                  skipFrequencyCap: needsRepeatConfirm && confirmRepeatSend,
-                })
-              }
-              loading={isLoading}
-              leftIcon={isLoading ? undefined : <Rocket className="w-4 h-4" />}
-              disabled={!canDispatch}
-            >
-              {launchMode === 'schedule' ? 'Confirmar agendamento' : 'Confirmar e disparar'}
-            </Button>
-          </div>
-        </div>
       </div>
     </Modal>
   );

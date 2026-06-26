@@ -1623,6 +1623,8 @@ interface MessageQueueItem {
         phoneDigits: string;
         newAwaitingAfterStep: number;
     };
+    /** Resposta automática do fluxo por etapas (menu, fallback, follow-up). */
+    replyFlowResponse?: boolean;
     /** Idempotência: definido após envio bem-sucedido para evitar reenvio em retry do BullMQ. */
     _sentOk?: boolean;
     /** Evita contabilizar processed/success duas vezes se o job for reprocessado após falha tardia. */
@@ -2960,6 +2962,8 @@ function ensureReplyFlowEngine() {
                 sendAsMedia,
                 mediaLookupKey: mediaKey || undefined,
                 replyFlowAfterSend: item.replyFlowAfterSend,
+                replyFlowResponse: true,
+                skipFrequencyCap: true,
             }, replyDelay);
         },
         onMarketingConsent: (ownerUid, campaignId, effect, phoneDigits, replyText) => {
