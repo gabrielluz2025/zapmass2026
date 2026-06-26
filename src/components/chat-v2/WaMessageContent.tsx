@@ -67,6 +67,13 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia }) => {
     }
   };
 
+  // Autocarregamento automático de mídia (Auto-Load) idêntico ao WhatsApp Web!
+  React.useEffect(() => {
+    if (!mediaUrl && onLoadMedia && !loading && !loadFailed) {
+      void handleLoad();
+    }
+  }, [mediaUrl, msg.id]);
+
   const failLabel = (base: string) =>
     loadFailed ? `${base} (falhou — toque para tentar novamente)` : base;
 

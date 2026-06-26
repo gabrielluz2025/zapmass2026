@@ -88,6 +88,7 @@ export const WaWebChatApp: React.FC<{
   /** Evita pedir a mesma foto várias vezes ao servidor (prefetch + chat aberto). */
   const pictureAttemptedRef = useRef<Set<string>>(new Set());
   const historyRequestedRef = useRef<Map<string, number>>(new Map());
+  const historyInitializedRef = useRef<Set<string>>(new Set());
   const HISTORY_LEVELS = [200, 600, 1500, 3500, 8000];
 
   const requestSync = useCallback((opts?: { full?: boolean }) => {
@@ -476,9 +477,11 @@ export const WaWebChatApp: React.FC<{
 
   useEffect(() => {
     if (!selected?.id || !socket?.connected) return;
-    const msgCount = selected.messages?.length ?? 0;
-    if (msgCount < 8) void loadMoreHistory(selected.id, true);
-  }, [selected?.id, selected?.messages?.length, socket?.connected, loadMoreHistory]);
+    if (!historyInitializedRef.current.has(selected.id)) {
+      historyInitializedRef.current.add(selected.id);
+      void loadMoreHistory(selected.id, true);
+    }
+  }, [selected?.id, socket?.connected, loadMoreHistory]);
 
   const isSelectedDraft = useMemo(() => {
     if (!selected?.id) return false;
