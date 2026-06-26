@@ -296,6 +296,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   contactsSavedTotalLoading: false,
   refreshContactsSavedTotal: async () => {},
   refreshContacts: async () => {},
+  refreshContactLists: async () => {},
   contactLists: [],
   campaigns: [],
   metrics: INITIAL_METRICS,
@@ -905,7 +906,12 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (currentUidRef.current !== requestUid) return;
         if (batch.length === 0) {
           const expected = contactsSavedTotalRef.current ?? 0;
-          setContactsHasMore(expected > 0 && offset < expected);
+          // Página vazia após já ter linhas = fim real (COUNT(*) pode estar acima do retorno).
+          if (offset > 0) {
+            setContactsHasMore(false);
+          } else {
+            setContactsHasMore(expected > 0 && offset < expected);
+          }
           break;
         }
         offset += batch.length;
@@ -1005,6 +1011,9 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
               void reloadVpsContactsRef.current();
             }
           });
+          // Listas/campanhas sempre do servidor — cache local pode estar vazio ou desatualizado.
+          void reloadVpsContactListsRef.current();
+          void reloadVpsCampaignsRef.current();
           return;
         }
         if (cachedRaw && !cached) {
@@ -1119,15 +1128,23 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
 
-  /** Carrega toda a base em segundo plano — em qualquer aba, sem pausa artificial. */
+  /** Carrega toda a base em segundo plano (continua mesmo com aba em background). */
   useEffect(() => {
     if (workspaceLoading || !currentUidRef.current) return;
-    if (!contactsHasMore || contactsLoadingMore || !contactsPageVisible) return;
+    if (!contactsHasMore || contactsLoadingMore) return;
     const total = contactsSavedTotal ?? 0;
     if (total > 0 && contacts.length >= total) return;
 
     const delayMs =
-      total > 30_000 ? 400 : total > 20_000 ? 300 : total > 8000 ? 200 : 80;
+      !contactsPageVisible
+        ? 1200
+        : total > 30_000
+          ? 400
+          : total > 20_000
+            ? 300
+            : total > 8000
+              ? 200
+              : 80;
     const timer = window.setTimeout(() => {
       void loadAllContacts();
     }, delayMs);
@@ -1148,8 +1165,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (total == null || total <= 0) return;
 
     const loaded = contacts.length;
-    const stillLoading = contactsHasMore || contactsLoadingMore;
-    const complete = !stillLoading && loaded >= total;
+    const stillLoading =
+      contactsLoadingMore || (contactsHasMore && (total <= 0 || loaded < total));
+    const complete =
+      !contactsLoadingMore && !contactsHasMore && (total <= 0 || loaded >= total || loaded > 0);
 
     if (stillLoading && loaded < total) {
       contactsPreloadStartedRef.current = true;
@@ -3029,6 +3048,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     void refreshContactsSavedTotal();
   };
 
+  const refreshContactLists = useCallback(async () => {
+    await reloadVpsContactListsRef.current();
+  }, []);
+
   const clearAllUserData = async () => {
     const uid = currentUidRef.current;
     if (!uid) throw new Error('Faça login para limpar os dados.');
@@ -3936,6 +3959,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const stableUpdateContact = useStableCallback(updateContact);
   const stableBulkUpdateContacts = useStableCallback(bulkUpdateContacts);
   const stableRefreshContacts = useStableCallback(refreshContacts);
+  const stableRefreshContactLists = useStableCallback(refreshContactLists);
   const stableCreateContactList = useStableCallback(createContactList);
   const stableAppendContactIdsToContactList = useStableCallback(appendContactIdsToContactList);
   const stableDeleteContactList = useStableCallback(deleteContactList);
@@ -3968,16 +3992,22 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
   const contactsPreload = useMemo<ContactsPreloadSnapshot>(() => {
     const total = contactsSavedTotal ?? 0;
     const loaded = contacts.length;
-    const incomplete = total > 0 && loaded < total;
+    const incomplete =
+      contactsHasMore || contactsLoadingMore || (total > 0 && loaded < total);
     const active = incomplete && (contactsHasMore || contactsLoadingMore);
+    const effectiveTotal = total > 0 ? total : loaded;
     const percent =
-      total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : loaded > 0 ? 100 : 0;
+      effectiveTotal > 0
+        ? Math.min(100, Math.round((loaded / effectiveTotal) * 100))
+        : loaded > 0
+          ? 100
+          : 0;
     return {
       active,
       loading: contactsLoadingMore,
-      percent,
+      percent: !contactsHasMore && !contactsLoadingMore && loaded > 0 ? 100 : percent,
       loaded,
-      total: total > 0 ? total : loaded
+      total: effectiveTotal
     };
   }, [contacts.length, contactsSavedTotal, contactsHasMore, contactsLoadingMore]);
 
@@ -4026,6 +4056,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsSavedTotalLoading,
       refreshContactsSavedTotal: stableRefreshContactsSavedTotal,
       refreshContacts: stableRefreshContacts,
+      refreshContactLists: stableRefreshContactLists,
       contactLists,
       metrics,
       birthdays,
@@ -4094,6 +4125,7 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       contactsSavedTotalLoading,
       stableRefreshContactsSavedTotal,
       stableRefreshContacts,
+      stableRefreshContactLists,
       contactLists,
       metrics,
       birthdays,

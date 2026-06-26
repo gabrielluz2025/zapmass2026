@@ -58,6 +58,7 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     contactLists,
     contacts,
     socket,
+    refreshContactLists,
     startCampaign,
     scheduleCampaign,
     pauseCampaign,
@@ -101,6 +102,10 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
   useEffect(() => {
     localStorage.setItem(LS_TEST_OPEN, testOpen ? '1' : '0');
   }, [testOpen]);
+
+  useEffect(() => {
+    void refreshContactLists();
+  }, [refreshContactLists]);
 
   useEffect(() => {
     localStorage.setItem(LS_DISMISSED, JSON.stringify(dismissedInsights));

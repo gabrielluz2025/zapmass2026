@@ -616,6 +616,8 @@ export interface ZapMassContextType {
   ) => Promise<void>;
   /** Recarrega a lista de contatos do servidor (útil após importação em massa). */
   refreshContacts: () => Promise<void>;
+  /** Recarrega listas de contatos (campanhas / segmentação). */
+  refreshContactLists: () => Promise<void>;
   createContactList: (name: string, contactIds: string[], description?: string) => Promise<string>;
   /** Acrescenta IDs à lista (`users/{uid}/contact_lists`) com transação — merge com `contactIds` actuais. */
   appendContactIdsToContactList: (
