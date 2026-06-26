@@ -1,4 +1,4 @@
-/* ZapMass Pure Dark — shell v5.0 */
+/* ZapMass Pure Dark — shell v5.0 with Premium Ultra Modern Aesthetics */
 
 /* ── Root ─────────────────────────────────── */
 .zm-aurora-root {
@@ -10,6 +10,23 @@
 .zm-aurora-main {
   position: relative;
   z-index: 1;
+}
+
+/* ── Custom Scrollbar Minimalista ──────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-500);
+  box-shadow: 0 0 8px var(--brand-500);
 }
 
 /* ── Sidebar ──────────────────────────────── */
@@ -35,16 +52,27 @@
 .zm-nav-item-aurora {
   position: relative;
   border-radius: var(--radius-md);
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .zm-nav-item-aurora:hover:not(.is-active) {
   background: rgba(255,255,255,0.06);
+  transform: translateX(4px);
+  color: var(--text-1) !important;
+}
+
+.zm-nav-item-aurora:hover svg {
+  transform: rotate(4deg) scale(1.05);
+  color: var(--brand-400);
+}
+
+.zm-nav-item-aurora svg {
+  transition: all 0.2s ease;
 }
 
 .zm-nav-item-aurora.is-active {
-  background: rgba(16,185,129,0.16);
-  box-shadow: 0 0 0 1px rgba(16,185,129,0.22) inset;
+  background: linear-gradient(90deg, rgba(16,185,129,0.18) 0%, rgba(16,185,129,0.05) 100%);
+  box-shadow: 0 0 0 1px rgba(16,185,129,0.25) inset;
 }
 
 .zm-nav-item-aurora.is-active::before {
@@ -57,43 +85,119 @@
   height: 60%;
   border-radius: 0 3px 3px 0;
   background: var(--brand-500);
-  box-shadow: 0 0 10px rgba(16,185,129,0.6);
+  box-shadow: 0 0 12px rgba(16,185,129,0.8);
 }
 
 /* ── TopBar ───────────────────────────────── */
 .zm-topbar-aurora {
   height: var(--topbar-h);
-  background: var(--surface-0) !important;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: rgba(17, 17, 21, 0.95) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-subtle) !important;
   box-shadow: 0 1px 0 rgba(255,255,255,0.04);
 }
 
-/* ── Cards ────────────────────────────────── */
-.zm-glass-card {
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+/* Linha de acento neon premium abaixo da TopBar */
+.zm-topbar-aurora::after {
+  content: '';
+  position: absolute;
+  bottom: -1px; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--brand-500) 50%, transparent);
+  opacity: 0.5;
+  pointer-events: none;
 }
 
-/* ── Seções e cards com elevação real ─────── */
-.zm-section,
+/* ── Cards Premium com efeito Vidro Neon ──── */
+.zm-glass-card,
 .ui-card,
-.ui-card-compact,
 .premium-card {
-  box-shadow: var(--shadow-sm) !important;
+  background: linear-gradient(135deg, var(--surface-1) 0%, rgba(17, 17, 21, 0.95) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.zm-glass-card:hover,
+.ui-card:hover,
+.premium-card:hover {
+  border-color: rgba(16, 185, 129, 0.18) !important;
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.85), 0 0 20px -5px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+  transform: translateY(-2px);
+}
+
+/* ── Botões Premium Neon ──────────────────── */
+.ui-btn-primary,
+.btn-primary,
+.btn-premium,
+.brand-btn {
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-600) 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+  font-weight: 600 !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.ui-btn-primary:hover:not(:disabled),
+.btn-primary:hover:not(:disabled),
+.btn-premium:hover:not(:disabled),
+.brand-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--brand-400) 0%, var(--brand-500) 100%) !important;
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45), 0 0 12px rgba(16, 185, 129, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+  transform: translateY(-1px) scale(1.01);
+}
+
+.ui-btn-secondary,
+.btn-secondary {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-subtle) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.ui-btn-secondary:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-3) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.12) !important;
+  color: var(--text-1) !important;
+}
+
+/* ── Inputs e Textareas Brilhantes ────────── */
+.ui-input,
+textarea {
+  background: rgba(9, 9, 11, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.ui-input:focus,
+textarea:focus {
+  border-color: var(--brand-500) !important;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.25), inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+  background: rgba(17, 17, 21, 1) !important;
+}
+
+/* ── Badges com pulsação suave ────────────── */
+@keyframes zmPulseStatus {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.7; }
+}
+
+.wa-rail-status-dot {
+  animation: zmPulseStatus 2.5s infinite ease-in-out;
 }
 
 /* ── Página: animação de entrada ──────────── */
 @keyframes zm-page-rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 
 .page-enter {
-  animation: zm-page-rise 0.28s ease-out both;
+  animation: zm-page-rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
