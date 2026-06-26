@@ -1390,7 +1390,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       : `~${estimateMinutes} min`;
 
   return (
-    <div className="max-w-5xl mx-auto pb-10">
+    <div className="max-w-7xl mx-auto pb-10">
 
       {/* ── Cabeçalho do wizard ── */}
       <div
@@ -1507,8 +1507,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-4">
+      <div
+        className={
+          step === 2
+            ? 'grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6'
+            : 'grid grid-cols-1 lg:grid-cols-3 gap-4'
+        }
+      >
+        <div className={step === 2 ? 'xl:col-span-8 space-y-4 min-w-0' : 'lg:col-span-2 space-y-4 min-w-0'}>
           {/* STEP 1: Audience */}
           {step === 1 && (
             <Card>
@@ -2793,7 +2799,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         </div>
 
         {/* ── Painel de prévia ao vivo ── */}
-        <div className="hidden lg:block">
+        <div className={step === 2 ? 'hidden xl:block xl:col-span-4' : 'hidden lg:block'}>
           <div className="sticky top-4">
             <WizardLivePreview
               displayName={previewDisplayName}

@@ -219,7 +219,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
               onPickAttachment={onPickAttachment}
               onRemoveAttachment={onRemoveAttachment}
               launchMode={launchMode}
-              minHeight={120}
+              minHeight={168}
               campaignBrief={campaignBrief}
             />
           </div>
@@ -309,9 +309,9 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                     attachmentInputRef={followUpAttachmentInputRef}
                     onPickAttachment={onPickFollowUpAttachment}
                     onRemoveAttachment={onRemoveFollowUpAttachment}
-                    launchMode={launchMode}
-                    minHeight={100}
-                    campaignBrief={campaignBrief}
+                  launchMode={launchMode}
+                  minHeight={140}
+                  campaignBrief={campaignBrief}
                   />
                   {followUpPreview.trim() ? (
                     <div className="cw-reply-followup-preview">
@@ -366,11 +366,11 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                         <div className="cw-reply-menu-item__fields">
                           <div className="cw-reply-menu-item__row">
                             <label className="cw-reply-menu-field">
-                              <span className="cw-reply-menu-field__label">Aceita</span>
+                              <span className="cw-reply-menu-field__label">Gatilhos (vírgula)</span>
                               <input
                                 type="text"
                                 className="cw-reply-menu-field__input cw-reply-menu-field__input--trigger"
-                                placeholder={String(oIdx + 1)}
+                                placeholder={`Ex.: ${oIdx + 1}, sim, oi`}
                                 value={opt.tokensText}
                                 onChange={(e) => updateOption(opt.id, { tokensText: e.target.value })}
                               />
@@ -381,7 +381,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                                 className="cw-reply-menu-field__textarea"
                                 placeholder="Texto com variáveis — ex.: Ótimo {nome}! Seguem os detalhes…"
                                 value={opt.reply}
-                                rows={2}
+                                rows={4}
                                 onChange={(e) => updateOption(opt.id, { reply: e.target.value })}
                               />
                             </label>
