@@ -235,6 +235,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
     recipients: Array<{ phone: string; vars: Record<string, string> }>;
     contactListMeta: { id?: string; name?: string };
     delaySeconds: number;
+    delaySecondsMax?: number;
+    humanizedPauses?: boolean;
     launchMode?: 'now' | 'schedule';
     schedule?: {
       timeZone: string;
@@ -281,6 +283,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
               payload.schedule,
               {
                 delaySeconds: payload.delaySeconds,
+                delaySecondsMax: payload.delaySecondsMax,
+                humanizedPauses: payload.humanizedPauses,
                 recipients: payload.recipients,
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,
@@ -297,6 +301,8 @@ export const CampaignsTab: React.FC<CampaignsTabProps> = ({ connections }) => {
               payload.name,
               {
                 delaySeconds: payload.delaySeconds,
+                delaySecondsMax: payload.delaySecondsMax,
+                humanizedPauses: payload.humanizedPauses,
                 recipients: payload.recipients,
                 messageStages: payload.messageStages,
                 replyFlow: payload.replyFlow,

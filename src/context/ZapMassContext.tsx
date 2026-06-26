@@ -3584,6 +3584,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     campaignName?: string,
     options?: {
       delaySeconds?: number;
+      delaySecondsMax?: number;
+      humanizedPauses?: boolean;
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
@@ -3754,6 +3756,8 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
             connectionIds: targetConnections,
             campaignId: campaignRef.id,
             delaySeconds: options?.delaySeconds,
+            delaySecondsMax: options?.delaySecondsMax,
+            humanizedPauses: options?.humanizedPauses !== false,
             recipients: cleanRecipients,
             channelWeights: options?.channelWeights,
             stageConfigs: options?.stageConfigs,

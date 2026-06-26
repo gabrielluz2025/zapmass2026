@@ -4416,7 +4416,9 @@ export async function startCampaign(
     followUpMedia?: CampaignMediaPayload,
     delaySeconds?: number,
     stageConfigs?: CampaignStageConfig[],
-    skipFrequencyCap?: boolean
+    skipFrequencyCap?: boolean,
+    delaySecondsMax?: number,
+    humanizedPauses?: boolean
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
@@ -4522,7 +4524,10 @@ export async function startCampaign(
         void initMultiStepContactStates(ownerUid, cid, cleanPhones);
     }
 
-    const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds);
+    const dispatchSettings = resolveCampaignDispatchSettings(ownerUid, delaySeconds, delaySecondsMax);
+
+    // Intervalo médio para cálculo do stagger (ponto central da faixa min-max)
+    const avgDelayMs = (dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2;
 
     try {
         for (let i = 0; i < numbers.length; i++) {
@@ -4532,7 +4537,14 @@ export async function startCampaign(
             const assignedConnectionId = useWeights
                 ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
                 : activeConnectionIds[i % activeConnectionIds.length];
-            const staggerDelay = i * dispatchSettings.minDelayMs;
+
+            // Jitter no stagger: cada mensagem i recebe i * avg + variação aleatória de ±25%
+            const jitterFactor = 0.75 + Math.random() * 0.5; // 0.75..1.25
+            const staggerDelay = Math.round(i * avgDelayMs * jitterFactor)
+                // Pausa humanizada: a cada ~30 msgs insere 2–5 min extra
+                + (humanizedPauses && i > 0 && i % 30 === 0
+                    ? Math.round((120_000 + Math.random() * 180_000)) // 2–5 min
+                    : 0);
 
             if (useLazyMotor) {
                 // Motor lazy: apenas etapa 0 enfileirada agora; etapas seguintes após conclusão/resposta

@@ -1450,6 +1450,8 @@ const registerSocketHandlers = () => {
           connectionIds,
           campaignId,
           delaySeconds,
+          delaySecondsMax,
+          humanizedPauses,
           recipients,
           channelWeights,
           mediaAttachment,
@@ -1496,6 +1498,8 @@ const registerSocketHandlers = () => {
             next_step_on_no_match?: number;
           }>;
           skipFrequencyCap?: boolean;
+          delaySecondsMax?: number;
+          humanizedPauses?: boolean;
         },
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
@@ -1627,7 +1631,9 @@ const registerSocketHandlers = () => {
               Array.isArray(stageConfigs) && stageConfigs.length > 0
                 ? (stageConfigs as import('../src/types.js').CampaignStageConfig[])
                 : undefined,
-              skipFrequencyCap === true
+              skipFrequencyCap === true,
+              typeof delaySecondsMax === 'number' && Number.isFinite(delaySecondsMax) ? delaySecondsMax : undefined,
+              humanizedPauses === true
             );
             if (!ok) {
               const errMsg =

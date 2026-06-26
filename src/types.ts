@@ -670,6 +670,8 @@ export interface ZapMassContextType {
     campaignName?: string,
     options?: {
       delaySeconds?: number;
+      delaySecondsMax?: number;
+      humanizedPauses?: boolean;
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;
@@ -709,6 +711,8 @@ export interface ZapMassContextType {
     },
     options?: {
       delaySeconds?: number;
+      delaySecondsMax?: number;
+      humanizedPauses?: boolean;
       recipients?: Array<{ phone: string; vars: Record<string, string> }>;
       messageStages?: string[];
       replyFlow?: CampaignReplyFlow;

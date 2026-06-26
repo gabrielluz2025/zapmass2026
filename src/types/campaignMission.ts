@@ -12,6 +12,8 @@ export interface CampaignWizardDraft {
   channelWeightMode: 'equal' | 'custom';
   channelWeights: Record<string, number>;
   delaySeconds: number;
+  delaySecondsMax?: number;
+  humanizedPauses?: boolean;
   campaignFlowMode: 'sequential' | 'reply' | 'single';
   messageStages: Array<{
     id: string;

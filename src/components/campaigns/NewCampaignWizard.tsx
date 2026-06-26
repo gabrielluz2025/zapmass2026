@@ -129,6 +129,8 @@ interface NewCampaignWizardProps {
     recipients: Array<{ phone: string; vars: Record<string, string> }>;
     contactListMeta: { id?: string; name?: string };
     delaySeconds: number;
+    delaySecondsMax?: number;
+    humanizedPauses?: boolean;
     launchMode?: 'now' | 'schedule';
     schedule?: {
       timeZone: string;
@@ -200,6 +202,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [channelWeightMode, setChannelWeightMode] = useState<'equal' | 'custom'>('equal');
   const [channelWeightsById, setChannelWeightsById] = useState<Record<string, number>>({});
   const [delaySeconds, setDelaySeconds] = useState(45);
+  const [delaySecondsMax, setDelaySecondsMax] = useState(90);
+  const [humanizedPauses, setHumanizedPauses] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** Checklist obrigatoria antes de disparar ou agendar (passo 4). */
   const [preflightAck, setPreflightAck] = useState({
@@ -768,6 +772,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     setSelectedListId(initialDraft.selectedListId);
     setSelectedConnectionIds(initialDraft.selectedConnectionIds);
     setDelaySeconds(initialDraft.delaySeconds);
+    if (initialDraft.delaySecondsMax) setDelaySecondsMax(initialDraft.delaySecondsMax);
+    if (typeof initialDraft.humanizedPauses === 'boolean') setHumanizedPauses(initialDraft.humanizedPauses);
     const draftMode = initialDraft.campaignFlowMode;
     if (draftMode === 'sequential') {
       toast('O modo sequência automática foi descontinuado. Usamos disparo único com a primeira mensagem.', {
@@ -829,6 +835,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     channelWeightMode,
     channelWeights: channelWeightsById,
     delaySeconds,
+    delaySecondsMax: delaySecondsMax > delaySeconds ? delaySecondsMax : undefined,
+    humanizedPauses,
     campaignFlowMode,
     messageStages: messageStages.map((s) => ({
       id: s.id,
@@ -2051,6 +2059,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     numbersCount={numbers.length}
                     chipsCount={connectedIds.length}
                     delaySeconds={delaySeconds}
+                    delaySecondsMax={delaySecondsMax}
+                    humanizedPauses={humanizedPauses}
                     estimateLabel={estimateLabel}
                     flowMode={campaignFlowMode}
                     replyPreview={replyPreviewMeta}
@@ -2364,34 +2374,112 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               )}
 
               <Card>
-                <div className="flex items-center justify-between mb-3">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="ui-title text-[15px]">Intervalo Anti-Ban</h3>
-                    <p className="ui-subtitle text-[12.5px]">
-                      Tempo minimo entre cada envio automatico do sistema. No fluxo por respostas, vale entre a abertura
-                      e entre cada mensagem disparada apos resposta (e mensagens de erro de validacao).
+                    <p className="ui-subtitle text-[12px] mt-0.5">
+                      Atraso aleatório entre envios — quanto maior e mais variado, menor o risco de bloqueio.
                     </p>
                   </div>
-                  <span className="text-2xl font-bold tabular-nums" style={{ color: '#f59e0b' }}>
-                    {delaySeconds}s
-                  </span>
+                  <div className="text-right shrink-0 ml-3">
+                    <span className="text-xl font-bold tabular-nums" style={{ color: '#f59e0b' }}>
+                      {delaySeconds}s – {delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2}s
+                    </span>
+                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                      ~{Math.round(3600 / ((delaySeconds + (delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2)) / 2))} msgs/h por chip
+                    </p>
+                  </div>
                 </div>
-                <div className="grid grid-cols-6 gap-1.5">
-                  {[15, 30, 45, 60, 90, 120].map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setDelaySeconds(s)}
-                      className="py-2 rounded-lg text-[12px] font-bold transition-all"
-                      style={
-                        delaySeconds === s
-                          ? { background: '#f59e0b', color: '#fff' }
-                          : { background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
-                      }
-                    >
-                      {s}s
-                    </button>
-                  ))}
+
+                {/* Min */}
+                <div className="mb-3">
+                  <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                    Mínimo (mais rápido)
+                  </p>
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {[10, 20, 30, 45, 60, 90].map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          setDelaySeconds(s);
+                          if (delaySecondsMax <= s) setDelaySecondsMax(s * 2);
+                        }}
+                        className="py-1.5 rounded-lg text-[11.5px] font-bold transition-all"
+                        style={
+                          delaySeconds === s
+                            ? { background: '#f59e0b', color: '#fff' }
+                            : { background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
+                        }
+                      >
+                        {s}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Max */}
+                <div className="mb-4">
+                  <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                    Máximo (mais humano)
+                  </p>
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {[30, 60, 90, 120, 180, 240].map((s) => {
+                      const invalid = s <= delaySeconds;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => !invalid && setDelaySecondsMax(s)}
+                          disabled={invalid}
+                          className="py-1.5 rounded-lg text-[11.5px] font-bold transition-all"
+                          style={
+                            delaySecondsMax === s && !invalid
+                              ? { background: '#10b981', color: '#fff' }
+                              : invalid
+                              ? { background: 'var(--surface-1)', color: 'var(--text-3)', opacity: 0.4, cursor: 'not-allowed', border: '1px solid var(--border-subtle)' }
+                              : { background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
+                          }
+                        >
+                          {s}s
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Pausas humanizadas */}
+                <div
+                  className="flex items-center justify-between p-2.5 rounded-xl cursor-pointer"
+                  style={{ background: humanizedPauses ? 'rgba(16,185,129,0.08)' : 'var(--surface-1)', border: '1px solid', borderColor: humanizedPauses ? 'rgba(16,185,129,0.3)' : 'var(--border-subtle)' }}
+                  onClick={() => setHumanizedPauses(v => !v)}
+                >
+                  <div>
+                    <p className="text-[12px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                      Pausas humanizadas
+                    </p>
+                    <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                      A cada ~30 msgs, faz uma pausa extra de 2–5 min para simular comportamento humano
+                    </p>
+                  </div>
+                  <div
+                    className="w-9 h-5 rounded-full transition-all shrink-0 ml-3 flex items-center"
+                    style={{ background: humanizedPauses ? '#10b981' : 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <div
+                      className="w-3.5 h-3.5 rounded-full bg-white transition-transform"
+                      style={{ transform: humanizedPauses ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Dica de segurança */}
+                <div className="mt-3 flex gap-2 p-2.5 rounded-xl" style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  <span className="text-[13px] shrink-0">🛡️</span>
+                  <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
+                    <strong style={{ color: 'var(--text-2)' }}>Recomendado para conta nova:</strong> mín 45s, máx 120s + pausas ativadas. Para chip aquecido: mín 20s, máx 60s.
+                  </p>
                 </div>
               </Card>
             </>
@@ -2653,7 +2741,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   label="Chips"
                   value={`${connectedIds.length} conectado${connectedIds.length !== 1 ? 's' : ''}`}
                 />
-                <ReviewRow label="Intervalo" value={`${delaySeconds}s entre envios`} />
+                <ReviewRow label="Intervalo" value={`${delaySeconds}s – ${delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2}s${humanizedPauses ? ' + pausas' : ''}`} />
                 <ReviewRow
                   label="Modo"
                   value={
@@ -2807,6 +2895,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               numbersCount={numbers.length}
               chipsCount={connectedIds.length}
               delaySeconds={delaySeconds}
+              delaySecondsMax={delaySecondsMax}
+              humanizedPauses={humanizedPauses}
               estimateLabel={estimateLabel}
               flowMode={campaignFlowMode}
               replyPreview={replyPreviewMeta}
@@ -2824,6 +2914,8 @@ const WizardLivePreview: React.FC<{
   numbersCount: number;
   chipsCount: number;
   delaySeconds: number;
+  delaySecondsMax?: number;
+  humanizedPauses?: boolean;
   estimateLabel: string;
   flowMode?: CampaignFlowMode;
   replyPreview?: {
@@ -2831,7 +2923,7 @@ const WizardLivePreview: React.FC<{
     followUpBody?: string;
     menuOptions?: Array<{ trigger: string; reply: string }>;
   };
-}> = ({ displayName, bodies, numbersCount, chipsCount, delaySeconds, estimateLabel, flowMode, replyPreview }) => {
+}> = ({ displayName, bodies, numbersCount, chipsCount, delaySeconds, delaySecondsMax, humanizedPauses, estimateLabel, flowMode, replyPreview }) => {
   const initial = (displayName || 'C').charAt(0).toUpperCase();
   const isReplyFlow = flowMode === 'reply' && bodies.length > 0;
   const openingBody = bodies[0];
@@ -2992,7 +3084,7 @@ const WizardLivePreview: React.FC<{
           value={String(chipsCount)}
           accent={chipsCount > 0 ? 'var(--brand-600)' : 'var(--text-3)'}
         />
-        <SummaryRow label="Intervalo" value={`${delaySeconds}s`} accent="#f59e0b" />
+        <SummaryRow label="Intervalo" value={`${delaySeconds}s–${delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2}s${humanizedPauses ? ' 🛡️' : ''}`} accent="#f59e0b" />
         {numbersCount > 0 && <SummaryRow label="Estimativa" value={estimateLabel} accent="#3b82f6" />}
       </div>
     </div>

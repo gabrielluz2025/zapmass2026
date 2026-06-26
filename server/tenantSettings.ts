@@ -219,12 +219,18 @@ export async function saveTenantSettings(
 
 export function resolveCampaignDispatchSettings(
     ownerUid: string | undefined,
-    delaySeconds?: number
+    delaySeconds?: number,
+    delaySecondsMax?: number
 ): TenantDispatchSettings {
     const base = getTenantDispatchSettings(ownerUid);
     if (typeof delaySeconds === 'number' && Number.isFinite(delaySeconds) && delaySeconds > 0) {
-        const ms = Math.max(1000, Math.floor(delaySeconds * 1000));
-        return { ...base, minDelayMs: ms, maxDelayMs: ms };
+        const minMs = Math.max(1000, Math.floor(delaySeconds * 1000));
+        // Se maxDelay fornecido e maior que min, usa faixa real; senão aplica jitter de +50%
+        const maxMs =
+            typeof delaySecondsMax === 'number' && delaySecondsMax > delaySeconds
+                ? Math.floor(delaySecondsMax * 1000)
+                : Math.floor(minMs * 1.5);
+        return { ...base, minDelayMs: minMs, maxDelayMs: maxMs };
     }
     return { ...base };
 }
