@@ -94,7 +94,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         unico valor que muda de fato (collapse/expand do sidebar).
       */}
       <main
-        className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen transition-[margin-left] duration-200 ease-in-out motion-reduce:transition-none zm-aurora-main`}
+        className={`flex-1 ${sidebarOffset} overflow-y-auto h-screen flex flex-col transition-[margin-left] duration-200 ease-in-out motion-reduce:transition-none zm-aurora-main`}
       >
         <TopBar
           currentView={currentView}
@@ -119,9 +119,9 @@ export const AppShell: React.FC<AppShellProps> = ({
             </p>
           </div>
         )}
-        <div className="p-3 sm:p-5 lg:p-6 relative">
+        <div className="flex-1 p-3 sm:p-5 lg:p-6 relative flex flex-col min-h-0">
           <div
-            className={`max-w-[1500px] mx-auto page-enter ${readOnlyBlockMain ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
+            className={`flex-1 max-w-[1500px] w-full mx-auto page-enter ${readOnlyBlockMain ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
             aria-disabled={readOnlyBlockMain}
           >
             {children}
