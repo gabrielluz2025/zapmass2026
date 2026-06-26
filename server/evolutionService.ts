@@ -899,18 +899,33 @@ export async function anySelectedConnectionsOpen(connectionIds: string[]): Promi
     return false;
 }
 
+const lastConnectionStateCheck = new Map<string, { state: boolean; at: number }>();
+
 async function isConnectionOpen(instanceName: string): Promise<boolean> {
+    const now = Date.now();
+    const lastCheck = lastConnectionStateCheck.get(instanceName);
+    if (lastCheck && now - lastCheck.at < 15000) {
+        return lastCheck.state;
+    }
+
     const mem = connections.get(instanceName);
-    if (mem?.status === 'open') return true;
-    const apiState = (await getConnectionState(instanceName, { timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
+    const apiState = (await getConnectionState(instanceName, { skipCache: true, timeoutMs: CONNECTION_STATE_PROBE_TIMEOUT_MS }))
         .toLowerCase();
-    if (isEvolutionOpenState(apiState)) {
-        if (mem) {
+    
+    const isOpen = isEvolutionOpenState(apiState);
+    lastConnectionStateCheck.set(instanceName, { state: isOpen, at: now });
+
+    if (isOpen) {
+        if (mem && mem.status !== 'open') {
             applyConnectionStateUpdate(instanceName, 'open', {});
         }
         return true;
+    } else {
+        if (mem && mem.status === 'open') {
+            applyConnectionStateUpdate(instanceName, 'close', {});
+        }
+        return false;
     }
-    return false;
 }
 
 function parseConnectionStateFromData(data: unknown): string {
