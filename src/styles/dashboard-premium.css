@@ -2948,18 +2948,19 @@
   color: #fdba74 !important;
 }
 
-/* â”€â”€ Atlas territorial (painel claro, layout vertical) â”€â”€ */
+/* ── Atlas territorial (Pure Dark Premium Edition with Neon Borders & Glow) ── */
 
 .zm-atlas {
   margin: 0 16px 16px;
-  padding: 20px;
-  border-radius: 16px;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
+  padding: 24px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--surface-1) 0%, rgba(17, 17, 21, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   color: var(--text-1);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.85);
 }
 
 .zm-atlas__header {
@@ -2967,15 +2968,18 @@
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 16px;
 }
 
 .zm-atlas__title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #0c0a09;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
 }
 
 .zm-atlas__subtitle {
@@ -3005,7 +3009,7 @@
   transform: translateY(-50%);
   width: 15px;
   height: 15px;
-  color: #a8a29e;
+  color: var(--text-3);
   pointer-events: none;
 }
 
@@ -3013,17 +3017,17 @@
   width: 100%;
   padding: 8px 32px 8px 34px;
   border-radius: 9px;
-  border: 1px solid #d6d3d1;
-  background: #fff;
-  color: #1c1917;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 9, 11, 0.8);
+  color: var(--text-1);
   font-size: 13px;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .zm-atlas-search__input:focus {
-  border-color: #a8a29e;
-  box-shadow: 0 0 0 3px rgba(28, 25, 23, 0.06);
+  border-color: var(--brand-500);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.25);
 }
 
 .zm-atlas-search__spinner {
@@ -3033,7 +3037,7 @@
   transform: translateY(-50%);
   width: 14px;
   height: 14px;
-  color: #a8a29e;
+  color: var(--brand-500);
 }
 
 .zm-atlas-search__dropdown {
@@ -3046,9 +3050,9 @@
   padding: 4px;
   list-style: none;
   border-radius: 10px;
-  border: 1px solid #e7e5e4;
-  background: #fff;
-  box-shadow: 0 12px 32px rgba(28, 25, 23, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.8);
 }
 
 .zm-atlas-search__option {
@@ -3060,27 +3064,29 @@
   border: none;
   border-radius: 7px;
   background: transparent;
-  color: #1c1917;
+  color: var(--text-1);
   font-size: 13px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .zm-atlas-search__option:hover {
-  background: #f5f5f4;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--brand-400);
 }
 
 .zm-atlas-search__uf {
   font-size: 11px;
   font-weight: 700;
-  color: #78716c;
+  color: var(--brand-500);
 }
 
 .zm-atlas-scope {
   display: inline-flex;
   padding: 3px;
   border-radius: 9px;
-  border: 1px solid #d6d3d1;
-  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 9, 11, 0.8);
 }
 
 .zm-atlas-scope__btn {
@@ -3088,15 +3094,17 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #78716c;
+  color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .zm-atlas-scope__btn--on {
-  background: #1c1917;
-  color: #fafaf9;
+  background: var(--brand-500);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
 }
 
 .zm-atlas-geocode {
@@ -3105,17 +3113,18 @@
   gap: 6px;
   padding: 8px 12px;
   border-radius: 9px;
-  border: 1px solid #d6d3d1;
-  background: #fff;
-  color: #57534e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-2);
+  color: var(--text-1);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .zm-atlas-geocode:hover:not(:disabled) {
-  background: #f5f5f4;
-  color: #1c1917;
+  background: var(--surface-3);
+  border-color: var(--brand-500);
 }
 
 .zm-atlas-geocode:disabled {
@@ -3129,10 +3138,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 16px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid #e9d5ff;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--surface-2) 0%, rgba(9, 9, 11, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .zm-atlas-meta__context {
@@ -3191,28 +3200,31 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: 8px;
-  border: 1px solid #ddd6fe;
-  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-2);
   font-size: 12px;
   font-weight: 600;
-  color: #6d28d9;
+  color: var(--text-1);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: all 0.15s ease;
 }
 
 .zm-atlas-meta__btn:hover {
-  background: #faf5ff;
-  border-color: #c4b5fd;
+  background: var(--surface-3);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: var(--brand-400);
 }
 
 .zm-atlas-meta__btn--primary {
-  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-600) 100%);
   border-color: transparent;
   color: #fff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
 }
 
 .zm-atlas-meta__btn--primary:hover {
-  background: linear-gradient(135deg, #6d28d9, #5b21b6);
+  background: linear-gradient(135deg, var(--brand-400) 0%, var(--brand-500) 100%);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4);
 }
 
 /* Toggle mapa bairros / contatos */
@@ -3225,9 +3237,9 @@
   gap: 2px;
   padding: 3px;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid #e7e5e4;
-  box-shadow: 0 4px 12px rgba(28, 25, 23, 0.08);
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 .zm-atlas-map-toggle__btn {
@@ -3237,13 +3249,14 @@
   background: transparent;
   font-size: 11px;
   font-weight: 700;
-  color: #78716c;
+  color: var(--text-2);
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .zm-atlas-map-toggle__btn--on {
-  background: #f3e8ff;
-  color: #6d28d9;
+  background: var(--brand-500);
+  color: #fff;
 }
 
 /* Chrome profissional do mapa territorial */
