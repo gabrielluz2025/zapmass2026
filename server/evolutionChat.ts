@@ -60,6 +60,11 @@ import {
     hydrateChatArchiveForConversation as mergeHydrateChatArchive,
     mergeChatArchiveIntoConversation
 } from './chatArchiveMerge.js';
+import {
+    appendChatArchiveMessages,
+    isWaChatArchiveEnabled,
+    threadIdFromConversationId,
+} from './chatArchiveStore.js';
 
 export type EvolutionChatArchiveCtx = {
     resolveConnectionOwnerUid: (connectionId: string) => string | undefined;

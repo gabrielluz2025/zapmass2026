@@ -22,6 +22,7 @@ import {
   DashboardMetrics, 
   ZapMassContextType,
   BirthdayContact,
+  ChatMessage,
   Conversation,
   ContactList,
   Contact,

@@ -121,6 +121,7 @@ interface EvolutionInstance {
     messagesSentToday?: number;
     limitExceededApproved?: boolean;
     lastLimitResetDate?: string; // Data no formato YYYY-MM-DD da última verificação/reinício do limite diário
+    lastActivity?: string;
 }
 
 type ExtractedEvolutionQr = { displayValue: string; kind: 'code' | 'image' };

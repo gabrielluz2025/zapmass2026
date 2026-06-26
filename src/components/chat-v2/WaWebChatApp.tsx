@@ -548,7 +548,7 @@ export const WaWebChatApp: React.FC<{
     ];
     for (const msg of msgs) {
       const ts = msg.timestamp
-        ? new Date(msg.timestamp * 1000).toLocaleString('pt-BR')
+        ? new Date(Number(msg.timestamp) * 1000).toLocaleString('pt-BR')
         : '';
       const who = msg.sender === 'me' ? 'Você' : title;
       const content =

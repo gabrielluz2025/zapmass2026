@@ -6470,7 +6470,7 @@ export const loadChatHistory = async (
     conversationId: string,
     limit: number = 500,
     skipMedia: boolean = true
-): Promise<{ ok: boolean; total: number; error?: string }> => {
+): Promise<{ ok: boolean; total: number; error?: string; messages?: ChatMessage[] }> => {
     try {
         const requested = Math.max(50, Math.min(limit, MAX_MESSAGES));
         await mergeFirestoreArchiveIntoConversation(conversationId, requested);
