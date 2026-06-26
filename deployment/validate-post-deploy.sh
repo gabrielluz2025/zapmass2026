@@ -62,19 +62,29 @@ else
 fi
 
 section "2/5 — Evolution API (versão + imagem Docker)"
-EVO_INFO="$(curl -sf --max-time 10 "${EVO_URL}/" 2>/dev/null || echo '')"
+EVO_INFO=""
+for _evo_try in 1 2 3; do
+  EVO_INFO="$(curl -sf --max-time 15 "${EVO_URL}/" 2>/dev/null || echo '')"
+  if [ -n "$EVO_INFO" ]; then
+    break
+  fi
+  [ "$_evo_try" -lt 3 ] && sleep 5
+done
+unset _evo_try
 if [ -n "$EVO_INFO" ]; then
   EVO_VER="$(echo "$EVO_INFO" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
   ok "Evolution responde (${EVO_URL}) — versão ${EVO_VER:-?}"
 else
   bad "Evolution não responde em ${EVO_URL}"
-  if docker stack ls 2>/dev/null | grep -q zapmass; then
+  if docker service inspect zapmass_evolution >/dev/null 2>&1; then
     ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '?')"
     pg_rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '?')"
     echo "  Swarm: evolution=${ev_rep} postgres=${pg_rep}"
     docker service ps zapmass_evolution --no-trunc 2>/dev/null | head -4 | sed 's/^/    /' || true
-  else
-    docker compose ps evolution postgres 2>/dev/null | sed 's/^/    /' || docker ps --filter name=evolution --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | sed 's/^/    /' || true
+  elif [ -f docker-compose.yml ]; then
+    echo "  Compose (sem stack Swarm):"
+    docker compose ps evolution postgres redis 2>/dev/null | sed 's/^/    /' || true
+    echo "  → bash deployment/fix-evolution-now.sh"
   fi
   echo "  → bash deployment/recover-postgres-evolution.sh"
 fi
@@ -250,7 +260,12 @@ echo "  Passou: ${pass}  |  Avisos: ${warn}  |  Falhas: ${fail}"
 if [ "$fail" -gt 0 ]; then
   echo ""
   echo "  Ação sugerida (ordem):"
-  echo "    1. bash deployment/recover-postgres-evolution.sh   # subir Evolution + Postgres"
+  if docker service inspect zapmass_evolution >/dev/null 2>&1; then
+    echo "    1. bash deployment/recover-postgres-evolution.sh   # Swarm: Evolution + Postgres"
+  else
+    echo "    1. bash deployment/fix-evolution-now.sh              # Compose: subir Evolution"
+    echo "       ou: bash deployment/recover-postgres-evolution.sh"
+  fi
   echo "    2. bash deployment/deploy-completo.sh                # alinhar ZapMass ao git"
   echo "    3. bash deployment/validate-post-deploy.sh           # rodar de novo"
   echo ""

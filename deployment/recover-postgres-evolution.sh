@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Recupera Postgres + Evolution no Docker Swarm quando postgres fica 0/1.
+# Recupera Postgres + Evolution (Docker Swarm ou Docker Compose).
 # Uso: cd /opt/zapmass && bash deployment/recover-postgres-evolution.sh
 # Reset total (apaga DB Evolution): ZAPMASS_RESET_EVOLUTION_DB=1 bash deployment/recover-postgres-evolution.sh
 set -euo pipefail
@@ -25,6 +25,17 @@ EVOLUTION_KEY="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' 
 EVOLUTION_KEY="${EVOLUTION_KEY:-$DEFAULT_EVOLUTION_KEY}"
 POSTGRES_HOST="${POSTGRES_HOST:-tasks.postgres}"
 
+uses_swarm_stack() {
+  docker service inspect zapmass_evolution >/dev/null 2>&1 \
+    || docker service inspect zapmass_postgres >/dev/null 2>&1
+}
+
+evolution_http_code() {
+  curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
+    "http://127.0.0.1:8080/instance/fetchInstances" \
+    -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000
+}
+
 ensure_postgres_running() {
   local rep
   rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
@@ -38,7 +49,15 @@ ensure_postgres_running() {
 }
 
 postgres_container_id() {
-  docker ps -q --filter "name=zapmass_postgres" 2>/dev/null | head -1 || true
+  local cid
+  cid="$(docker compose ps -q postgres 2>/dev/null | head -1 || true)"
+  if [ -n "$cid" ]; then
+    printf '%s' "$cid"
+    return 0
+  fi
+  docker ps -q --filter "name=zapmass_postgres" 2>/dev/null | head -1 \
+    || docker ps -q --filter "name=zapmass-postgres" 2>/dev/null | head -1 \
+    || true
 }
 
 swarm_network() {
@@ -107,11 +126,19 @@ sync_postgres_password() {
 
 diagnose_evolution() {
   echo ""
-  echo "--- zapmass_evolution (tasks) ---"
-  docker service ps zapmass_evolution --no-trunc 2>&1 | head -12 || true
-  echo ""
-  echo "--- zapmass_evolution (logs) ---"
-  docker service logs zapmass_evolution --tail 50 2>&1 || true
+  if uses_swarm_stack; then
+    echo "--- zapmass_evolution (tasks) ---"
+    docker service ps zapmass_evolution --no-trunc 2>&1 | head -12 || true
+    echo ""
+    echo "--- zapmass_evolution (logs) ---"
+    docker service logs zapmass_evolution --tail 50 2>&1 || true
+  else
+    echo "--- evolution (compose) ---"
+    docker compose ps evolution 2>&1 || true
+    echo ""
+    echo "--- evolution (logs) ---"
+    docker compose logs evolution --tail 50 2>&1 || true
+  fi
 }
 
 free_port_8080() {
@@ -190,16 +217,20 @@ wait_postgres_replicas() {
 wait_evolution_http() {
   local i code="000"
   for i in $(seq 1 24); do
-    code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
-      "http://127.0.0.1:8080/instance/fetchInstances" \
-      -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+    code="$(evolution_http_code)"
     if [ "$code" = "200" ]; then
       printf '%s' "$code"
       return 0
     fi
-    local ev_rep
-    ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
-    echo "   evolution: ${ev_rep:-?} | HTTP ${code} (${i}/24)"
+    if uses_swarm_stack; then
+      local ev_rep
+      ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
+      echo "   evolution: ${ev_rep:-?} | HTTP ${code} (${i}/24)"
+    else
+      local ev_state
+      ev_state="$(docker compose ps evolution --format '{{.State}}' 2>/dev/null | head -1 || echo '?')"
+      echo "   evolution compose: ${ev_state} | HTTP ${code} (${i}/24)"
+    fi
     if [ "$i" = "6" ] || [ "$i" = "12" ]; then
       diagnose_evolution
     fi
@@ -249,14 +280,99 @@ reset_evolution_db_volume() {
   http_code="$(wait_evolution_http || true)"
 }
 
+reset_evolution_db_compose() {
+  warn "ZAPMASS_RESET_EVOLUTION_DB=1 — apagar volume postgres (Compose)"
+  docker compose stop evolution postgres 2>/dev/null || true
+  sleep 5
+  local vol
+  for vol in zapmass_zapmass-postgres zapmass-postgres; do
+    if docker volume inspect "$vol" >/dev/null 2>&1; then
+      docker volume rm -f "$vol" 2>/dev/null || true
+    fi
+  done
+  ok "Volume postgres removido (se existia)"
+  docker compose up -d postgres redis
+  wait_pg_isready || return 1
+  sync_postgres_password || true
+  restart_evolution_compose
+  log "Aguardar Evolution HTTP 200 (ate 4 min)"
+  http_code="$(wait_evolution_http || true)"
+}
+
+restart_evolution_compose() {
+  log "Recriar Evolution (Docker Compose)"
+  free_port_8080
+  docker compose up -d postgres redis
+  docker compose up -d --force-recreate evolution
+}
+
+run_compose_recovery() {
+  local http_code="000"
+
+  log "Modo Docker Compose (sem stack Swarm)"
+  docker compose ps 2>/dev/null || true
+
+  http_code="$(evolution_http_code)"
+  if [ "$http_code" = "200" ]; then
+    local pg_cid
+    pg_cid="$(postgres_container_id)"
+    if [ -n "$pg_cid" ] && docker inspect "$pg_cid" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
+      ok "Evolution ja operacional (HTTP 200, Compose)"
+      return 0
+    fi
+  fi
+
+  if [ "${ZAPMASS_RESET_EVOLUTION_DB:-0}" = "1" ]; then
+    reset_evolution_db_compose
+  else
+    log "Subir postgres + redis"
+    docker compose up -d postgres redis
+    wait_pg_isready || warn "pg_isready falhou"
+    sync_postgres_password || warn "Nao foi possivel alinhar senha postgres"
+    if verify_postgres_auth; then
+      ok "Postgres aceita login com POSTGRES_PASSWORD do .env"
+    else
+      warn "Login postgres falhou — tentar sync novamente"
+      sync_postgres_password || true
+    fi
+    restart_evolution_compose
+    log "Aguardar Evolution HTTP 200 (ate 4 min)"
+    http_code="$(wait_evolution_http || true)"
+  fi
+
+  if [ "$http_code" != "200" ]; then
+    http_code="$(evolution_http_code)"
+  fi
+
+  echo ""
+  echo "========== RESUMO (Compose) =========="
+  docker compose ps 2>/dev/null || true
+  echo "Evolution HTTP: ${http_code}"
+
+  if [ "$http_code" = "200" ]; then
+    ok "Evolution operacional."
+    return 0
+  fi
+
+  warn "Evolution ainda nao respondeu 200"
+  diagnose_evolution
+  echo ""
+  echo "Se logs mostram P1001, authentication failed ou Migration failed:"
+  echo "  ZAPMASS_RESET_EVOLUTION_DB=1 bash deployment/recover-postgres-evolution.sh"
+  return 1
+}
+
 http_code="000"
 
-log "Estado actual"
+if [ -f docker-compose.yml ] && ! uses_swarm_stack; then
+  run_compose_recovery
+  exit $?
+fi
+
+log "Estado actual (Swarm)"
 docker stack services zapmass 2>/dev/null || true
 
-http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
-  "http://127.0.0.1:8080/instance/fetchInstances" \
-  -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+http_code="$(evolution_http_code)"
 ev_rep="$(docker service ls --filter name=zapmass_evolution --format '{{.Replicas}}' 2>/dev/null || echo '')"
 pg_rep="$(docker service ls --filter name=zapmass_postgres --format '{{.Replicas}}' 2>/dev/null || echo '')"
 if [ "$http_code" = "200" ] && [ "$ev_rep" = "1/1" ] && [ "$pg_rep" = "1/1" ]; then
@@ -308,9 +424,7 @@ else
 fi
 
 if [ "$http_code" != "200" ]; then
-  http_code="$(curl -s -o /tmp/evolution-fetch.json -w '%{http_code}' \
-    "http://127.0.0.1:8080/instance/fetchInstances" \
-    -H "apikey: ${EVOLUTION_KEY}" 2>/dev/null || echo 000)"
+  http_code="$(evolution_http_code)"
 fi
 
 echo ""
