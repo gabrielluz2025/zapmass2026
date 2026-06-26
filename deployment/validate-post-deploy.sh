@@ -19,17 +19,28 @@ set -eu
 ROOT="${ROOT:-/opt/zapmass}"
 cd "$ROOT"
 
-if [ -z "${EVOLUTION_API_KEY:-}" ]; then
-  _cid="$(docker compose ps -q evolution 2>/dev/null | head -1 || true)"
-  if [ -z "$_cid" ]; then
-    _cid="$(docker ps -q --filter 'name=zapmass_evolution' 2>/dev/null | head -1 || true)"
-  fi
-  if [ -n "$_cid" ]; then
-    EVOLUTION_API_KEY="$(docker exec "$_cid" printenv AUTHENTICATION_API_KEY 2>/dev/null || true)"
-  fi
+_evo_cid="$(docker compose ps -q evolution 2>/dev/null | head -1 || true)"
+if [ -z "$_evo_cid" ]; then
+  _evo_cid="$(docker ps -q --filter 'name=zapmass-evolution' 2>/dev/null | head -1 || true)"
 fi
-API_KEY="${EVOLUTION_API_KEY:-$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' | sed 's/^["'\'']//;s/["'\'']$//' || true)}"
-API_KEY="${API_KEY:-zapmass-secure-key-2026}"
+_key_env="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' | sed 's/^["'\'']//;s/["'\'']$//' || true)"
+_key_container=""
+if [ -n "$_evo_cid" ]; then
+  _key_container="$(docker exec "$_evo_cid" printenv AUTHENTICATION_API_KEY 2>/dev/null || true)"
+fi
+# Container manda: .env desatualizado quebra fetchInstances enquanto GET / responde sem auth.
+if [ -n "${EVOLUTION_API_KEY:-}" ]; then
+  API_KEY="${EVOLUTION_API_KEY}"
+elif [ -n "$_key_container" ]; then
+  API_KEY="$_key_container"
+else
+  API_KEY="${_key_env:-zapmass-secure-key-2026}"
+fi
+KEY_ENV_MISMATCH=0
+if [ -n "$_key_env" ] && [ -n "$_key_container" ] && [ "$_key_env" != "$_key_container" ]; then
+  KEY_ENV_MISMATCH=1
+fi
+unset _key_env _key_container
 EVO_URL="${EVOLUTION_API_URL:-${EVOLUTION_SERVER_URL:-http://127.0.0.1:8080}}"
 EVO_URL="${EVO_URL%/}"
 HOST_PORT="${HOST_PORT:-$(grep -E '^HOST_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d $'\r"\'')}"
@@ -106,13 +117,36 @@ for var in WA_FULL_INBOX_SYNC EVOLUTION_SYNC_MESSAGES CHAT_SOCKET_MSG_TAIL; do
 done
 
 section "4/5 — Chips (status, syncFullHistory, mensagens no Postgres Evolution)"
-INST_JSON="$(curl -sS --max-time 20 "${EVO_URL}/instance/fetchInstances" -H "apikey: ${API_KEY}" 2>&1)" || INST_JSON=''
+if [ "$KEY_ENV_MISMATCH" = "1" ]; then
+  warn "EVOLUTION_API_KEY no .env ≠ AUTHENTICATION_API_KEY do container — usando key do container"
+  echo "  → alinhe .env e recrie: docker compose up -d --force-recreate evolution zapmass"
+fi
 
-if [ -z "$INST_JSON" ] || echo "$INST_JSON" | grep -qiE 'error|unauthorized|401'; then
-  bad "fetchInstances falhou — Evolution offline ou API key incorreta"
-  if [ -z "$EVO_INFO" ]; then
-    echo "  (Evolution não responde — corrija antes com recover-postgres-evolution.sh)"
+INST_JSON=""
+INST_HTTP="000"
+for _fi_try in 1 2 3 4 5 6; do
+  INST_HTTP="$(curl -sS --max-time 20 -o /tmp/zapmass-fetch-instances.json -w '%{http_code}' \
+    "${EVO_URL}/instance/fetchInstances" -H "apikey: ${API_KEY}" 2>/dev/null || echo 000)"
+  INST_JSON="$(cat /tmp/zapmass-fetch-instances.json 2>/dev/null || echo '')"
+  if [ "$INST_HTTP" = "200" ] && [ -n "$INST_JSON" ]; then
+    break
   fi
+  [ "$_fi_try" -lt 6 ] && sleep 5
+done
+unset _fi_try
+
+if [ "$INST_HTTP" != "200" ] || [ -z "$INST_JSON" ]; then
+  bad "fetchInstances falhou (HTTP ${INST_HTTP})"
+  if [ "$INST_HTTP" = "401" ] || [ "$INST_HTTP" = "403" ]; then
+    echo "  API key rejeitada — confira EVOLUTION_API_KEY no .env vs container evolution"
+    echo "  Container: docker exec \$(_evo_cid) printenv AUTHENTICATION_API_KEY"
+  elif [ "$INST_HTTP" = "000" ]; then
+    echo "  Evolution ainda subindo após deploy — aguarde 30s e rode de novo"
+  fi
+  echo "  Resposta: $(echo "$INST_JSON" | head -c 280)"
+elif ! echo "$INST_JSON" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+  bad "fetchInstances retornou JSON inválido"
+  echo "  Resposta: $(echo "$INST_JSON" | head -c 280)"
 else
   python3 - "$INST_JSON" <<'PY'
 import json, sys

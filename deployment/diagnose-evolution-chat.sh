@@ -8,9 +8,21 @@ cd "$ROOT"
 
 if [ -z "${EVOLUTION_API_KEY:-}" ]; then
   _cid="$(docker compose ps -q evolution 2>/dev/null | head -1 || true)"
-  if [ -n "$_cid" ]; then
-    EVOLUTION_API_KEY="$(docker exec "$_cid" printenv AUTHENTICATION_API_KEY 2>/dev/null || true)"
+  if [ -z "$_cid" ]; then
+    _cid="$(docker ps -q --filter 'name=zapmass-evolution' 2>/dev/null | head -1 || true)"
   fi
+  _key_container=""
+  if [ -n "$_cid" ]; then
+    _key_container="$(docker exec "$_cid" printenv AUTHENTICATION_API_KEY 2>/dev/null || true)"
+  fi
+  _key_env="$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' | sed 's/^["'\'']//;s/["'\'']$//' || true)"
+  if [ -n "$_key_container" ]; then
+    EVOLUTION_API_KEY="$_key_container"
+    if [ -n "$_key_env" ] && [ "$_key_env" != "$_key_container" ]; then
+      echo "==> AVISO: EVOLUTION_API_KEY no .env difere do container — usando container"
+    fi
+  fi
+  unset _key_container _key_env _cid
 fi
 API_KEY="${EVOLUTION_API_KEY:-$(grep -E '^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=' .env 2>/dev/null | tail -1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?EVOLUTION_API_KEY=//' | tr -d '\r"' | sed 's/^["'\'']//;s/["'\'']$//' || true)}"
 API_KEY="${API_KEY:-zapmass-secure-key-2026}"
