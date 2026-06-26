@@ -2987,10 +2987,11 @@ function ensureReplyFlowEngine() {
         onSessionDisposed: (connectionId, phoneDigits) => {
             void deleteReplyFlowSessionFromRedis(connectionId, phoneDigits);
         },
-        // Quando todas as sessões de reply flow de uma campanha fecham, verifica se a
-        // campanha pode agora ser marcada como concluída (pending já era 0).
+        // Quando todas as sessões de reply flow de uma campanha fecham, tenta finalizar.
+        // Não deletamos campaignPendingJobs aqui porque respostas de menu podem ter sido
+        // enfileiradas logo antes do disposeSession — tryFinalizeOrHoldCampaign verifica
+        // se pending > 0 e retorna sem finalizar se ainda houver jobs em andamento.
         onAllSessionsClosed: (campaignId) => {
-            campaignPendingJobs.delete(campaignId);
             void tryFinalizeOrHoldCampaign(campaignId);
         },
     });
