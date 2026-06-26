@@ -24,7 +24,8 @@ import {
   Church,
   Globe2,
   Sparkles,
-  MapPin
+  MapPin,
+  Bot
 } from 'lucide-react';
 import { useZapMassUiSnapshot } from '../../context/ZapMassContext';
 import { useAuth } from '../../context/AuthContext';
@@ -99,7 +100,10 @@ const navGroups: NavGroup[] = [
   },
   {
     label: 'Operações',
-    items: [{ id: 'warmup', label: 'Aquecimento', icon: Flame, description: 'Warmup seguro' }]
+    items: [
+      { id: 'warmup', label: 'Aquecimento', icon: Flame, description: 'Warmup seguro' },
+      { id: 'support-bot', label: 'Atendimento', icon: Bot, description: 'Bot automático e handoff humano' }
+    ]
   },
   {
     label: 'Sistema',

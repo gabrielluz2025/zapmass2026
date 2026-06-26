@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
-  ChevronDown,
+  AlertCircle,
   GitBranch,
   Lightbulb,
   ListOrdered,
@@ -94,7 +94,7 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
   campaignBrief = '',
   previewDisplayName = 'Maria',
 }) => {
-  const [invalidOpen, setInvalidOpen] = useState(false);
+  const [, setInvalidOpen] = useState(false); // kept for compat; menu mode always shows the field
   const first = stages[0];
   const second = stages[1];
   const isConditional = !first?.acceptAnyReply && first?.optionsMode === 'conditional';
@@ -432,36 +432,30 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  <div className="cw-reply-invalid">
-                    <button
-                      type="button"
-                      className="cw-reply-invalid__toggle"
-                      onClick={() => setInvalidOpen((v) => !v)}
-                      aria-expanded={invalidOpen}
-                    >
-                      <span>Se a resposta não for reconhecida</span>
-                      <ChevronDown className={`w-4 h-4 transition-transform ${invalidOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    {invalidOpen && (
-                      <div className="cw-reply-invalid__body">
-                        <p className="text-[10.5px] mb-2 leading-snug" style={{ color: 'var(--text-3)' }}>
-                          Mensagem quando o contato digitar algo fora das opções acima.
-                        </p>
-                        <CampaignMessageVariableChips
-                          onInsert={onInsertInvalidVariable}
-                          density="compact"
-                          collapsible
-                        />
-                        <Textarea
-                          ref={invalidReplyRef}
-                          placeholder="Não entendi. Digite 1 para sim ou 2 para não."
-                          value={first?.invalidReplyBody || ''}
-                          onChange={(e) => patchFirst({ invalidReplyBody: e.target.value })}
-                          className="mt-2"
-                          style={{ minHeight: '72px' }}
-                        />
-                      </div>
-                    )}
+                  <div className="cw-reply-invalid cw-reply-invalid--always-open">
+                    <div className="cw-reply-invalid__header">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--accent-warn, #f59e0b)' }} aria-hidden />
+                      <span>Resposta não reconhecida</span>
+                      <span className="cw-reply-invalid__required">obrigatório</span>
+                    </div>
+                    <div className="cw-reply-invalid__body">
+                      <p className="text-[10.5px] mb-2 leading-snug" style={{ color: 'var(--text-3)' }}>
+                        Enviada quando o contato digitar algo fora das opções configuradas acima.
+                      </p>
+                      <CampaignMessageVariableChips
+                        onInsert={onInsertInvalidVariable}
+                        density="compact"
+                        collapsible
+                      />
+                      <Textarea
+                        ref={invalidReplyRef}
+                        placeholder="Não entendi. Digite 1 para sim ou 2 para não."
+                        value={first?.invalidReplyBody || ''}
+                        onChange={(e) => patchFirst({ invalidReplyBody: e.target.value })}
+                        className="mt-2"
+                        style={{ minHeight: '72px', borderColor: !first?.invalidReplyBody?.trim() ? 'var(--accent-warn, #f59e0b)' : undefined }}
+                      />
+                    </div>
                   </div>
                 </div>
               )}

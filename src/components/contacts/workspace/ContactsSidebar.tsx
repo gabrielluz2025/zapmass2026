@@ -2,7 +2,7 @@
 import {
   Users, Flame, Sparkles, Snowflake, Clock, Cake, Moon, AlertCircle,
   MapPinOff, Copy, List as ListIcon, LucideIcon, Search, X, CalendarClock, Heart,
-  LayoutGrid, SlidersHorizontal, ChevronDown, ChevronUp
+  LayoutGrid, SlidersHorizontal, ChevronDown, ChevronUp, ShieldOff
 } from 'lucide-react';
 import type { ContactList } from '../../../types';
 import { ContactsListsPanel } from './ContactsListsPanel';
@@ -26,6 +26,7 @@ export type SmartFilterId =
   | 'retorno_hoje'
   | 'retorno_semana'
   | 'no_list'
+  | 'blacklist'
   | `list:${string}`;
 
 export type SidebarPanelTab = 'explore' | 'lists' | 'advanced';
@@ -49,6 +50,7 @@ export interface SidebarCounts {
   retorno_hoje: number;
   retorno_semana: number;
   no_list: number;
+  blacklist: number;
 }
 
 interface Props {
@@ -126,7 +128,8 @@ export const ContactsSidebar: React.FC<Props> = React.memo(({
     { id: 'dormant', label: 'Dormentes', icon: Moon, tone: 'slate', count: counts.dormant },
     { id: 'invalid', label: 'Inválidos', icon: AlertCircle, tone: 'rose', count: counts.invalid },
     { id: 'no_address', label: 'Sem endereço', icon: MapPinOff, tone: 'orange', count: counts.no_address },
-    { id: 'duplicates', label: 'Duplicados', icon: Copy, tone: 'rose', count: counts.duplicates }
+    { id: 'duplicates', label: 'Duplicados', icon: Copy, tone: 'rose', count: counts.duplicates },
+    { id: 'blacklist', label: 'Lista negra', icon: ShieldOff, tone: 'rose', count: counts.blacklist, hint: 'Optaram por não receber disparos' }
   ];
 
   const groupAttention = hideWeddingFilters

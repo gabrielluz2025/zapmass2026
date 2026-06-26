@@ -5,6 +5,7 @@ import { AppShell } from './components/shell';
 import { ConnectionsTab } from './components/ConnectionsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { SettingsTab } from './components/SettingsTab';
+import { SupportBotSettingsPanel } from './components/settings/SupportBotSettingsPanel';
 import { WarmupTab } from './components/WarmupTab';
 import { MySubscriptionTab } from './components/billing/MySubscriptionTab';
 import { TutorialPage } from './components/help/TutorialPage';
@@ -362,6 +363,12 @@ const MainLayout: React.FC = () => {
         return <ReportsTab />;
       case 'settings':
         return <SettingsTab />;
+      case 'support-bot':
+        return (
+          <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+            <SupportBotSettingsPanel />
+          </div>
+        );
       case 'team':
         return <WorkspaceTeamPage />;
       case 'religious-members':

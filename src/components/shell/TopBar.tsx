@@ -32,7 +32,8 @@ const VIEW_META: Record<string, { title: string; subtitle: string }> = {
   'admin-ops': { title: 'Operações (servidor)', subtitle: 'Canais, RAM, fila e integrações' },
   'creator-studio': { title: 'Estúdio do criador', subtitle: 'Ferramentas internas e diagnóstico' },
   'religious-members': { title: 'Ficha de membro', subtitle: 'Cadastro eclesiástico (segmento religioso)' },
-  'pastoral-visits': { title: 'Visitas pastorais', subtitle: 'Agenda, ceia e quem precisa de visita' }
+  'pastoral-visits': { title: 'Visitas pastorais', subtitle: 'Agenda, ceia e quem precisa de visita' },
+  'support-bot': { title: 'Atendimento automático', subtitle: 'Bot de triagem, menu interativo e handoff humano' }
 };
 
 export const TopBar: React.FC<TopBarProps> = ({

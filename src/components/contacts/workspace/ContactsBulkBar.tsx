@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Rocket, ListPlus, Trash2, Tag, Download } from 'lucide-react';
+import { X, Rocket, ListPlus, Trash2, Tag, Download, ShieldOff, ShieldCheck } from 'lucide-react';
 
 interface Props {
   count: number;
@@ -9,6 +9,9 @@ interface Props {
   onAddTag: () => void;
   onExport: () => void;
   onDelete: () => void;
+  onAddToBlacklist?: () => void;
+  onRemoveFromBlacklist?: () => void;
+  activeFilter?: string;
 }
 
 /**
@@ -16,9 +19,12 @@ interface Props {
  * Fica na parte inferior da tabela, não atrapalha o fluxo.
  */
 export const ContactsBulkBar: React.FC<Props> = React.memo(({
-  count, onClear, onCreateCampaign, onAddToList, onAddTag, onExport, onDelete
+  count, onClear, onCreateCampaign, onAddToList, onAddTag, onExport, onDelete,
+  onAddToBlacklist, onRemoveFromBlacklist, activeFilter
 }) => {
   if (count === 0) return null;
+
+  const isBlacklistView = activeFilter === 'blacklist';
 
   return (
     <div className="sticky bottom-4 z-20 flex justify-center pointer-events-none px-4 pt-2">
@@ -32,7 +38,14 @@ export const ContactsBulkBar: React.FC<Props> = React.memo(({
           </span>
         </div>
 
-        <BulkBtn icon={<Rocket className="w-3.5 h-3.5" />} label="Campanha" onClick={onCreateCampaign} primary />
+        {isBlacklistView && onRemoveFromBlacklist ? (
+          <BulkBtn icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Remover lista negra" onClick={onRemoveFromBlacklist} primary />
+        ) : (
+          <BulkBtn icon={<Rocket className="w-3.5 h-3.5" />} label="Campanha" onClick={onCreateCampaign} primary />
+        )}
+        {!isBlacklistView && onAddToBlacklist && (
+          <BulkBtn icon={<ShieldOff className="w-3.5 h-3.5" />} label="Lista negra" onClick={onAddToBlacklist} danger />
+        )}
         <BulkBtn icon={<ListPlus className="w-3.5 h-3.5" />} label="Lista" onClick={onAddToList} />
         <BulkBtn icon={<Tag className="w-3.5 h-3.5" />} label="Tag" onClick={onAddTag} />
         <BulkBtn icon={<Download className="w-3.5 h-3.5" />} label="Exportar" onClick={onExport} />

@@ -1256,6 +1256,32 @@ export const ContactsTab: React.FC = () => {
     }
   };
 
+  const handleBulkAddToBlacklist = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Adicionar ${selectedIds.length} contato(s) à lista negra? Eles não receberão disparos de marketing.`)) return;
+    const toastId = toast.loading('Adicionando à lista negra...');
+    const results = await Promise.allSettled(
+      selectedIds.map((id) => updateContact(id, { marketingOptOut: true }))
+    );
+    const n = results.filter((r) => r.status === 'fulfilled').length;
+    toast.dismiss(toastId);
+    toast.success(`${n} contato(s) adicionados à lista negra.`);
+    setSelectedIds([]);
+  };
+
+  const handleBulkRemoveFromBlacklist = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Remover ${selectedIds.length} contato(s) da lista negra? Eles voltarão a receber disparos.`)) return;
+    const toastId = toast.loading('Removendo da lista negra...');
+    const results = await Promise.allSettled(
+      selectedIds.map((id) => updateContact(id, { marketingOptOut: false }))
+    );
+    const n = results.filter((r) => r.status === 'fulfilled').length;
+    toast.dismiss(toastId);
+    toast.success(`${n} contato(s) removidos da lista negra.`);
+    setSelectedIds([]);
+  };
+
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return;
     if (!window.confirm(`Remover ${selectedIds.length} contato(s) da base? Esta ação não pode ser desfeita.`)) return;
@@ -1862,6 +1888,7 @@ export const ContactsTab: React.FC = () => {
     let noCity = 0;
     let noTag = 0;
     let invalid = 0;
+    let blacklist = 0;
     let last7 = 0;
     let no_address = 0;
     let retorno_todos = 0;
@@ -1922,6 +1949,7 @@ export const ContactsTab: React.FC = () => {
       }
 
       if (!c.street || !c.city || !c.zipCode) no_address++;
+      if (c.marketingOptOut) blacklist++;
 
       const fu = parseFollowUpMs(c.followUpAt);
       if (fu != null) {
@@ -1954,6 +1982,7 @@ export const ContactsTab: React.FC = () => {
       noCity,
       noTag,
       invalid,
+      blacklist,
       duplicates: duplicateContactsCount,
       last7,
       no_address,
@@ -2284,6 +2313,8 @@ export const ContactsTab: React.FC = () => {
         return contactWeddingMatchesNextDays(c, 7);
       case 'no_list':
         return !contactIdsInAnyList.has(c.id);
+      case 'blacklist':
+        return !!c.marketingOptOut;
       default: return true;
     }
   }, [contactLists, contactTemps, phoneDupKeys, contactIdsInAnyList]);
@@ -3554,6 +3585,7 @@ export const ContactsTab: React.FC = () => {
       wedding_week: smartStats.weddingWeek,
       dormant: smartStats.dormant,
       invalid: smartStats.invalid,
+      blacklist: smartStats.blacklist,
       no_address: smartStats.no_address,
       duplicates: smartStats.duplicates,
       retorno_todos: smartStats.retorno_todos,
@@ -4171,6 +4203,9 @@ export const ContactsTab: React.FC = () => {
           onAddTag={() => void handleBulkAddTag()}
           onExport={handleBulkExport}
           onDelete={() => void handleBulkDelete()}
+          onAddToBlacklist={() => void handleBulkAddToBlacklist()}
+          onRemoveFromBlacklist={() => void handleBulkRemoveFromBlacklist()}
+          activeFilter={activeFilter}
         />
       )}
 

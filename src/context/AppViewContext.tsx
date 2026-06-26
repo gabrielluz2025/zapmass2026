@@ -25,7 +25,8 @@ const ALLOWED_VIEWS = new Set([
   'admin-ops',
   'religious-members',
   'pastoral-visits',
-  'ai-assistant'
+  'ai-assistant',
+  'support-bot'
 ]);
 
 function readInitialView(): string {
