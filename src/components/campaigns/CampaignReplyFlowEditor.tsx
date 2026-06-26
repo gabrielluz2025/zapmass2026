@@ -313,6 +313,24 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                   minHeight={140}
                   campaignBrief={campaignBrief}
                   />
+
+                  {/* Ação de Marketing / Efeito no contato ao responder (Qualquer Resposta) */}
+                  <div className="mt-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-tight">Ação ao responder</p>
+                      <p className="text-[10.5px] text-slate-400 mt-0.5 leading-snug">O que acontece com o contato no CRM após enviar qualquer resposta</p>
+                    </div>
+                    <select
+                      className="py-1 px-2 text-xs text-slate-900 bg-white border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-emerald-500 font-semibold focus:outline-none shrink-0"
+                      value={first?.marketingEffect || 'none'}
+                      onChange={(e) => patchFirst({ marketingEffect: e.target.value as any })}
+                    >
+                      <option value="none">🔵 Sem efeito extra</option>
+                      <option value="opt_in">🔥 Marcar como Lead Quente</option>
+                      <option value="opt_out">🚫 Direcionar p/ Lista Negra</option>
+                    </select>
+                  </div>
+
                   {followUpPreview.trim() ? (
                     <div className="cw-reply-followup-preview">
                       <span className="cw-reply-followup-preview__label">Prévia do follow-up</span>
@@ -365,16 +383,30 @@ export const CampaignReplyFlowEditor: React.FC<Props> = ({
                         </div>
                         <div className="cw-reply-menu-item__fields">
                           <div className="cw-reply-menu-item__row">
-                            <label className="cw-reply-menu-field">
-                              <span className="cw-reply-menu-field__label">Gatilhos (vírgula)</span>
-                              <input
-                                type="text"
-                                className="cw-reply-menu-field__input cw-reply-menu-field__input--trigger"
-                                placeholder={`Ex.: ${oIdx + 1}, sim, oi`}
-                                value={opt.tokensText}
-                                onChange={(e) => updateOption(opt.id, { tokensText: e.target.value })}
-                              />
-                            </label>
+                            <div className="flex flex-col gap-2.5 shrink-0 w-[170px]">
+                              <label className="cw-reply-menu-field">
+                                <span className="cw-reply-menu-field__label">Gatilhos (vírgula)</span>
+                                <input
+                                  type="text"
+                                  className="cw-reply-menu-field__input cw-reply-menu-field__input--trigger"
+                                  placeholder={`Ex.: ${oIdx + 1}, sim, oi`}
+                                  value={opt.tokensText}
+                                  onChange={(e) => updateOption(opt.id, { tokensText: e.target.value })}
+                                />
+                              </label>
+                              <label className="cw-reply-menu-field">
+                                <span className="cw-reply-menu-field__label">Ação do contato</span>
+                                <select
+                                  className="cw-reply-menu-field__input py-1 px-2 text-xs text-slate-900 bg-white border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-emerald-500 font-semibold focus:outline-none"
+                                  value={opt.marketingEffect || 'none'}
+                                  onChange={(e) => updateOption(opt.id, { marketingEffect: e.target.value as any })}
+                                >
+                                  <option value="none">🔵 Sem efeito extra</option>
+                                  <option value="opt_in">🔥 Marcar como Lead Quente</option>
+                                  <option value="opt_out">🚫 Direcionar p/ Lista Negra</option>
+                                </select>
+                              </label>
+                            </div>
                             <label className="cw-reply-menu-field cw-reply-menu-field--grow">
                               <span className="cw-reply-menu-field__label">Mensagem enviada</span>
                               <textarea
