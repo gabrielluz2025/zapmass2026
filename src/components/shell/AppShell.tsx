@@ -121,7 +121,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         )}
         <div className="flex-1 p-3 sm:p-5 lg:p-6 relative flex flex-col min-h-0">
           <div
-            className={`flex-1 max-w-[1500px] w-full mx-auto page-enter ${readOnlyBlockMain ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
+            className={`flex-1 w-full page-enter ${readOnlyBlockMain ? 'pointer-events-none select-none opacity-[0.88]' : ''}`}
             aria-disabled={readOnlyBlockMain}
           >
             {children}

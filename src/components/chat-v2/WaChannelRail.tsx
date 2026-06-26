@@ -72,9 +72,22 @@ export const WaChannelRail: React.FC<Props> = ({ connections, conversations, act
             onClick={() => onChange(conn.id)}
             title={`${conn.name || conn.id}${isOnline ? ' · Online' : ' · Offline'}`}
           >
+            {conn.profilePicUrl ? (
+              <img
+                src={conn.profilePicUrl}
+                alt={initials}
+                className="wa-rail-avatar"
+                style={{ objectFit: 'cover' }}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
+                  if (fallback) fallback.style.display = '';
+                }}
+              />
+            ) : null}
             <span
               className="wa-rail-avatar"
-              style={{ background: `hsl(${hue}, 55%, 38%)` }}
+              style={{ background: `hsl(${hue}, 55%, 38%)`, display: conn.profilePicUrl ? 'none' : undefined }}
             >
               {initials}
             </span>
