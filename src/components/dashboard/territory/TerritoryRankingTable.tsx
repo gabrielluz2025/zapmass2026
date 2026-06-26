@@ -5,6 +5,26 @@ import type { ContactTemperature } from '../../../utils/contactTemperature';
 import { TEMP_COLOR } from './territoryConstants';
 import type { NeighborhoodContactRow, NeighborhoodRow } from './types';
 
+function capitalizeName(text: string): string {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .split(' ')
+    .map((word) => {
+      if (word.length <= 2 && ['de', 'do', 'da', 'dos', 'das', 'e', 'em'].includes(word)) {
+        return word;
+      }
+      if (word.includes('-')) {
+        return word.split('-').map(capitalizeName).join(' - ');
+      }
+      if (['sc', 'sp', 'rj', 'mg', 'rs', 'pr', 'ba', 'pe', 'df', 'go', 'es', 'ce', 'pi', 'rn', 'pb', 'al', 'se', 'am', 'pa', 'ma', 'to', 'mt', 'ms', 'ro', 'ac', 'rr', 'ap'].includes(word)) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
 type Props = {
   rows: NeighborhoodRow[];
   selectedKey: string | null;
@@ -109,7 +129,7 @@ export const TerritoryRankingTable: React.FC<Props> = ({
               onClick={() => onSelectRow(active ? null : row)}
             >
               <span className="zm-atlas-table__num">{row.index ?? '—'}</span>
-              <span className="zm-atlas-table__name">{row.label}</span>
+              <span className="zm-atlas-table__name">{capitalizeName(row.label)}</span>
               <span className={`zm-atlas-table__count${row.count === 0 ? ' zm-atlas-table__count--zero' : ''}`}>
                 {row.count.toLocaleString('pt-BR')}
               </span>
@@ -123,7 +143,7 @@ export const TerritoryRankingTable: React.FC<Props> = ({
         <div className="zm-atlas-table__contacts-panel">
           <div className="zm-atlas-table__contacts-head">
             <div className="min-w-0">
-              <span className="zm-atlas-table__contacts-title">{selectedRow.label}</span>
+              <span className="zm-atlas-table__contacts-title">{capitalizeName(selectedRow.label)}</span>
               <span className="zm-atlas-table__contacts-sub">
                 {contacts.length.toLocaleString('pt-BR')} carregados
                 {selectedRow.count > contacts.length
