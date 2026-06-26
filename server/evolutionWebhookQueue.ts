@@ -267,6 +267,12 @@ export async function dispatchEvolutionWebhook(event: unknown): Promise<{
   reason?: string;
 }> {
   try {
+    const ev = (event && typeof event === 'object' ? event : {}) as Record<string, unknown>;
+    const eventName = String(ev.event || 'unknown').toUpperCase();
+    if (eventName === 'SEND_MESSAGE' || eventName === 'PRESENCE_UPDATE') {
+      return { queued: false, reason: 'ignored_event' };
+    }
+
     const enq = await enqueueEvolutionWebhook(event);
     if (enq.queued) return { queued: true, reason: enq.reason };
 

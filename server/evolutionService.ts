@@ -3167,8 +3167,6 @@ async function setupWebhook(instanceName: string) {
             'CONNECTION_UPDATE',
             'MESSAGES_UPSERT',
             'MESSAGES_UPDATE',
-            'SEND_MESSAGE',
-            'PRESENCE_UPDATE',
         ];
         // Evolution API v2 exige objeto "webhook" na raiz (v1 usava campos flat → HTTP 400).
         // byEvents:false — todos os eventos vão para a mesma URL; com true a Evolution posta em
