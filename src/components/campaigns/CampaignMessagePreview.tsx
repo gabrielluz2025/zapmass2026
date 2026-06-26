@@ -30,7 +30,31 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
           stepLabel: `Etapa ${idx + 1}`,
           meta: idx === 0 ? 'Enviada ao iniciar' : 'Enviada após resposta'
         });
-        if (idx < flowSteps.length - 1) {
+
+        const menuOptions = Array.isArray((step as any).options) ? (step as any).options as Array<{ tokens?: string[]; reply?: string }> : [];
+
+        if (menuOptions.length > 0) {
+          // Modo menu: mostra cada opção como ramo "in" + "out"
+          menuOptions.forEach((opt, oIdx) => {
+            const trigger = (opt.tokens || []).join(' / ') || String(oIdx + 1);
+            out.push({
+              text: trigger,
+              kind: 'in',
+              meta: `Opção ${oIdx + 1}`
+            });
+            if ((opt.reply || '').trim()) {
+              out.push({
+                text: opt.reply!.trim(),
+                kind: 'out',
+                stepLabel: `Resposta ${oIdx + 1}`,
+                meta: 'Enviada após escolha'
+              });
+            }
+          });
+          if (idx < flowSteps.length - 1) {
+            out.push({ text: '', kind: 'gate', meta: 'Continua após próxima resposta' });
+          }
+        } else if (idx < flowSteps.length - 1) {
           const gate = step.acceptAnyReply
             ? 'qualquer resposta'
             : (step.validTokens || []).join(' / ') || 'resposta válida';
@@ -104,8 +128,14 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
               {isReplyFlow ? 'Fluxo por resposta' : 'Mensagem enviada'}
             </h3>
             <p className="text-[11.5px]" style={{ color: 'var(--text-3)' }}>
-              {flowSteps.length || sequence.filter((s) => s.kind === 'out').length} etapa
-              {(flowSteps.length || 1) === 1 ? '' : 's'} • {totalChars} caracteres
+              {(() => {
+                if (!isReplyFlow) return `${sequence.filter(s => s.kind === 'out').length} etapa${sequence.filter(s => s.kind === 'out').length === 1 ? '' : 's'}`;
+                const totalOptions = flowSteps.reduce((acc, s) => acc + (Array.isArray((s as any).options) ? (s as any).options.length : 0), 0);
+                const label = totalOptions > 0
+                  ? `${flowSteps.length} etapa${flowSteps.length === 1 ? '' : 's'} • ${totalOptions} opção${totalOptions === 1 ? '' : 'ões'}`
+                  : `${flowSteps.length} etapa${flowSteps.length === 1 ? '' : 's'}`;
+                return label;
+              })()} • {totalChars} caracteres
             </p>
           </div>
         </div>
@@ -170,6 +200,33 @@ export const CampaignMessagePreview: React.FC<CampaignMessagePreviewProps> = ({ 
                   >
                     <Reply className="w-3 h-3 shrink-0" />
                     {s.meta}
+                  </div>
+                </div>
+              );
+            }
+
+            // Bolha "in" = resposta do contato (opção escolhida)
+            if (s.kind === 'in') {
+              return (
+                <div key={idx} className="space-y-0.5">
+                  {s.meta && (
+                    <div className="flex justify-start pl-1">
+                      <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                        {s.meta}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-start">
+                    <div
+                      className="max-w-[75%] px-3 py-1.5 rounded-2xl rounded-bl-sm text-[12.5px] font-semibold"
+                      style={{
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#e9edef',
+                        border: '1px solid rgba(255,255,255,0.12)'
+                      }}
+                    >
+                      {s.text}
+                    </div>
                   </div>
                 </div>
               );
