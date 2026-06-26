@@ -6,6 +6,7 @@ import { fixBrazilCoord, isMapCoordValid } from '../../../utils/brazilMapCoords'
 import { matchesNeighborhood } from './territoryMapUtils';
 import { citiesMatch } from '../../../utils/contactAddressNormalize';
 import { resolveBrazilStateCode } from '../../../utils/territoryRegionFilter';
+import { getDddCoordinates } from '../../../utils/dddCoordinates';
 import type { MapContactPin } from './types';
 
 function apiPinMatchesScope(
@@ -117,6 +118,36 @@ export function buildContactPinsForNeighborhood(input: {
     });
 
     if (!trusted) {
+      const dddLoc = getDddCoordinates(c.phone);
+      if (dddLoc) {
+        const centerLat = dddLoc.lat;
+        const centerLng = dddLoc.lng;
+        const cosLat = Math.cos((centerLat * Math.PI) / 180);
+        const golden = Math.PI * (3 - Math.sqrt(5));
+        const idx = byId.size;
+        const angle = idx * golden;
+        const r = 0.003 + Math.sqrt(idx + 1) * 0.00065;
+        const lat = centerLat + r * Math.cos(angle);
+        const lng = centerLng + (r * Math.sin(angle)) / (cosLat || 1);
+        
+        byId.set(c.id, {
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          neighborhood: c.neighborhood || nb || `Região DDD ${c.phone.replace(/\D/g, '').slice(2, 4) || '—'}`,
+          street: c.street || '',
+          number: c.number || '',
+          zipCode: c.zipCode || '',
+          city: dddLoc.city,
+          state: dddLoc.state,
+          temp: c.temp,
+          lat,
+          lng,
+          approximate: true,
+          coordVerified: false,
+        });
+        continue;
+      }
       unmapped++;
       continue;
     }
@@ -250,6 +281,37 @@ export function buildContactPinsForScope(input: {
     });
 
     if (!trusted) {
+      const dddLoc = getDddCoordinates(c.phone);
+      if (dddLoc) {
+        // Golden angle para espalhar ligeiramente os contatos do mesmo DDD para nao sobreporem
+        const centerLat = dddLoc.lat;
+        const centerLng = dddLoc.lng;
+        const cosLat = Math.cos((centerLat * Math.PI) / 180);
+        const golden = Math.PI * (3 - Math.sqrt(5));
+        const idx = byId.size;
+        const angle = idx * golden;
+        const r = 0.003 + Math.sqrt(idx + 1) * 0.00065; // espalha nacionalmente
+        const lat = centerLat + r * Math.cos(angle);
+        const lng = centerLng + (r * Math.sin(angle)) / (cosLat || 1);
+        
+        byId.set(c.id, {
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          neighborhood: c.neighborhood || `Região DDD ${c.phone.replace(/\D/g, '').slice(2, 4) || '—'}`,
+          street: c.street || '',
+          number: c.number || '',
+          zipCode: c.zipCode || '',
+          city: dddLoc.city,
+          state: dddLoc.state,
+          temp: c.temp,
+          lat,
+          lng,
+          approximate: true,
+          coordVerified: false,
+        });
+        continue;
+      }
       unmapped++;
       continue;
     }

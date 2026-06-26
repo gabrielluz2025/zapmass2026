@@ -9,12 +9,15 @@ export type AtlasRegionLaunch = {
   state?: string;
   neighborhood?: string;
   tempFilter?: ContactTemperature | 'all';
-  scope: 'city' | 'state';
+  scope: 'city' | 'state' | 'ddd';
+  ddd?: string;
 };
 
 export function buildCampaignDraftFromAtlas(launch: AtlasRegionLaunch): CampaignWizardDraft {
   const cityLabel =
-    launch.scope === 'state' && launch.state
+    launch.scope === 'ddd' && launch.ddd
+      ? `DDD ${launch.ddd}`
+      : launch.scope === 'state' && launch.state
       ? launch.state
       : launch.state
       ? `${launch.city} · ${launch.state}`
@@ -50,7 +53,7 @@ export function buildCampaignDraftFromAtlas(launch: AtlasRegionLaunch): Campaign
     filterChurches: [],
     filterRoles: [],
     filterProfessions: [],
-    filterDDDs: launch.scope === 'state' && launch.state ? [] : [],
+    filterDDDs: launch.scope === 'ddd' && launch.ddd ? [launch.ddd] : [],
     filterTemps:
       launch.tempFilter && launch.tempFilter !== 'all' ? [launch.tempFilter] : [],
     filterSearch: launch.neighborhood || '',

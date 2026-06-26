@@ -4,13 +4,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Map, BarChart3, Target, Compass, Search, MessageSquare, Send, Users, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Contact, Conversation } from '../../types';
 import { useZapMassCore } from '../../context/ZapMassContext';
 import { AiSparkButton } from '../ai/AiSparkButton';
 import { useAiStatus } from '../../hooks/useAiStatus';
 import { aiMapDataQuality } from '../../services/aiApi';
+import { DDD_COORDINATES, getDddCoordinates } from '../../utils/dddCoordinates';
 import {
   fetchLeadsGeoSummary,
   fetchMunicipiosGeoJson,
@@ -153,6 +154,8 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
   const [municipiosGeo, setMunicipiosGeo] = useState<MunicipiosGeoJson | null>(null);
   const [municipiosGeoLoading, setMunicipiosGeoLoading] = useState(false);
   const [showMuniOutline, setShowMuniOutline] = useState(true);
+  const [activeTab, setActiveTab] = useState<'map' | 'analytics'>('map');
+  const [dddSearch, setDddSearch] = useState('');
 
   const deferredContacts = useDeferredValue(contacts);
   const deferredConversations = useDeferredValue(conversations);
@@ -285,6 +288,86 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     if (!mapActive) return {};
     return computeContactTemperatures(listContacts, deferredConversations);
   }, [listContacts, deferredConversations, mapActive]);
+
+  // Agrupa e calcula as estatisticas por DDD em tempo real para o Painel Analitico
+  const dddAnalytics = useMemo(() => {
+    const groups: Record<string, { ddd: string; city: string; state: string; count: number; hot: number; warm: number; cold: number; newCount: number }> = {};
+    contacts.forEach((c) => {
+      const clean = c.phone ? c.phone.replace(/\D/g, '') : '';
+      let ddd = '';
+      if (clean.startsWith('55') && clean.length >= 12) {
+        ddd = clean.slice(2, 4);
+      } else if (clean.length >= 10) {
+        ddd = clean.slice(0, 2);
+      }
+      if (!ddd) return;
+
+      const dddInfo = DDD_COORDINATES[ddd] || { city: 'Desconhecido', state: 'BR' };
+      if (!groups[ddd]) {
+        groups[ddd] = {
+          ddd,
+          city: dddInfo.city,
+          state: dddInfo.state,
+          count: 0,
+          hot: 0,
+          warm: 0,
+          cold: 0,
+          newCount: 0
+        };
+      }
+      
+      const tempStats = tempsByContact[c.id];
+      const temp = tempStats ? tempStats.temp : 'new';
+      groups[ddd].count++;
+      if (temp === 'hot') groups[ddd].hot++;
+      else if (temp === 'warm') groups[ddd].warm++;
+      else if (temp === 'cold') groups[ddd].cold++;
+      else groups[ddd].newCount++;
+    });
+
+    return Object.values(groups).sort((a, b) => b.count - a.count);
+  }, [contacts, tempsByContact]);
+
+  // Agrupa e calcula as estatisticas por Estado (UF) em tempo real para o Painel Analitico
+  const stateAnalytics = useMemo(() => {
+    const groups: Record<string, { state: string; count: number; hot: number; warm: number; cold: number; newCount: number }> = {};
+    contacts.forEach((c) => {
+      const clean = c.phone ? c.phone.replace(/\D/g, '') : '';
+      let ddd = '';
+      if (clean.startsWith('55') && clean.length >= 12) {
+        ddd = clean.slice(2, 4);
+      } else if (clean.length >= 10) {
+        ddd = clean.slice(0, 2);
+      }
+      let state = 'Outros';
+      if (ddd && DDD_COORDINATES[ddd]) {
+        state = DDD_COORDINATES[ddd].state;
+      } else if (c.state) {
+        state = c.state.toUpperCase().trim().slice(0, 2);
+      }
+      
+      if (!groups[state]) {
+        groups[state] = {
+          state,
+          count: 0,
+          hot: 0,
+          warm: 0,
+          cold: 0,
+          newCount: 0
+        };
+      }
+
+      const tempStats = tempsByContact[c.id];
+      const temp = tempStats ? tempStats.temp : 'new';
+      groups[state].count++;
+      if (temp === 'hot') groups[state].hot++;
+      else if (temp === 'warm') groups[state].warm++;
+      else if (temp === 'cold') groups[state].cold++;
+      else groups[state].newCount++;
+    });
+
+    return Object.values(groups).sort((a, b) => b.count - a.count);
+  }, [contacts, tempsByContact]);
 
   const clusters = useMemo(() => {
     if (!summary) return [];
@@ -964,6 +1047,29 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
     [buildAtlasLaunch, onNavigate]
   );
 
+  const handleLaunchCampaignForDdd = useCallback((ddd: string) => {
+    launchAtlasCampaign({
+      city: '',
+      state: '',
+      scope: 'ddd',
+      ddd,
+      tempFilter: 'all'
+    });
+    toast.success(`Rascunho de campanha para o DDD ${ddd} preparado!`);
+    onNavigate?.('campaigns');
+  }, [onNavigate]);
+
+  const handleOpenContactsForDdd = useCallback((ddd: string) => {
+    saveAtlasContactsHint({
+      city: '',
+      state: '',
+      scope: 'ddd',
+      ddd,
+      tempFilter: 'all'
+    });
+    onNavigate?.('contacts');
+  }, [onNavigate]);
+
   const fitMapToContent = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -1246,85 +1352,320 @@ export const TerritoryLeadsMap: React.FC<Props> = ({
         municipalityCoverage={isStateCityList ? municipalityCoverage : null}
       />
 
-      <div className="zm-atlas__split">
-        <div className="zm-atlas__map-col">
-          <TerritoryMapChrome
-            mapViewMode={mapViewMode}
-            onMapViewModeChange={(mode) => {
-              setMapViewMode(mode);
-              lastViewportKeyRef.current = '';
+      {/* SELETOR DE VISUALIZAÇÃO ULTRA PREMIUM */}
+      <div className="flex border-b border-slate-200/10 dark:border-slate-800/80 pb-2 mb-2 justify-between items-center flex-wrap gap-4">
+        <div className="flex space-x-2">
+          <button
+            type="button"
+            className={`flex items-center space-x-2 py-2 px-4 rounded-xl text-xs font-bold transition-all duration-300 ${
+              activeTab === 'map'
+                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+            onClick={() => {
+              setActiveTab('map');
+              setMapActive(true);
             }}
-            neighborhoodViz={neighborhoodViz}
-            onNeighborhoodVizChange={(viz) => {
-              setNeighborhoodViz(viz);
-              lastViewportKeyRef.current = '';
-            }}
-            contactViz={contactViz}
-            onContactVizChange={(viz) => {
-              setContactViz(viz);
-              lastViewportKeyRef.current = '';
-            }}
-            territoryViewMode={territoryViewMode}
-            onTerritoryViewModeChange={(mode) => {
-              setTerritoryViewMode(mode);
-              lastViewportKeyRef.current = '';
-            }}
-            mapTile={mapTile}
-            onMapTileChange={setMapTile}
-            onFitBounds={fitMapToContent}
-            onRecenter={recenterMap}
-            focusMode={Boolean(selectedRow)}
-            neighborhoodsModeLabel={isStateCityList ? 'Cidades' : 'Bairros'}
-            showMunicipioBorders={isStateCityList}
-            showMuniOutline={showMuniOutline}
-            onShowMuniOutlineChange={(on) => {
-              setShowMuniOutline(on);
-              lastViewportKeyRef.current = '';
-            }}
-            statsLine={mapStatsLine}
-          />
-          <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact zm-territory-map--pro zm-territory-map__frame">
-            <div ref={containerRef} className="zm-atlas__map" />
-            {(isBusy || !summary) && mapActive && (
-              <div className="zm-atlas__map-loading">
-                <Loader2 className="w-5 h-5 animate-spin" />
+          >
+            <Map className="w-3.5 h-3.5" />
+            <span>🗺️ Visão de Mapa (Geográfico & DDDs)</span>
+          </button>
+          <button
+            type="button"
+            className={`flex items-center space-x-2 py-2 px-4 rounded-xl text-xs font-bold transition-all duration-300 ${
+              activeTab === 'analytics'
+                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
+            }`}
+            onClick={() => setActiveTab('analytics')}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>📊 Análise e Demografia Nacional por DDD</span>
+          </button>
+        </div>
+        
+        <div className="text-[11px] text-slate-400 flex items-center space-x-2">
+          <span className="flex h-2 w-2 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span className="font-semibold text-slate-300">100% dos leads mapeados nacionalmente</span>
+        </div>
+      </div>
+
+      {activeTab === 'analytics' ? (
+        <div className="space-y-6 animate-fade-in py-2">
+          {/* BARRA DE PESQUISA & RESUMOS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-center">
+            <div className="lg:col-span-2 relative">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Pesquisar por DDD, Cidade ou Estado..."
+                className="w-full bg-slate-950/60 border border-slate-800/60 rounded-xl py-2 pl-9 pr-4 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-100"
+                value={dddSearch}
+                onChange={(e) => setDddSearch(e.target.value)}
+              />
+            </div>
+            
+            <div className="bg-slate-900/25 border border-slate-800/60 rounded-xl p-3 flex items-center space-x-3">
+              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                <Target className="w-4 h-4" />
               </div>
-            )}
-            {!mapActive && shouldDeferLoad && (
-              <div className="zm-atlas__map-loading">Role para carregar</div>
-            )}
-            {nbGeoLoading && selectedRow && (
-              <div className="zm-atlas__map-sync-badge">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Sincronizando pins…
+              <div>
+                <p className="text-[9.5px] text-slate-500 font-bold uppercase tracking-wider">DDDs Ativos</p>
+                <p className="text-xs font-bold text-white">{dddAnalytics.length} regiões</p>
               </div>
-            )}
-            {selectedContact && (
-              <TerritoryContactCard contact={selectedContact} onClose={() => setSelectedContactId(null)} />
-            )}
+            </div>
+
+            <div className="bg-slate-900/25 border border-slate-800/60 rounded-xl p-3 flex items-center space-x-3">
+              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+                <Compass className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-[9.5px] text-slate-500 font-bold uppercase tracking-wider">Estados Cobertos</p>
+                <p className="text-xs font-bold text-white">{stateAnalytics.length} UFs</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+            {/* GRID DE DDD CARDS (ESQUERDA - 2 COLUNAS) */}
+            <div className="xl:col-span-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Distribuição Geográfica por DDD ({dddAnalytics.filter(item => {
+                    const term = dddSearch.toLowerCase().trim();
+                    return !term || item.ddd.includes(term) || item.city.toLowerCase().includes(term) || item.state.toLowerCase().includes(term);
+                  }).length})</span>
+                </h3>
+              </div>
+
+              {dddAnalytics.filter(item => {
+                const term = dddSearch.toLowerCase().trim();
+                return !term || item.ddd.includes(term) || item.city.toLowerCase().includes(term) || item.state.toLowerCase().includes(term);
+              }).length === 0 ? (
+                <div className="bg-slate-900/20 border border-slate-800/40 rounded-xl p-8 text-center text-slate-500 text-xs">
+                  Nenhum DDD encontrado com os critérios de busca digitados.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1">
+                  {dddAnalytics.filter(item => {
+                    const term = dddSearch.toLowerCase().trim();
+                    return !term || item.ddd.includes(term) || item.city.toLowerCase().includes(term) || item.state.toLowerCase().includes(term);
+                  }).map((item) => {
+                    const hotPct = Math.round((100 * item.hot) / item.count) || 0;
+                    const warmPct = Math.round((100 * item.warm) / item.count) || 0;
+                    const coldPct = Math.round((100 * item.cold) / item.count) || 0;
+                    const newPct = Math.round((100 * item.newCount) / item.count) || 0;
+
+                    return (
+                      <div
+                        key={item.ddd}
+                        className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between hover:border-emerald-500/30 transition-all duration-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.05)] group"
+                      >
+                        <div>
+                          {/* Top Card */}
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <span className="bg-emerald-500/10 text-emerald-400 text-xs font-extrabold px-2 py-0.5 rounded">
+                                  DDD {item.ddd}
+                                </span>
+                                <span className="text-slate-200 text-xs font-bold">
+                                  {item.city} · {item.state}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-1">
+                                {item.count.toLocaleString('pt-BR')} contatos ativos
+                              </p>
+                            </div>
+                            
+                            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/5 px-2 py-0.5 rounded-full border border-emerald-500/10">
+                              {hotPct}% Quentes
+                            </span>
+                          </div>
+
+                          {/* Mini Barra Stacked de Temperaturas */}
+                          <div className="mt-4 space-y-1.5">
+                            <div className="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-800">
+                              <div style={{ width: `${hotPct}%` }} className="bg-emerald-500" title={`Quentes: ${item.hot}`} />
+                              <div style={{ width: `${warmPct}%` }} className="bg-amber-500" title={`Mornos: ${item.warm}`} />
+                              <div style={{ width: `${coldPct}%` }} className="bg-sky-500" title={`Frios: ${item.cold}`} />
+                              <div style={{ width: `${newPct}%` }} className="bg-slate-500" title={`Novos: ${item.newCount}`} />
+                            </div>
+                            
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-semibold">
+                              <span className="text-emerald-400/90 flex items-center space-x-1">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block mr-1" />
+                                {item.hot} Quentes
+                              </span>
+                              <span className="text-amber-400/90 flex items-center space-x-1">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block mr-1" />
+                                {item.warm} Mornos
+                              </span>
+                              <span className="text-sky-400/90 flex items-center space-x-1">
+                                <span className="h-1.5 w-1.5 rounded-full bg-sky-500 inline-block mr-1" />
+                                {item.count - item.hot - item.warm} Outros
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Ações Rápidas */}
+                        <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            className="text-[10.5px] font-bold text-slate-400 hover:text-white flex items-center space-x-1 bg-slate-800/40 hover:bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-800/80 transition-all"
+                            onClick={() => handleOpenContactsForDdd(item.ddd)}
+                          >
+                            <Users className="w-3 h-3" />
+                            <span>Ver Contatos</span>
+                          </button>
+                          
+                          <button
+                            type="button"
+                            className="text-[10.5px] font-bold text-emerald-400 hover:text-white flex items-center space-x-1 bg-emerald-500/5 hover:bg-emerald-500 px-2.5 py-1.5 rounded-lg border border-emerald-500/10 hover:border-emerald-500 transition-all"
+                            onClick={() => handleLaunchCampaignForDdd(item.ddd)}
+                          >
+                            <Send className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                            <span>Lançar Campanha</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* RANKING DE ESTADOS (UFs) - DIREITA */}
+            <div className="space-y-4 bg-slate-900/20 border border-slate-800/60 rounded-xl p-4 max-h-[660px] overflow-y-auto">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-2">
+                <Target className="w-3.5 h-3.5 text-emerald-400" />
+                <span>🇧🇷 Ranking de Estados (UFs)</span>
+              </h3>
+              
+              <div className="space-y-3 pt-2">
+                {stateAnalytics.map((item, idx) => {
+                  const maxCount = stateAnalytics[0]?.count || 1;
+                  const pctWidth = Math.round((100 * item.count) / maxCount);
+                  const totalContacts = contacts.length || 1;
+                  const pctOfGlobal = Math.round((100 * item.count) / totalContacts) || 1;
+
+                  return (
+                    <div key={item.state} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-slate-500 text-[10px]">#{idx + 1}</span>
+                          <span className="text-slate-200">{item.state}</span>
+                        </div>
+                        <span className="text-slate-400 text-[11px]">
+                          {item.count.toLocaleString('pt-BR')} ({pctOfGlobal}%)
+                        </span>
+                      </div>
+                      
+                      <div className="relative h-2 w-full bg-slate-800/60 rounded-full overflow-hidden">
+                        <div
+                          style={{ width: `${pctWidth}%` }}
+                          className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.3)]"
+                        />
+                      </div>
+                      
+                      <div className="flex items-center space-x-3 text-[9px] text-slate-500 font-bold pl-5">
+                        <span className="text-emerald-500">{item.hot} 🔥</span>
+                        <span className="text-amber-500">{item.warm} ⚡</span>
+                        <span className="text-sky-500">{item.cold} ❄️</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
+      ) : (
+        <div className="zm-atlas__split">
+          <div className="zm-atlas__map-col">
+            <TerritoryMapChrome
+              mapViewMode={mapViewMode}
+              onMapViewModeChange={(mode) => {
+                setMapViewMode(mode);
+                lastViewportKeyRef.current = '';
+              }}
+              neighborhoodViz={neighborhoodViz}
+              onNeighborhoodVizChange={(viz) => {
+                setNeighborhoodViz(viz);
+                lastViewportKeyRef.current = '';
+              }}
+              contactViz={contactViz}
+              onContactVizChange={(viz) => {
+                setContactViz(viz);
+                lastViewportKeyRef.current = '';
+              }}
+              territoryViewMode={territoryViewMode}
+              onTerritoryViewModeChange={(mode) => {
+                setTerritoryViewMode(mode);
+                lastViewportKeyRef.current = '';
+              }}
+              mapTile={mapTile}
+              onMapTileChange={setMapTile}
+              onFitBounds={fitMapToContent}
+              onRecenter={recenterMap}
+              focusMode={Boolean(selectedRow)}
+              neighborhoodsModeLabel={isStateCityList ? 'Cidades' : 'Bairros'}
+              showMunicipioBorders={isStateCityList}
+              showMuniOutline={showMuniOutline}
+              onShowMuniOutlineChange={(on) => {
+                setShowMuniOutline(on);
+                lastViewportKeyRef.current = '';
+              }}
+              statsLine={mapStatsLine}
+            />
+            <div className="zm-atlas__map-wrap zm-atlas__map-wrap--compact zm-territory-map--pro zm-territory-map__frame">
+              <div ref={containerRef} className="zm-atlas__map" />
+              {(isBusy || !summary) && mapActive && (
+                <div className="zm-atlas__map-loading">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+              )}
+              {!mapActive && shouldDeferLoad && (
+                <div className="zm-atlas__map-loading">Role para carregar</div>
+              )}
+              {nbGeoLoading && selectedRow && (
+                <div className="zm-atlas__map-sync-badge">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Sincronizando pins…
+                </div>
+              )}
+              {selectedContact && (
+                <TerritoryContactCard contact={selectedContact} onClose={() => setSelectedContactId(null)} />
+              )}
+            </div>
+          </div>
 
-        <TerritoryRankingTable
-          rows={visibleRows}
-          selectedKey={selectedRow?.key ?? null}
-          selectedContactId={selectedContactId}
-          contacts={neighborhoodContacts}
-          entityLabel={isStateCityList ? 'Cidade' : 'Bairro'}
-          emptyLabel={
-            isStateCityList
-              ? 'Nenhuma cidade com contatos neste estado.'
-              : 'Nenhum bairro nesta região.'
-          }
-          onBack={stateDrillCity ? handleBackToStateCities : undefined}
-          backLabel="Voltar às cidades do estado"
-          onSelectRow={handleSelectRow}
-          onSelectContact={handleSelectContact}
-          onExportCsv={handleExportCsv}
-          onLaunchCampaignForNeighborhood={handleLaunchCampaignForNeighborhood}
-          onOpenContactsForNeighborhood={handleOpenContactsForNeighborhood}
-        />
-      </div>
+          <TerritoryRankingTable
+            rows={visibleRows}
+            selectedKey={selectedRow?.key ?? null}
+            selectedContactId={selectedContactId}
+            contacts={neighborhoodContacts}
+            entityLabel={isStateCityList ? 'Cidade' : 'Bairro'}
+            emptyLabel={
+              isStateCityList
+                ? 'Nenhuma cidade com contatos neste estado.'
+                : 'Nenhum bairro nesta região.'
+            }
+            onBack={stateDrillCity ? handleBackToStateCities : undefined}
+            backLabel="Voltar às cidades do estado"
+            onSelectRow={handleSelectRow}
+            onSelectContact={handleSelectContact}
+            onExportCsv={handleExportCsv}
+            onLaunchCampaignForNeighborhood={handleLaunchCampaignForNeighborhood}
+            onOpenContactsForNeighborhood={handleOpenContactsForNeighborhood}
+          />
+        </div>
+      )}
     </div>
   );
 };
