@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { CampaignMessageVariableChips } from './CampaignMessageVariableChips';
 import { CampaignGreetingPicker } from './CampaignGreetingPicker';
 import { insertCampaignTokenIntoTextarea } from '../../utils/campaignMessageVariables';
@@ -11,6 +11,26 @@ import { useAiStatus } from '../../hooks/useAiStatus';
 import { useAppProfile } from '../../context/AppProfileContext';
 import { aiSuggestCampaignMessage } from '../../services/aiApi';
 import toast from 'react-hot-toast';
+
+function parseSpintax(text: string): { variations: number; sample: string } {
+  if (!text) return { variations: 1, sample: '' };
+  
+  // Encontra padrões como {Oi|Olá|E aí}
+  const regex = /\{([^{}]+)\}/g;
+  let match;
+  let variations = 1;
+  let sampleText = text;
+  
+  while ((match = regex.exec(text)) !== null) {
+    const options = match[1].split('|');
+    variations *= options.length;
+    // Escolhe uma opção para simulação
+    const chosen = options[Math.floor(Math.random() * options.length)] || options[0] || '';
+    sampleText = sampleText.replace(match[0], chosen);
+  }
+  
+  return { variations, sample: sampleText };
+}
 
 type Props = {
   label: string;
@@ -60,6 +80,8 @@ export const CampaignMessageComposer: React.FC<Props> = ({
   const { configured: aiConfigured } = useAiStatus();
   const { segment } = useAppProfile();
   const [aiLoading, setAiLoading] = useState(false);
+
+  const spintaxInfo = useMemo(() => parseSpintax(body), [body]);
 
   const suggestWithAi = async () => {
     if (!aiConfigured || aiLoading) return;
@@ -126,6 +148,22 @@ export const CampaignMessageComposer: React.FC<Props> = ({
         onChange={(e) => onBodyChange(e.target.value)}
         style={{ minHeight: `${minHeight}px` }}
       />
+
+      {spintaxInfo.variations > 1 && (
+        <div className="p-3.5 rounded-xl border border-emerald-500/15 bg-emerald-500/5 flex flex-col gap-1.5 animate-in fade-in duration-200">
+          <div className="flex items-center gap-1.5 text-emerald-400">
+            <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">🛡️ Assistente de Spintax</span>
+            <span className="text-[11px] font-bold">Excelente para evitar banimentos!</span>
+          </div>
+          <p className="text-[11px] text-slate-300">
+            Seu texto possui <strong>{spintaxInfo.variations}</strong> variações possíveis para envio.
+          </p>
+          <div className="text-[11px] p-2.5 rounded-lg bg-slate-900/50 border border-slate-800 font-mono text-slate-300 whitespace-pre-wrap leading-tight">
+            <span className="text-[9px] uppercase font-bold text-slate-400 block mb-0.5">Exemplo de variação gerada:</span>
+            "{spintaxInfo.sample}"
+          </div>
+        </div>
+      )}
       {showAttachment &&
         attachmentInputRef &&
         onPickAttachment &&

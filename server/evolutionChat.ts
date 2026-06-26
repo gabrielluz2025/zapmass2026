@@ -1,5 +1,7 @@
 import type { AxiosInstance } from 'axios';
 import type { Server as SocketIOServer } from 'socket.io';
+import fs from 'fs';
+import path from 'path';
 import { Conversation, ChatMessage } from './types.js';
 import { extractEvolutionReplyBody } from './replyFlowEngine.js';
 import { saveMediaFromBase64 } from './mediaStorage.js';
@@ -81,6 +83,45 @@ function evoInst(instanceName: string): string {
 
 export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionChatArchiveCtx) {
     let conversations: Conversation[] = [];
+    const lastCampaignMessageSentAt = new Map<string, number>();
+    const projectRoot = path.resolve(process.cwd());
+    const dataDir = path.resolve(projectRoot, process.env.DATA_DIR || 'data');
+    const conversationsCacheFile = path.join(dataDir, 'conversations_cache.json');
+
+    function loadConversationsFromCache() {
+        try {
+            if (fs.existsSync(conversationsCacheFile)) {
+                const raw = fs.readFileSync(conversationsCacheFile, 'utf-8');
+                const cached = JSON.parse(raw);
+                if (Array.isArray(cached)) {
+                    conversations.push(...cached);
+                    console.info(`[evolutionChat] Cache restaurado! ${conversations.length} conversas carregadas do disco.`);
+                }
+            }
+        } catch (err: any) {
+            console.warn('[evolutionChat] Erro ao carregar conversations_cache.json:', err.message);
+        }
+    }
+
+    let cacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
+    function saveConversationsToCacheDebounced() {
+        if (cacheSaveTimer) return;
+        cacheSaveTimer = setTimeout(() => {
+            cacheSaveTimer = null;
+            try {
+                if (!fs.existsSync(dataDir)) {
+                    fs.mkdirSync(dataDir, { recursive: true });
+                }
+                fs.writeFileSync(conversationsCacheFile, JSON.stringify(conversations, null, 2), 'utf-8');
+            } catch (err: any) {
+                console.error('[evolutionChat] Erro ao salvar conversations_cache.json:', err.message);
+            }
+        }, 3000); // 5s debounce
+    }
+
+    // Carrega o cache do disco imediatamente
+    loadConversationsFromCache();
+
     let io: SocketIOServer | null = null;
     let notifyConversationsChanged: (() => void) | null = null;
     /** ownerUid do tenant atual — usado para escopo seguro em emitConversationsUpdate. */
@@ -128,6 +169,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
 
     /** Lista completa — só sync findChats, delete em massa ou rajada grande de deltas. */
     function emitConversationsUpdate() {
+        saveConversationsToCacheDebounced();
         if (notifyConversationsChanged) {
             notifyConversationsChanged();
             return;
@@ -157,6 +199,7 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }
 
     function emitConversationDeltaNow(conversationId: string) {
+        saveConversationsToCacheDebounced();
         if (notifyConversationsChanged) return;
         if (!io || !ownerUidForScope) return;
         const conv = conversations.find((c) => c.id === conversationId);
@@ -556,6 +599,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         messageType?: ChatMessage['type'];
     }): void {
         const digits = normalizePhoneDigits(opts.phoneDigits);
+        if (digits) {
+            lastCampaignMessageSentAt.set(digits, Date.now());
+        }
         const conversationId = resolveConversationIdForPhone(opts.connectionId, digits || opts.phoneDigits);
         const nowMs = Date.now();
         const msgId = String(opts.messageId || '').trim() || `camp_${nowMs}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1869,7 +1915,10 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         conversations = conversations.filter((c) => !idSet.has(c.id));
         conversationIds.forEach((id) => deletedConversationIds.add(id));
         const removed = before - conversations.length;
-        if (removed > 0) emitConversationsRemoved(conversationIds);
+        if (removed > 0) {
+            emitConversationsRemoved(conversationIds);
+            saveConversationsToCacheDebounced();
+        }
         return removed;
     }
 
@@ -1903,6 +1952,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         resolveConversationIdForPhone,
         deleteLocalConversations,
         purgeConversationsForConnection,
+        hasRecentCampaignActivity: (phoneDigits: string): boolean => {
+            const normalized = normalizePhoneDigits(phoneDigits);
+            if (!normalized) return false;
+            const lastTime = lastCampaignMessageSentAt.get(normalized) || 0;
+            return (Date.now() - lastTime) < 15 * 60 * 1000;
+        },
     };
 }
 

@@ -4923,17 +4923,22 @@ export async function handleWebhook(event: any) {
 
                     const ownerUidForBot = messageOwnerUid || resolveOwnerUid(instance);
                     if (ownerUidForBot && incomingConvId) {
-                        void handleSupportBotIncoming({
-                            tenantId: ownerUidForBot,
-                            connectionId: instance,
-                            phoneDigits,
-                            bodyText,
-                            incomingConvId,
-                            hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
-                            sendText: async (convId, text) => {
-                                await sendMessage(convId, text);
-                            }
-                        });
+                        const hasRecentCampaign = chatStore.hasRecentCampaignActivity(phoneDigits);
+                        if (!hasRecentCampaign) {
+                            void handleSupportBotIncoming({
+                                tenantId: ownerUidForBot,
+                                connectionId: instance,
+                                phoneDigits,
+                                bodyText,
+                                incomingConvId,
+                                hasReplyFlowSession: replyFlowEngine.hasSession(instance, phoneDigits),
+                                sendText: async (convId, text) => {
+                                    await sendMessage(convId, text);
+                                }
+                            });
+                        } else {
+                            log('info', `[supportBot] Ignorando chatbot para ${phoneDigits} pois recebeu campanha recentemente (tolerância 15m).`);
+                        }
                     }
 
                     // Motor multi-etapas lazy: verifica se contato aguarda resposta
