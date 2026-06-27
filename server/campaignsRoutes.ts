@@ -423,6 +423,60 @@ export function registerCampaignsDataRoutes(app: Express): void {
   });
 
   /**
+   * POST /api/campaigns/check-scheduled-duplicates
+   * Verifica se algum dos telefones informados já está agendado em alguma campanha ativa (RUNNING ou SCHEDULED).
+   */
+  app.post('/api/campaigns/check-scheduled-duplicates', async (req: Request, res: Response) => {
+    const ctx = await requireTenant(req, res);
+    if (!ctx) return;
+    const body = req.body as { phones?: string[] };
+    const phones: string[] = Array.isArray(body.phones) ? body.phones.map((p) => String(p || '')) : [];
+    if (phones.length === 0) {
+      return res.json({ ok: true, duplicates: [] });
+    }
+    try {
+      const pool = getZapmassPool();
+      if (!pool) {
+        return res.json({ ok: true, duplicates: [] });
+      }
+
+      const sql = `
+        SELECT cs.contact_id as phone, c.name as campaign_name, c.id::text as campaign_id
+        FROM zapmass.campaign_contact_state cs
+        JOIN zapmass.campaigns c ON cs.campaign_id = c.id
+        WHERE cs.tenant_id = $1::uuid
+          AND c.status IN ('RUNNING', 'SCHEDULED')
+          AND cs.status IN ('pending', 'waiting_reply', 'waiting_delay')
+      `;
+      const result = await pool.query<{ phone: string; campaign_name: string; campaign_id: string }>(sql, [ctx.tenantId]);
+
+      const activeMap = new Map<string, { campaignName: string; campaignId: string }>();
+      for (const row of result.rows) {
+        const cleanPhone = row.phone.replace(/\D/g, '');
+        activeMap.set(cleanPhone, { campaignName: row.campaign_name, campaignId: row.campaign_id });
+      }
+
+      const duplicates: Array<{ phone: string; campaignName: string; campaignId: string }> = [];
+      for (const p of phones) {
+        const clean = p.replace(/\D/g, '');
+        const match = activeMap.get(clean);
+        if (match) {
+          duplicates.push({
+            phone: p,
+            campaignName: match.campaignName,
+            campaignId: match.campaignId
+          });
+        }
+      }
+
+      return res.json({ ok: true, duplicates });
+    } catch (e) {
+      console.error('[api/campaigns/check-scheduled-duplicates]', e);
+      return res.status(500).json({ ok: false, error: 'Erro ao verificar contatos programados duplicados.' });
+    }
+  });
+
+  /**
    * POST /api/campaigns/test-send
    * Envia uma mensagem-teste para um único número sem criar campanha.
    * Útil para validar que o chip está conectado e enviando antes do disparo em massa.

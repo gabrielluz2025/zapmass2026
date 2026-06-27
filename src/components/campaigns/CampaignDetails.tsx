@@ -1848,6 +1848,119 @@ export const CampaignDetails: React.FC<CampaignDetailsProps> = ({
             />
           </div>
         )}
+        {/* Sumário do Cronograma Diário (Daily Throttle Progress Tracker) */}
+        {campaign.dailySchedule?.enabled && campaign.dailySchedule.days && campaign.dailySchedule.days.length > 0 && (
+          <div 
+            className="p-4 rounded-2xl border mb-4 relative overflow-hidden bg-gradient-to-br from-zinc-900/60 to-zinc-950/80 backdrop-blur-md"
+            style={{ borderColor: 'rgba(16, 185, 129, 0.15)', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.4)' }}
+          >
+            <div className="flex items-center justify-between mb-3.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[15px]">📅</span>
+                <h4 className="text-[13px] font-bold text-white uppercase tracking-wider">
+                  Linha do Tempo: Cronograma de Envio Diário
+                </h4>
+              </div>
+              <Badge style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                {campaign.dailySchedule.days.length} Dias Programados
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+              {(() => {
+                const numChips = Math.max(1, campaign.selectedConnectionIds?.length || 1);
+                let accContacts = 0;
+                
+                return campaign.dailySchedule.days.map((day, idx) => {
+                  const dayLimitTotal = day.limitPerChannel * numChips;
+                  const dayStart = accContacts;
+                  const dayEnd = accContacts + dayLimitTotal;
+                  accContacts += dayLimitTotal;
+
+                  // Calcula o progresso do dia atual baseado no processedCount global
+                  const processed = campaign.processedCount || 0;
+                  let dayProcessed = 0;
+                  if (processed >= dayEnd) {
+                    dayProcessed = dayLimitTotal;
+                  } else if (processed > dayStart) {
+                    dayProcessed = processed - dayStart;
+                  }
+                  
+                  const pct = Math.round((dayProcessed / dayLimitTotal) * 100);
+                  const isDone = pct >= 100;
+                  const isRunning = !isDone && pct > 0;
+                  
+                  return (
+                    <div 
+                      key={idx}
+                      className="p-3 rounded-xl border flex flex-col justify-between transition-all"
+                      style={{ 
+                        background: isDone 
+                          ? 'rgba(16, 185, 129, 0.04)' 
+                          : isRunning 
+                          ? 'rgba(245, 158, 11, 0.04)' 
+                          : 'rgba(255, 255, 255, 0.01)',
+                        borderColor: isDone 
+                          ? 'rgba(16, 185, 129, 0.25)' 
+                          : isRunning 
+                          ? 'rgba(245, 158, 11, 0.25)' 
+                          : 'rgba(255, 255, 255, 0.05)'
+                      }}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[12.5px] font-bold text-white">Dia {day.dayIndex + 1}</span>
+                          <span 
+                            className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+                            style={{ 
+                              background: isDone 
+                                ? 'rgba(16, 185, 129, 0.12)' 
+                                : isRunning 
+                                ? 'rgba(245, 158, 11, 0.12)' 
+                                : 'rgba(255, 255, 255, 0.05)',
+                              color: isDone 
+                                ? '#10b981' 
+                                : isRunning 
+                                ? '#f59e0b' 
+                                : 'var(--text-3)'
+                            }}
+                          >
+                            {isDone ? 'Concluído' : isRunning ? 'Enviando' : 'Agendado'}
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-[10.5px] text-zinc-400">Progresso</span>
+                          <span className="text-[12.5px] font-mono font-bold text-white">
+                            {dayProcessed} / {dayLimitTotal}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5">
+                        <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{ 
+                              width: `${pct}%`,
+                              background: isDone 
+                                ? '#10b981' 
+                                : isRunning 
+                                ? '#f59e0b' 
+                                : 'rgba(255, 255, 255, 0.1)'
+                            }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-zinc-500 mt-1 block text-right font-mono">{pct}%</span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        )}
+
         {/* Dashboard de progresso do motor multi-etapas (quando stageConfigs presente) */}
         {campaign.stageConfigs && campaign.stageConfigs.length > 0 && (
           <CampaignMultiStepDashboard

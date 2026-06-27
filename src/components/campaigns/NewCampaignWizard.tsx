@@ -58,6 +58,7 @@ import { CampaignFlowModePicker, type CampaignFlowMode } from './CampaignFlowMod
 import { CampaignSingleMessageEditor } from './CampaignSingleMessageEditor';
 import { CampaignMessageSetupProgress } from './CampaignMessageSetupProgress';
 import { createLibraryItem } from '../../services/campaignLibraryApi';
+import { apiCheckScheduledDuplicates } from '../../services/campaignsApi';
 import { applyCampaignMessagePreviewVars, insertCampaignTokenIntoTextarea, type CampaignPreviewSample } from '../../utils/campaignMessageVariables';
 import { prepareCampaignAttachmentForSend } from '../../utils/campaignMediaCompress';
 import {
@@ -197,6 +198,12 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [flowModeChosen, setFlowModeChosen] = useState(true);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [selectedListId, setSelectedListId] = useState('');
+  const [dailyScheduleEnabled, setDailyScheduleEnabled] = useState(false);
+  const [dailyScheduleDays, setDailyScheduleDays] = useState<Array<{ dayIndex: number; limitPerChannel: number }>>([]);
+  const [duplicatedContacts, setDuplicatedContacts] = useState<Array<{ phone: string; campaignName: string; campaignId: string }>>([]);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
+  const [excludedDuplicatePhones, setExcludedDuplicatePhones] = useState<Set<string>>(new Set());
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   /** Distribuição de carga entre chips (2+ conectados). */
   const [channelWeightMode, setChannelWeightMode] = useState<'equal' | 'custom'>('equal');
@@ -951,12 +958,16 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     });
   };
 
-  const numbers =
+  const rawNumbers =
     sendMode === 'list'
       ? selectedListNumbers
       : sendMode === 'manual'
       ? manualNumbersForSend
       : filteredNumbers;
+
+  const numbers = useMemo(() => {
+    return rawNumbers.filter((n) => !excludedDuplicatePhones.has(normPhoneKey(n)));
+  }, [rawNumbers, excludedDuplicatePhones]);
   const connectedIds = getConnectedSelectedIds();
 
   const previewSample = useMemo((): CampaignPreviewSample => {
@@ -1189,6 +1200,29 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     });
   };
 
+  const handleNextStep = async () => {
+    if (step === 1) {
+      if (numbers.length === 0) {
+        toast.error('Selecione pelo menos um contato antes de avançar.');
+        return;
+      }
+      setCheckingDuplicates(true);
+      try {
+        const dups = await apiCheckScheduledDuplicates(numbers);
+        if (dups.length > 0) {
+          setDuplicatedContacts(dups);
+          setShowDuplicateWarningModal(true);
+          return; // Interrompe e abre o modal explicativo
+        }
+      } catch (e) {
+        console.error('[DuplicateCheck Error]', e);
+      } finally {
+        setCheckingDuplicates(false);
+      }
+    }
+    setStep((step + 1) as 1 | 2 | 3 | 4);
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
     /**
@@ -1287,7 +1321,13 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         delaySeconds,
         ...(cw ? { channelWeights: cw } : {}),
         ...(mediaPayload ? { mediaAttachment: mediaPayload } : {}),
-        ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {})
+        ...(followUpMediaPayload ? { followUpMediaAttachment: followUpMediaPayload } : {}),
+        ...(dailyScheduleEnabled ? {
+          dailySchedule: {
+            enabled: true,
+            days: dailyScheduleDays
+          }
+        } : {})
       };
       if (launchMode === 'schedule') {
         await onSubmit({
@@ -2482,6 +2522,158 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   </p>
                 </div>
               </Card>
+
+              {/* Cronograma de Envio Diário Fracionado */}
+              <Card className="mt-4">
+                <div className="flex items-center justify-between p-1 cursor-pointer" onClick={() => {
+                  const next = !dailyScheduleEnabled;
+                  setDailyScheduleEnabled(next);
+                  if (next && dailyScheduleDays.length === 0) {
+                    const numChips = Math.max(1, selectedConnectionIds.length);
+                    const numDays = 5; // Padrão de 5 dias
+                    const defaultLimit = Math.ceil(numbers.length / (numChips * numDays));
+                    const initialDays = Array.from({ length: numDays }, (_, idx) => ({
+                      dayIndex: idx,
+                      limitPerChannel: defaultLimit || 50
+                    }));
+                    setDailyScheduleDays(initialDays);
+                  }
+                }}>
+                  <div className="flex gap-2.5 items-start">
+                    <span className="text-lg shrink-0 mt-0.5">📅</span>
+                    <div>
+                      <h3 className="ui-title text-[14.5px]">Cronograma de Envio Diário</h3>
+                      <p className="ui-subtitle text-[11.5px] mt-0.5">
+                        Fracionar e distribuir o envio da lista ao longo de múltiplos dias.
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className="w-9 h-5 rounded-full transition-all shrink-0 ml-3 flex items-center"
+                    style={{ background: dailyScheduleEnabled ? '#10b981' : 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <div
+                      className="w-3.5 h-3.5 rounded-full bg-white transition-transform"
+                      style={{ transform: dailyScheduleEnabled ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
+                    />
+                  </div>
+                </div>
+
+                {dailyScheduleEnabled && (
+                  <div className="mt-4 pt-4 border-t border-white/5 space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                          Duração do Cronograma (Dias)
+                        </p>
+                        <input
+                          type="number"
+                          min="1"
+                          max="14"
+                          value={dailyScheduleDays.length}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(14, parseInt(e.target.value) || 1));
+                            const numChips = Math.max(1, selectedConnectionIds.length);
+                            const defaultLimit = Math.ceil(numbers.length / (numChips * val));
+                            const nextDays = Array.from({ length: val }, (_, idx) => {
+                              const prev = dailyScheduleDays[idx];
+                              return {
+                                dayIndex: idx,
+                                limitPerChannel: prev ? prev.limitPerChannel : (defaultLimit || 50)
+                              };
+                            });
+                            setDailyScheduleDays(nextDays);
+                          }}
+                          className="w-full px-3 py-2 rounded-lg text-[13px] bg-black/40 border text-white"
+                          style={{ borderColor: 'var(--border-subtle)' }}
+                        />
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                          Alterar Limite Padrão (Canal/Dia)
+                        </p>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Ex: 100"
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (val && val > 0) {
+                              setDailyScheduleDays(prev => prev.map(d => ({ ...d, limitPerChannel: val })));
+                            }
+                          }}
+                          className="w-full px-3 py-2 rounded-lg text-[13px] bg-black/40 border text-white"
+                          style={{ borderColor: 'var(--border-subtle)' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                      {dailyScheduleDays.map((day, idx) => {
+                        const numChips = Math.max(1, selectedConnectionIds.length);
+                        const totalForDay = day.limitPerChannel * numChips;
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between p-2.5 rounded-xl text-[12px]"
+                            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                          >
+                            <span className="font-bold text-zinc-300">
+                              Dia {day.dayIndex + 1}
+                            </span>
+                            
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <span className="text-[10px] text-zinc-500 block">Envio por canal</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={day.limitPerChannel}
+                                  onChange={(e) => {
+                                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                                    setDailyScheduleDays(prev => prev.map(d => d.dayIndex === day.dayIndex ? { ...d, limitPerChannel: val } : d));
+                                  }}
+                                  className="w-20 px-2 py-1 rounded bg-black/60 border text-white text-center font-bold font-mono text-[11.5px]"
+                                  style={{ borderColor: 'var(--border-subtle)' }}
+                                />
+                              </div>
+
+                              <div className="text-right w-24">
+                                <span className="text-[10px] text-zinc-500 block">Total do dia</span>
+                                <span className="font-bold text-emerald-400 font-mono text-[12.5px]">
+                                  {totalForDay} envios
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Resumo do Planejamento */}
+                    <div className="p-3 rounded-xl space-y-1 bg-black/20 border border-white/5 text-[11.5px]">
+                      <div className="flex justify-between">
+                        <span className="text-zinc-400">Total de contatos na lista:</span>
+                        <span className="font-bold text-white">{numbers.length}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zinc-400">Total coberto pelo cronograma:</span>
+                        {(() => {
+                          const numChips = Math.max(1, selectedConnectionIds.length);
+                          const totalProgrammed = dailyScheduleDays.reduce((acc, d) => acc + (d.limitPerChannel * numChips), 0);
+                          const covered = Math.min(numbers.length, totalProgrammed);
+                          return (
+                            <span className={`font-bold ${totalProgrammed >= numbers.length ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              {covered} contatos ({Math.round((covered / Math.max(1, numbers.length)) * 100)}%)
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
             </>
           )}
 
@@ -2904,6 +3096,92 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Alerta de Contatos Duplicados */}
+      {showDuplicateWarningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+          <div 
+            className="w-full max-w-lg p-6 rounded-2xl border transition-all"
+            style={{ 
+              background: 'rgba(20, 20, 25, 0.95)', 
+              borderColor: 'rgba(245, 158, 11, 0.3)', // Cor amarela/âmbar de aviso
+              boxShadow: '0 12px 40px rgba(0,0,0,0.6)'
+            }}
+          >
+            <div className="flex items-start gap-4 mb-4">
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-[17px] font-bold text-white">Atenção: Destinatários Programados</h3>
+                <p className="text-[12.5px] text-zinc-400 mt-1">
+                  Encontramos <span className="text-amber-400 font-bold">{duplicatedContacts.length} contatos</span> da sua lista que já possuem disparos agendados ou em execução em outras campanhas ativas.
+                </p>
+              </div>
+            </div>
+
+            <div 
+              className="max-h-[160px] overflow-y-auto rounded-xl p-3 mb-4 border space-y-2 bg-black/35"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              {duplicatedContacts.slice(0, 50).map((dup, idx) => (
+                <div key={idx} className="flex justify-between items-center text-xs">
+                  <span className="text-zinc-300 font-mono flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-zinc-500" />
+                    {dup.phone}
+                  </span>
+                  <span className="text-amber-400 truncate max-w-[200px]" title={dup.campaignName}>
+                    {dup.campaignName}
+                  </span>
+                </div>
+              ))}
+              {duplicatedContacts.length > 50 && (
+                <p className="text-[10px] text-zinc-500 text-center py-1">
+                  E mais {duplicatedContacts.length - 50} contatos...
+                </p>
+              )}
+            </div>
+
+            <p className="text-[12px] text-zinc-300 mb-5">
+              O que você deseja fazer com esses contatos duplicados?
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2 justify-end">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowDuplicateWarningModal(false);
+                  setStep((step + 1) as any);
+                }}
+              >
+                Ignorar e Enviar Todos
+              </Button>
+              <Button
+                variant="primary"
+                style={{ background: '#10b981', borderColor: '#10b981' }}
+                onClick={() => {
+                  const toExclude = new Set<string>();
+                  for (const dup of duplicatedContacts) {
+                    toExclude.add(normPhoneKey(dup.phone));
+                  }
+                  setExcludedDuplicatePhones(prev => {
+                    const next = new Set(prev);
+                    for (const num of toExclude) {
+                      next.add(num);
+                    }
+                    return next;
+                  });
+                  toast.success(`${toExclude.size} contatos duplicados removidos da sua lista!`);
+                  setShowDuplicateWarningModal(false);
+                  setStep((step + 1) as any);
+                }}
+              >
+                Remover Duplicados (Recomendado)
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

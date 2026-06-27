@@ -247,6 +247,13 @@ export interface Campaign {
    * Substitui messageStages para novas campanhas com fluxo condicional.
    */
   stageConfigs?: CampaignStageConfig[];
+  dailySchedule?: {
+    enabled: boolean;
+    days: Array<{
+      dayIndex: number;
+      limitPerChannel: number;
+    }>;
+  };
 }
 
 export interface DashboardMetrics {

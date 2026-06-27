@@ -4431,7 +4431,14 @@ export async function startCampaign(
     stageConfigs?: CampaignStageConfig[],
     skipFrequencyCap?: boolean,
     delaySecondsMax?: number,
-    humanizedPauses?: boolean
+    humanizedPauses?: boolean,
+    dailySchedule?: {
+        enabled: boolean;
+        days: Array<{
+            dayIndex: number;
+            limitPerChannel: number;
+        }>;
+    }
 ): Promise<boolean> {
     if (connectionIds.length === 0 || numbers.length === 0) return false;
 
@@ -4542,22 +4549,65 @@ export async function startCampaign(
     // Intervalo médio para cálculo do stagger (ponto central da faixa min-max)
     const avgDelayMs = (dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2;
 
-    try {
-    for (let i = 0; i < numbers.length; i++) {
-        const num = numbers[i];
-        const cleanPhone = normalizePhoneKey(num);
-        const vars = recipientVars.get(cleanPhone) || {};
-        const assignedConnectionId = useWeights
-            ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
-            : activeConnectionIds[i % activeConnectionIds.length];
+    const dailyScheduleEnabled = dailySchedule?.enabled && Array.isArray(dailySchedule?.days) && dailySchedule.days.length > 0;
+    const enqueuedCountPerDayPerChannel: Record<string, Record<number, number>> = {};
+    const enqueuedIndexPerDayPerChannel: Record<string, Record<number, number>> = {};
 
-            // Jitter no stagger: cada mensagem i recebe i * avg + variação aleatória de ±25%
-            const jitterFactor = 0.75 + Math.random() * 0.5; // 0.75..1.25
-            const staggerDelay = Math.round(i * avgDelayMs * jitterFactor)
-                // Pausa humanizada: a cada ~30 msgs insere 2–5 min extra
-                + (humanizedPauses && i > 0 && i % 30 === 0
-                    ? Math.round((120_000 + Math.random() * 180_000)) // 2–5 min
-                    : 0);
+    try {
+        for (let i = 0; i < numbers.length; i++) {
+            const num = numbers[i];
+            const cleanPhone = normalizePhoneKey(num);
+            const vars = recipientVars.get(cleanPhone) || {};
+            const assignedConnectionId = useWeights
+                ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
+                : activeConnectionIds[i % activeConnectionIds.length];
+
+            let staggerDelay = 0;
+
+            if (dailyScheduleEnabled && dailySchedule?.days) {
+                if (!enqueuedCountPerDayPerChannel[assignedConnectionId]) {
+                    enqueuedCountPerDayPerChannel[assignedConnectionId] = {};
+                }
+                if (!enqueuedIndexPerDayPerChannel[assignedConnectionId]) {
+                    enqueuedIndexPerDayPerChannel[assignedConnectionId] = {};
+                }
+
+                let chosenDayIndex = 0;
+                let dayFound = false;
+
+                for (const dConfig of dailySchedule.days) {
+                    const currentCount = enqueuedCountPerDayPerChannel[assignedConnectionId][dConfig.dayIndex] || 0;
+                    if (currentCount < dConfig.limitPerChannel) {
+                        chosenDayIndex = dConfig.dayIndex;
+                        dayFound = true;
+                        break;
+                    }
+                }
+
+                if (!dayFound) {
+                    const sortedDays = [...dailySchedule.days].sort((a, b) => b.dayIndex - a.dayIndex);
+                    chosenDayIndex = sortedDays[0]?.dayIndex ?? 0;
+                }
+
+                enqueuedCountPerDayPerChannel[assignedConnectionId][chosenDayIndex] = (enqueuedCountPerDayPerChannel[assignedConnectionId][chosenDayIndex] || 0) + 1;
+                const contactIndexInDay = enqueuedIndexPerDayPerChannel[assignedConnectionId][chosenDayIndex] || 0;
+                enqueuedIndexPerDayPerChannel[assignedConnectionId][chosenDayIndex] = contactIndexInDay + 1;
+
+                const jitterFactor = 0.75 + Math.random() * 0.5;
+                const intraDayStagger = Math.round(contactIndexInDay * avgDelayMs * jitterFactor)
+                    + (humanizedPauses && contactIndexInDay > 0 && contactIndexInDay % 30 === 0
+                        ? Math.round((120_000 + Math.random() * 180_000))
+                        : 0);
+
+                const dayOffsetMs = chosenDayIndex * 86_400_000;
+                staggerDelay = dayOffsetMs + intraDayStagger;
+            } else {
+                const jitterFactor = 0.75 + Math.random() * 0.5;
+                staggerDelay = Math.round(i * avgDelayMs * jitterFactor)
+                    + (humanizedPauses && i > 0 && i % 30 === 0
+                        ? Math.round((120_000 + Math.random() * 180_000))
+                        : 0);
+            }
 
             if (useLazyMotor) {
                 // Motor lazy: apenas etapa 0 enfileirada agora; etapas seguintes após conclusão/resposta

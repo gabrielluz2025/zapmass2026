@@ -427,3 +427,17 @@ export type FailedJobsResult = {
 export async function apiGetFailedJobs(): Promise<FailedJobsResult> {
   return apiFetchJson<FailedJobsResult>('/api/campaigns/failed-jobs');
 }
+
+/** Verifica se algum dos contatos selecionados já está programado em campanhas ativas. */
+export async function apiCheckScheduledDuplicates(
+  phones: string[]
+): Promise<Array<{ phone: string; campaignName: string; campaignId: string }>> {
+  const j = await apiFetchJson<{ duplicates?: Array<{ phone: string; campaignName: string; campaignId: string }> }>(
+    '/api/campaigns/check-scheduled-duplicates',
+    {
+      method: 'POST',
+      body: JSON.stringify({ phones })
+    }
+  );
+  return Array.isArray(j.duplicates) ? j.duplicates : [];
+}

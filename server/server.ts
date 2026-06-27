@@ -1457,7 +1457,8 @@ const registerSocketHandlers = () => {
           mediaAttachment,
           followUpMediaAttachment,
           stageConfigs,
-          skipFrequencyCap
+          skipFrequencyCap,
+          dailySchedule
         }: {
           numbers?: string[];
           message?: string;
@@ -1500,6 +1501,13 @@ const registerSocketHandlers = () => {
           skipFrequencyCap?: boolean;
           delaySecondsMax?: number;
           humanizedPauses?: boolean;
+          dailySchedule?: {
+            enabled: boolean;
+            days: Array<{
+              dayIndex: number;
+              limitPerChannel: number;
+            }>;
+          };
         },
         callback?: (response: { ok: boolean; error?: string }) => void
       ) => {
@@ -1633,7 +1641,8 @@ const registerSocketHandlers = () => {
                 : undefined,
               skipFrequencyCap === true,
               typeof delaySecondsMax === 'number' && Number.isFinite(delaySecondsMax) ? delaySecondsMax : undefined,
-              humanizedPauses === true
+              humanizedPauses === true,
+              dailySchedule
             );
             if (!ok) {
               const errMsg =
