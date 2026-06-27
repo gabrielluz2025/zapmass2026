@@ -2634,7 +2634,7 @@ function bumpCampaignProgress(campaignId: string | undefined, success: boolean) 
 }
 
 async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
-    const state = campaignsById.get(campaignId);
+        const state = campaignsById.get(campaignId);
     if (!state?.isRunning) return;
 
     const pendingJobs = campaignPendingJobs.get(campaignId) || 0;
@@ -2671,28 +2671,28 @@ async function tryFinalizeOrHoldCampaign(campaignId: string): Promise<void> {
         return;
     }
 
-    state.isRunning = false;
+            state.isRunning = false;
     releaseCampaignMediaFromMemory(campaignId);
     releaseCampaignMediaFromMemory(campaignMediaStorageKey(campaignId, 1));
     void deleteCampaignRuntimeFromRedis(campaignId);
-    if (state.ownerUid) {
-        void persistCampaignProgressToFirestore(
-            state.ownerUid,
-            campaignId,
-            state.successCount,
-            state.failCount,
-            state.processed,
-            'COMPLETED'
-        );
+            if (state.ownerUid) {
+                void persistCampaignProgressToFirestore(
+                    state.ownerUid,
+                    campaignId,
+                    state.successCount,
+                    state.failCount,
+                    state.processed,
+                    'COMPLETED'
+                );
         void persistCampaignReportSnapshot(state.ownerUid, campaignId);
-        publishOwnerEvent(state.ownerUid, 'campaign-finished', {
-            campaignId,
-            successCount: state.successCount,
-            failCount: state.failCount,
-            total: state.total,
-        });
-    }
-}
+                publishOwnerEvent(state.ownerUid, 'campaign-finished', {
+                    campaignId,
+                    successCount: state.successCount,
+                    failCount: state.failCount,
+                    total: state.total,
+                });
+            }
+        }
 
 function finishCampaignJob(campaignId: string | undefined, success: boolean) {
     if (!campaignId) return;
@@ -3032,7 +3032,7 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: any) {
     const timestamp = new Date().toISOString();
     const prefix = `[EvolutionAPI:${level.toUpperCase()}]`;
     console.log(`${prefix} ${timestamp} ${message}`, data || '');
-
+    
     if (!io) return;
 
     // Tenta resolver o dono pelo data (campaignId/ownerUid/connectionId)
@@ -3470,12 +3470,12 @@ async function sendMediaInternal(
         const endpoint = `/message/sendMedia/${evoInst(connectionId)}`;
         const payload = {
             number,
-            delay: 1200,
-            mediatype: type,
+                delay: 1200,
+                mediatype: type,
             mimetype: mimeType,
-            caption: caption || '',
-            media: url,
-            fileName,
+                caption: caption || '',
+                media: url,
+                fileName,
         };
         const response = await api.post(endpoint, payload);
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
@@ -3770,7 +3770,7 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!(await isConnectionOpen(item.connectionId))) {
-        const state = await getConnectionState(item.connectionId);
+    const state = await getConnectionState(item.connectionId);
         throw new Error(`Canal ${item.connectionId} não conectado (${state})`);
     }
 
@@ -4067,11 +4067,11 @@ async function sendMediaByUrlInternal(
         const response = await api.post(`/message/sendMedia/${evoInst(connectionId)}`, {
             number,
             delay: 1200,
-            mediatype: type,
+                mediatype: type,
             mimetype: mimeType,
-            caption: caption || '',
-            media: mediaUrl,
-            fileName,
+                caption: caption || '',
+                media: mediaUrl,
+                fileName,
         });
         const messageId = response.data?.key?.id || response.data?.key?._serialized;
         return { ok: Boolean(response.data?.key), messageId: messageId ? String(messageId) : undefined };
@@ -4543,13 +4543,13 @@ export async function startCampaign(
     const avgDelayMs = (dispatchSettings.minDelayMs + dispatchSettings.maxDelayMs) / 2;
 
     try {
-        for (let i = 0; i < numbers.length; i++) {
-            const num = numbers[i];
-            const cleanPhone = normalizePhoneKey(num);
-            const vars = recipientVars.get(cleanPhone) || {};
-            const assignedConnectionId = useWeights
-                ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
-                : activeConnectionIds[i % activeConnectionIds.length];
+    for (let i = 0; i < numbers.length; i++) {
+        const num = numbers[i];
+        const cleanPhone = normalizePhoneKey(num);
+        const vars = recipientVars.get(cleanPhone) || {};
+        const assignedConnectionId = useWeights
+            ? pickWeightedChannel(activeConnectionIds, channelWeights, i)
+            : activeConnectionIds[i % activeConnectionIds.length];
 
             // Jitter no stagger: cada mensagem i recebe i * avg + variação aleatória de ±25%
             const jitterFactor = 0.75 + Math.random() * 0.5; // 0.75..1.25
@@ -4563,15 +4563,15 @@ export async function startCampaign(
                 // Motor lazy: apenas etapa 0 enfileirada agora; etapas seguintes após conclusão/resposta
                 const firstStage = validStageConfigs[0];
                 const personalizedMessage = applyMessageVars(firstStage.body, cleanPhone, vars, i);
-                await enqueueCampaignItem(
-                    {
-                        connectionId: assignedConnectionId,
-                        to: num,
-                        message: personalizedMessage,
-                        campaignId: cid,
+            await enqueueCampaignItem(
+                {
+                    connectionId: assignedConnectionId,
+                    to: num,
+                    message: personalizedMessage,
+                    campaignId: cid,
                         ownerUid,
                         stageIndex: 0,
-                        sendAsMedia: hasMedia,
+                    sendAsMedia: hasMedia,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
                         skipFrequencyCap: skipFrequencyCap === true,
                     },
@@ -4588,36 +4588,36 @@ export async function startCampaign(
                         ownerUid,
                         sendAsMedia: hasMedia,
                         skipFrequencyCap: skipFrequencyCap === true,
-                        replyFlowOpen: {
-                            campaignId: cid,
-                            phoneDigits: cleanPhone,
-                            vars,
-                            ownerUid,
-                        },
+                    replyFlowOpen: {
+                        campaignId: cid,
+                        phoneDigits: cleanPhone,
+                        vars,
+                        ownerUid,
                     },
-                    staggerDelay
-                );
-            } else {
-                for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
+                },
+                staggerDelay
+            );
+        } else {
+            for (let stageIndex = 0; stageIndex < templates.length; stageIndex++) {
                     const personalizedMessage = applyMessageVars(templates[stageIndex], cleanPhone, vars, i);
                     // Delay entre etapas: usa o mesmo intervalo configurado entre contatos.
                     const interStageMinDelay = dispatchSettings.minDelayMs;
                     const stageDelay = staggerDelay + stageIndex * interStageMinDelay;
-                    await enqueueCampaignItem(
-                        {
-                            connectionId: assignedConnectionId,
-                            to: num,
-                            message: personalizedMessage,
-                            campaignId: cid,
+                await enqueueCampaignItem(
+                    {
+                        connectionId: assignedConnectionId,
+                        to: num,
+                        message: personalizedMessage,
+                        campaignId: cid,
                             ownerUid,
                             stageIndex,
-                            sendAsMedia: hasMedia && stageIndex === 0,
+                        sendAsMedia: hasMedia && stageIndex === 0,
                             skipFrequencyCap: skipFrequencyCap === true,
-                        },
-                        stageDelay
-                    );
-                }
+                    },
+                    stageDelay
+                );
             }
+        }
         }
 
         emitCampaignLog(
@@ -4710,7 +4710,7 @@ export function init(socketIO: SocketIOServer) {
     chatStore.init(socketIO, { notifyConversationsChanged: emitScopedConversationsUpdate });
     ensureReplyFlowEngine();
     initEvolutionWebhookQueue(handleWebhook);
-    log('info', 'Evolution API Service Initialized', {
+        log('info', 'Evolution API Service Initialized', {
         apiUrl: evolutionConfig.apiUrl,
         webhookUrl: evolutionConfig.webhookUrl,
     });
@@ -4866,16 +4866,16 @@ export async function handleWebhook(event: any) {
                     const messageOwnerUid = resolveOwnerUid(instance);
                     if (messageOwnerUid) {
                         publishOwnerEvent(messageOwnerUid, 'message-received', {
-                            connectionId: instance,
+                        connectionId: instance,
                             message: msg,
                         });
                     } else if (!isFromMe) {
                         log('warn', 'message-received recebido para canal orfao - evento descartado', {
                             instance,
-                        });
-                    }
+                    });
+                }
 
-                    if (isFromMe && messageId) {
+                if (isFromMe && messageId) {
                         const msgRow = msg as Record<string, unknown>;
                         const rawStatus =
                             msgRow.status ??
@@ -4885,12 +4885,12 @@ export async function handleWebhook(event: any) {
                             evolutionTrackMessageAck(String(messageId), evolutionStatus);
                             chatStore.updateMessageStatus(String(messageId), evolutionStatus);
                         }
-                        metrics.totalSent++;
+                    metrics.totalSent++;
                         const sentOwnerUid = messageOwnerUid || resolveOwnerUid(instance);
                         publishOwnerEvent(sentOwnerUid, 'campaign-progress', {
-                            successCount: metrics.totalSent,
-                            connectionId: instance,
-                        });
+                        successCount: metrics.totalSent,
+                        connectionId: instance,
+                    });
                         continue;
                     }
 
@@ -4910,14 +4910,14 @@ export async function handleWebhook(event: any) {
                     const { bodyText, nonTextReply } = extractEvolutionMessageBody(payload);
                     const incomingConvId = buildEvolutionIncomingConvId(instance, remoteJid, phoneDigits);
 
-                    ensureReplyFlowEngine();
+                        ensureReplyFlowEngine();
                     // Restaura sessão do Redis se foi perdida (restart do servidor)
                     await tryRestoreReplyFlowSession(instance, phoneDigits);
-                    void replyFlowEngine.handleIncoming({
-                        connectionId: instance,
-                        phoneDigits,
-                        bodyText,
-                        nonTextReply,
+                        void replyFlowEngine.handleIncoming({
+                            connectionId: instance,
+                            phoneDigits,
+                            bodyText,
+                            nonTextReply,
                         incomingConvId,
                     });
 
@@ -5308,7 +5308,7 @@ export async function createConnection(
         throw new Error('Faça login para criar um canal WhatsApp.');
     }
     const id = generateId(uid);
-    publishOwnerEvent(uid, 'connection-created', { connectionId: id, name });
+        publishOwnerEvent(uid, 'connection-created', { connectionId: id, name });
     const result = await createConnectionInternal(id, name, proxy, uid);
     if (result.error) {
         stopQrWatch(id);
