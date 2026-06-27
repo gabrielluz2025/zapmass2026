@@ -167,11 +167,11 @@ export const SupportBotSettingsPanel: React.FC = () => {
 
   const addOption = () => {
     setConfig((prev) => {
-      if (prev.options.length >= 5) return prev;
+      if (prev.options.length >= 20) return prev;
       const n = prev.options.length + 1;
       return {
         ...prev,
-        options: [...prev.options, { id: String(n), label: `Nova opção ${n}`, reply: '' }]
+        options: [...prev.options, { id: String(n), label: `Nova opção ${n}`, reply: '', marketingEffect: 'none' }]
       };
     });
   };
@@ -192,11 +192,11 @@ export const SupportBotSettingsPanel: React.FC = () => {
 
   const addFaq = () => {
     setConfig((prev) => {
-      if (prev.faqItems.length >= 15) return prev;
+      if (prev.faqItems.length >= 30) return prev;
       const n = prev.faqItems.length + 1;
       return {
         ...prev,
-        faqItems: [...prev.faqItems, { id: String(n), keywords: ['palavra'], reply: '' }]
+        faqItems: [...prev.faqItems, { id: String(n), keywords: ['palavra'], reply: '', marketingEffect: 'none' }]
       };
     });
   };
@@ -335,9 +335,18 @@ export const SupportBotSettingsPanel: React.FC = () => {
       </Card>
 
       <Card className="p-5 space-y-3">
-        <p className="text-[13px] font-semibold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
-          <Bot className="w-4 h-4" />
-          Mensagens
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[13px] font-semibold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+            <Bot className="w-4 h-4" />
+            Mensagens
+          </p>
+          <div className="px-2 py-1 rounded bg-[rgba(16,185,129,0.1)] border border-[rgba(16,185,129,0.2)] text-[10px] text-[var(--brand-500)] font-semibold flex items-center gap-1.5">
+            <span>✨</span>
+            <span>Suporta Spintax e Variáveis</span>
+          </div>
+        </div>
+        <p className="text-[11.5px] leading-relaxed mb-4" style={{ color: 'var(--text-3)' }}>
+          Você pode usar variáveis dinâmicas como <strong>{`{saudacao}`}</strong> (Bom dia/Boa tarde/Boa noite) e Spintax <strong>{`{Oi|Olá}`}</strong> em todas as mensagens do bot para torná-lo mais humano e reduzir riscos de bloqueio.
         </p>
         <div>
           <label className="block text-[12px] font-semibold mb-1.5" style={{ color: 'var(--text-2)' }}>
@@ -380,9 +389,9 @@ export const SupportBotSettingsPanel: React.FC = () => {
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            Opções do menu (máx. 5)
+            Opções do menu (máx. 20)
           </p>
-          <Button type="button" size="sm" variant="secondary" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={addOption} disabled={config.options.length >= 5}>
+          <Button type="button" size="sm" variant="secondary" leftIcon={<Plus className="w-3.5 h-3.5" />} onClick={addOption} disabled={config.options.length >= 20}>
             Opção
           </Button>
         </div>
@@ -427,13 +436,36 @@ export const SupportBotSettingsPanel: React.FC = () => {
             </label>
             {!opt.handoff && (
               <textarea
-                className="w-full min-h-[72px] rounded-xl border px-3 py-2 text-[13px] resize-y"
+                className="w-full min-h-[72px] rounded-xl border px-3 py-2 text-[13px] resize-y mb-2"
                 style={{ borderColor: 'var(--border)', background: 'var(--surface-0)', color: 'var(--text-1)' }}
                 placeholder="Resposta automática desta opção"
                 value={opt.reply}
                 onChange={(e) => updateOption(i, { reply: e.target.value })}
               />
             )}
+            
+            <div className="pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-2)' }}>
+                Ação CRM (Opcional)
+              </label>
+              <select
+                className="w-full px-3 py-1.5 rounded-lg text-[12px] border transition-colors outline-none"
+                style={{ 
+                  background: 'var(--surface-2)', 
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-1)' 
+                }}
+                value={opt.marketingEffect || 'none'}
+                onChange={(e) => updateOption(i, { marketingEffect: e.target.value as any })}
+              >
+                <option value="none">Nenhuma ação</option>
+                <option value="opt_in">🔥 Adicionar à Lista Quente (Lead)</option>
+                <option value="opt_out">🚫 Adicionar à Lista Negra (Bloquear campanhas)</option>
+              </select>
+              <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
+                Se o contato escolher esta opção, ele será automaticamente marcado no seu CRM.
+              </p>
+            </div>
           </div>
         ))}
       </Card>
@@ -441,7 +473,7 @@ export const SupportBotSettingsPanel: React.FC = () => {
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-[13px] font-semibold" style={{ color: 'var(--text-1)' }}>
-            FAQ por palavra-chave (máx. 15)
+            FAQ por palavra-chave (máx. 30)
           </p>
           <Button
             type="button"
@@ -449,7 +481,7 @@ export const SupportBotSettingsPanel: React.FC = () => {
             variant="secondary"
             leftIcon={<Plus className="w-3.5 h-3.5" />}
             onClick={addFaq}
-            disabled={config.faqItems.length >= 15}
+            disabled={config.faqItems.length >= 30}
           >
             FAQ
           </Button>
@@ -487,12 +519,32 @@ export const SupportBotSettingsPanel: React.FC = () => {
               />
             </div>
             <textarea
-              className="w-full min-h-[72px] rounded-xl border px-3 py-2 text-[13px] resize-y"
+              className="w-full min-h-[72px] rounded-xl border px-3 py-2 text-[13px] resize-y mb-2"
               style={{ borderColor: 'var(--border)', background: 'var(--surface-0)', color: 'var(--text-1)' }}
               placeholder="Resposta automática"
               value={item.reply}
               onChange={(e) => updateFaq(i, { reply: e.target.value })}
             />
+            
+            <div className="pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-2)' }}>
+                Ação CRM (Opcional)
+              </label>
+              <select
+                className="w-full px-3 py-1.5 rounded-lg text-[12px] border transition-colors outline-none"
+                style={{ 
+                  background: 'var(--surface-2)', 
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-1)' 
+                }}
+                value={item.marketingEffect || 'none'}
+                onChange={(e) => updateFaq(i, { marketingEffect: e.target.value as any })}
+              >
+                <option value="none">Nenhuma ação</option>
+                <option value="opt_in">🔥 Adicionar à Lista Quente (Lead)</option>
+                <option value="opt_out">🚫 Adicionar à Lista Negra (Bloquear campanhas)</option>
+              </select>
+            </div>
           </div>
         ))}
       </Card>

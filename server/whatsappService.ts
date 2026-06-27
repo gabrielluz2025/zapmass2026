@@ -4591,7 +4591,7 @@ const buildRecipientVarsMap = (recipients?: CampaignRecipient[]): Map<string, Re
     return map;
 };
 
-const applyMessageVars = (
+export const applyMessageVars = (
     template: string,
     phone: string,
     vars: Record<string, string> = {},

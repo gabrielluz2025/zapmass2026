@@ -11,6 +11,7 @@ import {
   upsertSupportBotSessionPg
 } from './supportBotRepository.js';
 import type { SupportBotConfig, SupportBotFaqItem, SupportBotMenuOption } from './supportBotTypes.js';
+import { publishOwnerEvent, applyMessageVars } from '../whatsappService.js';
 
 const configCache = new Map<string, { config: SupportBotConfig; at: number }>();
 const CONFIG_TTL_MS = 45_000;
@@ -131,7 +132,8 @@ async function sendMenuAndTrack(
 ): Promise<void> {
   const { tenantId, connectionId, phoneDigits, incomingConvId, config, sendText } = params;
   const menu = buildMenuText(config);
-  await sendText(incomingConvId, prefix ? `${prefix}\n\n${menu}` : menu);
+  const textToSend = prefix ? `${prefix}\n\n${menu}` : menu;
+  await sendText(incomingConvId, applyMessageVars(textToSend, phoneDigits));
   await upsertSupportBotSessionPg(tenantId, connectionId, phoneDigits, incomingConvId, {
     state: 'menu',
     lastMenuSentAt: new Date()
@@ -172,7 +174,7 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
     const now = Date.now();
     const last = session?.lastMenuSentAt?.getTime() ?? 0;
     if (now - last < config.menuCooldownMinutes * 60_000) return;
-    await sendText(incomingConvId, config.offHoursMessage);
+    await sendText(incomingConvId, applyMessageVars(config.offHoursMessage, phoneDigits));
     await upsertSupportBotSessionPg(tenantId, connectionId, phoneDigits, incomingConvId, {
       lastMenuSentAt: new Date()
     });
@@ -193,7 +195,7 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
   if (session?.state === 'handoff') return;
 
   const doHandoff = async (preview: string) => {
-    await sendText(incomingConvId, config.handoffMessage);
+    await sendText(incomingConvId, applyMessageVars(config.handoffMessage, phoneDigits));
     await upsertSupportBotSessionPg(tenantId, connectionId, phoneDigits, incomingConvId, {
       state: 'handoff',
       handedOffAt: new Date()
@@ -221,7 +223,16 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
 
   const faq = matchFaqItem(config, bodyText);
   if (faq) {
-    await sendText(incomingConvId, faq.reply);
+    if (faq.marketingEffect === 'opt_in' || faq.marketingEffect === 'opt_out') {
+      publishOwnerEvent(tenantId, 'contact-marketing-consent', {
+        campaignId: 'support_bot',
+        phoneDigits,
+        effect: faq.marketingEffect,
+        replyText: bodyText.slice(0, 500),
+        at: new Date().toISOString()
+      });
+    }
+    await sendText(incomingConvId, applyMessageVars(faq.reply, phoneDigits));
     await bumpSupportBotMetricPg(tenantId, 'botReplies');
     await sendMenuAndTrack({ tenantId, connectionId, phoneDigits, incomingConvId, config, sendText });
     return;
@@ -229,13 +240,22 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
 
   const matched = matchMenuOption(config, bodyText);
   if (matched) {
+    if (matched.marketingEffect === 'opt_in' || matched.marketingEffect === 'opt_out') {
+      publishOwnerEvent(tenantId, 'contact-marketing-consent', {
+        campaignId: 'support_bot',
+        phoneDigits,
+        effect: matched.marketingEffect,
+        replyText: bodyText.slice(0, 500),
+        at: new Date().toISOString()
+      });
+    }
     if (matched.handoff) {
       await doHandoff(bodyText);
       return;
     }
     const reply = matched.reply.trim();
     if (reply) {
-      await sendText(incomingConvId, reply);
+      await sendText(incomingConvId, applyMessageVars(reply, phoneDigits));
       await bumpSupportBotMetricPg(tenantId, 'botReplies');
     }
     await sendMenuAndTrack({ tenantId, connectionId, phoneDigits, incomingConvId, config, sendText });
@@ -247,7 +267,8 @@ export async function handleSupportBotIncoming(params: SupportBotIncomingParams)
   const hasRecentMenu = now - lastMenu < config.menuCooldownMinutes * 60_000;
 
   if (session && hasRecentMenu && bodyText.trim()) {
-    await sendText(incomingConvId, `${config.invalidOptionMessage}\n\n${buildMenuText(config).split('\n\n').slice(1).join('\n\n')}`);
+    const invalidMsg = applyMessageVars(`${config.invalidOptionMessage}\n\n${buildMenuText(config).split('\n\n').slice(1).join('\n\n')}`, phoneDigits);
+    await sendText(incomingConvId, invalidMsg);
     return;
   }
 

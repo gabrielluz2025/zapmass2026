@@ -5,12 +5,14 @@ export type SupportBotMenuOption = {
   label: string;
   reply: string;
   handoff?: boolean;
+  marketingEffect?: 'none' | 'opt_in' | 'opt_out';
 };
 
 export type SupportBotFaqItem = {
   id: string;
   keywords: string[];
   reply: string;
+  marketingEffect?: 'none' | 'opt_in' | 'opt_out';
 };
 
 export type SupportBotConfig = {
