@@ -53,13 +53,9 @@ export function buildPrimaryReportRowsFromLogs(
   const replyHints = buildReplyHintsFromLogs(scopedLogs, cid);
 
   const phones = new Set<string>();
-  if (sentPhones.size > 0) {
-    for (const p of sentPhones) phones.add(p);
-    for (const rk of replyHints.keys()) phones.add(rk);
-  } else {
-    for (const p of plannedPhones) phones.add(p);
-    for (const rk of replyHints.keys()) phones.add(rk);
-  }
+  for (const p of plannedPhones) phones.add(p);
+  for (const p of sentPhones) phones.add(p);
+  for (const rk of replyHints.keys()) phones.add(rk);
 
   type Acc = {
     phone: string;
@@ -151,8 +147,8 @@ export function buildPrimaryReportRowsFromLogs(
 
   const scopeOk = (phone: string) => {
     const rk = recipientKeyForCampaignReport(phone);
-    if (sentPhones.size > 0) return sentPhones.has(rk);
-    if (plannedPhones.size > 0) return plannedPhones.has(rk);
+    if (sentPhones.has(rk)) return true;
+    if (plannedPhones.has(rk)) return true;
     return replyHints.has(rk);
   };
 

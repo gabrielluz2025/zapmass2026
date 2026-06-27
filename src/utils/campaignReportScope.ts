@@ -86,8 +86,8 @@ export function isPhoneInCampaignReportScope(
 ): boolean {
   const rk = recipientKeyForCampaignReport(phoneKey);
   if (!rk) return false;
-  if (sentPhones.size > 0) return sentPhones.has(rk);
-  if (plannedPhones.size > 0) return plannedPhones.has(rk);
+  if (sentPhones.has(rk)) return true;
+  if (plannedPhones.has(rk)) return true;
   return false;
 }
 
