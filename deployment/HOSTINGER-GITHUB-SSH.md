@@ -31,8 +31,16 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3001/api/health
 
 ## Deploy manual (enquanto o Actions não liga)
 
+Se `git pull` falhar com *local changes would be overwritten*, use o reset (o repositório na VPS prevalece):
+
 ```bash
-cd /opt/zapmass && git pull origin main && bash deployment/manual-pull-deploy.sh
+cd /opt/zapmass && git fetch origin && git reset --hard origin/main && bash deployment/deploy-completo.sh
+```
+
+Ou só descartar o ficheiro alterado e puxar:
+
+```bash
+cd /opt/zapmass && git checkout -- deployment/vps-deploy.sh && git pull origin main && bash deployment/manual-pull-deploy.sh
 ```
 
 ## Deploy automático sem SSH do GitHub (recomendado na Hostinger)
