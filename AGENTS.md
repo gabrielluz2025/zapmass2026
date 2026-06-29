@@ -15,9 +15,11 @@ The system packages (PostgreSQL 16, Redis) are pre-installed in the snapshot, an
 Start them once per session before running the app:
 
 ```bash
-sudo pg_ctlcluster 16 main start   # PostgreSQL on :5432
-sudo redis-server --daemonize yes  # Redis on :6379
+sudo pg_ctlcluster 16 main start                       # PostgreSQL on :5432
+sudo redis-server --daemonize yes --dir /var/lib/redis # Redis on :6379
 ```
+
+(Run Redis with `--dir /var/lib/redis` so its `dump.rdb` is not written into the repo root.)
 
 The Postgres superuser password is set to `evolution-secure-pass-2026` (matches the app's
 default in `server/db/postgres.ts`). The backend auto-creates `zapmass_db` and runs SQL
