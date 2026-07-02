@@ -244,30 +244,16 @@
   color: var(--text-3, #94a3b8);
 }
 
-/* ── Skeleton de carregamento ───────────────────── */
-.crm-skeleton-row {
-  display: grid;
-  grid-template-columns: 36px minmax(0,1.65fr) minmax(0,1.1fr) minmax(0,0.95fr) minmax(0,128px) minmax(0,88px) 72px;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid var(--border-subtle);
+/* ── Linha de contato (nova) ────────────────────── */
+.crm-contact-row {
+  cursor: pointer;
+  transition: background 0.12s;
 }
-
-.crm-skeleton-cell {
-  border-radius: 6px;
-  height: 12px;
-  background: var(--border-subtle);
-  animation: crmSkeleton 1.4s ease-in-out infinite;
+.crm-contact-row:hover {
+  background: var(--crm-row-hover, rgba(255,255,255,0.03)) !important;
 }
-
-.crm-skeleton-avatar {
-  width: 36px; height: 36px;
-  border-radius: 999px;
-  background: var(--border-subtle);
-  animation: crmSkeleton 1.4s ease-in-out infinite;
-  flex-shrink: 0;
-}
+.crm-contact-row .group-hover\:opacity-100 { opacity: 0; }
+.crm-contact-row:hover .group-hover\:opacity-100 { opacity: 1 !important; }
 
 /* ── Barra de lote ──────────────────────────────── */
 .crm-bulk-bar {
