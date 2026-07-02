@@ -3870,18 +3870,7 @@ export const ContactsTab: React.FC = () => {
   ]);
 
   return (
-    <PageShell
-      statusStrip={
-        <>
-          <span className="ui-caption tabular-nums">
-            {(contactsSavedTotal ?? smartStats.total).toLocaleString('pt-BR')} contatos
-          </span>
-          <span className="ui-caption tabular-nums">Quentes {smartStats.hot}</span>
-          <span className="ui-caption tabular-nums">Novos 7d {smartStats.last7}</span>
-          <span className="ui-caption tabular-nums">Retorno hoje {smartStats.retorno_hoje}</span>
-        </>
-      }
-    >
+    <PageShell>
     <div className="zm-contacts-v3 space-y-4 relative">
       {/* input file escondido, usado pelos botões do hero/tabela */}
             <input
