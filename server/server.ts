@@ -70,6 +70,7 @@ import {
 } from './observability.js';
 import { metricsAccessMiddleware } from './metricsAccess.js';
 import { subscriptionEnforceFromEnv, userHasFullAppAccess } from './subscriptionAccess.js';
+import { getPlanLimitsForSub } from './planLimits.js';
 import { getSystemMetrics } from './systemMetricsShared.js';
 import { getChatOpsMetricsSnapshot, recordInboxSyncDuration } from './chatOpsMetrics.js';
 import { getEvolutionWebhookQueueMetrics } from './evolutionWebhookQueue.js';
@@ -1546,6 +1547,31 @@ const registerSocketHandlers = () => {
         }).catch(() => {});
         return;
       }
+
+      // Verificar limite de campanhas simultâneas por plano
+      if (subscriptionEnforceFromEnv()) {
+        try {
+          const subDoc = await readUserSubscriptionForLimits(uid);
+          const limits = getPlanLimitsForSub(subDoc);
+          const activeCount = evolutionService.countActiveCampaignsForOwner(uid);
+          if (activeCount >= limits.maxConcurrentCampaigns) {
+            const planLabel = limits.tierLabel;
+            const err = `Limite de ${limits.maxConcurrentCampaigns} campanha(s) simultânea(s) atingido para o plano ${planLabel}. Aguarde a campanha atual finalizar ou pause-a antes de iniciar uma nova.`;
+            callback?.({ ok: false, error: err });
+            socket.emit('campaign-error', { error: err, campaignId });
+            void persistUserNotification(uid, {
+              title: 'Limite de campanhas atingido',
+              body: err,
+              kind: 'warning',
+              category: 'billing'
+            }).catch(() => {});
+            return;
+          }
+        } catch {
+          // Se falhar ao obter a assinatura, permite prosseguir (não bloqueia por falha de leitura)
+        }
+      }
+
       userLog('ui:start-campaign', { campaignId, connections: connectionIds.length, total: numbers?.length || 0, delaySeconds });
       try {
         const stages =

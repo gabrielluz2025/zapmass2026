@@ -5138,6 +5138,19 @@ export function isMassCampaignEngineIdle(): boolean {
     return total === 0;
 }
 
+/**
+ * Conta campanhas ativas (isRunning === true) do dono.
+ * Usado para enforce do limite de campanhas simultâneas por plano.
+ */
+export function countActiveCampaignsForOwner(ownerUid: string): number {
+    if (!ownerUid) return 0;
+    let count = 0;
+    for (const state of campaignsById.values()) {
+        if (state.isRunning && state.ownerUid === ownerUid) count++;
+    }
+    return count;
+}
+
 export function getMetrics(): DashboardMetrics {
     return { ...metrics };
 }

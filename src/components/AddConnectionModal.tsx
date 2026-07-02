@@ -791,6 +791,20 @@ export const AddConnectionModal: React.FC<AddConnectionModalProps> = ({ isOpen, 
               </div>
               <h3 className="text-2xl font-bold text-gray-800">Conectado com Sucesso!</h3>
               <p className="text-gray-500 mt-2">O dispositivo foi sincronizado e está pronto para uso.</p>
+
+              {/* Aviso anti-ban para chip novo */}
+              <div className="mt-5 w-full bg-amber-50 border border-amber-200 rounded-xl p-4 text-left">
+                <p className="text-[13px] font-bold text-amber-800 mb-2 flex items-center gap-1.5">
+                  ⚠️ Chip novo — leia antes de disparar
+                </p>
+                <ul className="text-[12px] text-amber-700 space-y-1.5 leading-snug">
+                  <li>• Nas primeiras 48h, envie <strong>no máximo 50–100 mensagens/dia</strong></li>
+                  <li>• Aumente gradualmente: 100 → 200 → 400 → 800 por semana</li>
+                  <li>• Use o campo <strong>"Limite diário"</strong> nas configurações do chip para controlar</li>
+                  <li>• Evite listas com muitos números desconhecidos — prefira quem te conhece primeiro</li>
+                  <li>• Chip novo com alto volume = risco alto de suspensão pelo WhatsApp</li>
+                </ul>
+              </div>
             </div>
           )}
 

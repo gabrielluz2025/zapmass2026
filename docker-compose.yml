@@ -200,6 +200,20 @@ services:
     volumes:
       - zapmass-redis:/data
 
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: zapmass-uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3002:3001"
+    volumes:
+      - zapmass-uptime-kuma:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   wa-worker:
     build:
       context: .
@@ -250,6 +264,7 @@ volumes:
   zapmass-data:
   zapmass-redis:
   zapmass-evolution:
+  zapmass-uptime-kuma:
   # Volume criado por deploy antigo (Swarm); reutilizar evita WARN no compose.
   zapmass-postgres:
     external: true
