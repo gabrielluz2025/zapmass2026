@@ -159,8 +159,8 @@ export const WarmupTab: React.FC = () => {
   const [lastRoundTime, setLastRoundTime] = useState<string>('');
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
   const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
-  // Modo servidor: o aquecimento roda no backend mesmo sem o browser aberto
-  const [serverMode, setServerMode] = useState(false);
+  // Modo servidor é o padrão recomendado — roda no backend mesmo com browser fechado
+  const [serverMode, setServerMode] = useState(true);
   const [serverModeActive, setServerModeActive] = useState(false);
   const channelsRef = useRef<WarmupChannel[]>([]);
   const runWarmupRoundRef = useRef<() => Promise<void>>(async () => {});
@@ -547,6 +547,35 @@ export const WarmupTab: React.FC = () => {
             </span>
           )}
         </div>
+
+        {/* ═══ AVISO MODO NAVEGADOR ════════════════════════════════════════════ */}
+        {warmupActive && !serverModeActive && (
+          <div
+            className="flex items-start gap-3 p-3 rounded-xl"
+            style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.3)' }}
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#f59e0b' }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12.5px] font-semibold" style={{ color: '#f59e0b' }}>
+                Aquecimento em modo navegador — para quando você fechar esta aba
+              </p>
+              <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                Para não precisar reiniciar, pare o aquecimento, selecione <strong>Servidor</strong> e ative novamente. O servidor continuará mesmo com o browser fechado.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                stopGlobalWarmup();
+                setServerMode(true);
+                toast('Aquecimento parado. Selecione "Servidor" e clique em "Ativar no servidor".', { icon: '💡', duration: 5000 });
+              }}
+              className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0"
+              style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
+            >
+              Mudar para servidor
+            </button>
+          </div>
+        )}
 
         {/* ═══ LEGENDA DE MATURIDADE ══════════════════════════════════════════ */}
         <div className="flex flex-wrap gap-2">

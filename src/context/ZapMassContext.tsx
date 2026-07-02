@@ -1708,11 +1708,14 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     socket.on('warmup-chip-stats-update', (list: WarmupChipStats[]) => {
       if (!Array.isArray(list)) return;
+      // O servidor já filtra por escopo (filterByConnectionScope). Não re-filtrar aqui
+      // para evitar race condition quando connections-update ainda não chegou.
+      // Usar merge (não substituição) para preservar stats de outros canais em updates parciais.
       const dict: Record<string, WarmupChipStats> = {};
       list.forEach((s) => {
-        if (s && s.connectionId && ownsConnectionId(s.connectionId)) dict[s.connectionId] = s;
+        if (s && s.connectionId) dict[s.connectionId] = s;
       });
-      setWarmupChipStats(dict);
+      setWarmupChipStats((prev) => ({ ...prev, ...dict }));
     });
 
     socket.on('conversations-update', (updatedConversations: Conversation[]) => {

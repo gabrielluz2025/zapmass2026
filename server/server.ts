@@ -1113,6 +1113,11 @@ const registerSocketHandlers = () => {
           : {}
     });
     socket.emit('warmup-chip-stats-update', filterByConnectionScope(uid, waService.getWarmupChipStats()));
+    // Informa o cliente se o auto-warmup do servidor está ativo para este usuário
+    const autoWarmupState = waService.getAutoWarmupState(uid);
+    if (autoWarmupState.active) {
+      socket.emit('auto-warmup-state', autoWarmupState);
+    }
     waService.hydrateCampaignGeoForSocket(socket);
 
     // Ping/pong para medir latência real no cliente
