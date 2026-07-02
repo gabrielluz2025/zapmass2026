@@ -7067,6 +7067,32 @@ const saveAutoWarmupsToDisk = async () => {
     }
 };
 
+/** Limite diário de mensagens por tier de maturidade (em dias desde firstWarmedAt). */
+const getDailyTarget = (stats: WarmupChipStats | undefined): number => {
+    if (!stats?.firstWarmedAt) return 20; // Novato
+    const days = Math.floor((Date.now() - stats.firstWarmedAt) / 86_400_000);
+    if (days < 3)  return 20;  // Novato
+    if (days < 7)  return 50;  // Morno
+    if (days < 21) return 120; // Quente
+    return 250;                // Premium
+};
+
+/** Total enviado + recebido hoje pelo chip (UTC-3). */
+const getTodayCount = (stats: WarmupChipStats | undefined): number => {
+    if (!stats) return 0;
+    const key = todayKey();
+    const row = stats.dailyHistory?.find((d) => d.date === key);
+    return (row?.sent ?? 0) + (row?.received ?? 0);
+};
+
+/** Retorna true se o chip ainda tem capacidade de envio hoje. */
+const chipHasDailyCapacity = (connectionId: string): boolean => {
+    const stats = warmupChipStats.get(connectionId);
+    const used = getTodayCount(stats);
+    const limit = getDailyTarget(stats);
+    return used < limit;
+};
+
 const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
     const allConns = getConnections();
     const activeConns = allConns.filter(
@@ -7077,10 +7103,22 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
         return;
     }
 
+    // Filtra apenas chips que ainda não atingiram a meta diária
+    const availableConns = activeConns.filter((c) => chipHasDailyCapacity(c.id));
+    if (availableConns.length < 2) {
+        const allFull = activeConns.every((c) => !chipHasDailyCapacity(c.id));
+        if (allFull) {
+            console.log(`[AutoWarmup] [${uid}] Todos os chips atingiram a meta diária. Aguardando próximo dia.`);
+        } else {
+            console.log(`[AutoWarmup] [${uid}] Menos de 2 chips disponíveis (meta diária atingida em alguns). Aguardando.`);
+        }
+        return;
+    }
+
     const pairs: Array<[any, any]> = [];
-    for (let i = 0; i < activeConns.length; i++) {
-        for (let j = i + 1; j < activeConns.length; j++) {
-            pairs.push([activeConns[i], activeConns[j]]);
+    for (let i = 0; i < availableConns.length; i++) {
+        for (let j = i + 1; j < availableConns.length; j++) {
+            pairs.push([availableConns[i], availableConns[j]]);
         }
     }
 
@@ -7092,6 +7130,11 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
             console.log(`[AutoWarmup] [${uid}] Aquecimento foi interrompido.`);
             break;
         }
+        // Verifica capacidade antes de cada envio (pode ter atingido durante a rodada)
+        if (!chipHasDailyCapacity(a.id) || !chipHasDailyCapacity(b.id)) {
+            console.log(`[AutoWarmup] [${uid}] Par ${a.id} <-> ${b.id} atingiu meta diária, pulando.`);
+            continue;
+        }
         try {
             // A envia para B
             const msgAtoB = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
@@ -7102,9 +7145,11 @@ const runAutoWarmupRound = async (uid: string, connectionIds: string[]) => {
 
             if (!activeAutoWarmups.has(uid)) break;
 
-            // B responde para A
-            const msgBtoA = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
-            await sendWarmupMessage(b.id, a.phoneNumber, msgBtoA);
+            // B responde para A (só se B ainda tiver capacidade)
+            if (chipHasDailyCapacity(b.id) && chipHasDailyCapacity(a.id)) {
+                const msgBtoA = WARMUP_MESSAGES[Math.floor(Math.random() * WARMUP_MESSAGES.length)];
+                await sendWarmupMessage(b.id, a.phoneNumber, msgBtoA);
+            }
 
             await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
         } catch (err: any) {

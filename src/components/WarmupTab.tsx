@@ -654,6 +654,14 @@ export const WarmupTab: React.FC = () => {
                           style={{ width: `${targetPct}%`, background: targetPct >= 100 ? '#10b981' : `linear-gradient(90deg, ${maturity.color}, ${maturity.color}cc)` }}
                         />
                       </div>
+                      {targetPct >= 100 && (
+                        <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-lg" style={{ background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                          <CheckCircle2 className="w-3 h-3 flex-shrink-0" style={{ color: '#10b981' }} />
+                          <span className="text-[10.5px] font-semibold" style={{ color: '#10b981' }}>
+                            Meta atingida hoje — retoma automaticamente amanhã
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Stats 3 colunas */}
