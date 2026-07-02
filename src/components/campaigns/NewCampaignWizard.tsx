@@ -2338,6 +2338,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     </p>
                   </div>
                 ) : chipSelectionMode === 'manual' ? (
+                  /* lista de chips — só renderiza quando modo manual */
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {connections.map((conn) => {
                       const isOnline = conn.status === ConnectionStatus.CONNECTED;
@@ -2415,7 +2416,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       );
                     })}
                   </div>
-                )}
+                ) : null}
               </Card>
 
               {(() => {
