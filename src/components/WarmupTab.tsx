@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Flame, Play, Pause, TrendingUp, MessageCircle, Clock, Zap, RefreshCw, AlertTriangle,
   BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2,
-  AlertCircle, Timer, Wifi, WifiOff, Target, Activity, Sparkles
+  AlertCircle, Timer, Wifi, WifiOff, Target, Activity, Sparkles, Server, Monitor
 } from 'lucide-react';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
@@ -159,6 +159,9 @@ export const WarmupTab: React.FC = () => {
   const [lastRoundTime, setLastRoundTime] = useState<string>('');
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
   const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
+  // Modo servidor: o aquecimento roda no backend mesmo sem o browser aberto
+  const [serverMode, setServerMode] = useState(false);
+  const [serverModeActive, setServerModeActive] = useState(false);
   const channelsRef = useRef<WarmupChannel[]>([]);
   const runWarmupRoundRef = useRef<() => Promise<void>>(async () => {});
 
@@ -258,11 +261,46 @@ export const WarmupTab: React.FC = () => {
     return () => { socket.off('warmup-send-error', onErr); };
   }, [socket, connections]);
 
+  // Ouve estado do auto-warmup do servidor
+  useEffect(() => {
+    if (!socket) return;
+    const onState = (data: { active: boolean; connectionIds?: string[]; intervalMinutes?: number }) => {
+      setServerModeActive(!!data.active);
+      if (data.active) {
+        setServerMode(true);
+        if (data.intervalMinutes) setIntervalMinutes(data.intervalMinutes);
+        if (Array.isArray(data.connectionIds) && data.connectionIds.length > 0) {
+          setChannels((prev) => prev.map((ch) => ({
+            ...ch,
+            enabled: data.connectionIds!.includes(ch.connectionId),
+          })));
+        }
+      }
+    };
+    socket.on('auto-warmup-state', onState);
+    return () => { socket.off('auto-warmup-state', onState); };
+  }, [socket]);
+
   const startGlobalWarmup = () => {
-    if (!getEnabledPairs().length) return;
-    startWarmupTimer(intervalMinutes, () => void runWarmupRoundRef.current());
+    if (serverMode) {
+      const ids = channelsRef.current.filter((ch) => ch.enabled).map((ch) => ch.connectionId);
+      if (ids.length < 2) {
+        toast.error('Selecione pelo menos 2 chips para iniciar no modo servidor.');
+        return;
+      }
+      socket?.emit('start-auto-warmup', { connectionIds: ids, intervalMinutes });
+      toast.success('Modo servidor ativado — o aquecimento continua mesmo com o navegador fechado.', { duration: 4000 });
+    } else {
+      if (!getEnabledPairs().length) return;
+      startWarmupTimer(intervalMinutes, () => void runWarmupRoundRef.current());
+    }
   };
   const stopGlobalWarmup = () => {
+    if (serverModeActive) {
+      socket?.emit('stop-auto-warmup');
+      setServerModeActive(false);
+      toast('Modo servidor desativado.', { icon: '⏹️' });
+    }
     stopWarmupTimer();
     setChannels((prev) => prev.map((ch) => ({ ...ch, status: 'idle' as const })));
   };
@@ -297,12 +335,17 @@ export const WarmupTab: React.FC = () => {
     <PageShell
       statusStrip={
         <>
-          <Badge variant={warmupActive ? 'success' : 'neutral'} dot>
-            {warmupActive ? (anyWarming ? 'Aquecendo agora' : 'Ativo') : 'Parado'}
+          <Badge variant={warmupActive || serverModeActive ? 'success' : 'neutral'} dot>
+            {serverModeActive ? 'Servidor ativo' : warmupActive ? (anyWarming ? 'Aquecendo agora' : 'Ativo') : 'Parado'}
           </Badge>
+          {serverModeActive && (
+            <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
+              <Server className="w-3 h-3" /> SERVIDOR
+            </span>
+          )}
           <span className="ui-caption tabular-nums">{enabledCount} chip(s) ativos</span>
           <span className="ui-caption tabular-nums">{pairsCount} par(es)</span>
-          {warmupActive && (
+          {warmupActive && !serverModeActive && (
             <span className="ui-caption tabular-nums font-bold" style={{ color: '#f97316' }}>
               Próxima: {formatCountdown(warmupCountdownUi)}
             </span>
@@ -310,13 +353,13 @@ export const WarmupTab: React.FC = () => {
         </>
       }
       actions={
-        warmupActive ? (
+        warmupActive || serverModeActive ? (
           <Button variant="danger" size="sm" leftIcon={<Pause className="w-4 h-4" />} onClick={stopGlobalWarmup}>
             Parar aquecimento
           </Button>
         ) : (
-          <Button variant="primary" size="sm" leftIcon={<Play className="w-4 h-4" />} disabled={enabledCount < 2} onClick={startGlobalWarmup}>
-            Iniciar aquecimento
+          <Button variant="primary" size="sm" leftIcon={serverMode ? <Server className="w-4 h-4" /> : <Play className="w-4 h-4" />} disabled={enabledCount < 2} onClick={startGlobalWarmup}>
+            {serverMode ? 'Ativar no servidor' : 'Iniciar aquecimento'}
           </Button>
         )
       }
@@ -327,18 +370,28 @@ export const WarmupTab: React.FC = () => {
         <div
           className="relative overflow-hidden rounded-2xl p-5"
           style={{
-            background: warmupActive
+            background: serverModeActive
+              ? 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(139,92,246,0.06))'
+              : warmupActive
               ? 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(234,88,12,0.06))'
               : 'var(--surface-0)',
-            border: warmupActive ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid var(--border-subtle)',
-            boxShadow: warmupActive ? '0 8px 32px rgba(249,115,22,0.12)' : 'var(--shadow-xs)',
+            border: serverModeActive
+              ? '1.5px solid rgba(99,102,241,0.3)'
+              : warmupActive ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid var(--border-subtle)',
+            boxShadow: serverModeActive
+              ? '0 8px 32px rgba(99,102,241,0.12)'
+              : warmupActive ? '0 8px 32px rgba(249,115,22,0.12)' : 'var(--shadow-xs)',
           }}
         >
           {/* Glow animado quando ativo */}
-          {warmupActive && (
+          {(warmupActive || serverModeActive) && (
             <div
               className="absolute -top-8 -right-8 w-48 h-48 rounded-full pointer-events-none"
-              style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.15) 0%, transparent 70%)' }}
+              style={{
+                background: serverModeActive
+                  ? 'radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%)'
+                  : 'radial-gradient(circle, rgba(249,115,22,0.15) 0%, transparent 70%)',
+              }}
             />
           )}
 
@@ -347,11 +400,13 @@ export const WarmupTab: React.FC = () => {
             <div
               className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: warmupActive ? 'rgba(249,115,22,0.15)' : 'var(--surface-1)',
-                border: warmupActive ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid var(--border-subtle)',
+                background: serverModeActive ? 'rgba(99,102,241,0.15)' : warmupActive ? 'rgba(249,115,22,0.15)' : 'var(--surface-1)',
+                border: serverModeActive ? '1.5px solid rgba(99,102,241,0.3)' : warmupActive ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid var(--border-subtle)',
               }}
             >
-              {warmupActive
+              {serverModeActive
+                ? <Server className="w-7 h-7 animate-pulse" style={{ color: '#818cf8' }} />
+                : warmupActive
                 ? <Flame className="w-7 h-7 animate-pulse" style={{ color: '#f97316' }} />
                 : <Zap className="w-7 h-7" style={{ color: 'var(--text-3)' }} />
               }
@@ -361,23 +416,32 @@ export const WarmupTab: React.FC = () => {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
                 <h2 className="text-[16px] font-bold" style={{ color: 'var(--text-1)' }}>
-                  {warmupActive ? (anyWarming ? 'Trocando mensagens agora...' : 'Aguardando próxima rodada') : 'Aquecimento parado'}
+                  {serverModeActive
+                    ? 'Aquecimento rodando no servidor'
+                    : warmupActive ? (anyWarming ? 'Trocando mensagens agora...' : 'Aguardando próxima rodada') : 'Aquecimento parado'}
                 </h2>
-                {warmupActive && anyWarming && (
+                {serverModeActive && (
+                  <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
+                    <Server className="w-3 h-3" /> SERVIDOR
+                  </span>
+                )}
+                {warmupActive && !serverModeActive && anyWarming && (
                   <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316' }}>
                     <RefreshCw className="w-3 h-3 animate-spin" /> AO VIVO
                   </span>
                 )}
               </div>
               <p className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
-                {warmupActive
+                {serverModeActive
+                  ? `Continua mesmo com o navegador fechado · ${pairsCount} par(es) configurados · intervalo: ${intervalMinutes}min`
+                  : warmupActive
                   ? `${pairsCount} par(es) trocando mensagens · próxima rodada em ${formatCountdown(warmupCountdownUi)}`
                   : enabledCount < 2
                     ? 'Ative pelo menos 2 chips para iniciar o aquecimento'
                     : `${enabledCount} chip(s) prontos · ${pairsCount} par(es) disponíveis`
                 }
               </p>
-              {lastRoundTime && (
+              {lastRoundTime && !serverModeActive && (
                 <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
                   <Clock className="w-3 h-3 inline -mt-0.5 mr-1" />Última rodada: {lastRoundTime}
                 </p>
@@ -424,7 +488,7 @@ export const WarmupTab: React.FC = () => {
               <button
                 key={min}
                 onClick={() => setIntervalMinutes(min)}
-                disabled={warmupActive}
+                disabled={warmupActive || serverModeActive}
                 className="px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all"
                 style={
                   intervalMinutes === min
@@ -436,6 +500,47 @@ export const WarmupTab: React.FC = () => {
               </button>
             ))}
           </div>
+
+          {/* Separador */}
+          <div style={{ width: 1, height: 24, background: 'var(--border-subtle)', flexShrink: 0 }} />
+
+          {/* Modo de execução */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>Modo:</span>
+            <button
+              onClick={() => { if (!warmupActive && !serverModeActive) setServerMode(false); }}
+              disabled={warmupActive || serverModeActive}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-bold transition-all"
+              title="Roda no navegador — para quando fechar a aba"
+              style={
+                !serverMode
+                  ? { background: '#f97316', color: '#fff', boxShadow: '0 2px 8px rgba(249,115,22,0.3)' }
+                  : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }
+              }
+            >
+              <Monitor className="w-3 h-3" /> Navegador
+            </button>
+            <button
+              onClick={() => { if (!warmupActive && !serverModeActive) setServerMode(true); }}
+              disabled={warmupActive || serverModeActive}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-bold transition-all"
+              title="Roda no servidor — continua mesmo com navegador fechado ou após reinício"
+              style={
+                serverMode
+                  ? { background: '#6366f1', color: '#fff', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }
+                  : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }
+              }
+            >
+              <Server className="w-3 h-3" /> Servidor
+            </button>
+          </div>
+
+          {serverMode && !serverModeActive && (
+            <span className="text-[11px] font-medium" style={{ color: '#818cf8' }}>
+              ✓ Continua mesmo com navegador fechado
+            </span>
+          )}
+
           {enabledCount < 2 && (
             <span className="flex items-center gap-1.5 text-[11.5px] font-medium ml-auto" style={{ color: '#f59e0b' }}>
               <AlertTriangle className="w-3.5 h-3.5" /> Ative pelo menos 2 chips
