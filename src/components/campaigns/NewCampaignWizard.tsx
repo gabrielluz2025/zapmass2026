@@ -203,6 +203,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [selectedListId, setSelectedListId] = useState('');
   const [dailyScheduleEnabled, setDailyScheduleEnabled] = useState(false);
   const [dailyScheduleDays, setDailyScheduleDays] = useState<Array<{ dayIndex: number; limitPerChannel: number }>>([]);
+  const [skipWeekends, setSkipWeekends] = useState(false);
+  const [timePeriodEnabled, setTimePeriodEnabled] = useState(false);
+  const [morningPct, setMorningPct] = useState(50);
+  const [morningStartHour, setMorningStartHour] = useState(8);
+  const [morningEndHour, setMorningEndHour] = useState(12);
+  const [afternoonStartHour, setAfternoonStartHour] = useState(13);
+  const [afternoonEndHour, setAfternoonEndHour] = useState(18);
+  const [limitPerChannelGlobal, setLimitPerChannelGlobal] = useState<number>(100);
   const [duplicatedContacts, setDuplicatedContacts] = useState<Array<{ phone: string; campaignName: string; campaignId: string }>>([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
@@ -1346,6 +1354,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ...(dailyScheduleEnabled ? {
           dailySchedule: {
             enabled: true,
+            skipWeekends,
+            timePeriodEnabled,
+            ...(timePeriodEnabled ? {
+              periods: [
+                { name: 'morning'  as const, pct: morningPct,       startHour: morningStartHour,   endHour: morningEndHour   },
+                { name: 'afternoon' as const, pct: 100 - morningPct, startHour: afternoonStartHour, endHour: afternoonEndHour },
+              ]
+            } : {}),
             days: dailyScheduleDays
           }
         } : {})
@@ -2638,16 +2654,17 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
 
               {/* Cronograma de Envio Diário Fracionado */}
               <Card className="mt-4">
+                {/* ── Toggle header ── */}
                 <div className="flex items-center justify-between p-1 cursor-pointer" onClick={() => {
                   const next = !dailyScheduleEnabled;
                   setDailyScheduleEnabled(next);
-                  if (next && dailyScheduleDays.length === 0) {
+                  if (next) {
                     const numChips = Math.max(1, selectedConnectionIds.length);
-                    const numDays = 5; // Padrão de 5 dias
-                    const defaultLimit = Math.ceil(numbers.length / (numChips * numDays));
+                    const limit = limitPerChannelGlobal || 100;
+                    const numDays = Math.max(1, Math.ceil(numbers.length / (numChips * limit)));
                     const initialDays = Array.from({ length: numDays }, (_, idx) => ({
                       dayIndex: idx,
-                      limitPerChannel: defaultLimit || 50
+                      limitPerChannel: limit
                     }));
                     setDailyScheduleDays(initialDays);
                   }
@@ -2661,131 +2678,296 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       </p>
                     </div>
                   </div>
-                  <div
-                    className="w-9 h-5 rounded-full transition-all shrink-0 ml-3 flex items-center"
-                    style={{ background: dailyScheduleEnabled ? '#10b981' : 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-                  >
-                    <div
-                      className="w-3.5 h-3.5 rounded-full bg-white transition-transform"
-                      style={{ transform: dailyScheduleEnabled ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
-                    />
+                  <div className="w-9 h-5 rounded-full transition-all shrink-0 ml-3 flex items-center"
+                    style={{ background: dailyScheduleEnabled ? '#10b981' : 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}>
+                    <div className="w-3.5 h-3.5 rounded-full bg-white transition-transform"
+                      style={{ transform: dailyScheduleEnabled ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.3)' }} />
                   </div>
                 </div>
 
-                {dailyScheduleEnabled && (
-                  <div className="mt-4 pt-4 border-t border-white/5 space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
-                          Duração do Cronograma (Dias)
-                        </p>
-                        <input
-                          type="number"
-                          min="1"
-                          max="14"
-                          value={dailyScheduleDays.length}
-                          onChange={(e) => {
-                            const val = Math.max(1, Math.min(14, parseInt(e.target.value) || 1));
-                            const numChips = Math.max(1, selectedConnectionIds.length);
-                            const defaultLimit = Math.ceil(numbers.length / (numChips * val));
-                            const nextDays = Array.from({ length: val }, (_, idx) => {
-                              const prev = dailyScheduleDays[idx];
-                              return {
+                {dailyScheduleEnabled && (() => {
+                  const numChips = Math.max(1, selectedConnectionIds.length);
+
+                  /* ── helper: data de calendário considerando skip weekends ── */
+                  const getWorkdayDate = (workDayIndex: number): Date => {
+                    const start = new Date(); start.setHours(0,0,0,0);
+                    if (!skipWeekends) return new Date(start.getTime() + workDayIndex * 86_400_000);
+                    let calDay = 0, wDay = 0;
+                    while (true) {
+                      const d = new Date(start.getTime() + calDay * 86_400_000);
+                      const dow = d.getDay();
+                      if (dow !== 0 && dow !== 6) {
+                        if (wDay === workDayIndex) return d;
+                        wDay++;
+                      }
+                      calDay++;
+                    }
+                  };
+
+                  const totalProgrammed = dailyScheduleDays.reduce((acc, d) => acc + (d.limitPerChannel * numChips), 0);
+                  const covered = Math.min(numbers.length, totalProgrammed);
+                  const pctCovered = Math.round((covered / Math.max(1, numbers.length)) * 100);
+
+                  const WEEKDAY_LABELS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+                  const MONTH_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+                  return (
+                    <div className="mt-4 pt-4 border-t border-white/5 space-y-4">
+
+                      {/* ── Linha 1: Limite por canal e dias resultantes ── */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                            Mensagens por canal / dia
+                          </p>
+                          <input
+                            type="number" min="1" max="9999"
+                            value={limitPerChannelGlobal}
+                            onChange={(e) => {
+                              const val = Math.max(1, parseInt(e.target.value) || 1);
+                              setLimitPerChannelGlobal(val);
+                              const numDays = Math.max(1, Math.ceil(numbers.length / (numChips * val)));
+                              setDailyScheduleDays(Array.from({ length: numDays }, (_, idx) => ({
                                 dayIndex: idx,
-                                limitPerChannel: prev ? prev.limitPerChannel : (defaultLimit || 50)
-                              };
-                            });
-                            setDailyScheduleDays(nextDays);
-                          }}
-                          className="w-full px-3 py-2 rounded-lg text-[13px] bg-black/40 border text-white"
-                          style={{ borderColor: 'var(--border-subtle)' }}
-                    />
-                  </div>
+                                limitPerChannel: val
+                              })));
+                            }}
+                            className="w-full px-3 py-2 rounded-lg text-[13px] bg-black/40 border text-white font-bold font-mono"
+                            style={{ borderColor: 'var(--border-subtle)' }}
+                          />
+                        </div>
 
-                      <div>
-                        <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
-                          Alterar Limite Padrão (Canal/Dia)
-                        </p>
-                        <input
-                          type="number"
-                          min="1"
-                          placeholder="Ex: 100"
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            if (val && val > 0) {
-                              setDailyScheduleDays(prev => prev.map(d => ({ ...d, limitPerChannel: val })));
-                            }
-                          }}
-                          className="w-full px-3 py-2 rounded-lg text-[13px] bg-black/40 border text-white"
-                          style={{ borderColor: 'var(--border-subtle)' }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                      {dailyScheduleDays.map((day, idx) => {
-                        const numChips = Math.max(1, selectedConnectionIds.length);
-                        const totalForDay = day.limitPerChannel * numChips;
-                        return (
-                          <div
-                            key={idx}
-                            className="flex items-center justify-between p-2.5 rounded-xl text-[12px]"
-                            style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                          >
-                            <span className="font-bold text-zinc-300">
-                              Dia {day.dayIndex + 1}
+                        <div>
+                          <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                            Duração calculada
+                          </p>
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] bg-black/20 border"
+                            style={{ borderColor: 'var(--border-subtle)', minHeight: 38 }}>
+                            <span className="font-bold text-emerald-400 font-mono">{dailyScheduleDays.length}</span>
+                            <span className="text-zinc-400 text-[11px]">
+                              {skipWeekends ? 'dias úteis' : 'dias'} · {numChips} {numChips === 1 ? 'canal' : 'canais'}
                             </span>
-                            
-                            <div className="flex items-center gap-3">
-                              <div className="text-right">
-                                <span className="text-[10px] text-zinc-500 block">Envio por canal</span>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={day.limitPerChannel}
-                                  onChange={(e) => {
-                                    const val = Math.max(1, parseInt(e.target.value) || 1);
-                                    setDailyScheduleDays(prev => prev.map(d => d.dayIndex === day.dayIndex ? { ...d, limitPerChannel: val } : d));
-                                  }}
-                                  className="w-20 px-2 py-1 rounded bg-black/60 border text-white text-center font-bold font-mono text-[11.5px]"
-                                  style={{ borderColor: 'var(--border-subtle)' }}
-                                />
-                </div>
+                          </div>
+                        </div>
+                      </div>
 
-                              <div className="text-right w-24">
-                                <span className="text-[10px] text-zinc-500 block">Total do dia</span>
-                                <span className="font-bold text-emerald-400 font-mono text-[12.5px]">
-                                  {totalForDay} envios
-                                </span>
-                              </div>
+                      {/* ── Linha 2: Opções (skip weekend + período) ── */}
+                      <div className="space-y-2">
+                        {/* Skip weekends */}
+                        <div className="flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer select-none"
+                          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                          onClick={() => setSkipWeekends(v => !v)}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">📆</span>
+                            <div>
+                              <p className="text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                                Pular finais de semana
+                              </p>
+                              <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                                Disparos apenas em dias úteis (Seg–Sex)
+                              </p>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <div className="w-9 h-5 rounded-full shrink-0 flex items-center transition-all"
+                            style={{ background: skipWeekends ? '#10b981' : 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}>
+                            <div className="w-3.5 h-3.5 rounded-full bg-white transition-transform"
+                              style={{ transform: skipWeekends ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.3)' }} />
+                          </div>
+                        </div>
 
-                    {/* Resumo do Planejamento */}
-                    <div className="p-3 rounded-xl space-y-1 bg-black/20 border border-white/5 text-[11.5px]">
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">Total de contatos na lista:</span>
-                        <span className="font-bold text-white">{numbers.length}</span>
+                        {/* Time period split */}
+                        <div className="flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer select-none"
+                          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                          onClick={() => setTimePeriodEnabled(v => !v)}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">⏰</span>
+                            <div>
+                              <p className="text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
+                                Dividir por período (manhã / tarde)
+                              </p>
+                              <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
+                                Separar a cota diária em janelas de horário
+                              </p>
+                            </div>
+                          </div>
+                          <div className="w-9 h-5 rounded-full shrink-0 flex items-center transition-all"
+                            style={{ background: timePeriodEnabled ? '#10b981' : 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}>
+                            <div className="w-3.5 h-3.5 rounded-full bg-white transition-transform"
+                              style={{ transform: timePeriodEnabled ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.3)' }} />
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">Total coberto pelo cronograma:</span>
-                        {(() => {
-                          const numChips = Math.max(1, selectedConnectionIds.length);
-                          const totalProgrammed = dailyScheduleDays.reduce((acc, d) => acc + (d.limitPerChannel * numChips), 0);
-                          const covered = Math.min(numbers.length, totalProgrammed);
+
+                      {/* ── Configuração de períodos ── */}
+                      {timePeriodEnabled && (
+                        <div className="p-3 rounded-xl space-y-3"
+                          style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                          <p className="text-[11px] font-bold text-indigo-300 tracking-wider uppercase">Janelas de Horário</p>
+
+                          {/* Manhã */}
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-base">🌅</span>
+                            <span className="text-[12.5px] font-semibold text-zinc-300 w-12">Manhã</span>
+                            <div className="flex items-center gap-1.5">
+                              <input type="number" min="0" max="23" value={morningStartHour}
+                                onChange={(e) => setMorningStartHour(Math.min(morningEndHour - 1, Math.max(0, +e.target.value)))}
+                                className="w-14 px-2 py-1 rounded bg-black/50 border text-white text-center font-mono text-[12px]"
+                                style={{ borderColor: 'var(--border-subtle)' }} />
+                              <span className="text-zinc-500 text-[11px]">h até</span>
+                              <input type="number" min="0" max="23" value={morningEndHour}
+                                onChange={(e) => setMorningEndHour(Math.min(23, Math.max(morningStartHour + 1, +e.target.value)))}
+                                className="w-14 px-2 py-1 rounded bg-black/50 border text-white text-center font-mono text-[12px]"
+                                style={{ borderColor: 'var(--border-subtle)' }} />
+                              <span className="text-zinc-500 text-[11px]">h</span>
+                            </div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <span className="text-zinc-400 text-[11px]">% da cota:</span>
+                              <input type="number" min="10" max="90" value={morningPct}
+                                onChange={(e) => setMorningPct(Math.min(90, Math.max(10, +e.target.value)))}
+                                className="w-16 px-2 py-1 rounded bg-black/50 border text-white text-center font-mono font-bold text-[12px]"
+                                style={{ borderColor: 'rgba(99,102,241,0.4)' }} />
+                              <span className="text-indigo-400 font-bold text-[12px]">%</span>
+                            </div>
+                          </div>
+
+                          {/* Tarde */}
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-base">☀️</span>
+                            <span className="text-[12.5px] font-semibold text-zinc-300 w-12">Tarde</span>
+                            <div className="flex items-center gap-1.5">
+                              <input type="number" min="0" max="23" value={afternoonStartHour}
+                                onChange={(e) => setAfternoonStartHour(Math.min(afternoonEndHour - 1, Math.max(0, +e.target.value)))}
+                                className="w-14 px-2 py-1 rounded bg-black/50 border text-white text-center font-mono text-[12px]"
+                                style={{ borderColor: 'var(--border-subtle)' }} />
+                              <span className="text-zinc-500 text-[11px]">h até</span>
+                              <input type="number" min="0" max="23" value={afternoonEndHour}
+                                onChange={(e) => setAfternoonEndHour(Math.min(23, Math.max(afternoonStartHour + 1, +e.target.value)))}
+                                className="w-14 px-2 py-1 rounded bg-black/50 border text-white text-center font-mono text-[12px]"
+                                style={{ borderColor: 'var(--border-subtle)' }} />
+                              <span className="text-zinc-500 text-[11px]">h</span>
+                            </div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <span className="text-zinc-400 text-[11px]">% da cota:</span>
+                              <span className="font-bold text-amber-400 font-mono text-[13px]">{100 - morningPct}%</span>
+                              <span className="text-zinc-500 text-[10px]">(automático)</span>
+                            </div>
+                          </div>
+
+                          {/* Preview */}
+                          <div className="mt-1 p-2 rounded-lg text-[10.5px] leading-relaxed"
+                            style={{ background: 'rgba(0,0,0,0.3)', color: 'var(--text-3)' }}>
+                            Ex: {limitPerChannelGlobal} msg/canal/dia →{' '}
+                            <span className="text-indigo-300 font-bold">{Math.round(limitPerChannelGlobal * morningPct / 100)} manhã</span>
+                            {' '}({morningStartHour}h–{morningEndHour}h) +{' '}
+                            <span className="text-amber-300 font-bold">{limitPerChannelGlobal - Math.round(limitPerChannelGlobal * morningPct / 100)} tarde</span>
+                            {' '}({afternoonStartHour}h–{afternoonEndHour}h)
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── Lista de dias ── */}
+                      <div className="space-y-1.5 max-h-[240px] overflow-y-auto pr-1">
+                        {dailyScheduleDays.map((day, idx) => {
+                          const totalForDay = day.limitPerChannel * numChips;
+                          const date = getWorkdayDate(idx);
+                          const dayLabel = skipWeekends
+                            ? `${WEEKDAY_LABELS[date.getDay()]} ${String(date.getDate()).padStart(2,'0')}/${MONTH_LABELS[date.getMonth()]}`
+                            : `Dia ${day.dayIndex + 1}`;
+                          const morningCount = timePeriodEnabled ? Math.round(totalForDay * morningPct / 100) : 0;
+                          const afternoonCount = timePeriodEnabled ? totalForDay - morningCount : 0;
+
                           return (
-                            <span className={`font-bold ${totalProgrammed >= numbers.length ? 'text-emerald-400' : 'text-amber-400'}`}>
-                              {covered} contatos ({Math.round((covered / Math.max(1, numbers.length)) * 100)}%)
-                            </span>
+                            <div key={idx}
+                              className="flex items-center gap-3 p-2.5 rounded-xl text-[12px]"
+                              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}>
+                              
+                              <span className="font-bold text-zinc-300 w-24 shrink-0">{dayLabel}</span>
+
+                              {timePeriodEnabled ? (
+                                <div className="flex items-center gap-2 flex-1 flex-wrap">
+                                  <span className="text-indigo-300 font-mono font-bold text-[11.5px]">
+                                    🌅 {Math.round(day.limitPerChannel * morningPct / 100 * numChips)}
+                                  </span>
+                                  <span className="text-zinc-600">+</span>
+                                  <span className="text-amber-300 font-mono font-bold text-[11.5px]">
+                                    ☀️ {(day.limitPerChannel - Math.round(day.limitPerChannel * morningPct / 100)) * numChips}
+                                  </span>
+                                  <span className="text-zinc-500 text-[10px]">= {totalForDay} envios</span>
+                                </div>
+                              ) : (
+                                <span className="text-zinc-400 text-[11px] flex-1">
+                                  {numChips > 1 ? `${day.limitPerChannel}/canal × ${numChips} canais` : `${day.limitPerChannel} por canal`}
+                                </span>
+                              )}
+
+                              <div className="flex items-center gap-2 ml-auto">
+                                <div className="text-right">
+                                  <span className="text-[9px] text-zinc-600 block">Canal/dia</span>
+                                  <input
+                                    type="number" min="1"
+                                    value={day.limitPerChannel}
+                                    onChange={(e) => {
+                                      const val = Math.max(1, parseInt(e.target.value) || 1);
+                                      setDailyScheduleDays(prev => prev.map(d =>
+                                        d.dayIndex === day.dayIndex ? { ...d, limitPerChannel: val } : d
+                                      ));
+                                    }}
+                                    className="w-16 px-1.5 py-1 rounded bg-black/60 border text-white text-center font-bold font-mono text-[11px]"
+                                    style={{ borderColor: 'var(--border-subtle)' }}
+                                  />
+                                </div>
+                                <div className="text-right w-20">
+                                  <span className="text-[9px] text-zinc-600 block">Total dia</span>
+                                  <span className="font-bold text-emerald-400 font-mono text-[12px]">
+                                    {totalForDay}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
                           );
-                        })()}
+                        })}
+                      </div>
+
+                      {/* ── Resumo ── */}
+                      <div className="p-3 rounded-xl space-y-1.5 text-[11.5px]"
+                        style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">Total de contatos na lista:</span>
+                          <span className="font-bold text-white font-mono">{numbers.length.toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">Total coberto pelo cronograma:</span>
+                          <span className={`font-bold font-mono ${pctCovered >= 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {covered.toLocaleString('pt-BR')} contatos ({pctCovered}%)
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-zinc-400">Duração estimada:</span>
+                          <span className="font-bold text-sky-400 font-mono">
+                            {dailyScheduleDays.length} {skipWeekends ? 'dias úteis' : 'dias'}
+                            {skipWeekends && dailyScheduleDays.length > 0 && (() => {
+                              const lastDate = getWorkdayDate(dailyScheduleDays.length - 1);
+                              return ` → ${String(lastDate.getDate()).padStart(2,'0')}/${MONTH_LABELS[lastDate.getMonth()]}`;
+                            })()}
+                          </span>
+                        </div>
+                        {timePeriodEnabled && (
+                          <div className="flex justify-between">
+                            <span className="text-zinc-400">Período por dia:</span>
+                            <span className="text-indigo-300 font-mono">
+                              🌅 {morningStartHour}h–{morningEndHour}h ({morningPct}%) + ☀️ {afternoonStartHour}h–{afternoonEndHour}h ({100-morningPct}%)
+                            </span>
+                          </div>
+                        )}
+                        {pctCovered < 100 && (
+                          <p className="text-amber-400/80 text-[10.5px] pt-1">
+                            ⚠️ O cronograma não cobre todos os contatos. Aumente o limite/canal ou adicione mais dias.
+                          </p>
+                        )}
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </Card>
             </>
           )}

@@ -4480,6 +4480,14 @@ export async function startCampaign(
     humanizedPauses?: boolean,
     dailySchedule?: {
         enabled: boolean;
+        skipWeekends?: boolean;
+        timePeriodEnabled?: boolean;
+        periods?: Array<{
+            name: 'morning' | 'afternoon';
+            pct: number;       // % da cota diária para este período
+            startHour: number; // hora de início (0-23)
+            endHour: number;   // hora de fim (0-23)
+        }>;
         days: Array<{
             dayIndex: number;
             limitPerChannel: number;
@@ -4640,13 +4648,47 @@ export async function startCampaign(
                 enqueuedIndexPerDayPerChannel[assignedConnectionId][chosenDayIndex] = contactIndexInDay + 1;
 
                 const jitterFactor = 0.75 + Math.random() * 0.5;
-                const intraDayStagger = Math.round(contactIndexInDay * avgDelayMs * jitterFactor)
+                let intraDayStagger = Math.round(contactIndexInDay * avgDelayMs * jitterFactor)
                     + (humanizedPauses && contactIndexInDay > 0 && contactIndexInDay % 30 === 0
                         ? Math.round((120_000 + Math.random() * 180_000))
                         : 0);
 
-                const dayOffsetMs = chosenDayIndex * 86_400_000;
-                staggerDelay = dayOffsetMs + intraDayStagger;
+                // Calcula offset de dias considerando skip weekends
+                let dayOffsetMs = 0;
+                if (dailySchedule?.skipWeekends) {
+                    const startOfToday = new Date();
+                    startOfToday.setHours(0, 0, 0, 0);
+                    let calDay = 0;
+                    let wDay = 0;
+                    while (wDay < chosenDayIndex) {
+                        calDay++;
+                        const d = new Date(startOfToday.getTime() + calDay * 86_400_000);
+                        if (d.getDay() !== 0 && d.getDay() !== 6) wDay++;
+                    }
+                    dayOffsetMs = calDay * 86_400_000;
+                } else {
+                    dayOffsetMs = chosenDayIndex * 86_400_000;
+                }
+
+                // Ajusta intra-day offset para período (manhã/tarde)
+                let periodOffsetMs = 0;
+                if (dailySchedule?.timePeriodEnabled && Array.isArray(dailySchedule.periods) && dailySchedule.periods.length >= 2) {
+                    const [morning, afternoon] = dailySchedule.periods;
+                    const dayLimit = dailySchedule.days.find(d => d.dayIndex === chosenDayIndex)?.limitPerChannel ?? 100;
+                    const morningCount = Math.round(dayLimit * (morning?.pct ?? 50) / 100);
+                    const posInDay = enqueuedIndexPerDayPerChannel[assignedConnectionId]?.[chosenDayIndex] ?? 0;
+                    const inMorning = posInDay < morningCount;
+                    const period = inMorning ? morning : afternoon;
+                    const periodPos = inMorning ? posInDay : (posInDay - morningCount);
+                    const periodCount = inMorning ? morningCount : (dayLimit - morningCount);
+                    const periodDurMs = (period.endHour - period.startHour) * 3_600_000;
+                    periodOffsetMs = period.startHour * 3_600_000
+                        + Math.round((periodDurMs * periodPos) / Math.max(1, periodCount));
+                    // Sobrescreve intraDayStagger com o offset calculado por período
+                    intraDayStagger = 0;
+                }
+
+                staggerDelay = dayOffsetMs + periodOffsetMs + intraDayStagger;
             } else {
                 const jitterFactor = 0.75 + Math.random() * 0.5;
                 staggerDelay = Math.round(i * avgDelayMs * jitterFactor)
