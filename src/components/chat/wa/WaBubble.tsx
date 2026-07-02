@@ -28,7 +28,7 @@ export const WaBubble: React.FC<WaBubbleProps> = ({
   children
 }) => {
   return (
-    <div className={`flex ${side === 'out' ? 'justify-end' : 'justify-start'} px-3 my-[1px]`}>
+    <div className={`flex ${side === 'out' ? 'justify-end' : 'justify-start'} px-3 ${showTail ? 'mt-2 mb-[2px]' : 'my-[2px]'}`}>
       <div
         className="wa-bubble"
         data-side={side}

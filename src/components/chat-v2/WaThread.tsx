@@ -107,8 +107,9 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
   const virtualizer = useVirtualizer({
     count: virtualRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (virtualRows[i]?.kind === 'date' ? 36 : 72),
-    overscan: 8,
+    // Estimativa generosa para mensagens (reduz saltos de layout na renderização inicial)
+    estimateSize: (i) => (virtualRows[i]?.kind === 'date' ? 36 : 90),
+    overscan: 12,
     getItemKey: (i) => virtualRows[i]?.id ?? i,
     measureElement: (el) => el.getBoundingClientRect().height
   });
@@ -313,7 +314,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
             </p>
           )}
 
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+          <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%', paddingBottom: 8 }}>
             {virtualizer.getVirtualItems().map((row) => {
               const vr = virtualRows[row.index];
               if (!vr) return null;
@@ -325,7 +326,7 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
                     ref={virtualizer.measureElement}
                     data-index={row.index}
                     className="wa-date-pill absolute left-0 w-full"
-                    style={{ height: row.size, transform: `translateY(${row.start}px)` }}
+                    style={{ transform: `translateY(${row.start}px)` }}
                   >
                     <span>{vr.label}</span>
                   </div>
@@ -335,18 +336,22 @@ export const WaThread: React.FC<Props> = memo(function WaThread({
               const msg = messages[vr.index];
               if (!msg) return null;
               const side = msg.sender === 'me' ? 'out' : 'in';
+              const isTail = messageShowsTail(messages, vr.index);
 
               return (
+                // NÃO definir height aqui — o measureElement observa a altura real
+                // e atualiza o layout. Forçar height: row.size causa sobreposição
+                // quando mensagens longas ultrapassam a estimativa inicial.
                 <div
                   key={vr.id}
                   ref={virtualizer.measureElement}
                   data-index={row.index}
                   className="absolute left-0 w-full"
-                  style={{ height: row.size, transform: `translateY(${row.start}px)` }}
+                  style={{ transform: `translateY(${row.start}px)` }}
                 >
                   <WaBubble
                     side={side}
-                    showTail={messageShowsTail(messages, vr.index)}
+                    showTail={isTail}
                     status={msg.status}
                     time={formatMsgTime(msg)}
                     fromCampaign={msg.fromCampaign}
