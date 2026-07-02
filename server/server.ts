@@ -76,6 +76,7 @@ import { getChatOpsMetricsSnapshot, recordInboxSyncDuration } from './chatOpsMet
 import { getEvolutionWebhookQueueMetrics } from './evolutionWebhookQueue.js';
 import { startScheduledCampaignRunner } from './scheduledCampaignRunner.js';
 import { startOwnerEmitRedisSubscriber } from './redisOwnerEmitBridge.js';
+import { startCampaignJobsReaper, stopCampaignJobsReaper, getQueueHealthMetrics } from './campaignJobsResilience.js';
 import { persistUserNotification } from './userNotificationsFirestore.js';
 import { registerWorkspaceRoutes } from './workspaceRoutes.js';
 import { registerPublicInboxSurveyRoutes } from './publicInboxSurveyRoutes.js';
@@ -372,6 +373,64 @@ registerAiAssistantRoutes(app);
 registerAssistantRoutes(app);
 
 // --- API ROUTES ---
+/** /health — liveness probe simples para Uptime Kuma / Docker healthcheck */
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', ts: new Date().toISOString() });
+});
+
+/** /ready — readiness probe: só retorna 200 se PG e Redis estiverem acessíveis */
+app.get('/ready', async (_req, res) => {
+  const checks: Record<string, boolean> = {};
+
+  // Redis
+  try {
+    const { redisPingWithFallback } = await import('./healthUtils.js').catch(() => ({ redisPingWithFallback: null })) as any;
+    if (redisPingWithFallback) {
+      const ping = await redisPingWithFallback(process.env.REDIS_URL?.trim(), { connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 1 });
+      checks.redis = ping.ok;
+    } else {
+      checks.redis = true; // assume ok se helper não existir
+    }
+  } catch {
+    checks.redis = false;
+  }
+
+  // PostgreSQL
+  try {
+    const { getZapmassPool, isZapmassPostgresConfigured } = await import('./db/postgres.js');
+    if (isZapmassPostgresConfigured()) {
+      const pool = getZapmassPool();
+      if (pool) {
+        await pool.query('SELECT 1');
+        checks.postgres = true;
+      } else {
+        checks.postgres = false;
+      }
+    } else {
+      checks.postgres = true; // PG opcional
+    }
+  } catch {
+    checks.postgres = false;
+  }
+
+  // Fila de campanhas (métricas PG)
+  try {
+    const metrics = await getQueueHealthMetrics();
+    checks.queue = true;
+    checks.backpressure = !(metrics?.backpressureActive ?? false);
+  } catch {
+    checks.queue = true; // não bloqueia readiness
+    checks.backpressure = true;
+  }
+
+  const allOk = Object.values(checks).every(Boolean);
+  res.status(allOk ? 200 : 503).json({
+    ready: allOk,
+    checks,
+    ts: new Date().toISOString(),
+  });
+});
+
 app.get('/api/health', async (_req, res) => {
   const mp = await Promise.race([
     getMercadoPagoHealthCached().catch(() => null),
@@ -2261,6 +2320,7 @@ const bootstrap = async () => {
 
   registerSocketHandlers();
   startScheduledCampaignRunner();
+  startCampaignJobsReaper();
   setTimeout(() => { void warmupLeadsGeoCache(); }, 45_000);
   await startSessionControlPlane();
   if (isSessionBusRemote()) {
@@ -2324,6 +2384,9 @@ const handleGracefulShutdown = (signal: string) => {
     process.exit(0);
   }, 40000);
   hardTimeout.unref();
+
+  // Para o reaper antes de qualquer encerramento
+  stopCampaignJobsReaper();
 
   waService
     .shutdownAll(signal)

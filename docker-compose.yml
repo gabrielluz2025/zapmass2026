@@ -184,7 +184,16 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    command: [
+      "redis-server",
+      "--appendonly", "yes",
+      "--appendfsync", "everysec",
+      "--auto-aof-rewrite-percentage", "100",
+      "--auto-aof-rewrite-min-size", "64mb",
+      "--save", "60", "1000",
+      "--maxmemory", "512mb",
+      "--maxmemory-policy", "noeviction"
+    ]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -260,11 +269,39 @@ services:
         max-file: "5"
     profiles: ["workers"]
 
+  # Backup diário automático do PostgreSQL (mantém 7 dias)
+  pg-backup:
+    image: alpine:3.19
+    container_name: zapmass-pg-backup
+    restart: unless-stopped
+    environment:
+      ZAPMASS_DATABASE_URL: ${ZAPMASS_DATABASE_URL:-}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    volumes:
+      - zapmass-pg-backups:/backups
+      - ./deployment/backup-postgres.sh:/backup.sh:ro
+    entrypoint: >
+      sh -c "apk add --no-cache postgresql-client bash gzip &&
+             chmod +x /backup.sh &&
+             while true; do
+               BACKUP_DIR=/backups /backup.sh;
+               sleep 86400;
+             done"
+    depends_on:
+      - zapmass-postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles: ["backup"]
+
 volumes:
   zapmass-data:
   zapmass-redis:
   zapmass-evolution:
   zapmass-uptime-kuma:
+  zapmass-pg-backups:
   # Volume criado por deploy antigo (Swarm); reutilizar evita WARN no compose.
   zapmass-postgres:
     external: true

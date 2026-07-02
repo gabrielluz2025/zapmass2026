@@ -29,6 +29,12 @@ import {
 import { campaignMediaStorageKey } from '../src/utils/campaignMediaKeys.js';
 import { persistCampaignLogToFirestore, persistCampaignProgressToFirestore } from './campaignPersistence.js';
 import { buildCampaignReportSnapshot, persistCampaignReportSnapshot } from './campaignReportSnapshot.js';
+import {
+    registerCampaignJob,
+    markJobSending,
+    finalizeCampaignJob,
+    isBackpressureActive,
+} from './campaignJobsResilience.js';
 import { fullSyncIntervalMs } from '../shared/dailyFullSync.js';
 import { isEvolutionFullHistorySyncEnabled } from '../shared/chatSyncConfig.js';
 import {
@@ -3624,6 +3630,16 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
         });
         throw new Error('Fila Redis indisponível. Verifique REDIS_URL/serviço Redis na VPS.');
     }
+
+    // Backpressure: bloqueia enfileiramento se PG tiver > 50k jobs pending
+    const backpressure = await isBackpressureActive().catch(() => false);
+    if (backpressure) {
+        log('warn', '[CampaignJobs] Backpressure ativo: fila PG com >50k pending. Enfileiramento bloqueado temporariamente.', {
+            campaignId: item.campaignId,
+        });
+        throw new Error('Sistema sob backpressure — tente novamente em instantes.');
+    }
+
     bumpQueueSize(item.connectionId, 1);
     if (item.campaignId) {
         campaignPendingJobs.set(item.campaignId, (campaignPendingJobs.get(item.campaignId) || 0) + 1);
@@ -3631,8 +3647,10 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
     // jobId estável: inclui stageIndex para evitar colisão entre etapas do mesmo contato.
     // O sufixo Date.now() permanece para evitar duplicação ao reenfileirar após pausa/retry.
     const stageTag = item.stageIndex != null ? `s${item.stageIndex}` : 's0';
+    const jobId = `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${stageTag}__${Date.now()}`;
+
     const addPromise = queue.add('send', item, {
-        jobId: `${item.campaignId || 'direct'}__${item.connectionId}__${item.to}__${stageTag}__${Date.now()}`,
+        jobId,
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
         delay: Math.max(0, delayMs),
@@ -3650,6 +3668,19 @@ async function enqueueCampaignItem(item: MessageQueueItem, delayMs = 0) {
                 );
             }),
         ]);
+
+        // Espelha o job no PostgreSQL como fonte de verdade (idempotente via ON CONFLICT)
+        if (item.campaignId && item.ownerUid) {
+            void registerCampaignJob({
+                idempotencyKey: jobId,
+                campaignId: item.campaignId,
+                tenantId: item.ownerUid,
+                connectionId: item.connectionId,
+                toNumber: item.to,
+                stageIndex: item.stageIndex ?? 0,
+                payload: item as unknown as Record<string, unknown>,
+            }).catch(() => undefined); // não bloqueia — é registro de auditoria
+        }
     } catch (err) {
         bumpQueueSize(item.connectionId, -1);
         if (item.campaignId) {
@@ -3679,6 +3710,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
         await job.moveToDelayed(Date.now() + 3000, token);
         throw new DelayedError();
     }
+
+    // Marca início do processamento no PG (estado 'sending' — protege contra reaper precoce)
+    void markJobSending(job.id ?? '', process.env.WORKER_ID || `worker-${process.pid}`).catch(() => undefined);
 
     // Garante estado em RAM para esta campanha — restaura do Redis se necessário (ex: após restart).
     if (item.campaignId && !campaignsById.has(item.campaignId)) {
@@ -3926,6 +3960,9 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     item._sentOk = true;
     await job.updateData(item).catch(() => {});
 
+    // Espelha sucesso no PG (auditoria + recovery)
+    void finalizeCampaignJob(job.id ?? '', { status: 'sent' }).catch(() => undefined);
+
     // Registra timestamp de envio para o limitador de frequência (24 h).
     await recordFrequencyCap(campaignState?.ownerUid, item.to);
 
@@ -4156,6 +4193,12 @@ function ensureCampaignWorker() {
             error: err.message,
             attemptsMade: job?.attemptsMade,
         });
+
+        // Atualiza espelho PG: failed ou dead dependendo de attempts restantes
+        if (item && job) {
+            const isDead = job.attemptsMade >= (job.opts.attempts || 1);
+            void finalizeCampaignJob(job.id ?? '', { status: isDead ? 'dead' : 'failed', error: err.message }).catch(() => undefined);
+        }
 
         if (item && job && job.attemptsMade >= (job.opts.attempts || 1)) {
             bumpQueueSize(item.connectionId, -1);
