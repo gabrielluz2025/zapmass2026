@@ -154,7 +154,7 @@ export const ContactsMapTab: React.FC = () => {
   const tempCounts = useMemo(() => {
     const temps = computeContactTemperatures(contacts, conversations);
     const count: Record<ContactTemperature, number> = { hot: 0, warm: 0, cold: 0, new: 0 };
-    for (const t of temps.values()) count[t.temp]++;
+    for (const t of Object.values(temps)) count[t.temp]++;
     return count;
   }, [contacts, conversations]);
 
