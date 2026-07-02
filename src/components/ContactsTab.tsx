@@ -21,7 +21,8 @@ import toast from 'react-hot-toast';
 import { Badge, BrDateInput, Button, Card, EmptyState, Modal, PageShell, SectionHeader, StatCard } from './ui';
 import { ContactsHeaderBar } from './contacts/workspace/ContactsHeaderBar';
 import { ContactsListsRail } from './contacts/workspace/ContactsListsRail';
-import { ContactsSidebar, type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
+import { type SmartFilterId, type SidebarCounts } from './contacts/workspace/ContactsSidebar';
+// ContactsSidebar mantida no arquivo mas não renderizada no novo layout hub fullwidth
 import { ContactsWorkspaceToolbar } from './contacts/workspace/ContactsWorkspaceToolbar';
 import { ContactsListManagePanel } from './contacts/workspace/ContactsListManagePanel';
 import { ContactsTableVirtual } from './contacts/workspace/ContactsTableVirtual';
@@ -1038,6 +1039,7 @@ export const ContactsTab: React.FC = () => {
   const [newListName, setNewListName] = useState('');
   /** Lista aberta para gerir membros (sub-aba Na lista / Adicionar). */
   const [listManageSubTab, setListManageSubTab] = useState<'members' | 'add'>('members');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [listMemberSearch, setListMemberSearch] = useState('');
   const [listAddSearch, setListAddSearch] = useState('');
   const [listAddSelectedIds, setListAddSelectedIds] = useState<string[]>([]);
@@ -2338,7 +2340,9 @@ export const ContactsTab: React.FC = () => {
       !activeSegment &&
       activeFilter === 'all'
     ) {
-      return deferredContacts;
+      // Caminho rápido sem filtro: usa contacts direto (sem deferred) para
+      // a tabela não aparecer vazia enquanto deferredContacts ainda não atualizou.
+      return contacts;
     }
     return deferredContacts.filter((c) => {
       const matchesSearch =
@@ -3888,12 +3892,13 @@ export const ContactsTab: React.FC = () => {
               onChange={handleImportVcf}
             />
 
-      {/* ── CRM Header unificado: título + KPI tiles + temperatura + ações ── */}
+      {/* ── Hub: Hero com busca integrada + KPIs + ações ── */}
       <ContactsCommandHero
         stats={smartStats}
         contactTempsReady={contactTempsReady}
-        hideWedding={segment !== 'religious'}
         savedTotal={contactsSavedTotal}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
         onNewContact={openNewContactModal}
         onImportXLSX={openImportXLSX}
         onImportVcf={openImportVcf}
@@ -3904,10 +3909,9 @@ export const ContactsTab: React.FC = () => {
         onOpenNormalizeNames={openNameNormalizeModal}
       />
 
+      {/* ── Novo Hub: layout fullwidth sem sidebar ── */}
       <>
-      {/* ========================================================
-           NOVO LAYOUT: WORKSPACE (rail + sidebar + tabela virtualizada)
-         ======================================================== */}
+      {/* Listas rápidas (horizontal scroll) */}
       <ContactsListsRail
         lists={contactLists}
         noListCount={noListCount}
@@ -3917,69 +3921,115 @@ export const ContactsTab: React.FC = () => {
         onCreateList={() => setListsUiFocus('create')}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 zm-contacts-section">
-        <ContactsSidebar
-          active={activeFilter}
-          onChange={handleSelectSmartFilter}
-          counts={sidebarCounts}
-          lists={contactLists}
-          onCreateList={(name) => void handleCreateListQuick(name)}
-          onManageList={handleManageList}
-          onDeleteList={(id, name) => void handleDeleteList(id, name)}
-          query={searchTerm}
-          onQueryChange={setSearchTerm}
-          hideWeddingFilters={segment !== 'religious'}
-          listsUiFocus={listsUiFocus}
-          onListsUiFocusHandled={() => setListsUiFocus('none')}
-          contactTempsReady={contactTempsReady}
+      {/* ── Faixa de filtros horizontais ── */}
+      <div className="ch-filter-strip">
+        {([
+          { id: 'all',     label: 'Todos',      count: sidebarCounts.all  },
+          { id: 'hot',     label: 'Quentes',    count: sidebarCounts.hot,  clr: '#ef4444', cbg: 'rgba(239,68,68,0.12)'    },
+          { id: 'warm',    label: 'Mornos',     count: sidebarCounts.warm, clr: '#f59e0b', cbg: 'rgba(245,158,11,0.12)'   },
+          { id: 'cold',    label: 'Frios',      count: sidebarCounts.cold, clr: '#22d3ee', cbg: 'rgba(6,182,212,0.12)'    },
+          { id: 'new',     label: 'Sem hist.',  count: sidebarCounts.new,  clr: '#a78bfa', cbg: 'rgba(139,92,246,0.12)'   },
+          { id: 'no_list', label: 'Sem lista',  count: sidebarCounts.no_list, clr: '#fb923c', cbg: 'rgba(249,115,22,0.12)' },
+        ] as { id: SmartFilterId; label: string; count: number; clr?: string; cbg?: string }[]).map((f) => {
+          const active = activeFilter === f.id;
+          return (
+            <button
+              key={f.id}
+              type="button"
+              className={`ch-fchip${active ? ' ch-fchip--active' : ''}`}
+              style={active && f.clr ? { background: f.cbg, color: f.clr, borderColor: `${f.clr}50` } : undefined}
+              onClick={() => handleSelectSmartFilter(f.id)}
+            >
+              {f.label}
+              {f.count > 0 && <span className="ch-fchip__badge">{f.count.toLocaleString('pt-BR')}</span>}
+            </button>
+          );
+        })}
+
+        {/* Mais filtros toggle */}
+        <button
+          type="button"
+          className={`ch-fchip ch-fchip--more${showMoreFilters ? ' ch-fchip--active' : ''}`}
+          onClick={() => setShowMoreFilters((v) => !v)}
+        >
+          Filtros avançados {showMoreFilters ? '▴' : '▾'}
+        </button>
+
+        {/* Filtros extras (visíveis quando expandido) */}
+        {showMoreFilters && ([
+          { id: 'bday_today',       label: '🎂 Aniv. hoje',        count: sidebarCounts.bday_today,       clr: '#f472b6' },
+          { id: 'bday_week',        label: '🎂 Aniv. 7d',           count: sidebarCounts.bday_week,        clr: '#fb923c' },
+          { id: 'retorno_hoje',     label: '📌 Retorno hoje',       count: sidebarCounts.retorno_hoje,     clr: '#34d399' },
+          { id: 'retorno_atrasados',label: '⚠️ Ret. atrasados',     count: sidebarCounts.retorno_atrasados,clr: '#f87171' },
+          { id: 'retorno_semana',   label: '📅 Ret. semana',         count: sidebarCounts.retorno_semana,  clr: '#10b981' },
+          { id: 'dormant',          label: 'Dormentes',             count: sidebarCounts.dormant,          clr: '#94a3b8' },
+          { id: 'invalid',          label: 'Inválidos',             count: sidebarCounts.invalid,          clr: '#f87171' },
+          { id: 'duplicates',       label: 'Duplicados',            count: sidebarCounts.duplicates,       clr: '#fbbf24' },
+          { id: 'blacklist',        label: 'Lista negra',           count: sidebarCounts.blacklist,        clr: '#f87171' },
+        ] as { id: SmartFilterId; label: string; count: number; clr: string }[]).map((f) => {
+          const active = activeFilter === f.id;
+          return (
+            <button
+              key={f.id}
+              type="button"
+              className={`ch-fchip${active ? ' ch-fchip--active' : ''}`}
+              style={active ? { background: `${f.clr}18`, color: f.clr, borderColor: `${f.clr}50` } : undefined}
+              onClick={() => handleSelectSmartFilter(f.id)}
+            >
+              {f.label}
+              {f.count > 0 && <span className="ch-fchip__badge">{f.count.toLocaleString('pt-BR')}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Workspace full-width (sem sidebar) ── */}
+      <div className="ch-workspace">
+        <ContactsWorkspaceToolbar
+          activeFilter={activeFilter}
+          listName={activeListName}
+          searchTerm={searchTerm}
+          listManageMode={Boolean(managedListForView)}
+          contactsSavedTotal={contactsSavedTotal ?? null}
+          contactsSavedTotalLoading={contactsSavedTotalLoading}
+          contactsLoaded={contacts.length}
+          filteredCount={totalAvailable}
+          contactsHasMore={contactsHasMore}
+          contactsLoadingMore={contactsLoadingMore}
+          contactsLoadPaused={false}
+          onRefreshTotals={() => void refreshContactsSavedTotal?.()}
         />
 
-        <div className="flex flex-col gap-3 min-w-0">
-          <ContactsWorkspaceToolbar
-            activeFilter={activeFilter}
-            listName={activeListName}
-            searchTerm={searchTerm}
-            listManageMode={Boolean(managedListForView)}
-            contactsSavedTotal={contactsSavedTotal ?? null}
-            contactsSavedTotalLoading={contactsSavedTotalLoading}
-            contactsLoaded={contacts.length}
-            filteredCount={totalAvailable}
+        {managedListForView ? (
+          <ContactsListManagePanel
+            list={managedListForView}
+            subTab={listManageSubTab}
+            onSubTabChange={(tab) => {
+              setListManageSubTab(tab);
+              if (tab === 'add') setListAddSelectedIds([]);
+            }}
+            memberSearch={listMemberSearch}
+            onMemberSearchChange={setListMemberSearch}
+            addSearch={listAddSearch}
+            onAddSearchChange={setListAddSearch}
+            members={manageListMembers}
+            addPool={manageListAddPool}
+            addSelectedIds={listAddSelectedIds}
+            missingCount={managedListMissingCount}
             contactsHasMore={contactsHasMore}
             contactsLoadingMore={contactsLoadingMore}
-            contactsLoadPaused={false}
-            onRefreshTotals={() => void refreshContactsSavedTotal?.()}
+            allAddPoolSelected={allAddPoolSelected}
+            onCreateCampaign={() => handleCreateCampaignWithList(managedListForView)}
+            onExportXlsx={() => handleExportManagedListAs('xlsx')}
+            onExportVcf={() => handleExportManagedListAs('vcf')}
+            onLoadMore={loadAllContacts ?? loadMoreContacts}
+            onEditContact={beginEditContact}
+            onRemoveMember={(c) => void handleRemoveContactFromList(managedListForView.id, c)}
+            onToggleAddSelect={toggleListAddSelect}
+            onToggleAddSelectAll={toggleListAddSelectAll}
+            onAddSelected={() => void handleAddIdsToList(managedListForView.id, listAddSelectedIds)}
           />
-
-          {managedListForView ? (
-            <ContactsListManagePanel
-              list={managedListForView}
-              subTab={listManageSubTab}
-              onSubTabChange={(tab) => {
-                setListManageSubTab(tab);
-                if (tab === 'add') setListAddSelectedIds([]);
-              }}
-              memberSearch={listMemberSearch}
-              onMemberSearchChange={setListMemberSearch}
-              addSearch={listAddSearch}
-              onAddSearchChange={setListAddSearch}
-              members={manageListMembers}
-              addPool={manageListAddPool}
-              addSelectedIds={listAddSelectedIds}
-              missingCount={managedListMissingCount}
-              contactsHasMore={contactsHasMore}
-              contactsLoadingMore={contactsLoadingMore}
-              allAddPoolSelected={allAddPoolSelected}
-              onCreateCampaign={() => handleCreateCampaignWithList(managedListForView)}
-              onExportXlsx={() => handleExportManagedListAs('xlsx')}
-              onExportVcf={() => handleExportManagedListAs('vcf')}
-              onLoadMore={loadAllContacts ?? loadMoreContacts}
-              onEditContact={beginEditContact}
-              onRemoveMember={(c) => void handleRemoveContactFromList(managedListForView.id, c)}
-              onToggleAddSelect={toggleListAddSelect}
-              onToggleAddSelectAll={toggleListAddSelectAll}
-              onAddSelected={() => void handleAddIdsToList(managedListForView.id, listAddSelectedIds)}
-            />
-          ) : (
+        ) : (
           <>
           {contactsBootstrapStale && (
             <div className="flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/20 border border-rose-200/70 dark:border-rose-900/40">
@@ -4005,7 +4055,6 @@ export const ContactsTab: React.FC = () => {
               </Button>
             </div>
           )}
-          {/* banner de carga parcial removido — indicador hairline no topo da janela já comunica o progresso sem deslocar layout */}
           {activeFilter === 'no_list' && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-orange-200/80 dark:border-orange-900/50 bg-orange-50/60 dark:bg-orange-950/20 px-3 py-2">
               <span className="text-[12px] text-orange-900 dark:text-orange-200 font-medium">
@@ -4078,10 +4127,10 @@ export const ContactsTab: React.FC = () => {
               onAddToList={handleAddSingleToList}
               selectedContactId={selectedContact?.id || null}
               loading={false}
-              heightClass="h-[calc(100vh-320px)]"
+              heightClass="h-[calc(100vh-310px)]"
               emptyHint={
                 contactsBootstrapStale
-                  ? 'Falha ao carregar a lista. Use «Recarregar contatos» acima ou aguarde a nova tentativa automática.'
+                  ? 'Falha ao carregar. Use «Recarregar contatos» acima ou aguarde a nova tentativa automática.'
                   : searchTerm
                   ? <>Nenhum contato casa com "<b>{searchTerm}</b>".</>
                   : activeFilter === 'all'
@@ -4093,14 +4142,14 @@ export const ContactsTab: React.FC = () => {
                       : activeFilter === 'retorno_todos' || activeFilter === 'retorno_atrasados' || activeFilter === 'retorno_hoje' || activeFilter === 'retorno_semana'
                       ? 'Nenhum contato com retorno neste filtro. Edite um contato e defina data em Retorno.'
                       : activeFilter === 'wedding_today' || activeFilter === 'wedding_week'
-                        ? 'Ninguém com data de casamento na ficha neste período. Edite o contato (segmento religioso) e preencha Data do casamento na ficha de membro.'
+                        ? 'Ninguém com data de casamento neste período.'
                         : (activeFilter === 'hot' || activeFilter === 'warm' || activeFilter === 'cold' || activeFilter === 'new') && !contactTempsReady
                           ? 'Calculando temperaturas da base… aguarde um instante.'
-                          : 'Ajuste o filtro na lateral ou tente outra busca.'
+                          : 'Ajuste o filtro acima ou tente outra busca.'
               }
             />
 
-          {/* Pagination Footer */}
+          {/* Pagination */}
           {totalPages > 1 && (
             <div className="px-4 py-3 flex items-center justify-between border-t border-slate-200 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/10">
               <div className="text-xs text-slate-500 font-medium">
@@ -4119,7 +4168,6 @@ export const ContactsTab: React.FC = () => {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                
                 <div className="flex items-center gap-1">
                   {[...Array(Math.min(5, totalPages))].map((_, i) => {
                     let pageNum = currentPage;
@@ -4127,7 +4175,6 @@ export const ContactsTab: React.FC = () => {
                     else if (currentPage <= 3) pageNum = i + 1;
                     else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
                     else pageNum = currentPage - 2 + i;
-
                     return (
                       <button
                         key={pageNum}
@@ -4143,7 +4190,6 @@ export const ContactsTab: React.FC = () => {
                     );
                   })}
                 </div>
-
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
@@ -4158,9 +4204,9 @@ export const ContactsTab: React.FC = () => {
             </div>
           )}
           </>
-          )}
-          </div>
+        )}
       </div>
+
       {!managedListForView && (
         <ContactsBulkBar
           count={selectedIds.length}

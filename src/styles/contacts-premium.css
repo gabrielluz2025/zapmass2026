@@ -307,3 +307,296 @@
   .crm-skeleton-cell, .crm-skeleton-avatar { animation: none; }
   .crm-kpi-tile:hover, .crm-btn-primary:hover { transform: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   CONTACT HUB — Novo layout fullwidth (2026)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Hero ─────────────────────────────────────────────────── */
+.ch-hero {
+  border-radius: 18px;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.07));
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.ch-hero__row1 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ── Search bar ───────────────────────────────────────────── */
+.ch-search {
+  position: relative;
+  flex: 1;
+  min-width: 220px;
+}
+
+.ch-search__icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--text-3, #94a3b8);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.ch-search__input {
+  width: 100%;
+  height: 42px;
+  padding: 0 40px 0 42px;
+  border-radius: 12px;
+  background: var(--surface-0);
+  border: 1.5px solid var(--border);
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 450;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ch-search__input::placeholder { color: var(--text-3, #94a3b8); }
+
+.ch-search__input:focus {
+  border-color: var(--brand-500, #10b981);
+  box-shadow: 0 0 0 3px rgba(16,185,129,0.15);
+}
+
+/* Remove native search clear */
+.ch-search__input::-webkit-search-cancel-button { display: none; }
+
+.ch-search__clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--border);
+  color: var(--text-3);
+  transition: background 0.13s, color 0.13s;
+}
+
+.ch-search__clear:hover {
+  background: var(--border-strong, rgba(255,255,255,0.15));
+  color: var(--text-1);
+}
+
+/* ── Actions ──────────────────────────────────────────────── */
+.ch-hero__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.ch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.85rem;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  color: var(--text-2, #94a3b8);
+  transition: all 0.13s;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ch-btn:hover {
+  color: var(--text-1);
+  border-color: var(--border-strong, rgba(255,255,255,0.18));
+  background: var(--surface-1);
+}
+
+.ch-btn--active {
+  background: rgba(16,185,129,0.1);
+  border-color: rgba(16,185,129,0.45);
+  color: var(--text-1);
+}
+
+.ch-btn--primary {
+  background: var(--brand-500, #10b981);
+  border-color: var(--brand-500, #10b981);
+  color: #fff;
+  box-shadow: 0 4px 16px -4px rgba(16,185,129,0.45);
+}
+
+.ch-btn--primary:hover {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px -4px rgba(16,185,129,0.55);
+}
+
+/* ── KPI chips row ────────────────────────────────────────── */
+.ch-hero__kpis {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.1rem;
+  border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+}
+
+.ch-kpi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.85rem 0.42rem 0.7rem;
+  border-radius: 999px;
+  background: var(--chip-bg, rgba(255,255,255,0.05));
+  border: 1px solid color-mix(in srgb, var(--chip-color, #10b981) 25%, transparent);
+  color: var(--chip-color, #10b981);
+  transition: transform 0.12s, box-shadow 0.12s;
+  cursor: default;
+}
+
+.ch-kpi-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -4px rgba(0,0,0,0.3);
+}
+
+.ch-kpi-chip__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+}
+
+.ch-kpi-chip__value {
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.ch-kpi-chip__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+/* ── Engagement bar ───────────────────────────────────────── */
+.ch-engage-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+
+.ch-engage-bar__track {
+  display: flex;
+  height: 6px;
+  width: 120px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border-subtle, rgba(255,255,255,0.08));
+  gap: 2px;
+}
+
+.ch-engage-bar__track > div {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  min-width: 4px;
+}
+
+.ch-engage-bar__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3, #94a3b8);
+  white-space: nowrap;
+}
+
+/* ── Filter strip ─────────────────────────────────────────── */
+.ch-filter-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.1rem 0;
+}
+
+/* ── Filter chip ──────────────────────────────────────────── */
+.ch-fchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.85rem;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--surface-1);
+  border: 1.5px solid var(--border);
+  color: var(--text-2, #94a3b8);
+  transition: all 0.13s;
+  white-space: nowrap;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.ch-fchip:hover {
+  border-color: var(--brand-500, #10b981);
+  color: var(--text-1);
+}
+
+.ch-fchip--active {
+  background: rgba(16,185,129,0.12);
+  border-color: rgba(16,185,129,0.5);
+  color: #10b981;
+  font-weight: 700;
+}
+
+.ch-fchip__badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.1);
+  color: inherit;
+  line-height: 1.4;
+}
+
+.ch-fchip--more {
+  border-style: dashed;
+  font-size: 11.5px;
+}
+
+.ch-fchip--more.ch-fchip--active {
+  background: rgba(99,102,241,0.12);
+  border-color: rgba(99,102,241,0.45);
+  color: #818cf8;
+}
+
+/* ── Workspace full-width ─────────────────────────────────── */
+.ch-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ch-kpi-chip:hover { transform: none; }
+  .ch-btn--primary:hover { transform: none; }
+  .ch-engage-bar__track > div { transition: none; }
+}
