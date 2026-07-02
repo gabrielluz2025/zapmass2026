@@ -1669,12 +1669,16 @@ const registerSocketHandlers = () => {
       }
     });
 
-    socket.on('send-message', async ({ conversationId, text }) => {
+    socket.on('send-message', async ({ conversationId, text }, callback?: (resp: { ok: boolean; error?: string }) => void) => {
       if (typeof conversationId === 'string' && !ownsConnectionId(conversationId.split(':')[0] || '')) {
         denyCrossTenant('send-message', { conversationId });
+        callback?.({ ok: false, error: 'Conversa nao pertence a esta conta.' });
         return;
       }
-      if (!(await requireActiveSubscription())) return;
+      if (!(await requireActiveSubscription())) {
+        callback?.({ ok: false, error: 'Plano ativo necessario para enviar mensagens.' });
+        return;
+      }
       userLog('ui:send-message', { conversationId });
       try {
         if (useEvolutionChat()) {
@@ -1686,9 +1690,12 @@ const registerSocketHandlers = () => {
           });
         }
         logEvent('wa:send-message', { conversationId });
+        callback?.({ ok: true });
       } catch (error: any) {
         logEvent('wa:send-message-error', { conversationId, error: error?.message || 'Erro desconhecido' });
-        socket.emit('send-message-error', { conversationId, error: error?.message || 'Falha ao enviar mensagem' });
+        const errMsg = error?.message || 'Falha ao enviar mensagem';
+        socket.emit('send-message-error', { conversationId, error: errMsg });
+        callback?.({ ok: false, error: errMsg });
       }
     });
 

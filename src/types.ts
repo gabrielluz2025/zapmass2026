@@ -640,7 +640,7 @@ export interface ZapMassContextType {
   ) => Promise<void>;
   deleteContactList: (id: string) => Promise<void>;
   updateContactList: (id: string, updates: Partial<ContactList>) => Promise<void>;
-  sendMessage: (conversationId: string, text: string) => void;
+  sendMessage: (conversationId: string, text: string) => Promise<{ ok: boolean; error?: string }>;
   sendMedia: (
     conversationId: string,
     payload: {

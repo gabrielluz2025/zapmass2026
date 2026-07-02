@@ -15,6 +15,7 @@ import { useClientCrm } from '../chat/useClientCrm';
 import { useSendChatMedia } from './hooks/useSendChatMedia';
 import { dedupeConversationsById } from '../../utils/conversationInboxTrim';
 import { collapseConversationsByPhone } from '../../utils/collapseConversationsByPhone';
+import { buildCanonicalConversationId } from '../../utils/conversationId';
 import { OPEN_CHAT_BY_CONVERSATION_ID_KEY } from '../../utils/openChatByConversationIdNav';
 import { normPhoneKey } from '../../utils/brPhoneNormalize';
 import {
@@ -312,7 +313,7 @@ export const WaWebChatApp: React.FC<{
         ? connections.find((c) => c.id === preferredConnectionId)
         : undefined;
       const chosen = preferredConn || connectedList[0] || connections[0];
-      const draftId = chosen ? `${chosen.id}:${digits}@c.us` : `draft:${digits}`;
+      const draftId = chosen ? buildCanonicalConversationId(chosen.id, digits) || `draft:${digits}` : `draft:${digits}`;
       const agendaHit = contacts.find((ct) => {
         const cd = (ct.phone || '').replace(/\D/g, '');
         return matchesDigits(cd);
@@ -578,7 +579,8 @@ export const WaWebChatApp: React.FC<{
       if (!selected?.id || !isSelectedDraft) return;
       const digits = (selected.contactPhone || '').replace(/\D/g, '');
       if (!digits) return;
-      const newId = `${connectionId}:${digits}@c.us`;
+      const newId = buildCanonicalConversationId(connectionId, digits);
+      if (!newId) return;
       setDraftChannelById((prev) => {
         const next = { ...prev };
         delete next[selected.id];
@@ -615,7 +617,11 @@ export const WaWebChatApp: React.FC<{
           toast.error('Telefone inválido para iniciar conversa.');
           return;
         }
-        const realConversationId = `${chosenConnectionId}:${digits}@c.us`;
+        const realConversationId = buildCanonicalConversationId(chosenConnectionId, digits);
+        if (!realConversationId) {
+          toast.error('Telefone inválido para iniciar conversa.');
+          return;
+        }
         if (realConversationId !== selected.id) {
           setDraftConversations((prev) =>
             prev.map((d) =>
@@ -709,7 +715,12 @@ export const WaWebChatApp: React.FC<{
           toast.error('Escolha um canal para enviar a primeira mensagem.');
           return;
         }
-        conversationId = `${chosenConnectionId}:${digits}@c.us`;
+        const canonicalId = buildCanonicalConversationId(chosenConnectionId, digits);
+        if (!canonicalId) {
+          toast.error('Telefone inválido para iniciar conversa.');
+          return;
+        }
+        conversationId = canonicalId;
         if (conversationId !== selected.id) {
           setDraftConversations((prev) =>
             prev.map((d) =>

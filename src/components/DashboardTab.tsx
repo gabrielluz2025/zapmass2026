@@ -52,6 +52,7 @@ import { campaignClockVars } from '../utils/campaignClockVars';
 import { DashboardCommandPanel } from './dashboard/DashboardCommandPanel';
 import { usePastoralVisits } from '../hooks/usePastoralVisits';
 import { openChatNavigate } from '../utils/openChatByPhoneNav';
+import { buildCanonicalConversationId } from '../utils/conversationId';
 import { downloadPastoralVisitIcs } from '../utils/pastoralVisitIcs';
 import {
   getMaxConnectionSlotsForUser,
@@ -664,6 +665,12 @@ export const DashboardTab: React.FC = () => {
   const handleBulkBirthdaySubmit = async () => {
     if (!bulkConnectionId || bulkSelectedList.length === 0 || !bulkTemplate.trim()) return;
 
+    const conn = connections.find((c) => c.id === bulkConnectionId);
+    if (!conn || conn.status !== ConnectionStatus.CONNECTED) {
+      toast.error('Canal offline ou suspenso. Reconecte o chip antes de disparar.');
+      return;
+    }
+
     const recipients = bulkSelectedList.map((b) => {
       const nv = campaignRecipientNameVars(b.name || '');
       return {
@@ -729,7 +736,11 @@ export const DashboardTab: React.FC = () => {
       toast.error('Contato sem numero de telefone.');
       return;
     }
-    const conversationId = `${sendingConnectionId}:${phone}@c.us`;
+    const conversationId = buildCanonicalConversationId(sendingConnectionId, phone);
+    if (!conversationId) {
+      toast.error('Não foi possível montar a conversa para envio.');
+      return;
+    }
     setBirthdaySending(true);
     try {
       if (birthdayAttachment?.file) {
@@ -745,7 +756,8 @@ export const DashboardTab: React.FC = () => {
         });
         if (!res.ok) throw new Error(res.error || 'Falha ao enviar imagem.');
       } else {
-        sendMessage(conversationId, messageText.trim());
+        const res = await sendMessage(conversationId, messageText.trim());
+        if (!res.ok) throw new Error(res.error || 'Falha ao enviar mensagem.');
       }
       toast.success(`Mensagem enviada para ${selectedContact.name}.`);
       setSelectedContact(null);
@@ -772,15 +784,23 @@ export const DashboardTab: React.FC = () => {
     );
   };
 
-  const handleSendWeddingMessage = () => {
+  const handleSendWeddingMessage = async () => {
     if (!selectedWedding || !sendingConnectionId || !weddingMessageText.trim()) return;
     const phone = selectedWedding.phone?.replace(/\D/g, '');
     if (!phone) {
       toast.error('Contato sem número de telefone.');
       return;
     }
-    const conversationId = `${sendingConnectionId}:${phone}@c.us`;
-    sendMessage(conversationId, weddingMessageText.trim());
+    const conversationId = buildCanonicalConversationId(sendingConnectionId, phone);
+    if (!conversationId) {
+      toast.error('Não foi possível montar a conversa para envio.');
+      return;
+    }
+    const res = await sendMessage(conversationId, weddingMessageText.trim());
+    if (!res.ok) {
+      toast.error(res.error || 'Falha ao enviar mensagem.');
+      return;
+    }
     toast.success(`Mensagem enviada para ${selectedWedding.name}.`);
     setSelectedWedding(null);
     setShowChannelSelector(false);

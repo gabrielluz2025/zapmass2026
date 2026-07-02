@@ -105,6 +105,7 @@ import {
   mergeHistoryMessagesIntoConversation
 } from '../utils/conversationInboxTrim';
 import { devLog, devWarn, warnProd } from '../utils/logger';
+import { normalizeConversationId } from '../utils/conversationId';
 
 async function yieldToUiThread(): Promise<void> {
   await new Promise<void>((resolve) => {
@@ -331,7 +332,7 @@ const EMPTY_CONTEXT: ZapMassContextWithSocket = {
   appendContactIdsToContactList: async () => {},
   deleteContactList: async () => {},
   updateContactList: async () => {},
-  sendMessage: () => {},
+  sendMessage: async () => ({ ok: false, error: 'Sem conexao com servidor.' }),
   sendMedia: async () => ({ ok: false, error: 'Sem conexao com servidor.' }),
   markAsRead: () => {},
   fetchConversationPicture: () => {},
@@ -2457,9 +2458,10 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
       'send-message-error',
       ({ error, conversationId }: { error?: string; conversationId?: string }) => {
         if (conversationId) {
+          const canonical = normalizeConversationId(conversationId);
           setConversations((prev) =>
             prev.map((c) =>
-              c.id === conversationId
+              c.id === conversationId || c.id === canonical
                 ? {
                     ...c,
                     messages: (c.messages || []).filter((m) => !String(m.id).startsWith('pending-'))
@@ -3184,38 +3186,88 @@ export const ZapMassProvider: React.FC<{ children: ReactNode }> = ({ children })
     await reloadVpsContactListsRef.current();
   };
 
-  const sendMessage = (conversationId: string, text: string) => {
+  const sendMessage = (
+    conversationId: string,
+    text: string
+  ): Promise<{ ok: boolean; error?: string }> => {
     const trimmed = String(text || '').trim();
-    if (!trimmed) return;
+    if (!trimmed) return Promise.resolve({ ok: false, error: 'Mensagem vazia.' });
+
+    const canonicalId = normalizeConversationId(conversationId);
     const nowMs = Date.now();
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== conversationId) return c;
-        const pendingId = `pending-${nowMs}`;
-        const optimistic = {
-          id: pendingId,
-          text: trimmed,
-          timestamp: new Date(nowMs).toLocaleTimeString('pt-BR', {
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          sender: 'me' as const,
-          status: 'pending' as const,
-          type: 'text' as const,
-          timestampMs: nowMs
-        };
-        const msgs = [...(c.messages || []), optimistic];
-        return {
-          ...c,
-          messages: msgs,
-          lastMessage: trimmed,
-          lastMessageTime: optimistic.timestamp,
-          lastMessageTimestamp: nowMs
-        };
-      })
-    );
-    socketRef.current?.emit('ui-log', { action: 'send-message', conversationId });
-    socketRef.current?.emit('send-message', { conversationId, text: trimmed });
+    const optimistic = {
+      id: `pending-${nowMs}`,
+      text: trimmed,
+      timestamp: new Date(nowMs).toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      sender: 'me' as const,
+      status: 'pending' as const,
+      type: 'text' as const,
+      timestampMs: nowMs
+    };
+
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => c.id === canonicalId || c.id === conversationId);
+      if (idx >= 0) {
+        return prev.map((c, i) => {
+          if (i !== idx) return c;
+          const msgs = [...(c.messages || []), optimistic];
+          return {
+            ...c,
+            id: canonicalId,
+            messages: msgs,
+            lastMessage: trimmed,
+            lastMessageTime: optimistic.timestamp,
+            lastMessageTimestamp: nowMs
+          };
+        });
+      }
+      const colon = canonicalId.indexOf(':');
+      const connId = colon >= 0 ? canonicalId.slice(0, colon) : '';
+      const phone = colon >= 0 ? canonicalId.slice(colon + 1).split('@')[0].replace(/\D/g, '') : '';
+      const newConv: Conversation = {
+        id: canonicalId,
+        connectionId: connId,
+        contactPhone: phone,
+        contactName: phone ? `+${phone}` : 'Contato',
+        unreadCount: 0,
+        lastMessage: trimmed,
+        lastMessageTime: optimistic.timestamp,
+        lastMessageTimestamp: nowMs,
+        messages: [optimistic],
+        tags: []
+      };
+      return [newConv, ...prev];
+    });
+
+    return new Promise((resolve) => {
+      const socket = socketRef.current;
+      if (!socket) {
+        resolve({ ok: false, error: 'Sem conexão com servidor.' });
+        return;
+      }
+      let done = false;
+      const finish = (r: { ok: boolean; error?: string }) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(r);
+      };
+      const timer = setTimeout(
+        () => finish({ ok: false, error: 'Tempo esgotado ao enviar mensagem.' }),
+        60_000
+      );
+      socket.emit(
+        'send-message',
+        { conversationId: canonicalId, text: trimmed },
+        (resp: { ok?: boolean; error?: string }) => {
+          finish({ ok: !!resp?.ok, error: resp?.error });
+        }
+      );
+      socket.emit('ui-log', { action: 'send-message', conversationId: canonicalId });
+    });
   };
 
   const sendMedia = (

@@ -802,14 +802,14 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       );
     } else {
       setCampaignFlowMode(draftMode);
-      setMessageStages(
-        initialDraft.messageStages.map((s) => ({
-          ...newMessageStage(),
-          ...s,
-          id: s.id || newMessageStage().id,
-          marketingEffect: s.marketingEffect ?? 'none'
-        }))
-      );
+    setMessageStages(
+      initialDraft.messageStages.map((s) => ({
+        ...newMessageStage(),
+        ...s,
+        id: s.id || newMessageStage().id,
+        marketingEffect: s.marketingEffect ?? 'none'
+      }))
+    );
     }
     // Draft/template/clone já traz o modo definido — não força reescolha.
     setFlowModeChosen(true);
@@ -1270,22 +1270,22 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       mediaPayload = await buildMediaPayload(campaignAttachment);
       followUpMediaPayload = await buildMediaPayload(followUpAttachment);
     } catch (err) {
-      const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
-      toast.error(m);
-      return;
+        const m = err instanceof Error ? err.message : 'Falha ao ler anexo.';
+        toast.error(m);
+        return;
     }
     const stagesBodies = messageStages.map((s) => s.body.trim()).filter((b) => b.length > 0);
     const useReplyFlow = campaignFlowMode === 'reply';
     const replyFlow: CampaignReplyFlow | undefined = useReplyFlow
-      ? {
-          enabled: true,
+        ? {
+            enabled: true,
           steps: messageStages.map((s) => {
             const hasMenuOptions = Array.isArray(s.options) && s.options.length > 0;
             return {
-            body: s.body.trim(),
+              body: s.body.trim(),
             acceptAnyReply: hasMenuOptions ? false : s.acceptAnyReply,
-            validTokens: parseValidTokensText(s.validTokensText),
-            invalidReplyBody: s.invalidReplyBody.trim(),
+              validTokens: parseValidTokensText(s.validTokensText),
+              invalidReplyBody: s.invalidReplyBody.trim(),
             marketingEffect: s.marketingEffect ?? 'none',
             ...(hasMenuOptions
               ? {
@@ -1298,8 +1298,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               : {})
           };
           })
-        }
-      : undefined;
+          }
+        : undefined;
     const contactListMeta =
       sendMode === 'list' && selectedList
         ? { id: selectedList.id, name: selectedList.name }
@@ -1350,7 +1350,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
       }
     };
 
-    setIsSubmitting(true);
+      setIsSubmitting(true);
     const submitToastId = 'campaign-submit';
     toast.loading('Iniciando disparo no servidor…', { id: submitToastId, duration: 120_000 });
     try {
@@ -2030,15 +2030,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               <div className="cw-msg-section cw-msg-name-row">
                 <div>
                   <p className="cw-msg-section-title">Nome da campanha</p>
-                  <Input
+              <Input
                     placeholder="Ex: Promoção Janeiro — Base VIP"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                   />
                   <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--text-3)' }}>
                     Só para você organizar — seus contatos não veem este nome.
                   </p>
-                </div>
+              </div>
               </div>
 
               <CampaignFlowModePicker mode={campaignFlowMode} onChange={setFlowMode} />
@@ -2065,8 +2065,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       onPickAttachment={onPickAttachment}
                       onRemoveAttachment={removeAttachment}
                       launchMode={launchMode}
-                    />
-                  ) : (
+                          />
+                        ) : (
                     <CampaignReplyFlowEditor
                       stages={messageStages}
                       setStages={setMessageStages}
@@ -2086,9 +2086,9 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       onInsertInvalidVariable={insertInvalidReplyVariable}
                       campaignBrief={name.trim() || 'Campanha WhatsApp'}
                       previewDisplayName={previewDisplayName}
-                    />
-                  )}
-                </div>
+                          />
+                        )}
+                      </div>
               )}
 
               {/* Prévia no celular (telas menores) */}
@@ -2105,7 +2105,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     flowMode={campaignFlowMode}
                     replyPreview={replyPreviewMeta}
                   />
-              </div>
+                        </div>
 
               <div className="cw-msg-footer">
                 <Button
@@ -2141,45 +2141,45 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 {activeMessageBody.trim() ? (
                 <div className="cw-risk-panel" data-level={messageRisk.level}>
                   <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
+                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-3)' }}>
                       Copiloto de risco
-                    </span>
-                    <Badge
-                      variant={
-                        messageRisk.level === 'high' ? 'danger' : messageRisk.level === 'medium' ? 'warning' : 'success'
-                      }
-                    >
-                      {messageRisk.level === 'high' ? 'Alto' : messageRisk.level === 'medium' ? 'Médio' : 'Baixo'}
-                    </Badge>
-                    <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }}>
+                  </span>
+                  <Badge
+                    variant={
+                      messageRisk.level === 'high' ? 'danger' : messageRisk.level === 'medium' ? 'warning' : 'success'
+                    }
+                  >
+                    {messageRisk.level === 'high' ? 'Alto' : messageRisk.level === 'medium' ? 'Médio' : 'Baixo'}
+                  </Badge>
+                  <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-3)' }}>
                       {messageRisk.score}/100
-                    </span>
-                  </div>
+                  </span>
+                </div>
                   {messageRisk.hints.length > 0 && (
                     <ul className="text-[11px] space-y-0.5 list-disc pl-4 mb-1" style={{ color: 'var(--text-2)' }}>
-                      {messageRisk.hints.map((h) => (
-                        <li key={h}>{h}</li>
-                      ))}
-                    </ul>
+                  {messageRisk.hints.map((h) => (
+                    <li key={h}>{h}</li>
+                  ))}
+                </ul>
                   )}
-                  {messageRisk.level !== 'low' && (
+                {messageRisk.level !== 'low' && (
                     <p className="text-[10.5px] flex items-start gap-1.5" style={{ color: 'var(--text-3)' }}>
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500 mt-0.5" />
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500 mt-0.5" />
                       Revise o texto antes de escalar volume.
-                    </p>
-                  )}
-                </div>
+                  </p>
+                )}
+              </div>
               ) : (
                 <div className="cw-risk-tip flex items-start gap-2">
                   <Sparkles className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                   <span>
                     Dica: mensagens curtas e personalizadas com <code className="font-mono text-[10px]">{'{nome}'}</code>{' '}
                     costumam ter melhor resposta. A prévia mostra como o contato vai ver.
-                  </span>
-                </div>
-              )}
-              </div>
+                    </span>
+                    </div>
+                  )}
+                  </div>
             </Card>
           )}
 
@@ -2425,11 +2425,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <div className="text-right shrink-0 ml-3">
                     <span className="text-xl font-bold tabular-nums" style={{ color: '#f59e0b' }}>
                       {delaySeconds}s – {delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2}s
-                    </span>
+                  </span>
                     <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-3)' }}>
                       ~{Math.round(3600 / ((delaySeconds + (delaySecondsMax > delaySeconds ? delaySecondsMax : delaySeconds * 2)) / 2))} msgs/h por chip
                     </p>
-                  </div>
+                </div>
                 </div>
 
                 {/* Min */}
@@ -2437,26 +2437,26 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
                     Mínimo (mais rápido)
                   </p>
-                  <div className="grid grid-cols-6 gap-1.5">
+                <div className="grid grid-cols-6 gap-1.5">
                     {[10, 20, 30, 45, 60, 90].map((s) => (
-                      <button
-                        key={s}
-                        type="button"
+                    <button
+                      key={s}
+                      type="button"
                         onClick={() => {
                           setDelaySeconds(s);
                           if (delaySecondsMax <= s) setDelaySecondsMax(s * 2);
                         }}
                         className="py-1.5 rounded-lg text-[11.5px] font-bold transition-all"
-                        style={
-                          delaySeconds === s
-                            ? { background: '#f59e0b', color: '#fff' }
-                            : { background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
-                        }
-                      >
-                        {s}s
-                      </button>
-                    ))}
-                  </div>
+                      style={
+                        delaySeconds === s
+                          ? { background: '#f59e0b', color: '#fff' }
+                          : { background: 'var(--surface-1)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
+                      }
+                    >
+                      {s}s
+                    </button>
+                  ))}
+                </div>
                 </div>
 
                 {/* Max */}
@@ -2520,7 +2520,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   <p className="text-[10.5px] leading-snug" style={{ color: 'var(--text-3)' }}>
                     <strong style={{ color: 'var(--text-2)' }}>Recomendado para conta nova:</strong> mín 45s, máx 120s + pausas ativadas. Para chip aquecido: mín 20s, máx 60s.
                   </p>
-                </div>
+              </div>
               </Card>
 
               {/* Cronograma de Envio Diário Fracionado */}
@@ -2586,8 +2586,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           }}
                           className="w-full px-3 py-2 rounded-lg text-[13px] bg-black/40 border text-white"
                           style={{ borderColor: 'var(--border-subtle)' }}
-                        />
-                      </div>
+                    />
+                  </div>
 
                       <div>
                         <p className="text-[11px] font-semibold mb-1.5" style={{ color: 'var(--text-3)' }}>
@@ -2637,7 +2637,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                                   className="w-20 px-2 py-1 rounded bg-black/60 border text-white text-center font-bold font-mono text-[11.5px]"
                                   style={{ borderColor: 'var(--border-subtle)' }}
                                 />
-                              </div>
+                </div>
 
                               <div className="text-right w-24">
                                 <span className="text-[10px] text-zinc-500 block">Total do dia</span>
@@ -2684,159 +2684,159 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
               <p className="ui-subtitle text-[12.5px] mb-4">Confira os dados antes de iniciar o disparo.</p>
 
               <div
-                className="mb-5 p-4 rounded-xl space-y-3"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-              >
-                <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                  Quando enviar
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setLaunchMode('now')}
-                    className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all"
-                    style={
-                      launchMode === 'now'
-                        ? { background: 'var(--brand-500)', color: '#fff' }
-                        : { background: 'var(--surface-0)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
-                    }
-                  >
-                    Iniciar agora
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLaunchMode('schedule')}
-                    className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all inline-flex items-center gap-1.5"
-                    style={
-                      launchMode === 'schedule'
+                  className="mb-5 p-4 rounded-xl space-y-3"
+                  style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                >
+                  <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                    Quando enviar
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLaunchMode('now')}
+                      className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all"
+                      style={
+                        launchMode === 'now'
+                          ? { background: 'var(--brand-500)', color: '#fff' }
+                          : { background: 'var(--surface-0)', color: 'var(--text-2)', border: '1px solid var(--border-subtle)' }
+                      }
+                    >
+                      Iniciar agora
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLaunchMode('schedule')}
+                      className="px-3 py-2 rounded-lg text-[12px] font-bold transition-all inline-flex items-center gap-1.5"
+                      style={
+                        launchMode === 'schedule'
                         ? { background: '#06B6D4', color: '#fff' }
-                        : {
-                            background: 'var(--surface-0)',
+                          : {
+                              background: 'var(--surface-0)',
                             color: 'var(--text-2)',
                             border: '1px solid var(--border-subtle)'
-                          }
-                    }
-                  >
-                    <Clock className="w-3.5 h-3.5" />
-                    Agendar na semana
-                  </button>
-                </div>
+                            }
+                      }
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      Agendar na semana
+                    </button>
+                  </div>
                 {launchMode === 'schedule' && (
-                  <div className="space-y-3 pt-1">
-                    <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                      Fuso: <strong style={{ color: 'var(--text-1)' }}>{scheduleTimeZone}</strong> — horários iguais aos do seu relógio local do navegador.
-                    </p>
-                    <label className="flex items-center gap-2 cursor-pointer text-[12px]">
-                      <input
-                        type="checkbox"
-                        checked={repeatWeekly}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setRepeatWeekly(checked);
-                          if (!checked && !onceScheduleDate) {
-                            setOnceScheduleDate(formatTodayYmdInZone(scheduleTimeZone));
-                          }
-                        }}
-                      />
-                      Repetir toda semana (após cada conclusão, reagenda o próximo disparo igual à grade)
-                    </label>
-                    {!repeatWeekly ? (
-                      <div
-                        className="rounded-xl p-3 space-y-2"
-                        style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-                      >
-                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
-                          Data e hora do disparo
-                        </p>
-                        <div className="flex flex-wrap items-end gap-2">
-                          <div className="flex flex-col gap-0.5 min-w-[140px]">
-                            <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                              Dia
-                            </span>
-                            <input
-                              type="date"
-                              min={scheduleDateMin}
-                              value={onceScheduleDate}
-                              onChange={(e) => setOnceScheduleDate(e.target.value)}
-                              className="rounded-md text-[13px] px-2 py-1.5 tabular-nums w-full max-w-[200px]"
-                              style={{
+                    <div className="space-y-3 pt-1">
+                      <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                        Fuso: <strong style={{ color: 'var(--text-1)' }}>{scheduleTimeZone}</strong> — horários iguais aos do seu relógio local do navegador.
+                      </p>
+                      <label className="flex items-center gap-2 cursor-pointer text-[12px]">
+                        <input
+                          type="checkbox"
+                          checked={repeatWeekly}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setRepeatWeekly(checked);
+                            if (!checked && !onceScheduleDate) {
+                              setOnceScheduleDate(formatTodayYmdInZone(scheduleTimeZone));
+                            }
+                          }}
+                        />
+                        Repetir toda semana (após cada conclusão, reagenda o próximo disparo igual à grade)
+                      </label>
+                      {!repeatWeekly ? (
+                        <div
+                          className="rounded-xl p-3 space-y-2"
+                          style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                        >
+                          <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                            Data e hora do disparo
+                          </p>
+                          <div className="flex flex-wrap items-end gap-2">
+                            <div className="flex flex-col gap-0.5 min-w-[140px]">
+                              <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                                Dia
+                              </span>
+                              <input
+                                type="date"
+                                min={scheduleDateMin}
+                                value={onceScheduleDate}
+                                onChange={(e) => setOnceScheduleDate(e.target.value)}
+                                className="rounded-md text-[13px] px-2 py-1.5 tabular-nums w-full max-w-[200px]"
+                                style={{
                                   background: 'var(--surface-1)',
                                   border: '1px solid var(--border-subtle)',
                                   color: 'var(--text-1)'
-                              }}
-                            />
+                                }}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-0.5 min-w-[120px]">
+                              <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
+                                Hora
+                              </span>
+                              <input
+                                type="time"
+                                value={onceScheduleTime}
+                                onChange={(e) => setOnceScheduleTime(e.target.value)}
+                                className="rounded-md text-[13px] px-2 py-1.5 tabular-nums"
+                                style={{
+                                  background: 'var(--surface-1)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-1)'
+                                }}
+                              />
+                            </div>
                           </div>
-                          <div className="flex flex-col gap-0.5 min-w-[120px]">
-                            <span className="text-[10px] uppercase tracking-wide" style={{ color: 'var(--text-3)' }}>
-                              Hora
-                            </span>
-                            <input
-                              type="time"
-                              value={onceScheduleTime}
-                              onChange={(e) => setOnceScheduleTime(e.target.value)}
-                              className="rounded-md text-[13px] px-2 py-1.5 tabular-nums"
-                              style={{
-                                background: 'var(--surface-1)',
-                                border: '1px solid var(--border-subtle)',
-                                color: 'var(--text-1)'
-                              }}
-                            />
-                          </div>
+                          <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                            Um disparo só, na data exata escolhida (fuso acima — mesmo do navegador).
+                          </p>
                         </div>
-                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
-                          Um disparo só, na data exata escolhida (fuso acima — mesmo do navegador).
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((label, dow) => (
+                            <div
+                              key={label}
+                              className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
+                              style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
+                            >
+                              <span className="text-[12px] font-semibold w-8" style={{ color: 'var(--text-2)' }}>
+                                {label}
+                              </span>
+                              <input
+                                type="time"
+                                value={dayTimes[dow] || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setDayTimes((prev) => {
+                                    const n = [...prev];
+                                    n[dow] = v;
+                                    return n;
+                                  });
+                                }}
+                                className="rounded-md text-[13px] px-2 py-1 tabular-nums"
+                                style={{
+                                  background: 'var(--surface-1)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-1)'
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {nextRunPreview && (
+                        <p className="text-[12px]" style={{ color: 'var(--brand-700)' }}>
+                          Próximo disparo previsto:{' '}
+                          <strong>
+                            {new Date(nextRunPreview).toLocaleString('pt-BR', {
+                              weekday: 'long',
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </strong>
                         </p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((label, dow) => (
-                          <div
-                            key={label}
-                            className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
-                            style={{ background: 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}
-                          >
-                            <span className="text-[12px] font-semibold w-8" style={{ color: 'var(--text-2)' }}>
-                              {label}
-                            </span>
-                            <input
-                              type="time"
-                              value={dayTimes[dow] || ''}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setDayTimes((prev) => {
-                                  const n = [...prev];
-                                  n[dow] = v;
-                                  return n;
-                                });
-                              }}
-                              className="rounded-md text-[13px] px-2 py-1 tabular-nums"
-                              style={{
-                                background: 'var(--surface-1)',
-                                border: '1px solid var(--border-subtle)',
-                                color: 'var(--text-1)'
-                              }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {nextRunPreview && (
-                      <p className="text-[12px]" style={{ color: 'var(--brand-700)' }}>
-                        Próximo disparo previsto:{' '}
-                        <strong>
-                          {new Date(nextRunPreview).toLocaleString('pt-BR', {
-                            weekday: 'long',
-                            day: '2-digit',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </strong>
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
               {/* ── Saúde dos chips selecionados ── */}
               {(() => {
@@ -2849,7 +2849,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                     style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}
                   >
                     <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#d97706' }} />
-                    <div>
+                      <div>
                       <p className="text-[12px] font-semibold mb-1" style={{ color: '#d97706' }}>
                         {offlineConns.length} chip{offlineConns.length > 1 ? 's' : ''} selecionado{offlineConns.length > 1 ? 's' : ''} não {offlineConns.length > 1 ? 'estão conectados' : 'está conectado'}
                       </p>
@@ -2864,11 +2864,11 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                           </span>
                         ))}
                       </div>
-                      <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
+                        <p className="text-[11px] mt-1" style={{ color: 'var(--text-3)' }}>
                         Reconecte os chips antes de iniciar ou o disparo pode falhar.
-                      </p>
+                        </p>
+                      </div>
                     </div>
-                  </div>
                 );
               })()}
 
@@ -3208,44 +3208,44 @@ const WizardLivePreview: React.FC<{
   const menuOptions = replyPreview?.menuOptions?.filter((o) => o.reply.trim()) ?? [];
   return (
     <div className="space-y-3">
-      <div
-        className="rounded-xl px-4 py-3 flex items-center gap-2"
-        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-      >
-        <div
-          className="w-2 h-2 rounded-full animate-pulse"
-          style={{ background: '#10b981', boxShadow: '0 0 6px #10b981' }}
-        />
-        <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>
-          Prévia ao vivo
-        </p>
-      </div>
+            <div
+              className="rounded-xl px-4 py-3 flex items-center gap-2"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+            >
+              <div
+                className="w-2 h-2 rounded-full animate-pulse"
+                style={{ background: '#10b981', boxShadow: '0 0 6px #10b981' }}
+              />
+              <p className="text-[12px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-2)' }}>
+                Prévia ao vivo
+              </p>
+            </div>
 
-      <div className="rounded-2xl overflow-hidden" style={{ background: '#0b141a', border: '1px solid rgba(255,255,255,0.06)' }}>
-        <div
-          className="px-4 py-3 flex items-center gap-3"
-          style={{ background: '#1a2228', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-        >
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
-          >
+            <div className="rounded-2xl overflow-hidden" style={{ background: '#0b141a', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div
+                className="px-4 py-3 flex items-center gap-3"
+                style={{ background: '#1a2228', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+              >
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
+                >
             {initial}
-          </div>
+                </div>
           <div className="min-w-0">
             <p className="text-[12px] font-semibold truncate" style={{ color: '#e9edef' }}>
               {displayName}
             </p>
-            <div className="flex items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#10b981' }} />
+                  <div className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#10b981' }} />
               <p className="text-[10px]" style={{ color: '#8696a0' }}>
                 como seu contato verá
               </p>
-            </div>
-          </div>
-        </div>
+                  </div>
+                </div>
+              </div>
 
-        <div className="p-4 min-h-[180px] flex flex-col justify-end gap-2.5">
+              <div className="p-4 min-h-[180px] flex flex-col justify-end gap-2.5">
           {bodies.length > 0 ? (
             isReplyFlow ? (
               <>
@@ -3313,52 +3313,52 @@ const WizardLivePreview: React.FC<{
               </>
             ) : (
             bodies.map((body, idx) => (
-              <div key={`pv-${idx}`} className="self-end max-w-[92%]">
+                    <div key={`pv-${idx}`} className="self-end max-w-[92%]">
                 {bodies.length > 1 && (
-                  <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
-                    Etapa {idx + 1}
-                  </p>
+                      <p className="text-[9px] font-semibold mb-1 text-right" style={{ color: '#8696a0' }}>
+                        Etapa {idx + 1}
+                      </p>
                 )}
-                <div
-                  className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
-                  style={{
-                    background: 'linear-gradient(135deg,#005c4b,#006b58)',
-                    color: '#e9edef',
+                      <div
+                        className="rounded-xl rounded-tr-none px-3 py-2 text-[12.5px] leading-[18px] whitespace-pre-wrap"
+                        style={{
+                          background: 'linear-gradient(135deg,#005c4b,#006b58)',
+                          color: '#e9edef',
                     boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                  }}
-                >
-                  {body}
-                </div>
-                <div className="flex items-center justify-end gap-1 mt-1">
-                  <span className="text-[9px]" style={{ color: '#8696a0' }}>
-                    {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  <span className="text-[10px]" style={{ color: '#53bdeb' }}>✓✓</span>
-                </div>
-              </div>
-            ))
+                        }}
+                      >
+                        {body}
+                      </div>
+                      <div className="flex items-center justify-end gap-1 mt-1">
+                        <span className="text-[9px]" style={{ color: '#8696a0' }}>
+                          {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className="text-[10px]" style={{ color: '#53bdeb' }}>✓✓</span>
+                      </div>
+                    </div>
+                  ))
             )
-          ) : (
-            <div className="flex flex-col items-center justify-center py-8 gap-2 opacity-50">
-              <Smartphone className="w-8 h-8" style={{ color: '#667781' }} />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 gap-2 opacity-50">
+                    <Smartphone className="w-8 h-8" style={{ color: '#667781' }} />
               <p className="text-center text-[11px] px-4" style={{ color: '#667781' }}>
                 Digite a mensagem — a prévia aparece aqui em tempo real
-              </p>
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
 
-      <div
-        className="rounded-xl p-4 space-y-2.5"
-        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-      >
-        <p className="text-[10.5px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
-          Resumo
-        </p>
+            <div
+              className="rounded-xl p-4 space-y-2.5"
+              style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+            >
+              <p className="text-[10.5px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-3)' }}>
+                Resumo
+              </p>
         <SummaryRow label="Contatos" value={numbersCount.toLocaleString('pt-BR')} accent="var(--text-1)" />
-        <SummaryRow
-          label="Chips"
+              <SummaryRow
+                label="Chips"
           value={String(chipsCount)}
           accent={chipsCount > 0 ? 'var(--brand-600)' : 'var(--text-3)'}
         />

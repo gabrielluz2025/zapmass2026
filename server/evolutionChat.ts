@@ -260,7 +260,12 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
     }
 
     function toRemoteJid(chatPart: string): string {
-        if (chatPart.includes('@')) return chatPart;
+        if (chatPart.includes('@')) {
+            const base = chatPart.split('@')[0].replace(/\D/g, '');
+            const suffix = chatPart.split('@')[1] || '';
+            if (suffix === 'c.us' && base.length >= 8) return `${base}@s.whatsapp.net`;
+            return chatPart;
+        }
         const digits = chatPart.replace(/\D/g, '');
         return `${digits}@s.whatsapp.net`;
     }
@@ -1491,7 +1496,8 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
         const trimmed = String(text || '').trim();
         if (!trimmed) throw new Error('Mensagem vazia.');
 
-        const peer = await ensureSendablePeer(conversationId, parsed);
+        const effectiveId = buildConversationId(parsed.connectionId, parsed.remoteJid);
+        const peer = await ensureSendablePeer(effectiveId, parsed);
         const { number } = resolveOutboundSendTarget(parsed.remoteJid, peer);
 
         let response: { data?: { key?: { id?: string; _serialized?: string } } };
@@ -1517,8 +1523,9 @@ export function createEvolutionChat(api: AxiosInstance, archiveCtx?: EvolutionCh
             timestampMs: nowMs,
         };
 
-        const effectiveId = buildConversationId(parsed.connectionId, parsed.remoteJid);
-        const convAfter = conversations.find((c) => c.id === conversationId);
+        const convAfter =
+            conversations.find((c) => c.id === effectiveId) ||
+            conversations.find((c) => c.id === conversationId);
         appendMessageToConversation(effectiveId, newMsg, {
             connectionId: parsed.connectionId,
             contactPhone: peer.contactPhone || convAfter?.contactPhone || '',
