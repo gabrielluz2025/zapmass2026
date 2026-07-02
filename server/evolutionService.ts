@@ -4480,7 +4480,8 @@ export async function startCampaign(
     humanizedPauses?: boolean,
     dailySchedule?: {
         enabled: boolean;
-        skipWeekends?: boolean;
+        /** Dias da semana permitidos: 0=Dom 1=Seg … 6=Sáb. Ausente = todos os dias. */
+        allowedWeekdays?: number[];
         timePeriodEnabled?: boolean;
         periods?: Array<{
             name: 'morning' | 'afternoon';
@@ -4655,7 +4656,9 @@ export async function startCampaign(
 
                 // Calcula offset de dias considerando skip weekends
                 let dayOffsetMs = 0;
-                if (dailySchedule?.skipWeekends) {
+                const allowed = dailySchedule?.allowedWeekdays;
+                if (allowed && allowed.length > 0 && allowed.length < 7) {
+                    // Mapeia workDayIndex → dias de calendário pulando dias não permitidos
                     const startOfToday = new Date();
                     startOfToday.setHours(0, 0, 0, 0);
                     let calDay = 0;
@@ -4663,7 +4666,7 @@ export async function startCampaign(
                     while (wDay < chosenDayIndex) {
                         calDay++;
                         const d = new Date(startOfToday.getTime() + calDay * 86_400_000);
-                        if (d.getDay() !== 0 && d.getDay() !== 6) wDay++;
+                        if (allowed.includes(d.getDay())) wDay++;
                     }
                     dayOffsetMs = calDay * 86_400_000;
                 } else {

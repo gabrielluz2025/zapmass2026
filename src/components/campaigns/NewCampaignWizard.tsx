@@ -203,7 +203,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [selectedListId, setSelectedListId] = useState('');
   const [dailyScheduleEnabled, setDailyScheduleEnabled] = useState(false);
   const [dailyScheduleDays, setDailyScheduleDays] = useState<Array<{ dayIndex: number; limitPerChannel: number }>>([]);
-  const [skipWeekends, setSkipWeekends] = useState(false);
+  // 0=Dom 1=Seg 2=Ter 3=Qua 4=Qui 5=Sex 6=Sáb — todos por padrão
+  const [allowedWeekdays, setAllowedWeekdays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [timePeriodEnabled, setTimePeriodEnabled] = useState(false);
   const [morningPct, setMorningPct] = useState(50);
   const [morningStartHour, setMorningStartHour] = useState(8);
@@ -1354,7 +1355,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
         ...(dailyScheduleEnabled ? {
           dailySchedule: {
             enabled: true,
-            skipWeekends,
+            allowedWeekdays,
             timePeriodEnabled,
             ...(timePeriodEnabled ? {
               periods: [
@@ -2688,21 +2689,43 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 {dailyScheduleEnabled && (() => {
                   const numChips = Math.max(1, selectedConnectionIds.length);
 
-                  /* ── helper: data de calendário considerando skip weekends ── */
+                  /* ── helper: data de calendário considerando dias permitidos ── */
+                  const hasWeekdayRestriction = allowedWeekdays.length < 7;
                   const getWorkdayDate = (workDayIndex: number): Date => {
                     const start = new Date(); start.setHours(0,0,0,0);
-                    if (!skipWeekends) return new Date(start.getTime() + workDayIndex * 86_400_000);
+                    if (!hasWeekdayRestriction) return new Date(start.getTime() + workDayIndex * 86_400_000);
                     let calDay = 0, wDay = 0;
                     while (true) {
                       const d = new Date(start.getTime() + calDay * 86_400_000);
-                      const dow = d.getDay();
-                      if (dow !== 0 && dow !== 6) {
+                      if (allowedWeekdays.includes(d.getDay())) {
                         if (wDay === workDayIndex) return d;
                         wDay++;
                       }
                       calDay++;
                     }
                   };
+
+                  /* ── helper: alterna dia da semana e recalcula cronograma ── */
+                  const toggleWeekday = (dow: number) => {
+                    const next = allowedWeekdays.includes(dow)
+                      ? allowedWeekdays.filter(x => x !== dow)
+                      : [...allowedWeekdays, dow].sort((a,b) => a - b);
+                    if (next.length === 0) return; // mínimo 1 dia
+                    setAllowedWeekdays(next);
+                    // Recalcula dias do cronograma com nova restrição de dias
+                    const limit = limitPerChannelGlobal || 100;
+                    const numDays = Math.max(1, Math.ceil(numbers.length / (numChips * limit)));
+                    setDailyScheduleDays(Array.from({ length: numDays }, (_, idx) => ({
+                      dayIndex: idx,
+                      limitPerChannel: limit
+                    })));
+                  };
+
+                  const WEEKDAY_CHIPS = [
+                    { dow: 1, label: 'Seg' }, { dow: 2, label: 'Ter' }, { dow: 3, label: 'Qua' },
+                    { dow: 4, label: 'Qui' }, { dow: 5, label: 'Sex' },
+                    { dow: 6, label: 'Sáb', weekend: true }, { dow: 0, label: 'Dom', weekend: true },
+                  ];
 
                   const totalProgrammed = dailyScheduleDays.reduce((acc, d) => acc + (d.limitPerChannel * numChips), 0);
                   const covered = Math.min(numbers.length, totalProgrammed);
@@ -2745,34 +2768,88 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                             style={{ borderColor: 'var(--border-subtle)', minHeight: 38 }}>
                             <span className="font-bold text-emerald-400 font-mono">{dailyScheduleDays.length}</span>
                             <span className="text-zinc-400 text-[11px]">
-                              {skipWeekends ? 'dias úteis' : 'dias'} · {numChips} {numChips === 1 ? 'canal' : 'canais'}
+                              {hasWeekdayRestriction ? 'dias selecionados' : 'dias'} · {numChips} {numChips === 1 ? 'canal' : 'canais'}
                             </span>
                           </div>
                         </div>
                       </div>
 
-                      {/* ── Linha 2: Opções (skip weekend + período) ── */}
+                      {/* ── Linha 2: Dias da semana + período ── */}
                       <div className="space-y-2">
-                        {/* Skip weekends */}
-                        <div className="flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer select-none"
-                          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
-                          onClick={() => setSkipWeekends(v => !v)}>
-                          <div className="flex items-center gap-2">
-                            <span className="text-base">📆</span>
-                            <div>
+
+                        {/* Seletor de dias da semana */}
+                        <div className="px-3 py-3 rounded-xl"
+                          style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}>
+                          <div className="flex items-center justify-between mb-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">📆</span>
                               <p className="text-[12.5px] font-semibold" style={{ color: 'var(--text-1)' }}>
-                                Pular finais de semana
-                              </p>
-                              <p className="text-[10.5px]" style={{ color: 'var(--text-3)' }}>
-                                Disparos apenas em dias úteis (Seg–Sex)
+                                Dias de disparo
                               </p>
                             </div>
+                            <div className="flex gap-1.5">
+                              <button type="button"
+                                onClick={() => {
+                                  setAllowedWeekdays([1,2,3,4,5]);
+                                  const limit = limitPerChannelGlobal || 100;
+                                  const nd = Math.max(1, Math.ceil(numbers.length / (numChips * limit)));
+                                  setDailyScheduleDays(Array.from({ length: nd }, (_,i) => ({ dayIndex: i, limitPerChannel: limit })));
+                                }}
+                                className="px-2 py-0.5 rounded text-[10px] font-bold"
+                                style={{
+                                  background: JSON.stringify([...allowedWeekdays].sort()) === JSON.stringify([1,2,3,4,5])
+                                    ? 'rgba(16,185,129,0.2)' : 'var(--surface-0)',
+                                  color: JSON.stringify([...allowedWeekdays].sort()) === JSON.stringify([1,2,3,4,5])
+                                    ? '#10b981' : 'var(--text-3)',
+                                  border: '1px solid var(--border-subtle)'
+                                }}>Úteis</button>
+                              <button type="button"
+                                onClick={() => {
+                                  setAllowedWeekdays([0,1,2,3,4,5,6]);
+                                  const limit = limitPerChannelGlobal || 100;
+                                  const nd = Math.max(1, Math.ceil(numbers.length / (numChips * limit)));
+                                  setDailyScheduleDays(Array.from({ length: nd }, (_,i) => ({ dayIndex: i, limitPerChannel: limit })));
+                                }}
+                                className="px-2 py-0.5 rounded text-[10px] font-bold"
+                                style={{
+                                  background: allowedWeekdays.length === 7 ? 'rgba(99,102,241,0.2)' : 'var(--surface-0)',
+                                  color: allowedWeekdays.length === 7 ? '#818cf8' : 'var(--text-3)',
+                                  border: '1px solid var(--border-subtle)'
+                                }}>Todos</button>
+                            </div>
                           </div>
-                          <div className="w-9 h-5 rounded-full shrink-0 flex items-center transition-all"
-                            style={{ background: skipWeekends ? '#10b981' : 'var(--surface-0)', border: '1px solid var(--border-subtle)' }}>
-                            <div className="w-3.5 h-3.5 rounded-full bg-white transition-transform"
-                              style={{ transform: skipWeekends ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.3)' }} />
+
+                          <div className="flex gap-1.5">
+                            {WEEKDAY_CHIPS.map(({ dow, label, weekend }) => {
+                              const active = allowedWeekdays.includes(dow);
+                              return (
+                                <button key={dow} type="button" onClick={() => toggleWeekday(dow)}
+                                  className="flex-1 py-2 rounded-lg text-[12px] font-bold transition-all select-none"
+                                  style={{
+                                    background: active
+                                      ? weekend ? 'rgba(239,68,68,0.18)' : 'rgba(16,185,129,0.18)'
+                                      : 'var(--surface-0)',
+                                    color: active
+                                      ? weekend ? '#f87171' : '#34d399'
+                                      : 'var(--text-3)',
+                                    border: `1.5px solid ${active
+                                      ? weekend ? 'rgba(239,68,68,0.4)' : 'rgba(16,185,129,0.4)'
+                                      : 'var(--border-subtle)'}`,
+                                    opacity: active ? 1 : 0.4,
+                                  }}>
+                                  {label}
+                                </button>
+                              );
+                            })}
                           </div>
+
+                          {hasWeekdayRestriction && (
+                            <p className="mt-2 text-[10px]" style={{ color: 'var(--text-3)' }}>
+                              Disparos apenas em: <span style={{ color: 'var(--text-2)' }}>
+                                {WEEKDAY_CHIPS.filter(c => allowedWeekdays.includes(c.dow)).map(c => c.label).join(', ')}
+                              </span>
+                            </p>
+                          )}
                         </div>
 
                         {/* Time period split */}
@@ -2870,7 +2947,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         {dailyScheduleDays.map((day, idx) => {
                           const totalForDay = day.limitPerChannel * numChips;
                           const date = getWorkdayDate(idx);
-                          const dayLabel = skipWeekends
+                          const dayLabel = hasWeekdayRestriction
                             ? `${WEEKDAY_LABELS[date.getDay()]} ${String(date.getDate()).padStart(2,'0')}/${MONTH_LABELS[date.getMonth()]}`
                             : `Dia ${day.dayIndex + 1}`;
                           const morningCount = timePeriodEnabled ? Math.round(totalForDay * morningPct / 100) : 0;
@@ -2944,8 +3021,8 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                         <div className="flex justify-between">
                           <span className="text-zinc-400">Duração estimada:</span>
                           <span className="font-bold text-sky-400 font-mono">
-                            {dailyScheduleDays.length} {skipWeekends ? 'dias úteis' : 'dias'}
-                            {skipWeekends && dailyScheduleDays.length > 0 && (() => {
+                            {dailyScheduleDays.length} {hasWeekdayRestriction ? 'dias selecionados' : 'dias'}
+                            {hasWeekdayRestriction && dailyScheduleDays.length > 0 && (() => {
                               const lastDate = getWorkdayDate(dailyScheduleDays.length - 1);
                               return ` → ${String(lastDate.getDate()).padStart(2,'0')}/${MONTH_LABELS[lastDate.getMonth()]}`;
                             })()}
