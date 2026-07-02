@@ -6379,13 +6379,37 @@ export const sendMedia = async (
     emitConversationsUpdate();
 };
 
+// Função de envio registrada externamente (usada quando SESSION_PROCESS_MODE=api, sem Baileys local)
+type WarmupSendFn = (connectionId: string, toPhone: string, message: string) => Promise<void>;
+let _warmupSendFn: WarmupSendFn | null = null;
+
+/** Registra a função de envio via Evolution API para ser usada pelo auto-warmup do servidor. */
+export const registerWarmupSendFn = (fn: WarmupSendFn) => {
+    _warmupSendFn = fn;
+};
+
 export const sendWarmupMessage = async (connectionId: string, toPhone: string, message: string) => {
+    const normalizedPhone = toPhone.replace(/\D/g, '');
+
+    // Modo API (Evolution API): sem clientes Baileys locais — usa função registrada
+    if (_warmupSendFn) {
+        try {
+            await _warmupSendFn(connectionId, normalizedPhone, message);
+            recordWarmupSent(connectionId, normalizedPhone);
+            console.log(`[Warmup] ✅ Enviado via API de ${connectionId} para ${normalizedPhone}`);
+        } catch (err) {
+            recordWarmupFailed(connectionId);
+            throw err;
+        }
+        return;
+    }
+
+    // Modo Baileys (cliente local)
     const client = clients.get(connectionId);
     if (!client) {
         recordWarmupFailed(connectionId);
-        throw new Error(`Cliente não encontrado: ${connectionId}`);
+        throw new Error(`Cliente não encontrado: ${connectionId}. Registre registerWarmupSendFn para modo API.`);
     }
-    const normalizedPhone = toPhone.replace(/\D/g, '');
     const provisional = normalizedPhone.includes('@') ? normalizedPhone : `${normalizedPhone}@c.us`;
     const chatId = await resolveBestUserJidForSend(client, provisional);
     console.log(`[Warmup] Enviando de ${connectionId} para ${chatId}: "${message.substring(0, 30)}..."`);

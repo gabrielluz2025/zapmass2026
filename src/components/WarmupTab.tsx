@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Flame, Play, Pause, TrendingUp, MessageCircle, Clock, Zap, RefreshCw, AlertTriangle,
   BarChart3, CalendarDays, ArrowUpRight, ArrowDownRight, Trash2, X, CheckCircle2,
-  AlertCircle, Timer, Wifi, WifiOff, Target, Activity, Sparkles, Server, Monitor
+  AlertCircle, Timer, Wifi, WifiOff, Target, Activity, Sparkles, Server
 } from 'lucide-react';
 import { useZapMassCore } from '../context/ZapMassContext';
 import { useAuth } from '../context/AuthContext';
@@ -159,8 +159,7 @@ export const WarmupTab: React.FC = () => {
   const [lastRoundTime, setLastRoundTime] = useState<string>('');
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
   const [confirmClearId, setConfirmClearId] = useState<string | null>(null);
-  // Modo servidor é o padrão recomendado — roda no backend mesmo com browser fechado
-  const [serverMode, setServerMode] = useState(true);
+  // Sempre usa modo servidor — roda no backend independente do browser
   const [serverModeActive, setServerModeActive] = useState(false);
   const channelsRef = useRef<WarmupChannel[]>([]);
   const runWarmupRoundRef = useRef<() => Promise<void>>(async () => {});
@@ -236,20 +235,7 @@ export const WarmupTab: React.FC = () => {
   };
   runWarmupRoundRef.current = runWarmupRound;
 
-  useEffect(() => {
-    if (!socket?.connected || warmupActive) return;
-    try {
-      const raw = localStorage.getItem(WARMUP_STATE_KEY);
-      if (!raw) return;
-      const p = JSON.parse(raw);
-      const uid = user?.uid || '';
-      if (p.savedForUid && uid && p.savedForUid !== uid) return;
-      if (!p.warmupTimerActive) return;
-    } catch { return; }
-    const en = channelsRef.current.filter((c) => c.enabled);
-    if (en.length < 2) return;
-    startWarmupTimer(intervalMinutes, () => void runWarmupRoundRef.current());
-  }, [socket?.connected, warmupActive, intervalMinutes, channels, startWarmupTimer, user?.uid]);
+  // Não reinicia em modo navegador — servidor gerencia tudo
 
   useEffect(() => {
     if (!socket) return;
@@ -267,7 +253,6 @@ export const WarmupTab: React.FC = () => {
     const onState = (data: { active: boolean; connectionIds?: string[]; intervalMinutes?: number }) => {
       setServerModeActive(!!data.active);
       if (data.active) {
-        setServerMode(true);
         if (data.intervalMinutes) setIntervalMinutes(data.intervalMinutes);
         if (Array.isArray(data.connectionIds) && data.connectionIds.length > 0) {
           setChannels((prev) => prev.map((ch) => ({
@@ -281,26 +266,19 @@ export const WarmupTab: React.FC = () => {
     return () => { socket.off('auto-warmup-state', onState); };
   }, [socket]);
 
+  // Sempre usa servidor — emite start-auto-warmup
   const startGlobalWarmup = () => {
-    if (serverMode) {
-      const ids = channelsRef.current.filter((ch) => ch.enabled).map((ch) => ch.connectionId);
-      if (ids.length < 2) {
-        toast.error('Selecione pelo menos 2 chips para iniciar no modo servidor.');
-        return;
-      }
-      socket?.emit('start-auto-warmup', { connectionIds: ids, intervalMinutes });
-      toast.success('Modo servidor ativado — o aquecimento continua mesmo com o navegador fechado.', { duration: 4000 });
-    } else {
-      if (!getEnabledPairs().length) return;
-      startWarmupTimer(intervalMinutes, () => void runWarmupRoundRef.current());
+    const ids = channelsRef.current.filter((ch) => ch.enabled).map((ch) => ch.connectionId);
+    if (ids.length < 2) {
+      toast.error('Ative pelo menos 2 chips para iniciar o aquecimento.');
+      return;
     }
+    socket?.emit('start-auto-warmup', { connectionIds: ids, intervalMinutes });
   };
+
   const stopGlobalWarmup = () => {
-    if (serverModeActive) {
-      socket?.emit('stop-auto-warmup');
-      setServerModeActive(false);
-      toast('Modo servidor desativado.', { icon: '⏹️' });
-    }
+    socket?.emit('stop-auto-warmup');
+    setServerModeActive(false);
     stopWarmupTimer();
     setChannels((prev) => prev.map((ch) => ({ ...ch, status: 'idle' as const })));
   };
@@ -335,8 +313,8 @@ export const WarmupTab: React.FC = () => {
     <PageShell
       statusStrip={
         <>
-          <Badge variant={warmupActive || serverModeActive ? 'success' : 'neutral'} dot>
-            {serverModeActive ? 'Servidor ativo' : warmupActive ? (anyWarming ? 'Aquecendo agora' : 'Ativo') : 'Parado'}
+          <Badge variant={serverModeActive ? 'success' : 'neutral'} dot>
+            {serverModeActive ? 'Aquecendo no servidor' : 'Parado'}
           </Badge>
           {serverModeActive && (
             <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
@@ -345,21 +323,16 @@ export const WarmupTab: React.FC = () => {
           )}
           <span className="ui-caption tabular-nums">{enabledCount} chip(s) ativos</span>
           <span className="ui-caption tabular-nums">{pairsCount} par(es)</span>
-          {warmupActive && !serverModeActive && (
-            <span className="ui-caption tabular-nums font-bold" style={{ color: '#f97316' }}>
-              Próxima: {formatCountdown(warmupCountdownUi)}
-            </span>
-          )}
         </>
       }
       actions={
-        warmupActive || serverModeActive ? (
+        serverModeActive || warmupActive ? (
           <Button variant="danger" size="sm" leftIcon={<Pause className="w-4 h-4" />} onClick={stopGlobalWarmup}>
             Parar aquecimento
           </Button>
         ) : (
-          <Button variant="primary" size="sm" leftIcon={serverMode ? <Server className="w-4 h-4" /> : <Play className="w-4 h-4" />} disabled={enabledCount < 2} onClick={startGlobalWarmup}>
-            {serverMode ? 'Ativar no servidor' : 'Iniciar aquecimento'}
+          <Button variant="primary" size="sm" leftIcon={<Play className="w-4 h-4" />} disabled={enabledCount < 2} onClick={startGlobalWarmup}>
+            Iniciar aquecimento
           </Button>
         )
       }
@@ -433,15 +406,13 @@ export const WarmupTab: React.FC = () => {
               </div>
               <p className="text-[12.5px]" style={{ color: 'var(--text-3)' }}>
                 {serverModeActive
-                  ? `Continua mesmo com o navegador fechado · ${pairsCount} par(es) configurados · intervalo: ${intervalMinutes}min`
-                  : warmupActive
-                  ? `${pairsCount} par(es) trocando mensagens · próxima rodada em ${formatCountdown(warmupCountdownUi)}`
+                  ? `Rodando no servidor · ${pairsCount} par(es) · intervalo: ${intervalMinutes}min · continua sem navegador`
                   : enabledCount < 2
-                    ? 'Ative pelo menos 2 chips para iniciar o aquecimento'
+                    ? 'Ative pelo menos 2 chips e clique em Iniciar'
                     : `${enabledCount} chip(s) prontos · ${pairsCount} par(es) disponíveis`
                 }
               </p>
-              {lastRoundTime && !serverModeActive && (
+              {lastRoundTime && (
                 <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
                   <Clock className="w-3 h-3 inline -mt-0.5 mr-1" />Última rodada: {lastRoundTime}
                 </p>
@@ -501,45 +472,12 @@ export const WarmupTab: React.FC = () => {
             ))}
           </div>
 
-          {/* Separador */}
-          <div style={{ width: 1, height: 24, background: 'var(--border-subtle)', flexShrink: 0 }} />
-
-          {/* Modo de execução */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>Modo:</span>
-            <button
-              onClick={() => { if (!warmupActive && !serverModeActive) setServerMode(false); }}
-              disabled={warmupActive || serverModeActive}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-bold transition-all"
-              title="Roda no navegador — para quando fechar a aba"
-              style={
-                !serverMode
-                  ? { background: '#f97316', color: '#fff', boxShadow: '0 2px 8px rgba(249,115,22,0.3)' }
-                  : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }
-              }
-            >
-              <Monitor className="w-3 h-3" /> Navegador
-            </button>
-            <button
-              onClick={() => { if (!warmupActive && !serverModeActive) setServerMode(true); }}
-              disabled={warmupActive || serverModeActive}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-bold transition-all"
-              title="Roda no servidor — continua mesmo com navegador fechado ou após reinício"
-              style={
-                serverMode
-                  ? { background: '#6366f1', color: '#fff', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }
-                  : { background: 'var(--surface-1)', color: 'var(--text-3)', border: '1px solid var(--border-subtle)' }
-              }
-            >
-              <Server className="w-3 h-3" /> Servidor
-            </button>
+          {/* Badge servidor sempre ativo */}
+          <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold"
+            style={{ background: 'rgba(99,102,241,0.10)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}>
+            <Server className="w-3 h-3" />
+            <span>Roda no servidor — persiste sem navegador</span>
           </div>
-
-          {serverMode && !serverModeActive && (
-            <span className="text-[11px] font-medium" style={{ color: '#818cf8' }}>
-              ✓ Continua mesmo com navegador fechado
-            </span>
-          )}
 
           {enabledCount < 2 && (
             <span className="flex items-center gap-1.5 text-[11.5px] font-medium ml-auto" style={{ color: '#f59e0b' }}>
@@ -547,35 +485,6 @@ export const WarmupTab: React.FC = () => {
             </span>
           )}
         </div>
-
-        {/* ═══ AVISO MODO NAVEGADOR ════════════════════════════════════════════ */}
-        {warmupActive && !serverModeActive && (
-          <div
-            className="flex items-start gap-3 p-3 rounded-xl"
-            style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.3)' }}
-          >
-            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#f59e0b' }} />
-            <div className="flex-1 min-w-0">
-              <p className="text-[12.5px] font-semibold" style={{ color: '#f59e0b' }}>
-                Aquecimento em modo navegador — para quando você fechar esta aba
-              </p>
-              <p className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                Para não precisar reiniciar, pare o aquecimento, selecione <strong>Servidor</strong> e ative novamente. O servidor continuará mesmo com o browser fechado.
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                stopGlobalWarmup();
-                setServerMode(true);
-                toast('Aquecimento parado. Selecione "Servidor" e clique em "Ativar no servidor".', { icon: '💡', duration: 5000 });
-              }}
-              className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg flex-shrink-0"
-              style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
-            >
-              Mudar para servidor
-            </button>
-          </div>
-        )}
 
         {/* ═══ LEGENDA DE MATURIDADE ══════════════════════════════════════════ */}
         <div className="flex flex-wrap gap-2">

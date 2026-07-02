@@ -2326,6 +2326,12 @@ const bootstrap = async () => {
   registerSocketHandlers();
   startScheduledCampaignRunner();
   startCampaignJobsReaper();
+
+  // Registra a função de envio do auto-warmup do servidor via Evolution API
+  waService.registerWarmupSendFn(async (connectionId, toPhone, message) => {
+    await evolutionService.sendMessage(`${connectionId}:${toPhone}`, message);
+    waService.recordWarmupExchange(connectionId, toPhone, evolutionService.getConnections());
+  });
   setTimeout(() => { void warmupLeadsGeoCache(); }, 45_000);
   await startSessionControlPlane();
   if (isSessionBusRemote()) {
