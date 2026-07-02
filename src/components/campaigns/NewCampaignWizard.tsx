@@ -11,6 +11,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   Filter,
+  Layers,
   MapPin,
   Phone,
   Plus,
@@ -21,10 +22,12 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Wifi,
   X,
   Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { type ConnectionPool, listConnectionPools } from '../../services/connectionPoolsApi';
 import {
   CampaignReplyFlow,
   CampaignScheduleSlot,
@@ -205,6 +208,10 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
   const [showDuplicateWarningModal, setShowDuplicateWarningModal] = useState(false);
   const [excludedDuplicatePhones, setExcludedDuplicatePhones] = useState<Set<string>>(new Set());
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
+  /** Modo de seleção de chips: 'manual' = individual, 'pool' = usar um pool. */
+  const [chipSelectionMode, setChipSelectionMode] = useState<'manual' | 'pool'>('manual');
+  const [availablePools, setAvailablePools] = useState<ConnectionPool[]>([]);
+  const [selectedPoolId, setSelectedPoolId] = useState<string>('');
   /** Distribuição de carga entre chips (2+ conectados). */
   const [channelWeightMode, setChannelWeightMode] = useState<'equal' | 'custom'>('equal');
   const [channelWeightsById, setChannelWeightsById] = useState<Record<string, number>>({});
@@ -752,9 +759,23 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
     </div>
   );
 
+  // Carrega pools disponíveis para o seletor do passo 3
+  useEffect(() => {
+    listConnectionPools()
+      .then((pools) => setAvailablePools(pools))
+      .catch(() => {}); // silencioso — pools são opcionais
+  }, []);
+
+  // Quando o usuário escolhe um pool, expande os IDs dos chips do pool
+  const selectedPool = availablePools.find((p) => p.id === selectedPoolId);
+  const resolvedConnectionIds: string[] =
+    chipSelectionMode === 'pool' && selectedPool
+      ? selectedPool.connectionIds
+      : selectedConnectionIds;
+
   const getConnectedSelectedIds = () => {
     const connectedIdSet = new Set(onlineConnections.map((conn) => conn.id));
-    return selectedConnectionIds.filter((id) => connectedIdSet.has(id));
+    return resolvedConnectionIds.filter((id) => connectedIdSet.has(id));
   };
 
   const activeMessageBody = messageStages[activeStageIdx]?.body ?? '';
@@ -2190,11 +2211,102 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="ui-title text-[15px]">Chips do WhatsApp</h3>
-                    <p className="ui-subtitle text-[12.5px]">Escolha quais canais vao participar do disparo.</p>
+                    <p className="ui-subtitle text-[12.5px]">Escolha quais canais vão participar do disparo.</p>
                   </div>
                   <Badge variant="neutral">{connectedIds.length} selecionado{connectedIds.length !== 1 ? 's' : ''}</Badge>
                 </div>
 
+                {/* Alternância manual / pool */}
+                <div className="flex gap-2 mb-3">
+                  {[
+                    { id: 'manual', label: 'Chips individuais' },
+                    { id: 'pool', label: `Pool${availablePools.length > 0 ? ` (${availablePools.length})` : ''}` },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setChipSelectionMode(opt.id as 'manual' | 'pool')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition"
+                      style={{
+                        background: chipSelectionMode === opt.id ? 'rgba(16,185,129,0.15)' : 'var(--surface-1)',
+                        border: `1.5px solid ${chipSelectionMode === opt.id ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'}`,
+                        color: chipSelectionMode === opt.id ? 'var(--emerald, #10b981)' : 'var(--text-2)',
+                      }}
+                    >
+                      {opt.id === 'pool' ? <Layers className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Seletor de pool */}
+                {chipSelectionMode === 'pool' && (
+                  <div className="mb-3">
+                    {availablePools.length === 0 ? (
+                      <div
+                        className="rounded-lg px-4 py-3 text-center"
+                        style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
+                      >
+                        <Layers className="w-5 h-5 mx-auto mb-1.5" style={{ color: 'var(--text-3)' }} />
+                        <p className="text-[12px] font-semibold" style={{ color: 'var(--text-2)' }}>
+                          Nenhum pool criado ainda.
+                        </p>
+                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                          Crie um pool na aba <strong>Conexões → Pools de Chips</strong> e volte aqui.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {availablePools.map((pool) => {
+                          const onlineCount = pool.connectionIds.filter((id) =>
+                            onlineConnections.some((c) => c.id === id)
+                          ).length;
+                          const isSel = selectedPoolId === pool.id;
+                          return (
+                            <label
+                              key={pool.id}
+                              className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition"
+                              style={{
+                                background: isSel ? 'rgba(16,185,129,0.08)' : 'var(--surface-1)',
+                                border: `1.5px solid ${isSel ? 'rgba(16,185,129,0.4)' : 'var(--border-subtle)'}`,
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="selectedPool"
+                                checked={isSel}
+                                onChange={() => setSelectedPoolId(pool.id)}
+                                className="sr-only"
+                              />
+                              <div
+                                className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                                style={isSel ? { background: '#10b981' } : { border: '2px solid var(--border-strong)' }}
+                              >
+                                {isSel && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
+                              </div>
+                              <Layers className="w-4 h-4 flex-shrink-0" style={{ color: '#10b981' }} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-bold" style={{ color: 'var(--text)' }}>
+                                  {pool.name}
+                                </p>
+                                <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>
+                                  {pool.connectionIds.length} chip{pool.connectionIds.length !== 1 ? 's' : ''} ·{' '}
+                                  <span style={{ color: onlineCount > 0 ? '#10b981' : '#ef4444' }}>
+                                    {onlineCount} online
+                                  </span>
+                                  {' · '}{pool.strategy === 'round_robin' ? 'Rodízio' : pool.strategy === 'weighted' ? 'Pesos' : 'Prioridade'}
+                                  {' · '}⚡ Failover automático
+                                </p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {chipSelectionMode === 'manual' && (
                 <p
                   className="text-[11px] mb-3 rounded-lg px-3 py-2"
                   style={{
@@ -2204,15 +2316,15 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                   }}
                 >
                   Vários chips selecionados: o ZapMass distribui os envios em rodízio entre eles. Se algum ficar offline
-                  ou degradado durante a rodada, apenas os disponíveis entram nas próximas entregas; se todos falharem ao
-                  iniciar, ajuste os canais e tente de novo ou retome quando houver pelo menos um pronto.
+                  durante o disparo, o failover automático tenta os demais chips antes de registrar falha.
                 </p>
+                )}
 
-                {connections.length === 0 ? (
+                {chipSelectionMode === 'manual' && connections.length === 0 ? (
                   <p className="text-[12.5px] py-4 text-center" style={{ color: 'var(--text-3)' }}>
                     Nenhum chip cadastrado.
                   </p>
-                ) : onlineConnections.length === 0 ? (
+                ) : chipSelectionMode === 'manual' && onlineConnections.length === 0 ? (
                   <div
                     className="rounded-lg px-4 py-5 text-center"
                     style={{ background: 'var(--surface-1)', border: '1px solid var(--border-subtle)' }}
@@ -2225,7 +2337,7 @@ export const NewCampaignWizard: React.FC<NewCampaignWizardProps> = ({
                       Conecte pelo menos um canal antes de iniciar o disparo.
                     </p>
                   </div>
-                ) : (
+                ) : chipSelectionMode === 'manual' ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {connections.map((conn) => {
                       const isOnline = conn.status === ConnectionStatus.CONNECTED;

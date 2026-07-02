@@ -88,6 +88,7 @@ import { resolveAuthPrincipal, getWorkspaceMembersForPrincipal } from './resolve
 import { vpsAuthEnabled, vpsAuthRequired } from './auth/authMode.js';
 import { vpsDataEnabled } from './auth/dataMode.js';
 import { registerContactsDataRoutes } from './contactsRoutes.js';
+import { registerConnectionPoolsRoutes } from './connectionPoolsRoutes.js';
 import { registerLeadsGeoRoutes } from './leadsGeoRoutes.js';
 import { registerOperatingLocationRoutes } from './operatingLocationRoutes.js';
 import { warmupLeadsGeoCache } from './leadsGeoService.js';
@@ -356,6 +357,7 @@ registerWorkspaceRoutes(app);
 registerVpsAuthRoutes(app);
 registerVpsProfileRoutes(app);
 registerContactsDataRoutes(app);
+registerConnectionPoolsRoutes(app);
 registerLeadsGeoRoutes(app);
 registerOperatingLocationRoutes(app);
 registerPlatformDataRoutes(app);

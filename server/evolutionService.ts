@@ -1641,6 +1641,12 @@ interface MessageQueueItem {
     };
     /** Resposta automática do fluxo por etapas (menu, fallback, follow-up). */
     replyFlowResponse?: boolean;
+    /**
+     * Pool de chips alternativos para failover silencioso.
+     * Quando o chip principal falha/fica offline, o motor tenta os chips nesta lista
+     * em ordem circular antes de lançar erro definitivo.
+     */
+    alternateChannelIds?: string[];
     /** Idempotência: definido após envio bem-sucedido para evitar reenvio em retry do BullMQ. */
     _sentOk?: boolean;
     /** Evita contabilizar processed/success duas vezes se o job for reprocessado após falha tardia. */
@@ -3860,19 +3866,59 @@ async function processCampaignJob(job: Job<MessageQueueItem>, token?: string) {
     }
 
     if (!sendResult.ok) {
-        const errDetail = sendResult.errorDetail || 'Evolution API não confirmou entrega';
-        emitCampaignLog(
-            'ERROR',
-            `Falha ao enviar para ${normalizedDest}`,
-            {
-                campaignId: item.campaignId,
-                to: normalizedDest,
-                connectionId: item.connectionId,
-                error: errDetail,
-            },
-            campaignState?.ownerUid
-        );
-        throw new Error(`Falha no envio para ${normalizedDest} — ${errDetail}`);
+        // Failover silencioso: tenta chips alternativos do pool antes de lançar erro.
+        const alternates = Array.isArray(item.alternateChannelIds) ? item.alternateChannelIds : [];
+        if (alternates.length > 1) {
+            const originalId = item.connectionId;
+            const curIdx = Math.max(0, alternates.indexOf(originalId));
+            let switched = false;
+            for (let step = 1; step < alternates.length; step++) {
+                const altId = alternates[(curIdx + step) % alternates.length];
+                if (altId === originalId) continue;
+                const altConn = connections.get(altId);
+                if (altConn?.status === 'open') {
+                    emitCampaignLog(
+                        'WARN',
+                        `Chip ${originalId} falhou — alternando para ${altId} (failover automático)`,
+                        { campaignId: item.campaignId, de: originalId, para: altId },
+                        campaignState?.ownerUid
+                    );
+                    item.connectionId = altId;
+                    await job.updateData(item).catch(() => {});
+                    // Retenta o envio com o novo chip
+                    const altRetry = item.media
+                        ? await sendMediaInternal(altId, item.to, item.media, item.media.caption || item.message)
+                        : await sendMessageInternal(altId, item.to, item.message);
+                    if (altRetry.ok) {
+                        sendResult = altRetry;
+                        switched = true;
+                        break;
+                    }
+                }
+            }
+            if (!switched) {
+                const errDetail = sendResult.errorDetail || 'Todos os chips do pool falharam';
+                emitCampaignLog('ERROR', `Falha ao enviar para ${normalizedDest} (todos os chips tentados)`,
+                    { campaignId: item.campaignId, to: normalizedDest, error: errDetail },
+                    campaignState?.ownerUid
+                );
+                throw new Error(`Falha no envio para ${normalizedDest} — ${errDetail}`);
+            }
+        } else {
+            const errDetail = sendResult.errorDetail || 'Evolution API não confirmou entrega';
+            emitCampaignLog(
+                'ERROR',
+                `Falha ao enviar para ${normalizedDest}`,
+                {
+                    campaignId: item.campaignId,
+                    to: normalizedDest,
+                    connectionId: item.connectionId,
+                    error: errDetail,
+                },
+                campaignState?.ownerUid
+            );
+            throw new Error(`Falha no envio para ${normalizedDest} — ${errDetail}`);
+        }
     }
 
     // Marca envio OK antes de qualquer lógica pós-envio: se o processo cair aqui,
@@ -4624,6 +4670,7 @@ export async function startCampaign(
                     sendAsMedia: hasMedia,
                         multiStepContact: { contactId: cleanPhone, stepIndex: 0 },
                         skipFrequencyCap: skipFrequencyCap === true,
+                        alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                     },
                     staggerDelay
                 );
@@ -4638,6 +4685,7 @@ export async function startCampaign(
                         ownerUid,
                         sendAsMedia: hasMedia,
                         skipFrequencyCap: skipFrequencyCap === true,
+                        alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                     replyFlowOpen: {
                         campaignId: cid,
                         phoneDigits: cleanPhone,
@@ -4663,6 +4711,7 @@ export async function startCampaign(
                             stageIndex,
                         sendAsMedia: hasMedia && stageIndex === 0,
                             skipFrequencyCap: skipFrequencyCap === true,
+                            alternateChannelIds: activeConnectionIds.length > 1 ? activeConnectionIds : undefined,
                     },
                     stageDelay
                 );

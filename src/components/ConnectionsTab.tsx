@@ -38,6 +38,7 @@ import { ConnectionListRow } from './ConnectionListRow';
 import { AddConnectionModal } from './AddConnectionModal';
 import { SessionLoadIndicator } from './SessionLoadIndicator';
 import { PageShell, StatTile, CollapsibleSection, Badge, Button, EmptyState, Modal, Input, Tabs } from './ui';
+import { ConnectionPoolsPanel } from './connections/ConnectionPoolsPanel';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useMainLayoutNav } from '../context/MainLayoutNavContext';
@@ -962,6 +963,12 @@ export const ConnectionsTab: React.FC = () => {
         </div>
       </Modal>
     </div>
+
+    {/* POOLS DE CONEXÃO */}
+    <div className="ui-card" style={{ padding: 16 }}>
+      <ConnectionPoolsPanel connections={connections} />
+    </div>
+
     </PageShell>
   );
 };
