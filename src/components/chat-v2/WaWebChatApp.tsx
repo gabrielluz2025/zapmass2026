@@ -503,7 +503,7 @@ export const WaWebChatApp: React.FC<{
   }, [selected?.id, isSelectedDraft, hydrateFirestoreChatArchive]);
 
   const handleLoadMedia = useCallback(
-    async (messageId: string): Promise<string | null> => {
+    async (messageId: string, silent = false): Promise<string | null> => {
       if (!selected?.id) return null;
       // Timeout de 30s — Evolution API pode demorar
       const timeoutPromise = new Promise<{ ok: boolean; error?: string }>((resolve) =>
@@ -514,7 +514,12 @@ export const WaWebChatApp: React.FC<{
         timeoutPromise,
       ]) as { ok: boolean; mediaUrl?: string; error?: string };
       if (!res.ok) {
-        if (res.error) toast.error(`Mídia: ${res.error}`);
+        // silent=true quando é auto-load — não exibir toast para não poluir a UI.
+        // Toast só aparece quando o usuário clica manualmente para recarregar.
+        if (!silent && res.error) {
+          const errMsg = res.error.toLowerCase().startsWith('mídia') ? res.error : `Mídia: ${res.error}`;
+          toast.error(errMsg, { id: `media-fail-${messageId}`, duration: 4000 });
+        }
         return null;
       }
       if (res.mediaUrl) {

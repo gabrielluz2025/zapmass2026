@@ -11,7 +11,8 @@ import type { ChatMessage } from '../../types';
 
 type Props = {
   msg: ChatMessage;
-  onLoadMedia?: (messageId: string) => Promise<string | null>;
+  /** silent=true no auto-load (não exibe toast ao falhar); false/undefined no clique manual */
+  onLoadMedia?: (messageId: string, silent?: boolean) => Promise<string | null>;
 };
 
 /** Botão placeholder enquanto a mídia não está carregada */
@@ -67,12 +68,21 @@ export const WaMessageContent: React.FC<Props> = ({ msg, onLoadMedia }) => {
     }
   };
 
-  // Autocarregamento automático de mídia (Auto-Load) idêntico ao WhatsApp Web!
+  // Autocarregamento automático — silencioso para não gerar toasts em massa
   React.useEffect(() => {
     if (!mediaUrl && onLoadMedia && !loading && !loadFailed) {
-      void handleLoad();
+      if (!onLoadMedia || loading) return;
+      setLoading(true);
+      setLoadFailed(false);
+      onLoadMedia(msg.id, true) // silent=true: falha não gera toast
+        .then((url) => {
+          if (url) setLocalUrl(url);
+          else setLoadFailed(true);
+        })
+        .catch(() => setLoadFailed(true))
+        .finally(() => setLoading(false));
     }
-  }, [mediaUrl, msg.id]);
+  }, [mediaUrl, msg.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const failLabel = (base: string) =>
     loadFailed ? `${base} (falhou — toque para tentar novamente)` : base;
